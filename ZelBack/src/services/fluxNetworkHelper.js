@@ -690,6 +690,9 @@ async function closeIncomingConnection(ip, port) {
  * @param {object} req Request.
  * @param {object} res Response.
  */
+/**
+ * @deprecated Use getPeers with direction=inbound instead.
+ */
 function getIncomingConnections(req, res) {
   const connections = [];
   for (const peer of peerManager.inboundValues()) connections.push(peer.ip);
@@ -698,9 +701,7 @@ function getIncomingConnections(req, res) {
 }
 
 /**
- * To get info for incoming connections.
- * @param {object} req Request.
- * @param {object} res Response.
+ * @deprecated Use getPeers with direction=inbound instead.
  */
 function getIncomingConnectionsInfo(req, res) {
   const connections = peerManager.incomingPeers;

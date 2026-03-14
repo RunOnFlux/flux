@@ -321,6 +321,14 @@ module.exports = (app) => {
   app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getDOSState(req, res);
   });
+  // New peer endpoints
+  app.get('/flux/peers/:filter?', cache('30 seconds'), (req, res) => {
+    fluxCommunication.getPeers(req, res);
+  });
+  app.get('/flux/unstablenodes', cache('30 seconds'), (req, res) => {
+    fluxCommunication.getUnstableNodes(req, res);
+  });
+  // Deprecated peer endpoints — kept for backward compatibility
   app.get('/flux/connectedpeers', cache('30 seconds'), (req, res) => {
     fluxCommunication.connectedPeers(req, res);
   });
