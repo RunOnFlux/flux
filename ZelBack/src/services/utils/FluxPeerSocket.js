@@ -2,11 +2,8 @@ const WebSocket = require('ws');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 
-// Transmission timestamp feature flag — enable once sufficient network adoption exists.
-// When enabled, outgoing messages are prefixed with T{timestamp}| and incoming messages
-// have the prefix stripped before parsing. Legacy nodes reject the prefixed format,
-// so this must remain false until a coordinated rollout.
-const TRANSMISSION_TIMESTAMPS_ENABLED = false;
+// Features this node supports. Sent to peers during capability handshake.
+const LOCAL_CAPABILITIES = Object.freeze(['transmissionTimestamps']);
 
 const CLOSE_CODES = {
   inbound: {
@@ -42,6 +39,7 @@ class FluxPeerSocket {
     this.nakWindowStart = Date.now();
     this.lastTransmissionDelay = null;
     this.badMessageTimestamps = [];
+    this.remoteCapabilities = new Set();
     this.msgMap = new Map([['requestHash', 0], ['newHash', 0]]);
 
     // backward compat: set ip, port, msgMap on the raw socket
@@ -50,6 +48,7 @@ class FluxPeerSocket {
     ws.msgMap = this.msgMap;
 
     this._bindHandlers();
+    this.sendCapabilities();
   }
 
   get closeCodes() {
@@ -81,7 +80,7 @@ class FluxPeerSocket {
   send(data) {
     try {
       if (this.ws.readyState !== WebSocket.OPEN) return false;
-      if (TRANSMISSION_TIMESTAMPS_ENABLED && typeof data === 'string') {
+      if (this.remoteCapabilities.has('transmissionTimestamps') && typeof data === 'string') {
         this.ws.send(`T${Date.now()}|${data}`);
       } else {
         this.ws.send(data);
@@ -127,6 +126,21 @@ class FluxPeerSocket {
   sendNak(messageHash, reason) {
     const nak = JSON.stringify({ type: 'nak', hash: messageHash, reason });
     this.send(nak);
+  }
+
+  /**
+   * Send our capabilities to the remote peer. Called once after connection.
+   * Old nodes will ignore this as an unrecognised message type.
+   */
+  sendCapabilities() {
+    const msg = JSON.stringify({ type: 'capabilities', features: LOCAL_CAPABILITIES });
+    try {
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(msg);
+      }
+    } catch (e) {
+      log.error(e);
+    }
   }
 
   /**
@@ -219,6 +233,15 @@ class FluxPeerSocket {
       // Handle NAK messages
       if (msgObj.type === 'nak') {
         this.onNakReceived();
+        return;
+      }
+
+      // Handle capability handshake
+      if (msgObj.type === 'capabilities') {
+        if (Array.isArray(msgObj.features)) {
+          this.remoteCapabilities = new Set(msgObj.features);
+          log.info(`Peer ${this.key} capabilities: ${msgObj.features.join(', ')}`);
+        }
         return;
       }
 
