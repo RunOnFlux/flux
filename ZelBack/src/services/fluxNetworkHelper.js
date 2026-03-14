@@ -20,6 +20,7 @@ const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const { peerManager } = require('./utils/peerState');
+const { CLOSE_CODES } = require('./utils/FluxPeerSocket');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 
@@ -660,8 +661,8 @@ async function closeConnection(ip, port) {
   if (!peer || peer.direction !== 'outbound') {
     return messageHelper.createWarningMessage(`Connection to ${ip}:${port} does not exists.`);
   }
-  peer.close(4009, 'purposefully closed');
-  log.info(`Connection to ${ip}:${port} closed with code 4009`);
+  peer.close(CLOSE_CODES.CLOSED_OUTBOUND, 'purposefully closed');
+  log.info(`Connection to ${ip}:${port} closed with code ${CLOSE_CODES.CLOSED_OUTBOUND}`);
   return messageHelper.createSuccessMessage(`Outgoing connection to ${ip}:${port} closed`);
 }
 
@@ -680,8 +681,8 @@ async function closeIncomingConnection(ip, port) {
   if (!peer || peer.direction !== 'inbound') {
     return messageHelper.createWarningMessage(`Connection from ${ip}:${port} does not exists.`);
   }
-  peer.close(4010, 'purposefully closed');
-  log.info(`Connection from ${ip}:${port} closed with code 4010`);
+  peer.close(CLOSE_CODES.CLOSED_INBOUND, 'purposefully closed');
+  log.info(`Connection from ${ip}:${port} closed with code ${CLOSE_CODES.CLOSED_INBOUND}`);
   return messageHelper.createSuccessMessage(`Incoming connection to ${ip}:${port} closed`);
 }
 

@@ -491,7 +491,6 @@ function connectedPeersInfo(req, res) {
  */
 function keepConnectionsAlive() {
   setInterval(() => {
-    peerManager.pruneDeadConnections();
     peerManager.pingAll();
   }, 15 * 1000);
 }
@@ -595,10 +594,13 @@ async function removeIncomingPeer(req, res) {
 let myPort = null;
 
 function onOutboundError(error) {
-  log.error(`Outbound connection to ${this.ip}:${this.port} failed: ${error.message}`);
+  const key = `${this.ip}:${this.port}`;
+  peerManager.clearPending(key);
+  log.error(`Outbound connection to ${key} failed: ${error.message}`);
 }
 
 function onOutboundOpen() {
+  peerManager.clearPending(`${this.ip}:${this.port}`);
   peerManager.add(this, 'outbound', this.ip, this.port);
 }
 
@@ -621,6 +623,9 @@ async function initiateAndHandleConnection(connection) {
       ip = connection.split(':')[0];
       port = connection.split(':')[1];
     }
+    const key = `${ip}:${port}`;
+    if (peerManager.has(key) || peerManager.isPending(key)) return;
+    peerManager.markPending(key);
     if (!myPort) {
       const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
       if (!myIP) {

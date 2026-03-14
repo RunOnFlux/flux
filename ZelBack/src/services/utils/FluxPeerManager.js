@@ -1,7 +1,7 @@
 const config = require('config');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
-const { FluxPeerSocket } = require('./FluxPeerSocket');
+const { FluxPeerSocket, CLOSE_CODES } = require('./FluxPeerSocket');
 
 const UNSTABLE_DISCONNECT_THRESHOLD = 5;
 const UNSTABLE_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -24,6 +24,8 @@ class FluxPeerManager {
     this._uniqueIps = new Map();
     /** @type {Map<string, {attempts: number, lastAttempt: number}>} */
     this._failedConnections = new Map();
+    /** @type {Set<string>} keys of outbound peers with connection in progress */
+    this._pendingConnections = new Set();
 
     /**
      * Message dispatch callback — set by fluxCommunication.js to break circular dependency.
@@ -49,6 +51,17 @@ class FluxPeerManager {
    * @returns {FluxPeerSocket}
    */
   add(ws, direction, ip, port) {
+    const key = `${ip}:${String(port)}`;
+    const existing = this._peers.get(key);
+    if (existing) {
+      log.warn(`Replacing existing ${existing.direction} peer ${key}`);
+      // Detach old handlers so its onclose doesn't remove the new peer
+      existing.ws.onclose = null;
+      existing.ws.onerror = null;
+      existing.ws.onmessage = null;
+      try { existing.ws.close(CLOSE_CODES.DUPLICATE_PEER, 'replaced'); } catch (_e) { /* noop */ }
+      this._removeTracking(existing);
+    }
     const peer = new FluxPeerSocket(ws, direction, ip, String(port), this);
     this._peers.set(peer.key, peer);
     if (direction === 'inbound') {
@@ -63,8 +76,9 @@ class FluxPeerManager {
     this._ipGroupCounts.set(groupKey, (this._ipGroupCounts.get(groupKey) || 0) + 1);
     const ipKey = `${direction}:${ip}`;
     this._uniqueIps.set(ipKey, (this._uniqueIps.get(ipKey) || 0) + 1);
-    // Successful connection — clear from failed connections
+    // Successful connection — clear from failed connections and pending
     this._failedConnections.delete(peer.key);
+    this._pendingConnections.delete(peer.key);
     return peer;
   }
 
@@ -78,9 +92,32 @@ class FluxPeerManager {
     const peer = this._peers.get(key);
     if (!peer) return null;
 
-    this._peers.delete(key);
-    this._inboundKeys.delete(key); // no-op if not present
-    this._outboundKeys.delete(key); // no-op if not present
+    this._removeTracking(peer);
+
+    // Track disconnect for unstable node detection
+    this.trackDisconnect(peer.ip, peer.port);
+
+    // Queue outbound peers for reconnection only on unexpected disconnections.
+    // Whitelist: only reconnect for dead connections, capacity rejections,
+    // and standard WebSocket closes (network failures, crashes).
+    if (peer.direction === 'outbound' && this._shouldReconnect(closeCode)) {
+      this.queueReconnect(peer.ip, peer.port);
+    }
+
+    log.info(`Connection ${key} removed from peerManager (${peer.direction}, code: ${closeCode})`);
+    return peer;
+  }
+
+  /**
+   * Remove tracking data for a peer without triggering reconnect logic.
+   * Used by both remove() and add() (when replacing an existing peer).
+   * @param {FluxPeerSocket} peer
+   * @private
+   */
+  _removeTracking(peer) {
+    this._peers.delete(peer.key);
+    this._inboundKeys.delete(peer.key);
+    this._outboundKeys.delete(peer.key);
 
     // Decrement IP group and unique IP tracking
     const groupKey = `${peer.direction}:${FluxPeerManager.getIpGroup(peer.ip)}`;
@@ -91,19 +128,6 @@ class FluxPeerManager {
     const ipCount = (this._uniqueIps.get(ipKey) || 1) - 1;
     if (ipCount <= 0) this._uniqueIps.delete(ipKey);
     else this._uniqueIps.set(ipKey, ipCount);
-
-    // Track disconnect for unstable node detection
-    this.trackDisconnect(peer.ip, peer.port);
-
-    // Queue outbound peers for reconnection only on unexpected disconnections.
-    // Deliberate closes (send failure, policy violation, blocked, purposeful)
-    // should not be retried.
-    if (peer.direction === 'outbound' && !this._isDeliberateClose(closeCode)) {
-      this.queueReconnect(peer.ip, peer.port);
-    }
-
-    log.info(`Connection ${key} removed from peerManager (${peer.direction})`);
-    return peer;
   }
 
   /**
@@ -165,23 +189,6 @@ class FluxPeerManager {
     for (const peer of this._peers.values()) {
       peer.ping();
     }
-  }
-
-  /**
-   * Terminate peers that have missed 3+ pongs.
-   * @returns {number} count of pruned connections
-   */
-  pruneDeadConnections() {
-    let count = 0;
-    for (const [key, peer] of this._peers) {
-      if (!peer.isAlive) {
-        log.info(`Pruning dead connection ${key} (missed ${peer.missedPongs} pongs)`);
-        peer.close(4011, 'dead connection');
-        this.remove(key);
-        count += 1;
-      }
-    }
-    return count;
   }
 
   // --- Reconnection queue ---
@@ -267,19 +274,24 @@ class FluxPeerManager {
   // --- Close code classification ---
 
   /**
-   * Returns true if the close code indicates a deliberate/policy close
-   * that should not trigger a reconnection attempt.
-   * @param {number} [code]
+   * Should we queue this peer for reconnection?
+   * Whitelist approach: only reconnect for codes that mean "peer went away unexpectedly".
+   * Everything else (policy, auth, admin close, duplicate) means "don't retry".
+   * @param {number} [closeCode]
    * @returns {boolean}
    */
   // eslint-disable-next-line class-methods-use-this
-  _isDeliberateClose(code) {
-    if (!code) return false;
-    // 4003-4008: blocked/badOrigin/blockedOrigin (both directions)
-    // 4009-4010: purposefully closed
-    // 4011: dead connection (pruned)
-    // 4016-4017: invalidMsg (both directions)
-    return (code >= 4003 && code <= 4011) || code === 4016 || code === 4017;
+  _shouldReconnect(closeCode) {
+    // No close code = unexpected disconnect (network failure, crash)
+    if (!closeCode) return true;
+    // Standard WebSocket codes (1000-1015): normal close, going away, abnormal — worth retrying
+    if (closeCode <= 1015) return true;
+    // Dead connection: peer stopped responding, worth retrying
+    if (closeCode === CLOSE_CODES.DEAD_CONNECTION) return true;
+    // Max connections: remote is full, try again next cycle
+    if (closeCode === CLOSE_CODES.MAX_CONNECTIONS) return true;
+    // Everything else: policy violation, auth failure, admin close, duplicate — don't retry
+    return false;
   }
 
   // --- Network state ---
@@ -323,6 +335,27 @@ class FluxPeerManager {
     return results;
   }
 
+  // --- Pending connections ---
+
+  /**
+   * Mark an outbound connection as in progress (prevents race conditions).
+   * @param {string} key - ip:port
+   */
+  markPending(key) { this._pendingConnections.add(key); }
+
+  /**
+   * Clear a pending connection marker.
+   * @param {string} key - ip:port
+   */
+  clearPending(key) { this._pendingConnections.delete(key); }
+
+  /**
+   * Check if an outbound connection is currently being established.
+   * @param {string} key - ip:port
+   * @returns {boolean}
+   */
+  isPending(key) { return this._pendingConnections.has(key); }
+
   // --- Broadcast ---
 
   /**
@@ -348,7 +381,7 @@ class FluxPeerManager {
         }
       } catch (e) {
         try {
-          const code = peer.direction === 'outbound' ? 4009 : 4010;
+          const code = peer.direction === 'outbound' ? CLOSE_CODES.CLOSED_OUTBOUND : CLOSE_CODES.CLOSED_INBOUND;
           peer.close(code, 'send failure');
         } catch (err) {
           log.error(err);
@@ -482,7 +515,7 @@ class FluxPeerManager {
       const maxCon = Math.max(maxPeers, maxNumberOfConnections);
       if (this.inboundCount > maxCon) {
         setTimeout(() => {
-          ws.close(4000, `Max number of incomming connections ${maxCon} reached`);
+          ws.close(CLOSE_CODES.MAX_CONNECTIONS, `Max number of incomming connections ${maxCon} reached`);
         }, 1000);
         return;
       }
@@ -500,7 +533,7 @@ class FluxPeerManager {
 
       if (FluxPeerManager.isPrivateIp(ipv4Peer)) {
         setTimeout(() => {
-          ws.close(4002, 'Peer received is using internal IP');
+          ws.close(CLOSE_CODES.PRIVATE_IP, 'Peer received is using internal IP');
         }, 1000);
         log.error(`Incoming connection of peer from internal IP not allowed: ${ipv4Peer}`);
         return;
@@ -508,8 +541,15 @@ class FluxPeerManager {
 
       const key = `${ipv4Peer}:${port}`;
       if (this.has(key)) {
+        const existing = this.get(key);
+        if (existing && !existing.isAlive) {
+          // Replace stale connection — add() handles cleanup of existing peer
+          log.info(`Replacing stale inbound connection ${key}`);
+          this.add(ws, 'inbound', ipv4Peer, port);
+          return;
+        }
         setTimeout(() => {
-          ws.close(4001, 'Peer received is already in peers list');
+          ws.close(CLOSE_CODES.DUPLICATE_PEER, 'Peer already connected');
         }, 1000);
         return;
       }
@@ -611,6 +651,7 @@ class FluxPeerManager {
     this._ipGroupCounts.clear();
     this._uniqueIps.clear();
     this._failedConnections.clear();
+    this._pendingConnections.clear();
   }
 }
 
@@ -620,4 +661,4 @@ FluxPeerManager.CONNECTION_BACKOFF_MS = [2 * 60000, 5 * 60000, 10 * 60000, 15 * 
 // Singleton export
 const peerManager = new FluxPeerManager();
 
-module.exports = { FluxPeerManager, peerManager };
+module.exports = { FluxPeerManager, peerManager, CLOSE_CODES };

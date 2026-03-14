@@ -87,17 +87,19 @@ describe('FluxPeerSocket tests', () => {
     it('should return inbound close codes for inbound direction', () => {
       const ws = createMockWs();
       const peer = new FluxPeerSocket(ws, 'inbound', '10.0.0.1', '16127', manager);
-      expect(peer.closeCodes).to.deep.equal(CLOSE_CODES.inbound);
-      expect(peer.closeCodes.invalidMsg).to.equal(4016);
-      expect(peer.closeCodes.blocked).to.equal(4003);
+      expect(peer.closeCodes.invalidMsg).to.equal(CLOSE_CODES.INVALID_MSG_INBOUND);
+      expect(peer.closeCodes.blocked).to.equal(CLOSE_CODES.BLOCKED_INBOUND);
+      expect(peer.closeCodes.badOrigin).to.equal(CLOSE_CODES.BAD_ORIGIN_INBOUND);
+      expect(peer.closeCodes.blockedOrigin).to.equal(CLOSE_CODES.BLOCKED_ORIGIN_INBOUND);
     });
 
     it('should return outbound close codes for outbound direction', () => {
       const ws = createMockWs();
       const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
-      expect(peer.closeCodes).to.deep.equal(CLOSE_CODES.outbound);
-      expect(peer.closeCodes.invalidMsg).to.equal(4017);
-      expect(peer.closeCodes.blocked).to.equal(4006);
+      expect(peer.closeCodes.invalidMsg).to.equal(CLOSE_CODES.INVALID_MSG_OUTBOUND);
+      expect(peer.closeCodes.blocked).to.equal(CLOSE_CODES.BLOCKED_OUTBOUND);
+      expect(peer.closeCodes.badOrigin).to.equal(CLOSE_CODES.BAD_ORIGIN_OUTBOUND);
+      expect(peer.closeCodes.blockedOrigin).to.equal(CLOSE_CODES.BLOCKED_ORIGIN_OUTBOUND);
     });
   });
 
@@ -581,38 +583,30 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
-  describe('pruneDeadConnections', () => {
-    it('should remove peers where isAlive is false', () => {
-      const ws1 = createMockWs('10.0.0.1', '16127');
-      const ws2 = createMockWs('10.0.0.2', '16127');
+  describe('onPingSent auto-close', () => {
+    it('should close the connection when missedPongs reaches 3', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      const peer = manager.add(ws, 'outbound', '10.0.0.1', '16127');
 
-      const peer1 = manager.add(ws1, 'outbound', '10.0.0.1', '16127');
-      const peer2 = manager.add(ws2, 'inbound', '10.0.0.2', '16127');
+      peer.onPingSent(); // missedPongs = 1
+      peer.onPingSent(); // missedPongs = 2
+      sinon.assert.notCalled(ws.close);
 
-      // Make peer1 dead
-      peer1.missedPongs = 3;
-
-      const count = manager.pruneDeadConnections();
-
-      expect(count).to.equal(1);
-      expect(manager.has('10.0.0.1:16127')).to.equal(false);
-      expect(manager.has('10.0.0.2:16127')).to.equal(true);
-      sinon.assert.calledOnce(ws1.close);
+      peer.onPingSent(); // missedPongs = 3 — should close
+      sinon.assert.calledOnce(ws.close);
+      sinon.assert.calledWith(ws.close, CLOSE_CODES.DEAD_CONNECTION, 'dead connection');
     });
 
-    it('should leave alive peers untouched', () => {
-      const ws1 = createMockWs('10.0.0.1', '16127');
-      const ws2 = createMockWs('10.0.0.2', '16127');
+    it('should not close if pongs are received', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      const peer = manager.add(ws, 'outbound', '10.0.0.1', '16127');
 
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
-      manager.add(ws2, 'inbound', '10.0.0.2', '16127');
-
-      const count = manager.pruneDeadConnections();
-
-      expect(count).to.equal(0);
-      expect(manager.getNumberOfPeers()).to.equal(2);
-      sinon.assert.notCalled(ws1.close);
-      sinon.assert.notCalled(ws2.close);
+      peer.onPingSent(); // missedPongs = 1
+      peer.onPingSent(); // missedPongs = 2
+      peer.onPongReceived(); // missedPongs = 0
+      peer.onPingSent(); // missedPongs = 1
+      peer.onPingSent(); // missedPongs = 2
+      sinon.assert.notCalled(ws.close);
     });
   });
 
@@ -1119,7 +1113,7 @@ describe('FluxPeerManager tests', () => {
 
       setTimeout(() => {
         sinon.assert.calledOnce(ws2.close);
-        sinon.assert.calledWith(ws2.close, 4001, sinon.match(/already in peers/));
+        sinon.assert.calledWith(ws2.close, CLOSE_CODES.DUPLICATE_PEER, sinon.match(/already connected/));
         expect(manager.inboundCount).to.equal(1);
         done();
       }, 1100);
@@ -1231,6 +1225,149 @@ describe('FluxPeerManager tests', () => {
 
       manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
       expect(manager._failedConnections.has('10.0.0.1:16127')).to.equal(false);
+    });
+  });
+
+  describe('_shouldReconnect', () => {
+    it('should return true for no close code (unexpected disconnect)', () => {
+      expect(manager._shouldReconnect(undefined)).to.equal(true);
+      expect(manager._shouldReconnect(null)).to.equal(true);
+      expect(manager._shouldReconnect(0)).to.equal(true);
+    });
+
+    it('should return true for standard WebSocket close codes', () => {
+      expect(manager._shouldReconnect(1000)).to.equal(true); // normal
+      expect(manager._shouldReconnect(1001)).to.equal(true); // going away
+      expect(manager._shouldReconnect(1006)).to.equal(true); // abnormal
+    });
+
+    it('should return true for DEAD_CONNECTION', () => {
+      expect(manager._shouldReconnect(CLOSE_CODES.DEAD_CONNECTION)).to.equal(true);
+    });
+
+    it('should return true for MAX_CONNECTIONS', () => {
+      expect(manager._shouldReconnect(CLOSE_CODES.MAX_CONNECTIONS)).to.equal(true);
+    });
+
+    it('should return false for DUPLICATE_PEER', () => {
+      expect(manager._shouldReconnect(CLOSE_CODES.DUPLICATE_PEER)).to.equal(false);
+    });
+
+    it('should return false for policy violations', () => {
+      expect(manager._shouldReconnect(CLOSE_CODES.BLOCKED_INBOUND)).to.equal(false);
+      expect(manager._shouldReconnect(CLOSE_CODES.BLOCKED_OUTBOUND)).to.equal(false);
+      expect(manager._shouldReconnect(CLOSE_CODES.BAD_ORIGIN_INBOUND)).to.equal(false);
+    });
+
+    it('should return false for purposeful closes', () => {
+      expect(manager._shouldReconnect(CLOSE_CODES.CLOSED_OUTBOUND)).to.equal(false);
+      expect(manager._shouldReconnect(CLOSE_CODES.CLOSED_INBOUND)).to.equal(false);
+    });
+
+    it('should return false for auth failures', () => {
+      expect(manager._shouldReconnect(CLOSE_CODES.AUTH_FAILURE_1)).to.equal(false);
+      expect(manager._shouldReconnect(CLOSE_CODES.AUTH_FAILURE_4)).to.equal(false);
+    });
+
+    it('should return false for invalid messages', () => {
+      expect(manager._shouldReconnect(CLOSE_CODES.INVALID_MSG_INBOUND)).to.equal(false);
+      expect(manager._shouldReconnect(CLOSE_CODES.INVALID_MSG_OUTBOUND)).to.equal(false);
+    });
+  });
+
+  describe('remove reconnect integration', () => {
+    it('should queue reconnect for outbound dead connection', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      manager.add(ws, 'outbound', '10.0.0.1', '16127');
+
+      manager.remove('10.0.0.1:16127', CLOSE_CODES.DEAD_CONNECTION);
+
+      expect(manager.getReconnectQueue().has('10.0.0.1:16127')).to.equal(true);
+    });
+
+    it('should NOT queue reconnect for outbound duplicate rejection', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      manager.add(ws, 'outbound', '10.0.0.1', '16127');
+
+      manager.remove('10.0.0.1:16127', CLOSE_CODES.DUPLICATE_PEER);
+
+      expect(manager.getReconnectQueue().has('10.0.0.1:16127')).to.equal(false);
+    });
+
+    it('should NOT queue reconnect for inbound peers regardless of code', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      manager.add(ws, 'inbound', '10.0.0.1', '16127');
+
+      manager.remove('10.0.0.1:16127', CLOSE_CODES.DEAD_CONNECTION);
+
+      expect(manager.getReconnectQueue().has('10.0.0.1:16127')).to.equal(false);
+    });
+  });
+
+  describe('pending connections', () => {
+    it('should track pending state', () => {
+      expect(manager.isPending('10.0.0.1:16127')).to.equal(false);
+      manager.markPending('10.0.0.1:16127');
+      expect(manager.isPending('10.0.0.1:16127')).to.equal(true);
+      manager.clearPending('10.0.0.1:16127');
+      expect(manager.isPending('10.0.0.1:16127')).to.equal(false);
+    });
+
+    it('should clear pending on successful add', () => {
+      manager.markPending('10.0.0.1:16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      expect(manager.isPending('10.0.0.1:16127')).to.equal(false);
+    });
+
+    it('should be cleared by _clear', () => {
+      manager.markPending('10.0.0.1:16127');
+      manager._clear();
+      expect(manager.isPending('10.0.0.1:16127')).to.equal(false);
+    });
+  });
+
+  describe('add with existing peer', () => {
+    it('should replace existing peer and close old socket', () => {
+      const ws1 = createMockWs('10.0.0.1', '16127');
+      const ws2 = createMockWs('10.0.0.1', '16127');
+      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
+
+      const newPeer = manager.add(ws2, 'outbound', '10.0.0.1', '16127');
+
+      expect(newPeer.ws).to.equal(ws2);
+      expect(manager.getNumberOfPeers()).to.equal(1);
+      sinon.assert.calledOnce(ws1.close);
+    });
+
+    it('should detach old handlers to prevent interference', () => {
+      const ws1 = createMockWs('10.0.0.1', '16127');
+      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
+
+      const ws2 = createMockWs('10.0.0.1', '16127');
+      manager.add(ws2, 'outbound', '10.0.0.1', '16127');
+
+      // Old socket's handlers should be nulled
+      expect(ws1.onclose).to.equal(null);
+      expect(ws1.onerror).to.equal(null);
+      expect(ws1.onmessage).to.equal(null);
+    });
+  });
+
+  describe('validateAndAddInbound stale replacement', () => {
+    it('should replace stale connection instead of rejecting', () => {
+      manager.numberOfFluxNodes = 10000;
+      const ws1 = createMockWs('8.8.8.8', '16127');
+      const peer1 = manager.add(ws1, 'inbound', '8.8.8.8', '16127');
+      // Make stale
+      peer1.missedPongs = 5;
+      ws1.readyState = 3; // CLOSED
+
+      const ws2 = createMockWs('8.8.8.8', '16127');
+      manager.validateAndAddInbound(ws2, '16127');
+
+      expect(manager.has('8.8.8.8:16127')).to.equal(true);
+      const current = manager.get('8.8.8.8:16127');
+      expect(current.ws).to.equal(ws2);
     });
   });
 
