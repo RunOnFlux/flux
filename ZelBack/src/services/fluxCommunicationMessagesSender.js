@@ -1,5 +1,4 @@
 /* eslint-disable no-underscore-dangle */
-const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
@@ -11,39 +10,11 @@ const cacheManager = require('./utils/cacheManager').default;
 const myMessageCache = cacheManager.tempMessageCache;
 
 /**
- * To send to all peers.
- * @param {object} data Data.
- * @param {object[]} wsList Web socket list.
+ * Send data to all outbound peers.
+ * @param {string} data Serialised message data.
  */
-async function sendToAllPeers(data, wsList) {
+async function sendToAllPeers(data) {
   try {
-    // wsList is a legacy parameter — an array of raw ws objects to send to
-    if (wsList) {
-      // Legacy path: iterate provided ws list (used by handleAppMessages)
-      for (const client of wsList) {
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(25);
-          if (client.readyState === WebSocket.OPEN) {
-            if (!data) {
-              client.ping();
-            } else {
-              client.send(data);
-            }
-          } else {
-            throw new Error(`Connection to ${client.ip} is not open`);
-          }
-        } catch (e) {
-          try {
-            fluxNetworkHelper.closeConnection(client.ip, client.port);
-          } catch (err) {
-            log.error(err);
-          }
-        }
-      }
-      return;
-    }
-    // New path: iterate peerManager outbound peers
     for (const peer of peerManager.outboundValues()) {
       try {
         // eslint-disable-next-line no-await-in-loop
@@ -86,38 +57,11 @@ async function sendToRandomPeer(data) {
 }
 
 /**
- * To send to all incoming connections.
- * @param {object} data Data.
- * @param {object[]} wsList Web socket list.
+ * Send data to all inbound peers.
+ * @param {string} data Serialised message data.
  */
-async function sendToAllIncomingConnections(data, wsList) {
+async function sendToAllIncomingConnections(data) {
   try {
-    // wsList is a legacy parameter — an array of raw ws objects
-    if (wsList) {
-      for (const client of wsList) {
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(25);
-          if (client.readyState === WebSocket.OPEN) {
-            if (!data) {
-              client.ping();
-            } else {
-              client.send(data);
-            }
-          } else {
-            throw new Error(`Connection to ${client.ip} is not open`);
-          }
-        } catch (e) {
-          try {
-            fluxNetworkHelper.closeIncomingConnection(client.ip, client.port);
-          } catch (err) {
-            log.error(err);
-          }
-        }
-      }
-      return;
-    }
-    // New path: iterate peerManager inbound peers
     for (const peer of peerManager.inboundValues()) {
       try {
         // eslint-disable-next-line no-await-in-loop
@@ -320,6 +264,36 @@ async function broadcastMessageToAll(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   await sendToAllPeers(serialisedData);
   await sendToAllIncomingConnections(serialisedData);
+}
+
+/**
+ * Relay a message to all connected peers (both directions), excluding the sender.
+ * Uses FluxPeerSocket.send() so transmission timestamps are applied when supported.
+ * @param {string} data Serialised message data.
+ * @param {string} excludeKey Peer key (ip:port) to exclude (the sender).
+ */
+async function relay(data, excludeKey) {
+  try {
+    for (const peer of peerManager.allValues()) {
+      if (peer.key === excludeKey) continue;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(25);
+        if (!peer.send(data)) {
+          throw new Error(`Connection to ${peer.key} is not open`);
+        }
+      } catch (e) {
+        try {
+          const code = peer.direction === 'outbound' ? 4009 : 4010;
+          peer.close(code, 'send failure');
+        } catch (err) {
+          log.error(err);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
 }
 
 /**
@@ -581,6 +555,7 @@ async function broadcastTemporaryAppMessage(message) {
 }
 
 module.exports = {
+  relay,
   sendToAllPeers,
   sendMessageToWS,
   sendToAllIncomingConnections,
