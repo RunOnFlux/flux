@@ -667,6 +667,9 @@ function handleIncomingConnection(websocket, optionalPort) {
  * @param {object} req Request.
  * @param {object} res Response.
  */
+/**
+ * @deprecated Use getPeers with direction=outbound instead.
+ */
 function connectedPeers(req, res) {
   const connections = [];
   for (const peer of peerManager.outboundValues()) {
@@ -677,9 +680,7 @@ function connectedPeers(req, res) {
 }
 
 /**
- * To get info (IP address, latency and lastPingTime) for all outgoing connected peers.
- * @param {object} req Request.
- * @param {object} res Response.
+ * @deprecated Use getPeers with direction=outbound instead.
  */
 function connectedPeersInfo(req, res) {
   const connections = peerManager.outgoingPeers;
@@ -1184,6 +1185,85 @@ async function fluxDiscovery() {
   }
 }
 
+/**
+ * Get detailed peer info for a single peer.
+ * @param {FluxPeerSocket} peer
+ * @returns {object}
+ */
+function peerToDetailedInfo(peer) {
+  return {
+    ip: peer.ip,
+    port: peer.port,
+    direction: peer.direction,
+    latency: peer.latency,
+    missedPongs: peer.missedPongs,
+    lastPingTime: peer.lastPingTime,
+    lastPongTime: peer.lastPongTime,
+    connectedAt: peer.connectedAt,
+    isAlive: peer.isAlive,
+    badMessages: peer.badMessageTimestamps.length,
+  };
+}
+
+/**
+ * Get peers, optionally filtered by direction or specific key.
+ * GET /flux/peers — all peers
+ * GET /flux/peers/outbound — outbound only
+ * GET /flux/peers/inbound — inbound only
+ * GET /flux/peers/:ip:port — specific peer detail
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+function getPeers(req, res) {
+  const { filter } = req.params;
+
+  if (filter === 'outbound') {
+    const peers = [...peerManager.outboundValues()].map(peerToDetailedInfo);
+    return res.json(messageHelper.createDataMessage(peers));
+  }
+
+  if (filter === 'inbound') {
+    const peers = [...peerManager.inboundValues()].map(peerToDetailedInfo);
+    return res.json(messageHelper.createDataMessage(peers));
+  }
+
+  if (filter && filter.includes('.')) {
+    // Specific peer lookup by ip:port
+    const peer = peerManager.get(filter);
+    if (!peer) {
+      return res.json(messageHelper.createErrorMessage(`Peer ${filter} not found`));
+    }
+    return res.json(messageHelper.createDataMessage(peerToDetailedInfo(peer)));
+  }
+
+  // All peers
+  const peers = [...peerManager.allValues()].map(peerToDetailedInfo);
+  return res.json(messageHelper.createDataMessage(peers));
+}
+
+/**
+ * Get list of nodes flagged as unstable (5+ disconnects in 2 hours).
+ * GET /flux/unstablenodes
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+function getUnstableNodes(req, res) {
+  const unstable = [];
+  // eslint-disable-next-line no-underscore-dangle
+  for (const [key, entry] of peerManager._unstableNodes) {
+    if (entry.disconnects >= 5) {
+      const [ip, port] = key.split(':');
+      unstable.push({
+        ip,
+        port,
+        disconnects: entry.disconnects,
+        firstDisconnect: entry.firstDisconnect,
+      });
+    }
+  }
+  return res.json(messageHelper.createDataMessage(unstable));
+}
+
 function logSockets() {
   const inboundMessages = { requestHash: 0, newHash: 0 };
   const outboundMessages = { requestHash: 0, newHash: 0 };
@@ -1231,4 +1311,6 @@ module.exports = {
   handleNodeSigtermMessage,
   initiateAndHandleConnection,
   addOutgoingPeer,
+  getPeers,
+  getUnstableNodes,
 };
