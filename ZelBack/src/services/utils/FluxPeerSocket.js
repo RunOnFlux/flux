@@ -41,8 +41,7 @@ class FluxPeerSocket {
     this.nakCount = 0;
     this.nakWindowStart = Date.now();
     this.lastTransmissionDelay = null;
-    this.badMessageCount = 0;
-    this.badMessageWindowStart = Date.now();
+    this.badMessageTimestamps = [];
     this.msgMap = new Map([['requestHash', 0], ['newHash', 0]]);
 
     // backward compat: set ip, port, msgMap on the raw socket
