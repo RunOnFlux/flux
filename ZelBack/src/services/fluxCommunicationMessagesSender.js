@@ -4,104 +4,11 @@ const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
-const { peerManager } = require('./utils/establishedConnections');
+const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 
 const myMessageCache = cacheManager.tempMessageCache;
 
-/**
- * Send data to all outbound peers.
- * @param {string} data Serialised message data.
- */
-async function sendToAllPeers(data) {
-  try {
-    for (const peer of peerManager.outboundValues()) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(25);
-        if (!data) {
-          peer.ping();
-        } else if (!peer.send(data)) {
-          throw new Error(`Connection to ${peer.key} is not open`);
-        }
-      } catch (e) {
-        try {
-          peer.close(4009, 'send failure');
-        } catch (err) {
-          log.error(err);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
- * To send random peers.
- * @param {object} data Data.
- */
-async function sendToRandomPeer(data) {
-  try {
-    const peer = peerManager.getRandomPeer('outbound');
-    if (!peer) return;
-    await serviceHelper.delay(25);
-    if (!data) {
-      peer.ping();
-    } else if (!peer.send(data)) {
-      throw new Error(`Connection to ${peer.key} is not open`);
-    }
-  } catch (e) {
-    log.error(e);
-  }
-}
-
-/**
- * Send data to all inbound peers.
- * @param {string} data Serialised message data.
- */
-async function sendToAllIncomingConnections(data) {
-  try {
-    for (const peer of peerManager.inboundValues()) {
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(25);
-        if (!data) {
-          peer.ping();
-        } else if (!peer.send(data)) {
-          throw new Error(`Connection to ${peer.key} is not open`);
-        }
-      } catch (e) {
-        try {
-          peer.close(4010, 'send failure');
-        } catch (err) {
-          log.error(err);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
- * To send to random incoming connection.
- * @param {object} data Data.
- */
-async function sendToRandomIncomingConnections(data) {
-  try {
-    const peer = peerManager.getRandomPeer('inbound');
-    if (!peer) return;
-    await serviceHelper.delay(25);
-    if (!data) {
-      peer.ping();
-    } else if (!peer.send(data)) {
-      throw new Error(`Connection to ${peer.key} is not open`);
-    }
-  } catch (e) {
-    log.error(e);
-  }
-}
 
 /**
  * To get Flux message signature.
@@ -238,225 +145,73 @@ async function respondWithAppMessage(msgObj, ws) {
 }
 
 /**
- * To broadcast message to outgoing peers. Data is serialised and sent to outgoing peers.
- * @param {object} dataToBroadcast Data to broadcast.
+ * Relay a message to all connected peers (both directions), excluding the sender.
+ * @param {string} data Serialised message data.
+ * @param {string} [excludeKey] Peer key (ip:port) to exclude (the sender).
  */
-async function broadcastMessageToOutgoing(dataToBroadcast) {
-  const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
-  await sendToAllPeers(serialisedData);
+async function relay(data, excludeKey) {
+  await peerManager.broadcast(data, { exclude: excludeKey });
 }
 
 /**
- * To broadcast message to incoming peers. Data is serialised and sent to incoming peers.
- * @param {object} dataToBroadcast Data to broadcast.
- */
-async function broadcastMessageToIncoming(dataToBroadcast) {
-  const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
-  await sendToAllIncomingConnections(serialisedData);
-}
-
-/**
- * Sign once, send to both outgoing and incoming peers. Fixes double-signing issue
- * where the same logical message would get two different timestamps/signatures.
+ * Sign once, send to all connected peers (both directions).
  * @param {object} dataToBroadcast Data to broadcast.
  */
 async function broadcastMessageToAll(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
-  await sendToAllPeers(serialisedData);
-  await sendToAllIncomingConnections(serialisedData);
+  await relay(serialisedData);
 }
 
 /**
- * Relay a message to all connected peers (both directions), excluding the sender.
- * Uses FluxPeerSocket.send() so transmission timestamps are applied when supported.
- * @param {string} data Serialised message data.
- * @param {string} excludeKey Peer key (ip:port) to exclude (the sender).
- */
-async function relay(data, excludeKey) {
-  try {
-    for (const peer of peerManager.allValues()) {
-      if (peer.key === excludeKey) continue;
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(25);
-        if (!peer.send(data)) {
-          throw new Error(`Connection to ${peer.key} is not open`);
-        }
-      } catch (e) {
-        try {
-          const code = peer.direction === 'outbound' ? 4009 : 4010;
-          peer.close(code, 'send failure');
-        } catch (err) {
-          log.error(err);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
- * To broadcast message to outgoing peers. Data is serialised and sent to outgoing peers.
+ * Sign and send to a random outbound peer.
  * @param {object} dataToBroadcast Data to broadcast.
  */
 async function broadcastMessageToRandomOutgoing(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
-  await sendToRandomPeer(serialisedData);
+  const peer = peerManager.getRandomPeer('outbound');
+  if (peer) peer.send(serialisedData);
 }
 
 /**
- * To broadcast message to incoming peers. Data is serialised and sent to incoming peers.
+ * Sign and send to a random inbound peer.
  * @param {object} dataToBroadcast Data to broadcast.
  */
 async function broadcastMessageToRandomIncoming(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
-  await sendToRandomIncomingConnections(serialisedData);
+  const peer = peerManager.getRandomPeer('inbound');
+  if (peer) peer.send(serialisedData);
 }
 
 /**
- * To broadcast message from user to outgoing peers. Data is serialised and sent to outgoing peers. Only accessible by admins and Flux team members.
- * @param {object} req Request.
- * @param {object} res Response.
+ * @deprecated Use broadcastMessageFromUser instead. Sends to all peers.
  */
 async function broadcastMessageToOutgoingFromUser(req, res) {
-  try {
-    let { data } = req?.params || {};
-    data = data || req?.query?.data;
-    if (data === undefined || data === null) {
-      throw new Error('No message to broadcast attached.');
-    }
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-
-    let message;
-
-    if (authorized === true) {
-      await broadcastMessageToOutgoing(data);
-      message = messageHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
-    } else {
-      message = messageHelper.errUnauthorizedMessage();
-    }
-    res.json(message);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
+  log.warn('broadcastMessageToOutgoingFromUser is deprecated, use broadcastMessageFromUser');
+  return broadcastMessageFromUser(req, res);
 }
 
 /**
- * To broadcast message from user to outgoing peers after data is processed. Processed data is serialised and sent to outgoing peers. Only accessible by admins and Flux team members.
- * @param {object} req Request.
- * @param {object} res Response.
+ * @deprecated Use broadcastMessageFromUserPost instead. Sends to all peers.
  */
 async function broadcastMessageToOutgoingFromUserPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      if (body === undefined || body === '') {
-        throw new Error('No message to broadcast attached.');
-      }
-      const processedBody = serviceHelper.ensureObject(body);
-      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-
-      let message;
-
-      if (authorized === true) {
-        await broadcastMessageToOutgoing(processedBody);
-        message = messageHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
-      } else {
-        message = messageHelper.errUnauthorizedMessage();
-      }
-      res.json(message);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
-    }
-  });
+  log.warn('broadcastMessageToOutgoingFromUserPost is deprecated, use broadcastMessageFromUserPost');
+  return broadcastMessageFromUserPost(req, res);
 }
 
 /**
- * To broadcast message from user to incoming peers. Data is serialised and sent to incoming peers. Only accessible by admins and Flux team members.
- * @param {object} req Request.
- * @param {object} res Response.
+ * @deprecated Use broadcastMessageFromUser instead. Sends to all peers.
  */
 async function broadcastMessageToIncomingFromUser(req, res) {
-  try {
-    let { data } = req?.params || {};
-    data = data || req?.query?.data;
-    if (data === undefined || data === null) {
-      throw new Error('No message to broadcast attached.');
-    }
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-
-    let message;
-    if (authorized === true) {
-      await broadcastMessageToIncoming(data);
-      message = messageHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
-    } else {
-      message = messageHelper.errUnauthorizedMessage();
-    }
-    res.json(message);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
+  log.warn('broadcastMessageToIncomingFromUser is deprecated, use broadcastMessageFromUser');
+  return broadcastMessageFromUser(req, res);
 }
 
 /**
- * To broadcast message from user to incoming peers after data is processed. Processed data is serialised and sent to incoming peers. Only accessible by admins and Flux team members.
- * @param {object} req Request.
- * @param {object} res Response.
+ * @deprecated Use broadcastMessageFromUserPost instead. Sends to all peers.
  */
 async function broadcastMessageToIncomingFromUserPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      if (body === undefined || body === '') {
-        throw new Error('No message to broadcast attached.');
-      }
-      const processedBody = serviceHelper.ensureObject(body);
-      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-
-      let message;
-
-      if (authorized === true) {
-        await broadcastMessageToIncoming(processedBody);
-        message = messageHelper.createSuccessMessage('Message successfully broadcasted to Flux network');
-      } else {
-        message = messageHelper.errUnauthorizedMessage();
-      }
-      res.json(message);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
-    }
-  });
+  log.warn('broadcastMessageToIncomingFromUserPost is deprecated, use broadcastMessageFromUserPost');
+  return broadcastMessageFromUserPost(req, res);
 }
 
 /**
@@ -556,9 +311,7 @@ async function broadcastTemporaryAppMessage(message) {
 
 module.exports = {
   relay,
-  sendToAllPeers,
   sendMessageToWS,
-  sendToAllIncomingConnections,
   respondWithAppMessage,
   serialiseAndSignFluxBroadcast,
   getFluxMessageSignature,
@@ -566,12 +319,10 @@ module.exports = {
   broadcastMessageToOutgoingFromUserPost,
   broadcastMessageToIncomingFromUser,
   broadcastMessageToIncomingFromUserPost,
-  broadcastMessageToIncoming,
   broadcastMessageToAll,
   broadcastMessageFromUser,
   broadcastMessageFromUserPost,
   broadcastTemporaryAppMessage,
-  broadcastMessageToOutgoing,
   broadcastMessageToRandomOutgoing,
   broadcastMessageToRandomIncoming,
 };

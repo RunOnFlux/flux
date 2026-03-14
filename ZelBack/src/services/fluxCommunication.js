@@ -12,7 +12,7 @@ const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
-const { peerManager } = require('./utils/establishedConnections');
+const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 
@@ -28,25 +28,16 @@ const { messageCache, wsPeerCache } = cacheManager;
 
 const testListCache = new LRUCache(LRUTest); */
 
-let numberOfFluxNodes = 0;
+const { FluxPeerManager } = require('./utils/FluxPeerManager');
 
-/**
- * Extracts the /16 subnet prefix (first 2 octets) from an IP address.
- * @param {string} ip IP address (e.g., "192.168.1.100")
- * @returns {string} Subnet prefix (e.g., "192.168")
- */
-function getIpSubnet(ip) {
-  const parts = ip.split('.');
-  if (parts.length >= 2) {
-    return `${parts[0]}.${parts[1]}`;
-  }
-  return ip;
-}
-
-const privateIpsList = [
-  '192.168.', '10.',
-  '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.28.', '172.29.', '172.30.', '172.31.',
-];
+const DISCOVERY = {
+  maxOutbound: 14,
+  minUniqueOutboundIps: 9,
+  maxInbound: 12,
+  minUniqueInboundIps: 5,
+  maxIterations: 100,
+  connectionDelayMs: 500,
+};
 
 /**
  * To handle temporary app messages.
@@ -468,63 +459,6 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
 // Register the message dispatcher on the peerManager singleton
 peerManager.messageDispatcher = dispatchFluxMessage;
 
-/**
- * To handle incoming connection. Several types of verification are performed.
- * @param {object} websocket Web socket.
- * @param {string} optionalPort Port number.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
- */
-// let messageNumber = 0;
-// eslint-disable-next-line no-unused-vars
-function handleIncomingConnection(websocket, optionalPort) {
-  try {
-    const ws = websocket;
-    const port = optionalPort || '16127';
-    const maxPeers = 4 * config.fluxapps.minIncoming;
-    const maxNumberOfConnections = numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 160 : 9 * config.fluxapps.minIncoming;
-    const maxCon = Math.max(maxPeers, maxNumberOfConnections);
-    if (peerManager.inboundCount > maxCon) {
-      setTimeout(() => {
-        ws.close(4000, `Max number of incomming connections ${maxCon} reached`);
-      }, 1000);
-      return;
-    }
-    let ipv4Peer;
-    try {
-      ipv4Peer = ws._socket.remoteAddress.replace('::ffff:', '');
-      if (!ipv4Peer) {
-        ipv4Peer = ws._socket._peername.address.replace('::ffff:', '');
-      }
-    } catch (error) {
-      log.error(error);
-      ipv4Peer = ws._socket._peername.address.replace('::ffff:', '');
-    }
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const privateIp of privateIpsList) {
-      if (ipv4Peer.startsWith(privateIp)) {
-        setTimeout(() => {
-          ws.close(4002, 'Peer received is using internal IP');
-        }, 1000);
-        log.error(`Incoming connection of peer from internal IP not allowed: ${ipv4Peer}`);
-        return;
-      }
-    }
-
-    const key = `${ipv4Peer}:${port}`;
-    if (peerManager.has(key)) {
-      setTimeout(() => {
-        ws.close(4001, 'Peer received is already in peers list');
-      }, 1000);
-      return;
-    }
-
-    // Add to peerManager — FluxPeerSocket constructor binds all handlers (onmessage, onclose, onerror, pong)
-    peerManager.add(ws, 'inbound', ipv4Peer, port);
-  } catch (error) {
-    log.error(error);
-  }
-}
 
 /**
  * To get IP addresses for all outgoing connected peers.
@@ -861,8 +795,6 @@ async function fluxDiscovery() {
       throw new Error('Daemon not yet synced. Flux discovery is awaiting.');
     }
 
-    const currentIpsConnTried = [];
-
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
 
     if (!myIP) {
@@ -880,7 +812,7 @@ async function fluxDiscovery() {
       addressOnly: true,
     });
 
-    numberOfFluxNodes = sortedNodeList.length;
+    peerManager.numberOfFluxNodes = sortedNodeList.length;
 
     log.info('Searching for my node on sortedNodeList');
     const fluxNodeIndex = sortedNodeList.findIndex((ip) => ip === myIP);
@@ -892,6 +824,8 @@ async function fluxDiscovery() {
     // always try to connect to deterministic nodes
     // established deterministic outgoing connections
     let deterministicPeerConnections = false;
+    const myIpGroup = FluxPeerManager.getIpGroup(myIP.split(':')[0]);
+
     // established deterministic 8 outgoing connections
     for (let i = 1; i <= minDeterministicOutPeers; i += 1) {
       const fixedIndex = fluxNodeIndex + i < sortedNodeList.length ? fluxNodeIndex + i : fluxNodeIndex + i - sortedNodeList.length;
@@ -902,18 +836,11 @@ async function fluxDiscovery() {
         continue;
       }
       const portInc = ip.split(':')[1] || '16127';
-      // additional precaution
-      if (!peerManager.has(`${ipInc}:${portInc}`)) {
-        // we add to the cache immediately here as we have no idea if this is successful or not;
-        // If it's not successful (due to many reasons) We spam the connection over and over
-
-        // This just adds a 15 minute cooldown between retries, until we implement
-        // heartbeats (and rework the communcation module)
-        wsPeerCache.set(ip, '');
+      if (peerManager.shouldAttemptConnection(ipInc, portInc)) {
         deterministicPeerConnections = true;
         initiateAndHandleConnection(ip);
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(500);
+        await serviceHelper.delay(DISCOVERY.connectionDelayMs);
       }
     }
     // established deterministic 8 incoming connections
@@ -926,21 +853,14 @@ async function fluxDiscovery() {
         continue;
       }
       const portInc = ip.split(':')[1] || '16127';
-      // additional precaution
-      if (!peerManager.has(`${ipInc}:${portInc}`) && !wsPeerCache.has(`${ipInc}:${portInc}`)) {
-        // we add to the cache immediately, instead of waiting for an error; The reason
-        // for this is that we don't have heartbeats set up, so quite often, the other
-        // end will think it's connected to us when it's not - and cut the connection.
-        // This just adds a 15 minute cooldown between retries, until we implement
-        // heartbeats (and rework the communcation module)
-        wsPeerCache.set(`${ipInc}:${portInc}`, '');
+      if (peerManager.shouldAttemptConnection(ipInc, portInc)) {
         // eslint-disable-next-line no-await-in-loop
         const result = await serviceHelper.axiosGet(
           `http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`,
           { timeout: 5_000 },
         ).catch((error) => {
+          peerManager.recordFailedConnection(ipInc, portInc);
           if (error.code !== 'ECONNREFUSED') log.error(error);
-
           return null;
         });
 
@@ -951,121 +871,79 @@ async function fluxDiscovery() {
       log.info('Connections to deterministic peers established');
     }
 
-    await serviceHelper.delay(500);
+    await serviceHelper.delay(DISCOVERY.connectionDelayMs);
 
-    // Process reconnect queue — retry recently disconnected outbound peers before random selection
-    const reconnectQueue = peerManager.getReconnectQueue();
-    for (const [rKey, rEntry] of reconnectQueue) {
-      if (peerManager.has(rKey)) {
-        peerManager.clearReconnectEntry(rKey);
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-      if (peerManager.isUnstable(rEntry.ip, rEntry.port)) {
-        peerManager.clearReconnectEntry(rKey);
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-      if (rEntry.attempts > 3) {
-        peerManager.clearReconnectEntry(rKey);
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-      log.info(`Reconnecting to queued peer: ${rKey} (attempt ${rEntry.attempts})`);
-      initiateAndHandleConnection(`${rEntry.ip}:${rEntry.port}`);
-      // Don't clear here — if connection fails, remove() calls queueReconnect()
-      // which increments attempts. Successful connections clear via add().
+    // Process reconnect queue — retry recently disconnected outbound peers
+    const reconnectCandidates = peerManager.getReconnectCandidates();
+    for (const candidate of reconnectCandidates) {
+      log.info(`Reconnecting to queued peer: ${candidate.key} (attempt ${candidate.attempts})`);
+      initiateAndHandleConnection(`${candidate.ip}:${candidate.port}`);
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500);
+      await serviceHelper.delay(DISCOVERY.connectionDelayMs);
     }
 
     // Prune expired unstable node entries periodically
     peerManager.pruneUnstableList();
 
+    const triedIps = new Set();
+    const triedIpGroups = new Set();
+
+    // Random outbound connections
+    const outThresholds = { maxCount: DISCOVERY.maxOutbound, minUniqueIps: DISCOVERY.minUniqueOutboundIps };
     let index = 0;
-    const currentSubnetsConnTried = [];
-    while ((peerManager.outboundCount < 14 || [...new Set([...peerManager.outboundValues()].map((p) => p.ip))].length < 9) && index < 100) { // Max of 14 outgoing connections - 8 possible deterministic + min. 6 random
+    while (peerManager.needsMorePeers('outbound', outThresholds) && index < DISCOVERY.maxIterations) {
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await networkStateService.getRandomSocketAddress(myIP);
-
       if (connection) {
         const [ipInc, portInc = '16127'] = connection.split(':');
-        // we don't connect to any other nodes on the same ip
-        if (ipInc === myIP.split(':')[0]) {
+        if (!peerManager.canAcceptPeer(ipInc, portInc, 'outbound', myIpGroup)) {
           // eslint-disable-next-line no-continue
           continue;
         }
-
-        // check subnet diversity - skip nodes in same subnet as my node or already connected
-        const ipSubnet = getIpSubnet(ipInc);
-        const mySubnet = getIpSubnet(myIP.split(':')[0]);
-        if (ipSubnet === mySubnet) {
+        const ipGroup = FluxPeerManager.getIpGroup(ipInc);
+        if (triedIpGroups.has(ipGroup) || triedIps.has(ipInc)) {
           // eslint-disable-next-line no-continue
           continue;
         }
-        const connectedSubnets = [...peerManager.outboundValues()].map((p) => getIpSubnet(p.ip));
-        const subnetAlreadyConnected = connectedSubnets.includes(ipSubnet) || currentSubnetsConnTried.includes(ipSubnet);
-        if (subnetAlreadyConnected) {
-          // eslint-disable-next-line no-continue
-          continue;
-        }
-
-        // additional precaution
-        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
-        if (!sameConnectedIp && !peerManager.has(`${ipInc}:${portInc}`)) {
-          log.info(`Adding random Flux peer: ${connection}`);
-          currentIpsConnTried.push(connection);
-          currentSubnetsConnTried.push(ipSubnet);
-          initiateAndHandleConnection(connection);
-        }
+        log.info(`Adding random Flux peer: ${connection}`);
+        triedIps.add(ipInc);
+        triedIpGroups.add(ipGroup);
+        initiateAndHandleConnection(connection);
       }
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500);
+      await serviceHelper.delay(DISCOVERY.connectionDelayMs);
     }
+
+    // Random inbound connections
+    const inThresholds = { maxCount: DISCOVERY.maxInbound, minUniqueIps: DISCOVERY.minUniqueInboundIps };
     index = 0;
-    const currentIncomingSubnetsConnTried = [];
-    while ((peerManager.inboundCount < 12 || [...new Set([...peerManager.inboundValues()].map((p) => p.ip))].length < 5) && index < 100) { // Max of 12 incoming connections - 8 possible deterministic + min. 4 random (we will get more random as others nodes have more random outgoing connections)
+    while (peerManager.needsMorePeers('inbound', inThresholds) && index < DISCOVERY.maxIterations) {
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await networkStateService.getRandomSocketAddress(myIP);
       if (connection) {
         const [ipInc, portInc = '16127'] = connection.split(':');
-        // we don't connect to any other nodes on the same ip
-        if (ipInc === myIP.split(':')[0]) {
+        if (!peerManager.canAcceptPeer(ipInc, portInc, 'inbound', myIpGroup)) {
           // eslint-disable-next-line no-continue
           continue;
         }
-
-        // check subnet diversity - skip nodes in same subnet as my node or already connected
-        const ipSubnet = getIpSubnet(ipInc);
-        const mySubnet = getIpSubnet(myIP.split(':')[0]);
-        if (ipSubnet === mySubnet) {
+        const ipGroup = FluxPeerManager.getIpGroup(ipInc);
+        if (triedIpGroups.has(ipGroup) || triedIps.has(ipInc)) {
           // eslint-disable-next-line no-continue
           continue;
         }
-        const connectedSubnets = [...peerManager.inboundValues()].map((p) => getIpSubnet(p.ip));
-        const subnetAlreadyConnected = connectedSubnets.includes(ipSubnet) || currentIncomingSubnetsConnTried.includes(ipSubnet);
-        if (subnetAlreadyConnected) {
-          // eslint-disable-next-line no-continue
-          continue;
-        }
-
-        // additional precaution
-        const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
-        if (!sameConnectedIp && !peerManager.has(`${ipInc}:${portInc}`)) {
-          log.info(`Asking random Flux ${connection} to add us as a peer`);
-          currentIpsConnTried.push(connection);
-          currentIncomingSubnetsConnTried.push(ipSubnet);
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.axiosGet(
-            `http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`,
-            { timeout: 5_000 },
-          ).catch((error) => log.error(error));
-        }
+        log.info(`Asking random Flux ${connection} to add us as a peer`);
+        triedIps.add(ipInc);
+        triedIpGroups.add(ipGroup);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.axiosGet(
+          `http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`,
+          { timeout: 5_000 },
+        ).catch((error) => log.error(error));
       }
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500);
+      await serviceHelper.delay(DISCOVERY.connectionDelayMs);
     }
     setTimeout(() => {
       fluxDiscovery();
@@ -1191,7 +1069,6 @@ function logSocketsEvery(intervalMs) {
 }
 
 module.exports = {
-  handleIncomingConnection,
   connectedPeers,
   removePeer,
   removeIncomingPeer,

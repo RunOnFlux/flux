@@ -12,15 +12,13 @@ const messageVerifier = require('../../ZelBack/src/services/appMessaging/message
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const { peerManager } = require('../../ZelBack/src/services/utils/establishedConnections');
+const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('fluxCommunicationMessagesSender tests', () => {
-  describe('sendToAllPeers tests', () => {
-    let closeConnectionStub;
-
+  describe('relay tests', () => {
     const generateWebsocket = (ip, port, readyState, direction = 'outbound') => {
       const ws = {};
       ws.port = String(port);
@@ -38,7 +36,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
     };
 
     beforeEach(() => {
-      closeConnectionStub = sinon.stub(fluxNetworkHelper, 'closeConnection');
       peerManager._clear();
     });
 
@@ -46,230 +43,38 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.restore();
     });
 
-    it('should properly send a message to all outgoing connections if they exist', async () => {
-      const data = {
-        test: 'testing1234',
-      };
-      closeConnectionStub.returns('closed!');
-      const wsIp = '127.0.0.1';
-      const wsIp2 = '127.0.0.2';
-      const port = 16127;
-      const webSocket1 = generateWebsocket(wsIp, port, WebSocket.OPEN);
-      const webSocket2 = generateWebsocket(wsIp2, port, WebSocket.OPEN);
+    it('should send data to all peers (both directions)', async () => {
+      const data = 'test-message';
+      const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN, 'outbound');
+      const ws2 = generateWebsocket('127.0.0.2', 16127, WebSocket.OPEN, 'inbound');
 
-      await fluxCommunicationMessagesSender.sendToAllPeers(data);
+      await fluxCommunicationMessagesSender.relay(data);
 
-      sinon.assert.calledOnceWithExactly(webSocket1.send, data);
-      sinon.assert.calledOnceWithExactly(webSocket2.send, data);
+      sinon.assert.calledOnceWithExactly(ws1.send, data);
+      sinon.assert.calledOnceWithExactly(ws2.send, data);
     });
 
-    it('should properly send a message to all outgoing connections registered in peerManager', async () => {
-      const data = {
-        test: 'testing1234',
-      };
-      const wsIp = '127.0.0.1';
-      const wsIp2 = '127.0.0.2';
-      const port = 16127;
-      const webSocket1 = generateWebsocket(wsIp, port, WebSocket.OPEN);
-      const webSocket2 = generateWebsocket(wsIp2, port, WebSocket.OPEN);
+    it('should exclude a peer by key', async () => {
+      const data = 'test-message';
+      const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN, 'outbound');
+      const ws2 = generateWebsocket('127.0.0.2', 16127, WebSocket.OPEN, 'outbound');
 
-      await fluxCommunicationMessagesSender.sendToAllPeers(data);
+      await fluxCommunicationMessagesSender.relay(data, '127.0.0.1:16127');
 
-      sinon.assert.calledOnceWithExactly(webSocket1.send, data);
-      sinon.assert.calledOnceWithExactly(webSocket2.send, data);
+      sinon.assert.notCalled(ws1.send);
+      sinon.assert.calledOnceWithExactly(ws2.send, data);
     });
 
-    it('should still send a message to other peers if a websocket is closed', async () => {
-      const data = {
-        test: 'testing1234',
-      };
-      const wsIp = '127.0.0.1';
-      const wsIp2 = '127.0.0.2';
-      const port = 16127;
-      const webSocket1 = generateWebsocket(wsIp, port, WebSocket.CLOSED);
-      const webSocket2 = generateWebsocket(wsIp2, port, WebSocket.OPEN);
+    it('should close peer on send failure and continue to others', async () => {
+      const data = 'test-message';
+      const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.CLOSED, 'outbound');
+      const ws2 = generateWebsocket('127.0.0.2', 16127, WebSocket.OPEN, 'outbound');
 
-      await fluxCommunicationMessagesSender.sendToAllPeers(data);
+      await fluxCommunicationMessagesSender.relay(data);
 
-      // peer.send() returns false for closed ws (doesn't call ws.send), then peer.close() is called
-      sinon.assert.notCalled(webSocket1.send);
-      sinon.assert.calledOnceWithExactly(webSocket2.send, data);
-      sinon.assert.calledOnce(webSocket1.close);
-    });
-
-    it('should still send a message to other peers if a websocket throws error', async () => {
-      const generateFaultyWebsocket = (ip, port, readyState) => {
-        const ws = {};
-        ws.port = String(port);
-        ws.ip = ip;
-        ws.readyState = readyState;
-        ws.ping = sinon.stub().returns('pong');
-        ws.send = sinon.stub().throws();
-        ws.on = sinon.stub();
-        ws.close = sinon.stub();
-        ws._socket = {
-          remoteAddress: ip,
-        };
-        peerManager.add(ws, 'outbound', ip, String(port));
-        return ws;
-      };
-      const data = {
-        test: 'testing1234',
-      };
-      const wsIp = '127.0.0.1';
-      const wsIp2 = '127.0.0.2';
-      const port = 16127;
-      const webSocket1 = generateFaultyWebsocket(wsIp, port, WebSocket.OPEN);
-      const webSocket2 = generateWebsocket(wsIp2, port, WebSocket.OPEN);
-
-      await fluxCommunicationMessagesSender.sendToAllPeers(data);
-
-      // peer.send() catches the ws.send() throw internally and returns false,
-      // then the function calls peer.close()
-      sinon.assert.calledOnceWithExactly(webSocket2.send, data);
-      sinon.assert.calledOnce(webSocket1.close);
-    });
-
-    it('should send a ping message to all peers if no data is given', async () => {
-      closeConnectionStub.returns('closed!');
-      const wsIp = '127.0.0.1';
-      const wsIp2 = '127.0.0.2';
-      const port = 16127;
-      const webSocket1 = generateWebsocket(wsIp, port, WebSocket.OPEN);
-      const webSocket2 = generateWebsocket(wsIp2, port, WebSocket.OPEN);
-
-      await fluxCommunicationMessagesSender.sendToAllPeers();
-
-      // The peerManager path calls peer.ping() which calls ws.ping()
-      sinon.assert.calledOnce(webSocket1.ping);
-      sinon.assert.calledOnce(webSocket2.ping);
-    });
-  });
-
-  describe('sendToAllIncomingConnections tests', () => {
-    let closeConnectionStub;
-
-    const generateWebsocket = (ip, port, readyState) => {
-      const ws = {};
-      ws.port = String(port);
-      ws.ip = ip;
-      ws.readyState = readyState;
-      ws.ping = sinon.stub().returns('pong');
-      ws.send = sinon.stub().returns('okay');
-      ws.on = sinon.stub();
-      ws.close = sinon.stub();
-      ws._socket = {
-        remoteAddress: ip,
-      };
-      peerManager.add(ws, 'inbound', ip, String(port));
-      return ws;
-    };
-
-    beforeEach(() => {
-      closeConnectionStub = sinon.stub(fluxNetworkHelper, 'closeIncomingConnection');
-      peerManager._clear();
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should properly send a message to all outgoing connections if they exist', async () => {
-      const data = {
-        test: 'testing1234',
-      };
-      closeConnectionStub.returns('closed!');
-      const wsIp = '127.0.0.1';
-      const wsIp2 = '127.0.0.2';
-      const port = 16127;
-      const webSocket1 = generateWebsocket(wsIp, port, WebSocket.OPEN);
-      const webSocket2 = generateWebsocket(wsIp2, port, WebSocket.OPEN);
-
-      await fluxCommunicationMessagesSender.sendToAllIncomingConnections(data);
-
-      sinon.assert.calledOnceWithExactly(webSocket1.send, data);
-      sinon.assert.calledOnceWithExactly(webSocket2.send, data);
-    });
-
-    it('should properly send a message to all incoming connections registered in peerManager', async () => {
-      const data = {
-        test: 'testing1234',
-      };
-      const wsIp = '127.0.0.1';
-      const wsIp2 = '127.0.0.2';
-      const port = 16127;
-      const webSocket1 = generateWebsocket(wsIp, port, WebSocket.OPEN);
-      const webSocket2 = generateWebsocket(wsIp2, port, WebSocket.OPEN);
-
-      await fluxCommunicationMessagesSender.sendToAllIncomingConnections(data);
-
-      sinon.assert.calledOnceWithExactly(webSocket1.send, data);
-      sinon.assert.calledOnceWithExactly(webSocket2.send, data);
-    });
-
-    it('should still send a message to other peers if a websocket is closed', async () => {
-      const data = {
-        test: 'testing1234',
-      };
-      const wsIp = '127.0.0.1';
-      const wsIp2 = '127.0.0.2';
-      const port = 16127;
-      const webSocket1 = generateWebsocket(wsIp, port, WebSocket.CLOSED);
-      const webSocket2 = generateWebsocket(wsIp2, port, WebSocket.OPEN);
-
-      await fluxCommunicationMessagesSender.sendToAllIncomingConnections(data);
-
-      // peer.send() returns false for closed ws (doesn't call ws.send), then peer.close() is called
-      sinon.assert.notCalled(webSocket1.send);
-      sinon.assert.calledOnceWithExactly(webSocket2.send, data);
-      sinon.assert.calledOnce(webSocket1.close);
-    });
-
-    it('should still send a message to other peers if a websocket throws error', async () => {
-      const generateFaultyWebsocket = (ip, port, readyState) => {
-        const ws = {};
-        ws.port = String(port);
-        ws.ip = ip;
-        ws.readyState = readyState;
-        ws.ping = sinon.stub().returns('pong');
-        ws.send = sinon.stub().throws();
-        ws.on = sinon.stub();
-        ws.close = sinon.stub();
-        ws._socket = {
-          remoteAddress: ip,
-        };
-        peerManager.add(ws, 'inbound', ip, String(port));
-        return ws;
-      };
-      const data = {
-        test: 'testing1234',
-      };
-      const wsIp = '127.0.0.1';
-      const wsIp2 = '127.0.0.2';
-      const port = 16127;
-      const webSocket1 = generateFaultyWebsocket(wsIp, port, WebSocket.OPEN);
-      const webSocket2 = generateWebsocket(wsIp2, port, WebSocket.OPEN);
-
-      await fluxCommunicationMessagesSender.sendToAllIncomingConnections(data);
-
-      // peer.send() catches the ws.send() throw internally and returns false,
-      // then the function calls peer.close()
-      sinon.assert.calledOnceWithExactly(webSocket2.send, data);
-      sinon.assert.calledOnce(webSocket1.close);
-    });
-
-    it('should send a ping message to all peers if no data is given', async () => {
-      closeConnectionStub.returns('closed!');
-      const wsIp = '127.0.0.1';
-      const wsIp2 = '127.0.0.2';
-      const port = 16127;
-      const webSocket1 = generateWebsocket(wsIp, port, WebSocket.OPEN);
-      const webSocket2 = generateWebsocket(wsIp2, port, WebSocket.OPEN);
-
-      await fluxCommunicationMessagesSender.sendToAllIncomingConnections();
-
-      sinon.assert.calledOnce(webSocket1.ping);
-      sinon.assert.calledOnce(webSocket2.ping);
+      sinon.assert.notCalled(ws1.send);
+      sinon.assert.calledOnce(ws1.close);
+      sinon.assert.calledOnceWithExactly(ws2.send, data);
     });
   });
 
@@ -617,106 +422,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.assert.notCalled(myMessageCacheSetStub);
       sinon.assert.notCalled(checkAppMessageExistenceSpy);
       sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, callMessage.data.hash);
-    });
-  });
-
-  describe('broadcastMessageToOutgoing tests', () => {
-    let fluxNetworkHelperPublicKeyStub;
-    let fluxNetworkHelperPrivateKeyStub;
-    const generateWebsocket = (ip, port, readyState) => {
-      const ws = {};
-      ws.port = String(port);
-      ws.ip = ip;
-      ws.readyState = readyState;
-      ws.ping = sinon.stub().returns('pong');
-      ws.send = sinon.stub().returns('okay');
-      ws.on = sinon.stub();
-      ws.close = sinon.stub();
-      ws._socket = {
-        remoteAddress: ip,
-      };
-      peerManager.add(ws, 'outbound', ip, String(port));
-      return ws;
-    };
-    beforeEach(() => {
-      peerManager._clear();
-      fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
-      fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should send a message to the given websocket if keys are accessible through config', async () => {
-      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
-      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
-      const data = {
-        title: 'message',
-        message: 'This is testing!',
-      };
-      const websocket = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN);
-
-      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(data);
-
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
-    });
-  });
-
-  describe('broadcastMessageToIncoming tests', () => {
-    let fluxNetworkHelperPublicKeyStub;
-    let fluxNetworkHelperPrivateKeyStub;
-    const generateWebsocket = (ip, port, readyState) => {
-      const ws = {};
-      ws.port = String(port);
-      ws.ip = ip;
-      ws.readyState = readyState;
-      ws.ping = sinon.stub().returns('pong');
-      ws.send = sinon.stub().returns('okay');
-      ws.on = sinon.stub();
-      ws.close = sinon.stub();
-      ws._socket = {
-        remoteAddress: ip,
-      };
-      peerManager.add(ws, 'inbound', ip, String(port));
-      return ws;
-    };
-    beforeEach(() => {
-      peerManager._clear();
-      fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
-      fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should send a message to the given websocket if keys are accessible through config', async () => {
-      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
-      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
-      const data = {
-        title: 'message',
-        message: 'This is testing!',
-      };
-      const websocket = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN);
-
-      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(data);
-
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/This is testing!/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/message/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/title/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/signature/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/pubKey/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/timestamp/gm));
-      sinon.assert.calledOnceWithExactly(websocket.send, sinon.match(/version/gm));
     });
   });
 

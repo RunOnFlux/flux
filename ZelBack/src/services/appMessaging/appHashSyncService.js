@@ -30,7 +30,7 @@ async function checkAndSyncAppHashes() {
   try {
     checkAndSyncAppHashesRunning = true;
     // eslint-disable-next-line global-require
-    const { peerManager } = require('../utils/establishedConnections');
+    const { peerManager } = require('../utils/peerState');
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     // get flux app hashes that do not have a message;

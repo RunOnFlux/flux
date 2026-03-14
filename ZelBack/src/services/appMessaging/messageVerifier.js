@@ -379,9 +379,7 @@ async function requestAppMessage(hash) {
     version: 1,
     hash,
   };
-  await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(500);
-  await fluxCommunicationMessagesSender.broadcastMessageToIncoming(message);
+  await fluxCommunicationMessagesSender.broadcastMessageToAll(message);
 }
 
 /**

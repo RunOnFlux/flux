@@ -2906,7 +2906,7 @@ async function updateAppGlobalyApi(req, res) {
       }
       // Dynamic require to avoid circular dependency
       // eslint-disable-next-line global-require
-      const { peerManager } = require('../utils/establishedConnections');
+      const { peerManager } = require('../utils/peerState');
       // first check if this node is available for application update
       if (peerManager.outboundCount < config.fluxapps.minOutgoing) {
         throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
@@ -4129,7 +4129,7 @@ async function getPeerAppsInstallingErrorMessages() {
   try {
     // Import peerManager dynamically to avoid circular dependency
     // eslint-disable-next-line global-require
-    const { peerManager } = require('../utils/establishedConnections');
+    const { peerManager } = require('../utils/peerState');
 
     if (peerManager.outboundCount === 0) {
       log.info('getPeerAppsInstallingErrorMessages - No outgoing peers available');

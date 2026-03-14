@@ -317,11 +317,7 @@ async function checkAndNotifyPeersOfRunningApps(
         await messageStore.storeAppRunningMessage(newAppRunningMessage);
         if (installedAndRunning.length === 1) {
           // eslint-disable-next-line no-await-in-loop
-          await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(500);
-          // eslint-disable-next-line no-await-in-loop
-          await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+          await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessage);
           // broadcast messages about running apps to all peers
           log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessage)}`);
         }
@@ -338,11 +334,7 @@ async function checkAndNotifyPeersOfRunningApps(
           staticIp: geolocationService.isStaticIP(),
         };
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(500);
-        // eslint-disable-next-line no-await-in-loop
-        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessageV2);
+        await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessageV2);
         // broadcast messages about running apps to all peers
         log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessageV2)}`);
       } else if (installedAndRunning.length === 0 && checkAndNotifyPeersOfRunningAppsFirstRun) {
@@ -361,11 +353,7 @@ async function checkAndNotifyPeersOfRunningApps(
           staticIp: geolocationService.isStaticIP(),
         };
         // eslint-disable-next-line no-await-in-loop
-        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(500);
-        // eslint-disable-next-line no-await-in-loop
-        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessageV2);
+        await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessageV2);
         // broadcast messages about running apps to all peers
         log.info(`No Apps Running Message broadcasted ${JSON.stringify(newAppRunningMessageV2)}`);
       }

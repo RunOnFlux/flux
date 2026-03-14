@@ -39,7 +39,7 @@ const upnpService = require('../../ZelBack/src/services/upnpService');
 
 const net = require('node:net');
 
-const { peerManager } = require('../../ZelBack/src/services/utils/establishedConnections');
+const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
