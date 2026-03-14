@@ -8,6 +8,7 @@ const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication'
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const { requireMongo } = require('./dbTestHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
@@ -67,6 +68,8 @@ describe('fluxCommunication tests', () => {
     const privateKey = 'KxA2iy4aVuVKXsK8pBnJGM9vNm4z6PLNRTzsPuSFBw6vWL5StbqD';
     const ownerAddress = '13ienDRfUwFEgfZxm5dk4drTQsmj5hDGwL';
     let relaySpy;
+
+    before(requireMongo);
 
     beforeEach(async () => {
       peerManager._clear();
@@ -252,6 +255,8 @@ describe('fluxCommunication tests', () => {
 
   describe('handleAppRunningMessage tests', () => {
     let relaySpy;
+
+    before(requireMongo);
 
     beforeEach(async () => {
       peerManager._clear();
@@ -826,6 +831,8 @@ describe('fluxCommunication tests', () => {
   });
 
   describe('initiateAndHandleConnection tests', () => {
+    before(function () { if (process.platform !== 'linux') this.skip(); });
+
     let wsserver;
     let logSpy;
     let lruRateLimitStub;
@@ -1448,6 +1455,8 @@ describe('fluxCommunication tests', () => {
     let findInDatabaseStub;
     let updateInDatabaseStub;
     let logInfoSpy;
+
+    before(requireMongo);
 
     beforeEach(async () => {
       peerManager._clear();
