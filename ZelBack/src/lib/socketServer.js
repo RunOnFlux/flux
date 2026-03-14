@@ -2,6 +2,8 @@ const { match } = require('path-to-regexp');
 const WebSocketServer = require('ws').Server;
 const log = require('./log');
 
+const LOCAL_CAPABILITIES = ['transmissionTimestamps'];
+
 class FluxWebsocketServer {
   static defautlErrorHandler = () => { };
 
@@ -45,8 +47,21 @@ class FluxWebsocketServer {
       }
     });
 
+    // Add our capabilities to every WS upgrade response header.
+    // Old nodes silently ignore unknown headers.
+    this.#socketServer.on('headers', (headers) => {
+      headers.push(`X-Flux-Capabilities: ${LOCAL_CAPABILITIES.join(',')}`);
+    });
+
     this.#socketServer.on('connection', (ws, request) => {
       ws.on('error', (err) => this.errorHandler(err));
+
+      // Parse remote capabilities from the upgrade request header.
+      // Old nodes won't send this header — remoteCapabilities stays empty.
+      const capHeader = request.headers['x-flux-capabilities'];
+      if (capHeader) {
+        ws._remoteCapabilities = capHeader.split(',').map((s) => s.trim()).filter(Boolean);
+      }
 
       const { url } = request;
 
