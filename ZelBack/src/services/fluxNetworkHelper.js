@@ -19,7 +19,7 @@ const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
-const { peerManager } = require('./utils/establishedConnections');
+const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 
@@ -1156,9 +1156,7 @@ async function adjustExternalIP(ip) {
           // broadcast messages about ip changed to all peers
           // eslint-disable-next-line global-require
           const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
-          await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
-          await serviceHelper.delay(500);
-          await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
+          await fluxCommunicationMessagesSender.broadcastMessageToAll(newIpChangedMessage);
         }
       }
       const result = await daemonServiceWalletRpcs.createConfirmationTransaction();

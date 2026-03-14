@@ -118,7 +118,7 @@ describe('appValidator tests', () => {
         isPortAvailable: sinon.stub().returns(true),
         ensureAppUniquePorts: sinon.stub().resolves(true),
       },
-      '../utils/establishedConnections': {
+      '../utils/peerState': {
         peerManager: {
           outboundCount: 0,
           inboundCount: 0,

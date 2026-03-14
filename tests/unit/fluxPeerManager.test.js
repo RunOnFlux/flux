@@ -806,6 +806,434 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
+  describe('broadcast', () => {
+    it('should send data to all peers when no direction specified', async () => {
+      const ws1 = createMockWs('10.0.0.1', '16127');
+      const ws2 = createMockWs('10.0.0.2', '16127');
+      const ws3 = createMockWs('10.0.0.3', '16127');
+      ws1.readyState = 1; // WebSocket.OPEN
+      ws2.readyState = 1;
+      ws3.readyState = 1;
+      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws2, 'inbound', '10.0.0.2', '16127');
+      manager.add(ws3, 'outbound', '10.0.0.3', '16127');
+
+      await manager.broadcast('hello');
+
+      sinon.assert.calledOnce(ws1.send);
+      sinon.assert.calledOnce(ws2.send);
+      sinon.assert.calledOnce(ws3.send);
+    });
+
+    it('should send only to outbound when direction is outbound', async () => {
+      const ws1 = createMockWs('10.0.0.1', '16127');
+      const ws2 = createMockWs('10.0.0.2', '16127');
+      ws1.readyState = 1;
+      ws2.readyState = 1;
+      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws2, 'inbound', '10.0.0.2', '16127');
+
+      await manager.broadcast('hello', { direction: 'outbound' });
+
+      sinon.assert.calledOnce(ws1.send);
+      sinon.assert.notCalled(ws2.send);
+    });
+
+    it('should send only to inbound when direction is inbound', async () => {
+      const ws1 = createMockWs('10.0.0.1', '16127');
+      const ws2 = createMockWs('10.0.0.2', '16127');
+      ws1.readyState = 1;
+      ws2.readyState = 1;
+      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws2, 'inbound', '10.0.0.2', '16127');
+
+      await manager.broadcast('hello', { direction: 'inbound' });
+
+      sinon.assert.notCalled(ws1.send);
+      sinon.assert.calledOnce(ws2.send);
+    });
+
+    it('should skip excluded peer', async () => {
+      const ws1 = createMockWs('10.0.0.1', '16127');
+      const ws2 = createMockWs('10.0.0.2', '16127');
+      ws1.readyState = 1;
+      ws2.readyState = 1;
+      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws2, 'outbound', '10.0.0.2', '16127');
+
+      await manager.broadcast('hello', { exclude: '10.0.0.1:16127' });
+
+      sinon.assert.notCalled(ws1.send);
+      sinon.assert.calledOnce(ws2.send);
+    });
+
+    it('should close peer with correct code on send failure', async () => {
+      const ws1 = createMockWs('10.0.0.1', '16127');
+      const ws2 = createMockWs('10.0.0.2', '16127');
+      ws1.readyState = WebSocket.CLOSED; // will fail to send
+      ws2.readyState = 1;
+      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws2, 'inbound', '10.0.0.2', '16127');
+
+      await manager.broadcast('hello');
+
+      // outbound peer closed with 4009
+      sinon.assert.calledOnce(ws1.close);
+      sinon.assert.calledWith(ws1.close, 4009, 'send failure');
+      // inbound peer sent successfully
+      sinon.assert.calledOnce(ws2.send);
+    });
+
+    it('should close inbound peer with 4010 on send failure', async () => {
+      const ws1 = createMockWs('10.0.0.1', '16127');
+      ws1.readyState = WebSocket.CLOSED;
+      manager.add(ws1, 'inbound', '10.0.0.1', '16127');
+
+      await manager.broadcast('hello');
+
+      sinon.assert.calledOnce(ws1.close);
+      sinon.assert.calledWith(ws1.close, 4010, 'send failure');
+    });
+  });
+
+  describe('getIpGroup', () => {
+    it('should return first two octets', () => {
+      expect(FluxPeerManager.getIpGroup('192.168.1.1')).to.equal('192.168');
+      expect(FluxPeerManager.getIpGroup('10.0.0.1')).to.equal('10.0');
+      expect(FluxPeerManager.getIpGroup('172.16.5.200')).to.equal('172.16');
+    });
+
+    it('should return ip as-is for non-standard formats', () => {
+      expect(FluxPeerManager.getIpGroup('localhost')).to.equal('localhost');
+    });
+  });
+
+  describe('IP group tracking', () => {
+    it('should track IP groups on add and remove', () => {
+      const ws1 = createMockWs('192.168.1.1', '16127');
+      const ws2 = createMockWs('192.168.1.2', '16128');
+      manager.add(ws1, 'outbound', '192.168.1.1', '16127');
+      manager.add(ws2, 'outbound', '192.168.1.2', '16128');
+
+      expect(manager.isIpGroupConnected('192.168', 'outbound')).to.equal(true);
+      expect(manager.isIpGroupConnected('192.168', 'inbound')).to.equal(false);
+      expect(manager.getUniqueIpCount('outbound')).to.equal(2);
+
+      manager.remove('192.168.1.1:16127');
+
+      expect(manager.isIpGroupConnected('192.168', 'outbound')).to.equal(true); // still have .1.2
+      expect(manager.getUniqueIpCount('outbound')).to.equal(1);
+
+      manager.remove('192.168.1.2:16128');
+
+      expect(manager.isIpGroupConnected('192.168', 'outbound')).to.equal(false);
+      expect(manager.getUniqueIpCount('outbound')).to.equal(0);
+    });
+
+    it('should track different directions independently', () => {
+      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.2', '16127'), 'inbound', '10.0.0.2', '16127');
+
+      expect(manager.isIpGroupConnected('10.0', 'outbound')).to.equal(true);
+      expect(manager.isIpGroupConnected('10.0', 'inbound')).to.equal(true);
+      expect(manager.getUniqueIpCount('outbound')).to.equal(1);
+      expect(manager.getUniqueIpCount('inbound')).to.equal(1);
+    });
+
+    it('getConnectedIpGroups should return set of groups', () => {
+      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('172.16.0.1', '16127'), 'outbound', '172.16.0.1', '16127');
+      manager.add(createMockWs('192.168.1.1', '16127'), 'inbound', '192.168.1.1', '16127');
+
+      const outGroups = manager.getConnectedIpGroups('outbound');
+      expect(outGroups).to.deep.equal(new Set(['10.0', '172.16']));
+
+      const inGroups = manager.getConnectedIpGroups('inbound');
+      expect(inGroups).to.deep.equal(new Set(['192.168']));
+    });
+  });
+
+  describe('needsMorePeers', () => {
+    it('should return true when below max count', () => {
+      expect(manager.needsMorePeers('outbound')).to.equal(true);
+    });
+
+    it('should return true when at max count but below unique IP threshold', () => {
+      // Add 14 outbound peers all from same IP (different ports)
+      for (let i = 0; i < 14; i += 1) {
+        const port = String(16127 + i);
+        manager.add(createMockWs('10.0.0.1', port), 'outbound', '10.0.0.1', port);
+      }
+      expect(manager.outboundCount).to.equal(14);
+      expect(manager.getUniqueIpCount('outbound')).to.equal(1);
+      // Still needs more because uniqueIps (1) < minUniqueIps (9)
+      expect(manager.needsMorePeers('outbound')).to.equal(true);
+    });
+
+    it('should return false when both thresholds met', () => {
+      // Add 14 outbound peers with 9+ unique IPs
+      for (let i = 0; i < 14; i += 1) {
+        const ip = `10.${i}.0.1`;
+        const port = '16127';
+        manager.add(createMockWs(ip, port), 'outbound', ip, port);
+      }
+      expect(manager.outboundCount).to.equal(14);
+      expect(manager.getUniqueIpCount('outbound')).to.equal(14);
+      expect(manager.needsMorePeers('outbound')).to.equal(false);
+    });
+
+    it('should use custom thresholds', () => {
+      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.1.0.1', '16127'), 'outbound', '10.1.0.1', '16127');
+
+      expect(manager.needsMorePeers('outbound', { maxCount: 2, minUniqueIps: 2 })).to.equal(false);
+      expect(manager.needsMorePeers('outbound', { maxCount: 3, minUniqueIps: 2 })).to.equal(true);
+    });
+  });
+
+  describe('canAcceptPeer', () => {
+    it('should reject already connected peer', () => {
+      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      expect(manager.canAcceptPeer('10.0.0.1', '16127', 'outbound', '192.168')).to.equal(false);
+    });
+
+    it('should reject peer in same IP group as self', () => {
+      expect(manager.canAcceptPeer('192.168.1.5', '16127', 'outbound', '192.168')).to.equal(false);
+    });
+
+    it('should reject peer whose IP group already has a connection in that direction', () => {
+      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      // Same /16 group (10.0), different IP
+      expect(manager.canAcceptPeer('10.0.0.2', '16127', 'outbound', '192.168')).to.equal(false);
+    });
+
+    it('should accept peer in different IP group with no conflicts', () => {
+      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      expect(manager.canAcceptPeer('172.16.0.1', '16127', 'outbound', '192.168')).to.equal(true);
+    });
+
+    it('should allow same IP group in different direction', () => {
+      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      // Same group but inbound direction — allowed
+      expect(manager.canAcceptPeer('10.0.0.2', '16127', 'inbound', '192.168')).to.equal(true);
+    });
+  });
+
+  describe('isPrivateIp', () => {
+    it('should detect 10.0.0.0/8 range', () => {
+      expect(FluxPeerManager.isPrivateIp('10.0.0.1')).to.equal(true);
+      expect(FluxPeerManager.isPrivateIp('10.255.255.255')).to.equal(true);
+    });
+
+    it('should detect 172.16.0.0/12 range', () => {
+      expect(FluxPeerManager.isPrivateIp('172.16.0.1')).to.equal(true);
+      expect(FluxPeerManager.isPrivateIp('172.31.255.255')).to.equal(true);
+      expect(FluxPeerManager.isPrivateIp('172.15.0.1')).to.equal(false);
+      expect(FluxPeerManager.isPrivateIp('172.32.0.1')).to.equal(false);
+    });
+
+    it('should detect 192.168.0.0/16 range', () => {
+      expect(FluxPeerManager.isPrivateIp('192.168.0.1')).to.equal(true);
+      expect(FluxPeerManager.isPrivateIp('192.168.255.255')).to.equal(true);
+      expect(FluxPeerManager.isPrivateIp('192.169.0.1')).to.equal(false);
+    });
+
+    it('should return false for public IPs', () => {
+      expect(FluxPeerManager.isPrivateIp('8.8.8.8')).to.equal(false);
+      expect(FluxPeerManager.isPrivateIp('1.1.1.1')).to.equal(false);
+      expect(FluxPeerManager.isPrivateIp('203.0.113.1')).to.equal(false);
+    });
+
+    it('should return false for malformed IPs', () => {
+      expect(FluxPeerManager.isPrivateIp('abc')).to.equal(false);
+      expect(FluxPeerManager.isPrivateIp('10.0')).to.equal(false);
+    });
+  });
+
+  describe('validateAndAddInbound', () => {
+    it('should add valid inbound peer', () => {
+      manager.numberOfFluxNodes = 10000;
+      const ws = createMockWs('8.8.8.8', '16127');
+      ws.close = sinon.stub();
+
+      manager.validateAndAddInbound(ws, '16127');
+
+      expect(manager.inboundCount).to.equal(1);
+      expect(manager.has('8.8.8.8:16127')).to.equal(true);
+    });
+
+    it('should use default port 16127 when not provided', () => {
+      manager.numberOfFluxNodes = 10000;
+      const ws = createMockWs('8.8.8.8', '16127');
+
+      manager.validateAndAddInbound(ws);
+
+      expect(manager.has('8.8.8.8:16127')).to.equal(true);
+    });
+
+    it('should reject when max connections reached', (done) => {
+      manager.numberOfFluxNodes = 0; // maxCon = max(4*minIncoming, 0) = 4*minIncoming
+      // Fill up inbound to exceed max
+      for (let i = 0; i < 200; i += 1) {
+        const ip = `${100 + Math.floor(i / 256)}.${i % 256}.0.1`;
+        manager.add(createMockWs(ip, '16127'), 'inbound', ip, '16127');
+      }
+
+      const ws = createMockWs('8.8.8.8', '16127');
+      ws.close = sinon.stub();
+
+      manager.validateAndAddInbound(ws, '16127');
+
+      // Close is called via setTimeout
+      setTimeout(() => {
+        sinon.assert.calledOnce(ws.close);
+        sinon.assert.calledWith(ws.close, 4000, sinon.match(/Max number/));
+        done();
+      }, 1100);
+    });
+
+    it('should reject private IPs', (done) => {
+      manager.numberOfFluxNodes = 10000;
+      const ws = createMockWs('10.0.0.1', '16127');
+      ws.close = sinon.stub();
+
+      manager.validateAndAddInbound(ws, '16127');
+
+      setTimeout(() => {
+        sinon.assert.calledOnce(ws.close);
+        sinon.assert.calledWith(ws.close, 4002, sinon.match(/internal IP/));
+        expect(manager.inboundCount).to.equal(0);
+        done();
+      }, 1100);
+    });
+
+    it('should reject duplicate peers', (done) => {
+      manager.numberOfFluxNodes = 10000;
+      const ws1 = createMockWs('8.8.8.8', '16127');
+      manager.add(ws1, 'inbound', '8.8.8.8', '16127');
+
+      const ws2 = createMockWs('8.8.8.8', '16127');
+      ws2.close = sinon.stub();
+
+      manager.validateAndAddInbound(ws2, '16127');
+
+      setTimeout(() => {
+        sinon.assert.calledOnce(ws2.close);
+        sinon.assert.calledWith(ws2.close, 4001, sinon.match(/already in peers/));
+        expect(manager.inboundCount).to.equal(1);
+        done();
+      }, 1100);
+    });
+
+    it('should extract IPv4 from IPv6-mapped address', () => {
+      manager.numberOfFluxNodes = 10000;
+      const ws = createMockWs('8.8.8.8', '16127');
+      ws._socket.remoteAddress = '::ffff:8.8.8.8';
+
+      manager.validateAndAddInbound(ws, '16127');
+
+      expect(manager.has('8.8.8.8:16127')).to.equal(true);
+    });
+  });
+
+  describe('getReconnectCandidates', () => {
+    it('should return queued entries with ≤3 attempts', () => {
+      manager.queueReconnect('10.0.0.1', '16127');
+      manager.queueReconnect('10.1.0.1', '16127');
+
+      const candidates = manager.getReconnectCandidates();
+      expect(candidates).to.have.lengthOf(2);
+      expect(candidates[0].key).to.equal('10.0.0.1:16127');
+      expect(candidates[1].key).to.equal('10.1.0.1:16127');
+    });
+
+    it('should exclude already connected peers and clean up', () => {
+      manager.queueReconnect('10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+
+      const candidates = manager.getReconnectCandidates();
+      expect(candidates).to.have.lengthOf(0);
+      expect(manager.getReconnectQueue().has('10.0.0.1:16127')).to.equal(false);
+    });
+
+    it('should exclude unstable peers and clean up', () => {
+      manager.queueReconnect('10.0.0.1', '16127');
+      // Make unstable
+      for (let i = 0; i < 5; i += 1) {
+        manager.trackDisconnect('10.0.0.1', '16127');
+      }
+
+      const candidates = manager.getReconnectCandidates();
+      expect(candidates).to.have.lengthOf(0);
+      expect(manager.getReconnectQueue().has('10.0.0.1:16127')).to.equal(false);
+    });
+
+    it('should exclude entries with >3 attempts and clean up', () => {
+      manager.queueReconnect('10.0.0.1', '16127');
+      manager.queueReconnect('10.0.0.1', '16127');
+      manager.queueReconnect('10.0.0.1', '16127');
+      manager.queueReconnect('10.0.0.1', '16127'); // 4th attempt
+
+      const candidates = manager.getReconnectCandidates();
+      expect(candidates).to.have.lengthOf(0);
+      expect(manager.getReconnectQueue().has('10.0.0.1:16127')).to.equal(false);
+    });
+  });
+
+  describe('failed connection tracking', () => {
+    it('should allow first connection attempt', () => {
+      expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(true);
+    });
+
+    it('should block attempt during backoff window', () => {
+      manager.recordFailedConnection('10.0.0.1', '16127');
+      expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(false);
+    });
+
+    it('should allow attempt after backoff expires', () => {
+      manager.recordFailedConnection('10.0.0.1', '16127');
+      // Manually set lastAttempt to 3 minutes ago (beyond 2min first backoff)
+      manager._failedConnections.get('10.0.0.1:16127').lastAttempt = Date.now() - (3 * 60000);
+      expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(true);
+    });
+
+    it('should increase backoff on subsequent failures', () => {
+      manager.recordFailedConnection('10.0.0.1', '16127');
+      manager.recordFailedConnection('10.0.0.1', '16127');
+      // Second failure: 5min backoff. 3 minutes ago should still be blocked.
+      manager._failedConnections.get('10.0.0.1:16127').lastAttempt = Date.now() - (3 * 60000);
+      expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(false);
+      // 6 minutes ago should be allowed
+      manager._failedConnections.get('10.0.0.1:16127').lastAttempt = Date.now() - (6 * 60000);
+      expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(true);
+    });
+
+    it('should cap backoff at 15 minutes', () => {
+      for (let i = 0; i < 10; i += 1) {
+        manager.recordFailedConnection('10.0.0.1', '16127');
+      }
+      // 14 minutes ago — should still be blocked (cap is 15min)
+      manager._failedConnections.get('10.0.0.1:16127').lastAttempt = Date.now() - (14 * 60000);
+      expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(false);
+      // 16 minutes ago — should be allowed
+      manager._failedConnections.get('10.0.0.1:16127').lastAttempt = Date.now() - (16 * 60000);
+      expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(true);
+    });
+
+    it('should return false for already connected peers', () => {
+      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(false);
+    });
+
+    it('should clear failed connection on successful add', () => {
+      manager.recordFailedConnection('10.0.0.1', '16127');
+      expect(manager._failedConnections.has('10.0.0.1:16127')).to.equal(true);
+
+      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      expect(manager._failedConnections.has('10.0.0.1:16127')).to.equal(false);
+    });
+  });
+
   describe('singleton export', () => {
     it('peerManager should be an instance of FluxPeerManager', () => {
       expect(peerManager).to.be.instanceOf(FluxPeerManager);

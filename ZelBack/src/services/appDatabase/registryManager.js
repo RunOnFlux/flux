@@ -1469,7 +1469,7 @@ async function registerAppGlobalyApi(req, res) {
   // eslint-disable-next-line global-require
   const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
   // eslint-disable-next-line global-require
-  const { peerManager } = require('../utils/establishedConnections');
+  const { peerManager } = require('../utils/peerState');
 
   const isArcane = Boolean(process.env.FLUXOS_PATH);
 

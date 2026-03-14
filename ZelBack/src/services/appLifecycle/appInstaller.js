@@ -630,9 +630,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         // eslint-disable-next-line no-await-in-loop, no-use-before-define
         await storeAppInstallingErrorMessage(newAppRunningMessage);
         // broadcast messages about running apps to all peers
-        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-        await serviceHelper.delay(500);
-        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+        await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessage);
         // broadcast messages about running apps to all peers
       }
       throw error;
@@ -658,9 +656,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       // eslint-disable-next-line no-await-in-loop, no-use-before-define
       await storeAppRunningMessage(newAppRunningMessage);
       // broadcast messages about running apps to all peers
-      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-      await serviceHelper.delay(500);
-      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+      await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessage);
       // broadcast messages about running apps to all peers
     }
 

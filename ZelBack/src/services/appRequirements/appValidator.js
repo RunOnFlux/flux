@@ -15,7 +15,7 @@ const { supportedArchitectures, enterpriseRequiredArchitectures } = require('../
 const { specificationFormatter, findCommonArchitectures } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const portManager = require('../appNetwork/portManager');
-const { peerManager } = require('../utils/establishedConnections');
+const { peerManager } = require('../utils/peerState');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
