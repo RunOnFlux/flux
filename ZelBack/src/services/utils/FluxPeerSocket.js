@@ -37,6 +37,7 @@ class FluxPeerSocket {
     this.lastTransmissionDelay = null;
     this.badMessageTimestamps = [];
     this.remoteCapabilities = new Set();
+    this.remoteClockOffsetMs = null;
     this.msgMap = new Map([['requestHash', 0], ['newHash', 0]]);
 
     // backward compat: set ip, port, msgMap on the raw socket
@@ -44,12 +45,15 @@ class FluxPeerSocket {
     ws.port = this.port;
     ws.msgMap = this.msgMap;
 
-    // Read remote capabilities from HTTP upgrade headers (set by socketServer.js
-    // for inbound, or by the 'upgrade' event handler for outbound).
-    // Old nodes don't send the header, so this stays empty for them.
+    // Read remote capabilities and clock offset from HTTP upgrade headers
+    // (set by socketServer.js for inbound, or by the 'upgrade' event handler for outbound).
+    // Old nodes don't send these headers.
     if (Array.isArray(ws._remoteCapabilities) && ws._remoteCapabilities.length) {
       this.remoteCapabilities = new Set(ws._remoteCapabilities);
       log.info(`Peer ${this.key} capabilities (from header): ${ws._remoteCapabilities.join(', ')}`);
+    }
+    if (typeof ws._remoteClockOffsetMs === 'number' && !Number.isNaN(ws._remoteClockOffsetMs)) {
+      this.remoteClockOffsetMs = ws._remoteClockOffsetMs;
     }
 
     this._bindHandlers();
@@ -204,6 +208,10 @@ class FluxPeerSocket {
       if (!rateOK) return;
 
       // Strip transmission timestamp prefix if present (T{timestamp}|{json})
+      // Adjust for clock skew using exchanged NTP offsets:
+      //   rawDelay = localTime - remoteTime
+      //   skew = localOffset - remoteOffset (positive = our clock is ahead)
+      //   adjustedDelay = rawDelay - skew
       let rawData = evt.data;
       if (typeof rawData === 'string' && rawData.length > 2 && rawData[0] === 'T') {
         const pipeIdx = rawData.indexOf('|');
@@ -211,7 +219,12 @@ class FluxPeerSocket {
           const tsStr = rawData.substring(1, pipeIdx);
           const ts = Number(tsStr);
           if (ts > 0) {
-            this.lastTransmissionDelay = Date.now() - ts;
+            let delay = Date.now() - ts;
+            const localOffset = fluxNetworkHelper.getLocalClockOffsetMs();
+            if (localOffset !== null && this.remoteClockOffsetMs !== null) {
+              delay -= (localOffset - this.remoteClockOffsetMs);
+            }
+            this.lastTransmissionDelay = delay;
             rawData = rawData.substring(pipeIdx + 1);
           }
         }

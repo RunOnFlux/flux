@@ -699,16 +699,24 @@ async function initiateAndHandleConnection(connection) {
         'X-Flux-Capabilities': 'transmissionTimestamps',
       },
     };
+    const offsetMs = fluxNetworkHelper.getLocalClockOffsetMs();
+    if (offsetMs !== null) {
+      options.headers['X-Flux-Clock-Offset'] = String(offsetMs);
+    }
     const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
     const websocket = new WebSocket(wsuri, options);
     websocket.port = port;
     websocket.ip = ip;
-    // Parse remote capabilities from the HTTP upgrade response.
-    // Old nodes won't include this header.
+    // Parse remote capabilities and clock offset from the HTTP upgrade response.
+    // Old nodes won't include these headers.
     websocket.on('upgrade', (response) => {
       const capHeader = response.headers['x-flux-capabilities'];
       if (capHeader) {
         websocket._remoteCapabilities = capHeader.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+      const clockHeader = response.headers['x-flux-clock-offset'];
+      if (clockHeader !== undefined) {
+        websocket._remoteClockOffsetMs = Number(clockHeader);
       }
     });
     websocket.onopen = () => {
@@ -1078,6 +1086,7 @@ function peerToDetailedInfo(peer) {
     isAlive: peer.isAlive,
     badMessages: peer.badMessageTimestamps.length,
     capabilities: [...peer.remoteCapabilities],
+    remoteClockOffsetMs: peer.remoteClockOffsetMs,
     lastTransmissionDelay: peer.lastTransmissionDelay,
   };
 }

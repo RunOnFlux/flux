@@ -1119,6 +1119,9 @@ module.exports = (app) => {
   app.get('/flux/systemuptime', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.fluxSystemUptime(req, res);
   });
+  app.get('/flux/clockdrift', cache('30 seconds'), (req, res) => {
+    fluxNetworkHelper.clockDrift(req, res);
+  });
   app.get('/flux/backendfolder', isLocal, (req, res) => {
     fluxService.fluxBackendFolder(req, res);
   });

@@ -47,20 +47,30 @@ class FluxWebsocketServer {
       }
     });
 
-    // Add our capabilities to every WS upgrade response header.
+    // Add our capabilities and clock offset to every WS upgrade response header.
     // Old nodes silently ignore unknown headers.
     this.#socketServer.on('headers', (headers) => {
       headers.push(`X-Flux-Capabilities: ${LOCAL_CAPABILITIES.join(',')}`);
+      // Lazy require to avoid circular deps at module load time
+      const fluxNetworkHelper = require('../services/fluxNetworkHelper');
+      const offsetMs = fluxNetworkHelper.getLocalClockOffsetMs();
+      if (offsetMs !== null) {
+        headers.push(`X-Flux-Clock-Offset: ${offsetMs}`);
+      }
     });
 
     this.#socketServer.on('connection', (ws, request) => {
       ws.on('error', (err) => this.errorHandler(err));
 
-      // Parse remote capabilities from the upgrade request header.
-      // Old nodes won't send this header — remoteCapabilities stays empty.
+      // Parse remote capabilities and clock offset from the upgrade request header.
+      // Old nodes won't send these headers.
       const capHeader = request.headers['x-flux-capabilities'];
       if (capHeader) {
         ws._remoteCapabilities = capHeader.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+      const clockHeader = request.headers['x-flux-clock-offset'];
+      if (clockHeader !== undefined) {
+        ws._remoteClockOffsetMs = Number(clockHeader);
       }
 
       const { url } = request;
