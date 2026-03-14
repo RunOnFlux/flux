@@ -2,9 +2,6 @@ const WebSocket = require('ws');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 
-// Features this node supports. Sent to peers during capability handshake.
-const LOCAL_CAPABILITIES = Object.freeze(['transmissionTimestamps']);
-
 const CLOSE_CODES = {
   inbound: {
     invalidMsg: 4016, blocked: 4003, badOrigin: 4004, blockedOrigin: 4005,
@@ -47,8 +44,15 @@ class FluxPeerSocket {
     ws.port = this.port;
     ws.msgMap = this.msgMap;
 
+    // Read remote capabilities from HTTP upgrade headers (set by socketServer.js
+    // for inbound, or by the 'upgrade' event handler for outbound).
+    // Old nodes don't send the header, so this stays empty for them.
+    if (Array.isArray(ws._remoteCapabilities) && ws._remoteCapabilities.length) {
+      this.remoteCapabilities = new Set(ws._remoteCapabilities);
+      log.info(`Peer ${this.key} capabilities (from header): ${ws._remoteCapabilities.join(', ')}`);
+    }
+
     this._bindHandlers();
-    this.sendCapabilities();
   }
 
   get closeCodes() {
@@ -126,21 +130,6 @@ class FluxPeerSocket {
   sendNak(messageHash, reason) {
     const nak = JSON.stringify({ type: 'nak', hash: messageHash, reason });
     this.send(nak);
-  }
-
-  /**
-   * Send our capabilities to the remote peer. Called once after connection.
-   * Old nodes will ignore this as an unrecognised message type.
-   */
-  sendCapabilities() {
-    const msg = JSON.stringify({ type: 'capabilities', features: LOCAL_CAPABILITIES });
-    try {
-      if (this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(msg);
-      }
-    } catch (e) {
-      log.error(e);
-    }
   }
 
   /**
@@ -233,15 +222,6 @@ class FluxPeerSocket {
       // Handle NAK messages
       if (msgObj.type === 'nak') {
         this.onNakReceived();
-        return;
-      }
-
-      // Handle capability handshake
-      if (msgObj.type === 'capabilities') {
-        if (Array.isArray(msgObj.features)) {
-          this.remoteCapabilities = new Set(msgObj.features);
-          log.info(`Peer ${this.key} capabilities: ${msgObj.features.join(', ')}`);
-        }
         return;
       }
 

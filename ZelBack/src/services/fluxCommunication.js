@@ -831,11 +831,22 @@ async function initiateAndHandleConnection(connection) {
         threshold: 128, // Size (in bytes) below which messages
       // should not be compressed if context takeover is disabled.
       },
+      headers: {
+        'X-Flux-Capabilities': 'transmissionTimestamps',
+      },
     };
     const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
     const websocket = new WebSocket(wsuri, options);
     websocket.port = port;
     websocket.ip = ip;
+    // Parse remote capabilities from the HTTP upgrade response.
+    // Old nodes won't include this header.
+    websocket.on('upgrade', (response) => {
+      const capHeader = response.headers['x-flux-capabilities'];
+      if (capHeader) {
+        websocket._remoteCapabilities = capHeader.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    });
     websocket.onopen = () => {
       // Add to peerManager — FluxPeerSocket constructor binds all handlers
       peerManager.add(websocket, 'outbound', ip, port);
