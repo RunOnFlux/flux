@@ -70,25 +70,7 @@ async function handleAppMessages(message, fromIP, port) {
         };
         messageString = JSON.stringify(dataObj);
       }
-      const wsListOut = [];
-      for (const peer of peerManager.outboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsListOut.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(500);
-      const wsList = [];
-      for (const peer of peerManager.inboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsList.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -102,7 +84,7 @@ async function handleAppMessages(message, fromIP, port) {
  * @param {string} port Sender's node Api port.
  * @param {boolean} outgoingConnection says if ip/port is from incoming or outgoing connections.
  */
-async function handleCheckMessageHashPresent(messageHash, fromIP, port, outgoingConnection) {
+async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
   try {
     if (!messageCache.has(messageHash)) {
       const dataObj = {
@@ -111,12 +93,7 @@ async function handleCheckMessageHashPresent(messageHash, fromIP, port, outgoing
       const dataString = JSON.stringify(dataObj);
       const peer = peerManager.get(`${fromIP}:${port}`);
       if (peer) {
-        const wsList = [peer.ws];
-        if (outgoingConnection) {
-          fluxCommunicationMessagesSender.sendToAllPeers(dataString, wsList);
-        } else {
-          fluxCommunicationMessagesSender.sendToAllIncomingConnections(dataString, wsList);
-        }
+        peer.send(dataString);
       }
     }
   } catch (error) {
@@ -131,7 +108,7 @@ async function handleCheckMessageHashPresent(messageHash, fromIP, port, outgoing
  * @param {string} port Sender's node Api port.
  * @param {boolean} outgoingConnection says if ip/port is from incoming or outgoing connections.
  */
-async function handleRequestMessageHash(messageHash, fromIP, port, outgoingConnection) {
+async function handleRequestMessageHash(messageHash, fromIP, port) {
   try {
     if (messageCache.has(messageHash)) {
       const message = messageCache.get(messageHash);
@@ -139,12 +116,7 @@ async function handleRequestMessageHash(messageHash, fromIP, port, outgoingConne
         const messageString = serviceHelper.ensureString(message);
         const peer = peerManager.get(`${fromIP}:${port}`);
         if (peer) {
-          const wsList = [peer.ws];
-          if (outgoingConnection) {
-            fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsList);
-          } else {
-            fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
-          }
+          peer.send(messageString);
         }
       }
     }
@@ -177,25 +149,7 @@ async function handleAppRunningMessage(message, fromIP, port) {
         };
         messageString = JSON.stringify(dataObj);
       }
-      const wsListOut = [];
-      for (const peer of peerManager.outboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsListOut.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(500);
-      const wsList = [];
-      for (const peer of peerManager.inboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsList.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -226,25 +180,7 @@ async function handleAppInstallingMessage(message, fromIP, port) {
         };
         messageString = JSON.stringify(dataObj);
       }
-      const wsListOut = [];
-      for (const peer of peerManager.outboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsListOut.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(500);
-      const wsList = [];
-      for (const peer of peerManager.inboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsList.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -275,25 +211,7 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
         };
         messageString = JSON.stringify(dataObj);
       }
-      const wsListOut = [];
-      for (const peer of peerManager.outboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsListOut.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(500);
-      const wsList = [];
-      for (const peer of peerManager.inboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsList.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -301,7 +219,7 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
 }
 
 /**
- * To handle running app messages.
+ * To handle IP changed messages.
  * @param {object} message Message.
  * @param {string} fromIP Sender's IP address.
  * @param {string} port Sender's node Api port.
@@ -323,25 +241,7 @@ async function handleIPChangedMessage(message, fromIP, port) {
         };
         messageString = JSON.stringify(dataObj);
       }
-      const wsListOut = [];
-      for (const peer of peerManager.outboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsListOut.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(500);
-      const wsList = [];
-      for (const peer of peerManager.inboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsList.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -349,7 +249,7 @@ async function handleIPChangedMessage(message, fromIP, port) {
 }
 
 /**
- * To handle running app messages.
+ * To handle app removed messages.
  * @param {object} message Message.
  * @param {string} fromIP Sender's IP address.
  * @param {string} port Sender's node Api port.
@@ -371,25 +271,7 @@ async function handleAppRemovedMessage(message, fromIP, port) {
         };
         messageString = JSON.stringify(dataObj);
       }
-      const wsListOut = [];
-      for (const peer of peerManager.outboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsListOut.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-      await serviceHelper.delay(500);
-      const wsList = [];
-      for (const peer of peerManager.inboundValues()) {
-        if (peer.ip === fromIP && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsList.push(peer.ws);
-        }
-      }
-      fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -446,25 +328,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
       };
       messageString = JSON.stringify(dataObj);
     }
-    const wsListOut = [];
-    for (const peer of peerManager.outboundValues()) {
-      if (peer.ip === fromIP && peer.port === port) {
-        // do not broadcast to this peer
-      } else {
-        wsListOut.push(peer.ws);
-      }
-    }
-    fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
-    await serviceHelper.delay(500);
-    const wsList = [];
-    for (const peer of peerManager.inboundValues()) {
-      if (peer.ip === fromIP && peer.port === port) {
-        // do not broadcast to this peer
-      } else {
-        wsList.push(peer.ws);
-      }
-    }
-    fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+    fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
   } catch (error) {
     log.error(error);
   }
@@ -497,7 +361,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     }
     const counter = peerSocket.msgMap.get('newHash');
     peerSocket.msgMap.set('newHash', counter + 1);
-    setImmediate(() => handleCheckMessageHashPresent(messageHashPresent, peerSocket.ip, peerSocket.port, isOutbound));
+    setImmediate(() => handleCheckMessageHashPresent(messageHashPresent, peerSocket.ip, peerSocket.port));
     return;
   }
   if (requestMessageHash) {
@@ -512,7 +376,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     }
     const counter = peerSocket.msgMap.get('requestHash');
     peerSocket.msgMap.set('requestHash', counter + 1);
-    setImmediate(() => handleRequestMessageHash(requestMessageHash, peerSocket.ip, peerSocket.port, isOutbound));
+    setImmediate(() => handleRequestMessageHash(requestMessageHash, peerSocket.ip, peerSocket.port));
     return;
   }
   if (!pubKey || !timestamp || !signature || !version || !data) {
