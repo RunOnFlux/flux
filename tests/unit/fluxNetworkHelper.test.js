@@ -35,6 +35,7 @@ const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const { requireMongo } = require('./dbTestHelper');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 
 const net = require('node:net');
@@ -785,10 +786,7 @@ describe('fluxNetworkHelper tests', () => {
   describe('checkMyFluxAvailability tests', () => {
     let getRandomSocketAddress;
 
-    before(async () => {
-      // need this if running tests standalone
-      await dbHelper.initiateDB();
-    });
+    before(requireMongo);
 
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed('5.0.0');
@@ -2036,6 +2034,8 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('adjustFirewall tests', () => {
+    before(function () { if (process.platform !== 'linux') this.skip(); });
+
     let utilStub;
     let funcStub;
     let logSpy;
