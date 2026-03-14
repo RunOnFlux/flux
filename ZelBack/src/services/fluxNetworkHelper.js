@@ -903,6 +903,40 @@ async function getClockDrift() {
   return { source, offset: null, time };
 }
 
+// Cached NTP clock offset in milliseconds. Refreshed every 5 minutes.
+let localClockOffsetMs = null;
+let clockOffsetInterval = null;
+
+/**
+ * Refresh the cached NTP clock offset from the system NTP source.
+ */
+async function refreshClockOffset() {
+  try {
+    const { offset } = await getClockDrift();
+    localClockOffsetMs = offset !== null ? Math.round(offset * 1000) : null;
+  } catch (e) {
+    log.error(`Failed to refresh clock offset: ${e.message}`);
+  }
+}
+
+/**
+ * Start the clock offset cache. Call once during node startup.
+ */
+async function initClockOffsetCache() {
+  await refreshClockOffset();
+  if (!clockOffsetInterval) {
+    clockOffsetInterval = setInterval(refreshClockOffset, 5 * 60 * 1000);
+  }
+}
+
+/**
+ * Returns the cached local NTP clock offset in milliseconds, or null if unavailable.
+ * @returns {number|null}
+ */
+function getLocalClockOffsetMs() {
+  return localClockOffsetMs;
+}
+
 /**
  * API handler for clock drift endpoint.
  * @param {object} req Request.
@@ -2193,4 +2227,6 @@ module.exports = {
   isArcane,
   clockDrift,
   getClockDrift,
+  initClockOffsetCache,
+  getLocalClockOffsetMs,
 };
