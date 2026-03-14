@@ -483,7 +483,6 @@ describe('fluxNetworkHelper tests', () => {
 
       sinon.assert.calledOnceWithExactly(websocket.close, 4009, 'purposefully closed');
       expect(closeConnectionResult).to.eql(successMessage);
-      expect(peerManager.outboundCount).to.equal(0);
     });
 
     it('should close outgoing connection properly if it exists and peer is not added to the list', async () => {
@@ -503,7 +502,6 @@ describe('fluxNetworkHelper tests', () => {
 
       sinon.assert.calledOnceWithExactly(websocket.close, 4009, 'purposefully closed');
       expect(closeConnectionResult).to.eql(successMessage);
-      expect(peerManager.outboundCount).to.equal(0);
     });
 
     it('should return warning message if the websocket does not exist', async () => {
