@@ -125,24 +125,6 @@ class FluxPeerManager {
     return this._peers.size;
   }
 
-  // --- Backward-compat getters (return fresh arrays matching old API shape) ---
-
-  get outgoingConnections() {
-    return [...this.outboundValues()].map((p) => p.ws);
-  }
-
-  get incomingConnections() {
-    return [...this.inboundValues()].map((p) => p.ws);
-  }
-
-  get outgoingPeers() {
-    return [...this.outboundValues()].map((p) => p.toPeerInfo());
-  }
-
-  get incomingPeers() {
-    return [...this.inboundValues()].map((p) => p.toPeerInfo());
-  }
-
   // --- Liveness ---
 
   /**

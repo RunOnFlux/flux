@@ -30,6 +30,24 @@ const connectWs = () => new Promise((resolve, reject) => {
   };
 });
 
+/**
+ * Poll until predicate returns true, or timeout.
+ * @param {Function} predicate - returns truthy when condition is met
+ * @param {number} [timeout=3000]
+ * @param {number} [interval=10]
+ */
+function waitFor(predicate, timeout = 3000, interval = 10) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const check = () => {
+      if (predicate()) return resolve();
+      if (Date.now() - start > timeout) return reject(new Error('waitFor timed out'));
+      return setTimeout(check, interval);
+    };
+    check();
+  });
+}
+
 describe('fluxCommunication tests', () => {
   before((done) => {
     localWsServer = new WebSocket.Server({ port: 0 }, () => {
@@ -48,14 +66,12 @@ describe('fluxCommunication tests', () => {
   describe('handleAppMessages tests', () => {
     const privateKey = 'KxA2iy4aVuVKXsK8pBnJGM9vNm4z6PLNRTzsPuSFBw6vWL5StbqD';
     const ownerAddress = '13ienDRfUwFEgfZxm5dk4drTQsmj5hDGwL';
-    let sendToAllPeersSpy;
-    let sendToAllIncomingConnectionsSpy;
+    let relaySpy;
 
     beforeEach(async () => {
       peerManager._clear();
       await dbHelper.initiateDB();
-      sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
-      sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
+      relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
     });
 
     afterEach(() => {
@@ -139,29 +155,9 @@ describe('fluxCommunication tests', () => {
 
       const messageString = JSON.stringify(message);
 
-      // Build expected ws lists the same way the production code does:
-      // it iterates peerManager.outboundValues() and pushes peer.ws for non-sender peers
-      const wsListOut = [];
-      for (const peer of peerManager.outboundValues()) {
-        if (peer.ip === fromIp && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsListOut.push(peer.ws);
-        }
-      }
-      const wsListIn = [];
-      for (const peer of peerManager.inboundValues()) {
-        if (peer.ip === fromIp && peer.port === port) {
-          // do not broadcast to this peer
-        } else {
-          wsListIn.push(peer.ws);
-        }
-      }
-
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
-      sinon.assert.calledOnceWithExactly(sendToAllPeersSpy, messageString, wsListOut);
-      sinon.assert.calledOnceWithExactly(sendToAllIncomingConnectionsSpy, messageString, wsListIn);
+      sinon.assert.calledOnceWithExactly(relaySpy, messageString, `${fromIp}:${port}`);
     }).timeout(10000);
 
     it('should not send broadcast if signature is invalid', async () => {
@@ -219,8 +215,7 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
-      sinon.assert.notCalled(sendToAllPeersSpy);
-      sinon.assert.notCalled(sendToAllIncomingConnectionsSpy);
+      sinon.assert.notCalled(relaySpy);
     });
 
     it('should not send broadcast if app data is invalid', async () => {
@@ -251,20 +246,17 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
-      sinon.assert.notCalled(sendToAllPeersSpy);
-      sinon.assert.notCalled(sendToAllIncomingConnectionsSpy);
+      sinon.assert.notCalled(relaySpy);
     });
   });
 
   describe('handleAppRunningMessage tests', () => {
-    let sendToAllPeersSpy;
-    let sendToAllIncomingConnectionsSpy;
+    let relaySpy;
 
     beforeEach(async () => {
       peerManager._clear();
       await dbHelper.initiateDB();
-      sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
-      sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
+      relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
     });
 
     afterEach(() => {
@@ -295,44 +287,11 @@ describe('fluxCommunication tests', () => {
         timestamp,
       };
 
-      const wsOutgoing = await connectWs();
-      wsOutgoing.ip = '127.8.8.1';
-      wsOutgoing.port = port;
-      wsOutgoing._socket = { remoteAddress: '127.8.8.1' };
-      wsOutgoing.on = sinon.stub();
-      peerManager.add(wsOutgoing, 'outbound', wsOutgoing.ip, port);
-
-      const wsIncoming = await connectWs();
-      wsIncoming.ip = '127.8.8.1';
-      wsIncoming.port = port;
-      wsIncoming._socket = { remoteAddress: '::ffff:127.8.8.1' };
-      wsIncoming.on = sinon.stub();
-      peerManager.add(wsIncoming, 'inbound', wsIncoming.ip, port);
-
       const messageString = JSON.stringify(message);
-
-      // Build expected ws lists the same way the production code does
-      const wsListOut = [];
-      for (const peer of peerManager.outboundValues()) {
-        if (peer.ip === fromIp && peer.port === port) {
-          // skip sender
-        } else {
-          wsListOut.push(peer.ws);
-        }
-      }
-      const wsListIn = [];
-      for (const peer of peerManager.inboundValues()) {
-        if (peer.ip === fromIp && peer.port === port) {
-          // skip sender
-        } else {
-          wsListIn.push(peer.ws);
-        }
-      }
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
-      sinon.assert.calledOnceWithExactly(sendToAllPeersSpy, messageString, wsListOut);
-      sinon.assert.calledOnceWithExactly(sendToAllIncomingConnectionsSpy, messageString, wsListIn);
+      sinon.assert.calledOnceWithExactly(relaySpy, messageString, `${fromIp}:${port}`);
     }).timeout(10000);
 
     it('should not send broadcast if message is older than 3900 seconds', async () => {
@@ -380,8 +339,7 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
-      sinon.assert.notCalled(sendToAllPeersSpy);
-      sinon.assert.notCalled(sendToAllIncomingConnectionsSpy);
+      sinon.assert.notCalled(relaySpy);
     }).timeout(5000);
   });
 
@@ -912,12 +870,11 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.initiateAndHandleConnection(ip);
 
       await waitForWsConnected(wsserver);
-      // slight delay to let onopen to be triggered
-      await serviceHelper.delay(100);
+      await waitFor(() => peerManager.outboundCount === 1);
 
-      expect(peerManager.outboundCount).to.equal(1);
-      expect(peerManager.outgoingPeers).to.have.length(1);
-      expect(peerManager.outgoingPeers[0].ip).to.equal(ip);
+      const peer = peerManager.get(`${ip}:16127`);
+      expect(peer).to.not.be.undefined;
+      expect(peer.ip).to.equal(ip);
     });
 
     it('should remove peer if server has closed', async () => {
@@ -965,7 +922,6 @@ describe('fluxCommunication tests', () => {
       });
 
       expect(peerManager.outboundCount).to.equal(0);
-      expect(peerManager.outgoingPeers).to.have.length(0);
       sinon.assert.calledWith(logSpy, 'Outgoing connection to 127.0.0.2:16127 closed with code 1005');
       sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from peerManager (outbound)');
     }).timeout(5000);
@@ -1002,8 +958,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.initiateAndHandleConnection(ip);
 
       await waitForWsConnected(wsserver);
-      // slight delay to let onopen to be triggered
-      await serviceHelper.delay(100);
+      await waitFor(() => peerManager.outboundCount === 1);
 
       sinon.assert.notCalled(checkObjectSpy);
     });
@@ -1045,8 +1000,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.initiateAndHandleConnection(ip);
 
       await waitForWsConnected(wsserver);
-      // slight delay to let onopen to be triggered
-      await serviceHelper.delay(100);
+      await waitFor(() => websocketCloseSpy.called);
 
       sinon.assert.calledWithExactly(ensureObjectSpy, message);
       sinon.assert.calledWithExactly(websocketCloseSpy, 4006, 'blocked list');
@@ -1083,7 +1037,8 @@ describe('fluxCommunication tests', () => {
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
         lruRateLimitStub.returns(true);
         sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
-        const verifyFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(true);
+        const verifyFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(fluxCommunicationUtils.VerifyResult.OK);
+        sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
         const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
         daemonServiceMiscRpcsStub.returns({
           data:
@@ -1095,8 +1050,7 @@ describe('fluxCommunication tests', () => {
         await fluxCommunication.initiateAndHandleConnection(ip);
 
         await waitForWsConnected(wsserver);
-        // slight delay to let onopen to be triggered
-        await serviceHelper.delay(100);
+        await waitFor(() => respondWithAppMessageStub.called);
 
         sinon.assert.calledOnceWithExactly(verifyFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledWith(respondWithAppMessageStub, JSON.parse(message));
@@ -1131,7 +1085,8 @@ describe('fluxCommunication tests', () => {
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
         lruRateLimitStub.returns(true);
         sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
-        const verifyFluxBroadcast = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(true);
+        const verifyFluxBroadcast = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(fluxCommunicationUtils.VerifyResult.OK);
+        sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
         const storeAppTemporaryMessageStub = sinon.stub(messageStore, 'storeAppTemporaryMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
@@ -1143,8 +1098,7 @@ describe('fluxCommunication tests', () => {
         await fluxCommunication.initiateAndHandleConnection(ip);
 
         await waitForWsConnected(wsserver);
-        // slight delay to let onopen to be triggered
-        await serviceHelper.delay(100);
+        await waitFor(() => storeAppTemporaryMessageStub.called);
 
         sinon.assert.calledOnceWithExactly(verifyFluxBroadcast, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data, true);
@@ -1179,7 +1133,8 @@ describe('fluxCommunication tests', () => {
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
         lruRateLimitStub.returns(true);
         sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
-        const verifyFluxBroadcast = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(true);
+        const verifyFluxBroadcast = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(fluxCommunicationUtils.VerifyResult.OK);
+        sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
         const storeAppRunningMessageStub = sinon.stub(messageStore, 'storeAppRunningMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
@@ -1191,8 +1146,7 @@ describe('fluxCommunication tests', () => {
         await fluxCommunication.initiateAndHandleConnection(ip);
 
         await waitForWsConnected(wsserver);
-        // slight delay to let onopen to be triggered
-        await serviceHelper.delay(100);
+        await waitFor(() => storeAppRunningMessageStub.called);
 
         sinon.assert.calledOnceWithExactly(verifyFluxBroadcast, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledOnceWithExactly(storeAppRunningMessageStub, JSON.parse(message).data);
@@ -1489,8 +1443,7 @@ describe('fluxCommunication tests', () => {
   });
 
   describe('handleNodeSigtermMessage tests', () => {
-    let sendToAllPeersSpy;
-    let sendToAllIncomingConnectionsSpy;
+    let relaySpy;
     let dbHelperStub;
     let findInDatabaseStub;
     let updateInDatabaseStub;
@@ -1499,8 +1452,7 @@ describe('fluxCommunication tests', () => {
     beforeEach(async () => {
       peerManager._clear();
       await dbHelper.initiateDB();
-      sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
-      sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
+      relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
       sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 1000000 } });
 
@@ -1550,8 +1502,7 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Received SIGTERM notification from node/));
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Found 2 apps for node/));
       sinon.assert.calledOnce(updateInDatabaseStub);
-      sinon.assert.calledOnce(sendToAllPeersSpy);
-      sinon.assert.calledOnce(sendToAllIncomingConnectionsSpy);
+      sinon.assert.calledOnce(relaySpy);
     }).timeout(10000);
 
     it('should not rebroadcast when no apps exist for the node', async () => {
@@ -1575,8 +1526,7 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node/));
       sinon.assert.notCalled(updateInDatabaseStub);
-      sinon.assert.notCalled(sendToAllPeersSpy);
-      sinon.assert.notCalled(sendToAllIncomingConnectionsSpy);
+      sinon.assert.notCalled(relaySpy);
     });
 
     it('should not rebroadcast when message timestamp is too old', async () => {
@@ -1597,7 +1547,7 @@ describe('fluxCommunication tests', () => {
 
       // Should not proceed to database lookup
       sinon.assert.notCalled(findInDatabaseStub);
-      sinon.assert.notCalled(sendToAllPeersSpy);
+      sinon.assert.notCalled(relaySpy);
     });
 
     it('should exclude sender from rebroadcast list', async () => {
@@ -1634,10 +1584,10 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
-      // Verify that sendToAllPeers was called with a list that excludes the sender
-      const wsListArg = sendToAllPeersSpy.getCall(0).args[1];
-      expect(wsListArg).to.have.lengthOf(1);
-      expect(wsListArg[0].ip).to.equal('127.8.8.1');
+      // Verify that relay was called with the sender's key as the excludeKey
+      sinon.assert.calledOnce(relaySpy);
+      const excludeKey = relaySpy.getCall(0).args[1];
+      expect(excludeKey).to.equal(`${fromIp}:${port}`);
     }).timeout(10000);
 
     it('should handle null apps result gracefully', async () => {
@@ -1660,7 +1610,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node/));
-      sinon.assert.notCalled(sendToAllPeersSpy);
+      sinon.assert.notCalled(relaySpy);
     });
   });
 });

@@ -704,7 +704,7 @@ function getIncomingConnections(req, res) {
  * @deprecated Use getPeers with direction=inbound instead.
  */
 function getIncomingConnectionsInfo(req, res) {
-  const connections = peerManager.incomingPeers;
+  const connections = [...peerManager.inboundValues()].map((p) => p.toPeerInfo());
   const message = messageHelper.createDataMessage(connections);
   return res ? res.json(message) : message;
 }

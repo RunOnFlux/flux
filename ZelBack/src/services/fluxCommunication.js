@@ -547,7 +547,7 @@ function connectedPeers(req, res) {
  * @deprecated Use getPeers with direction=outbound instead.
  */
 function connectedPeersInfo(req, res) {
-  const connections = peerManager.outgoingPeers;
+  const connections = [...peerManager.outboundValues()].map((p) => p.toPeerInfo());
   const message = messageHelper.createDataMessage(connections);
   return res ? res.json(message) : message;
 }

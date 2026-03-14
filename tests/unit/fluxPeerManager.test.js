@@ -564,66 +564,6 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
-  describe('backward-compat getters', () => {
-    it('outgoingConnections should return array of ws objects', () => {
-      const ws1 = createMockWs('10.0.0.1', '16127');
-      const ws2 = createMockWs('10.0.0.2', '16127');
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
-      manager.add(ws2, 'outbound', '10.0.0.2', '16127');
-      manager.add(createMockWs('10.0.0.3', '16127'), 'inbound', '10.0.0.3', '16127');
-
-      const conns = manager.outgoingConnections;
-      expect(conns).to.be.an('array');
-      expect(conns).to.have.lengthOf(2);
-      expect(conns).to.include(ws1);
-      expect(conns).to.include(ws2);
-    });
-
-    it('incomingConnections should return array of ws objects', () => {
-      const ws1 = createMockWs('10.0.0.3', '16127');
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
-      manager.add(ws1, 'inbound', '10.0.0.3', '16127');
-
-      const conns = manager.incomingConnections;
-      expect(conns).to.be.an('array');
-      expect(conns).to.have.lengthOf(1);
-      expect(conns).to.include(ws1);
-    });
-
-    it('outgoingPeers should return array of peer info objects with latency and lastPingTime', () => {
-      const ws = createMockWs('10.0.0.1', '16127');
-      const peer = manager.add(ws, 'outbound', '10.0.0.1', '16127');
-      peer.latency = 15;
-      peer.lastPingTime = 1700000000000;
-
-      const peers = manager.outgoingPeers;
-      expect(peers).to.be.an('array');
-      expect(peers).to.have.lengthOf(1);
-      expect(peers[0]).to.deep.equal({
-        ip: '10.0.0.1',
-        port: '16127',
-        latency: 15,
-        lastPingTime: 1700000000000,
-      });
-    });
-
-    it('incomingPeers should return array of peer info objects with ip and port only', () => {
-      const ws = createMockWs('10.0.0.3', '16127');
-      const peer = manager.add(ws, 'inbound', '10.0.0.3', '16127');
-      peer.latency = 15; // should not appear in output
-
-      const peers = manager.incomingPeers;
-      expect(peers).to.be.an('array');
-      expect(peers).to.have.lengthOf(1);
-      expect(peers[0]).to.deep.equal({
-        ip: '10.0.0.3',
-        port: '16127',
-      });
-      expect(peers[0]).to.not.have.property('latency');
-      expect(peers[0]).to.not.have.property('lastPingTime');
-    });
-  });
-
   describe('pingAll', () => {
     it('should call ping() on each peer', () => {
       const ws1 = createMockWs('10.0.0.1', '16127');
