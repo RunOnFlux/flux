@@ -7,6 +7,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const { requireMongo } = require('./dbTestHelper');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -19,6 +20,8 @@ const generateResponse = () => {
 };
 
 describe('generalService tests', () => {
+  before(requireMongo);
+
   describe('getCollateralInfo tests', () => {
     it('should split and return the values properly', () => {
       const collateralOutpoint = 'COutPoint(6b2f0b581698337758cd045ead702f4cf6d9c96e8a0288bed526146a005ddd0d, 0)';

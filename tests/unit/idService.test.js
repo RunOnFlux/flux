@@ -9,6 +9,7 @@ const log = require('../../ZelBack/src/lib/log');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const { requireMongo } = require('./dbTestHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const dockerService = require('../../ZelBack/src/services/dockerService');
@@ -46,6 +47,8 @@ const generateResponse = () => {
 };
 
 describe('idService tests', () => {
+  before(requireMongo);
+
   describe('confirmNodeTierHardware tests', () => {
     let osTotalmemStub;
     let osCpusStub;

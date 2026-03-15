@@ -254,7 +254,7 @@ describe('pathSecurity', () => {
 
     before(async () => {
       // Create a temporary directory for testing
-      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-test-'));
+      tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-test-')));
       // Create a subdirectory
       await fs.mkdir(path.join(tempDir, 'subdir'));
       // Create a test file
@@ -293,7 +293,7 @@ describe('pathSecurity', () => {
     });
 
     it('should allow targets under a symlinked base directory', async () => {
-      const realBase = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-realbase-'));
+      const realBase = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-realbase-')));
       const linkParent = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-linkparent-'));
       const baseLink = path.join(linkParent, 'base-link');
       try {
@@ -353,7 +353,7 @@ describe('pathSecurity', () => {
     let tempDir;
 
     before(async () => {
-      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-sync-test-'));
+      tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-sync-test-')));
       await fs.mkdir(path.join(tempDir, 'subdir'));
       await fs.writeFile(path.join(tempDir, 'subdir', 'file.txt'), 'test');
     });
@@ -378,7 +378,7 @@ describe('pathSecurity', () => {
     let tempDir;
 
     before(async () => {
-      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-combined-test-'));
+      tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-combined-test-')));
       await fs.mkdir(path.join(tempDir, 'subdir'));
     });
 

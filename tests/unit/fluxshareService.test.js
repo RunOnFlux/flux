@@ -9,6 +9,7 @@ const log = require('../../ZelBack/src/lib/log');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
+const { requireMongo } = require('./dbTestHelper');
 
 const adminConfig = {
   fluxTeamFluxID: '1zasdfg',
@@ -41,6 +42,8 @@ const generateResponse = () => {
 };
 
 describe('idService tests', () => {
+  before(requireMongo);
+
   describe('fluxShareDatabaseFileDelete tests', () => {
     let dbStub;
 

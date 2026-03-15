@@ -11,6 +11,7 @@ const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
+const { requireMongo } = require('./dbTestHelper');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -19,6 +20,8 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('explorerService tests', () => {
+  before(requireMongo);
+
   describe('getSenderTransactionFromDaemon tests', () => {
     let daemonServiceTransactionRpcsStub;
     const txid = '12345';

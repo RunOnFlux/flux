@@ -7,8 +7,11 @@ const pgpService = require('../../ZelBack/src/services/pgpService');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const imageVerifier = require('../../ZelBack/src/services/utils/imageVerifier');
+const { requireMongo } = require('./dbTestHelper');
 
 describe('imageManager tests', () => {
+  before(requireMongo);
+
   let imageManager;
 
   beforeEach(() => {

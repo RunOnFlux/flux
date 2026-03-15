@@ -26,6 +26,7 @@ const verificationHelperUtils = proxyquire(
 );
 
 const { signMessage } = require('../../ZelBack/src/services/verificationHelper');
+const { requireMongo } = require('./dbTestHelper');
 
 const insertUsers = [
   {
@@ -62,6 +63,8 @@ const insertApp = {
 };
 
 describe('verificationHelperUtils tests', () => {
+  before(requireMongo);
+
   describe('verifyAdminSession tests', () => {
     beforeEach(async () => {
       await dbHelper.initiateDB();

@@ -513,6 +513,12 @@ describe('hwRequirements tests', () => {
         '../appQuery/appQueryService': {
           installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
         },
+        '../appQuery/resourceQueryService': {
+          appsResources: sinon.stub().resolves({
+            status: 'success',
+            data: { appsCpusLocked: 0, appsRamLocked: 0, appsHddLocked: 0 },
+          }),
+        },
         '../../lib/log': logStub,
         os: {
           cpus: sinon.stub().returns(new Array(4)),
