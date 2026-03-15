@@ -36,17 +36,23 @@ const CLOSE_CODES = Object.freeze({
   INVALID_MSG_OUTBOUND: 4017,
 });
 
+const PEER_SOURCE = Object.freeze({
+  DETERMINISTIC: 'deterministic',
+  RANDOM: 'random',
+  RECONNECT: 'reconnect',
+  MANUAL: 'manual',
+  INBOUND: 'inbound',
+});
+
 class FluxPeerSocket {
   /**
    * @param {WebSocket} ws - raw WebSocket
-   * @param {'inbound'|'outbound'} direction
    * @param {string} ip
    * @param {string} port
    * @param {import('./FluxPeerManager').FluxPeerManager} manager
    */
-  constructor(ws, direction, ip, port, manager) {
+  constructor(ws, ip, port, manager) {
     this.ws = ws;
-    this.direction = direction;
     this.ip = ip;
     this.port = String(port);
     this.key = `${ip}:${this.port}`;
@@ -63,25 +69,18 @@ class FluxPeerSocket {
     this.badMessageTimestamps = [];
     this.remoteCapabilities = new Set();
     this.remoteClockOffsetMs = null;
+    this.source = PEER_SOURCE.INBOUND;
     this.msgMap = new Map([['requestHash', 0], ['newHash', 0]]);
 
-    // backward compat: set ip, port, msgMap on the raw socket
-    ws.ip = ip;
-    ws.port = this.port;
-    ws.msgMap = this.msgMap;
-
-    // Read remote capabilities and clock offset from HTTP upgrade headers
-    // (set by socketServer.js for inbound, or by the 'upgrade' event handler for outbound).
-    // Old nodes don't send these headers.
-    if (Array.isArray(ws._remoteCapabilities) && ws._remoteCapabilities.length) {
-      this.remoteCapabilities = new Set(ws._remoteCapabilities);
-      log.info(`Peer ${this.key} capabilities (from header): ${ws._remoteCapabilities.join(', ')}`);
-    }
-    if (typeof ws._remoteClockOffsetMs === 'number' && !Number.isNaN(ws._remoteClockOffsetMs)) {
-      this.remoteClockOffsetMs = ws._remoteClockOffsetMs;
-    }
-
     this._bindHandlers();
+  }
+
+  /**
+   * Direction derived from source. INBOUND source = inbound, everything else = outbound.
+   * @returns {'inbound'|'outbound'}
+   */
+  get direction() {
+    return this.source === PEER_SOURCE.INBOUND ? 'inbound' : 'outbound';
   }
 
   get closeCodes() {
@@ -283,4 +282,4 @@ class FluxPeerSocket {
   }
 }
 
-module.exports = { FluxPeerSocket, CLOSE_CODES };
+module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE };

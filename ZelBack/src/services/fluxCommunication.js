@@ -12,7 +12,7 @@ const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
-const { peerManager } = require('./utils/peerState');
+const { peerManager, PEER_SOURCE } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 
@@ -593,29 +593,40 @@ async function removeIncomingPeer(req, res) {
  */
 let myPort = null;
 
+/** @type {WeakMap<WebSocket, {ip: string, port: string, source: string}>} */
+const wsMetadata = new WeakMap();
+
 function onOutboundError(error) {
-  const key = `${this.ip}:${this.port}`;
+  const meta = wsMetadata.get(this);
+  if (!meta) return;
+  const key = `${meta.ip}:${meta.port}`;
   peerManager.clearPending(key);
   log.error(`Outbound connection to ${key} failed: ${error.message}`);
 }
 
 function onOutboundOpen() {
-  peerManager.clearPending(`${this.ip}:${this.port}`);
-  peerManager.add(this, 'outbound', this.ip, this.port);
+  const meta = wsMetadata.get(this);
+  if (!meta) return;
+  peerManager.add(this, meta.ip, meta.port, {
+    source: meta.source,
+    remoteCapabilities: meta.remoteCapabilities,
+    remoteClockOffsetMs: meta.remoteClockOffsetMs,
+  });
 }
 
 function onOutboundUpgrade(response) {
-  const capHeader = response.headers['x-flux-capabilities'];
-  if (capHeader) {
-    this._remoteCapabilities = capHeader.split(',').map((s) => s.trim()).filter(Boolean);
+  const meta = wsMetadata.get(this);
+  if (!meta) return;
+  if (response.headers['x-flux-capabilities']) {
+    meta.remoteCapabilities = response.headers['x-flux-capabilities'].split(',').map((s) => s.trim()).filter(Boolean);
   }
   const clockHeader = response.headers['x-flux-clock-offset'];
   if (clockHeader !== undefined) {
-    this._remoteClockOffsetMs = Number(clockHeader);
+    meta.remoteClockOffsetMs = Number(clockHeader);
   }
 }
 
-async function initiateAndHandleConnection(connection) {
+async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RANDOM) {
   let ip = connection;
   let port = config.server.apiport.toString();
   try {
@@ -629,6 +640,7 @@ async function initiateAndHandleConnection(connection) {
     if (!myPort) {
       const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
       if (!myIP) {
+        peerManager.clearPending(key);
         return;
       }
       myPort = myIP.split(':')[1] || '16127';
@@ -664,15 +676,13 @@ async function initiateAndHandleConnection(connection) {
     }
     const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
     const websocket = new WebSocket(wsuri, options);
-    websocket.port = port;
-    websocket.ip = ip;
-    // Catch connection errors that occur before onopen (e.g. ETIMEDOUT, ECONNREFUSED).
-    // Without this, the error bubbles up as an uncaughtException and crashes the process.
-    // Uses a shared handler — ip/port are read from the websocket instance.
+    wsMetadata.set(websocket, { ip, port, source });
     websocket.on('error', onOutboundError);
     websocket.on('upgrade', onOutboundUpgrade);
     websocket.onopen = onOutboundOpen;
   } catch (error) {
+    const catchKey = `${ip}:${port}`;
+    peerManager.clearPending(catchKey);
     log.error(error);
   }
 }
@@ -720,7 +730,7 @@ async function addPeer(req, res) {
       return;
     }
 
-    setImmediate(() => initiateAndHandleConnection(ip));
+    setImmediate(() => initiateAndHandleConnection(ip, PEER_SOURCE.MANUAL));
 
     const message = messageHelper.createSuccessMessage(
       `Outgoing connection to ${peerIp}:${peerPort} initiated`,
@@ -776,7 +786,7 @@ async function addOutgoingPeer(req, res) {
       return res.json(errMessage);
     }
 
-    initiateAndHandleConnection(ip);
+    initiateAndHandleConnection(ip, PEER_SOURCE.DETERMINISTIC);
     const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip.split(':')[0]}:${port} initiated`);
     return res.json(message);
   } catch (error) {
@@ -843,7 +853,7 @@ async function fluxDiscovery() {
       const portInc = ip.split(':')[1] || '16127';
       if (peerManager.shouldAttemptConnection(ipInc, portInc)) {
         deterministicPeerConnections = true;
-        initiateAndHandleConnection(ip);
+        initiateAndHandleConnection(ip, PEER_SOURCE.DETERMINISTIC);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(DISCOVERY.connectionDelayMs);
       }
@@ -882,7 +892,7 @@ async function fluxDiscovery() {
     const reconnectCandidates = peerManager.getReconnectCandidates();
     for (const candidate of reconnectCandidates) {
       log.info(`Reconnecting to queued peer: ${candidate.key} (attempt ${candidate.attempts})`);
-      initiateAndHandleConnection(`${candidate.ip}:${candidate.port}`);
+      initiateAndHandleConnection(`${candidate.ip}:${candidate.port}`, PEER_SOURCE.RECONNECT);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(DISCOVERY.connectionDelayMs);
     }
@@ -977,6 +987,7 @@ function peerToDetailedInfo(peer) {
     lastPongTime: peer.lastPongTime,
     connectedAt: peer.connectedAt,
     uptime: Date.now() - peer.connectedAt,
+    source: peer.source,
     isAlive: peer.isAlive,
     badMessages: peer.badMessageTimestamps.length,
     capabilities: [...peer.remoteCapabilities],
