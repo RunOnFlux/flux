@@ -976,6 +976,7 @@ function peerToDetailedInfo(peer) {
     lastPingTime: peer.lastPingTime,
     lastPongTime: peer.lastPongTime,
     connectedAt: peer.connectedAt,
+    uptime: Date.now() - peer.connectedAt,
     isAlive: peer.isAlive,
     badMessages: peer.badMessageTimestamps.length,
     capabilities: [...peer.remoteCapabilities],
@@ -1043,6 +1044,44 @@ function getUnstableNodes(req, res) {
   return res.json(messageHelper.createDataMessage(unstable));
 }
 
+/**
+ * Get peer connection history from the ring buffer.
+ * GET /flux/peerhistory — all events
+ * GET /flux/peerhistory?ip=75.6.52 — filter by IP prefix
+ * GET /flux/peerhistory?code=4004 — filter by close code
+ * GET /flux/peerhistory?event=disconnected — filter by event type
+ * GET /flux/peerhistory?limit=50 — limit results (most recent)
+ * GET /flux/peerhistory?since=1773520000000 — events after timestamp
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+function getPeerHistory(req, res) {
+  let events = peerManager.getHistory();
+
+  const { ip, code, event, limit, since } = req.query;
+
+  if (since) {
+    const sinceTs = Number(since);
+    events = events.filter((e) => e.timestamp >= sinceTs);
+  }
+  if (ip) {
+    events = events.filter((e) => e.ip.startsWith(ip));
+  }
+  if (code) {
+    const codeNum = Number(code);
+    events = events.filter((e) => e.closeCode === codeNum);
+  }
+  if (event) {
+    events = events.filter((e) => e.event === event);
+  }
+  if (limit) {
+    const n = Number(limit);
+    if (n > 0) events = events.slice(-n);
+  }
+
+  return res.json(messageHelper.createDataMessage(events));
+}
+
 function logSockets() {
   const inboundMessages = { requestHash: 0, newHash: 0 };
   const outboundMessages = { requestHash: 0, newHash: 0 };
@@ -1091,4 +1130,5 @@ module.exports = {
   addOutgoingPeer,
   getPeers,
   getUnstableNodes,
+  getPeerHistory,
 };
