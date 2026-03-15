@@ -13,13 +13,14 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
+const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('fluxCommunicationMessagesSender tests', () => {
   describe('relay tests', () => {
-    const generateWebsocket = (ip, port, readyState, direction = 'outbound') => {
+    const generateWebsocket = (ip, port, readyState, source = { source: PEER_SOURCE.RANDOM }) => {
       const ws = {};
       ws.port = String(port);
       ws.ip = ip;
@@ -31,7 +32,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, direction, ip, String(port));
+      peerManager.add(ws, ip, String(port), source);
       return ws;
     };
 
@@ -45,8 +46,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should send data to all peers (both directions)', async () => {
       const data = 'test-message';
-      const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN, 'outbound');
-      const ws2 = generateWebsocket('127.0.0.2', 16127, WebSocket.OPEN, 'inbound');
+      const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN, { source: PEER_SOURCE.RANDOM });
+      const ws2 = generateWebsocket('127.0.0.2', 16127, WebSocket.OPEN, { source: PEER_SOURCE.INBOUND });
 
       await fluxCommunicationMessagesSender.relay(data);
 
@@ -56,8 +57,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should exclude a peer by key', async () => {
       const data = 'test-message';
-      const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN, 'outbound');
-      const ws2 = generateWebsocket('127.0.0.2', 16127, WebSocket.OPEN, 'outbound');
+      const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.OPEN, { source: PEER_SOURCE.RANDOM });
+      const ws2 = generateWebsocket('127.0.0.2', 16127, WebSocket.OPEN, { source: PEER_SOURCE.RANDOM });
 
       await fluxCommunicationMessagesSender.relay(data, '127.0.0.1:16127');
 
@@ -67,8 +68,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should close peer on send failure and continue to others', async () => {
       const data = 'test-message';
-      const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.CLOSED, 'outbound');
-      const ws2 = generateWebsocket('127.0.0.2', 16127, WebSocket.OPEN, 'outbound');
+      const ws1 = generateWebsocket('127.0.0.1', 16127, WebSocket.CLOSED, { source: PEER_SOURCE.RANDOM });
+      const ws2 = generateWebsocket('127.0.0.2', 16127, WebSocket.OPEN, { source: PEER_SOURCE.RANDOM });
 
       await fluxCommunicationMessagesSender.relay(data);
 
@@ -440,7 +441,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, 'outbound', ip, String(port));
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
       return ws;
     };
     const generateResponse = () => {
@@ -621,7 +622,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, 'inbound', ip, String(port));
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.INBOUND });
       return ws;
     };
     const generateResponse = () => {
@@ -802,7 +803,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, 'inbound', ip, String(port));
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.INBOUND });
       return ws;
     };
     const generateOutgoingWebsocket = (ip, port, readyState) => {
@@ -817,7 +818,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, 'outbound', ip, String(port));
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
       return ws;
     };
     const generateResponse = () => {
@@ -1020,7 +1021,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, 'outbound', ip, String(port));
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
       return ws;
     };
     const generateResponse = () => {
@@ -1214,7 +1215,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, 'inbound', ip, String(port));
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.INBOUND });
       return ws;
     };
     const generateResponse = () => {
@@ -1408,7 +1409,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, 'inbound', ip, String(port));
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.INBOUND });
       return ws;
     };
     const generateOutgoingWebsocket = (ip, port, readyState) => {
@@ -1423,7 +1424,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, 'outbound', ip, String(port));
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
       return ws;
     };
     const generateResponse = () => {
@@ -1636,7 +1637,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, 'outbound', ip, String(port));
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
       return ws;
     };
     const generateIncomingWebsocket = (ip, port, readyState) => {
@@ -1651,7 +1652,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, 'inbound', ip, String(port));
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.INBOUND });
       return ws;
     };
 

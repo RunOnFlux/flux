@@ -7,8 +7,11 @@ const dockerService = require('../../ZelBack/src/services/dockerService');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const { requireMongo } = require('./dbTestHelper');
 
 describe('appController tests', () => {
+  before(requireMongo);
+
   let verificationHelperStub;
   let db;
   // eslint-disable-next-line no-unused-vars

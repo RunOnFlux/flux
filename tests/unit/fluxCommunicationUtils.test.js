@@ -5,6 +5,8 @@ const sinon = require('sinon');
 
 const { expect } = chai;
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
+
+const { VerifyResult } = fluxCommunicationUtils;
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const fluxList = require('./data/listfluxnodes.json');
@@ -340,7 +342,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(dataToSend);
 
-      expect(isValid).to.equal(true);
+      expect(isValid).to.equal(VerifyResult.OK);
     });
 
     it('should return false if the message has been sent more than 5 minutes ago, no current timestamp provided', async () => {
@@ -358,7 +360,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(dataToSend, null, fluxList);
 
-      expect(isValid).to.equal(false);
+      expect(isValid).to.equal(VerifyResult.MALFORMED);
     });
 
     it('should return true if broadcast is verifiable, current timestamp provided', async () => {
@@ -381,7 +383,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(dataToSend, providedTimestamp);
 
-      expect(isValid).to.equal(true);
+      expect(isValid).to.equal(VerifyResult.OK);
     });
 
     it('should return false if the message has been sent more than 5 minutes ago, current timestamp provided', async () => {
@@ -400,7 +402,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(dataToSend, providedTimestamp);
 
-      expect(isValid).to.equal(false);
+      expect(isValid).to.equal(VerifyResult.MALFORMED);
     });
   });
   describe('verifyFluxBroadcast tests', () => {
@@ -432,7 +434,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend, fluxList);
 
-      expect(isValid).to.equal(false);
+      expect(isValid).to.equal(VerifyResult.MALFORMED);
     });
 
     it('should return false if version is not 1', async () => {
@@ -450,7 +452,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend, fluxList);
 
-      expect(isValid).to.equal(false);
+      expect(isValid).to.equal(VerifyResult.MALFORMED);
     });
 
     it('should return false if the message has timestamp greater than 120s in the future', async () => {
@@ -468,7 +470,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend, fluxList);
 
-      expect(isValid).to.equal(false);
+      expect(isValid).to.equal(VerifyResult.MALFORMED);
     });
 
     it('should return false if the signature is invalid', async () => {
@@ -484,7 +486,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend, fluxList);
 
-      expect(isValid).to.equal(false);
+      expect(isValid).to.equal(VerifyResult.MALFORMED);
     });
   });
 
@@ -580,7 +582,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend);
 
-      expect(isValid).to.equal(true);
+      expect(isValid).to.equal(VerifyResult.OK);
     });
 
     it('should return false for fluxnodesigterm message from unknown node', async () => {
@@ -610,7 +612,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend);
 
-      expect(isValid).to.equal(false);
+      expect(isValid).to.equal(VerifyResult.NODE_NOT_FOUND);
     });
 
     it('should return false for fluxnodesigterm message with invalid signature', async () => {
@@ -636,7 +638,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend);
 
-      expect(isValid).to.equal(false);
+      expect(isValid).to.equal(VerifyResult.BAD_SIGNATURE);
     });
 
     it('should return false for fluxnodesigterm message from future', async () => {
@@ -665,7 +667,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend);
 
-      expect(isValid).to.equal(false);
+      expect(isValid).to.equal(VerifyResult.MALFORMED);
     });
   });
 });

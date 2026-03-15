@@ -8,8 +8,11 @@ const generalService = require('../../ZelBack/src/services/generalService');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+const { requireMongo } = require('./dbTestHelper');
 
 describe('resourceQueryService tests', () => {
+  before(requireMongo);
+
   afterEach(() => {
     sinon.restore();
   });

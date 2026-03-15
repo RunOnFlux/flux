@@ -41,6 +41,7 @@ const upnpService = require('../../ZelBack/src/services/upnpService');
 const net = require('node:net');
 
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
+const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -458,7 +459,7 @@ describe('fluxNetworkHelper tests', () => {
       ws._socket = {
         remoteAddress: ip,
       };
-      peerManager.add(ws, 'outbound', ip, String(port));
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
       return ws;
     };
 
@@ -521,7 +522,7 @@ describe('fluxNetworkHelper tests', () => {
       const ws2 = {
         ip: ip2, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
       };
-      peerManager.add(ws2, 'outbound', ip2, port);
+      peerManager.add(ws2, ip2, port, { source: PEER_SOURCE.RANDOM });
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
@@ -543,7 +544,7 @@ describe('fluxNetworkHelper tests', () => {
       const ws = {
         ip: ip2, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
       };
-      peerManager.add(ws, 'outbound', ip2, port);
+      peerManager.add(ws, ip2, port, { source: PEER_SOURCE.RANDOM });
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection();
 
@@ -577,7 +578,7 @@ describe('fluxNetworkHelper tests', () => {
       const ws = {
         ip: ip2, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
       };
-      peerManager.add(ws, 'inbound', ip2, port);
+      peerManager.add(ws, ip2, port, { source: PEER_SOURCE.INBOUND });
 
       const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection();
 
@@ -606,7 +607,7 @@ describe('fluxNetworkHelper tests', () => {
         const ws = {
           ip, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
         };
-        peerManager.add(ws, 'inbound', ip, port);
+        peerManager.add(ws, ip, port, { source: PEER_SOURCE.INBOUND });
       });
 
       const res = generateResponse();
@@ -650,7 +651,7 @@ describe('fluxNetworkHelper tests', () => {
         const ws = {
           ip, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
         };
-        peerManager.add(ws, 'inbound', ip, port);
+        peerManager.add(ws, ip, port, { source: PEER_SOURCE.INBOUND });
       });
       const res = generateResponse();
       const expectedCallArgumeent = {
@@ -2128,7 +2129,7 @@ describe('fluxNetworkHelper tests', () => {
           ping: sinon.stub(),
           on: sinon.stub(),
         };
-        peerManager.add(ws, 'inbound', `${baseIp}${i}`, '16127');
+        peerManager.add(ws, `${baseIp}${i}`, '16127', { source: PEER_SOURCE.INBOUND });
       }
 
       for (let i = 1; i <= numberOfOutgoingPeers; i += 1) {
@@ -2140,7 +2141,7 @@ describe('fluxNetworkHelper tests', () => {
           ping: sinon.stub(),
           on: sinon.stub(),
         };
-        peerManager.add(ws, 'outbound', `${baseIp}${100 + i}`, '16127');
+        peerManager.add(ws, `${baseIp}${100 + i}`, '16127', { source: PEER_SOURCE.RANDOM });
       }
     };
 

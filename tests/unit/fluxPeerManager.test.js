@@ -4,7 +4,7 @@ const WebSocket = require('ws');
 
 const { expect } = chai;
 
-const { FluxPeerSocket, CLOSE_CODES } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const { FluxPeerManager, peerManager } = require('../../ZelBack/src/services/utils/FluxPeerManager');
 
 /**
@@ -47,7 +47,8 @@ describe('FluxPeerSocket tests', () => {
   describe('constructor', () => {
     it('should set all properties correctly', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       expect(peer.ws).to.equal(ws);
       expect(peer.direction).to.equal('outbound');
@@ -69,24 +70,17 @@ describe('FluxPeerSocket tests', () => {
 
     it('should convert port to string', () => {
       const ws = createMockWs('10.0.0.1', 16127);
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', 16127, manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', 16127, manager);
+      peer.source = PEER_SOURCE.RANDOM;
       expect(peer.port).to.equal('16127');
     });
 
-    it('should set backward-compat properties on raw ws', () => {
-      const ws = createMockWs('10.0.0.1', '16127');
-      const peer = new FluxPeerSocket(ws, 'inbound', '10.0.0.1', '16127', manager);
-
-      expect(ws.ip).to.equal('10.0.0.1');
-      expect(ws.port).to.equal('16127');
-      expect(ws.msgMap).to.equal(peer.msgMap);
-    });
   });
 
   describe('closeCodes', () => {
     it('should return inbound close codes for inbound direction', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'inbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       expect(peer.closeCodes.invalidMsg).to.equal(CLOSE_CODES.INVALID_MSG_INBOUND);
       expect(peer.closeCodes.blocked).to.equal(CLOSE_CODES.BLOCKED_INBOUND);
       expect(peer.closeCodes.badOrigin).to.equal(CLOSE_CODES.BAD_ORIGIN_INBOUND);
@@ -95,7 +89,8 @@ describe('FluxPeerSocket tests', () => {
 
     it('should return outbound close codes for outbound direction', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
       expect(peer.closeCodes.invalidMsg).to.equal(CLOSE_CODES.INVALID_MSG_OUTBOUND);
       expect(peer.closeCodes.blocked).to.equal(CLOSE_CODES.BLOCKED_OUTBOUND);
       expect(peer.closeCodes.badOrigin).to.equal(CLOSE_CODES.BAD_ORIGIN_OUTBOUND);
@@ -107,7 +102,8 @@ describe('FluxPeerSocket tests', () => {
     it('should return true when missedPongs < 3 and ws.readyState === OPEN', () => {
       const ws = createMockWs();
       ws.readyState = WebSocket.OPEN;
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
       peer.missedPongs = 0;
       expect(peer.isAlive).to.equal(true);
 
@@ -118,7 +114,8 @@ describe('FluxPeerSocket tests', () => {
     it('should return false when missedPongs >= 3', () => {
       const ws = createMockWs();
       ws.readyState = WebSocket.OPEN;
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
       peer.missedPongs = 3;
       expect(peer.isAlive).to.equal(false);
 
@@ -129,7 +126,8 @@ describe('FluxPeerSocket tests', () => {
     it('should return false when ws.readyState !== OPEN', () => {
       const ws = createMockWs();
       ws.readyState = WebSocket.CLOSED;
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
       peer.missedPongs = 0;
       expect(peer.isAlive).to.equal(false);
     });
@@ -138,7 +136,8 @@ describe('FluxPeerSocket tests', () => {
   describe('onPingSent', () => {
     it('should increment missedPongs and set lastPingTime', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
       expect(peer.missedPongs).to.equal(0);
       expect(peer.lastPingTime).to.equal(null);
 
@@ -155,7 +154,8 @@ describe('FluxPeerSocket tests', () => {
   describe('onPongReceived', () => {
     it('should reset missedPongs, set lastPongTime, and compute latency', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       // Simulate a ping then pong
       peer.onPingSent();
@@ -174,7 +174,8 @@ describe('FluxPeerSocket tests', () => {
 
     it('should not compute latency if lastPingTime is null', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
       peer.onPongReceived();
       expect(peer.latency).to.equal(null);
       expect(peer.missedPongs).to.equal(0);
@@ -185,7 +186,8 @@ describe('FluxPeerSocket tests', () => {
     it('should return true on success when OPEN', () => {
       const ws = createMockWs();
       ws.readyState = WebSocket.OPEN;
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       const result = peer.send('hello');
       expect(result).to.equal(true);
@@ -196,7 +198,8 @@ describe('FluxPeerSocket tests', () => {
     it('should return false when ws is not OPEN', () => {
       const ws = createMockWs();
       ws.readyState = WebSocket.CLOSED;
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       const result = peer.send('hello');
       expect(result).to.equal(false);
@@ -207,7 +210,8 @@ describe('FluxPeerSocket tests', () => {
       const ws = createMockWs();
       ws.readyState = WebSocket.OPEN;
       ws.send.throws(new Error('send error'));
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       const result = peer.send('hello');
       expect(result).to.equal(false);
@@ -218,7 +222,8 @@ describe('FluxPeerSocket tests', () => {
     it('should call ws.ping and onPingSent when OPEN', () => {
       const ws = createMockWs();
       ws.readyState = WebSocket.OPEN;
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
       sinon.spy(peer, 'onPingSent');
 
       peer.ping();
@@ -231,7 +236,8 @@ describe('FluxPeerSocket tests', () => {
     it('should not call ws.ping when not OPEN', () => {
       const ws = createMockWs();
       ws.readyState = WebSocket.CLOSED;
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       peer.ping();
 
@@ -243,7 +249,8 @@ describe('FluxPeerSocket tests', () => {
   describe('close', () => {
     it('should call ws.close with code and reason', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       peer.close(4011, 'dead connection');
 
@@ -253,7 +260,8 @@ describe('FluxPeerSocket tests', () => {
 
     it('should call ws.close without args when none provided', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       peer.close();
 
@@ -265,7 +273,8 @@ describe('FluxPeerSocket tests', () => {
     it('should send JSON NAK message', () => {
       const ws = createMockWs();
       ws.readyState = WebSocket.OPEN;
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       peer.sendNak('abc123', 'stale message');
 
@@ -282,7 +291,8 @@ describe('FluxPeerSocket tests', () => {
   describe('toPeerInfo', () => {
     it('should return correct shape for outbound (with latency and lastPingTime)', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
       peer.latency = 42;
       peer.lastPingTime = 1700000000000;
 
@@ -297,7 +307,7 @@ describe('FluxPeerSocket tests', () => {
 
     it('should return correct shape for inbound (ip and port only)', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'inbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.latency = 42;
       peer.lastPingTime = 1700000000000;
 
@@ -312,7 +322,8 @@ describe('FluxPeerSocket tests', () => {
   describe('_bindHandlers', () => {
     it('should bind pong handler that calls onPongReceived', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
       sinon.spy(peer, 'onPongReceived');
 
       // The pong handler was captured via ws.on stub
@@ -326,7 +337,7 @@ describe('FluxPeerSocket tests', () => {
       const ws = createMockWs();
       sinon.spy(manager, 'remove');
       // Add via manager so peer is in the map
-      const peer = manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       expect(ws.onclose).to.be.a('function');
       ws.onclose({ code: 1000 });
@@ -341,7 +352,9 @@ describe('FluxPeerSocket tests', () => {
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
       sinon.stub(fluxNetworkHelper, 'lruRateLimit').returns(true);
 
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+
+      peer.source = PEER_SOURCE.RANDOM;
 
       expect(ws.onmessage).to.be.a('function');
 
@@ -356,7 +369,9 @@ describe('FluxPeerSocket tests', () => {
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
       sinon.stub(fluxNetworkHelper, 'lruRateLimit').returns(true);
 
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+
+      peer.source = PEER_SOURCE.RANDOM;
       sinon.spy(peer, 'onNakReceived');
 
       const nakMsg = JSON.stringify({ type: 'nak', hash: 'abc', reason: 'stale' });
@@ -371,7 +386,9 @@ describe('FluxPeerSocket tests', () => {
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
       sinon.stub(fluxNetworkHelper, 'lruRateLimit').returns(false);
 
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+
+      peer.source = PEER_SOURCE.RANDOM;
 
       await ws.onmessage({ data: '{"type":"test"}' });
 
@@ -380,7 +397,8 @@ describe('FluxPeerSocket tests', () => {
 
     it('should return early when evt is falsy', async () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       // Should not throw
       await ws.onmessage(null);
@@ -393,7 +411,8 @@ describe('FluxPeerSocket tests', () => {
   describe('onNakReceived', () => {
     it('should increment nakCount', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
       expect(peer.nakCount).to.equal(0);
 
       peer.onNakReceived();
@@ -405,7 +424,8 @@ describe('FluxPeerSocket tests', () => {
 
     it('should reset nakCount when window expires', () => {
       const ws = createMockWs();
-      const peer = new FluxPeerSocket(ws, 'outbound', '10.0.0.1', '16127', manager);
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
 
       peer.nakCount = 5;
       // Set window start to 6 minutes ago (beyond 5 min window)
@@ -433,7 +453,7 @@ describe('FluxPeerManager tests', () => {
   describe('add', () => {
     it('should create FluxPeerSocket, insert into map and correct direction set', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      const peer = manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       expect(peer).to.be.instanceOf(FluxPeerSocket);
       expect(manager.has('10.0.0.1:16127')).to.equal(true);
@@ -444,7 +464,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should add inbound peer to inbound set', () => {
       const ws = createMockWs('10.0.0.2', '16127');
-      const peer = manager.add(ws, 'inbound', '10.0.0.2', '16127');
+      const peer = manager.add(ws, '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
 
       expect(peer).to.be.instanceOf(FluxPeerSocket);
       expect(manager.inboundCount).to.equal(1);
@@ -453,7 +473,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should return the created FluxPeerSocket', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      const peer = manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       expect(peer).to.be.instanceOf(FluxPeerSocket);
       expect(peer.ip).to.equal('10.0.0.1');
@@ -463,7 +483,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should convert port to string', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      const peer = manager.add(ws, 'outbound', '10.0.0.1', 16127);
+      const peer = manager.add(ws, '10.0.0.1', 16127, { source: PEER_SOURCE.RANDOM });
       expect(peer.port).to.equal('16127');
       expect(peer.key).to.equal('10.0.0.1:16127');
     });
@@ -472,7 +492,7 @@ describe('FluxPeerManager tests', () => {
   describe('remove', () => {
     it('should delete from map and correct direction set, return removed peer', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      const peer = manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       const removed = manager.remove('10.0.0.1:16127');
 
@@ -489,8 +509,8 @@ describe('FluxPeerManager tests', () => {
     it('should not affect wrong direction set (no-op on other set)', () => {
       const ws1 = createMockWs('10.0.0.1', '16127');
       const ws2 = createMockWs('10.0.0.2', '16127');
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
-      manager.add(ws2, 'inbound', '10.0.0.2', '16127');
+      manager.add(ws1, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(ws2, '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
 
       manager.remove('10.0.0.1:16127');
 
@@ -500,7 +520,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should call trackDisconnect', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       sinon.spy(manager, 'trackDisconnect');
 
       manager.remove('10.0.0.1:16127');
@@ -513,7 +533,7 @@ describe('FluxPeerManager tests', () => {
   describe('has / get', () => {
     it('should return true/peer for existing key', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      const peer = manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       expect(manager.has('10.0.0.1:16127')).to.equal(true);
       expect(manager.get('10.0.0.1:16127')).to.equal(peer);
@@ -527,9 +547,9 @@ describe('FluxPeerManager tests', () => {
 
   describe('iteration', () => {
     beforeEach(() => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
-      manager.add(createMockWs('10.0.0.2', '16127'), 'outbound', '10.0.0.2', '16127');
-      manager.add(createMockWs('10.0.0.3', '16127'), 'inbound', '10.0.0.3', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.3', '16127'), '10.0.0.3', '16127', { source: PEER_SOURCE.INBOUND });
     });
 
     it('outboundValues should yield only outbound peers', () => {
@@ -556,9 +576,9 @@ describe('FluxPeerManager tests', () => {
       expect(manager.inboundCount).to.equal(0);
       expect(manager.getNumberOfPeers()).to.equal(0);
 
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
-      manager.add(createMockWs('10.0.0.2', '16127'), 'inbound', '10.0.0.2', '16127');
-      manager.add(createMockWs('10.0.0.3', '16127'), 'outbound', '10.0.0.3', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
+      manager.add(createMockWs('10.0.0.3', '16127'), '10.0.0.3', '16127', { source: PEER_SOURCE.RANDOM });
 
       expect(manager.outboundCount).to.equal(2);
       expect(manager.inboundCount).to.equal(1);
@@ -573,8 +593,8 @@ describe('FluxPeerManager tests', () => {
       ws1.readyState = WebSocket.OPEN;
       ws2.readyState = WebSocket.OPEN;
 
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
-      manager.add(ws2, 'inbound', '10.0.0.2', '16127');
+      manager.add(ws1, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(ws2, '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
 
       manager.pingAll();
 
@@ -586,7 +606,7 @@ describe('FluxPeerManager tests', () => {
   describe('onPingSent auto-close', () => {
     it('should close the connection when missedPongs reaches 3', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      const peer = manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       peer.onPingSent(); // missedPongs = 1
       peer.onPingSent(); // missedPongs = 2
@@ -599,7 +619,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should not close if pongs are received', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      const peer = manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      const peer = manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       peer.onPingSent(); // missedPongs = 1
       peer.onPingSent(); // missedPongs = 2
@@ -676,9 +696,9 @@ describe('FluxPeerManager tests', () => {
 
   describe('getRandomPeer', () => {
     it('should return a peer from the correct direction', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
-      manager.add(createMockWs('10.0.0.2', '16127'), 'outbound', '10.0.0.2', '16127');
-      manager.add(createMockWs('10.0.0.3', '16127'), 'inbound', '10.0.0.3', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.3', '16127'), '10.0.0.3', '16127', { source: PEER_SOURCE.INBOUND });
 
       const outPeer = manager.getRandomPeer('outbound');
       expect(outPeer).to.be.instanceOf(FluxPeerSocket);
@@ -690,7 +710,7 @@ describe('FluxPeerManager tests', () => {
     });
 
     it('should return null when no peers of that direction exist', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       const result = manager.getRandomPeer('inbound');
       expect(result).to.equal(null);
@@ -704,9 +724,9 @@ describe('FluxPeerManager tests', () => {
 
   describe('findByIp', () => {
     beforeEach(() => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
-      manager.add(createMockWs('10.0.0.1', '16128'), 'inbound', '10.0.0.1', '16128');
-      manager.add(createMockWs('10.0.0.2', '16127'), 'outbound', '10.0.0.2', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.1', '16128'), '10.0.0.1', '16128', { source: PEER_SOURCE.INBOUND });
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
     });
 
     it('should find all peers matching IP when no direction filter', () => {
@@ -737,7 +757,7 @@ describe('FluxPeerManager tests', () => {
     });
 
     it('should return false when peers exist', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       expect(manager.allPeersDown()).to.equal(false);
     });
   });
@@ -748,9 +768,9 @@ describe('FluxPeerManager tests', () => {
       const ws2 = createMockWs('10.0.0.2', '16127');
       const ws3 = createMockWs('10.0.0.3', '16127');
 
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
-      const peer2 = manager.add(ws2, 'inbound', '10.0.0.2', '16127');
-      manager.add(ws3, 'outbound', '10.0.0.3', '16127');
+      manager.add(ws1, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      const peer2 = manager.add(ws2, '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
+      manager.add(ws3, '10.0.0.3', '16127', { source: PEER_SOURCE.RANDOM });
 
       // Make one peer dead
       peer2.missedPongs = 5;
@@ -785,8 +805,8 @@ describe('FluxPeerManager tests', () => {
 
   describe('_clear', () => {
     it('should empty everything', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
-      manager.add(createMockWs('10.0.0.2', '16127'), 'inbound', '10.0.0.2', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
       manager.queueReconnect('10.0.0.3', '16127');
       manager.trackDisconnect('10.0.0.4', '16127');
 
@@ -808,9 +828,9 @@ describe('FluxPeerManager tests', () => {
       ws1.readyState = 1; // WebSocket.OPEN
       ws2.readyState = 1;
       ws3.readyState = 1;
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
-      manager.add(ws2, 'inbound', '10.0.0.2', '16127');
-      manager.add(ws3, 'outbound', '10.0.0.3', '16127');
+      manager.add(ws1, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(ws2, '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
+      manager.add(ws3, '10.0.0.3', '16127', { source: PEER_SOURCE.RANDOM });
 
       await manager.broadcast('hello');
 
@@ -824,8 +844,8 @@ describe('FluxPeerManager tests', () => {
       const ws2 = createMockWs('10.0.0.2', '16127');
       ws1.readyState = 1;
       ws2.readyState = 1;
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
-      manager.add(ws2, 'inbound', '10.0.0.2', '16127');
+      manager.add(ws1, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(ws2, '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
 
       await manager.broadcast('hello', { direction: 'outbound' });
 
@@ -838,8 +858,8 @@ describe('FluxPeerManager tests', () => {
       const ws2 = createMockWs('10.0.0.2', '16127');
       ws1.readyState = 1;
       ws2.readyState = 1;
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
-      manager.add(ws2, 'inbound', '10.0.0.2', '16127');
+      manager.add(ws1, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(ws2, '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
 
       await manager.broadcast('hello', { direction: 'inbound' });
 
@@ -852,8 +872,8 @@ describe('FluxPeerManager tests', () => {
       const ws2 = createMockWs('10.0.0.2', '16127');
       ws1.readyState = 1;
       ws2.readyState = 1;
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
-      manager.add(ws2, 'outbound', '10.0.0.2', '16127');
+      manager.add(ws1, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(ws2, '10.0.0.2', '16127', { source: PEER_SOURCE.RANDOM });
 
       await manager.broadcast('hello', { exclude: '10.0.0.1:16127' });
 
@@ -866,8 +886,8 @@ describe('FluxPeerManager tests', () => {
       const ws2 = createMockWs('10.0.0.2', '16127');
       ws1.readyState = WebSocket.CLOSED; // will fail to send
       ws2.readyState = 1;
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
-      manager.add(ws2, 'inbound', '10.0.0.2', '16127');
+      manager.add(ws1, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(ws2, '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
 
       await manager.broadcast('hello');
 
@@ -881,7 +901,7 @@ describe('FluxPeerManager tests', () => {
     it('should close inbound peer with 4010 on send failure', async () => {
       const ws1 = createMockWs('10.0.0.1', '16127');
       ws1.readyState = WebSocket.CLOSED;
-      manager.add(ws1, 'inbound', '10.0.0.1', '16127');
+      manager.add(ws1, '10.0.0.1', '16127', { source: PEER_SOURCE.INBOUND });
 
       await manager.broadcast('hello');
 
@@ -906,8 +926,8 @@ describe('FluxPeerManager tests', () => {
     it('should track IP groups on add and remove', () => {
       const ws1 = createMockWs('192.168.1.1', '16127');
       const ws2 = createMockWs('192.168.1.2', '16128');
-      manager.add(ws1, 'outbound', '192.168.1.1', '16127');
-      manager.add(ws2, 'outbound', '192.168.1.2', '16128');
+      manager.add(ws1, '192.168.1.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(ws2, '192.168.1.2', '16128', { source: PEER_SOURCE.RANDOM });
 
       expect(manager.isIpGroupConnected('192.168', 'outbound')).to.equal(true);
       expect(manager.isIpGroupConnected('192.168', 'inbound')).to.equal(false);
@@ -925,8 +945,8 @@ describe('FluxPeerManager tests', () => {
     });
 
     it('should track different directions independently', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
-      manager.add(createMockWs('10.0.0.2', '16127'), 'inbound', '10.0.0.2', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
 
       expect(manager.isIpGroupConnected('10.0', 'outbound')).to.equal(true);
       expect(manager.isIpGroupConnected('10.0', 'inbound')).to.equal(true);
@@ -935,9 +955,9 @@ describe('FluxPeerManager tests', () => {
     });
 
     it('getConnectedIpGroups should return set of groups', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
-      manager.add(createMockWs('172.16.0.1', '16127'), 'outbound', '172.16.0.1', '16127');
-      manager.add(createMockWs('192.168.1.1', '16127'), 'inbound', '192.168.1.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('172.16.0.1', '16127'), '172.16.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('192.168.1.1', '16127'), '192.168.1.1', '16127', { source: PEER_SOURCE.INBOUND });
 
       const outGroups = manager.getConnectedIpGroups('outbound');
       expect(outGroups).to.deep.equal(new Set(['10.0', '172.16']));
@@ -956,7 +976,7 @@ describe('FluxPeerManager tests', () => {
       // Add 14 outbound peers all from same IP (different ports)
       for (let i = 0; i < 14; i += 1) {
         const port = String(16127 + i);
-        manager.add(createMockWs('10.0.0.1', port), 'outbound', '10.0.0.1', port);
+        manager.add(createMockWs('10.0.0.1', port), '10.0.0.1', port, { source: PEER_SOURCE.RANDOM });
       }
       expect(manager.outboundCount).to.equal(14);
       expect(manager.getUniqueIpCount('outbound')).to.equal(1);
@@ -969,7 +989,7 @@ describe('FluxPeerManager tests', () => {
       for (let i = 0; i < 14; i += 1) {
         const ip = `10.${i}.0.1`;
         const port = '16127';
-        manager.add(createMockWs(ip, port), 'outbound', ip, port);
+        manager.add(createMockWs(ip, port), ip, port, { source: PEER_SOURCE.RANDOM });
       }
       expect(manager.outboundCount).to.equal(14);
       expect(manager.getUniqueIpCount('outbound')).to.equal(14);
@@ -977,8 +997,8 @@ describe('FluxPeerManager tests', () => {
     });
 
     it('should use custom thresholds', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
-      manager.add(createMockWs('10.1.0.1', '16127'), 'outbound', '10.1.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.add(createMockWs('10.1.0.1', '16127'), '10.1.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       expect(manager.needsMorePeers('outbound', { maxCount: 2, minUniqueIps: 2 })).to.equal(false);
       expect(manager.needsMorePeers('outbound', { maxCount: 3, minUniqueIps: 2 })).to.equal(true);
@@ -987,7 +1007,7 @@ describe('FluxPeerManager tests', () => {
 
   describe('canAcceptPeer', () => {
     it('should reject already connected peer', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       expect(manager.canAcceptPeer('10.0.0.1', '16127', 'outbound', '192.168')).to.equal(false);
     });
 
@@ -996,18 +1016,18 @@ describe('FluxPeerManager tests', () => {
     });
 
     it('should reject peer whose IP group already has a connection in that direction', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       // Same /16 group (10.0), different IP
       expect(manager.canAcceptPeer('10.0.0.2', '16127', 'outbound', '192.168')).to.equal(false);
     });
 
     it('should accept peer in different IP group with no conflicts', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       expect(manager.canAcceptPeer('172.16.0.1', '16127', 'outbound', '192.168')).to.equal(true);
     });
 
     it('should allow same IP group in different direction', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       // Same group but inbound direction — allowed
       expect(manager.canAcceptPeer('10.0.0.2', '16127', 'inbound', '192.168')).to.equal(true);
     });
@@ -1070,7 +1090,7 @@ describe('FluxPeerManager tests', () => {
       // Fill up inbound to exceed max
       for (let i = 0; i < 200; i += 1) {
         const ip = `${100 + Math.floor(i / 256)}.${i % 256}.0.1`;
-        manager.add(createMockWs(ip, '16127'), 'inbound', ip, '16127');
+        manager.add(createMockWs(ip, '16127'), ip, '16127', { source: PEER_SOURCE.INBOUND });
       }
 
       const ws = createMockWs('8.8.8.8', '16127');
@@ -1104,7 +1124,7 @@ describe('FluxPeerManager tests', () => {
     it('should reject duplicate peers', (done) => {
       manager.numberOfFluxNodes = 10000;
       const ws1 = createMockWs('8.8.8.8', '16127');
-      manager.add(ws1, 'inbound', '8.8.8.8', '16127');
+      manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
 
       const ws2 = createMockWs('8.8.8.8', '16127');
       ws2.close = sinon.stub();
@@ -1143,7 +1163,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should exclude already connected peers and clean up', () => {
       manager.queueReconnect('10.0.0.1', '16127');
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       const candidates = manager.getReconnectCandidates();
       expect(candidates).to.have.lengthOf(0);
@@ -1215,7 +1235,7 @@ describe('FluxPeerManager tests', () => {
     });
 
     it('should return false for already connected peers', () => {
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(false);
     });
 
@@ -1223,7 +1243,7 @@ describe('FluxPeerManager tests', () => {
       manager.recordFailedConnection('10.0.0.1', '16127');
       expect(manager._failedConnections.has('10.0.0.1:16127')).to.equal(true);
 
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       expect(manager._failedConnections.has('10.0.0.1:16127')).to.equal(false);
     });
   });
@@ -1278,7 +1298,7 @@ describe('FluxPeerManager tests', () => {
   describe('remove reconnect integration', () => {
     it('should queue reconnect for outbound dead connection', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       manager.remove('10.0.0.1:16127', CLOSE_CODES.DEAD_CONNECTION);
 
@@ -1287,7 +1307,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should NOT queue reconnect for outbound duplicate rejection', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       manager.remove('10.0.0.1:16127', CLOSE_CODES.DUPLICATE_PEER);
 
@@ -1296,7 +1316,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should NOT queue reconnect for inbound peers regardless of code', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      manager.add(ws, 'inbound', '10.0.0.1', '16127');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.INBOUND });
 
       manager.remove('10.0.0.1:16127', CLOSE_CODES.DEAD_CONNECTION);
 
@@ -1315,7 +1335,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should clear pending on successful add', () => {
       manager.markPending('10.0.0.1:16127');
-      manager.add(createMockWs('10.0.0.1', '16127'), 'outbound', '10.0.0.1', '16127');
+      manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       expect(manager.isPending('10.0.0.1:16127')).to.equal(false);
     });
 
@@ -1330,9 +1350,9 @@ describe('FluxPeerManager tests', () => {
     it('should replace existing peer and close old socket', () => {
       const ws1 = createMockWs('10.0.0.1', '16127');
       const ws2 = createMockWs('10.0.0.1', '16127');
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws1, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
-      const newPeer = manager.add(ws2, 'outbound', '10.0.0.1', '16127');
+      const newPeer = manager.add(ws2, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       expect(newPeer.ws).to.equal(ws2);
       expect(manager.getNumberOfPeers()).to.equal(1);
@@ -1341,10 +1361,10 @@ describe('FluxPeerManager tests', () => {
 
     it('should detach old handlers to prevent interference', () => {
       const ws1 = createMockWs('10.0.0.1', '16127');
-      manager.add(ws1, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws1, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       const ws2 = createMockWs('10.0.0.1', '16127');
-      manager.add(ws2, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws2, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       // Old socket's handlers should be nulled
       expect(ws1.onclose).to.equal(null);
@@ -1357,7 +1377,7 @@ describe('FluxPeerManager tests', () => {
     it('should replace stale connection instead of rejecting', () => {
       manager.numberOfFluxNodes = 10000;
       const ws1 = createMockWs('8.8.8.8', '16127');
-      const peer1 = manager.add(ws1, 'inbound', '8.8.8.8', '16127');
+      const peer1 = manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
       // Make stale
       peer1.missedPongs = 5;
       ws1.readyState = 3; // CLOSED
@@ -1384,7 +1404,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should record connected events on add', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
 
       const history = manager.getHistory();
       expect(history).to.have.lengthOf(1);
@@ -1397,7 +1417,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should record disconnected events on remove with close code details', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       manager.remove('10.0.0.1:16127', 4004);
 
       const history = manager.getHistory();
@@ -1415,7 +1435,7 @@ describe('FluxPeerManager tests', () => {
       // Fill buffer beyond capacity
       for (let i = 0; i < 1005; i += 1) {
         const ws = createMockWs(`10.0.${Math.floor(i / 256)}.${i % 256}`, '16127');
-        manager.add(ws, 'outbound', ws.ip, '16127');
+        manager.add(ws, ws.ip, '16127', { source: PEER_SOURCE.RANDOM });
       }
 
       const history = manager.getHistory();
@@ -1430,7 +1450,7 @@ describe('FluxPeerManager tests', () => {
 
     it('should be cleared by _clear', () => {
       const ws = createMockWs('10.0.0.1', '16127');
-      manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       manager._clear();
       expect(manager.getHistory()).to.deep.equal([]);
     });

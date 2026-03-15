@@ -3,6 +3,7 @@ const config = require('config');
 const { ObjectId } = require('mongodb');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const { requireMongo } = require('./dbTestHelper');
 
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
@@ -29,6 +30,8 @@ const testInsert = [{
 }];
 
 describe('dbHelper tests', () => {
+  before(requireMongo);
+
   describe('connectMongoDb tests', async () => {
     it('should default to config url when called without params', async () => {
       await dbHelper.initiateDB();
