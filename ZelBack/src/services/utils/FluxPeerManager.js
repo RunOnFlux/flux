@@ -177,6 +177,57 @@ class FluxPeerManager {
   }
 
   /**
+   * Ping an existing connection to verify it's alive. If the pong comes back
+   * within 1s, reject the new socket. If not, the existing connection is dead —
+   * replace it with the new one.
+   *
+   * Called when an inbound duplicate arrives with the X-Flux-Reconnect header,
+   * indicating the remote peer believes its old connection died.
+   *
+   * @param {FluxPeerSocket} existing - The current peer connection to verify
+   * @param {WebSocket} ws - The new inbound WebSocket
+   * @param {string} ip
+   * @param {string} port
+   * @param {object} metadata - Peer metadata from upgrade headers
+   * @private
+   */
+  _verifyOrReplace(existing, ws, ip, port, metadata) {
+    const VERIFY_TIMEOUT_MS = 1000;
+    let settled = false;
+
+    const onPong = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      existing.ws.removeListener('pong', onPong);
+      log.info(`Reconnect verify: existing connection ${existing.key} is alive, rejecting new inbound`);
+      ws.close(CLOSE_CODES.DUPLICATE_PEER, 'Existing connection verified alive');
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      existing.ws.removeListener('pong', onPong);
+      log.info(`Reconnect verify: existing connection ${existing.key} failed pong check, replacing`);
+      this.add(ws, ip, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+    }, VERIFY_TIMEOUT_MS);
+
+    existing.ws.on('pong', onPong);
+    try {
+      existing.ws.ping();
+    } catch (_e) {
+      // ping failed — socket is already dead
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        existing.ws.removeListener('pong', onPong);
+        log.info(`Reconnect verify: ping failed for ${existing.key}, replacing`);
+        this.add(ws, ip, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+      }
+    }
+  }
+
+  /**
    * @param {string} key
    * @returns {boolean}
    */
@@ -616,9 +667,16 @@ class FluxPeerManager {
       if (this.has(key)) {
         const existing = this.get(key);
         if (existing && !existing.isAlive) {
-          // Replace stale connection — add() handles cleanup of existing peer
           log.info(`Replacing stale inbound connection ${key}`);
           this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
+          return;
+        }
+        // If the remote is reconnecting (asymmetric disconnect), verify the
+        // existing connection is still alive before rejecting. Ping it and
+        // wait up to 1s — if no pong, the old socket is dead, replace it.
+        const isReconnect = req && req.headers && req.headers['x-flux-reconnect'];
+        if (isReconnect && existing) {
+          this._verifyOrReplace(existing, ws, ipv4Peer, port, metadata);
           return;
         }
         setTimeout(() => {

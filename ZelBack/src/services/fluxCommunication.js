@@ -674,6 +674,9 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
     if (offsetMs !== null) {
       options.headers['X-Flux-Clock-Offset'] = String(offsetMs);
     }
+    if (source === PEER_SOURCE.RECONNECT) {
+      options.headers['X-Flux-Reconnect'] = 'true';
+    }
     const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
     const websocket = new WebSocket(wsuri, options);
     wsMetadata.set(websocket, { ip, port, source });

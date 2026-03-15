@@ -1,5 +1,6 @@
 const chai = require('chai');
 const sinon = require('sinon');
+const EventEmitter = require('events');
 const WebSocket = require('ws');
 
 const { expect } = chai;
@@ -9,25 +10,18 @@ const { FluxPeerManager, peerManager } = require('../../ZelBack/src/services/uti
 
 /**
  * Creates a mock WebSocket object suitable for FluxPeerSocket tests.
- * The `on` stub captures the 'pong' handler so tests can invoke it.
+ * Extends EventEmitter so on/removeListener/emit work natively.
  */
-function createMockWs(ip = '192.168.1.1', port = '16127') {
-  const ws = {
-    readyState: WebSocket.OPEN,
-    ip,
-    port,
-    ping: sinon.stub(),
-    send: sinon.stub(),
-    close: sinon.stub(),
-    on: sinon.stub().callsFake((event, cb) => {
-      if (event === 'pong') ws._pongHandler = cb;
-    }),
-    onclose: null,
-    onerror: null,
-    onmessage: null,
-    _socket: { remoteAddress: ip, _peername: { address: ip } },
-    _pongHandler: null,
-  };
+function createMockWs(ip = '192.168.1.1') {
+  const ws = new EventEmitter();
+  ws.readyState = WebSocket.OPEN;
+  ws.ping = sinon.stub();
+  ws.send = sinon.stub();
+  ws.close = sinon.stub();
+  ws.onclose = null;
+  ws.onerror = null;
+  ws.onmessage = null;
+  ws._socket = { remoteAddress: ip, _peername: { address: ip } };
   return ws;
 }
 
@@ -326,9 +320,8 @@ describe('FluxPeerSocket tests', () => {
       peer.source = PEER_SOURCE.RANDOM;
       sinon.spy(peer, 'onPongReceived');
 
-      // The pong handler was captured via ws.on stub
-      expect(ws._pongHandler).to.be.a('function');
-      ws._pongHandler();
+      // Emit pong event — handler was bound via ws.on('pong', ...) in _bindHandlers
+      ws.emit('pong');
 
       sinon.assert.calledOnce(peer.onPongReceived);
     });
@@ -1391,6 +1384,75 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
+  describe('_verifyOrReplace (reconnect duplicate handling)', () => {
+    it('should replace existing connection when pong does not arrive within timeout', (done) => {
+      manager.numberOfFluxNodes = 10000;
+      const ws1 = createMockWs('8.8.8.8', '16127');
+      manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
+
+      const ws2 = createMockWs('8.8.8.8', '16127');
+      const req = { headers: { 'x-flux-reconnect': 'true' } };
+      manager.validateAndAddInbound(ws2, '16127', req);
+
+      // Don't send a pong — wait for timeout to replace
+      setTimeout(() => {
+        const current = manager.get('8.8.8.8:16127');
+        expect(current.ws).to.equal(ws2);
+        done();
+      }, 1200);
+    });
+
+    it('should reject new connection when existing responds to pong', (done) => {
+      manager.numberOfFluxNodes = 10000;
+      const ws1 = createMockWs('8.8.8.8', '16127');
+      manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
+
+      const ws2 = createMockWs('8.8.8.8', '16127');
+      const req = { headers: { 'x-flux-reconnect': 'true' } };
+      manager.validateAndAddInbound(ws2, '16127', req);
+
+      // Simulate pong coming back quickly
+      setTimeout(() => {
+        ws1.emit('pong');
+      }, 50);
+
+      setTimeout(() => {
+        const current = manager.get('8.8.8.8:16127');
+        expect(current.ws).to.equal(ws1);
+        expect(ws2.close.calledWith(CLOSE_CODES.DUPLICATE_PEER)).to.equal(true);
+        done();
+      }, 200);
+    });
+
+    it('should replace immediately when ping throws', () => {
+      manager.numberOfFluxNodes = 10000;
+      const ws1 = createMockWs('8.8.8.8', '16127');
+      ws1.ping = sinon.stub().throws(new Error('socket dead'));
+      manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
+
+      const ws2 = createMockWs('8.8.8.8', '16127');
+      const req = { headers: { 'x-flux-reconnect': 'true' } };
+      manager.validateAndAddInbound(ws2, '16127', req);
+
+      const current = manager.get('8.8.8.8:16127');
+      expect(current.ws).to.equal(ws2);
+    });
+
+    it('should reject immediately when no X-Flux-Reconnect header', () => {
+      manager.numberOfFluxNodes = 10000;
+      const ws1 = createMockWs('8.8.8.8', '16127');
+      manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
+
+      const ws2 = createMockWs('8.8.8.8', '16127');
+      const req = { headers: {} };
+      manager.validateAndAddInbound(ws2, '16127', req);
+
+      // Should still have old connection
+      const current = manager.get('8.8.8.8:16127');
+      expect(current.ws).to.equal(ws1);
+    });
+  });
+
   describe('peer history', () => {
     let manager;
 
@@ -1434,8 +1496,9 @@ describe('FluxPeerManager tests', () => {
     it('should wrap around when buffer is full', () => {
       // Fill buffer beyond capacity
       for (let i = 0; i < 1005; i += 1) {
-        const ws = createMockWs(`10.0.${Math.floor(i / 256)}.${i % 256}`, '16127');
-        manager.add(ws, ws.ip, '16127', { source: PEER_SOURCE.RANDOM });
+        const ip = `10.0.${Math.floor(i / 256)}.${i % 256}`;
+        const ws = createMockWs(ip);
+        manager.add(ws, ip, '16127', { source: PEER_SOURCE.RANDOM });
       }
 
       const history = manager.getHistory();
