@@ -1,3 +1,3 @@
-const { peerManager, FluxPeerManager, CLOSE_CODES } = require('./FluxPeerManager');
+const { peerManager, FluxPeerManager, CLOSE_CODES, PEER_SOURCE } = require('./FluxPeerManager');
 
-module.exports = { peerManager, FluxPeerManager, CLOSE_CODES };
+module.exports = { peerManager, FluxPeerManager, CLOSE_CODES, PEER_SOURCE };

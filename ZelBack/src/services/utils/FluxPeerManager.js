@@ -1,7 +1,7 @@
 const config = require('config');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
-const { FluxPeerSocket, CLOSE_CODES } = require('./FluxPeerSocket');
+const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE } = require('./FluxPeerSocket');
 
 const UNSTABLE_DISCONNECT_THRESHOLD = 5;
 const UNSTABLE_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -30,7 +30,7 @@ class FluxPeerManager {
     this._uniqueIps = new Map();
     /** @type {Map<string, {attempts: number, lastAttempt: number}>} */
     this._failedConnections = new Map();
-    /** @type {Set<string>} keys of outbound peers with connection in progress */
+    /** @type {Set<string>} keys of outbound connections currently being established */
     this._pendingConnections = new Set();
 
     /** @type {Array<object>} Circular buffer of peer lifecycle events */
@@ -58,12 +58,15 @@ class FluxPeerManager {
   /**
    * Add a peer connection.
    * @param {WebSocket} ws
-   * @param {'inbound'|'outbound'} direction
    * @param {string} ip
    * @param {string} port
+   * @param {object} [options]
+   * @param {string} [options.source] - PEER_SOURCE value
+   * @param {string[]} [options.remoteCapabilities] - Capabilities advertised by remote
+   * @param {number} [options.remoteClockOffsetMs] - Remote clock offset in ms
    * @returns {FluxPeerSocket}
    */
-  add(ws, direction, ip, port) {
+  add(ws, ip, port, options = {}) {
     const key = `${ip}:${String(port)}`;
     const existing = this._peers.get(key);
     if (existing) {
@@ -75,7 +78,16 @@ class FluxPeerManager {
       try { existing.ws.close(CLOSE_CODES.DUPLICATE_PEER, 'replaced'); } catch (_e) { /* noop */ }
       this._removeTracking(existing);
     }
-    const peer = new FluxPeerSocket(ws, direction, ip, String(port), this);
+    const peer = new FluxPeerSocket(ws, ip, String(port), this);
+    peer.source = options.source || PEER_SOURCE.INBOUND;
+    if (Array.isArray(options.remoteCapabilities) && options.remoteCapabilities.length) {
+      peer.remoteCapabilities = new Set(options.remoteCapabilities);
+      log.info(`Peer ${peer.key} capabilities: ${options.remoteCapabilities.join(', ')}`);
+    }
+    if (typeof options.remoteClockOffsetMs === 'number' && !Number.isNaN(options.remoteClockOffsetMs)) {
+      peer.remoteClockOffsetMs = options.remoteClockOffsetMs;
+    }
+    const { direction } = peer;
     this._peers.set(peer.key, peer);
     if (direction === 'inbound') {
       this._inboundKeys.add(peer.key);
@@ -97,6 +109,7 @@ class FluxPeerManager {
       ip,
       port: String(port),
       direction,
+      source: peer.source,
     });
     return peer;
   }
@@ -129,6 +142,7 @@ class FluxPeerManager {
       ip: peer.ip,
       port: peer.port,
       direction: peer.direction,
+      source: peer.source,
       closeCode: closeCode || null,
       closeCodeName: CLOSE_CODE_NAMES[closeCode] || null,
       duration: now - peer.connectedAt,
@@ -533,13 +547,40 @@ class FluxPeerManager {
   /**
    * Validate and add an inbound WebSocket connection.
    * Handles max connections, IPv4 extraction, private IP rejection, and duplicate checks.
-   * Closes the socket on rejection.
+   * Extracts remote peer metadata (capabilities, clock offset) from the HTTP upgrade request headers.
+   *
+   * Called by socketServer route matching. For `/ws/flux/:port`, args are (ws, port, request).
+   * For `/ws/flux`, args are (ws, request) — the request lands in optionalPort.
+   *
    * @param {WebSocket} ws
-   * @param {string} [optionalPort]
+   * @param {string|object} [optionalPort] - Port string, or the request object if no :port in route
+   * @param {object} [request] - HTTP upgrade request (carries headers for metadata extraction)
    */
-  validateAndAddInbound(ws, optionalPort) {
+  validateAndAddInbound(ws, optionalPort, request) {
     try {
-      const port = optionalPort || '16127';
+      let port;
+      let req;
+      if (typeof optionalPort === 'object' && optionalPort !== null) {
+        // No :port in route — optionalPort is actually the request
+        req = optionalPort;
+        port = '16127';
+      } else {
+        port = optionalPort || '16127';
+        req = request;
+      }
+
+      // Extract remote peer metadata from upgrade request headers
+      const metadata = {};
+      if (req && req.headers) {
+        if (req.headers['x-flux-capabilities']) {
+          metadata.remoteCapabilities = req.headers['x-flux-capabilities']
+            .split(',').map((s) => s.trim()).filter(Boolean);
+        }
+        const clockHeader = req.headers['x-flux-clock-offset'];
+        if (clockHeader !== undefined) {
+          metadata.remoteClockOffsetMs = Number(clockHeader);
+        }
+      }
       const maxPeers = 4 * config.fluxapps.minIncoming;
       const maxNumberOfConnections = this.numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming
         ? this.numberOfFluxNodes / 160
@@ -577,7 +618,7 @@ class FluxPeerManager {
         if (existing && !existing.isAlive) {
           // Replace stale connection — add() handles cleanup of existing peer
           log.info(`Replacing stale inbound connection ${key}`);
-          this.add(ws, 'inbound', ipv4Peer, port);
+          this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
           return;
         }
         setTimeout(() => {
@@ -586,7 +627,7 @@ class FluxPeerManager {
         return;
       }
 
-      this.add(ws, 'inbound', ipv4Peer, port);
+      this.add(ws, ipv4Peer, port, { source: PEER_SOURCE.INBOUND, ...metadata });
     } catch (error) {
       log.error(error);
     }
@@ -727,4 +768,4 @@ FluxPeerManager.CONNECTION_BACKOFF_MS = [2 * 60000, 5 * 60000, 10 * 60000, 15 * 
 // Singleton export
 const peerManager = new FluxPeerManager();
 
-module.exports = { FluxPeerManager, peerManager, CLOSE_CODES };
+module.exports = { FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE };

@@ -62,22 +62,11 @@ class FluxWebsocketServer {
     this.#socketServer.on('connection', (ws, request) => {
       ws.on('error', (err) => this.errorHandler(err));
 
-      // Parse remote capabilities and clock offset from the upgrade request header.
-      // Old nodes won't send these headers.
-      const capHeader = request.headers['x-flux-capabilities'];
-      if (capHeader) {
-        ws._remoteCapabilities = capHeader.split(',').map((s) => s.trim()).filter(Boolean);
-      }
-      const clockHeader = request.headers['x-flux-clock-offset'];
-      if (clockHeader !== undefined) {
-        ws._remoteClockOffsetMs = Number(clockHeader);
-      }
-
       const { url } = request;
 
       const handler = this.matchRoute(url);
 
-      if (handler) handler(ws);
+      if (handler) handler(ws, request);
     });
   }
 
@@ -103,9 +92,7 @@ class FluxWebsocketServer {
     });
 
     if (routeHandler) {
-      // Should probably pass these as is but all handlers only
-      // have one param, so easier this way for now
-      return (ws) => routeHandler(ws, ...Object.values(params));
+      return (ws, request) => routeHandler(ws, ...Object.values(params), request);
     }
 
     return null;
