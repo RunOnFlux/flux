@@ -328,6 +328,9 @@ module.exports = (app) => {
   app.get('/flux/unstablenodes', cache('30 seconds'), (req, res) => {
     fluxCommunication.getUnstableNodes(req, res);
   });
+  app.get('/flux/peerhistory', cache('5 seconds'), (req, res) => {
+    fluxCommunication.getPeerHistory(req, res);
+  });
   // Deprecated peer endpoints — kept for backward compatibility
   app.get('/flux/connectedpeers', cache('30 seconds'), (req, res) => {
     fluxCommunication.connectedPeers(req, res);

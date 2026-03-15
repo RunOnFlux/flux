@@ -1371,6 +1371,71 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
+  describe('peer history', () => {
+    let manager;
+
+    beforeEach(() => {
+      manager = new FluxPeerManager();
+    });
+
+    afterEach(() => {
+      manager._clear();
+    });
+
+    it('should record connected events on add', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      manager.add(ws, 'outbound', '10.0.0.1', '16127');
+
+      const history = manager.getHistory();
+      expect(history).to.have.lengthOf(1);
+      expect(history[0].event).to.equal('connected');
+      expect(history[0].ip).to.equal('10.0.0.1');
+      expect(history[0].port).to.equal('16127');
+      expect(history[0].direction).to.equal('outbound');
+      expect(history[0].timestamp).to.be.a('number');
+    });
+
+    it('should record disconnected events on remove with close code details', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      manager.remove('10.0.0.1:16127', 4004);
+
+      const history = manager.getHistory();
+      expect(history).to.have.lengthOf(2);
+      const disc = history[1];
+      expect(disc.event).to.equal('disconnected');
+      expect(disc.closeCode).to.equal(4004);
+      expect(disc.closeCodeName).to.equal('BAD_ORIGIN_INBOUND');
+      expect(disc.duration).to.be.a('number');
+      expect(disc.latency).to.equal(null);
+      expect(disc.missedPongs).to.equal(0);
+    });
+
+    it('should wrap around when buffer is full', () => {
+      // Fill buffer beyond capacity
+      for (let i = 0; i < 1005; i += 1) {
+        const ws = createMockWs(`10.0.${Math.floor(i / 256)}.${i % 256}`, '16127');
+        manager.add(ws, 'outbound', ws.ip, '16127');
+      }
+
+      const history = manager.getHistory();
+      expect(history).to.have.lengthOf(1000);
+      // Oldest should be event 6 (index 5), newest should be event 1005 (index 1004)
+      expect(history[0].timestamp).to.be.lessThan(history[999].timestamp);
+    });
+
+    it('should return empty array when no events', () => {
+      expect(manager.getHistory()).to.deep.equal([]);
+    });
+
+    it('should be cleared by _clear', () => {
+      const ws = createMockWs('10.0.0.1', '16127');
+      manager.add(ws, 'outbound', '10.0.0.1', '16127');
+      manager._clear();
+      expect(manager.getHistory()).to.deep.equal([]);
+    });
+  });
+
   describe('singleton export', () => {
     it('peerManager should be an instance of FluxPeerManager', () => {
       expect(peerManager).to.be.instanceOf(FluxPeerManager);
