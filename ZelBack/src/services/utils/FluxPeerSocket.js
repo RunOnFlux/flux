@@ -1,6 +1,7 @@
 const WebSocket = require('ws');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
+const { version: FLUX_VERSION } = require('../../../../package.json');
 
 const CLOSE_CODES = Object.freeze({
   // Inbound validation (FluxPeerManager.validateAndAddInbound)
@@ -69,8 +70,13 @@ class FluxPeerSocket {
     this.badMessageTimestamps = [];
     this.remoteCapabilities = new Set();
     this.remoteClockOffsetMs = null;
+    this.remoteVersion = null;
     this.source = PEER_SOURCE.INBOUND;
     this.msgMap = new Map([['requestHash', 0], ['newHash', 0]]);
+    this.messagesReceived = 0;
+    this.messagesSent = 0;
+    this.bytesReceived = 0;
+    this.bytesSent = 0;
 
     this._bindHandlers();
   }
@@ -99,6 +105,10 @@ class FluxPeerSocket {
     return this.missedPongs < 3 && this.ws.readyState === WebSocket.OPEN;
   }
 
+  get reconnects() {
+    return this.manager._reconnectCounts.get(this.key) || 0;
+  }
+
   onPingSent() {
     this.lastPingTime = Date.now();
     this.missedPongs += 1;
@@ -124,11 +134,15 @@ class FluxPeerSocket {
   send(data) {
     try {
       if (this.ws.readyState !== WebSocket.OPEN) return false;
+      let payload;
       if (this.remoteCapabilities.has('transmissionTimestamps') && typeof data === 'string') {
-        this.ws.send(`T${Date.now()}|${data}`);
+        payload = `T${Date.now()}|${data}`;
       } else {
-        this.ws.send(data);
+        payload = data;
       }
+      this.ws.send(payload);
+      this.messagesSent += 1;
+      this.bytesSent += Buffer.byteLength(payload, 'utf8');
       return true;
     } catch (e) {
       log.error(e);
@@ -243,6 +257,9 @@ class FluxPeerSocket {
       const rateOK = fluxNetworkHelper.lruRateLimit(`${this.ip}:${this.port}`, 120);
       if (!rateOK) return;
 
+      this.messagesReceived += 1;
+      this.bytesReceived += Buffer.byteLength(evt.data, 'utf8');
+
       // Strip transmission timestamp prefix if present (T{timestamp}|{json})
       // Adjust for clock skew using exchanged NTP offsets:
       //   rawDelay = localTime - remoteTime
@@ -282,4 +299,4 @@ class FluxPeerSocket {
   }
 }
 
-module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE };
+module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, FLUX_VERSION };

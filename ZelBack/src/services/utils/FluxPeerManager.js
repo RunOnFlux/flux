@@ -1,7 +1,7 @@
 const config = require('config');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
-const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE } = require('./FluxPeerSocket');
+const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, FLUX_VERSION } = require('./FluxPeerSocket');
 
 const UNSTABLE_DISCONNECT_THRESHOLD = 5;
 const UNSTABLE_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -32,6 +32,8 @@ class FluxPeerManager {
     this._failedConnections = new Map();
     /** @type {Set<string>} keys of outbound connections currently being established */
     this._pendingConnections = new Set();
+    /** @type {Map<string, number>} reconnect count per peer key, persists across connection cycles */
+    this._reconnectCounts = new Map();
 
     /** @type {Array<object>} Circular buffer of peer lifecycle events */
     this._history = new Array(HISTORY_BUFFER_SIZE);
@@ -86,6 +88,12 @@ class FluxPeerManager {
     }
     if (typeof options.remoteClockOffsetMs === 'number' && !Number.isNaN(options.remoteClockOffsetMs)) {
       peer.remoteClockOffsetMs = options.remoteClockOffsetMs;
+    }
+    if (typeof options.remoteVersion === 'string' && options.remoteVersion) {
+      peer.remoteVersion = options.remoteVersion;
+    }
+    if (existing || options.source === PEER_SOURCE.RECONNECT) {
+      this._reconnectCounts.set(key, (this._reconnectCounts.get(key) || 0) + 1);
     }
     const { direction } = peer;
     this._peers.set(peer.key, peer);
@@ -148,6 +156,10 @@ class FluxPeerManager {
       duration: now - peer.connectedAt,
       latency: peer.latency,
       missedPongs: peer.missedPongs,
+      messagesReceived: peer.messagesReceived,
+      messagesSent: peer.messagesSent,
+      bytesReceived: peer.bytesReceived,
+      bytesSent: peer.bytesSent,
     });
 
     log.info(`Connection ${key} removed from peerManager (${peer.direction}, code: ${closeCode})`);
@@ -631,6 +643,9 @@ class FluxPeerManager {
         if (clockHeader !== undefined) {
           metadata.remoteClockOffsetMs = Number(clockHeader);
         }
+        if (req.headers['x-flux-version']) {
+          metadata.remoteVersion = req.headers['x-flux-version'];
+        }
       }
       const maxPeers = 4 * config.fluxapps.minIncoming;
       const maxNumberOfConnections = this.numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming
@@ -814,6 +829,7 @@ class FluxPeerManager {
     this._uniqueIps.clear();
     this._failedConnections.clear();
     this._pendingConnections.clear();
+    this._reconnectCounts.clear();
     this._history = new Array(HISTORY_BUFFER_SIZE);
     this._historyIndex = 0;
     this._historyCount = 0;
@@ -826,4 +842,4 @@ FluxPeerManager.CONNECTION_BACKOFF_MS = [2 * 60000, 5 * 60000, 10 * 60000, 15 * 
 // Singleton export
 const peerManager = new FluxPeerManager();
 
-module.exports = { FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE };
+module.exports = { FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE, FLUX_VERSION };

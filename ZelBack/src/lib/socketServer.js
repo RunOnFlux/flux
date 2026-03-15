@@ -1,6 +1,7 @@
 const { match } = require('path-to-regexp');
 const WebSocketServer = require('ws').Server;
 const log = require('./log');
+const { FLUX_VERSION } = require('../services/utils/FluxPeerSocket');
 
 const LOCAL_CAPABILITIES = ['transmissionTimestamps'];
 
@@ -51,6 +52,7 @@ class FluxWebsocketServer {
     // Old nodes silently ignore unknown headers.
     this.#socketServer.on('headers', (headers) => {
       headers.push(`X-Flux-Capabilities: ${LOCAL_CAPABILITIES.join(',')}`);
+      headers.push(`X-Flux-Version: ${FLUX_VERSION}`);
       // Lazy require to avoid circular deps at module load time
       const fluxNetworkHelper = require('../services/fluxNetworkHelper');
       const offsetMs = fluxNetworkHelper.getLocalClockOffsetMs();

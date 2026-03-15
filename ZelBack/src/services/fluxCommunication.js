@@ -28,7 +28,7 @@ const { messageCache, wsPeerCache } = cacheManager;
 
 const testListCache = new LRUCache(LRUTest); */
 
-const { FluxPeerManager } = require('./utils/FluxPeerManager');
+const { FluxPeerManager, FLUX_VERSION } = require('./utils/FluxPeerManager');
 
 const DISCOVERY = {
   maxOutbound: 14,
@@ -611,6 +611,7 @@ function onOutboundOpen() {
     source: meta.source,
     remoteCapabilities: meta.remoteCapabilities,
     remoteClockOffsetMs: meta.remoteClockOffsetMs,
+    remoteVersion: meta.remoteVersion,
   });
 }
 
@@ -623,6 +624,9 @@ function onOutboundUpgrade(response) {
   const clockHeader = response.headers['x-flux-clock-offset'];
   if (clockHeader !== undefined) {
     meta.remoteClockOffsetMs = Number(clockHeader);
+  }
+  if (response.headers['x-flux-version']) {
+    meta.remoteVersion = response.headers['x-flux-version'];
   }
 }
 
@@ -668,6 +672,7 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
       },
       headers: {
         'X-Flux-Capabilities': 'transmissionTimestamps',
+        'X-Flux-Version': FLUX_VERSION,
       },
     };
     const offsetMs = fluxNetworkHelper.getLocalClockOffsetMs();
@@ -996,6 +1001,12 @@ function peerToDetailedInfo(peer) {
     capabilities: [...peer.remoteCapabilities],
     remoteClockOffsetMs: peer.remoteClockOffsetMs,
     lastTransmissionDelay: peer.lastTransmissionDelay,
+    messagesReceived: peer.messagesReceived,
+    messagesSent: peer.messagesSent,
+    bytesReceived: peer.bytesReceived,
+    bytesSent: peer.bytesSent,
+    remoteVersion: peer.remoteVersion,
+    reconnects: peer.reconnects,
   };
 }
 

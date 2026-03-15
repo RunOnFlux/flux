@@ -1524,4 +1524,122 @@ describe('FluxPeerManager tests', () => {
       expect(peerManager).to.be.instanceOf(FluxPeerManager);
     });
   });
+
+  describe('per-peer metrics', () => {
+    describe('message and byte counters', () => {
+      it('should initialize counters to zero', () => {
+        const ws = createMockWs('44.0.0.1');
+        const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        expect(peer.messagesReceived).to.equal(0);
+        expect(peer.messagesSent).to.equal(0);
+        expect(peer.bytesReceived).to.equal(0);
+        expect(peer.bytesSent).to.equal(0);
+      });
+
+      it('should increment messagesReceived and bytesReceived on ws.onmessage', () => {
+        const ws = createMockWs('44.0.0.1');
+        const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        const data = '{"type":"test"}';
+        ws.onmessage({ data });
+        expect(peer.messagesReceived).to.equal(1);
+        expect(peer.bytesReceived).to.equal(Buffer.byteLength(data, 'utf8'));
+      });
+
+      it('should increment messagesSent and bytesSent on send()', () => {
+        const ws = createMockWs('44.0.0.1');
+        const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        const payload = '{"type":"hello"}';
+        peer.send(payload);
+        expect(peer.messagesSent).to.equal(1);
+        expect(peer.bytesSent).to.equal(Buffer.byteLength(payload, 'utf8'));
+      });
+
+      it('should track bytes including transmission timestamp prefix', () => {
+        const ws = createMockWs('44.0.0.1');
+        const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        peer.remoteCapabilities.add('transmissionTimestamps');
+        const payload = '{"type":"hello"}';
+        peer.send(payload);
+        expect(peer.messagesSent).to.equal(1);
+        // bytesSent should include the T{timestamp}| prefix
+        expect(peer.bytesSent).to.be.greaterThan(Buffer.byteLength(payload, 'utf8'));
+      });
+    });
+
+    describe('remoteVersion', () => {
+      it('should default to null', () => {
+        const ws = createMockWs('44.0.0.1');
+        const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        expect(peer.remoteVersion).to.be.null;
+      });
+
+      it('should set remoteVersion from options', () => {
+        const ws = createMockWs('44.0.0.1');
+        const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM, remoteVersion: '8.8.0' });
+        expect(peer.remoteVersion).to.equal('8.8.0');
+      });
+
+      it('should not set remoteVersion for empty string', () => {
+        const ws = createMockWs('44.0.0.1');
+        const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM, remoteVersion: '' });
+        expect(peer.remoteVersion).to.be.null;
+      });
+    });
+
+    describe('reconnect count', () => {
+      it('should start at zero for new peers', () => {
+        const ws = createMockWs('44.0.0.1');
+        const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        expect(peer.reconnects).to.equal(0);
+      });
+
+      it('should increment on RECONNECT source', () => {
+        const ws = createMockWs('44.0.0.1');
+        const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RECONNECT });
+        expect(peer.reconnects).to.equal(1);
+      });
+
+      it('should increment when replacing an existing peer', () => {
+        const ws1 = createMockWs('44.0.0.1');
+        manager.add(ws1, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+
+        const ws2 = createMockWs('44.0.0.1');
+        const peer2 = manager.add(ws2, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        expect(peer2.reconnects).to.equal(1);
+      });
+
+      it('should accumulate across multiple reconnects', () => {
+        const ws1 = createMockWs('44.0.0.1');
+        manager.add(ws1, '44.0.0.1', '16127', { source: PEER_SOURCE.RECONNECT });
+
+        const ws2 = createMockWs('44.0.0.1');
+        const peer2 = manager.add(ws2, '44.0.0.1', '16127', { source: PEER_SOURCE.RECONNECT });
+        expect(peer2.reconnects).to.equal(2);
+      });
+
+      it('should be cleared by _clear()', () => {
+        const ws = createMockWs('44.0.0.1');
+        manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RECONNECT });
+        manager._clear();
+        expect(manager._reconnectCounts.size).to.equal(0);
+      });
+    });
+
+    describe('disconnect history includes counters', () => {
+      it('should record message/byte counters in disconnect event', () => {
+        const ws = createMockWs('44.0.0.1');
+        const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        const payload = '{"type":"test"}';
+        peer.send(payload);
+        manager.remove(peer.key, 1000);
+        const history = manager.getHistory();
+        const disconnectEvent = history.find((e) => e.event === 'disconnected' && e.ip === '44.0.0.1');
+        expect(disconnectEvent).to.exist;
+        expect(disconnectEvent.messagesSent).to.equal(1);
+        expect(disconnectEvent.bytesSent).to.equal(Buffer.byteLength(payload, 'utf8'));
+        expect(disconnectEvent.messagesReceived).to.equal(0);
+        expect(disconnectEvent.bytesReceived).to.equal(0);
+      });
+    });
+  });
 });
