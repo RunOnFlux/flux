@@ -57,6 +57,12 @@ class FluxPeerManager {
      */
     this.hashHandlers = null;
 
+    /**
+     * Network health monitor — set by fluxCommunication.js to break circular dependency.
+     * @type {import('./NetworkHealthMonitor').NetworkHealthMonitor|null}
+     */
+    this.networkHealthMonitor = null;
+
     /** @type {Array<object>} Circular buffer of peer lifecycle events */
     this._history = new Array(HISTORY_BUFFER_SIZE);
     /** @type {number} Next write position in the ring buffer */
@@ -147,6 +153,7 @@ class FluxPeerManager {
     dirSet.add(peer.key);
     this._pendingRemoves.delete(peer.key);
     this._schedulePeerUpdate();
+    if (this.networkHealthMonitor) this.networkHealthMonitor.recordConnect();
     return peer;
   }
 
@@ -169,8 +176,9 @@ class FluxPeerManager {
     this._pendingAdds.inbound.delete(key);
     this._schedulePeerUpdate();
 
-    // Track disconnect for unstable node detection
+    // Track disconnect for unstable node detection and network health
     this.trackDisconnect(peer.ip, peer.port);
+    if (this.networkHealthMonitor) this.networkHealthMonitor.recordDisconnect(peer.connectedAt, closeCode);
 
     // Queue outbound peers for reconnection only on unexpected disconnections.
     // Whitelist: only reconnect for dead connections, capacity rejections,
@@ -1120,6 +1128,7 @@ class FluxPeerManager {
     this._pendingAdds.inbound.clear();
     this._pendingRemoves.clear();
     if (this._peerUpdateTimer) { clearTimeout(this._peerUpdateTimer); this._peerUpdateTimer = null; }
+    if (this.networkHealthMonitor) this.networkHealthMonitor._clear();
     this._history = new Array(HISTORY_BUFFER_SIZE);
     this._historyIndex = 0;
     this._historyCount = 0;

@@ -29,6 +29,7 @@ const { messageCache, wsPeerCache } = cacheManager;
 const testListCache = new LRUCache(LRUTest); */
 
 const { FluxPeerManager, FLUX_VERSION } = require('./utils/FluxPeerManager');
+const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 
 const DISCOVERY = {
   maxOutbound: 14,
@@ -474,6 +475,8 @@ function connectedPeersInfo(req, res) {
  * To keep connections alive by pinging all outgoing and incoming peers.
  */
 function keepConnectionsAlive() {
+  networkHealthMonitor.setPeerManager(peerManager);
+  peerManager.networkHealthMonitor = networkHealthMonitor;
   setInterval(() => {
     peerManager.pingAll();
   }, 15 * 1000);
@@ -1114,6 +1117,21 @@ function getTopology(req, res) {
   return res.json(messageHelper.createDataMessage(data));
 }
 
+/**
+ * Get network health status and diagnosis history.
+ * GET /flux/networkhealth
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+function getNetworkHealth(req, res) {
+  const data = {
+    status: networkHealthMonitor.getStatus(),
+    inSteadyState: networkHealthMonitor.isInSteadyState(),
+    history: networkHealthMonitor.getDiagnosisHistory(),
+  };
+  return res.json(messageHelper.createDataMessage(data));
+}
+
 function logSockets() {
   const inboundMessages = { requestHash: 0, newHash: 0 };
   const outboundMessages = { requestHash: 0, newHash: 0 };
@@ -1164,4 +1182,5 @@ module.exports = {
   getUnstableNodes,
   getPeerHistory,
   getTopology,
+  getNetworkHealth,
 };
