@@ -928,11 +928,11 @@ async function clockDrift(req, res) {
   try {
     const data = await getClockDrift();
     const message = messageHelper.createDataMessage(data);
-    return res.json(message);
+    return res ? res.json(message) : message;
   } catch (error) {
     log.error(error);
     const message = messageHelper.createErrorMessage('Error obtaining clock drift');
-    return res.json(message);
+    return res ? res.json(message) : message;
   }
 }
 
