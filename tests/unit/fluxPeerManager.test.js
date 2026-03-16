@@ -264,7 +264,7 @@ describe('FluxPeerSocket tests', () => {
   });
 
   describe('sendNak', () => {
-    it('should send JSON NAK message', () => {
+    it('should send JSON NAK message to legacy peer', () => {
       const ws = createMockWs();
       ws.readyState = WebSocket.OPEN;
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
@@ -279,6 +279,22 @@ describe('FluxPeerSocket tests', () => {
         hash: 'abc123',
         reason: 'stale message',
       });
+    });
+
+    it('should send binary NAK to peer with binaryMessages capability', () => {
+      const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+      const ws = createMockWs();
+      ws.readyState = WebSocket.OPEN;
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+      peer.remoteCapabilities.add('binaryMessages');
+
+      peer.sendNak('abcdef0123456789abcdef0123456789abcdef01', 'stale');
+
+      sinon.assert.calledOnce(ws.send);
+      const sent = ws.send.firstCall.args[0];
+      expect(Buffer.isBuffer(sent)).to.be.true;
+      expect(sent[0]).to.equal(peerCodec.MSG_TYPE.NAK);
     });
   });
 
@@ -1976,6 +1992,116 @@ describe('FluxPeerManager tests', () => {
         const parsed = JSON.parse(call.args[0]);
         expect(parsed.requestMessageHash).to.equal('abcdef0123456789abcdef0123456789abcdef01');
       });
+    });
+  });
+
+  describe('binary frame interception in _bindHandlers', () => {
+    const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+
+    it('should route binary Buffer to handleBinaryMessage', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange', 'binaryMessages'],
+      });
+      const spy = sinon.spy(manager, 'handleBinaryMessage');
+      const buf = peerCodec.encodePeerExchange(['10.0.0.1:16127'], ['10.0.0.2:16127']);
+      ws.onmessage({ data: buf });
+      expect(spy.calledOnce).to.be.true;
+      expect(spy.firstCall.args[0]).to.equal(peer);
+      expect(Buffer.isBuffer(spy.firstCall.args[1])).to.be.true;
+    });
+
+    it('should count binary message in messagesReceived and bytesReceived', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange', 'binaryMessages'],
+      });
+      const buf = peerCodec.encodeHashPresent('abcdef0123456789abcdef0123456789abcdef01');
+      manager.hashHandlers = { handleHashPresent: sinon.stub(), handleHashRequest: sinon.stub() };
+      ws.onmessage({ data: buf });
+      expect(peer.messagesReceived).to.equal(1);
+      expect(peer.bytesReceived).to.equal(buf.length);
+    });
+  });
+
+  describe('JSON peerExchange/peerUpdate receive in _bindHandlers', () => {
+    it('should handle JSON peerExchange from capable peer', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange'],
+      });
+      const msg = JSON.stringify({ type: 'peerExchange', outbound: ['10.0.0.1:16127'], inbound: ['10.0.0.2:16127'] });
+      ws.onmessage({ data: msg });
+      expect(manager._peerTopology.has(peer.key)).to.be.true;
+      const entry = manager._peerTopology.get(peer.key);
+      expect(entry.outbound.has('10.0.0.1:16127')).to.be.true;
+      expect(entry.inbound.has('10.0.0.2:16127')).to.be.true;
+    });
+
+    it('should handle JSON peerUpdate from capable peer', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange'],
+      });
+      // First send a full exchange
+      manager.handlePeerExchange(peer, ['10.0.0.1:16127'], []);
+      // Then a JSON update
+      const msg = JSON.stringify({ type: 'peerUpdate', addOutbound: ['10.0.0.3:16127'], addInbound: [], rm: ['10.0.0.1:16127'] });
+      ws.onmessage({ data: msg });
+      const entry = manager._peerTopology.get(peer.key);
+      expect(entry.outbound.has('10.0.0.3:16127')).to.be.true;
+      expect(entry.outbound.has('10.0.0.1:16127')).to.be.false;
+    });
+
+    it('should ignore peerExchange from peer without capability', () => {
+      const ws = createMockWs('44.0.0.1');
+      manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      const msg = JSON.stringify({ type: 'peerExchange', outbound: ['10.0.0.1:16127'], inbound: [] });
+      ws.onmessage({ data: msg });
+      expect(manager._peerTopology.size).to.equal(0);
+    });
+  });
+
+  describe('network health monitor integration', () => {
+    const { NetworkHealthMonitor } = require('../../ZelBack/src/services/utils/NetworkHealthMonitor');
+
+    it('should call recordConnect on add()', () => {
+      const monitor = new NetworkHealthMonitor();
+      monitor.setPeerManager(manager);
+      manager.networkHealthMonitor = monitor;
+      const spy = sinon.spy(monitor, 'recordConnect');
+
+      const ws = createMockWs('44.0.0.1');
+      manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+
+      expect(spy.calledOnce).to.be.true;
+    });
+
+    it('should call recordDisconnect on remove() with connectedAt and closeCode', () => {
+      const monitor = new NetworkHealthMonitor();
+      monitor.setPeerManager(manager);
+      manager.networkHealthMonitor = monitor;
+      const spy = sinon.spy(monitor, 'recordDisconnect');
+
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      manager.remove(peer.key, 1006);
+
+      expect(spy.calledOnce).to.be.true;
+      expect(spy.firstCall.args[0]).to.equal(peer.connectedAt);
+      expect(spy.firstCall.args[1]).to.equal(1006);
+    });
+
+    it('should not crash if no monitor is set', () => {
+      manager.networkHealthMonitor = null;
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      // Should not throw
+      manager.remove(peer.key, 1006);
     });
   });
 });
