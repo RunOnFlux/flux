@@ -1,6 +1,7 @@
 const WebSocket = require('ws');
 const log = require('../../lib/log');
 const { CLOSE_CODES } = require('./FluxPeerSocket');
+const networkStateService = require('../networkStateService');
 
 // --- Constants ---
 
@@ -83,6 +84,14 @@ class NetworkHealthMonitor {
         && Date.now() - this._firstPeerConnectedAt >= STEADY_STATE_DELAY_MS) {
       this._inSteadyState = true;
       log.info('NetworkHealthMonitor: entered steady state');
+    }
+    // Recovery: if we were in a degraded state and peers are reconnecting, reset to healthy
+    if (this._currentStatus !== HEALTH_STATUS.HEALTHY) {
+      const peerCount = this._peerManager ? this._peerManager.getNumberOfPeers() : 0;
+      if (peerCount >= 5) {
+        log.info(`NetworkHealthMonitor: recovered — ${peerCount} peers connected, resetting to HEALTHY`);
+        this._currentStatus = HEALTH_STATUS.HEALTHY;
+      }
     }
   }
 
@@ -282,7 +291,7 @@ class NetworkHealthMonitor {
    * @returns {Promise<{attempted: number, succeeded: number, targets: string[]}>}
    */
   async _probeKnownGoodPeers() {
-    const targets = this._getProbeTargets();
+    const targets = await this._getProbeTargets();
     const attempted = targets.length;
     if (attempted === 0) return { attempted: 0, succeeded: 0, targets: [] };
 
@@ -314,21 +323,23 @@ class NetworkHealthMonitor {
   }
 
   /**
-   * Select probe targets from known peers (topology) that we're not currently connected to.
-   * @returns {string[]}
+   * Select probe targets from the deterministic node list, filtering out
+   * our own peers (we've already tried them via ping).
+   * @returns {Promise<string[]>}
    */
-  _getProbeTargets() {
-    if (!this._peerManager) return [];
-    const knownPeers = this._peerManager.knownPeers;
+  async _getProbeTargets() {
     const connected = new Set();
-    for (const peer of this._peerManager.allValues()) {
-      connected.add(peer.key);
+    if (this._peerManager) {
+      for (const peer of this._peerManager.allValues()) {
+        connected.add(peer.key);
+      }
     }
     const candidates = [];
-    for (const key of knownPeers) {
-      if (!connected.has(key)) {
-        candidates.push(key);
-        if (candidates.length >= PROBE_PEER_COUNT) break;
+    for (let i = 0; i < PROBE_PEER_COUNT * 3 && candidates.length < PROBE_PEER_COUNT; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      const addr = await networkStateService.getRandomSocketAddress();
+      if (addr && !connected.has(addr)) {
+        candidates.push(addr);
       }
     }
     return candidates;

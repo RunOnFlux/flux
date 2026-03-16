@@ -94,6 +94,25 @@ describe('NetworkHealthMonitor', () => {
       monitor.recordConnect();
       expect(monitor.isInSteadyState()).to.be.true;
     });
+
+    it('should reset to HEALTHY when peers recover after network loss', () => {
+      monitor._currentStatus = HEALTH_STATUS.NETWORK_LOSS;
+      // Simulate 5 peers connected via peerManager
+      for (let i = 1; i <= 5; i++) {
+        const ws = createMockWs();
+        manager.add(ws, `44.0.0.${i}`, '16127', { source: 'random' });
+      }
+      monitor.recordConnect();
+      expect(monitor.getStatus()).to.equal(HEALTH_STATUS.HEALTHY);
+    });
+
+    it('should not reset to HEALTHY with too few peers', () => {
+      monitor._currentStatus = HEALTH_STATUS.NETWORK_LOSS;
+      const ws = createMockWs();
+      manager.add(ws, '44.0.0.1', '16127', { source: 'random' });
+      monitor.recordConnect();
+      expect(monitor.getStatus()).to.equal(HEALTH_STATUS.NETWORK_LOSS);
+    });
   });
 
   describe('recordDisconnect / velocity filtering', () => {
