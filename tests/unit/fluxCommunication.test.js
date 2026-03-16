@@ -1008,7 +1008,8 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.initiateAndHandleConnection(ip);
 
       await waitForWsConnected(wsserver);
-      await waitFor(() => websocketCloseSpy.called);
+      // Wait for the full close cycle: close() → onclose → remove()
+      await waitFor(() => logSpy.calledWith('Connection 127.0.0.2:16127 removed from peerManager (outbound, code: 4006)'));
 
       sinon.assert.calledWithExactly(ensureObjectSpy, message);
       sinon.assert.calledWithExactly(websocketCloseSpy, 4006, 'blocked list');

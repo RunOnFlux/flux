@@ -162,7 +162,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
     });
   });
 
-  describe('sendMessageToWS tests', () => {
+  describe('sendSignedMessage tests', () => {
     let fluxNetworkHelperPublicKeyStub;
     let fluxNetworkHelperPrivateKeyStub;
     const generateWebsocket = () => {
@@ -188,7 +188,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       };
       const websocket = generateWebsocket();
 
-      await fluxCommunicationMessagesSender.sendMessageToWS(data, websocket);
+      await fluxCommunicationMessagesSender.sendSignedMessage(data, websocket);
 
       sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
     });
@@ -199,7 +199,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       const data = {};
       const websocket = generateWebsocket();
 
-      await fluxCommunicationMessagesSender.sendMessageToWS(data, websocket);
+      await fluxCommunicationMessagesSender.sendSignedMessage(data, websocket);
 
       sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
     });
@@ -385,7 +385,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
           version: 1,
         },
       };
-      const sendMessageToWSStub = sinon.stub(fluxCommunicationMessagesSender, 'sendMessageToWS').returns(undefined);
+      const sendSignedMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'sendSignedMessage').returns(undefined);
       const checkAppMessageExistenceStub = sinon.stub(messageVerifier, 'checkAppMessageExistence').returns(undefined);
       const checkAppTemporaryMessageExistenceStub = sinon.stub(messageVerifier, 'checkAppTemporaryMessageExistence').returns(undefined);
       sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
@@ -394,7 +394,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
 
-      sinon.assert.notCalled(sendMessageToWSStub);
+      sinon.assert.notCalled(sendSignedMessageStub);
       sinon.assert.calledOnceWithExactly(checkAppMessageExistenceStub, callMessage.data.hash);
       sinon.assert.calledOnceWithExactly(checkAppTemporaryMessageExistenceStub, callMessage.data.hash);
       sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, null);

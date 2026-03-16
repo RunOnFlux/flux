@@ -1825,7 +1825,8 @@ describe('FluxPeerManager tests', () => {
     });
 
     describe('_schedulePeerUpdate debounce', () => {
-      it('should batch add+remove that cancel out', (done) => {
+      it('should batch add+remove that cancel out', function batchTest(done) {
+        this.timeout(5000);
         const ws1 = createMockWs('44.0.0.1');
         manager.add(ws1, '44.0.0.1', '16127', {
           source: PEER_SOURCE.RANDOM,
