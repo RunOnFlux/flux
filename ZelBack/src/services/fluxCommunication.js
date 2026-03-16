@@ -383,7 +383,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
         if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
           setImmediate(() => handleAppMessages(msgObj, peerSocket.ip, peerSocket.port));
         } else if (msgObj.data.type === 'fluxapprequest') {
-          setImmediate(() => fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, peerSocket.ws));
+          setImmediate(() => fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, peerSocket));
         } else if (msgObj.data.type === 'fluxapprunning') {
           setImmediate(() => handleAppRunningMessage(msgObj, peerSocket.ip, peerSocket.port));
         } else if (msgObj.data.type === 'fluxipchanged') {

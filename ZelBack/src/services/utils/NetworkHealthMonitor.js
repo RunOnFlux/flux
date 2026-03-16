@@ -271,8 +271,7 @@ class NetworkHealthMonitor {
     for (const lostKey of recentlyLost) {
       let seenByAny = false;
       for (const responderKey of respondedKeys) {
-        // eslint-disable-next-line no-underscore-dangle
-        const topo = this._peerManager._peerTopology.get(responderKey);
+        const topo = this._peerManager.getTopologyEntry(responderKey);
         if (topo && (topo.outbound.has(lostKey) || topo.inbound.has(lostKey))) {
           seenByAny = true;
           break;

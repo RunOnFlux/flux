@@ -51,18 +51,14 @@ async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
 }
 
 /**
- * To sign and send message to web socket.
- * @param {object} message Message.
- * @param {object} ws Web Socket.
+ * Sign and send a message to a peer.
+ * @param {object} message Message to sign and send.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer Peer to send to.
  */
-async function sendMessageToWS(message, ws) {
+async function sendSignedMessage(message, peer) {
   try {
     const messageSigned = await serialiseAndSignFluxBroadcast(message);
-    try {
-      ws.send(messageSigned);
-    } catch (e) {
-      log.error(e);
-    }
+    peer.send(messageSigned);
   } catch (error) {
     log.error(error);
   }
@@ -70,11 +66,11 @@ async function sendMessageToWS(message, ws) {
 
 /**
  * To respond with app message.
- * @param {object} message Message.
- * @param {object} ws Web socket.
- * @returns {void} Throws an error if invalid.
+ * @param {object} msgObj Message object with data.type and hashes.
+ * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer Peer that requested the message.
+ * @returns {void}
  */
-async function respondWithAppMessage(msgObj, ws) {
+async function respondWithAppMessage(msgObj, peer) {
   try {
     // check if we have it database of permanent appMessages
     // eslint-disable-next-line global-require
@@ -114,7 +110,7 @@ async function respondWithAppMessage(msgObj, ws) {
       if (myMessageCache.has(hash)) {
         const tempMesResponse = myMessageCache.get(hash);
         if (tempMesResponse) {
-          sendMessageToWS(tempMesResponse, ws);
+          sendSignedMessage(tempMesResponse, peer);
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -132,7 +128,7 @@ async function respondWithAppMessage(msgObj, ws) {
           signature: appMessage.signature,
           arcaneSender: appMessage.arcaneSender || false,
         };
-        sendMessageToWS(temporaryAppMessage, ws);
+        sendSignedMessage(temporaryAppMessage, peer);
       }
       myMessageCache.set(hash, temporaryAppMessage);
       // eslint-disable-next-line no-await-in-loop
@@ -311,7 +307,7 @@ async function broadcastTemporaryAppMessage(message) {
 
 module.exports = {
   relay,
-  sendMessageToWS,
+  sendSignedMessage,
   respondWithAppMessage,
   serialiseAndSignFluxBroadcast,
   getFluxMessageSignature,

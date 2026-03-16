@@ -1075,6 +1075,15 @@ class FluxPeerManager {
     return this._peerTopology.size;
   }
 
+  /**
+   * Get a specific reporter's topology entry.
+   * @param {string} key - reporter peer key
+   * @returns {{ outbound: Set<string>, inbound: Set<string> }|undefined}
+   */
+  getTopologyEntry(key) {
+    return this._peerTopology.get(key);
+  }
+
   // --- Hash broadcast ---
 
   /**
