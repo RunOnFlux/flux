@@ -264,37 +264,39 @@ describe('FluxPeerSocket tests', () => {
   });
 
   describe('sendNak', () => {
-    it('should send JSON NAK message to legacy peer', () => {
+    const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+
+    it('should send JSON NAK message to legacy peer with reason name', () => {
       const ws = createMockWs();
       ws.readyState = WebSocket.OPEN;
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
 
-      peer.sendNak('abc123', 'stale message');
+      peer.sendNak('abc123', peerCodec.NAK_REASON.STALE);
 
       sinon.assert.calledOnce(ws.send);
       const sentData = JSON.parse(ws.send.firstCall.args[0]);
-      expect(sentData).to.deep.equal({
-        type: 'nak',
-        hash: 'abc123',
-        reason: 'stale message',
-      });
+      expect(sentData.type).to.equal('nak');
+      expect(sentData.hash).to.equal('abc123');
+      expect(sentData.reason).to.equal('stale');
     });
 
     it('should send binary NAK to peer with binaryMessages capability', () => {
-      const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
       const ws = createMockWs();
       ws.readyState = WebSocket.OPEN;
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
       peer.remoteCapabilities.add('binaryMessages');
 
-      peer.sendNak('abcdef0123456789abcdef0123456789abcdef01', 'stale');
+      peer.sendNak('abcdef0123456789abcdef0123456789abcdef01', peerCodec.NAK_REASON.STALE);
 
       sinon.assert.calledOnce(ws.send);
       const sent = ws.send.firstCall.args[0];
       expect(Buffer.isBuffer(sent)).to.be.true;
       expect(sent[0]).to.equal(peerCodec.MSG_TYPE.NAK);
+      const decoded = peerCodec.decodeNak(sent);
+      expect(decoded.hash).to.equal('abcdef0123456789abcdef0123456789abcdef01');
+      expect(decoded.reason).to.equal(peerCodec.NAK_REASON.STALE);
     });
   });
 

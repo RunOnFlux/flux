@@ -29,6 +29,7 @@ const { messageCache, wsPeerCache } = cacheManager;
 const testListCache = new LRUCache(LRUTest); */
 
 const { FluxPeerManager, FLUX_VERSION } = require('./utils/FluxPeerManager');
+const { NAK_REASON } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 
 const DISCOVERY = {
@@ -402,7 +403,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
         log.error(e);
       }
     } else {
-      peerSocket.sendNak(messageHash, 'stale');
+      peerSocket.sendNak(messageHash, NAK_REASON.STALE);
     }
   } else if (verifyResult === VerifyResult.NODE_NOT_FOUND) {
     // Originator's node is not in the deterministic list — stale list or node went offline.

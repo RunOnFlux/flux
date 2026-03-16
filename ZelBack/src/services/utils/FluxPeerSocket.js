@@ -182,19 +182,27 @@ class FluxPeerSocket {
    * @param {string} messageHash
    * @param {string} reason
    */
-  sendNak(messageHash, reason) {
+  /**
+   * Send a NAK (negative acknowledgement) back to sender.
+   * @param {string} messageHash - 40-char hex hash
+   * @param {number} reasonCode - peerCodec.NAK_REASON value
+   */
+  sendNak(messageHash, reasonCode) {
     if (this.remoteCapabilities.has('binaryMessages')) {
-      this.send(peerCodec.encodeNak(messageHash, peerCodec.NAK_REASON.STALE));
+      this.send(peerCodec.encodeNak(messageHash, reasonCode));
     } else {
-      this.send(JSON.stringify({ type: 'nak', hash: messageHash, reason }));
+      const reasonNames = { [peerCodec.NAK_REASON.STALE]: 'stale', [peerCodec.NAK_REASON.DUPLICATE]: 'duplicate', [peerCodec.NAK_REASON.INVALID]: 'invalid' };
+      this.send(JSON.stringify({ type: 'nak', hash: messageHash, reason: reasonNames[reasonCode] || 'unknown' }));
     }
   }
 
   /**
    * Track incoming NAK messages. If too many NAKs in a time window,
    * log a warning (self-DOS / clock drift detection).
+   * @param {string} [messageHash] - hash that was NAKed
+   * @param {number} [reasonCode] - NAK_REASON value
    */
-  onNakReceived() {
+  onNakReceived(messageHash, reasonCode) {
     const now = Date.now();
     const NAK_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
     const NAK_THRESHOLD = 10;
@@ -206,7 +214,7 @@ class FluxPeerSocket {
     this.nakCount += 1;
 
     if (this.nakCount >= NAK_THRESHOLD) {
-      log.warn(`Received ${this.nakCount} NAKs from ${this.key} in the last 5 minutes. Possible clock drift or network issue.`);
+      log.warn(`Received ${this.nakCount} NAKs from ${this.key} in the last 5 minutes (last: hash=${messageHash}, reason=${reasonCode}). Possible clock drift or network issue.`);
     }
   }
 
@@ -299,7 +307,7 @@ class FluxPeerSocket {
 
       // Handle peer-level protocol messages (not broadcast)
       if (msgObj.type === 'nak') {
-        this.onNakReceived();
+        this.onNakReceived(msgObj.hash, msgObj.reason);
         return;
       }
       if (msgObj.type === 'peerExchange') {

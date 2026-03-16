@@ -885,7 +885,9 @@ class FluxPeerManager {
           break;
         }
         case peerCodec.MSG_TYPE.NAK: {
-          peer.onNakReceived();
+          if (buf.length < 22) return;
+          const nak = peerCodec.decodeNak(buf);
+          peer.onNakReceived(nak.hash, nak.reason);
           break;
         }
         case peerCodec.MSG_TYPE.PEER_EXCHANGE: {
