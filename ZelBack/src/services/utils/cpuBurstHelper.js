@@ -1,4 +1,5 @@
 const fsp = require('fs').promises;
+const os = require('os');
 const path = require('path');
 const config = require('config');
 const log = require('../../lib/log');
@@ -91,6 +92,8 @@ async function getCgroupBurstPath(containerId) {
 
 /**
  * Calculates CpuPeriod, CpuQuota, and burst value for a given CPU spec.
+ * Burst is capped so a single container's peak (quota + burst) never exceeds
+ * (host vCPUs - reservedCores) * period, leaving headroom for system services.
  * @param {number} cpuCores - CPU allocation from app spec (e.g. 2.5 means 2.5 cores)
  * @returns {{ periodUs: number, quotaUs: number, burstUs: number }}
  */
@@ -98,9 +101,19 @@ function calculateBurstParams(cpuCores) {
   const burstConfig = config.cpuBurst || {};
   const periodUs = burstConfig.periodUs || 100000;
   const burstMultiplier = burstConfig.burstMultiplier || 2.0;
+  const reservedCores = burstConfig.reservedCores ?? 1;
 
   const quotaUs = Math.round(cpuCores * periodUs);
-  const burstUs = Math.round(quotaUs * (burstMultiplier - 1));
+  let burstUs = Math.round(quotaUs * (burstMultiplier - 1));
+
+  // Cap burst so peak usage of this container stays within (hostCpus - reserved) cores
+  const hostCpus = os.cpus().length;
+  const maxPeakUs = Math.round(Math.max(0, hostCpus - reservedCores) * periodUs);
+  const maxBurstUs = Math.max(0, maxPeakUs - quotaUs);
+  if (burstUs > maxBurstUs) {
+    log.info(`CPU burst: capping burstUs from ${burstUs} to ${maxBurstUs} (host=${hostCpus} vCPUs, reserved=${reservedCores})`);
+    burstUs = maxBurstUs;
+  }
 
   return { periodUs, quotaUs, burstUs };
 }

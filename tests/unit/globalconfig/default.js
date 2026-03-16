@@ -281,6 +281,7 @@ module.exports = {
     enabled: true,
     burstMultiplier: 2.0,
     periodUs: 100000,
+    reservedCores: 1,
   },
   enterpriseAppOwners: [ // list of whitelisted app owner addresses allowed to deploy apps with datacenter=true
     '16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW',

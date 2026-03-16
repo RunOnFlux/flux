@@ -309,6 +309,7 @@ module.exports = {
     enabled: true,
     burstMultiplier: 2.0, // burst bank can accumulate up to burstMultiplier * base quota per CFS period. Does NOT mean sustained 2x CPU - only banked idle quota.
     periodUs: 100000, // CFS period in microseconds (100ms, Linux default)
+    reservedCores: 1, // cores reserved for system services; caps any single container's burst peak to (host vCPUs - reservedCores)
   },
   registryAuth: {
     // Token refresh buffer in milliseconds

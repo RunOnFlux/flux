@@ -2,6 +2,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const chai = require('chai');
 const sinon = require('sinon');
+const os = require('os');
 const fs = require('fs');
 const proxyquire = require('proxyquire');
 const config = require('config');
@@ -39,6 +40,12 @@ describe('cpuBurstHelper tests', () => {
   });
 
   describe('calculateBurstParams', () => {
+    // Stub os.cpus() to return 32 cores so burst is uncapped in basic tests
+    let cpusStub;
+    beforeEach(() => {
+      cpusStub = sinon.stub(os, 'cpus').returns(new Array(32).fill({ model: 'stub', speed: 2400 }));
+    });
+
     it('should calculate correct params for 1 CPU core', () => {
       const params = cpuBurstHelper.calculateBurstParams(1);
       expect(params.periodUs).to.equal(100000);
@@ -65,6 +72,31 @@ describe('cpuBurstHelper tests', () => {
       expect(params.periodUs).to.equal(100000);
       expect(params.quotaUs).to.equal(50000);
       expect(params.burstUs).to.equal(50000);
+    });
+
+    it('should cap burst so peak does not exceed (hostCpus - reservedCores)', () => {
+      // 4-core host, reservedCores=1, app requests 2.5 cores (multiplier 2x)
+      // Uncapped burstUs = 250000, but peak would be 5 cores > 3 allowed
+      // maxPeakUs = (4 - 1) * 100000 = 300000, maxBurstUs = 300000 - 250000 = 50000
+      cpusStub.returns(new Array(4).fill({ model: 'stub', speed: 2400 }));
+      const params = cpuBurstHelper.calculateBurstParams(2.5);
+      expect(params.quotaUs).to.equal(250000);
+      expect(params.burstUs).to.equal(50000);
+    });
+
+    it('should set burst to 0 when quota already exceeds host capacity minus reserved', () => {
+      // 2-core host, reservedCores=1, app requests 2 cores
+      // maxPeakUs = (2 - 1) * 100000 = 100000, quotaUs = 200000 => maxBurstUs = 0
+      cpusStub.returns(new Array(2).fill({ model: 'stub', speed: 2400 }));
+      const params = cpuBurstHelper.calculateBurstParams(2);
+      expect(params.quotaUs).to.equal(200000);
+      expect(params.burstUs).to.equal(0);
+    });
+
+    it('should not cap burst when host has plenty of cores', () => {
+      cpusStub.returns(new Array(16).fill({ model: 'stub', speed: 2400 }));
+      const params = cpuBurstHelper.calculateBurstParams(2.5);
+      expect(params.burstUs).to.equal(250000); // uncapped
     });
   });
 

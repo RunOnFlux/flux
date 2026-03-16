@@ -1060,11 +1060,10 @@ async function appDockerStart(idOrName) {
     // Apply CFS burst after start — cgroup paths only exist once the container is running
     try {
       const containerInspect = await dockerContainer.inspect();
-      const hostConfig = containerInspect.HostConfig || {};
-      if (hostConfig.CpuPeriod > 0 && hostConfig.CpuQuota > 0 && await cpuBurstHelper.isCpuBurstSupported()) {
-        const burstConfig = config.cpuBurst || {};
-        const burstMultiplier = burstConfig.burstMultiplier || 2.0;
-        const burstUs = Math.round(hostConfig.CpuQuota * (burstMultiplier - 1));
+      const hostCfg = containerInspect.HostConfig || {};
+      if (hostCfg.CpuPeriod > 0 && hostCfg.CpuQuota > 0 && await cpuBurstHelper.isCpuBurstSupported()) {
+        const cpuCores = hostCfg.CpuQuota / hostCfg.CpuPeriod;
+        const { burstUs } = cpuBurstHelper.calculateBurstParams(cpuCores);
         await cpuBurstHelper.setCpuBurst(containerInspect.Id, burstUs);
       }
     } catch (burstError) {
