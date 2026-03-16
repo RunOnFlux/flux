@@ -44,8 +44,8 @@ class FluxPeerManager {
     this._peerTopology = new Map();
     /** @type {Array<function>} topology change listeners */
     this._peerExchangeListeners = [];
-    /** @type {Set<string>} peers added since last peerUpdate broadcast */
-    this._pendingAdds = new Set();
+    /** @type {{ outbound: Set<string>, inbound: Set<string> }} peers added since last update */
+    this._pendingAdds = { outbound: new Set(), inbound: new Set() };
     /** @type {Set<string>} peers removed since last peerUpdate broadcast */
     this._pendingRemoves = new Set();
     /** @type {ReturnType<typeof setTimeout>|null} debounce timer */
@@ -143,7 +143,8 @@ class FluxPeerManager {
     });
     // Peer exchange: send our full list to new peer, notify others about the addition
     this.sendPeerExchange(peer);
-    this._pendingAdds.add(peer.key);
+    const dirSet = peer.direction === 'outbound' ? this._pendingAdds.outbound : this._pendingAdds.inbound;
+    dirSet.add(peer.key);
     this._pendingRemoves.delete(peer.key);
     this._schedulePeerUpdate();
     return peer;
@@ -164,7 +165,8 @@ class FluxPeerManager {
     // Clean up peer exchange topology and notify others
     this._peerTopology.delete(key);
     this._pendingRemoves.add(key);
-    this._pendingAdds.delete(key);
+    this._pendingAdds.outbound.delete(key);
+    this._pendingAdds.inbound.delete(key);
     this._schedulePeerUpdate();
 
     // Track disconnect for unstable node detection
@@ -887,9 +889,9 @@ class FluxPeerManager {
         }
         case peerCodec.MSG_TYPE.PEER_UPDATE: {
           if (!peer.remoteCapabilities.has('peerExchange')) return;
-          if (buf.length < 5) return;
-          const { add, rm } = peerCodec.decodePeerUpdate(buf);
-          this.handlePeerUpdate(peer, add, rm);
+          if (buf.length < 7) return;
+          const { addOutbound, addInbound, rm } = peerCodec.decodePeerUpdate(buf);
+          this.handlePeerUpdate(peer, addOutbound, addInbound, rm);
           break;
         }
         default:
@@ -932,16 +934,19 @@ class FluxPeerManager {
     this._peerUpdateTimer = setTimeout(() => {
       this._peerUpdateTimer = null;
       // Net adds and removes — if a key appears in both, they cancel out
-      const netAdd = [...this._pendingAdds].filter((k) => !this._pendingRemoves.has(k));
-      const netRm = [...this._pendingRemoves].filter((k) => !this._pendingAdds.has(k));
-      this._pendingAdds.clear();
+      const netAddOut = [...this._pendingAdds.outbound].filter((k) => !this._pendingRemoves.has(k));
+      const netAddIn = [...this._pendingAdds.inbound].filter((k) => !this._pendingRemoves.has(k));
+      const allAdds = new Set([...this._pendingAdds.outbound, ...this._pendingAdds.inbound]);
+      const netRm = [...this._pendingRemoves].filter((k) => !allAdds.has(k));
+      this._pendingAdds.outbound.clear();
+      this._pendingAdds.inbound.clear();
       this._pendingRemoves.clear();
-      if (netAdd.length === 0 && netRm.length === 0) return;
-      // Pre-encode both formats
-      const binBuf = peerCodec.encodePeerUpdate(netAdd, netRm);
+      if (netAddOut.length === 0 && netAddIn.length === 0 && netRm.length === 0) return;
+      const binBuf = peerCodec.encodePeerUpdate(netAddOut, netAddIn, netRm);
       const jsonStr = JSON.stringify({
         type: 'peerUpdate',
-        ...(netAdd.length ? { add: netAdd } : {}),
+        ...(netAddOut.length ? { addOutbound: netAddOut } : {}),
+        ...(netAddIn.length ? { addInbound: netAddIn } : {}),
         ...(netRm.length ? { rm: netRm } : {}),
       });
       for (const peer of this._peers.values()) {
@@ -982,18 +987,25 @@ class FluxPeerManager {
   /**
    * Handle incoming incremental peer update from a remote peer.
    * @param {FluxPeerSocket} peer
-   * @param {string[]} add Peers added
+   * @param {string[]} addOutbound Outbound peers added
+   * @param {string[]} addInbound Inbound peers added
    * @param {string[]} rm Peers removed
    */
-  handlePeerUpdate(peer, add, rm) {
+  handlePeerUpdate(peer, addOutbound, addInbound, rm) {
     const existing = this._peerTopology.get(peer.key);
     if (!existing) return; // ignore without prior full exchange
     const totalSize = existing.outbound.size + existing.inbound.size;
-    if (Array.isArray(add)) {
-      for (const p of add) {
+    if (Array.isArray(addOutbound)) {
+      for (const p of addOutbound) {
         if (typeof p === 'string' && p.includes(':') && totalSize < PEER_EXCHANGE_MAX_PEERS * 2) {
-          // We don't know direction for incremental updates — add to outbound by default
           existing.outbound.add(p);
+        }
+      }
+    }
+    if (Array.isArray(addInbound)) {
+      for (const p of addInbound) {
+        if (typeof p === 'string' && p.includes(':') && totalSize < PEER_EXCHANGE_MAX_PEERS * 2) {
+          existing.inbound.add(p);
         }
       }
     }
@@ -1003,8 +1015,9 @@ class FluxPeerManager {
         existing.inbound.delete(p);
       }
     }
-    if (add && add.length) {
-      this._notifyListeners({ type: 'add', reporter: peer.key, peers: add.filter((p) => typeof p === 'string') });
+    const allAdds = [...(addOutbound || []), ...(addInbound || [])].filter((p) => typeof p === 'string');
+    if (allAdds.length) {
+      this._notifyListeners({ type: 'add', reporter: peer.key, peers: allAdds });
     }
     if (rm && rm.length) {
       this._notifyListeners({ type: 'remove', reporter: peer.key, peers: rm.filter((p) => typeof p === 'string') });
@@ -1103,7 +1116,8 @@ class FluxPeerManager {
     this._reconnectCounts.clear();
     this._peerTopology.clear();
     this._peerExchangeListeners.length = 0;
-    this._pendingAdds.clear();
+    this._pendingAdds.outbound.clear();
+    this._pendingAdds.inbound.clear();
     this._pendingRemoves.clear();
     if (this._peerUpdateTimer) { clearTimeout(this._peerUpdateTimer); this._peerUpdateTimer = null; }
     this._history = new Array(HISTORY_BUFFER_SIZE);

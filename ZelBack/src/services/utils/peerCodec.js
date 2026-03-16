@@ -138,16 +138,22 @@ function decodePeerExchange(buf) {
 
 // --- Peer Update ---
 
-function encodePeerUpdate(addKeys, rmKeys) {
-  const addCount = addKeys.length;
+function encodePeerUpdate(addOutKeys, addInKeys, rmKeys) {
+  const addOutCount = addOutKeys.length;
+  const addInCount = addInKeys.length;
   const rmCount = rmKeys.length;
-  const buf = Buffer.allocUnsafe(5 + (addCount + rmCount) * 6);
+  const total = addOutCount + addInCount + rmCount;
+  const buf = Buffer.allocUnsafe(7 + total * 6);
   buf[0] = MSG_TYPE.PEER_UPDATE;
-  buf.writeUInt16BE(addCount, 1);
-  buf.writeUInt16BE(rmCount, 3);
-  let offset = 5;
-  for (let i = 0; i < addCount; i++) {
-    offset = writePeer(buf, offset, addKeys[i]);
+  buf.writeUInt16BE(addOutCount, 1);
+  buf.writeUInt16BE(addInCount, 3);
+  buf.writeUInt16BE(rmCount, 5);
+  let offset = 7;
+  for (let i = 0; i < addOutCount; i++) {
+    offset = writePeer(buf, offset, addOutKeys[i]);
+  }
+  for (let i = 0; i < addInCount; i++) {
+    offset = writePeer(buf, offset, addInKeys[i]);
   }
   for (let i = 0; i < rmCount; i++) {
     offset = writePeer(buf, offset, rmKeys[i]);
@@ -156,20 +162,26 @@ function encodePeerUpdate(addKeys, rmKeys) {
 }
 
 function decodePeerUpdate(buf) {
-  const addCount = buf.readUInt16BE(1);
-  const rmCount = buf.readUInt16BE(3);
-  const add = new Array(addCount);
+  const addOutCount = buf.readUInt16BE(1);
+  const addInCount = buf.readUInt16BE(3);
+  const rmCount = buf.readUInt16BE(5);
+  const addOutbound = new Array(addOutCount);
+  const addInbound = new Array(addInCount);
   const rm = new Array(rmCount);
-  let offset = 5;
-  for (let i = 0; i < addCount; i++) {
-    add[i] = readPeer(buf, offset);
+  let offset = 7;
+  for (let i = 0; i < addOutCount; i++) {
+    addOutbound[i] = readPeer(buf, offset);
+    offset += 6;
+  }
+  for (let i = 0; i < addInCount; i++) {
+    addInbound[i] = readPeer(buf, offset);
     offset += 6;
   }
   for (let i = 0; i < rmCount; i++) {
     rm[i] = readPeer(buf, offset);
     offset += 6;
   }
-  return { add, rm };
+  return { addOutbound, addInbound, rm };
 }
 
 module.exports = {

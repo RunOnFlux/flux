@@ -1742,24 +1742,22 @@ describe('FluxPeerManager tests', () => {
     });
 
     describe('handlePeerUpdate', () => {
-      it('should add and remove peers incrementally', () => {
+      it('should add and remove peers incrementally with direction', () => {
         const ws = createMockWs('44.0.0.1');
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
         manager.handlePeerExchange(peer, ['10.0.0.1:16127'], ['10.0.0.2:16127']);
-        manager.handlePeerUpdate(peer, ['10.0.0.3:16127'], ['10.0.0.1:16127']);
+        manager.handlePeerUpdate(peer, ['10.0.0.3:16127'], ['10.0.0.4:16127'], ['10.0.0.1:16127']);
         const entry = manager._peerTopology.get(peer.key);
-        // 10.0.0.3 added to outbound (default for incremental adds)
         expect(entry.outbound.has('10.0.0.3:16127')).to.be.true;
-        // 10.0.0.1 removed from outbound
+        expect(entry.inbound.has('10.0.0.4:16127')).to.be.true;
         expect(entry.outbound.has('10.0.0.1:16127')).to.be.false;
-        // 10.0.0.2 still in inbound
         expect(entry.inbound.has('10.0.0.2:16127')).to.be.true;
       });
 
       it('should ignore update without prior exchange', () => {
         const ws = createMockWs('44.0.0.1');
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-        manager.handlePeerUpdate(peer, ['10.0.0.1:16127'], []);
+        manager.handlePeerUpdate(peer, ['10.0.0.1:16127'], [], []);
         expect(manager._peerTopology.has(peer.key)).to.be.false;
       });
     });
@@ -1814,11 +1812,12 @@ describe('FluxPeerManager tests', () => {
         });
         // Cancel the timer from add() and clear pending state
         if (manager._peerUpdateTimer) { clearTimeout(manager._peerUpdateTimer); manager._peerUpdateTimer = null; }
-        manager._pendingAdds.clear();
+        manager._pendingAdds.outbound.clear();
+        manager._pendingAdds.inbound.clear();
         manager._pendingRemoves.clear();
         ws1.send.resetHistory();
         // Simulate add then immediate remove of the same peer — should cancel out
-        manager._pendingAdds.add('99.99.99.99:16127');
+        manager._pendingAdds.outbound.add('99.99.99.99:16127');
         manager._pendingRemoves.add('99.99.99.99:16127');
         manager._schedulePeerUpdate();
         setTimeout(() => {
@@ -1841,7 +1840,8 @@ describe('FluxPeerManager tests', () => {
         manager._clear();
         expect(manager._peerTopology.size).to.equal(0);
         expect(manager._peerExchangeListeners).to.have.length(0);
-        expect(manager._pendingAdds.size).to.equal(0);
+        expect(manager._pendingAdds.outbound.size).to.equal(0);
+        expect(manager._pendingAdds.inbound.size).to.equal(0);
         expect(manager._pendingRemoves.size).to.equal(0);
         expect(manager._peerUpdateTimer).to.be.null;
       });

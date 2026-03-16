@@ -152,40 +152,45 @@ describe('peerCodec', () => {
   });
 
   describe('encodePeerUpdate / decodePeerUpdate', () => {
-    it('should round-trip adds only', () => {
-      const add = ['1.2.3.4:16127', '5.6.7.8:16137'];
-      const buf = encodePeerUpdate(add, []);
+    it('should round-trip outbound adds only', () => {
+      const addOut = ['1.2.3.4:16127', '5.6.7.8:16137'];
+      const buf = encodePeerUpdate(addOut, [], []);
       expect(buf[0]).to.equal(MSG_TYPE.PEER_UPDATE);
-      expect(buf.length).to.equal(5 + 2 * 6);
+      expect(buf.length).to.equal(7 + 2 * 6);
       const decoded = decodePeerUpdate(buf);
-      expect(decoded.add).to.deep.equal(add);
+      expect(decoded.addOutbound).to.deep.equal(addOut);
+      expect(decoded.addInbound).to.deep.equal([]);
       expect(decoded.rm).to.deep.equal([]);
     });
 
     it('should round-trip removes only', () => {
       const rm = ['9.10.11.12:16127'];
-      const buf = encodePeerUpdate([], rm);
-      expect(buf.length).to.equal(5 + 1 * 6);
+      const buf = encodePeerUpdate([], [], rm);
+      expect(buf.length).to.equal(7 + 1 * 6);
       const decoded = decodePeerUpdate(buf);
-      expect(decoded.add).to.deep.equal([]);
+      expect(decoded.addOutbound).to.deep.equal([]);
+      expect(decoded.addInbound).to.deep.equal([]);
       expect(decoded.rm).to.deep.equal(rm);
     });
 
-    it('should round-trip both adds and removes', () => {
-      const add = ['1.1.1.1:16127'];
+    it('should round-trip all three sections', () => {
+      const addOut = ['1.1.1.1:16127'];
+      const addIn = ['4.4.4.4:16127'];
       const rm = ['2.2.2.2:16127', '3.3.3.3:16137'];
-      const buf = encodePeerUpdate(add, rm);
-      expect(buf.length).to.equal(5 + 3 * 6);
+      const buf = encodePeerUpdate(addOut, addIn, rm);
+      expect(buf.length).to.equal(7 + 4 * 6);
       const decoded = decodePeerUpdate(buf);
-      expect(decoded.add).to.deep.equal(add);
+      expect(decoded.addOutbound).to.deep.equal(addOut);
+      expect(decoded.addInbound).to.deep.equal(addIn);
       expect(decoded.rm).to.deep.equal(rm);
     });
 
     it('should round-trip empty update', () => {
-      const buf = encodePeerUpdate([], []);
-      expect(buf.length).to.equal(5);
+      const buf = encodePeerUpdate([], [], []);
+      expect(buf.length).to.equal(7);
       const decoded = decodePeerUpdate(buf);
-      expect(decoded.add).to.deep.equal([]);
+      expect(decoded.addOutbound).to.deep.equal([]);
+      expect(decoded.addInbound).to.deep.equal([]);
       expect(decoded.rm).to.deep.equal([]);
     });
   });
