@@ -389,6 +389,7 @@ describe('FluxPeerSocket tests', () => {
       await ws.onmessage({ data: nakMsg });
 
       sinon.assert.calledOnce(peer.onNakReceived);
+      sinon.assert.calledWithExactly(peer.onNakReceived, 'abc', 'stale');
       sinon.assert.notCalled(manager.messageDispatcher);
     });
 
@@ -420,16 +421,18 @@ describe('FluxPeerSocket tests', () => {
   });
 
   describe('onNakReceived', () => {
-    it('should increment nakCount', () => {
+    const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+
+    it('should increment nakCount with hash and reason', () => {
       const ws = createMockWs();
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
       peer.source = PEER_SOURCE.RANDOM;
       expect(peer.nakCount).to.equal(0);
 
-      peer.onNakReceived();
+      peer.onNakReceived('abc123', peerCodec.NAK_REASON.STALE);
       expect(peer.nakCount).to.equal(1);
 
-      peer.onNakReceived();
+      peer.onNakReceived('def456', peerCodec.NAK_REASON.STALE);
       expect(peer.nakCount).to.equal(2);
     });
 
@@ -442,7 +445,7 @@ describe('FluxPeerSocket tests', () => {
       // Set window start to 6 minutes ago (beyond 5 min window)
       peer.nakWindowStart = Date.now() - (6 * 60 * 1000);
 
-      peer.onNakReceived();
+      peer.onNakReceived('abc123', peerCodec.NAK_REASON.STALE);
       expect(peer.nakCount).to.equal(1);
     });
   });
@@ -1899,12 +1902,14 @@ describe('FluxPeerManager tests', () => {
         expect(received.hash).to.equal(hexHash);
       });
 
-      it('should dispatch NAK to peer.onNakReceived', () => {
+      it('should dispatch NAK to peer.onNakReceived with hash and reason', () => {
         const ws = createMockWs('44.0.0.1');
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+        const spy = sinon.spy(peer, 'onNakReceived');
         const hexHash = 'abcdef0123456789abcdef0123456789abcdef01';
         manager.handleBinaryMessage(peer, peerCodec.encodeNak(hexHash, peerCodec.NAK_REASON.STALE));
         expect(peer.nakCount).to.equal(1);
+        sinon.assert.calledWithExactly(spy, hexHash, peerCodec.NAK_REASON.STALE);
       });
 
       it('should dispatch PEER_EXCHANGE to handlePeerExchange', () => {
