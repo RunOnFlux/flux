@@ -1091,6 +1091,26 @@ function getPeerHistory(req, res) {
   return res.json(messageHelper.createDataMessage(events));
 }
 
+/**
+ * Get peer exchange topology — what peers our peers have reported.
+ * GET /flux/topology
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+function getTopology(req, res) {
+  const topology = {};
+  // eslint-disable-next-line no-underscore-dangle
+  for (const [reporter, peerSet] of peerManager._peerTopology) {
+    topology[reporter] = [...peerSet];
+  }
+  const data = {
+    reporters: peerManager.peerTopologySize,
+    knownPeers: peerManager.knownPeers.size,
+    topology,
+  };
+  return res.json(messageHelper.createDataMessage(data));
+}
+
 function logSockets() {
   const inboundMessages = { requestHash: 0, newHash: 0 };
   const outboundMessages = { requestHash: 0, newHash: 0 };
@@ -1140,4 +1160,5 @@ module.exports = {
   getPeers,
   getUnstableNodes,
   getPeerHistory,
+  getTopology,
 };

@@ -331,6 +331,9 @@ module.exports = (app) => {
   app.get('/flux/peerhistory', cache('5 seconds'), (req, res) => {
     fluxCommunication.getPeerHistory(req, res);
   });
+  app.get('/flux/topology', cache('5 seconds'), (req, res) => {
+    fluxCommunication.getTopology(req, res);
+  });
   // Deprecated peer endpoints — kept for backward compatibility
   app.get('/flux/connectedpeers', cache('30 seconds'), (req, res) => {
     fluxCommunication.connectedPeers(req, res);
