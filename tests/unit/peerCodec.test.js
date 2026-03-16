@@ -99,44 +99,55 @@ describe('peerCodec', () => {
   });
 
   describe('encodePeerExchange / decodePeerExchange', () => {
-    it('should round-trip an empty peer list', () => {
-      const buf = encodePeerExchange([]);
-      expect(buf.length).to.equal(3);
+    it('should round-trip empty lists', () => {
+      const buf = encodePeerExchange([], []);
+      expect(buf.length).to.equal(5);
       expect(buf[0]).to.equal(MSG_TYPE.PEER_EXCHANGE);
       const decoded = decodePeerExchange(buf);
-      expect(decoded.peers).to.deep.equal([]);
+      expect(decoded.outbound).to.deep.equal([]);
+      expect(decoded.inbound).to.deep.equal([]);
     });
 
-    it('should round-trip a single peer', () => {
-      const peers = ['10.0.0.1:16127'];
-      const buf = encodePeerExchange(peers);
-      expect(buf.length).to.equal(9);
+    it('should round-trip outbound only', () => {
+      const out = ['10.0.0.1:16127', '10.0.0.2:16137'];
+      const buf = encodePeerExchange(out, []);
+      expect(buf.length).to.equal(5 + 2 * 6);
       const decoded = decodePeerExchange(buf);
-      expect(decoded.peers).to.deep.equal(peers);
+      expect(decoded.outbound).to.deep.equal(out);
+      expect(decoded.inbound).to.deep.equal([]);
     });
 
-    it('should round-trip multiple peers', () => {
-      const peers = [
-        '192.168.1.1:16127',
-        '10.0.0.1:16147',
-        '172.16.0.1:16157',
-        '8.8.8.8:16167',
-      ];
-      const buf = encodePeerExchange(peers);
-      expect(buf.length).to.equal(3 + 4 * 6);
+    it('should round-trip inbound only', () => {
+      const inb = ['192.168.1.1:16127'];
+      const buf = encodePeerExchange([], inb);
+      expect(buf.length).to.equal(5 + 1 * 6);
       const decoded = decodePeerExchange(buf);
-      expect(decoded.peers).to.deep.equal(peers);
+      expect(decoded.outbound).to.deep.equal([]);
+      expect(decoded.inbound).to.deep.equal(inb);
     });
 
-    it('should handle max peers (60)', () => {
-      const peers = [];
-      for (let i = 0; i < 60; i++) {
-        peers.push(`${i}.${i % 256}.${(i * 3) % 256}.${(i * 7) % 256}:${16127 + i}`);
+    it('should round-trip both directions', () => {
+      const out = ['10.0.0.1:16127', '10.0.0.2:16137'];
+      const inb = ['192.168.1.1:16127', '8.8.8.8:16167'];
+      const buf = encodePeerExchange(out, inb);
+      expect(buf.length).to.equal(5 + 4 * 6);
+      const decoded = decodePeerExchange(buf);
+      expect(decoded.outbound).to.deep.equal(out);
+      expect(decoded.inbound).to.deep.equal(inb);
+    });
+
+    it('should handle max peers (60 each direction)', () => {
+      const out = [];
+      const inb = [];
+      for (let i = 0; i < 30; i++) {
+        out.push(`${i}.${i % 256}.${(i * 3) % 256}.${(i * 7) % 256}:${16127 + i}`);
+        inb.push(`${i + 100}.${i % 256}.${(i * 5) % 256}.${(i * 11) % 256}:${16127 + i}`);
       }
-      const buf = encodePeerExchange(peers);
-      expect(buf.length).to.equal(3 + 60 * 6);
+      const buf = encodePeerExchange(out, inb);
+      expect(buf.length).to.equal(5 + 60 * 6);
       const decoded = decodePeerExchange(buf);
-      expect(decoded.peers).to.deep.equal(peers);
+      expect(decoded.outbound).to.deep.equal(out);
+      expect(decoded.inbound).to.deep.equal(inb);
     });
   });
 

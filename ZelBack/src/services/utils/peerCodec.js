@@ -102,27 +102,38 @@ function decodeNak(buf) {
 
 // --- Peer Exchange ---
 
-function encodePeerExchange(peerKeys) {
-  const count = peerKeys.length;
-  const buf = Buffer.allocUnsafe(3 + count * 6);
+function encodePeerExchange(outboundKeys, inboundKeys) {
+  const outCount = outboundKeys.length;
+  const inCount = inboundKeys.length;
+  const buf = Buffer.allocUnsafe(5 + (outCount + inCount) * 6);
   buf[0] = MSG_TYPE.PEER_EXCHANGE;
-  buf.writeUInt16BE(count, 1);
-  let offset = 3;
-  for (let i = 0; i < count; i++) {
-    offset = writePeer(buf, offset, peerKeys[i]);
+  buf.writeUInt16BE(outCount, 1);
+  buf.writeUInt16BE(inCount, 3);
+  let offset = 5;
+  for (let i = 0; i < outCount; i++) {
+    offset = writePeer(buf, offset, outboundKeys[i]);
+  }
+  for (let i = 0; i < inCount; i++) {
+    offset = writePeer(buf, offset, inboundKeys[i]);
   }
   return buf;
 }
 
 function decodePeerExchange(buf) {
-  const count = buf.readUInt16BE(1);
-  const peers = new Array(count);
-  let offset = 3;
-  for (let i = 0; i < count; i++) {
-    peers[i] = readPeer(buf, offset);
+  const outCount = buf.readUInt16BE(1);
+  const inCount = buf.readUInt16BE(3);
+  const outbound = new Array(outCount);
+  const inbound = new Array(inCount);
+  let offset = 5;
+  for (let i = 0; i < outCount; i++) {
+    outbound[i] = readPeer(buf, offset);
     offset += 6;
   }
-  return { peers };
+  for (let i = 0; i < inCount; i++) {
+    inbound[i] = readPeer(buf, offset);
+    offset += 6;
+  }
+  return { outbound, inbound };
 }
 
 // --- Peer Update ---

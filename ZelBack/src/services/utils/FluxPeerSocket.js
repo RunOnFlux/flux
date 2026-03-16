@@ -304,7 +304,7 @@ class FluxPeerSocket {
       }
       if (msgObj.type === 'peerExchange') {
         if (this.remoteCapabilities.has('peerExchange')) {
-          manager.handlePeerExchange(this, msgObj.peers);
+          manager.handlePeerExchange(this, msgObj.outbound || [], msgObj.inbound || []);
         }
         return;
       }

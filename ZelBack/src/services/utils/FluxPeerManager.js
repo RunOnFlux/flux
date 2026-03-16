@@ -880,9 +880,9 @@ class FluxPeerManager {
         }
         case peerCodec.MSG_TYPE.PEER_EXCHANGE: {
           if (!peer.remoteCapabilities.has('peerExchange')) return;
-          if (buf.length < 3) return;
-          const { peers } = peerCodec.decodePeerExchange(buf);
-          this.handlePeerExchange(peer, peers);
+          if (buf.length < 5) return;
+          const { outbound, inbound } = peerCodec.decodePeerExchange(buf);
+          this.handlePeerExchange(peer, outbound, inbound);
           break;
         }
         case peerCodec.MSG_TYPE.PEER_UPDATE: {
@@ -909,15 +909,17 @@ class FluxPeerManager {
    */
   sendPeerExchange(peer) {
     if (!peer.remoteCapabilities.has('peerExchange')) return;
-    const peers = [];
-    for (const key of this._peers.keys()) {
-      if (key === peer.key) continue;
-      peers.push(key);
+    const outbound = [];
+    const inbound = [];
+    for (const p of this._peers.values()) {
+      if (p.key === peer.key) continue;
+      if (p.direction === 'outbound') outbound.push(p.key);
+      else inbound.push(p.key);
     }
     if (peer.remoteCapabilities.has('binaryMessages')) {
-      peer.send(peerCodec.encodePeerExchange(peers));
+      peer.send(peerCodec.encodePeerExchange(outbound, inbound));
     } else {
-      peer.send(JSON.stringify({ type: 'peerExchange', peers }));
+      peer.send(JSON.stringify({ type: 'peerExchange', outbound, inbound }));
     }
   }
 
@@ -956,20 +958,25 @@ class FluxPeerManager {
   /**
    * Handle incoming full peer exchange from a remote peer.
    * @param {FluxPeerSocket} peer
-   * @param {string[]} peers Array of ip:port strings
+   * @param {string[]} outbound Remote's outbound peer keys
+   * @param {string[]} inbound Remote's inbound peer keys
    */
-  handlePeerExchange(peer, peers) {
-    if (!Array.isArray(peers)) return;
+  handlePeerExchange(peer, outbound, inbound) {
+    if (!Array.isArray(outbound) || !Array.isArray(inbound)) return;
     if (this._peerTopology.size >= PEER_TOPOLOGY_MAX_REPORTERS && !this._peerTopology.has(peer.key)) return;
-    const peerSet = new Set();
-    const limit = Math.min(peers.length, PEER_EXCHANGE_MAX_PEERS);
-    for (let i = 0; i < limit; i++) {
-      if (typeof peers[i] === 'string' && peers[i].includes(':')) {
-        peerSet.add(peers[i]);
-      }
+    const outSet = new Set();
+    const inSet = new Set();
+    const outLimit = Math.min(outbound.length, PEER_EXCHANGE_MAX_PEERS);
+    for (let i = 0; i < outLimit; i++) {
+      if (typeof outbound[i] === 'string' && outbound[i].includes(':')) outSet.add(outbound[i]);
     }
-    this._peerTopology.set(peer.key, peerSet);
-    this._notifyListeners({ type: 'exchange', reporter: peer.key, peers: [...peerSet] });
+    const inLimit = Math.min(inbound.length, PEER_EXCHANGE_MAX_PEERS);
+    for (let i = 0; i < inLimit; i++) {
+      if (typeof inbound[i] === 'string' && inbound[i].includes(':')) inSet.add(inbound[i]);
+    }
+    const entry = { outbound: outSet, inbound: inSet };
+    this._peerTopology.set(peer.key, entry);
+    this._notifyListeners({ type: 'exchange', reporter: peer.key, outbound: [...outSet], inbound: [...inSet] });
   }
 
   /**
@@ -981,16 +988,19 @@ class FluxPeerManager {
   handlePeerUpdate(peer, add, rm) {
     const existing = this._peerTopology.get(peer.key);
     if (!existing) return; // ignore without prior full exchange
+    const totalSize = existing.outbound.size + existing.inbound.size;
     if (Array.isArray(add)) {
       for (const p of add) {
-        if (typeof p === 'string' && p.includes(':') && existing.size < PEER_EXCHANGE_MAX_PEERS) {
-          existing.add(p);
+        if (typeof p === 'string' && p.includes(':') && totalSize < PEER_EXCHANGE_MAX_PEERS * 2) {
+          // We don't know direction for incremental updates — add to outbound by default
+          existing.outbound.add(p);
         }
       }
     }
     if (Array.isArray(rm)) {
       for (const p of rm) {
-        existing.delete(p);
+        existing.outbound.delete(p);
+        existing.inbound.delete(p);
       }
     }
     if (add && add.length) {
@@ -1031,8 +1041,9 @@ class FluxPeerManager {
    */
   get knownPeers() {
     const union = new Set();
-    for (const peerSet of this._peerTopology.values()) {
-      for (const p of peerSet) union.add(p);
+    for (const entry of this._peerTopology.values()) {
+      for (const p of entry.outbound) union.add(p);
+      for (const p of entry.inbound) union.add(p);
     }
     return union;
   }

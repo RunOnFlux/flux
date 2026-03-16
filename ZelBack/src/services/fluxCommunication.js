@@ -1100,8 +1100,11 @@ function getPeerHistory(req, res) {
 function getTopology(req, res) {
   const topology = {};
   // eslint-disable-next-line no-underscore-dangle
-  for (const [reporter, peerSet] of peerManager._peerTopology) {
-    topology[reporter] = [...peerSet];
+  for (const [reporter, entry] of peerManager._peerTopology) {
+    topology[reporter] = {
+      outbound: [...entry.outbound],
+      inbound: [...entry.inbound],
+    };
   }
   const data = {
     reporters: peerManager.peerTopologySize,
