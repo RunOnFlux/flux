@@ -3006,7 +3006,7 @@ async function updateAppGlobalyApi(req, res) {
       // eslint-disable-next-line global-require
       const appMessaging = require('../appMessaging/messageVerifier');
       // here signature is checked against PREVIOUS app owner
-      await appMessaging.verifyAppMessageUpdateSignature(messageType, typeVersion, toVerify, timestamp, signature, appOwner, daemonHeight);
+      await appMessaging.verifyAppMessageUpdateSignature(messageType, typeVersion, toVerify, timestamp, signature, appOwner, daemonHeight, appInfo);
 
       // Validate update compatibility: ensure structural consistency (component names/count for v4+, repotag for v1-3)
       // Use appInfo (already fetched above) as previousAppSpecs

@@ -11,6 +11,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 // Removed messageStore require to avoid circular dependency - will import locally where needed
 const { appPricePerMonth } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
+const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { updateAppSpecifications } = require('../appDatabase/registryManager');
 const {
   globalAppsMessages,
@@ -246,9 +247,10 @@ function isExpireOnlyUpdate(newSpec, existingSpec) {
  * @param {string} signature - Message signature
  * @param {string} appOwner - App owner address
  * @param {number} daemonHeight - Daemon height
+ * @param {object} previousAppSpec - Previous app specification for usersToExtend expire-only comparison
  * @returns {Promise<boolean>} True if signature is valid
  */
-async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp, signature, appOwner, daemonHeight) {
+async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp, signature, appOwner, daemonHeight, previousAppSpec) {
   if (!appSpec || typeof appSpec !== 'object' || Array.isArray(appSpec) || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
   }
@@ -327,34 +329,30 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   }
 
   // Check if usersToExtend can sign this update (only for expire-only changes)
+  // Uses previousAppSpec (from permanent messages) for the expire-only comparison,
+  // so this works even when the app has expired from globalAppsInformation (e.g. during resync)
   const usersToExtend = config.fluxapps.usersToExtend || [];
-  if (isValidSignature !== true && usersToExtend.length > 0) {
-    // eslint-disable-next-line global-require
-    const registryManager = require('../appDatabase/registryManager');
-    const existingSpec = await registryManager.getApplicationGlobalSpecifications(appSpec.name);
-    if (existingSpec) {
-      // For v8+ enterprise apps, we need to decrypt the new spec before comparing
-      let newSpecToCompare = appSpec;
-      let newExistingSpecToCompare = existingSpec;
+  if (isValidSignature !== true && usersToExtend.length > 0 && previousAppSpec) {
+    // For v8+ enterprise apps, we need to decrypt specs before comparing
+    let newSpecToCompare = appSpec;
+    let prevSpecToCompare = previousAppSpec;
+    const specOwner = previousAppSpec.owner || appOwner;
+    if ((appSpec.version >= 8 && appSpec.enterprise) || (previousAppSpec.version >= 8 && previousAppSpec.enterprise)) {
       if (appSpec.version >= 8 && appSpec.enterprise) {
-        // eslint-disable-next-line global-require
-        const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-        newSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: existingSpec.owner });
+        newSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: specOwner });
       }
-      if (existingSpec.version >= 8 && existingSpec.enterprise) {
-        // eslint-disable-next-line global-require
-        const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-        newExistingSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: existingSpec.owner });
+      if (previousAppSpec.version >= 8 && previousAppSpec.enterprise) {
+        prevSpecToCompare = await checkAndDecryptAppSpecs(previousAppSpec, { daemonHeight, owner: specOwner });
       }
-      // Check if signature matches any of the usersToExtend addresses
-      // eslint-disable-next-line no-restricted-syntax
-      for (const userToExtend of usersToExtend) {
-        const isValidUserToExtendSignature = signatureVerifier.verifySignature(messageToVerify, userToExtend, signature);
-        if (isValidUserToExtendSignature === true && isExpireOnlyUpdate(newSpecToCompare, newExistingSpecToCompare)) {
-          log.info(`App ${appSpec.name} expire extension signed by userToExtend address ${userToExtend}`);
-          isValidSignature = true;
-          break;
-        }
+    }
+    // Check if signature matches any of the usersToExtend addresses
+    // eslint-disable-next-line no-restricted-syntax
+    for (const userToExtend of usersToExtend) {
+      const isValidUserToExtendSignature = signatureVerifier.verifySignature(messageToVerify, userToExtend, signature);
+      if (isValidUserToExtendSignature === true && isExpireOnlyUpdate(newSpecToCompare, prevSpecToCompare)) {
+        log.info(`App ${appSpec.name} expire extension signed by userToExtend address ${userToExtend}`);
+        isValidSignature = true;
+        break;
       }
     }
   }
