@@ -54,14 +54,11 @@ async function handleAppMessages(message, fromIP, port) {
     if (rebroadcastToPeers === true) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height || 0;
-      let messageString = serviceHelper.ensureString(message);
       if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        const dataObj = {
-          messageHashPresent: hash(message.data),
-        };
-        messageString = JSON.stringify(dataObj);
+        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      } else {
+        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
       }
-      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -78,14 +75,7 @@ async function handleAppMessages(message, fromIP, port) {
 async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
   try {
     if (!messageCache.has(messageHash)) {
-      const dataObj = {
-        requestMessageHash: messageHash,
-      };
-      const dataString = JSON.stringify(dataObj);
-      const peer = peerManager.get(`${fromIP}:${port}`);
-      if (peer) {
-        peer.send(dataString);
-      }
+      peerManager.sendHashRequest(`${fromIP}:${port}`, messageHash);
     }
   } catch (error) {
     log.error(error);
@@ -133,14 +123,11 @@ async function handleAppRunningMessage(message, fromIP, port) {
     if (rebroadcastToPeers === true && timestampOK) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height || 0;
-      let messageString = serviceHelper.ensureString(message);
       if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        const dataObj = {
-          messageHashPresent: hash(message.data),
-        };
-        messageString = JSON.stringify(dataObj);
+        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      } else {
+        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
       }
-      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -164,14 +151,11 @@ async function handleAppInstallingMessage(message, fromIP, port) {
     if (rebroadcastToPeers === true && timestampOK) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height || 0;
-      let messageString = serviceHelper.ensureString(message);
       if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        const dataObj = {
-          messageHashPresent: hash(message.data),
-        };
-        messageString = JSON.stringify(dataObj);
+        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      } else {
+        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
       }
-      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -195,14 +179,11 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
     if (rebroadcastToPeers === true && timestampOK) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height || 0;
-      let messageString = serviceHelper.ensureString(message);
       if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        const dataObj = {
-          messageHashPresent: hash(message.data),
-        };
-        messageString = JSON.stringify(dataObj);
+        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      } else {
+        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
       }
-      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -225,14 +206,11 @@ async function handleIPChangedMessage(message, fromIP, port) {
     if (rebroadcastToPeers && timestampOK) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height || 0;
-      let messageString = serviceHelper.ensureString(message);
       if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        const dataObj = {
-          messageHashPresent: hash(message.data),
-        };
-        messageString = JSON.stringify(dataObj);
+        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      } else {
+        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
       }
-      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -255,14 +233,11 @@ async function handleAppRemovedMessage(message, fromIP, port) {
     if (rebroadcastToPeers && timestampOK) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height || 0;
-      let messageString = serviceHelper.ensureString(message);
       if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-        const dataObj = {
-          messageHashPresent: hash(message.data),
-        };
-        messageString = JSON.stringify(dataObj);
+        peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+      } else {
+        fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
       }
-      fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
     }
   } catch (error) {
     log.error(error);
@@ -312,14 +287,11 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
     // Rebroadcast to other peers
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height || 0;
-    let messageString = serviceHelper.ensureString(message);
     if (daemonHeight >= config.messagesBroadcastRefactorStart) {
-      const dataObj = {
-        messageHashPresent: hash(message.data),
-      };
-      messageString = JSON.stringify(dataObj);
+      peerManager.broadcastHash(hash(message.data), `${fromIP}:${port}`);
+    } else {
+      fluxCommunicationMessagesSender.relay(serviceHelper.ensureString(message), `${fromIP}:${port}`);
     }
-    fluxCommunicationMessagesSender.relay(messageString, `${fromIP}:${port}`);
   } catch (error) {
     log.error(error);
   }
@@ -458,6 +430,18 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
 
 // Register the message dispatcher on the peerManager singleton
 peerManager.messageDispatcher = dispatchFluxMessage;
+peerManager.hashHandlers = {
+  handleHashPresent: (peer, hexHash) => {
+    const counter = peer.msgMap.get('newHash');
+    peer.msgMap.set('newHash', counter + 1);
+    setImmediate(() => handleCheckMessageHashPresent(hexHash, peer.ip, peer.port));
+  },
+  handleHashRequest: (peer, hexHash) => {
+    const counter = peer.msgMap.get('requestHash');
+    peer.msgMap.set('requestHash', counter + 1);
+    setImmediate(() => handleRequestMessageHash(hexHash, peer.ip, peer.port));
+  },
+};
 
 
 /**
@@ -671,7 +655,7 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
       // should not be compressed if context takeover is disabled.
       },
       headers: {
-        'X-Flux-Capabilities': 'transmissionTimestamps',
+        'X-Flux-Capabilities': 'transmissionTimestamps,peerExchange,binaryMessages',
         'X-Flux-Version': FLUX_VERSION,
       },
     };

@@ -2,6 +2,7 @@ const WebSocket = require('ws');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const { version: FLUX_VERSION } = require('../../../../package.json');
+const peerCodec = require('./peerCodec');
 
 const CLOSE_CODES = Object.freeze({
   // Inbound validation (FluxPeerManager.validateAndAddInbound)
@@ -182,8 +183,11 @@ class FluxPeerSocket {
    * @param {string} reason
    */
   sendNak(messageHash, reason) {
-    const nak = JSON.stringify({ type: 'nak', hash: messageHash, reason });
-    this.send(nak);
+    if (this.remoteCapabilities.has('binaryMessages')) {
+      this.send(peerCodec.encodeNak(messageHash, peerCodec.NAK_REASON.STALE));
+    } else {
+      this.send(JSON.stringify({ type: 'nak', hash: messageHash, reason }));
+    }
   }
 
   /**
@@ -253,6 +257,14 @@ class FluxPeerSocket {
     ws.onmessage = async (evt) => {
       if (!evt) return;
 
+      // Binary frame — handle before the string pipeline
+      if (Buffer.isBuffer(evt.data)) {
+        this.messagesReceived += 1;
+        this.bytesReceived += evt.data.length;
+        manager.handleBinaryMessage(this, evt.data);
+        return;
+      }
+
       const fluxNetworkHelper = require('../fluxNetworkHelper');
       const rateOK = fluxNetworkHelper.lruRateLimit(`${this.ip}:${this.port}`, 120);
       if (!rateOK) return;
@@ -285,9 +297,21 @@ class FluxPeerSocket {
 
       const msgObj = serviceHelper.ensureObject(rawData);
 
-      // Handle NAK messages
+      // Handle peer-level protocol messages (not broadcast)
       if (msgObj.type === 'nak') {
         this.onNakReceived();
+        return;
+      }
+      if (msgObj.type === 'peerExchange') {
+        if (this.remoteCapabilities.has('peerExchange')) {
+          manager.handlePeerExchange(this, msgObj.peers);
+        }
+        return;
+      }
+      if (msgObj.type === 'peerUpdate') {
+        if (this.remoteCapabilities.has('peerExchange')) {
+          manager.handlePeerUpdate(this, msgObj.add, msgObj.rm);
+        }
         return;
       }
 

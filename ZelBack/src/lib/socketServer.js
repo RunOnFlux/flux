@@ -3,7 +3,7 @@ const WebSocketServer = require('ws').Server;
 const log = require('./log');
 const { FLUX_VERSION } = require('../services/utils/FluxPeerSocket');
 
-const LOCAL_CAPABILITIES = ['transmissionTimestamps'];
+const LOCAL_CAPABILITIES = ['transmissionTimestamps', 'peerExchange', 'binaryMessages'];
 
 class FluxWebsocketServer {
   static defautlErrorHandler = () => { };

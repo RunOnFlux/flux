@@ -2,10 +2,14 @@ const config = require('config');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, FLUX_VERSION } = require('./FluxPeerSocket');
+const peerCodec = require('./peerCodec');
 
 const UNSTABLE_DISCONNECT_THRESHOLD = 5;
 const UNSTABLE_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
 const HISTORY_BUFFER_SIZE = 1000;
+const PEER_EXCHANGE_MAX_PEERS = 60;
+const PEER_TOPOLOGY_MAX_REPORTERS = 100;
+const PEER_UPDATE_DEBOUNCE_MS = 2000;
 
 // Reverse lookup: code number → enum name
 const CLOSE_CODE_NAMES = Object.freeze(
@@ -34,6 +38,24 @@ class FluxPeerManager {
     this._pendingConnections = new Set();
     /** @type {Map<string, number>} reconnect count per peer key, persists across connection cycles */
     this._reconnectCounts = new Map();
+
+    // --- Peer exchange topology ---
+    /** @type {Map<string, Set<string>>} reporter key → their peer keys */
+    this._peerTopology = new Map();
+    /** @type {Array<function>} topology change listeners */
+    this._peerExchangeListeners = [];
+    /** @type {Set<string>} peers added since last peerUpdate broadcast */
+    this._pendingAdds = new Set();
+    /** @type {Set<string>} peers removed since last peerUpdate broadcast */
+    this._pendingRemoves = new Set();
+    /** @type {ReturnType<typeof setTimeout>|null} debounce timer */
+    this._peerUpdateTimer = null;
+
+    /**
+     * Hash message handlers — set by fluxCommunication.js to break circular dependency.
+     * @type {{ handleHashPresent: function, handleHashRequest: function }|null}
+     */
+    this.hashHandlers = null;
 
     /** @type {Array<object>} Circular buffer of peer lifecycle events */
     this._history = new Array(HISTORY_BUFFER_SIZE);
@@ -119,6 +141,11 @@ class FluxPeerManager {
       direction,
       source: peer.source,
     });
+    // Peer exchange: send our full list to new peer, notify others about the addition
+    this.sendPeerExchange(peer);
+    this._pendingAdds.add(peer.key);
+    this._pendingRemoves.delete(peer.key);
+    this._schedulePeerUpdate();
     return peer;
   }
 
@@ -133,6 +160,12 @@ class FluxPeerManager {
     if (!peer) return null;
 
     this._removeTracking(peer);
+
+    // Clean up peer exchange topology and notify others
+    this._peerTopology.delete(key);
+    this._pendingRemoves.add(key);
+    this._pendingAdds.delete(key);
+    this._schedulePeerUpdate();
 
     // Track disconnect for unstable node detection
     this.trackDisconnect(peer.ip, peer.port);
@@ -782,6 +815,7 @@ class FluxPeerManager {
       dead,
       reconnectQueue: this._reconnectQueue.size,
       unstable: this._unstableNodes.size,
+      peerTopology: this._peerTopology.size,
     };
   }
 
@@ -816,6 +850,232 @@ class FluxPeerManager {
     ];
   }
 
+  // --- Binary message dispatch ---
+
+  /**
+   * Handle an incoming binary WebSocket frame.
+   * @param {FluxPeerSocket} peer
+   * @param {Buffer} buf
+   */
+  handleBinaryMessage(peer, buf) {
+    if (buf.length < 1) return;
+    try {
+      const type = buf[0];
+      switch (type) {
+        case peerCodec.MSG_TYPE.HASH_PRESENT: {
+          if (buf.length < 21) return;
+          const { hash } = peerCodec.decodeHashPresent(buf);
+          if (this.hashHandlers) this.hashHandlers.handleHashPresent(peer, hash);
+          break;
+        }
+        case peerCodec.MSG_TYPE.HASH_REQUEST: {
+          if (buf.length < 21) return;
+          const { hash } = peerCodec.decodeHashRequest(buf);
+          if (this.hashHandlers) this.hashHandlers.handleHashRequest(peer, hash);
+          break;
+        }
+        case peerCodec.MSG_TYPE.NAK: {
+          peer.onNakReceived();
+          break;
+        }
+        case peerCodec.MSG_TYPE.PEER_EXCHANGE: {
+          if (!peer.remoteCapabilities.has('peerExchange')) return;
+          if (buf.length < 3) return;
+          const { peers } = peerCodec.decodePeerExchange(buf);
+          this.handlePeerExchange(peer, peers);
+          break;
+        }
+        case peerCodec.MSG_TYPE.PEER_UPDATE: {
+          if (!peer.remoteCapabilities.has('peerExchange')) return;
+          if (buf.length < 5) return;
+          const { add, rm } = peerCodec.decodePeerUpdate(buf);
+          this.handlePeerUpdate(peer, add, rm);
+          break;
+        }
+        default:
+          // Unknown type — ignore for forward compatibility
+          break;
+      }
+    } catch (e) {
+      log.error(`Binary message decode error from ${peer.key}: ${e.message}`);
+    }
+  }
+
+  // --- Peer exchange ---
+
+  /**
+   * Send our full peer list to a newly connected peer.
+   * @param {FluxPeerSocket} peer
+   */
+  sendPeerExchange(peer) {
+    if (!peer.remoteCapabilities.has('peerExchange')) return;
+    const peers = [];
+    for (const key of this._peers.keys()) {
+      if (key === peer.key) continue;
+      peers.push(key);
+    }
+    if (peer.remoteCapabilities.has('binaryMessages')) {
+      peer.send(peerCodec.encodePeerExchange(peers));
+    } else {
+      peer.send(JSON.stringify({ type: 'peerExchange', peers }));
+    }
+  }
+
+  /**
+   * Schedule a debounced peerUpdate broadcast to all capable peers.
+   * @private
+   */
+  _schedulePeerUpdate() {
+    if (this._peerUpdateTimer) return;
+    this._peerUpdateTimer = setTimeout(() => {
+      this._peerUpdateTimer = null;
+      // Net adds and removes — if a key appears in both, they cancel out
+      const netAdd = [...this._pendingAdds].filter((k) => !this._pendingRemoves.has(k));
+      const netRm = [...this._pendingRemoves].filter((k) => !this._pendingAdds.has(k));
+      this._pendingAdds.clear();
+      this._pendingRemoves.clear();
+      if (netAdd.length === 0 && netRm.length === 0) return;
+      // Pre-encode both formats
+      const binBuf = peerCodec.encodePeerUpdate(netAdd, netRm);
+      const jsonStr = JSON.stringify({
+        type: 'peerUpdate',
+        ...(netAdd.length ? { add: netAdd } : {}),
+        ...(netRm.length ? { rm: netRm } : {}),
+      });
+      for (const peer of this._peers.values()) {
+        if (!peer.remoteCapabilities.has('peerExchange')) continue;
+        if (peer.remoteCapabilities.has('binaryMessages')) {
+          peer.send(binBuf);
+        } else {
+          peer.send(jsonStr);
+        }
+      }
+    }, PEER_UPDATE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Handle incoming full peer exchange from a remote peer.
+   * @param {FluxPeerSocket} peer
+   * @param {string[]} peers Array of ip:port strings
+   */
+  handlePeerExchange(peer, peers) {
+    if (!Array.isArray(peers)) return;
+    if (this._peerTopology.size >= PEER_TOPOLOGY_MAX_REPORTERS && !this._peerTopology.has(peer.key)) return;
+    const peerSet = new Set();
+    const limit = Math.min(peers.length, PEER_EXCHANGE_MAX_PEERS);
+    for (let i = 0; i < limit; i++) {
+      if (typeof peers[i] === 'string' && peers[i].includes(':')) {
+        peerSet.add(peers[i]);
+      }
+    }
+    this._peerTopology.set(peer.key, peerSet);
+    this._notifyListeners({ type: 'exchange', reporter: peer.key, peers: [...peerSet] });
+  }
+
+  /**
+   * Handle incoming incremental peer update from a remote peer.
+   * @param {FluxPeerSocket} peer
+   * @param {string[]} add Peers added
+   * @param {string[]} rm Peers removed
+   */
+  handlePeerUpdate(peer, add, rm) {
+    const existing = this._peerTopology.get(peer.key);
+    if (!existing) return; // ignore without prior full exchange
+    if (Array.isArray(add)) {
+      for (const p of add) {
+        if (typeof p === 'string' && p.includes(':') && existing.size < PEER_EXCHANGE_MAX_PEERS) {
+          existing.add(p);
+        }
+      }
+    }
+    if (Array.isArray(rm)) {
+      for (const p of rm) {
+        existing.delete(p);
+      }
+    }
+    if (add && add.length) {
+      this._notifyListeners({ type: 'add', reporter: peer.key, peers: add.filter((p) => typeof p === 'string') });
+    }
+    if (rm && rm.length) {
+      this._notifyListeners({ type: 'remove', reporter: peer.key, peers: rm.filter((p) => typeof p === 'string') });
+    }
+  }
+
+  /**
+   * Register a listener for peer topology changes.
+   * @param {function} callback Called with {type, reporter, peers}
+   * @returns {function} Unsubscribe function
+   */
+  onPeerTopologyChange(callback) {
+    this._peerExchangeListeners.push(callback);
+    return () => {
+      const idx = this._peerExchangeListeners.indexOf(callback);
+      if (idx !== -1) this._peerExchangeListeners.splice(idx, 1);
+    };
+  }
+
+  /**
+   * Notify topology change listeners.
+   * @param {object} event
+   * @private
+   */
+  _notifyListeners(event) {
+    for (const fn of this._peerExchangeListeners) {
+      try { fn(event); } catch (e) { log.error(e); }
+    }
+  }
+
+  /**
+   * Compute the union of all reported peer sets on demand.
+   * @returns {Set<string>}
+   */
+  get knownPeers() {
+    const union = new Set();
+    for (const peerSet of this._peerTopology.values()) {
+      for (const p of peerSet) union.add(p);
+    }
+    return union;
+  }
+
+  get peerTopologySize() {
+    return this._peerTopology.size;
+  }
+
+  // --- Hash broadcast ---
+
+  /**
+   * Broadcast a messageHashPresent to all peers, using binary for capable peers.
+   * @param {string} hexHash 40-char hex hash
+   * @param {string} [excludeKey] Peer key to exclude
+   */
+  broadcastHash(hexHash, excludeKey) {
+    const binBuf = peerCodec.encodeHashPresent(hexHash);
+    const jsonStr = JSON.stringify({ messageHashPresent: hexHash });
+    for (const peer of this._peers.values()) {
+      if (excludeKey && peer.key === excludeKey) continue;
+      if (peer.remoteCapabilities.has('binaryMessages')) {
+        peer.send(binBuf);
+      } else {
+        peer.send(jsonStr);
+      }
+    }
+  }
+
+  /**
+   * Send a requestMessageHash to a specific peer, using binary if capable.
+   * @param {string} peerKey ip:port
+   * @param {string} hexHash 40-char hex hash
+   */
+  sendHashRequest(peerKey, hexHash) {
+    const peer = this._peers.get(peerKey);
+    if (!peer) return;
+    if (peer.remoteCapabilities.has('binaryMessages')) {
+      peer.send(peerCodec.encodeHashRequest(hexHash));
+    } else {
+      peer.send(JSON.stringify({ requestMessageHash: hexHash }));
+    }
+  }
+
   /**
    * Clear all peers — for testing only.
    */
@@ -830,6 +1090,11 @@ class FluxPeerManager {
     this._failedConnections.clear();
     this._pendingConnections.clear();
     this._reconnectCounts.clear();
+    this._peerTopology.clear();
+    this._peerExchangeListeners.length = 0;
+    this._pendingAdds.clear();
+    this._pendingRemoves.clear();
+    if (this._peerUpdateTimer) { clearTimeout(this._peerUpdateTimer); this._peerUpdateTimer = null; }
     this._history = new Array(HISTORY_BUFFER_SIZE);
     this._historyIndex = 0;
     this._historyCount = 0;
