@@ -888,6 +888,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       },
     };
   const autoAssignedIP = await getNextAvailableIPForApp(appName);
+  const cpuHostConfig = await getCpuHostConfig(fullAppSpecs, appSpecifications, identifier);
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -902,7 +903,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     // Conditionally include Labels only if it's not null
     ...(labels && { Labels: labels }),
     HostConfig: {
-      ...await getCpuHostConfig(fullAppSpecs, appSpecifications, identifier),
+      ...cpuHostConfig,
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
       MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
@@ -1016,20 +1017,6 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     throw error;
   });
 
-  // Set CFS burst for enterprise apps after container creation
-  try {
-    const appOwner = fullAppSpecs?.owner || null;
-    if (appOwner && cpuBurstHelper.isEnterpriseOwner(appOwner) && await cpuBurstHelper.isCpuBurstSupported()) {
-      const containerInspect = await app.inspect();
-      const fullContainerId = containerInspect.Id;
-      const { burstUs } = cpuBurstHelper.calculateBurstParams(appSpecifications.cpu);
-      await cpuBurstHelper.setCpuBurst(fullContainerId, burstUs);
-    }
-  } catch (error) {
-    // Burst is best-effort — do not fail container creation
-    log.warn(`CPU burst: failed to configure burst for ${identifier}: ${error.message}`);
-  }
-
   return app;
 }
 
@@ -1058,34 +1045,6 @@ async function appDockerUpdateCpu(idOrName, nanoCpus) {
 }
 
 /**
- * Updates the CPU limits of a Docker container using CpuPeriod/CpuQuota and sets CFS burst.
- * Used for enterprise app owners with burst enabled.
- *
- * @param {string} idOrName - The ID or name of the Docker container.
- * @param {number} cpuCores - The CPU allocation in cores (e.g. 2.5).
- * @returns {Promise<string>} message
- */
-async function appDockerUpdateCpuBurst(idOrName, cpuCores) {
-  try {
-    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-    const { periodUs, quotaUs, burstUs } = cpuBurstHelper.calculateBurstParams(cpuCores);
-
-    await dockerContainer.update({
-      CpuPeriod: periodUs,
-      CpuQuota: quotaUs,
-    });
-
-    const containerInspect = await dockerContainer.inspect();
-    await cpuBurstHelper.setCpuBurst(containerInspect.Id, burstUs);
-
-    return `Flux App ${idOrName} successfully updated with burst CPU (quota=${quotaUs}, burst=${burstUs}).`;
-  } catch (error) {
-    log.error(error);
-    throw new Error(`Failed to update burst CPU resources for ${idOrName}: ${error.message}`);
-  }
-}
-
-/**
  * Starts app's docker.
  *
  * @param {string} idOrName
@@ -1097,6 +1056,22 @@ async function appDockerStart(idOrName) {
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
     await dockerContainer.start(); // may throw
+
+    // Apply CFS burst after start — cgroup paths only exist once the container is running
+    try {
+      const containerInspect = await dockerContainer.inspect();
+      const hostConfig = containerInspect.HostConfig || {};
+      if (hostConfig.CpuPeriod > 0 && hostConfig.CpuQuota > 0 && await cpuBurstHelper.isCpuBurstSupported()) {
+        const burstConfig = config.cpuBurst || {};
+        const burstMultiplier = burstConfig.burstMultiplier || 2.0;
+        const burstUs = Math.round(hostConfig.CpuQuota * (burstMultiplier - 1));
+        await cpuBurstHelper.setCpuBurst(containerInspect.Id, burstUs);
+      }
+    } catch (burstError) {
+      // Burst is best-effort — do not fail container start
+      log.warn(`CPU burst: failed to configure burst for ${idOrName}: ${burstError.message}`);
+    }
+
     return `Flux App ${idOrName} successfully started.`;
   } catch (error) {
     log.error(error);
@@ -1545,7 +1520,6 @@ async function getAppNameByContainerIp(ip) {
 module.exports = {
   appDockerCreate,
   appDockerUpdateCpu,
-  appDockerUpdateCpuBurst,
   appDockerImageRemove,
   appDockerKill,
   appDockerPause,
