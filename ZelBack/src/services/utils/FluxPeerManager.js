@@ -1,7 +1,7 @@
 const config = require('config');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
-const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, FLUX_VERSION } = require('./FluxPeerSocket');
+const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION } = require('./FluxPeerSocket');
 const peerCodec = require('./peerCodec');
 
 const UNSTABLE_DISCONNECT_THRESHOLD = 5;
@@ -125,7 +125,7 @@ class FluxPeerManager {
     }
     const { direction } = peer;
     this._peers.set(peer.key, peer);
-    if (direction === 'inbound') {
+    if (direction === DIRECTION.INBOUND) {
       this._inboundKeys.add(peer.key);
     } else {
       this._outboundKeys.add(peer.key);
@@ -149,7 +149,7 @@ class FluxPeerManager {
     });
     // Peer exchange: send our full list to new peer, notify others about the addition
     this.sendPeerExchange(peer);
-    const dirSet = peer.direction === 'outbound' ? this._pendingAdds.outbound : this._pendingAdds.inbound;
+    const dirSet = peer.direction === DIRECTION.OUTBOUND ? this._pendingAdds.outbound : this._pendingAdds.inbound;
     dirSet.add(peer.key);
     this._pendingRemoves.delete(peer.key);
     this._schedulePeerUpdate();
@@ -183,7 +183,7 @@ class FluxPeerManager {
     // Queue outbound peers for reconnection only on unexpected disconnections.
     // Whitelist: only reconnect for dead connections, capacity rejections,
     // and standard WebSocket closes (network failures, crashes).
-    if (peer.direction === 'outbound' && this._shouldReconnect(closeCode)) {
+    if (peer.direction === DIRECTION.OUTBOUND && this._shouldReconnect(closeCode)) {
       this.queueReconnect(peer.ip, peer.port);
     }
 
@@ -463,7 +463,7 @@ class FluxPeerManager {
    * @returns {FluxPeerSocket|null}
    */
   getRandomPeer(direction) {
-    const keys = direction === 'inbound' ? this._inboundKeys : this._outboundKeys;
+    const keys = direction === DIRECTION.INBOUND ? this._inboundKeys : this._outboundKeys;
     if (keys.size === 0) return null;
     const arr = [...keys];
     const randomKey = arr[Math.floor(Math.random() * arr.length)];
@@ -479,7 +479,7 @@ class FluxPeerManager {
   findByIp(ip, direction) {
     const results = [];
     const iter = direction
-      ? (direction === 'inbound' ? this.inboundValues() : this.outboundValues())
+      ? (direction === DIRECTION.INBOUND ? this.inboundValues() : this.outboundValues())
       : this.allValues();
     for (const peer of iter) {
       if (peer.ip === ip) results.push(peer);
@@ -512,18 +512,35 @@ class FluxPeerManager {
 
   /**
    * Send data to peers, with optional direction filter and exclusion.
+   * When sending to all peers, sends outbound first, then waits 500ms before inbound
+   * to prevent broadcast storms.
    * @param {string|Buffer} data
    * @param {object} [options]
-   * @param {'inbound'|'outbound'} [options.direction] - limit to one direction
+   * @param {string} [options.direction] - DIRECTION.INBOUND or DIRECTION.OUTBOUND
    * @param {string} [options.exclude] - peer key to skip
    * @param {number} [options.delayMs=25] - delay between sends
    */
   async broadcast(data, options = {}) {
     const { direction, exclude, delayMs = 25 } = options;
-    // eslint-disable-next-line no-nested-ternary
-    const iter = direction === 'outbound' ? this.outboundValues()
-      : direction === 'inbound' ? this.inboundValues()
-        : this.allValues();
+    if (direction) {
+      await this._broadcastToGroup(data, direction, exclude, delayMs);
+    } else {
+      await this._broadcastToGroup(data, DIRECTION.OUTBOUND, exclude, delayMs);
+      await serviceHelper.delay(500);
+      await this._broadcastToGroup(data, DIRECTION.INBOUND, exclude, delayMs);
+    }
+  }
+
+  /**
+   * Send data to peers in a single direction.
+   * @param {string|Buffer} data
+   * @param {string} direction - DIRECTION.INBOUND or DIRECTION.OUTBOUND
+   * @param {string} [exclude] - peer key to skip
+   * @param {number} delayMs - delay between sends
+   * @private
+   */
+  async _broadcastToGroup(data, direction, exclude, delayMs) {
+    const iter = direction === DIRECTION.INBOUND ? this.inboundValues() : this.outboundValues();
     for (const peer of iter) {
       if (exclude && peer.key === exclude) continue;
       try {
@@ -533,7 +550,7 @@ class FluxPeerManager {
         }
       } catch (e) {
         try {
-          const code = peer.direction === 'outbound' ? CLOSE_CODES.CLOSED_OUTBOUND : CLOSE_CODES.CLOSED_INBOUND;
+          const code = direction === DIRECTION.OUTBOUND ? CLOSE_CODES.CLOSED_OUTBOUND : CLOSE_CODES.CLOSED_INBOUND;
           peer.close(code, 'send failure');
         } catch (err) {
           log.error(err);
@@ -604,11 +621,11 @@ class FluxPeerManager {
    * @returns {boolean}
    */
   needsMorePeers(direction, thresholds = {}) {
-    const defaults = direction === 'outbound'
+    const defaults = direction === DIRECTION.OUTBOUND
       ? { maxCount: 14, minUniqueIps: 9 }
       : { maxCount: 12, minUniqueIps: 5 };
     const { maxCount = defaults.maxCount, minUniqueIps = defaults.minUniqueIps } = thresholds;
-    const count = direction === 'outbound' ? this.outboundCount : this.inboundCount;
+    const count = direction === DIRECTION.OUTBOUND ? this.outboundCount : this.inboundCount;
     const uniqueIps = this.getUniqueIpCount(direction);
     return count < maxCount || uniqueIps < minUniqueIps;
   }
@@ -925,7 +942,7 @@ class FluxPeerManager {
     const inbound = [];
     for (const p of this._peers.values()) {
       if (p.key === peer.key) continue;
-      if (p.direction === 'outbound') outbound.push(p.key);
+      if (p.direction === DIRECTION.OUTBOUND) outbound.push(p.key);
       else inbound.push(p.key);
     }
     if (peer.remoteCapabilities.has('binaryMessages')) {
@@ -1152,4 +1169,4 @@ FluxPeerManager.CONNECTION_BACKOFF_MS = [2 * 60000, 5 * 60000, 10 * 60000, 15 * 
 // Singleton export
 const peerManager = new FluxPeerManager();
 
-module.exports = { FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE, FLUX_VERSION };
+module.exports = { FluxPeerManager, peerManager, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION };

@@ -28,7 +28,7 @@ const { messageCache, wsPeerCache } = cacheManager;
 
 const testListCache = new LRUCache(LRUTest); */
 
-const { FluxPeerManager, FLUX_VERSION } = require('./utils/FluxPeerManager');
+const { FluxPeerManager, DIRECTION, FLUX_VERSION } = require('./utils/FluxPeerManager');
 const { NAK_REASON } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 
@@ -307,7 +307,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket FluxPeerSocket instance.
  */
 async function dispatchFluxMessage(msgObj, peerSocket) {
-  const isOutbound = peerSocket.direction === 'outbound';
+  const isOutbound = peerSocket.direction === DIRECTION.OUTBOUND;
   const codes = peerSocket.closeCodes;
   const {
     pubKey, timestamp, signature, version, data,
@@ -902,13 +902,13 @@ async function fluxDiscovery() {
     // Random outbound connections
     const outThresholds = { maxCount: DISCOVERY.maxOutbound, minUniqueIps: DISCOVERY.minUniqueOutboundIps };
     let index = 0;
-    while (peerManager.needsMorePeers('outbound', outThresholds) && index < DISCOVERY.maxIterations) {
+    while (peerManager.needsMorePeers(DIRECTION.OUTBOUND, outThresholds) && index < DISCOVERY.maxIterations) {
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await networkStateService.getRandomSocketAddress(myIP);
       if (connection) {
         const [ipInc, portInc = '16127'] = connection.split(':');
-        if (!peerManager.canAcceptPeer(ipInc, portInc, 'outbound', myIpGroup)) {
+        if (!peerManager.canAcceptPeer(ipInc, portInc, DIRECTION.OUTBOUND, myIpGroup)) {
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -929,13 +929,13 @@ async function fluxDiscovery() {
     // Random inbound connections
     const inThresholds = { maxCount: DISCOVERY.maxInbound, minUniqueIps: DISCOVERY.minUniqueInboundIps };
     index = 0;
-    while (peerManager.needsMorePeers('inbound', inThresholds) && index < DISCOVERY.maxIterations) {
+    while (peerManager.needsMorePeers(DIRECTION.INBOUND, inThresholds) && index < DISCOVERY.maxIterations) {
       index += 1;
       // eslint-disable-next-line no-await-in-loop
       const connection = await networkStateService.getRandomSocketAddress(myIP);
       if (connection) {
         const [ipInc, portInc = '16127'] = connection.split(':');
-        if (!peerManager.canAcceptPeer(ipInc, portInc, 'inbound', myIpGroup)) {
+        if (!peerManager.canAcceptPeer(ipInc, portInc, DIRECTION.INBOUND, myIpGroup)) {
           // eslint-disable-next-line no-continue
           continue;
         }

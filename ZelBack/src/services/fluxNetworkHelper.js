@@ -20,7 +20,7 @@ const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const { peerManager } = require('./utils/peerState');
-const { CLOSE_CODES } = require('./utils/FluxPeerSocket');
+const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 
@@ -658,7 +658,7 @@ async function closeConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
   const key = `${ip}:${port}`;
   const peer = peerManager.get(key);
-  if (!peer || peer.direction !== 'outbound') {
+  if (!peer || peer.direction !== DIRECTION.OUTBOUND) {
     return messageHelper.createWarningMessage(`Connection to ${ip}:${port} does not exists.`);
   }
   peer.close(CLOSE_CODES.CLOSED_OUTBOUND, 'purposefully closed');
@@ -678,7 +678,7 @@ async function closeIncomingConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
   const key = `${ip}:${port}`;
   const peer = peerManager.get(key);
-  if (!peer || peer.direction !== 'inbound') {
+  if (!peer || peer.direction !== DIRECTION.INBOUND) {
     return messageHelper.createWarningMessage(`Connection from ${ip}:${port} does not exists.`);
   }
   peer.close(CLOSE_CODES.CLOSED_INBOUND, 'purposefully closed');

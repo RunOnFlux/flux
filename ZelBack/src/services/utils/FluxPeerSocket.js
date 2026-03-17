@@ -46,6 +46,11 @@ const PEER_SOURCE = Object.freeze({
   INBOUND: 'inbound',
 });
 
+const DIRECTION = Object.freeze({
+  INBOUND: 'inbound',
+  OUTBOUND: 'outbound',
+});
+
 class FluxPeerSocket {
   /**
    * @param {WebSocket} ws - raw WebSocket
@@ -87,11 +92,11 @@ class FluxPeerSocket {
    * @returns {'inbound'|'outbound'}
    */
   get direction() {
-    return this.source === PEER_SOURCE.INBOUND ? 'inbound' : 'outbound';
+    return this.source === PEER_SOURCE.INBOUND ? DIRECTION.INBOUND : DIRECTION.OUTBOUND;
   }
 
   get closeCodes() {
-    return this.direction === 'inbound'
+    return this.direction === DIRECTION.INBOUND
       ? {
         invalidMsg: CLOSE_CODES.INVALID_MSG_INBOUND, blocked: CLOSE_CODES.BLOCKED_INBOUND,
         badOrigin: CLOSE_CODES.BAD_ORIGIN_INBOUND, blockedOrigin: CLOSE_CODES.BLOCKED_ORIGIN_INBOUND,
@@ -223,7 +228,7 @@ class FluxPeerSocket {
    * @returns {object}
    */
   toPeerInfo() {
-    if (this.direction === 'outbound') {
+    if (this.direction === DIRECTION.OUTBOUND) {
       return {
         ip: this.ip,
         port: this.port,
@@ -253,12 +258,12 @@ class FluxPeerSocket {
     });
 
     ws.onclose = (evt) => {
-      log.info(`${this.direction === 'inbound' ? 'Incoming' : 'Outgoing'} connection ${this.direction === 'inbound' ? 'from' : 'to'} ${this.key} closed with code ${evt.code}`);
+      log.info(`${this.direction === DIRECTION.INBOUND ? 'Incoming' : 'Outgoing'} connection ${this.direction === DIRECTION.INBOUND ? 'from' : 'to'} ${this.key} closed with code ${evt.code}`);
       manager.remove(this.key, evt.code);
     };
 
     ws.onerror = (evt) => {
-      log.info(`${this.direction === 'inbound' ? 'Incoming' : 'Outgoing'} connection ${this.direction === 'inbound' ? 'from' : 'to'} ${this.key} errored with code ${evt.code}`);
+      log.info(`${this.direction === DIRECTION.INBOUND ? 'Incoming' : 'Outgoing'} connection ${this.direction === DIRECTION.INBOUND ? 'from' : 'to'} ${this.key} errored with code ${evt.code}`);
       // Per WS spec, error is always followed by close — no need to remove here
     };
 
@@ -331,4 +336,4 @@ class FluxPeerSocket {
   }
 }
 
-module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, FLUX_VERSION };
+module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION };
