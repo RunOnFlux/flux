@@ -73,7 +73,7 @@ describe('fluxCommunication tests', () => {
     before(requireMongo);
 
     beforeEach(async () => {
-      peerManager._clear();
+      peerManager.reset();
       await dbHelper.initiateDB();
       relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
     });
@@ -260,7 +260,7 @@ describe('fluxCommunication tests', () => {
     before(requireMongo);
 
     beforeEach(async () => {
-      peerManager._clear();
+      peerManager.reset();
       await dbHelper.initiateDB();
       relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
     });
@@ -358,7 +358,7 @@ describe('fluxCommunication tests', () => {
     };
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
     });
 
     afterEach(() => {
@@ -409,7 +409,7 @@ describe('fluxCommunication tests', () => {
     };
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
     });
 
     afterEach(() => {
@@ -470,7 +470,7 @@ describe('fluxCommunication tests', () => {
     let verificationHelperStub;
 
     beforeEach(async () => {
-      peerManager._clear();
+      peerManager.reset();
 
       // Add two outbound peers via peerManager
       const ws1 = await connectWs();
@@ -557,7 +557,7 @@ describe('fluxCommunication tests', () => {
 
     it('should issue a warning if a connection does not exist', async () => {
       // Clear peers so none exist
-      peerManager._clear();
+      peerManager.reset();
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       const expectedResult = {
         status: 'warning',
@@ -653,7 +653,7 @@ describe('fluxCommunication tests', () => {
     let verificationHelperStub;
 
     beforeEach(async () => {
-      peerManager._clear();
+      peerManager.reset();
 
       const port = '16127';
 
@@ -844,7 +844,7 @@ describe('fluxCommunication tests', () => {
       logSpy = sinon.spy(log, 'info');
       lruRateLimitStub = sinon.stub(fluxNetworkHelper, 'lruRateLimit');
       ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
-      peerManager._clear();
+      peerManager.reset();
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
       sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16127');
     });
@@ -1170,7 +1170,7 @@ describe('fluxCommunication tests', () => {
     });
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
     });
 
     afterEach(() => {
@@ -1461,7 +1461,7 @@ describe('fluxCommunication tests', () => {
     before(requireMongo);
 
     beforeEach(async () => {
-      peerManager._clear();
+      peerManager.reset();
       await dbHelper.initiateDB();
       relaySpy = sinon.stub(fluxCommunicationMessagesSender, 'relay').resolves(true);
       sinon.stub(serviceHelper, 'delay').resolves();

@@ -1042,8 +1042,7 @@ function getPeers(req, res) {
  */
 function getUnstableNodes(req, res) {
   const unstable = [];
-  // eslint-disable-next-line no-underscore-dangle
-  for (const [key, entry] of peerManager._unstableNodes) {
+  for (const [key, entry] of peerManager.unstableEntries()) {
     if (entry.disconnects >= 5) {
       const [ip, port] = key.split(':');
       unstable.push({
@@ -1103,8 +1102,7 @@ function getPeerHistory(req, res) {
  */
 function getTopology(req, res) {
   const topology = {};
-  // eslint-disable-next-line no-underscore-dangle
-  for (const [reporter, entry] of peerManager._peerTopology) {
+  for (const [reporter, entry] of peerManager.topologyEntries()) {
     topology[reporter] = {
       outbound: [...entry.outbound],
       inbound: [...entry.inbound],

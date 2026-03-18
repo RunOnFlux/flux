@@ -17,40 +17,46 @@ const CLOSE_CODE_NAMES = Object.freeze(
 );
 
 class FluxPeerManager {
+  static CONNECTION_BACKOFF_MS = [2 * 60000, 5 * 60000, 10 * 60000, 15 * 60000];
+
+  /** @type {Map<string, FluxPeerSocket>} */
+  #peers = new Map();
+  /** @type {Set<string>} */
+  #inboundKeys = new Set();
+  /** @type {Set<string>} */
+  #outboundKeys = new Set();
+  /** @type {Map<string, {ip: string, port: string, attempts: number, lastAttempt: number}>} */
+  #reconnectQueue = new Map();
+  /** @type {Map<string, {disconnects: number, firstDisconnect: number}>} */
+  #unstableNodes = new Map();
+  /** @type {Map<string, number>} "outbound:192.168" → count */
+  #ipGroupCounts = new Map();
+  /** @type {Map<string, number>} "outbound:10.0.0.1" → count */
+  #uniqueIps = new Map();
+  /** @type {Map<string, {attempts: number, lastAttempt: number}>} */
+  #failedConnections = new Map();
+  /** @type {Set<string>} keys of outbound connections currently being established */
+  #pendingConnections = new Set();
+  /** @type {Map<string, number>} reconnect count per peer key, persists across connection cycles */
+  #reconnectCounts = new Map();
+  /** @type {Map<string, Set<string>>} reporter key → their peer keys */
+  #peerTopology = new Map();
+  /** @type {Array<function>} topology change listeners */
+  #peerExchangeListeners = [];
+  /** @type {{ outbound: Set<string>, inbound: Set<string> }} peers added since last update */
+  #pendingAdds = { outbound: new Set(), inbound: new Set() };
+  /** @type {Set<string>} peers removed since last peerUpdate broadcast */
+  #pendingRemoves = new Set();
+  /** @type {ReturnType<typeof setTimeout>|null} debounce timer */
+  #peerUpdateTimer = null;
+  /** @type {Array<object>} Circular buffer of peer lifecycle events */
+  #history = new Array(HISTORY_BUFFER_SIZE); // HISTORY_BUFFER_SIZE
+  /** @type {number} Next write position in the ring buffer */
+  #historyIndex = 0;
+  /** @type {number} Total events recorded (used to know if buffer has wrapped) */
+  #historyCount = 0;
+
   constructor() {
-    /** @type {Map<string, FluxPeerSocket>} */
-    this._peers = new Map();
-    /** @type {Set<string>} */
-    this._inboundKeys = new Set();
-    /** @type {Set<string>} */
-    this._outboundKeys = new Set();
-    /** @type {Map<string, {ip: string, port: string, attempts: number, lastAttempt: number}>} */
-    this._reconnectQueue = new Map();
-    /** @type {Map<string, {disconnects: number, firstDisconnect: number}>} */
-    this._unstableNodes = new Map();
-    /** @type {Map<string, number>} "outbound:192.168" → count */
-    this._ipGroupCounts = new Map();
-    /** @type {Map<string, number>} "outbound:10.0.0.1" → count */
-    this._uniqueIps = new Map();
-    /** @type {Map<string, {attempts: number, lastAttempt: number}>} */
-    this._failedConnections = new Map();
-    /** @type {Set<string>} keys of outbound connections currently being established */
-    this._pendingConnections = new Set();
-    /** @type {Map<string, number>} reconnect count per peer key, persists across connection cycles */
-    this._reconnectCounts = new Map();
-
-    // --- Peer exchange topology ---
-    /** @type {Map<string, Set<string>>} reporter key → their peer keys */
-    this._peerTopology = new Map();
-    /** @type {Array<function>} topology change listeners */
-    this._peerExchangeListeners = [];
-    /** @type {{ outbound: Set<string>, inbound: Set<string> }} peers added since last update */
-    this._pendingAdds = { outbound: new Set(), inbound: new Set() };
-    /** @type {Set<string>} peers removed since last peerUpdate broadcast */
-    this._pendingRemoves = new Set();
-    /** @type {ReturnType<typeof setTimeout>|null} debounce timer */
-    this._peerUpdateTimer = null;
-
     /**
      * Hash message handlers — set by fluxCommunication.js to break circular dependency.
      * @type {{ handleHashPresent: function, handleHashRequest: function }|null}
@@ -62,13 +68,6 @@ class FluxPeerManager {
      * @type {import('./NetworkHealthMonitor').NetworkHealthMonitor|null}
      */
     this.networkHealthMonitor = null;
-
-    /** @type {Array<object>} Circular buffer of peer lifecycle events */
-    this._history = new Array(HISTORY_BUFFER_SIZE);
-    /** @type {number} Next write position in the ring buffer */
-    this._historyIndex = 0;
-    /** @type {number} Total events recorded (used to know if buffer has wrapped) */
-    this._historyCount = 0;
 
     /**
      * Message dispatch callback — set by fluxCommunication.js to break circular dependency.
@@ -98,7 +97,7 @@ class FluxPeerManager {
    */
   add(ws, ip, port, options = {}) {
     const key = `${ip}:${String(port)}`;
-    const existing = this._peers.get(key);
+    const existing = this.#peers.get(key);
     if (existing) {
       log.warn(`Replacing existing ${existing.direction} peer ${key}`);
       // Detach old handlers so its onclose doesn't remove the new peer
@@ -106,7 +105,7 @@ class FluxPeerManager {
       existing.ws.onerror = null;
       existing.ws.onmessage = null;
       try { existing.ws.close(CLOSE_CODES.DUPLICATE_PEER, 'replaced'); } catch (_e) { /* noop */ }
-      this._removeTracking(existing);
+      this.#removeTracking(existing);
     }
     const peer = new FluxPeerSocket(ws, ip, String(port), this);
     peer.source = options.source || PEER_SOURCE.INBOUND;
@@ -121,26 +120,26 @@ class FluxPeerManager {
       peer.remoteVersion = options.remoteVersion;
     }
     if (existing || options.source === PEER_SOURCE.RECONNECT) {
-      this._reconnectCounts.set(key, (this._reconnectCounts.get(key) || 0) + 1);
+      this.#reconnectCounts.set(key, (this.#reconnectCounts.get(key) || 0) + 1);
     }
     const { direction } = peer;
-    this._peers.set(peer.key, peer);
+    this.#peers.set(peer.key, peer);
     if (direction === DIRECTION.INBOUND) {
-      this._inboundKeys.add(peer.key);
+      this.#inboundKeys.add(peer.key);
     } else {
-      this._outboundKeys.add(peer.key);
+      this.#outboundKeys.add(peer.key);
       // Successful outbound connection — clear from reconnect queue
-      this._reconnectQueue.delete(peer.key);
+      this.#reconnectQueue.delete(peer.key);
     }
     // Track IP group and unique IP for diversity checks
     const groupKey = `${direction}:${FluxPeerManager.getIpGroup(ip)}`;
-    this._ipGroupCounts.set(groupKey, (this._ipGroupCounts.get(groupKey) || 0) + 1);
+    this.#ipGroupCounts.set(groupKey, (this.#ipGroupCounts.get(groupKey) || 0) + 1);
     const ipKey = `${direction}:${ip}`;
-    this._uniqueIps.set(ipKey, (this._uniqueIps.get(ipKey) || 0) + 1);
+    this.#uniqueIps.set(ipKey, (this.#uniqueIps.get(ipKey) || 0) + 1);
     // Successful connection — clear from failed connections and pending
-    this._failedConnections.delete(peer.key);
-    this._pendingConnections.delete(peer.key);
-    this._recordEvent({
+    this.#failedConnections.delete(peer.key);
+    this.#pendingConnections.delete(peer.key);
+    this.#recordEvent({
       event: 'connected',
       ip,
       port: String(port),
@@ -149,10 +148,10 @@ class FluxPeerManager {
     });
     // Peer exchange: send our full list to new peer, notify others about the addition
     this.sendPeerExchange(peer);
-    const dirSet = peer.direction === DIRECTION.OUTBOUND ? this._pendingAdds.outbound : this._pendingAdds.inbound;
+    const dirSet = peer.direction === DIRECTION.OUTBOUND ? this.#pendingAdds.outbound : this.#pendingAdds.inbound;
     dirSet.add(peer.key);
-    this._pendingRemoves.delete(peer.key);
-    this._schedulePeerUpdate();
+    this.#pendingRemoves.delete(peer.key);
+    this.#schedulePeerUpdate();
     if (this.networkHealthMonitor) this.networkHealthMonitor.recordConnect();
     return peer;
   }
@@ -164,17 +163,17 @@ class FluxPeerManager {
    * @returns {FluxPeerSocket|null}
    */
   remove(key, closeCode) {
-    const peer = this._peers.get(key);
+    const peer = this.#peers.get(key);
     if (!peer) return null;
 
-    this._removeTracking(peer);
+    this.#removeTracking(peer);
 
     // Clean up peer exchange topology and notify others
-    this._peerTopology.delete(key);
-    this._pendingRemoves.add(key);
-    this._pendingAdds.outbound.delete(key);
-    this._pendingAdds.inbound.delete(key);
-    this._schedulePeerUpdate();
+    this.#peerTopology.delete(key);
+    this.#pendingRemoves.add(key);
+    this.#pendingAdds.outbound.delete(key);
+    this.#pendingAdds.inbound.delete(key);
+    this.#schedulePeerUpdate();
 
     // Track disconnect for unstable node detection and network health
     this.trackDisconnect(peer.ip, peer.port);
@@ -183,12 +182,12 @@ class FluxPeerManager {
     // Queue outbound peers for reconnection only on unexpected disconnections.
     // Whitelist: only reconnect for dead connections, capacity rejections,
     // and standard WebSocket closes (network failures, crashes).
-    if (peer.direction === DIRECTION.OUTBOUND && this._shouldReconnect(closeCode)) {
+    if (peer.direction === DIRECTION.OUTBOUND && FluxPeerManager.shouldReconnect(closeCode)) {
       this.queueReconnect(peer.ip, peer.port);
     }
 
     const now = Date.now();
-    this._recordEvent({
+    this.#recordEvent({
       event: 'disconnected',
       ip: peer.ip,
       port: peer.port,
@@ -215,20 +214,20 @@ class FluxPeerManager {
    * @param {FluxPeerSocket} peer
    * @private
    */
-  _removeTracking(peer) {
-    this._peers.delete(peer.key);
-    this._inboundKeys.delete(peer.key);
-    this._outboundKeys.delete(peer.key);
+  #removeTracking(peer) {
+    this.#peers.delete(peer.key);
+    this.#inboundKeys.delete(peer.key);
+    this.#outboundKeys.delete(peer.key);
 
     // Decrement IP group and unique IP tracking
     const groupKey = `${peer.direction}:${FluxPeerManager.getIpGroup(peer.ip)}`;
-    const groupCount = (this._ipGroupCounts.get(groupKey) || 1) - 1;
-    if (groupCount <= 0) this._ipGroupCounts.delete(groupKey);
-    else this._ipGroupCounts.set(groupKey, groupCount);
+    const groupCount = (this.#ipGroupCounts.get(groupKey) || 1) - 1;
+    if (groupCount <= 0) this.#ipGroupCounts.delete(groupKey);
+    else this.#ipGroupCounts.set(groupKey, groupCount);
     const ipKey = `${peer.direction}:${peer.ip}`;
-    const ipCount = (this._uniqueIps.get(ipKey) || 1) - 1;
-    if (ipCount <= 0) this._uniqueIps.delete(ipKey);
-    else this._uniqueIps.set(ipKey, ipCount);
+    const ipCount = (this.#uniqueIps.get(ipKey) || 1) - 1;
+    if (ipCount <= 0) this.#uniqueIps.delete(ipKey);
+    else this.#uniqueIps.set(ipKey, ipCount);
   }
 
   /**
@@ -246,7 +245,7 @@ class FluxPeerManager {
    * @param {object} metadata - Peer metadata from upgrade headers
    * @private
    */
-  _verifyOrReplace(existing, ws, ip, port, metadata) {
+  #verifyOrReplace(existing, ws, ip, port, metadata) {
     const VERIFY_TIMEOUT_MS = 1000;
     let settled = false;
 
@@ -287,7 +286,7 @@ class FluxPeerManager {
    * @returns {boolean}
    */
   has(key) {
-    return this._peers.has(key);
+    return this.#peers.has(key);
   }
 
   /**
@@ -295,41 +294,41 @@ class FluxPeerManager {
    * @returns {FluxPeerSocket|undefined}
    */
   get(key) {
-    return this._peers.get(key);
+    return this.#peers.get(key);
   }
 
   // --- Iteration ---
 
   * outboundValues() {
-    for (const key of this._outboundKeys) {
-      const peer = this._peers.get(key);
+    for (const key of this.#outboundKeys) {
+      const peer = this.#peers.get(key);
       if (peer) yield peer;
     }
   }
 
   * inboundValues() {
-    for (const key of this._inboundKeys) {
-      const peer = this._peers.get(key);
+    for (const key of this.#inboundKeys) {
+      const peer = this.#peers.get(key);
       if (peer) yield peer;
     }
   }
 
   * allValues() {
-    yield* this._peers.values();
+    yield* this.#peers.values();
   }
 
   // --- Counts ---
 
   get outboundCount() {
-    return this._outboundKeys.size;
+    return this.#outboundKeys.size;
   }
 
   get inboundCount() {
-    return this._inboundKeys.size;
+    return this.#inboundKeys.size;
   }
 
   getNumberOfPeers() {
-    return this._peers.size;
+    return this.#peers.size;
   }
 
   // --- Liveness ---
@@ -338,7 +337,7 @@ class FluxPeerManager {
    * Ping all connected peers.
    */
   pingAll() {
-    for (const peer of this._peers.values()) {
+    for (const peer of this.#peers.values()) {
       peer.ping();
     }
   }
@@ -352,23 +351,23 @@ class FluxPeerManager {
    */
   queueReconnect(ip, port) {
     const key = `${ip}:${port}`;
-    const existing = this._reconnectQueue.get(key);
+    const existing = this.#reconnectQueue.get(key);
     if (existing) {
       existing.attempts += 1;
       existing.lastAttempt = Date.now();
     } else {
-      this._reconnectQueue.set(key, {
+      this.#reconnectQueue.set(key, {
         ip, port, attempts: 1, lastAttempt: Date.now(),
       });
     }
   }
 
   getReconnectQueue() {
-    return this._reconnectQueue;
+    return this.#reconnectQueue;
   }
 
   clearReconnectEntry(key) {
-    this._reconnectQueue.delete(key);
+    this.#reconnectQueue.delete(key);
   }
 
   // --- Unstable node tracking ---
@@ -381,16 +380,16 @@ class FluxPeerManager {
   trackDisconnect(ip, port) {
     const key = `${ip}:${port}`;
     const now = Date.now();
-    const entry = this._unstableNodes.get(key);
+    const entry = this.#unstableNodes.get(key);
     if (entry) {
       if (now - entry.firstDisconnect > UNSTABLE_WINDOW_MS) {
         // Window expired, reset
-        this._unstableNodes.set(key, { disconnects: 1, firstDisconnect: now });
+        this.#unstableNodes.set(key, { disconnects: 1, firstDisconnect: now });
       } else {
         entry.disconnects += 1;
       }
     } else {
-      this._unstableNodes.set(key, { disconnects: 1, firstDisconnect: now });
+      this.#unstableNodes.set(key, { disconnects: 1, firstDisconnect: now });
     }
   }
 
@@ -402,10 +401,10 @@ class FluxPeerManager {
    */
   isUnstable(ip, port) {
     const key = `${ip}:${port}`;
-    const entry = this._unstableNodes.get(key);
+    const entry = this.#unstableNodes.get(key);
     if (!entry) return false;
     if (Date.now() - entry.firstDisconnect > UNSTABLE_WINDOW_MS) {
-      this._unstableNodes.delete(key);
+      this.#unstableNodes.delete(key);
       return false;
     }
     return entry.disconnects >= UNSTABLE_DISCONNECT_THRESHOLD;
@@ -416,9 +415,9 @@ class FluxPeerManager {
    */
   pruneUnstableList() {
     const now = Date.now();
-    for (const [key, entry] of this._unstableNodes) {
+    for (const [key, entry] of this.#unstableNodes) {
       if (now - entry.firstDisconnect > UNSTABLE_WINDOW_MS) {
-        this._unstableNodes.delete(key);
+        this.#unstableNodes.delete(key);
       }
     }
   }
@@ -432,8 +431,7 @@ class FluxPeerManager {
    * @param {number} [closeCode]
    * @returns {boolean}
    */
-  // eslint-disable-next-line class-methods-use-this
-  _shouldReconnect(closeCode) {
+  static shouldReconnect(closeCode) {
     // No close code = unexpected disconnect (network failure, crash)
     if (!closeCode) return true;
     // Standard WebSocket codes (1000-1015): normal close, going away, abnormal — worth retrying
@@ -452,7 +450,7 @@ class FluxPeerManager {
    * @returns {boolean} true if no peers connected
    */
   allPeersDown() {
-    return this._peers.size === 0;
+    return this.#peers.size === 0;
   }
 
   // --- Utility ---
@@ -463,11 +461,11 @@ class FluxPeerManager {
    * @returns {FluxPeerSocket|null}
    */
   getRandomPeer(direction) {
-    const keys = direction === DIRECTION.INBOUND ? this._inboundKeys : this._outboundKeys;
+    const keys = direction === DIRECTION.INBOUND ? this.#inboundKeys : this.#outboundKeys;
     if (keys.size === 0) return null;
     const arr = [...keys];
     const randomKey = arr[Math.floor(Math.random() * arr.length)];
-    return this._peers.get(randomKey) || null;
+    return this.#peers.get(randomKey) || null;
   }
 
   /**
@@ -493,20 +491,20 @@ class FluxPeerManager {
    * Mark an outbound connection as in progress (prevents race conditions).
    * @param {string} key - ip:port
    */
-  markPending(key) { this._pendingConnections.add(key); }
+  markPending(key) { this.#pendingConnections.add(key); }
 
   /**
    * Clear a pending connection marker.
    * @param {string} key - ip:port
    */
-  clearPending(key) { this._pendingConnections.delete(key); }
+  clearPending(key) { this.#pendingConnections.delete(key); }
 
   /**
    * Check if an outbound connection is currently being established.
    * @param {string} key - ip:port
    * @returns {boolean}
    */
-  isPending(key) { return this._pendingConnections.has(key); }
+  isPending(key) { return this.#pendingConnections.has(key); }
 
   // --- Broadcast ---
 
@@ -523,11 +521,11 @@ class FluxPeerManager {
   async broadcast(data, options = {}) {
     const { direction, exclude, delayMs = 25 } = options;
     if (direction) {
-      await this._broadcastToGroup(data, direction, exclude, delayMs);
+      await this.#broadcastToGroup(data, direction, exclude, delayMs);
     } else {
-      await this._broadcastToGroup(data, DIRECTION.OUTBOUND, exclude, delayMs);
+      await this.#broadcastToGroup(data, DIRECTION.OUTBOUND, exclude, delayMs);
       await serviceHelper.delay(500);
-      await this._broadcastToGroup(data, DIRECTION.INBOUND, exclude, delayMs);
+      await this.#broadcastToGroup(data, DIRECTION.INBOUND, exclude, delayMs);
     }
   }
 
@@ -539,7 +537,7 @@ class FluxPeerManager {
    * @param {number} delayMs - delay between sends
    * @private
    */
-  async _broadcastToGroup(data, direction, exclude, delayMs) {
+  async #broadcastToGroup(data, direction, exclude, delayMs) {
     const iter = direction === DIRECTION.INBOUND ? this.inboundValues() : this.outboundValues();
     for (const peer of iter) {
       if (exclude && peer.key === exclude) continue;
@@ -580,7 +578,7 @@ class FluxPeerManager {
    * @returns {boolean}
    */
   isIpGroupConnected(ipGroup, direction) {
-    return (this._ipGroupCounts.get(`${direction}:${ipGroup}`) || 0) > 0;
+    return (this.#ipGroupCounts.get(`${direction}:${ipGroup}`) || 0) > 0;
   }
 
   /**
@@ -590,7 +588,7 @@ class FluxPeerManager {
    */
   getUniqueIpCount(direction) {
     let count = 0;
-    for (const [key] of this._uniqueIps) {
+    for (const [key] of this.#uniqueIps) {
       if (key.startsWith(`${direction}:`)) count += 1;
     }
     return count;
@@ -604,7 +602,7 @@ class FluxPeerManager {
   getConnectedIpGroups(direction) {
     const groups = new Set();
     const prefix = `${direction}:`;
-    for (const [key] of this._ipGroupCounts) {
+    for (const [key] of this.#ipGroupCounts) {
       if (key.startsWith(prefix)) {
         groups.add(key.substring(prefix.length));
       }
@@ -751,7 +749,7 @@ class FluxPeerManager {
         // wait up to 1s — if no pong, the old socket is dead, replace it.
         const isReconnect = req && req.headers && req.headers['x-flux-reconnect'];
         if (isReconnect && existing) {
-          this._verifyOrReplace(existing, ws, ipv4Peer, port, metadata);
+          this.#verifyOrReplace(existing, ws, ipv4Peer, port, metadata);
           return;
         }
         setTimeout(() => {
@@ -776,17 +774,17 @@ class FluxPeerManager {
    */
   getReconnectCandidates() {
     const candidates = [];
-    for (const [key, entry] of this._reconnectQueue) {
+    for (const [key, entry] of this.#reconnectQueue) {
       if (this.has(key)) {
-        this._reconnectQueue.delete(key);
+        this.#reconnectQueue.delete(key);
         continue;
       }
       if (this.isUnstable(entry.ip, entry.port)) {
-        this._reconnectQueue.delete(key);
+        this.#reconnectQueue.delete(key);
         continue;
       }
       if (entry.attempts > 3) {
-        this._reconnectQueue.delete(key);
+        this.#reconnectQueue.delete(key);
         continue;
       }
       candidates.push({ key, ...entry });
@@ -803,12 +801,12 @@ class FluxPeerManager {
    */
   recordFailedConnection(ip, port) {
     const key = `${ip}:${port}`;
-    const entry = this._failedConnections.get(key);
+    const entry = this.#failedConnections.get(key);
     if (entry) {
       entry.attempts += 1;
       entry.lastAttempt = Date.now();
     } else {
-      this._failedConnections.set(key, { attempts: 1, lastAttempt: Date.now() });
+      this.#failedConnections.set(key, { attempts: 1, lastAttempt: Date.now() });
     }
   }
 
@@ -821,7 +819,7 @@ class FluxPeerManager {
   shouldAttemptConnection(ip, port) {
     const key = `${ip}:${port}`;
     if (this.has(key)) return false;
-    const entry = this._failedConnections.get(key);
+    const entry = this.#failedConnections.get(key);
     if (!entry) return true;
     const backoffIdx = Math.min(entry.attempts - 1, FluxPeerManager.CONNECTION_BACKOFF_MS.length - 1);
     const backoffMs = FluxPeerManager.CONNECTION_BACKOFF_MS[backoffIdx];
@@ -832,17 +830,17 @@ class FluxPeerManager {
 
   getStats() {
     let dead = 0;
-    for (const peer of this._peers.values()) {
+    for (const peer of this.#peers.values()) {
       if (!peer.isAlive) dead += 1;
     }
     return {
-      inbound: this._inboundKeys.size,
-      outbound: this._outboundKeys.size,
-      total: this._peers.size,
+      inbound: this.#inboundKeys.size,
+      outbound: this.#outboundKeys.size,
+      total: this.#peers.size,
       dead,
-      reconnectQueue: this._reconnectQueue.size,
-      unstable: this._unstableNodes.size,
-      peerTopology: this._peerTopology.size,
+      reconnectQueue: this.#reconnectQueue.size,
+      unstable: this.#unstableNodes.size,
+      peerTopology: this.#peerTopology.size,
     };
   }
 
@@ -853,10 +851,10 @@ class FluxPeerManager {
    * @param {object} data Event data (event, ip, port, direction, etc.)
    * @private
    */
-  _recordEvent(data) {
-    this._history[this._historyIndex] = { timestamp: Date.now(), ...data };
-    this._historyIndex = (this._historyIndex + 1) % HISTORY_BUFFER_SIZE;
-    this._historyCount += 1;
+  #recordEvent(data) {
+    this.#history[this.#historyIndex] = { timestamp: Date.now(), ...data };
+    this.#historyIndex = (this.#historyIndex + 1) % HISTORY_BUFFER_SIZE;
+    this.#historyCount += 1;
   }
 
   /**
@@ -864,16 +862,16 @@ class FluxPeerManager {
    * @returns {Array<object>}
    */
   getHistory() {
-    const count = Math.min(this._historyCount, HISTORY_BUFFER_SIZE);
+    const count = Math.min(this.#historyCount, HISTORY_BUFFER_SIZE);
     if (count === 0) return [];
-    if (this._historyCount <= HISTORY_BUFFER_SIZE) {
+    if (this.#historyCount <= HISTORY_BUFFER_SIZE) {
       // Buffer hasn't wrapped yet
-      return this._history.slice(0, count);
+      return this.#history.slice(0, count);
     }
-    // Buffer has wrapped — oldest is at _historyIndex, newest is at _historyIndex - 1
+    // Buffer has wrapped — oldest is at #historyIndex, newest is at #historyIndex - 1
     return [
-      ...this._history.slice(this._historyIndex),
-      ...this._history.slice(0, this._historyIndex),
+      ...this.#history.slice(this.#historyIndex),
+      ...this.#history.slice(0, this.#historyIndex),
     ];
   }
 
@@ -940,7 +938,7 @@ class FluxPeerManager {
     if (!peer.remoteCapabilities.has('peerExchange')) return;
     const outbound = [];
     const inbound = [];
-    for (const p of this._peers.values()) {
+    for (const p of this.#peers.values()) {
       if (p.key === peer.key) continue;
       if (p.direction === DIRECTION.OUTBOUND) outbound.push(p.key);
       else inbound.push(p.key);
@@ -956,18 +954,18 @@ class FluxPeerManager {
    * Schedule a debounced peerUpdate broadcast to all capable peers.
    * @private
    */
-  _schedulePeerUpdate() {
-    if (this._peerUpdateTimer) return;
-    this._peerUpdateTimer = setTimeout(() => {
-      this._peerUpdateTimer = null;
+  #schedulePeerUpdate() {
+    if (this.#peerUpdateTimer) return;
+    this.#peerUpdateTimer = setTimeout(() => {
+      this.#peerUpdateTimer = null;
       // Net adds and removes — if a key appears in both, they cancel out
-      const netAddOut = [...this._pendingAdds.outbound].filter((k) => !this._pendingRemoves.has(k));
-      const netAddIn = [...this._pendingAdds.inbound].filter((k) => !this._pendingRemoves.has(k));
-      const allAdds = new Set([...this._pendingAdds.outbound, ...this._pendingAdds.inbound]);
-      const netRm = [...this._pendingRemoves].filter((k) => !allAdds.has(k));
-      this._pendingAdds.outbound.clear();
-      this._pendingAdds.inbound.clear();
-      this._pendingRemoves.clear();
+      const netAddOut = [...this.#pendingAdds.outbound].filter((k) => !this.#pendingRemoves.has(k));
+      const netAddIn = [...this.#pendingAdds.inbound].filter((k) => !this.#pendingRemoves.has(k));
+      const allAdds = new Set([...this.#pendingAdds.outbound, ...this.#pendingAdds.inbound]);
+      const netRm = [...this.#pendingRemoves].filter((k) => !allAdds.has(k));
+      this.#pendingAdds.outbound.clear();
+      this.#pendingAdds.inbound.clear();
+      this.#pendingRemoves.clear();
       if (netAddOut.length === 0 && netAddIn.length === 0 && netRm.length === 0) return;
       const binBuf = peerCodec.encodePeerUpdate(netAddOut, netAddIn, netRm);
       const jsonStr = JSON.stringify({
@@ -976,7 +974,7 @@ class FluxPeerManager {
         ...(netAddIn.length ? { addInbound: netAddIn } : {}),
         ...(netRm.length ? { rm: netRm } : {}),
       });
-      for (const peer of this._peers.values()) {
+      for (const peer of this.#peers.values()) {
         if (!peer.remoteCapabilities.has('peerExchange')) continue;
         if (peer.remoteCapabilities.has('binaryMessages')) {
           peer.send(binBuf);
@@ -995,7 +993,7 @@ class FluxPeerManager {
    */
   handlePeerExchange(peer, outbound, inbound) {
     if (!Array.isArray(outbound) || !Array.isArray(inbound)) return;
-    if (this._peerTopology.size >= PEER_TOPOLOGY_MAX_REPORTERS && !this._peerTopology.has(peer.key)) return;
+    if (this.#peerTopology.size >= PEER_TOPOLOGY_MAX_REPORTERS && !this.#peerTopology.has(peer.key)) return;
     const outSet = new Set();
     const inSet = new Set();
     const outLimit = Math.min(outbound.length, PEER_EXCHANGE_MAX_PEERS);
@@ -1007,8 +1005,8 @@ class FluxPeerManager {
       if (typeof inbound[i] === 'string' && inbound[i].includes(':')) inSet.add(inbound[i]);
     }
     const entry = { outbound: outSet, inbound: inSet };
-    this._peerTopology.set(peer.key, entry);
-    this._notifyListeners({ type: 'exchange', reporter: peer.key, outbound: [...outSet], inbound: [...inSet] });
+    this.#peerTopology.set(peer.key, entry);
+    this.#notifyListeners({ type: 'exchange', reporter: peer.key, outbound: [...outSet], inbound: [...inSet] });
   }
 
   /**
@@ -1019,7 +1017,7 @@ class FluxPeerManager {
    * @param {string[]} rm Peers removed
    */
   handlePeerUpdate(peer, addOutbound, addInbound, rm) {
-    const existing = this._peerTopology.get(peer.key);
+    const existing = this.#peerTopology.get(peer.key);
     if (!existing) return; // ignore without prior full exchange
     const totalSize = existing.outbound.size + existing.inbound.size;
     if (Array.isArray(addOutbound)) {
@@ -1044,10 +1042,10 @@ class FluxPeerManager {
     }
     const allAdds = [...(addOutbound || []), ...(addInbound || [])].filter((p) => typeof p === 'string');
     if (allAdds.length) {
-      this._notifyListeners({ type: 'add', reporter: peer.key, peers: allAdds });
+      this.#notifyListeners({ type: 'add', reporter: peer.key, peers: allAdds });
     }
     if (rm && rm.length) {
-      this._notifyListeners({ type: 'remove', reporter: peer.key, peers: rm.filter((p) => typeof p === 'string') });
+      this.#notifyListeners({ type: 'remove', reporter: peer.key, peers: rm.filter((p) => typeof p === 'string') });
     }
   }
 
@@ -1057,10 +1055,10 @@ class FluxPeerManager {
    * @returns {function} Unsubscribe function
    */
   onPeerTopologyChange(callback) {
-    this._peerExchangeListeners.push(callback);
+    this.#peerExchangeListeners.push(callback);
     return () => {
-      const idx = this._peerExchangeListeners.indexOf(callback);
-      if (idx !== -1) this._peerExchangeListeners.splice(idx, 1);
+      const idx = this.#peerExchangeListeners.indexOf(callback);
+      if (idx !== -1) this.#peerExchangeListeners.splice(idx, 1);
     };
   }
 
@@ -1069,8 +1067,8 @@ class FluxPeerManager {
    * @param {object} event
    * @private
    */
-  _notifyListeners(event) {
-    for (const fn of this._peerExchangeListeners) {
+  #notifyListeners(event) {
+    for (const fn of this.#peerExchangeListeners) {
       try { fn(event); } catch (e) { log.error(e); }
     }
   }
@@ -1081,7 +1079,7 @@ class FluxPeerManager {
    */
   get knownPeers() {
     const union = new Set();
-    for (const entry of this._peerTopology.values()) {
+    for (const entry of this.#peerTopology.values()) {
       for (const p of entry.outbound) union.add(p);
       for (const p of entry.inbound) union.add(p);
     }
@@ -1089,7 +1087,7 @@ class FluxPeerManager {
   }
 
   get peerTopologySize() {
-    return this._peerTopology.size;
+    return this.#peerTopology.size;
   }
 
   /**
@@ -1098,7 +1096,23 @@ class FluxPeerManager {
    * @returns {{ outbound: Set<string>, inbound: Set<string> }|undefined}
    */
   getTopologyEntry(key) {
-    return this._peerTopology.get(key);
+    return this.#peerTopology.get(key);
+  }
+
+  /**
+   * Iterate over all unstable node entries.
+   * @returns {IterableIterator<[string, {disconnects: number, firstDisconnect: number}]>}
+   */
+  unstableEntries() {
+    return this.#unstableNodes.entries();
+  }
+
+  /**
+   * Iterate over all peer topology entries.
+   * @returns {IterableIterator<[string, {outbound: Set<string>, inbound: Set<string>}]>}
+   */
+  topologyEntries() {
+    return this.#peerTopology.entries();
   }
 
   // --- Hash broadcast ---
@@ -1111,7 +1125,7 @@ class FluxPeerManager {
   broadcastHash(hexHash, excludeKey) {
     const binBuf = peerCodec.encodeHashPresent(hexHash);
     const jsonStr = JSON.stringify({ messageHashPresent: hexHash });
-    for (const peer of this._peers.values()) {
+    for (const peer of this.#peers.values()) {
       if (excludeKey && peer.key === excludeKey) continue;
       if (peer.remoteCapabilities.has('binaryMessages')) {
         peer.send(binBuf);
@@ -1127,7 +1141,7 @@ class FluxPeerManager {
    * @param {string} hexHash 40-char hex hash
    */
   sendHashRequest(peerKey, hexHash) {
-    const peer = this._peers.get(peerKey);
+    const peer = this.#peers.get(peerKey);
     if (!peer) return;
     if (peer.remoteCapabilities.has('binaryMessages')) {
       peer.send(peerCodec.encodeHashRequest(hexHash));
@@ -1137,34 +1151,154 @@ class FluxPeerManager {
   }
 
   /**
+   * Get the reconnect count for a peer key.
+   * @param {string} key - ip:port
+   * @returns {number}
+   */
+  getReconnectCount(key) {
+    return this.#reconnectCounts.get(key) || 0;
+  }
+
+  /**
+   * Get the number of unstable node entries.
+   * @returns {number}
+   */
+  get unstableCount() {
+    return this.#unstableNodes.size;
+  }
+
+  /**
+   * Get an unstable node entry by key.
+   * @param {string} key - ip:port
+   * @returns {{disconnects: number, firstDisconnect: number}|undefined}
+   */
+  getUnstableEntry(key) {
+    return this.#unstableNodes.get(key);
+  }
+
+  /**
+   * Set an unstable node entry directly (for testing).
+   * @param {string} key - ip:port
+   * @param {{disconnects: number, firstDisconnect: number}} entry
+   */
+  setUnstableEntry(key, entry) {
+    this.#unstableNodes.set(key, entry);
+  }
+
+  /**
+   * Check if an unstable node entry exists.
+   * @param {string} key - ip:port
+   * @returns {boolean}
+   */
+  hasUnstableEntry(key) {
+    return this.#unstableNodes.has(key);
+  }
+
+  /**
+   * Get a failed connection entry by key.
+   * @param {string} key - ip:port
+   * @returns {{attempts: number, lastAttempt: number}|undefined}
+   */
+  getFailedConnection(key) {
+    return this.#failedConnections.get(key);
+  }
+
+  /**
+   * Check if a failed connection entry exists.
+   * @param {string} key - ip:port
+   * @returns {boolean}
+   */
+  hasFailedConnection(key) {
+    return this.#failedConnections.has(key);
+  }
+
+  /**
+   * Check if a topology entry exists for a reporter.
+   * @param {string} key - reporter peer key
+   * @returns {boolean}
+   */
+  hasTopologyEntry(key) {
+    return this.#peerTopology.has(key);
+  }
+
+  /**
+   * Get the number of reconnect count entries.
+   * @returns {number}
+   */
+  get reconnectCountsSize() {
+    return this.#reconnectCounts.size;
+  }
+
+  /**
+   * Get the number of registered peer exchange listeners.
+   * @returns {number}
+   */
+  get peerExchangeListenerCount() {
+    return this.#peerExchangeListeners.length;
+  }
+
+  /**
+   * Get the pending adds/removes state — for testing debounce logic.
+   * @returns {{ pendingAddsOutboundSize: number, pendingAddsInboundSize: number, pendingRemovesSize: number, hasPeerUpdateTimer: boolean }}
+   */
+  getPendingUpdateState() {
+    return {
+      pendingAddsOutboundSize: this.#pendingAdds.outbound.size,
+      pendingAddsInboundSize: this.#pendingAdds.inbound.size,
+      pendingRemovesSize: this.#pendingRemoves.size,
+      hasPeerUpdateTimer: this.#peerUpdateTimer !== null,
+    };
+  }
+
+  /**
+   * Cancel the pending peer update timer and clear pending state — for testing.
+   */
+  cancelPendingUpdate() {
+    if (this.#peerUpdateTimer) { clearTimeout(this.#peerUpdateTimer); this.#peerUpdateTimer = null; }
+    this.#pendingAdds.outbound.clear();
+    this.#pendingAdds.inbound.clear();
+    this.#pendingRemoves.clear();
+  }
+
+  /**
+   * Inject pending adds/removes and trigger the debounce timer — for testing.
+   * @param {string[]} addOutbound
+   * @param {string[]} addInbound
+   * @param {string[]} removes
+   */
+  injectPendingUpdate(addOutbound, addInbound, removes) {
+    for (const k of addOutbound) this.#pendingAdds.outbound.add(k);
+    for (const k of addInbound) this.#pendingAdds.inbound.add(k);
+    for (const k of removes) this.#pendingRemoves.add(k);
+    this.#schedulePeerUpdate();
+  }
+
+  /**
    * Clear all peers — for testing only.
    */
-  _clear() {
-    this._peers.clear();
-    this._inboundKeys.clear();
-    this._outboundKeys.clear();
-    this._reconnectQueue.clear();
-    this._unstableNodes.clear();
-    this._ipGroupCounts.clear();
-    this._uniqueIps.clear();
-    this._failedConnections.clear();
-    this._pendingConnections.clear();
-    this._reconnectCounts.clear();
-    this._peerTopology.clear();
-    this._peerExchangeListeners.length = 0;
-    this._pendingAdds.outbound.clear();
-    this._pendingAdds.inbound.clear();
-    this._pendingRemoves.clear();
-    if (this._peerUpdateTimer) { clearTimeout(this._peerUpdateTimer); this._peerUpdateTimer = null; }
-    if (this.networkHealthMonitor) this.networkHealthMonitor._clear();
-    this._history = new Array(HISTORY_BUFFER_SIZE);
-    this._historyIndex = 0;
-    this._historyCount = 0;
+  reset() {
+    this.#peers.clear();
+    this.#inboundKeys.clear();
+    this.#outboundKeys.clear();
+    this.#reconnectQueue.clear();
+    this.#unstableNodes.clear();
+    this.#ipGroupCounts.clear();
+    this.#uniqueIps.clear();
+    this.#failedConnections.clear();
+    this.#pendingConnections.clear();
+    this.#reconnectCounts.clear();
+    this.#peerTopology.clear();
+    this.#peerExchangeListeners.length = 0;
+    this.#pendingAdds.outbound.clear();
+    this.#pendingAdds.inbound.clear();
+    this.#pendingRemoves.clear();
+    if (this.#peerUpdateTimer) { clearTimeout(this.#peerUpdateTimer); this.#peerUpdateTimer = null; }
+    if (this.networkHealthMonitor) this.networkHealthMonitor.reset();
+    this.#history = new Array(HISTORY_BUFFER_SIZE);
+    this.#historyIndex = 0;
+    this.#historyCount = 0;
   }
 }
-
-// Backoff schedule for failed connections: 2min, 5min, 10min, 15min cap
-FluxPeerManager.CONNECTION_BACKOFF_MS = [2 * 60000, 5 * 60000, 10 * 60000, 15 * 60000];
 
 // Singleton export
 const peerManager = new FluxPeerManager();

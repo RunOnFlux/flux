@@ -445,7 +445,7 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('closeConnection tests', () => {
     before(() => {
-      peerManager._clear();
+      peerManager.reset();
     });
 
     const generateWebsocket = (ip, port, readyState) => {
@@ -464,7 +464,7 @@ describe('fluxNetworkHelper tests', () => {
     };
 
     afterEach(() => {
-      peerManager._clear();
+      peerManager.reset();
       sinon.restore();
     });
 
@@ -556,11 +556,11 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('closeIncomingConnection tests', () => {
     before(() => {
-      peerManager._clear();
+      peerManager.reset();
     });
 
     afterEach(() => {
-      peerManager._clear();
+      peerManager.reset();
       sinon.restore();
     });
 
@@ -596,7 +596,7 @@ describe('fluxNetworkHelper tests', () => {
     };
 
     afterEach(() => {
-      peerManager._clear();
+      peerManager.reset();
       sinon.restore();
     });
 
@@ -637,7 +637,7 @@ describe('fluxNetworkHelper tests', () => {
     };
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
     });
 
     afterEach(() => {
@@ -2118,7 +2118,7 @@ describe('fluxNetworkHelper tests', () => {
       return res;
     };
     const populatePeers = (numberOfincomingPeers, numberOfOutgoingPeers) => {
-      peerManager._clear();
+      peerManager.reset();
       const baseIp = '192.168.0.';
       for (let i = 1; i <= numberOfincomingPeers; i += 1) {
         const ws = {
@@ -2171,7 +2171,7 @@ describe('fluxNetworkHelper tests', () => {
     };
 
     afterEach(() => {
-      peerManager._clear();
+      peerManager.reset();
       sinon.restore();
     });
 

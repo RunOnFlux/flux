@@ -84,7 +84,7 @@ class FluxPeerSocket {
     this.bytesReceived = 0;
     this.bytesSent = 0;
 
-    this._bindHandlers();
+    this.#bindHandlers();
   }
 
   /**
@@ -112,7 +112,7 @@ class FluxPeerSocket {
   }
 
   get reconnects() {
-    return this.manager._reconnectCounts.get(this.key) || 0;
+    return this.manager.getReconnectCount(this.key) || 0;
   }
 
   onPingSent() {
@@ -183,11 +183,6 @@ class FluxPeerSocket {
   }
 
   /**
-   * Send a NAK (negative acknowledgement) back to sender for stale messages.
-   * @param {string} messageHash
-   * @param {string} reason
-   */
-  /**
    * Send a NAK (negative acknowledgement) back to sender.
    * @param {string} messageHash - 40-char hex hash
    * @param {number} reasonCode - peerCodec.NAK_REASON value
@@ -246,7 +241,7 @@ class FluxPeerSocket {
    * Bind WebSocket event handlers. Called once in constructor.
    * @private
    */
-  _bindHandlers() {
+  #bindHandlers() {
     const { ws, manager } = this;
 
     ws.on('pong', () => {

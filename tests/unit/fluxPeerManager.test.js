@@ -35,7 +35,7 @@ describe('FluxPeerSocket tests', () => {
 
   afterEach(() => {
     sinon.restore();
-    manager._clear();
+    manager.reset();
   });
 
   describe('constructor', () => {
@@ -461,7 +461,7 @@ describe('FluxPeerManager tests', () => {
 
   afterEach(() => {
     sinon.restore();
-    manager._clear();
+    manager.reset();
   });
 
   describe('add', () => {
@@ -667,44 +667,44 @@ describe('FluxPeerManager tests', () => {
 
     it('should return false when window expired', () => {
       // Manually set entry with expired window
-      manager._unstableNodes.set('10.0.0.1:16127', {
+      manager.setUnstableEntry('10.0.0.1:16127', {
         disconnects: 10,
         firstDisconnect: Date.now() - (3 * 60 * 60 * 1000), // 3 hours ago (beyond 2h window)
       });
 
       expect(manager.isUnstable('10.0.0.1', '16127')).to.equal(false);
       // Should also clean up expired entry
-      expect(manager._unstableNodes.has('10.0.0.1:16127')).to.equal(false);
+      expect(manager.hasUnstableEntry('10.0.0.1:16127')).to.equal(false);
     });
 
     it('trackDisconnect should reset when window expires', () => {
-      manager._unstableNodes.set('10.0.0.1:16127', {
+      manager.setUnstableEntry('10.0.0.1:16127', {
         disconnects: 10,
         firstDisconnect: Date.now() - (3 * 60 * 60 * 1000),
       });
 
       manager.trackDisconnect('10.0.0.1', '16127');
 
-      const entry = manager._unstableNodes.get('10.0.0.1:16127');
+      const entry = manager.getUnstableEntry('10.0.0.1:16127');
       expect(entry.disconnects).to.equal(1);
     });
   });
 
   describe('pruneUnstableList', () => {
     it('should remove expired entries', () => {
-      manager._unstableNodes.set('10.0.0.1:16127', {
+      manager.setUnstableEntry('10.0.0.1:16127', {
         disconnects: 5,
         firstDisconnect: Date.now() - (3 * 60 * 60 * 1000), // expired
       });
-      manager._unstableNodes.set('10.0.0.2:16127', {
+      manager.setUnstableEntry('10.0.0.2:16127', {
         disconnects: 3,
         firstDisconnect: Date.now(), // not expired
       });
 
       manager.pruneUnstableList();
 
-      expect(manager._unstableNodes.has('10.0.0.1:16127')).to.equal(false);
-      expect(manager._unstableNodes.has('10.0.0.2:16127')).to.equal(true);
+      expect(manager.hasUnstableEntry('10.0.0.1:16127')).to.equal(false);
+      expect(manager.hasUnstableEntry('10.0.0.2:16127')).to.equal(true);
     });
   });
 
@@ -819,20 +819,20 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
-  describe('_clear', () => {
+  describe('reset', () => {
     it('should empty everything', () => {
       manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       manager.add(createMockWs('10.0.0.2', '16127'), '10.0.0.2', '16127', { source: PEER_SOURCE.INBOUND });
       manager.queueReconnect('10.0.0.3', '16127');
       manager.trackDisconnect('10.0.0.4', '16127');
 
-      manager._clear();
+      manager.reset();
 
       expect(manager.getNumberOfPeers()).to.equal(0);
       expect(manager.outboundCount).to.equal(0);
       expect(manager.inboundCount).to.equal(0);
       expect(manager.getReconnectQueue().size).to.equal(0);
-      expect(manager._unstableNodes.size).to.equal(0);
+      expect(manager.unstableCount).to.equal(0);
     });
   });
 
@@ -1223,7 +1223,7 @@ describe('FluxPeerManager tests', () => {
     it('should allow attempt after backoff expires', () => {
       manager.recordFailedConnection('10.0.0.1', '16127');
       // Manually set lastAttempt to 3 minutes ago (beyond 2min first backoff)
-      manager._failedConnections.get('10.0.0.1:16127').lastAttempt = Date.now() - (3 * 60000);
+      manager.getFailedConnection('10.0.0.1:16127').lastAttempt = Date.now() - (3 * 60000);
       expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(true);
     });
 
@@ -1231,10 +1231,10 @@ describe('FluxPeerManager tests', () => {
       manager.recordFailedConnection('10.0.0.1', '16127');
       manager.recordFailedConnection('10.0.0.1', '16127');
       // Second failure: 5min backoff. 3 minutes ago should still be blocked.
-      manager._failedConnections.get('10.0.0.1:16127').lastAttempt = Date.now() - (3 * 60000);
+      manager.getFailedConnection('10.0.0.1:16127').lastAttempt = Date.now() - (3 * 60000);
       expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(false);
       // 6 minutes ago should be allowed
-      manager._failedConnections.get('10.0.0.1:16127').lastAttempt = Date.now() - (6 * 60000);
+      manager.getFailedConnection('10.0.0.1:16127').lastAttempt = Date.now() - (6 * 60000);
       expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(true);
     });
 
@@ -1243,10 +1243,10 @@ describe('FluxPeerManager tests', () => {
         manager.recordFailedConnection('10.0.0.1', '16127');
       }
       // 14 minutes ago — should still be blocked (cap is 15min)
-      manager._failedConnections.get('10.0.0.1:16127').lastAttempt = Date.now() - (14 * 60000);
+      manager.getFailedConnection('10.0.0.1:16127').lastAttempt = Date.now() - (14 * 60000);
       expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(false);
       // 16 minutes ago — should be allowed
-      manager._failedConnections.get('10.0.0.1:16127').lastAttempt = Date.now() - (16 * 60000);
+      manager.getFailedConnection('10.0.0.1:16127').lastAttempt = Date.now() - (16 * 60000);
       expect(manager.shouldAttemptConnection('10.0.0.1', '16127')).to.equal(true);
     });
 
@@ -1257,57 +1257,57 @@ describe('FluxPeerManager tests', () => {
 
     it('should clear failed connection on successful add', () => {
       manager.recordFailedConnection('10.0.0.1', '16127');
-      expect(manager._failedConnections.has('10.0.0.1:16127')).to.equal(true);
+      expect(manager.hasFailedConnection('10.0.0.1:16127')).to.equal(true);
 
       manager.add(createMockWs('10.0.0.1', '16127'), '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-      expect(manager._failedConnections.has('10.0.0.1:16127')).to.equal(false);
+      expect(manager.hasFailedConnection('10.0.0.1:16127')).to.equal(false);
     });
   });
 
-  describe('_shouldReconnect', () => {
+  describe('shouldReconnect (static)', () => {
     it('should return true for no close code (unexpected disconnect)', () => {
-      expect(manager._shouldReconnect(undefined)).to.equal(true);
-      expect(manager._shouldReconnect(null)).to.equal(true);
-      expect(manager._shouldReconnect(0)).to.equal(true);
+      expect(FluxPeerManager.shouldReconnect(undefined)).to.equal(true);
+      expect(FluxPeerManager.shouldReconnect(null)).to.equal(true);
+      expect(FluxPeerManager.shouldReconnect(0)).to.equal(true);
     });
 
     it('should return true for standard WebSocket close codes', () => {
-      expect(manager._shouldReconnect(1000)).to.equal(true); // normal
-      expect(manager._shouldReconnect(1001)).to.equal(true); // going away
-      expect(manager._shouldReconnect(1006)).to.equal(true); // abnormal
+      expect(FluxPeerManager.shouldReconnect(1000)).to.equal(true); // normal
+      expect(FluxPeerManager.shouldReconnect(1001)).to.equal(true); // going away
+      expect(FluxPeerManager.shouldReconnect(1006)).to.equal(true); // abnormal
     });
 
     it('should return true for DEAD_CONNECTION', () => {
-      expect(manager._shouldReconnect(CLOSE_CODES.DEAD_CONNECTION)).to.equal(true);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.DEAD_CONNECTION)).to.equal(true);
     });
 
     it('should return true for MAX_CONNECTIONS', () => {
-      expect(manager._shouldReconnect(CLOSE_CODES.MAX_CONNECTIONS)).to.equal(true);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.MAX_CONNECTIONS)).to.equal(true);
     });
 
     it('should return false for DUPLICATE_PEER', () => {
-      expect(manager._shouldReconnect(CLOSE_CODES.DUPLICATE_PEER)).to.equal(false);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.DUPLICATE_PEER)).to.equal(false);
     });
 
     it('should return false for policy violations', () => {
-      expect(manager._shouldReconnect(CLOSE_CODES.BLOCKED_INBOUND)).to.equal(false);
-      expect(manager._shouldReconnect(CLOSE_CODES.BLOCKED_OUTBOUND)).to.equal(false);
-      expect(manager._shouldReconnect(CLOSE_CODES.BAD_ORIGIN_INBOUND)).to.equal(false);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.BLOCKED_INBOUND)).to.equal(false);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.BLOCKED_OUTBOUND)).to.equal(false);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.BAD_ORIGIN_INBOUND)).to.equal(false);
     });
 
     it('should return false for purposeful closes', () => {
-      expect(manager._shouldReconnect(CLOSE_CODES.CLOSED_OUTBOUND)).to.equal(false);
-      expect(manager._shouldReconnect(CLOSE_CODES.CLOSED_INBOUND)).to.equal(false);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.CLOSED_OUTBOUND)).to.equal(false);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.CLOSED_INBOUND)).to.equal(false);
     });
 
     it('should return false for auth failures', () => {
-      expect(manager._shouldReconnect(CLOSE_CODES.AUTH_FAILURE_1)).to.equal(false);
-      expect(manager._shouldReconnect(CLOSE_CODES.AUTH_FAILURE_4)).to.equal(false);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.AUTH_FAILURE_1)).to.equal(false);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.AUTH_FAILURE_4)).to.equal(false);
     });
 
     it('should return false for invalid messages', () => {
-      expect(manager._shouldReconnect(CLOSE_CODES.INVALID_MSG_INBOUND)).to.equal(false);
-      expect(manager._shouldReconnect(CLOSE_CODES.INVALID_MSG_OUTBOUND)).to.equal(false);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.INVALID_MSG_INBOUND)).to.equal(false);
+      expect(FluxPeerManager.shouldReconnect(CLOSE_CODES.INVALID_MSG_OUTBOUND)).to.equal(false);
     });
   });
 
@@ -1355,9 +1355,9 @@ describe('FluxPeerManager tests', () => {
       expect(manager.isPending('10.0.0.1:16127')).to.equal(false);
     });
 
-    it('should be cleared by _clear', () => {
+    it('should be cleared by reset', () => {
       manager.markPending('10.0.0.1:16127');
-      manager._clear();
+      manager.reset();
       expect(manager.isPending('10.0.0.1:16127')).to.equal(false);
     });
   });
@@ -1407,7 +1407,7 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
-  describe('_verifyOrReplace (reconnect duplicate handling)', () => {
+  describe('verifyOrReplace (reconnect duplicate handling)', () => {
     it('should replace existing connection when pong does not arrive within timeout', (done) => {
       manager.numberOfFluxNodes = 10000;
       const ws1 = createMockWs('8.8.8.8', '16127');
@@ -1484,7 +1484,7 @@ describe('FluxPeerManager tests', () => {
     });
 
     afterEach(() => {
-      manager._clear();
+      manager.reset();
     });
 
     it('should record connected events on add', () => {
@@ -1534,10 +1534,10 @@ describe('FluxPeerManager tests', () => {
       expect(manager.getHistory()).to.deep.equal([]);
     });
 
-    it('should be cleared by _clear', () => {
+    it('should be cleared by reset', () => {
       const ws = createMockWs('10.0.0.1', '16127');
       manager.add(ws, '10.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-      manager._clear();
+      manager.reset();
       expect(manager.getHistory()).to.deep.equal([]);
     });
   });
@@ -1640,11 +1640,11 @@ describe('FluxPeerManager tests', () => {
         expect(peer2.reconnects).to.equal(2);
       });
 
-      it('should be cleared by _clear()', () => {
+      it('should be cleared by reset()', () => {
         const ws = createMockWs('44.0.0.1');
         manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RECONNECT });
-        manager._clear();
-        expect(manager._reconnectCounts.size).to.equal(0);
+        manager.reset();
+        expect(manager.reconnectCountsSize).to.equal(0);
       });
     });
 
@@ -1729,8 +1729,8 @@ describe('FluxPeerManager tests', () => {
           remoteCapabilities: ['peerExchange'],
         });
         manager.handlePeerExchange(peer, ['10.0.0.1:16127'], ['10.0.0.2:16127']);
-        expect(manager._peerTopology.has(peer.key)).to.be.true;
-        const entry = manager._peerTopology.get(peer.key);
+        expect(manager.hasTopologyEntry(peer.key)).to.be.true;
+        const entry = manager.getTopologyEntry(peer.key);
         expect(entry.outbound.size).to.equal(1);
         expect(entry.inbound.size).to.equal(1);
         expect(entry.outbound.has('10.0.0.1:16127')).to.be.true;
@@ -1745,7 +1745,7 @@ describe('FluxPeerManager tests', () => {
         for (let i = 0; i < 100; i++) bigOut.push(`10.0.${i % 256}.${i}:16127`);
         for (let i = 0; i < 100; i++) bigIn.push(`20.0.${i % 256}.${i}:16127`);
         manager.handlePeerExchange(peer, bigOut, bigIn);
-        const entry = manager._peerTopology.get(peer.key);
+        const entry = manager.getTopologyEntry(peer.key);
         expect(entry.outbound.size).to.equal(60);
         expect(entry.inbound.size).to.equal(60);
       });
@@ -1768,7 +1768,7 @@ describe('FluxPeerManager tests', () => {
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
         manager.handlePeerExchange(peer, ['10.0.0.1:16127'], ['10.0.0.2:16127']);
         manager.handlePeerUpdate(peer, ['10.0.0.3:16127'], ['10.0.0.4:16127'], ['10.0.0.1:16127']);
-        const entry = manager._peerTopology.get(peer.key);
+        const entry = manager.getTopologyEntry(peer.key);
         expect(entry.outbound.has('10.0.0.3:16127')).to.be.true;
         expect(entry.inbound.has('10.0.0.4:16127')).to.be.true;
         expect(entry.outbound.has('10.0.0.1:16127')).to.be.false;
@@ -1779,7 +1779,7 @@ describe('FluxPeerManager tests', () => {
         const ws = createMockWs('44.0.0.1');
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
         manager.handlePeerUpdate(peer, ['10.0.0.1:16127'], [], []);
-        expect(manager._peerTopology.has(peer.key)).to.be.false;
+        expect(manager.hasTopologyEntry(peer.key)).to.be.false;
       });
     });
 
@@ -1818,13 +1818,13 @@ describe('FluxPeerManager tests', () => {
         const ws = createMockWs('44.0.0.1');
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
         manager.handlePeerExchange(peer, ['10.0.0.1:16127'], []);
-        expect(manager._peerTopology.has(peer.key)).to.be.true;
+        expect(manager.hasTopologyEntry(peer.key)).to.be.true;
         manager.remove(peer.key, 1000);
-        expect(manager._peerTopology.has(peer.key)).to.be.false;
+        expect(manager.hasTopologyEntry(peer.key)).to.be.false;
       });
     });
 
-    describe('_schedulePeerUpdate debounce', () => {
+    describe('schedulePeerUpdate debounce', () => {
       it('should batch add+remove that cancel out', function batchTest(done) {
         this.timeout(5000);
         const ws1 = createMockWs('44.0.0.1');
@@ -1833,15 +1833,10 @@ describe('FluxPeerManager tests', () => {
           remoteCapabilities: ['peerExchange', 'binaryMessages'],
         });
         // Cancel the timer from add() and clear pending state
-        if (manager._peerUpdateTimer) { clearTimeout(manager._peerUpdateTimer); manager._peerUpdateTimer = null; }
-        manager._pendingAdds.outbound.clear();
-        manager._pendingAdds.inbound.clear();
-        manager._pendingRemoves.clear();
+        manager.cancelPendingUpdate();
         ws1.send.resetHistory();
         // Simulate add then immediate remove of the same peer — should cancel out
-        manager._pendingAdds.outbound.add('99.99.99.99:16127');
-        manager._pendingRemoves.add('99.99.99.99:16127');
-        manager._schedulePeerUpdate();
+        manager.injectPendingUpdate(['99.99.99.99:16127'], [], ['99.99.99.99:16127']);
         setTimeout(() => {
           const updateCalls = ws1.send.getCalls().filter((c) => {
             if (Buffer.isBuffer(c.args[0])) return c.args[0][0] === peerCodec.MSG_TYPE.PEER_UPDATE;
@@ -1853,19 +1848,20 @@ describe('FluxPeerManager tests', () => {
       });
     });
 
-    describe('_clear() cleanup', () => {
+    describe('reset() cleanup', () => {
       it('should reset all peer exchange structures', () => {
         const ws = createMockWs('44.0.0.1');
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
         manager.handlePeerExchange(peer, ['10.0.0.1:16127'], []);
         manager.onPeerTopologyChange(() => {});
-        manager._clear();
-        expect(manager._peerTopology.size).to.equal(0);
-        expect(manager._peerExchangeListeners).to.have.length(0);
-        expect(manager._pendingAdds.outbound.size).to.equal(0);
-        expect(manager._pendingAdds.inbound.size).to.equal(0);
-        expect(manager._pendingRemoves.size).to.equal(0);
-        expect(manager._peerUpdateTimer).to.be.null;
+        manager.reset();
+        expect(manager.peerTopologySize).to.equal(0);
+        expect(manager.peerExchangeListenerCount).to.equal(0);
+        const state = manager.getPendingUpdateState();
+        expect(state.pendingAddsOutboundSize).to.equal(0);
+        expect(state.pendingAddsInboundSize).to.equal(0);
+        expect(state.pendingRemovesSize).to.equal(0);
+        expect(state.hasPeerUpdateTimer).to.be.false;
       });
     });
   });
@@ -1920,8 +1916,8 @@ describe('FluxPeerManager tests', () => {
           remoteCapabilities: ['peerExchange', 'binaryMessages'],
         });
         manager.handleBinaryMessage(peer, peerCodec.encodePeerExchange(['10.0.0.1:16127'], ['10.0.0.2:16137']));
-        expect(manager._peerTopology.has(peer.key)).to.be.true;
-        const entry = manager._peerTopology.get(peer.key);
+        expect(manager.hasTopologyEntry(peer.key)).to.be.true;
+        const entry = manager.getTopologyEntry(peer.key);
         expect(entry.outbound.size).to.equal(1);
         expect(entry.inbound.size).to.equal(1);
       });
@@ -2043,8 +2039,8 @@ describe('FluxPeerManager tests', () => {
       });
       const msg = JSON.stringify({ type: 'peerExchange', outbound: ['10.0.0.1:16127'], inbound: ['10.0.0.2:16127'] });
       ws.onmessage({ data: msg });
-      expect(manager._peerTopology.has(peer.key)).to.be.true;
-      const entry = manager._peerTopology.get(peer.key);
+      expect(manager.hasTopologyEntry(peer.key)).to.be.true;
+      const entry = manager.getTopologyEntry(peer.key);
       expect(entry.outbound.has('10.0.0.1:16127')).to.be.true;
       expect(entry.inbound.has('10.0.0.2:16127')).to.be.true;
     });
@@ -2060,7 +2056,7 @@ describe('FluxPeerManager tests', () => {
       // Then a JSON update
       const msg = JSON.stringify({ type: 'peerUpdate', addOutbound: ['10.0.0.3:16127'], addInbound: [], rm: ['10.0.0.1:16127'] });
       ws.onmessage({ data: msg });
-      const entry = manager._peerTopology.get(peer.key);
+      const entry = manager.getTopologyEntry(peer.key);
       expect(entry.outbound.has('10.0.0.3:16127')).to.be.true;
       expect(entry.outbound.has('10.0.0.1:16127')).to.be.false;
     });
@@ -2070,7 +2066,7 @@ describe('FluxPeerManager tests', () => {
       manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
       const msg = JSON.stringify({ type: 'peerExchange', outbound: ['10.0.0.1:16127'], inbound: [] });
       ws.onmessage({ data: msg });
-      expect(manager._peerTopology.size).to.equal(0);
+      expect(manager.peerTopologySize).to.equal(0);
     });
   });
 

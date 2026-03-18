@@ -33,11 +33,12 @@ describe('fluxCommunicationMessagesSender tests', () => {
         remoteAddress: ip,
       };
       peerManager.add(ws, ip, String(port), source);
+      ws.send.resetHistory();
       return ws;
     };
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
     });
 
     afterEach(() => {
@@ -442,6 +443,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
         remoteAddress: ip,
       };
       peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
+      ws.send.resetHistory();
       return ws;
     };
     const generateResponse = () => {
@@ -452,7 +454,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
     };
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
+      sinon.stub(serviceHelper, 'delay').resolves();
       fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
       fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
     });
@@ -623,6 +626,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
         remoteAddress: ip,
       };
       peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.INBOUND });
+      ws.send.resetHistory();
       return ws;
     };
     const generateResponse = () => {
@@ -633,7 +637,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
     };
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
+      sinon.stub(serviceHelper, 'delay').resolves();
       fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
       fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
     });
@@ -804,6 +809,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
         remoteAddress: ip,
       };
       peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.INBOUND });
+      ws.send.resetHistory();
       return ws;
     };
     const generateOutgoingWebsocket = (ip, port, readyState) => {
@@ -819,6 +825,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
         remoteAddress: ip,
       };
       peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
+      ws.send.resetHistory();
       return ws;
     };
     const generateResponse = () => {
@@ -829,7 +836,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
     };
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
+      sinon.stub(serviceHelper, 'delay').resolves();
       fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
       fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
     });
@@ -1022,6 +1030,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
         remoteAddress: ip,
       };
       peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
+      ws.send.resetHistory();
       return ws;
     };
     const generateResponse = () => {
@@ -1032,7 +1041,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
     };
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
+      sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(fluxNetworkHelper, 'closeConnection').returns(true);
       fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
       fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
@@ -1072,7 +1082,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
       sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
@@ -1119,7 +1129,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
       sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
@@ -1166,7 +1176,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
       sinon.assert.notCalled(websocket.send);
@@ -1193,7 +1203,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
       sinon.assert.notCalled(websocket.send);
@@ -1216,6 +1226,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
         remoteAddress: ip,
       };
       peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.INBOUND });
+      ws.send.resetHistory();
       return ws;
     };
     const generateResponse = () => {
@@ -1226,7 +1237,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
     };
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
+      sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(fluxNetworkHelper, 'closeConnection').returns(true);
       fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
       fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
@@ -1266,7 +1278,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
       sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
@@ -1313,7 +1325,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
       sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
@@ -1360,7 +1372,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
       sinon.assert.notCalled(websocket.send);
@@ -1387,7 +1399,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
       sinon.assert.notCalled(websocket.send);
@@ -1410,6 +1422,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
         remoteAddress: ip,
       };
       peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.INBOUND });
+      ws.send.resetHistory();
       return ws;
     };
     const generateOutgoingWebsocket = (ip, port, readyState) => {
@@ -1425,6 +1438,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
         remoteAddress: ip,
       };
       peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
+      ws.send.resetHistory();
       return ws;
     };
     const generateResponse = () => {
@@ -1435,7 +1449,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
     };
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
+      sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(fluxNetworkHelper, 'closeConnection').returns(true);
       fluxNetworkHelperPublicKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey');
       fluxNetworkHelperPrivateKeyStub = sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey');
@@ -1475,7 +1490,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
       sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match.string);
@@ -1531,7 +1546,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedSuccessMessage);
       sinon.assert.calledOnceWithExactly(websocketIn.send, sinon.match.string);
@@ -1587,7 +1602,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
       sinon.assert.notCalled(websocketIn.send);
@@ -1616,7 +1631,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       await fluxCommunicationMessagesSender.broadcastMessageFromUserPost(mockStream, res);
 
       // because of await in loop, that's the only way we can wait for spies to be called
-      await serviceHelper.delay(150);
+      await new Promise((resolve) => { setTimeout(resolve, 150); });
 
       sinon.assert.calledOnceWithExactly(res.json, expectedErrorMessage);
       sinon.assert.notCalled(websocketIn.send);
@@ -1638,6 +1653,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
         remoteAddress: ip,
       };
       peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
+      ws.send.resetHistory();
       return ws;
     };
     const generateIncomingWebsocket = (ip, port, readyState) => {
@@ -1653,11 +1669,13 @@ describe('fluxCommunicationMessagesSender tests', () => {
         remoteAddress: ip,
       };
       peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.INBOUND });
+      ws.send.resetHistory();
       return ws;
     };
 
     beforeEach(() => {
-      peerManager._clear();
+      peerManager.reset();
+      sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(fluxNetworkHelper, 'getFluxNodePublicKey').returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
       sinon.stub(fluxNetworkHelper, 'getFluxNodePrivateKey').returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
     });

@@ -25,7 +25,7 @@ const HEALTH_STATUS = Object.freeze({
 });
 
 /**
- * Replicate the reconnect whitelist from FluxPeerManager._shouldReconnect().
+ * Replicate the reconnect whitelist from FluxPeerManager.shouldReconnect().
  * Returns true for close codes that indicate unexpected disconnects.
  * @param {number} [closeCode]
  * @returns {boolean}
@@ -39,35 +39,33 @@ function isUnexpectedDisconnect(closeCode) {
 }
 
 class NetworkHealthMonitor {
-  constructor() {
-    /** @type {import('./FluxPeerManager').FluxPeerManager|null} */
-    this._peerManager = null;
+  /** @type {import('./FluxPeerManager').FluxPeerManager|null} */
+  #peerManager = null;
 
-    // Velocity ring buffer — just timestamps
-    this._disconnectTimes = new Array(VELOCITY_BUFFER_SIZE);
-    this._velocityIndex = 0;
-    this._velocityCount = 0;
+  // Velocity ring buffer — just timestamps
+  #disconnectTimes = new Array(VELOCITY_BUFFER_SIZE);
+  #velocityIndex = 0;
+  #velocityCount = 0;
 
-    // Steady state
-    this._firstPeerConnectedAt = null;
-    this._inSteadyState = false;
+  // Steady state
+  #firstPeerConnectedAt = null;
+  #inSteadyState = false;
 
-    // Diagnosis state
-    this._diagnosing = false;
-    this._lastDiagnosisAt = 0;
-    this._currentStatus = HEALTH_STATUS.HEALTHY;
+  // Diagnosis state
+  #diagnosing = false;
+  #lastDiagnosisAt = 0;
+  #currentStatus = HEALTH_STATUS.HEALTHY;
 
-    // Observers
-    this._listeners = [];
+  // Observers
+  #listeners = [];
 
-    // Diagnosis history ring buffer
-    this._history = new Array(DIAGNOSIS_HISTORY_SIZE);
-    this._historyIndex = 0;
-    this._historyCount = 0;
-  }
+  // Diagnosis history ring buffer
+  #history = new Array(DIAGNOSIS_HISTORY_SIZE);
+  #historyIndex = 0;
+  #historyCount = 0;
 
   setPeerManager(pm) {
-    this._peerManager = pm;
+    this.#peerManager = pm;
   }
 
   // --- Recording ---
@@ -76,21 +74,21 @@ class NetworkHealthMonitor {
    * Called from peerManager.add() on every new peer connection.
    */
   recordConnect() {
-    if (!this._firstPeerConnectedAt) {
-      this._firstPeerConnectedAt = Date.now();
+    if (!this.#firstPeerConnectedAt) {
+      this.#firstPeerConnectedAt = Date.now();
     }
-    if (!this._inSteadyState
-        && this._firstPeerConnectedAt
-        && Date.now() - this._firstPeerConnectedAt >= STEADY_STATE_DELAY_MS) {
-      this._inSteadyState = true;
+    if (!this.#inSteadyState
+        && this.#firstPeerConnectedAt
+        && Date.now() - this.#firstPeerConnectedAt >= STEADY_STATE_DELAY_MS) {
+      this.#inSteadyState = true;
       log.info('NetworkHealthMonitor: entered steady state');
     }
     // Recovery: if we were in a degraded state and peers are reconnecting, reset to healthy
-    if (this._currentStatus !== HEALTH_STATUS.HEALTHY) {
-      const peerCount = this._peerManager ? this._peerManager.getNumberOfPeers() : 0;
+    if (this.#currentStatus !== HEALTH_STATUS.HEALTHY) {
+      const peerCount = this.#peerManager ? this.#peerManager.getNumberOfPeers() : 0;
       if (peerCount >= 5) {
         log.info(`NetworkHealthMonitor: recovered — ${peerCount} peers connected, resetting to HEALTHY`);
-        this._currentStatus = HEALTH_STATUS.HEALTHY;
+        this.#currentStatus = HEALTH_STATUS.HEALTHY;
       }
     }
   }
@@ -107,17 +105,17 @@ class NetworkHealthMonitor {
     if (!isUnexpectedDisconnect(closeCode)) return;
 
     const now = Date.now();
-    this._disconnectTimes[this._velocityIndex] = now;
-    this._velocityIndex = (this._velocityIndex + 1) % VELOCITY_BUFFER_SIZE;
-    this._velocityCount += 1;
+    this.#disconnectTimes[this.#velocityIndex] = now;
+    this.#velocityIndex = (this.#velocityIndex + 1) % VELOCITY_BUFFER_SIZE;
+    this.#velocityCount += 1;
 
-    if (!this._inSteadyState) return;
-    if (this._diagnosing) return;
-    if (now - this._lastDiagnosisAt < DIAGNOSIS_COOLDOWN_MS) return;
+    if (!this.#inSteadyState) return;
+    if (this.#diagnosing) return;
+    if (now - this.#lastDiagnosisAt < DIAGNOSIS_COOLDOWN_MS) return;
 
-    const velocity = this._getDisconnectVelocity(now);
+    const velocity = this.#getDisconnectVelocity(now);
     if (velocity >= VELOCITY_THRESHOLD_COUNT) {
-      this._triggerDiagnosis(velocity);
+      this.#triggerDiagnosis(velocity);
     }
   }
 
@@ -128,11 +126,11 @@ class NetworkHealthMonitor {
    * @param {number} now
    * @returns {number}
    */
-  _getDisconnectVelocity(now) {
+  #getDisconnectVelocity(now) {
     let count = 0;
-    const limit = Math.min(this._velocityCount, VELOCITY_BUFFER_SIZE);
+    const limit = Math.min(this.#velocityCount, VELOCITY_BUFFER_SIZE);
     for (let i = 0; i < limit; i++) {
-      if (now - this._disconnectTimes[i] <= VELOCITY_WINDOW_MS) {
+      if (now - this.#disconnectTimes[i] <= VELOCITY_WINDOW_MS) {
         count += 1;
       }
     }
@@ -145,16 +143,16 @@ class NetworkHealthMonitor {
    * Run the full diagnosis pipeline.
    * @param {number} velocity - disconnect count that triggered this
    */
-  async _triggerDiagnosis(velocity) {
-    this._diagnosing = true;
-    this._lastDiagnosisAt = Date.now();
+  async #triggerDiagnosis(velocity) {
+    this.#diagnosing = true;
+    this.#lastDiagnosisAt = Date.now();
 
     try {
-      const totalPeers = this._peerManager ? this._peerManager.getNumberOfPeers() : 0;
+      const totalPeers = this.#peerManager ? this.#peerManager.getNumberOfPeers() : 0;
       log.warn(`NetworkHealthMonitor: velocity ${velocity} in ${VELOCITY_WINDOW_MS}ms, diagnosing (${totalPeers} peers remaining)`);
 
       // Stage 2a: Ping all remaining peers
-      const pingResults = await this._pingAllPeers();
+      const pingResults = await this.#pingAllPeers();
 
       let status;
       let topologyCorrelation = null;
@@ -162,15 +160,15 @@ class NetworkHealthMonitor {
 
       if (pingResults.responded === pingResults.sent && pingResults.sent > 0) {
         // ALL responded
-        topologyCorrelation = this._correlateTopology(pingResults.respondedKeys);
+        topologyCorrelation = this.#correlateTopology(pingResults.respondedKeys);
         status = HEALTH_STATUS.NOT_AFFECTED;
       } else if (pingResults.responded === 0) {
         // NONE responded
-        probeResults = await this._probeKnownGoodPeers();
+        probeResults = await this.#probeKnownGoodPeers();
         status = probeResults.succeeded > 0 ? HEALTH_STATUS.IP_CHANGE : HEALTH_STATUS.NETWORK_LOSS;
       } else {
         // SOME responded
-        topologyCorrelation = this._correlateTopology(pingResults.respondedKeys);
+        topologyCorrelation = this.#correlateTopology(pingResults.respondedKeys);
         status = HEALTH_STATUS.DEGRADED;
       }
 
@@ -190,15 +188,15 @@ class NetworkHealthMonitor {
         },
       };
 
-      this._currentStatus = status;
-      this._recordDiagnosis(event);
-      this._notifyListeners(event);
+      this.#currentStatus = status;
+      this.#recordDiagnosis(event);
+      this.#notifyListeners(event);
 
       log.warn(`NetworkHealthMonitor: diagnosis complete — ${status}`);
     } catch (e) {
       log.error(`NetworkHealthMonitor diagnosis error: ${e.message}`);
     } finally {
-      this._diagnosing = false;
+      this.#diagnosing = false;
     }
   }
 
@@ -206,9 +204,9 @@ class NetworkHealthMonitor {
    * Ping all remaining peers and collect responses within timeout.
    * @returns {Promise<{sent: number, responded: number, respondedKeys: string[]}>}
    */
-  async _pingAllPeers() {
-    if (!this._peerManager) return { sent: 0, responded: 0, respondedKeys: [] };
-    const peers = [...this._peerManager.allValues()];
+  async #pingAllPeers() {
+    if (!this.#peerManager) return { sent: 0, responded: 0, respondedKeys: [] };
+    const peers = [...this.#peerManager.allValues()];
     if (peers.length === 0) return { sent: 0, responded: 0, respondedKeys: [] };
 
     const results = await Promise.allSettled(peers.map((peer) => new Promise((resolve, reject) => {
@@ -251,11 +249,11 @@ class NetworkHealthMonitor {
    * @param {string[]} respondedKeys - peers that responded to our ping
    * @returns {{ recentlyLost: number, peersStillSeen: number, peersGone: number }}
    */
-  _correlateTopology(respondedKeys) {
-    if (!this._peerManager) return { recentlyLost: 0, peersStillSeen: 0, peersGone: 0 };
+  #correlateTopology(respondedKeys) {
+    if (!this.#peerManager) return { recentlyLost: 0, peersStillSeen: 0, peersGone: 0 };
 
     // Find recently disconnected peers from history
-    const history = this._peerManager.getHistory();
+    const history = this.#peerManager.getHistory();
     const cutoff = Date.now() - VELOCITY_WINDOW_MS;
     const recentlyLost = new Set();
     for (let i = history.length - 1; i >= 0; i--) {
@@ -271,7 +269,7 @@ class NetworkHealthMonitor {
     for (const lostKey of recentlyLost) {
       let seenByAny = false;
       for (const responderKey of respondedKeys) {
-        const topo = this._peerManager.getTopologyEntry(responderKey);
+        const topo = this.#peerManager.getTopologyEntry(responderKey);
         if (topo && (topo.outbound.has(lostKey) || topo.inbound.has(lostKey))) {
           seenByAny = true;
           break;
@@ -289,8 +287,8 @@ class NetworkHealthMonitor {
    * Lightweight probes — connect, wait for open, close immediately.
    * @returns {Promise<{attempted: number, succeeded: number, targets: string[]}>}
    */
-  async _probeKnownGoodPeers() {
-    const targets = await this._getProbeTargets();
+  async #probeKnownGoodPeers() {
+    const targets = await this.#getProbeTargets();
     const attempted = targets.length;
     if (attempted === 0) return { attempted: 0, succeeded: 0, targets: [] };
 
@@ -326,10 +324,10 @@ class NetworkHealthMonitor {
    * our own peers (we've already tried them via ping).
    * @returns {Promise<string[]>}
    */
-  async _getProbeTargets() {
+  async #getProbeTargets() {
     const connected = new Set();
-    if (this._peerManager) {
-      for (const peer of this._peerManager.allValues()) {
+    if (this.#peerManager) {
+      for (const peer of this.#peerManager.allValues()) {
         connected.add(peer.key);
       }
     }
@@ -347,60 +345,79 @@ class NetworkHealthMonitor {
   // --- Observer ---
 
   onHealthEvent(callback) {
-    this._listeners.push(callback);
+    this.#listeners.push(callback);
     return () => {
-      const idx = this._listeners.indexOf(callback);
-      if (idx !== -1) this._listeners.splice(idx, 1);
+      const idx = this.#listeners.indexOf(callback);
+      if (idx !== -1) this.#listeners.splice(idx, 1);
     };
   }
 
-  _notifyListeners(event) {
-    for (const fn of this._listeners) {
+  #notifyListeners(event) {
+    for (const fn of this.#listeners) {
       try { fn(event); } catch (e) { log.error(e); }
     }
   }
 
   // --- History ---
 
-  _recordDiagnosis(event) {
-    this._history[this._historyIndex] = event;
-    this._historyIndex = (this._historyIndex + 1) % DIAGNOSIS_HISTORY_SIZE;
-    this._historyCount += 1;
+  #recordDiagnosis(event) {
+    this.#history[this.#historyIndex] = event;
+    this.#historyIndex = (this.#historyIndex + 1) % DIAGNOSIS_HISTORY_SIZE;
+    this.#historyCount += 1;
   }
 
   getDiagnosisHistory() {
-    const count = Math.min(this._historyCount, DIAGNOSIS_HISTORY_SIZE);
+    const count = Math.min(this.#historyCount, DIAGNOSIS_HISTORY_SIZE);
     if (count === 0) return [];
-    if (this._historyCount <= DIAGNOSIS_HISTORY_SIZE) {
-      return this._history.slice(0, count);
+    if (this.#historyCount <= DIAGNOSIS_HISTORY_SIZE) {
+      return this.#history.slice(0, count);
     }
     return [
-      ...this._history.slice(this._historyIndex),
-      ...this._history.slice(0, this._historyIndex),
+      ...this.#history.slice(this.#historyIndex),
+      ...this.#history.slice(0, this.#historyIndex),
     ];
   }
 
   // --- Getters ---
 
-  getStatus() { return this._currentStatus; }
+  getStatus() { return this.#currentStatus; }
 
-  isInSteadyState() { return this._inSteadyState; }
+  get isDiagnosing() { return this.#diagnosing; }
 
-  // --- Reset (testing) ---
+  get velocityCount() { return this.#velocityCount; }
 
-  _clear() {
-    this._disconnectTimes = new Array(VELOCITY_BUFFER_SIZE);
-    this._velocityIndex = 0;
-    this._velocityCount = 0;
-    this._firstPeerConnectedAt = null;
-    this._inSteadyState = false;
-    this._diagnosing = false;
-    this._lastDiagnosisAt = 0;
-    this._currentStatus = HEALTH_STATUS.HEALTHY;
-    this._listeners.length = 0;
-    this._history = new Array(DIAGNOSIS_HISTORY_SIZE);
-    this._historyIndex = 0;
-    this._historyCount = 0;
+  isInSteadyState() { return this.#inSteadyState; }
+
+  // --- Public trigger for diagnosis (wraps private #triggerDiagnosis) ---
+
+  async diagnose(velocity) {
+    return this.#triggerDiagnosis(velocity);
+  }
+
+  // --- Reset ---
+
+  reset() {
+    this.#disconnectTimes = new Array(VELOCITY_BUFFER_SIZE);
+    this.#velocityIndex = 0;
+    this.#velocityCount = 0;
+    this.#firstPeerConnectedAt = null;
+    this.#inSteadyState = false;
+    this.#diagnosing = false;
+    this.#lastDiagnosisAt = 0;
+    this.#currentStatus = HEALTH_STATUS.HEALTHY;
+    this.#listeners.length = 0;
+    this.#history = new Array(DIAGNOSIS_HISTORY_SIZE);
+    this.#historyIndex = 0;
+    this.#historyCount = 0;
+  }
+
+  // Test-only: override internal state for test setup
+  _testSetup(overrides = {}) {
+    if ('inSteadyState' in overrides) this.#inSteadyState = overrides.inSteadyState;
+    if ('lastDiagnosisAt' in overrides) this.#lastDiagnosisAt = overrides.lastDiagnosisAt;
+    if ('diagnosing' in overrides) this.#diagnosing = overrides.diagnosing;
+    if ('firstPeerConnectedAt' in overrides) this.#firstPeerConnectedAt = overrides.firstPeerConnectedAt;
+    if ('currentStatus' in overrides) this.#currentStatus = overrides.currentStatus;
   }
 }
 
@@ -412,6 +429,7 @@ module.exports = {
   HEALTH_STATUS,
   isUnexpectedDisconnect,
   // Exported for testing
+  VELOCITY_BUFFER_SIZE,
   VELOCITY_THRESHOLD_COUNT,
   VELOCITY_WINDOW_MS,
   MIN_CONNECTION_AGE_MS,
