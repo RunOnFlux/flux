@@ -25,6 +25,16 @@ function createMockWs(ip = '192.168.1.1') {
   return ws;
 }
 
+/**
+ * Creates a mock HTTP upgrade request object for validateAndAddInbound tests.
+ */
+function createMockReq(ip = '192.168.1.1', headers = {}) {
+  return {
+    socket: { remoteAddress: ip },
+    headers,
+  };
+}
+
 describe('FluxPeerSocket tests', () => {
   let manager;
 
@@ -360,8 +370,8 @@ describe('FluxPeerSocket tests', () => {
     it('should set onmessage that calls manager.messageDispatcher', async () => {
       const ws = createMockWs();
       // Stub the rate limiter to allow the message through
-      const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-      sinon.stub(fluxNetworkHelper, 'lruRateLimit').returns(true);
+      const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
 
@@ -377,8 +387,9 @@ describe('FluxPeerSocket tests', () => {
 
     it('should handle NAK messages via onNakReceived', async () => {
       const ws = createMockWs();
-      const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-      sinon.stub(fluxNetworkHelper, 'lruRateLimit').returns(true);
+      const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
 
@@ -389,14 +400,14 @@ describe('FluxPeerSocket tests', () => {
       await ws.onmessage({ data: nakMsg });
 
       sinon.assert.calledOnce(peer.onNakReceived);
-      sinon.assert.calledWithExactly(peer.onNakReceived, 'abc', 'stale');
+      sinon.assert.calledWithExactly(peer.onNakReceived, 'abc', peerCodec.NAK_REASON.STALE);
       sinon.assert.notCalled(manager.messageDispatcher);
     });
 
     it('should not dispatch when rate limited', async () => {
       const ws = createMockWs();
-      const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-      sinon.stub(fluxNetworkHelper, 'lruRateLimit').returns(false);
+      const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
+      sinon.stub(rateLimit, 'lruRateLimit').returns(false);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
 
@@ -1086,7 +1097,7 @@ describe('FluxPeerManager tests', () => {
       const ws = createMockWs('8.8.8.8', '16127');
       ws.close = sinon.stub();
 
-      manager.validateAndAddInbound(ws, '16127');
+      manager.validateAndAddInbound(ws, '16127', createMockReq('8.8.8.8'));
 
       expect(manager.inboundCount).to.equal(1);
       expect(manager.has('8.8.8.8:16127')).to.equal(true);
@@ -1096,7 +1107,7 @@ describe('FluxPeerManager tests', () => {
       manager.numberOfFluxNodes = 10000;
       const ws = createMockWs('8.8.8.8', '16127');
 
-      manager.validateAndAddInbound(ws);
+      manager.validateAndAddInbound(ws, createMockReq('8.8.8.8'));
 
       expect(manager.has('8.8.8.8:16127')).to.equal(true);
     });
@@ -1112,7 +1123,7 @@ describe('FluxPeerManager tests', () => {
       const ws = createMockWs('8.8.8.8', '16127');
       ws.close = sinon.stub();
 
-      manager.validateAndAddInbound(ws, '16127');
+      manager.validateAndAddInbound(ws, '16127', createMockReq('8.8.8.8'));
 
       // Close is called via setTimeout
       setTimeout(() => {
@@ -1127,7 +1138,7 @@ describe('FluxPeerManager tests', () => {
       const ws = createMockWs('10.0.0.1', '16127');
       ws.close = sinon.stub();
 
-      manager.validateAndAddInbound(ws, '16127');
+      manager.validateAndAddInbound(ws, '16127', createMockReq('10.0.0.1'));
 
       setTimeout(() => {
         sinon.assert.calledOnce(ws.close);
@@ -1145,7 +1156,7 @@ describe('FluxPeerManager tests', () => {
       const ws2 = createMockWs('8.8.8.8', '16127');
       ws2.close = sinon.stub();
 
-      manager.validateAndAddInbound(ws2, '16127');
+      manager.validateAndAddInbound(ws2, '16127', createMockReq('8.8.8.8'));
 
       setTimeout(() => {
         sinon.assert.calledOnce(ws2.close);
@@ -1158,9 +1169,8 @@ describe('FluxPeerManager tests', () => {
     it('should extract IPv4 from IPv6-mapped address', () => {
       manager.numberOfFluxNodes = 10000;
       const ws = createMockWs('8.8.8.8', '16127');
-      ws._socket.remoteAddress = '::ffff:8.8.8.8';
 
-      manager.validateAndAddInbound(ws, '16127');
+      manager.validateAndAddInbound(ws, '16127', createMockReq('::ffff:8.8.8.8'));
 
       expect(manager.has('8.8.8.8:16127')).to.equal(true);
     });
@@ -1399,7 +1409,7 @@ describe('FluxPeerManager tests', () => {
       ws1.readyState = 3; // CLOSED
 
       const ws2 = createMockWs('8.8.8.8', '16127');
-      manager.validateAndAddInbound(ws2, '16127');
+      manager.validateAndAddInbound(ws2, '16127', createMockReq('8.8.8.8'));
 
       expect(manager.has('8.8.8.8:16127')).to.equal(true);
       const current = manager.get('8.8.8.8:16127');
@@ -1414,7 +1424,7 @@ describe('FluxPeerManager tests', () => {
       manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
 
       const ws2 = createMockWs('8.8.8.8', '16127');
-      const req = { headers: { 'x-flux-reconnect': 'true' } };
+      const req = createMockReq('8.8.8.8', { 'x-flux-reconnect': 'true' });
       manager.validateAndAddInbound(ws2, '16127', req);
 
       // Don't send a pong — wait for timeout to replace
@@ -1431,7 +1441,7 @@ describe('FluxPeerManager tests', () => {
       manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
 
       const ws2 = createMockWs('8.8.8.8', '16127');
-      const req = { headers: { 'x-flux-reconnect': 'true' } };
+      const req = createMockReq('8.8.8.8', { 'x-flux-reconnect': 'true' });
       manager.validateAndAddInbound(ws2, '16127', req);
 
       // Simulate pong coming back quickly
@@ -1454,7 +1464,7 @@ describe('FluxPeerManager tests', () => {
       manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
 
       const ws2 = createMockWs('8.8.8.8', '16127');
-      const req = { headers: { 'x-flux-reconnect': 'true' } };
+      const req = createMockReq('8.8.8.8', { 'x-flux-reconnect': 'true' });
       manager.validateAndAddInbound(ws2, '16127', req);
 
       const current = manager.get('8.8.8.8:16127');
@@ -1467,7 +1477,7 @@ describe('FluxPeerManager tests', () => {
       manager.add(ws1, '8.8.8.8', '16127', { source: PEER_SOURCE.INBOUND });
 
       const ws2 = createMockWs('8.8.8.8', '16127');
-      const req = { headers: {} };
+      const req = createMockReq('8.8.8.8');
       manager.validateAndAddInbound(ws2, '16127', req);
 
       // Should still have old connection

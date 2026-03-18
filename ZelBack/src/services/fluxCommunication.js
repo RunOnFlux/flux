@@ -421,6 +421,10 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     while (peerSocket.badMessageTimestamps.length > 0 && peerSocket.badMessageTimestamps[0] < cutoff) {
       peerSocket.badMessageTimestamps.shift();
     }
+    // Safety cap — prevent unbounded growth from adversarial peers
+    if (peerSocket.badMessageTimestamps.length > 20) {
+      peerSocket.badMessageTimestamps = peerSocket.badMessageTimestamps.slice(-10);
+    }
     const count = peerSocket.badMessageTimestamps.length;
     log.warn(`Bad message (${verifyResult}) from ${peerSocket.direction} peer ${peerSocket.key}, count: ${count}/10min`);
     if (count >= BAD_MSG_THRESHOLD) {
@@ -638,6 +642,7 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
       myPort = myIP.split(':')[1] || '16127';
     }
     const options = {
+      handshakeTimeout: 10000,
       perMessageDeflate: {
         zlibDeflateOptions: {
         // See zlib defaults.

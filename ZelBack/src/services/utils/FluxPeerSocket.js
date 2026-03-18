@@ -3,6 +3,13 @@ const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const { version: FLUX_VERSION } = require('../../../../package.json');
 const peerCodec = require('./peerCodec');
+const rateLimit = require('./rateLimit');
+
+let _fluxNetworkHelper;
+function getFluxNetworkHelper() {
+  if (!_fluxNetworkHelper) _fluxNetworkHelper = require('../fluxNetworkHelper');
+  return _fluxNetworkHelper;
+}
 
 const CLOSE_CODES = Object.freeze({
   // Inbound validation (FluxPeerManager.validateAndAddInbound)
@@ -262,7 +269,7 @@ class FluxPeerSocket {
       // Per WS spec, error is always followed by close — no need to remove here
     };
 
-    ws.onmessage = async (evt) => {
+    ws.onmessage = (evt) => {
       if (!evt) return;
 
       // Binary frame — handle before the string pipeline
@@ -273,8 +280,7 @@ class FluxPeerSocket {
         return;
       }
 
-      const fluxNetworkHelper = require('../fluxNetworkHelper');
-      const rateOK = fluxNetworkHelper.lruRateLimit(`${this.ip}:${this.port}`, 120);
+      const rateOK = rateLimit.lruRateLimit(`${this.ip}:${this.port}`, 120);
       if (!rateOK) return;
 
       this.messagesReceived += 1;
@@ -293,7 +299,7 @@ class FluxPeerSocket {
           const ts = Number(tsStr);
           if (ts > 0) {
             let delay = Date.now() - ts;
-            const localOffset = fluxNetworkHelper.getLocalClockOffsetMs();
+            const localOffset = getFluxNetworkHelper().getLocalClockOffsetMs();
             if (localOffset !== null && this.remoteClockOffsetMs !== null) {
               delay -= (localOffset - this.remoteClockOffsetMs);
             }
@@ -307,7 +313,8 @@ class FluxPeerSocket {
 
       // Handle peer-level protocol messages (not broadcast)
       if (msgObj.type === 'nak') {
-        this.onNakReceived(msgObj.hash, msgObj.reason);
+        const reasonMap = { stale: peerCodec.NAK_REASON.STALE, duplicate: peerCodec.NAK_REASON.DUPLICATE, invalid: peerCodec.NAK_REASON.INVALID };
+        this.onNakReceived(msgObj.hash, reasonMap[msgObj.reason] ?? msgObj.reason);
         return;
       }
       if (msgObj.type === 'peerExchange') {
@@ -325,7 +332,7 @@ class FluxPeerSocket {
 
       // Dispatch to the manager's message handler
       if (manager.messageDispatcher) {
-        manager.messageDispatcher(msgObj, this);
+        Promise.resolve(manager.messageDispatcher(msgObj, this)).catch((e) => log.error(e));
       }
     };
   }

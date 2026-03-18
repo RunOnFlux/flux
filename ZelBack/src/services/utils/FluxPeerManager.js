@@ -719,13 +719,14 @@ class FluxPeerManager {
 
       let ipv4Peer;
       try {
-        ipv4Peer = ws._socket.remoteAddress.replace('::ffff:', '');
-        if (!ipv4Peer) {
-          ipv4Peer = ws._socket._peername.address.replace('::ffff:', '');
-        }
+        ipv4Peer = (req.socket.remoteAddress || '').replace('::ffff:', '');
       } catch (error) {
         log.error(error);
-        ipv4Peer = ws._socket._peername.address.replace('::ffff:', '');
+        return;
+      }
+      if (!ipv4Peer) {
+        log.error('validateAndAddInbound: could not determine remote IP');
+        return;
       }
 
       if (FluxPeerManager.isPrivateIp(ipv4Peer)) {

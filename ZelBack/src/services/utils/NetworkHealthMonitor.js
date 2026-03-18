@@ -224,7 +224,7 @@ class NetworkHealthMonitor {
         peer.ws.removeListener('pong', onPong);
         reject(new Error('timeout'));
       }, DIAGNOSIS_PING_TIMEOUT_MS);
-      peer.ws.on('pong', onPong);
+      peer.ws.once('pong', onPong);
       try {
         peer.ws.ping();
       } catch (_e) {
