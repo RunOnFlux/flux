@@ -2015,6 +2015,11 @@ async function debugFile(req, res) {
  * @returns {object} Message
  */
 async function getEvents(req, res) {
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  if (authorized !== true) {
+    const response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
+  }
   try {
     let { events } = req.params;
     events = events || req.query.events;
@@ -2050,6 +2055,11 @@ async function getEvents(req, res) {
  * @returns {object} Message
  */
 async function getEventsDisk(req, res) {
+  const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+  if (authorized !== true) {
+    const response = messageHelper.errUnauthorizedMessage();
+    return res ? res.json(response) : response;
+  }
   try {
     let { since } = req.params;
     since = since || req.query.since;
