@@ -18,6 +18,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
+const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
 
 let localWsServer;
 let localWsUrl;
@@ -842,7 +843,7 @@ describe('fluxCommunication tests', () => {
 
     beforeEach(() => {
       logSpy = sinon.spy(log, 'info');
-      lruRateLimitStub = sinon.stub(fluxNetworkHelper, 'lruRateLimit');
+      lruRateLimitStub = sinon.stub(rateLimit, 'lruRateLimit').returns(true);
       ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
       peerManager.reset();
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
@@ -969,7 +970,7 @@ describe('fluxCommunication tests', () => {
       await waitFor(() => peerManager.outboundCount === 1);
 
       sinon.assert.notCalled(checkObjectSpy);
-    }).timeout(5000);
+    });
 
     it('should close the connection if peer is added to blockedList', async () => {
       const message = JSON.stringify({
