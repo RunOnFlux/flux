@@ -18,6 +18,7 @@ const {
 } = require('../../ZelBack/src/services/utils/NetworkHealthMonitor');
 const { CLOSE_CODES } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const { FluxPeerManager } = require('../../ZelBack/src/services/utils/FluxPeerManager');
+const networkStateService = require('../../ZelBack/src/services/networkStateService');
 
 function createMockWs() {
   const ws = new EventEmitter();
@@ -32,11 +33,23 @@ function createMockWs() {
   return ws;
 }
 
+/**
+ * Drive the monitor into steady state via its public API.
+ * Only fakes Date.now so setTimeout/setImmediate still work normally.
+ */
+function enterSteadyState(monitor, clock) {
+  monitor.recordConnect();
+  clock.tick(STEADY_STATE_DELAY_MS + 1);
+  monitor.recordConnect();
+}
+
 describe('NetworkHealthMonitor', () => {
   let monitor;
   let manager;
+  let clock;
 
   beforeEach(() => {
+    clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
     monitor = new NetworkHealthMonitor();
     manager = new FluxPeerManager();
     manager.messageDispatcher = sinon.stub();
@@ -47,6 +60,7 @@ describe('NetworkHealthMonitor', () => {
     sinon.restore();
     monitor.reset();
     manager.reset();
+    clock.restore();
   });
 
   describe('isUnexpectedDisconnect', () => {
@@ -81,43 +95,58 @@ describe('NetworkHealthMonitor', () => {
 
     it('should track first peer connection time', () => {
       monitor.recordConnect();
-      // After recordConnect, the monitor should have recorded a timestamp internally.
-      // We verify indirectly: calling recordConnect again after STEADY_STATE_DELAY should enter steady state.
-      monitor._testSetup({ firstPeerConnectedAt: Date.now() - STEADY_STATE_DELAY_MS - 1 });
+      clock.tick(STEADY_STATE_DELAY_MS + 1);
       monitor.recordConnect();
       expect(monitor.isInSteadyState()).to.be.true;
     });
 
     it('should not enter steady state before delay', () => {
-      monitor._testSetup({ firstPeerConnectedAt: Date.now() - 1000 }); // 1s ago
+      monitor.recordConnect();
+      clock.tick(1000); // 1s — well below STEADY_STATE_DELAY_MS
       monitor.recordConnect();
       expect(monitor.isInSteadyState()).to.be.false;
     });
 
     it('should enter steady state after delay', () => {
-      monitor._testSetup({ firstPeerConnectedAt: Date.now() - STEADY_STATE_DELAY_MS - 1 });
-      monitor.recordConnect();
+      enterSteadyState(monitor, clock);
       expect(monitor.isInSteadyState()).to.be.true;
     });
 
-    it('should reset to HEALTHY when peers recover after network loss', () => {
-      monitor._testSetup({ currentStatus: HEALTH_STATUS.NETWORK_LOSS });
-      // Simulate 5 peers connected via peerManager
+    it('should reset to HEALTHY when peers recover after network loss', async () => {
+      // Drive monitor to NETWORK_LOSS via diagnosis
+      const ws = createMockWs();
+      ws.ping = sinon.stub(); // no pong — triggers NETWORK_LOSS path
+      manager.add(ws, '44.0.0.1', '16127', { source: 'random' });
+      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves(null);
+
+      await monitor.diagnose(5);
+      expect(monitor.getStatus()).to.equal(HEALTH_STATUS.NETWORK_LOSS);
+
+      // Now simulate 5 peers connecting — should recover
       for (let i = 1; i <= 5; i++) {
-        const ws = createMockWs();
-        manager.add(ws, `44.0.0.${i}`, '16127', { source: 'random' });
+        const peerWs = createMockWs();
+        manager.add(peerWs, `45.0.0.${i}`, '16127', { source: 'random' });
       }
       monitor.recordConnect();
       expect(monitor.getStatus()).to.equal(HEALTH_STATUS.HEALTHY);
-    });
+    }).timeout(10000);
 
-    it('should not reset to HEALTHY with too few peers', () => {
-      monitor._testSetup({ currentStatus: HEALTH_STATUS.NETWORK_LOSS });
+    it('should not reset to HEALTHY with too few peers', async () => {
+      // Drive monitor to NETWORK_LOSS via diagnosis
       const ws = createMockWs();
+      ws.ping = sinon.stub(); // no pong
       manager.add(ws, '44.0.0.1', '16127', { source: 'random' });
+      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves(null);
+
+      await monitor.diagnose(5);
+      expect(monitor.getStatus()).to.equal(HEALTH_STATUS.NETWORK_LOSS);
+
+      // Only 1 peer — not enough to recover
+      const peerWs = createMockWs();
+      manager.add(peerWs, '45.0.0.1', '16127', { source: 'random' });
       monitor.recordConnect();
       expect(monitor.getStatus()).to.equal(HEALTH_STATUS.NETWORK_LOSS);
-    });
+    }).timeout(10000);
   });
 
   describe('recordDisconnect / velocity filtering', () => {
@@ -148,7 +177,6 @@ describe('NetworkHealthMonitor', () => {
 
   describe('velocity calculation', () => {
     it('should count disconnects within window', () => {
-      // Record 3 recent disconnects via the public API
       const oldConnect = Date.now() - 60000;
       for (let i = 0; i < 3; i++) {
         monitor.recordDisconnect(oldConnect, undefined);
@@ -160,36 +188,56 @@ describe('NetworkHealthMonitor', () => {
   describe('diagnosis gating', () => {
     it('should not trigger before steady state', () => {
       const oldConnect = Date.now() - 60000;
-      // Not in steady state, so diagnosis should not be triggered
       for (let i = 0; i < VELOCITY_THRESHOLD_COUNT + 1; i++) {
         monitor.recordDisconnect(oldConnect, undefined);
       }
-      // If diagnosis had triggered, status would have changed
       expect(monitor.getStatus()).to.equal(HEALTH_STATUS.HEALTHY);
       expect(monitor.isDiagnosing).to.be.false;
     });
 
-    it('should not trigger during cooldown', () => {
-      monitor._testSetup({ inSteadyState: true, lastDiagnosisAt: Date.now() });
+    it('should not trigger during cooldown', async () => {
+      enterSteadyState(monitor, clock);
+
+      // Run a diagnosis to set lastDiagnosisAt
+      const ws = createMockWs();
+      ws.ping = () => { setImmediate(() => ws.emit('pong')); };
+      manager.add(ws, '44.0.0.1', '16127', { source: 'random' });
+      await monitor.diagnose(5);
+
+      // Now try to trigger via velocity — should be blocked by cooldown
+      const statusBefore = monitor.getStatus();
       const oldConnect = Date.now() - 60000;
       for (let i = 0; i < VELOCITY_THRESHOLD_COUNT + 1; i++) {
         monitor.recordDisconnect(oldConnect, undefined);
       }
-      // Status should remain HEALTHY because cooldown blocked diagnosis
-      expect(monitor.getStatus()).to.equal(HEALTH_STATUS.HEALTHY);
+      expect(monitor.getStatus()).to.equal(statusBefore);
     });
 
-    it('should not trigger while already diagnosing', () => {
-      monitor._testSetup({ inSteadyState: true, diagnosing: true });
+    it('should not trigger while already diagnosing', async () => {
+      enterSteadyState(monitor, clock);
+
+      // Add a peer that never responds to ping — diagnosis will hang
+      const ws = createMockWs();
+      ws.ping = sinon.stub(); // no pong, diagnosis stays in-flight
+      manager.add(ws, '44.0.0.1', '16127', { source: 'random' });
+      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves(null);
+
+      // Start diagnosis (don't await — it will hang on ping timeout)
+      const diagPromise = monitor.diagnose(5);
+
+      // While diagnosing, try to trigger via velocity
       const oldConnect = Date.now() - 60000;
       for (let i = 0; i < VELOCITY_THRESHOLD_COUNT + 1; i++) {
         monitor.recordDisconnect(oldConnect, undefined);
       }
       expect(monitor.getStatus()).to.equal(HEALTH_STATUS.HEALTHY);
-    });
+
+      // Let diagnosis complete
+      await diagPromise;
+    }).timeout(10000);
 
     it('should trigger when velocity exceeds threshold in steady state', async () => {
-      monitor._testSetup({ inSteadyState: true, lastDiagnosisAt: 0 });
+      enterSteadyState(monitor, clock);
 
       // Add a peer that responds to ping so diagnosis completes
       const ws = createMockWs();
@@ -201,8 +249,8 @@ describe('NetworkHealthMonitor', () => {
         monitor.recordDisconnect(oldConnect, undefined);
       }
       // Wait for async diagnosis to complete
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      // Diagnosis should have run and changed status
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
       expect(monitor.getStatus()).to.not.equal(HEALTH_STATUS.HEALTHY);
     });
   });
@@ -230,10 +278,6 @@ describe('NetworkHealthMonitor', () => {
       const ws = createMockWs();
       ws.ping = sinon.stub(); // no pong
       manager.add(ws, '44.0.0.1', '16127', { source: 'random' });
-
-      // We cannot stub private #probeKnownGoodPeers directly.
-      // Instead, stub the external dependency so probing returns no results.
-      const networkStateService = require('../../ZelBack/src/services/networkStateService');
       sinon.stub(networkStateService, 'getRandomSocketAddress').resolves(null);
 
       await monitor.diagnose(5);
@@ -296,17 +340,22 @@ describe('NetworkHealthMonitor', () => {
 
   describe('reset', () => {
     it('should reset all state', async () => {
-      monitor._testSetup({
-        inSteadyState: true,
-        firstPeerConnectedAt: Date.now(),
-        currentStatus: HEALTH_STATUS.NETWORK_LOSS,
-      });
+      enterSteadyState(monitor, clock);
+
+      const ws = createMockWs();
+      ws.ping = sinon.stub(); // no pong
+      manager.add(ws, '44.0.0.1', '16127', { source: 'random' });
+      sinon.stub(networkStateService, 'getRandomSocketAddress').resolves(null);
+
+      await monitor.diagnose(5);
+      expect(monitor.getStatus()).to.equal(HEALTH_STATUS.NETWORK_LOSS);
+
       monitor.onHealthEvent(() => {});
       monitor.reset();
 
       expect(monitor.isInSteadyState()).to.be.false;
       expect(monitor.getStatus()).to.equal(HEALTH_STATUS.HEALTHY);
       expect(monitor.getDiagnosisHistory()).to.have.length(0);
-    });
+    }).timeout(10000);
   });
 });

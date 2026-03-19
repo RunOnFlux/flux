@@ -10,6 +10,14 @@ const HISTORY_BUFFER_SIZE = 1000;
 const PEER_EXCHANGE_MAX_PEERS = 60;
 const PEER_TOPOLOGY_MAX_REPORTERS = 100;
 const PEER_UPDATE_DEBOUNCE_MS = 2000;
+const allowedPortsSet = new Set(config.server.allowedPorts);
+
+function isValidPeerKey(key) {
+  if (typeof key !== 'string') return false;
+  const colon = key.lastIndexOf(':');
+  if (colon === -1) return false;
+  return allowedPortsSet.has(+key.substring(colon + 1));
+}
 
 // Reverse lookup: code number → enum name
 const CLOSE_CODE_NAMES = Object.freeze(
@@ -999,11 +1007,11 @@ class FluxPeerManager {
     const inSet = new Set();
     const outLimit = Math.min(outbound.length, PEER_EXCHANGE_MAX_PEERS);
     for (let i = 0; i < outLimit; i++) {
-      if (typeof outbound[i] === 'string' && outbound[i].includes(':')) outSet.add(outbound[i]);
+      if (isValidPeerKey(outbound[i])) outSet.add(outbound[i]);
     }
     const inLimit = Math.min(inbound.length, PEER_EXCHANGE_MAX_PEERS);
     for (let i = 0; i < inLimit; i++) {
-      if (typeof inbound[i] === 'string' && inbound[i].includes(':')) inSet.add(inbound[i]);
+      if (isValidPeerKey(inbound[i])) inSet.add(inbound[i]);
     }
     const entry = { outbound: outSet, inbound: inSet };
     this.#peerTopology.set(peer.key, entry);
@@ -1023,14 +1031,14 @@ class FluxPeerManager {
     const totalSize = existing.outbound.size + existing.inbound.size;
     if (Array.isArray(addOutbound)) {
       for (const p of addOutbound) {
-        if (typeof p === 'string' && p.includes(':') && totalSize < PEER_EXCHANGE_MAX_PEERS * 2) {
+        if (isValidPeerKey(p) && totalSize < PEER_EXCHANGE_MAX_PEERS * 2) {
           existing.outbound.add(p);
         }
       }
     }
     if (Array.isArray(addInbound)) {
       for (const p of addInbound) {
-        if (typeof p === 'string' && p.includes(':') && totalSize < PEER_EXCHANGE_MAX_PEERS * 2) {
+        if (isValidPeerKey(p) && totalSize < PEER_EXCHANGE_MAX_PEERS * 2) {
           existing.inbound.add(p);
         }
       }

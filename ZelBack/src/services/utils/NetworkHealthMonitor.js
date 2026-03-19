@@ -411,14 +411,6 @@ class NetworkHealthMonitor {
     this.#historyCount = 0;
   }
 
-  // Test-only: override internal state for test setup
-  _testSetup(overrides = {}) {
-    if ('inSteadyState' in overrides) this.#inSteadyState = overrides.inSteadyState;
-    if ('lastDiagnosisAt' in overrides) this.#lastDiagnosisAt = overrides.lastDiagnosisAt;
-    if ('diagnosing' in overrides) this.#diagnosing = overrides.diagnosing;
-    if ('firstPeerConnectedAt' in overrides) this.#firstPeerConnectedAt = overrides.firstPeerConnectedAt;
-    if ('currentStatus' in overrides) this.#currentStatus = overrides.currentStatus;
-  }
 }
 
 const networkHealthMonitor = new NetworkHealthMonitor();

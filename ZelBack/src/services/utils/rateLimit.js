@@ -1,4 +1,5 @@
 const cacheManager = require('./cacheManager').default;
+const log = require('../../lib/log');
 
 const lruRateCache = cacheManager.rateLimitCache;
 
@@ -47,7 +48,7 @@ function lruRateLimit(ip, limitPerSecond = 20) {
   // we log on the trigger edge only
   if (tokenBucket === 0) {
     const remaining = Math.round(((1_000 - elapsedMs) + Number.EPSILON) * 100) / 100;
-    console.log(`${ip}: Rate Limited for: ${remaining} ms`);
+    log.warn(`${ip}: Rate Limited for: ${remaining} ms`);
   }
 
   rateLimit.tokenBucket -= 1;
