@@ -122,6 +122,8 @@ function encodePeerExchange(outboundKeys, inboundKeys) {
 function decodePeerExchange(buf) {
   const outCount = buf.readUInt16BE(1);
   const inCount = buf.readUInt16BE(3);
+  const expectedLen = 5 + (outCount + inCount) * 6;
+  if (buf.length < expectedLen) return { outbound: [], inbound: [] };
   const outbound = new Array(outCount);
   const inbound = new Array(inCount);
   let offset = 5;
@@ -165,6 +167,8 @@ function decodePeerUpdate(buf) {
   const addOutCount = buf.readUInt16BE(1);
   const addInCount = buf.readUInt16BE(3);
   const rmCount = buf.readUInt16BE(5);
+  const expectedLen = 7 + (addOutCount + addInCount + rmCount) * 6;
+  if (buf.length < expectedLen) return { addOutbound: [], addInbound: [], rm: [] };
   const addOutbound = new Array(addOutCount);
   const addInbound = new Array(addInCount);
   const rm = new Array(rmCount);
