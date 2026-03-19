@@ -314,6 +314,11 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (!config.server.allowedPorts.includes(+port)) {
       throw new Error('Invalid Port');
     }
+    const socketAddress = +port === config.server.apiport ? ip : `${ip}:${port}`;
+    const isConfirmedNode = await fluxCommunicationUtils.socketAddressInFluxList(socketAddress);
+    if (!isConfirmedNode) {
+      return false;
+    }
     const fluxResponse = await serviceHelper.axiosGet(`http://${ip}:${port}/flux/version`, axiosConfig);
     if (fluxResponse.data.status !== 'success') return false;
 
