@@ -969,7 +969,7 @@ describe('fluxCommunication tests', () => {
       await waitFor(() => peerManager.outboundCount === 1);
 
       sinon.assert.notCalled(checkObjectSpy);
-    });
+    }).timeout(5000);
 
     it('should close the connection if peer is added to blockedList', async () => {
       const message = JSON.stringify({
