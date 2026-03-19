@@ -2114,7 +2114,8 @@ async function getSvcRandomString(req, res) {
   let apiPath = '/rest/svc/random/string';
   try {
     if (length) {
-      if (+length < 0 || +length > 10000) {
+      const parsedLength = Number(length);
+      if (!Number.isFinite(parsedLength) || parsedLength < 0 || parsedLength > 10000) {
         const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
         if (authorized !== true) {
           const response = messageHelper.errUnauthorizedMessage();
