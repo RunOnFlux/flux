@@ -272,6 +272,9 @@ class FluxPeerSocket {
     ws.onmessage = (evt) => {
       if (!evt) return;
 
+      const rateOK = rateLimit.lruRateLimit(`${this.ip}:${this.port}`, 120);
+      if (!rateOK) return;
+
       // Binary frame — handle before the string pipeline
       if (Buffer.isBuffer(evt.data)) {
         this.messagesReceived += 1;
@@ -279,9 +282,6 @@ class FluxPeerSocket {
         manager.handleBinaryMessage(this, evt.data);
         return;
       }
-
-      const rateOK = rateLimit.lruRateLimit(`${this.ip}:${this.port}`, 120);
-      if (!rateOK) return;
 
       this.messagesReceived += 1;
       this.bytesReceived += Buffer.byteLength(evt.data, 'utf8');

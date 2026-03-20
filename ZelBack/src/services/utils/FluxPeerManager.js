@@ -16,7 +16,8 @@ function isValidPeerKey(key) {
   if (typeof key !== 'string') return false;
   const colon = key.lastIndexOf(':');
   if (colon === -1) return false;
-  return allowedPortsSet.has(+key.substring(colon + 1));
+  if (!allowedPortsSet.has(+key.substring(colon + 1))) return false;
+  return !serviceHelper.isNonRoutableAddress(key.substring(0, colon));
 }
 
 // Reverse lookup: code number → enum name
@@ -653,24 +654,6 @@ class FluxPeerManager {
     return true;
   }
 
-  // --- Private IP detection ---
-
-  /**
-   * Check if an IP is in RFC 1918 private ranges.
-   * @param {string} ip
-   * @returns {boolean}
-   */
-  static isPrivateIp(ip) {
-    const parts = ip.split('.');
-    if (parts.length < 4) return false;
-    const a = parseInt(parts[0], 10);
-    const b = parseInt(parts[1], 10);
-    if (a === 10) return true; // 10.0.0.0/8
-    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-    if (a === 192 && b === 168) return true; // 192.168.0.0/16
-    return false;
-  }
-
   // --- Inbound connection validation ---
 
   /**
@@ -737,7 +720,7 @@ class FluxPeerManager {
         return;
       }
 
-      if (FluxPeerManager.isPrivateIp(ipv4Peer)) {
+      if (serviceHelper.isNonRoutableAddress(ipv4Peer)) {
         setTimeout(() => {
           ws.close(CLOSE_CODES.PRIVATE_IP, 'Peer received is using internal IP');
         }, 1000);
@@ -884,6 +867,27 @@ class FluxPeerManager {
     ];
   }
 
+  /**
+   * Get filtered peer history events.
+   * @param {object} [filters]
+   * @param {string} [filters.ip] IP prefix to match
+   * @param {number} [filters.code] Close code to match
+   * @param {string} [filters.event] Event type to match
+   * @param {number} [filters.since] Only events after this timestamp
+   * @param {number} [filters.limit] Max number of most recent events
+   * @returns {Array<object>}
+   */
+  getFilteredHistory(filters = {}) {
+    let events = this.getHistory();
+    const { ip, code, event, since, limit } = filters;
+    if (since) events = events.filter((e) => e.timestamp >= since);
+    if (ip) events = events.filter((e) => e.ip.startsWith(ip));
+    if (code) events = events.filter((e) => e.closeCode === code);
+    if (event) events = events.filter((e) => e.event === event);
+    if (limit && limit > 0) events = events.slice(-limit);
+    return events;
+  }
+
   // --- Binary message dispatch ---
 
   /**
@@ -1028,19 +1032,17 @@ class FluxPeerManager {
   handlePeerUpdate(peer, addOutbound, addInbound, rm) {
     const existing = this.#peerTopology.get(peer.key);
     if (!existing) return; // ignore without prior full exchange
-    const totalSize = existing.outbound.size + existing.inbound.size;
+    const maxPeers = PEER_EXCHANGE_MAX_PEERS * 2;
     if (Array.isArray(addOutbound)) {
       for (const p of addOutbound) {
-        if (isValidPeerKey(p) && totalSize < PEER_EXCHANGE_MAX_PEERS * 2) {
-          existing.outbound.add(p);
-        }
+        if (existing.outbound.size + existing.inbound.size >= maxPeers) break;
+        if (isValidPeerKey(p)) existing.outbound.add(p);
       }
     }
     if (Array.isArray(addInbound)) {
       for (const p of addInbound) {
-        if (isValidPeerKey(p) && totalSize < PEER_EXCHANGE_MAX_PEERS * 2) {
-          existing.inbound.add(p);
-        }
+        if (existing.outbound.size + existing.inbound.size >= maxPeers) break;
+        if (isValidPeerKey(p)) existing.inbound.add(p);
       }
     }
     if (Array.isArray(rm)) {

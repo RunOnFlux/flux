@@ -194,4 +194,47 @@ describe('peerCodec', () => {
       expect(decoded.rm).to.deep.equal([]);
     });
   });
+
+  describe('truncated buffer validation', () => {
+    it('decodePeerExchange should return empty arrays for truncated buffer', () => {
+      // Encode 2 peers, then slice the buffer short
+      const buf = encodePeerExchange(['1.2.3.4:16127', '5.6.7.8:16127'], []);
+      const truncated = buf.slice(0, 10); // needs 5 + 12 = 17 bytes
+      const decoded = decodePeerExchange(truncated);
+      expect(decoded.outbound).to.deep.equal([]);
+      expect(decoded.inbound).to.deep.equal([]);
+    });
+
+    it('decodePeerExchange should return empty arrays for header-only buffer', () => {
+      // Craft a buffer with count=5 but only the 5-byte header
+      const buf = Buffer.alloc(5);
+      buf[0] = MSG_TYPE.PEER_EXCHANGE;
+      buf.writeUInt16BE(5, 1); // outCount = 5
+      buf.writeUInt16BE(0, 3); // inCount = 0
+      const decoded = decodePeerExchange(buf);
+      expect(decoded.outbound).to.deep.equal([]);
+      expect(decoded.inbound).to.deep.equal([]);
+    });
+
+    it('decodePeerUpdate should return empty arrays for truncated buffer', () => {
+      const buf = encodePeerUpdate(['1.2.3.4:16127'], ['5.6.7.8:16127'], ['9.10.11.12:16127']);
+      const truncated = buf.slice(0, 12); // needs 7 + 18 = 25 bytes
+      const decoded = decodePeerUpdate(truncated);
+      expect(decoded.addOutbound).to.deep.equal([]);
+      expect(decoded.addInbound).to.deep.equal([]);
+      expect(decoded.rm).to.deep.equal([]);
+    });
+
+    it('decodePeerUpdate should return empty arrays for header-only buffer', () => {
+      const buf = Buffer.alloc(7);
+      buf[0] = MSG_TYPE.PEER_UPDATE;
+      buf.writeUInt16BE(10, 1); // addOutCount = 10
+      buf.writeUInt16BE(0, 3);
+      buf.writeUInt16BE(0, 5);
+      const decoded = decodePeerUpdate(buf);
+      expect(decoded.addOutbound).to.deep.equal([]);
+      expect(decoded.addInbound).to.deep.equal([]);
+      expect(decoded.rm).to.deep.equal([]);
+    });
+  });
 });

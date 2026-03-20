@@ -1072,30 +1072,19 @@ function getUnstableNodes(req, res) {
  * @param {object} req Request.
  * @param {object} res Response.
  */
-function getPeerHistory(req, res) {
-  let events = peerManager.getHistory();
-
+async function getPeerHistory(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  if (authorized !== true) {
+    return res.json(messageHelper.errUnauthorizedMessage());
+  }
   const { ip, code, event, limit, since } = req.query;
-
-  if (since) {
-    const sinceTs = Number(since);
-    events = events.filter((e) => e.timestamp >= sinceTs);
-  }
-  if (ip) {
-    events = events.filter((e) => e.ip.startsWith(ip));
-  }
-  if (code) {
-    const codeNum = Number(code);
-    events = events.filter((e) => e.closeCode === codeNum);
-  }
-  if (event) {
-    events = events.filter((e) => e.event === event);
-  }
-  if (limit) {
-    const n = Number(limit);
-    if (n > 0) events = events.slice(-n);
-  }
-
+  const filters = {};
+  if (since) filters.since = Number(since);
+  if (ip) filters.ip = ip;
+  if (code) filters.code = Number(code);
+  if (event) filters.event = event;
+  if (limit) filters.limit = Number(limit);
+  const events = peerManager.getFilteredHistory(filters);
   return res.json(messageHelper.createDataMessage(events));
 }
 

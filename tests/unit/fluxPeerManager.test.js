@@ -7,6 +7,9 @@ const { expect } = chai;
 
 const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const { FluxPeerManager, peerManager } = require('../../ZelBack/src/services/utils/FluxPeerManager');
+const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
+const { NetworkHealthMonitor } = require('../../ZelBack/src/services/utils/NetworkHealthMonitor');
 
 /**
  * Creates a mock WebSocket object suitable for FluxPeerSocket tests.
@@ -274,7 +277,7 @@ describe('FluxPeerSocket tests', () => {
   });
 
   describe('sendNak', () => {
-    const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+
 
     it('should send JSON NAK message to legacy peer with reason name', () => {
       const ws = createMockWs();
@@ -370,7 +373,7 @@ describe('FluxPeerSocket tests', () => {
     it('should set onmessage that calls manager.messageDispatcher', async () => {
       const ws = createMockWs();
       // Stub the rate limiter to allow the message through
-      const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
+
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
@@ -387,9 +390,9 @@ describe('FluxPeerSocket tests', () => {
 
     it('should handle NAK messages via onNakReceived', async () => {
       const ws = createMockWs();
-      const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
+
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
-      const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
 
@@ -406,7 +409,7 @@ describe('FluxPeerSocket tests', () => {
 
     it('should not dispatch when rate limited', async () => {
       const ws = createMockWs();
-      const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
+
       sinon.stub(rateLimit, 'lruRateLimit').returns(false);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
@@ -432,7 +435,7 @@ describe('FluxPeerSocket tests', () => {
   });
 
   describe('onNakReceived', () => {
-    const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+
 
     it('should increment nakCount with hash and reason', () => {
       const ws = createMockWs();
@@ -1060,36 +1063,6 @@ describe('FluxPeerManager tests', () => {
     });
   });
 
-  describe('isPrivateIp', () => {
-    it('should detect 10.0.0.0/8 range', () => {
-      expect(FluxPeerManager.isPrivateIp('10.0.0.1')).to.equal(true);
-      expect(FluxPeerManager.isPrivateIp('10.255.255.255')).to.equal(true);
-    });
-
-    it('should detect 172.16.0.0/12 range', () => {
-      expect(FluxPeerManager.isPrivateIp('172.16.0.1')).to.equal(true);
-      expect(FluxPeerManager.isPrivateIp('172.31.255.255')).to.equal(true);
-      expect(FluxPeerManager.isPrivateIp('172.15.0.1')).to.equal(false);
-      expect(FluxPeerManager.isPrivateIp('172.32.0.1')).to.equal(false);
-    });
-
-    it('should detect 192.168.0.0/16 range', () => {
-      expect(FluxPeerManager.isPrivateIp('192.168.0.1')).to.equal(true);
-      expect(FluxPeerManager.isPrivateIp('192.168.255.255')).to.equal(true);
-      expect(FluxPeerManager.isPrivateIp('192.169.0.1')).to.equal(false);
-    });
-
-    it('should return false for public IPs', () => {
-      expect(FluxPeerManager.isPrivateIp('8.8.8.8')).to.equal(false);
-      expect(FluxPeerManager.isPrivateIp('1.1.1.1')).to.equal(false);
-      expect(FluxPeerManager.isPrivateIp('203.0.113.1')).to.equal(false);
-    });
-
-    it('should return false for malformed IPs', () => {
-      expect(FluxPeerManager.isPrivateIp('abc')).to.equal(false);
-      expect(FluxPeerManager.isPrivateIp('10.0')).to.equal(false);
-    });
-  });
 
   describe('validateAndAddInbound', () => {
     it('should add valid inbound peer', () => {
@@ -1677,7 +1650,7 @@ describe('FluxPeerManager tests', () => {
   });
 
   describe('peer exchange', () => {
-    const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+
 
     describe('sendPeerExchange', () => {
       it('should send peer list to capable peer (binary)', () => {
@@ -1738,13 +1711,13 @@ describe('FluxPeerManager tests', () => {
           source: PEER_SOURCE.RANDOM,
           remoteCapabilities: ['peerExchange'],
         });
-        manager.handlePeerExchange(peer, ['10.0.0.1:16127'], ['10.0.0.2:16127']);
+        manager.handlePeerExchange(peer, ['50.0.0.1:16127'], ['50.0.0.2:16127']);
         expect(manager.hasTopologyEntry(peer.key)).to.be.true;
         const entry = manager.getTopologyEntry(peer.key);
         expect(entry.outbound.size).to.equal(1);
         expect(entry.inbound.size).to.equal(1);
-        expect(entry.outbound.has('10.0.0.1:16127')).to.be.true;
-        expect(entry.inbound.has('10.0.0.2:16127')).to.be.true;
+        expect(entry.outbound.has('50.0.0.1:16127')).to.be.true;
+        expect(entry.inbound.has('50.0.0.2:16127')).to.be.true;
       });
 
       it('should enforce max peers cap per direction', () => {
@@ -1752,7 +1725,7 @@ describe('FluxPeerManager tests', () => {
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
         const bigOut = [];
         const bigIn = [];
-        for (let i = 0; i < 100; i++) bigOut.push(`10.0.${i % 256}.${i}:16127`);
+        for (let i = 0; i < 100; i++) bigOut.push(`50.0.${i % 256}.${i}:16127`);
         for (let i = 0; i < 100; i++) bigIn.push(`20.0.${i % 256}.${i}:16127`);
         manager.handlePeerExchange(peer, bigOut, bigIn);
         const entry = manager.getTopologyEntry(peer.key);
@@ -1765,7 +1738,7 @@ describe('FluxPeerManager tests', () => {
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
         const events = [];
         manager.onPeerTopologyChange((evt) => events.push(evt));
-        manager.handlePeerExchange(peer, ['10.0.0.1:16127'], []);
+        manager.handlePeerExchange(peer, ['50.0.0.1:16127'], []);
         expect(events).to.have.length(1);
         expect(events[0].type).to.equal('exchange');
         expect(events[0].reporter).to.equal(peer.key);
@@ -1776,19 +1749,19 @@ describe('FluxPeerManager tests', () => {
       it('should add and remove peers incrementally with direction', () => {
         const ws = createMockWs('44.0.0.1');
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-        manager.handlePeerExchange(peer, ['10.0.0.1:16127'], ['10.0.0.2:16127']);
-        manager.handlePeerUpdate(peer, ['10.0.0.3:16127'], ['10.0.0.4:16127'], ['10.0.0.1:16127']);
+        manager.handlePeerExchange(peer, ['50.0.0.1:16127'], ['50.0.0.2:16127']);
+        manager.handlePeerUpdate(peer, ['50.0.0.3:16127'], ['50.0.0.4:16127'], ['50.0.0.1:16127']);
         const entry = manager.getTopologyEntry(peer.key);
-        expect(entry.outbound.has('10.0.0.3:16127')).to.be.true;
-        expect(entry.inbound.has('10.0.0.4:16127')).to.be.true;
-        expect(entry.outbound.has('10.0.0.1:16127')).to.be.false;
-        expect(entry.inbound.has('10.0.0.2:16127')).to.be.true;
+        expect(entry.outbound.has('50.0.0.3:16127')).to.be.true;
+        expect(entry.inbound.has('50.0.0.4:16127')).to.be.true;
+        expect(entry.outbound.has('50.0.0.1:16127')).to.be.false;
+        expect(entry.inbound.has('50.0.0.2:16127')).to.be.true;
       });
 
       it('should ignore update without prior exchange', () => {
         const ws = createMockWs('44.0.0.1');
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-        manager.handlePeerUpdate(peer, ['10.0.0.1:16127'], [], []);
+        manager.handlePeerUpdate(peer, ['50.0.0.1:16127'], [], []);
         expect(manager.hasTopologyEntry(peer.key)).to.be.false;
       });
     });
@@ -1799,13 +1772,13 @@ describe('FluxPeerManager tests', () => {
         const peer1 = manager.add(ws1, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
         const ws2 = createMockWs('45.0.0.1');
         const peer2 = manager.add(ws2, '45.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-        manager.handlePeerExchange(peer1, ['10.0.0.1:16127'], ['10.0.0.2:16127']);
-        manager.handlePeerExchange(peer2, ['10.0.0.2:16127'], ['10.0.0.3:16127']);
+        manager.handlePeerExchange(peer1, ['50.0.0.1:16127'], ['50.0.0.2:16127']);
+        manager.handlePeerExchange(peer2, ['50.0.0.2:16127'], ['50.0.0.3:16127']);
         const known = manager.knownPeers;
         expect(known.size).to.equal(3);
-        expect(known.has('10.0.0.1:16127')).to.be.true;
-        expect(known.has('10.0.0.2:16127')).to.be.true;
-        expect(known.has('10.0.0.3:16127')).to.be.true;
+        expect(known.has('50.0.0.1:16127')).to.be.true;
+        expect(known.has('50.0.0.2:16127')).to.be.true;
+        expect(known.has('50.0.0.3:16127')).to.be.true;
       });
     });
 
@@ -1815,10 +1788,10 @@ describe('FluxPeerManager tests', () => {
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
         const events = [];
         const unsub = manager.onPeerTopologyChange((evt) => events.push(evt));
-        manager.handlePeerExchange(peer, ['10.0.0.1:16127'], []);
+        manager.handlePeerExchange(peer, ['50.0.0.1:16127'], []);
         expect(events).to.have.length(1);
         unsub();
-        manager.handlePeerExchange(peer, ['10.0.0.2:16127'], []);
+        manager.handlePeerExchange(peer, ['50.0.0.2:16127'], []);
         expect(events).to.have.length(1); // no new event after unsub
       });
     });
@@ -1827,7 +1800,7 @@ describe('FluxPeerManager tests', () => {
       it('should delete topology entry on peer disconnect', () => {
         const ws = createMockWs('44.0.0.1');
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-        manager.handlePeerExchange(peer, ['10.0.0.1:16127'], []);
+        manager.handlePeerExchange(peer, ['50.0.0.1:16127'], []);
         expect(manager.hasTopologyEntry(peer.key)).to.be.true;
         manager.remove(peer.key, 1000);
         expect(manager.hasTopologyEntry(peer.key)).to.be.false;
@@ -1862,7 +1835,7 @@ describe('FluxPeerManager tests', () => {
       it('should reset all peer exchange structures', () => {
         const ws = createMockWs('44.0.0.1');
         const peer = manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-        manager.handlePeerExchange(peer, ['10.0.0.1:16127'], []);
+        manager.handlePeerExchange(peer, ['50.0.0.1:16127'], []);
         manager.onPeerTopologyChange(() => {});
         manager.reset();
         expect(manager.peerTopologySize).to.equal(0);
@@ -1877,7 +1850,7 @@ describe('FluxPeerManager tests', () => {
   });
 
   describe('binary message handling', () => {
-    const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+
 
     describe('handleBinaryMessage', () => {
       it('should dispatch HASH_PRESENT to hashHandlers', () => {
@@ -1925,7 +1898,7 @@ describe('FluxPeerManager tests', () => {
           source: PEER_SOURCE.RANDOM,
           remoteCapabilities: ['peerExchange', 'binaryMessages'],
         });
-        manager.handleBinaryMessage(peer, peerCodec.encodePeerExchange(['10.0.0.1:16127'], ['10.0.0.2:16137']));
+        manager.handleBinaryMessage(peer, peerCodec.encodePeerExchange(['50.0.0.1:16127'], ['50.0.0.2:16137']));
         expect(manager.hasTopologyEntry(peer.key)).to.be.true;
         const entry = manager.getTopologyEntry(peer.key);
         expect(entry.outbound.size).to.equal(1);
@@ -2010,7 +1983,7 @@ describe('FluxPeerManager tests', () => {
   });
 
   describe('binary frame interception in _bindHandlers', () => {
-    const peerCodec = require('../../ZelBack/src/services/utils/peerCodec');
+
 
     it('should route binary Buffer to handleBinaryMessage', () => {
       const ws = createMockWs('44.0.0.1');
@@ -2019,7 +1992,7 @@ describe('FluxPeerManager tests', () => {
         remoteCapabilities: ['peerExchange', 'binaryMessages'],
       });
       const spy = sinon.spy(manager, 'handleBinaryMessage');
-      const buf = peerCodec.encodePeerExchange(['10.0.0.1:16127'], ['10.0.0.2:16127']);
+      const buf = peerCodec.encodePeerExchange(['50.0.0.1:16127'], ['50.0.0.2:16127']);
       ws.onmessage({ data: buf });
       expect(spy.calledOnce).to.be.true;
       expect(spy.firstCall.args[0]).to.equal(peer);
@@ -2047,12 +2020,12 @@ describe('FluxPeerManager tests', () => {
         source: PEER_SOURCE.RANDOM,
         remoteCapabilities: ['peerExchange'],
       });
-      const msg = JSON.stringify({ type: 'peerExchange', outbound: ['10.0.0.1:16127'], inbound: ['10.0.0.2:16127'] });
+      const msg = JSON.stringify({ type: 'peerExchange', outbound: ['50.0.0.1:16127'], inbound: ['50.0.0.2:16127'] });
       ws.onmessage({ data: msg });
       expect(manager.hasTopologyEntry(peer.key)).to.be.true;
       const entry = manager.getTopologyEntry(peer.key);
-      expect(entry.outbound.has('10.0.0.1:16127')).to.be.true;
-      expect(entry.inbound.has('10.0.0.2:16127')).to.be.true;
+      expect(entry.outbound.has('50.0.0.1:16127')).to.be.true;
+      expect(entry.inbound.has('50.0.0.2:16127')).to.be.true;
     });
 
     it('should handle JSON peerUpdate from capable peer', () => {
@@ -2062,26 +2035,160 @@ describe('FluxPeerManager tests', () => {
         remoteCapabilities: ['peerExchange'],
       });
       // First send a full exchange
-      manager.handlePeerExchange(peer, ['10.0.0.1:16127'], []);
+      manager.handlePeerExchange(peer, ['50.0.0.1:16127'], []);
       // Then a JSON update
-      const msg = JSON.stringify({ type: 'peerUpdate', addOutbound: ['10.0.0.3:16127'], addInbound: [], rm: ['10.0.0.1:16127'] });
+      const msg = JSON.stringify({ type: 'peerUpdate', addOutbound: ['50.0.0.3:16127'], addInbound: [], rm: ['50.0.0.1:16127'] });
       ws.onmessage({ data: msg });
       const entry = manager.getTopologyEntry(peer.key);
-      expect(entry.outbound.has('10.0.0.3:16127')).to.be.true;
-      expect(entry.outbound.has('10.0.0.1:16127')).to.be.false;
+      expect(entry.outbound.has('50.0.0.3:16127')).to.be.true;
+      expect(entry.outbound.has('50.0.0.1:16127')).to.be.false;
     });
 
     it('should ignore peerExchange from peer without capability', () => {
       const ws = createMockWs('44.0.0.1');
       manager.add(ws, '44.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
-      const msg = JSON.stringify({ type: 'peerExchange', outbound: ['10.0.0.1:16127'], inbound: [] });
+      const msg = JSON.stringify({ type: 'peerExchange', outbound: ['50.0.0.1:16127'], inbound: [] });
       ws.onmessage({ data: msg });
       expect(manager.peerTopologySize).to.equal(0);
     });
   });
 
+  describe('isValidPeerKey (private IP rejection)', () => {
+    it('should reject 10.x.x.x private IPs in peer exchange', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange'],
+      });
+      manager.handlePeerExchange(peer, ['10.0.0.1:16127', '50.0.0.1:16127'], []);
+      const entry = manager.getTopologyEntry(peer.key);
+      expect(entry.outbound.size).to.equal(1);
+      expect(entry.outbound.has('50.0.0.1:16127')).to.be.true;
+      expect(entry.outbound.has('10.0.0.1:16127')).to.be.false;
+    });
+
+    it('should reject 172.16-31.x.x private IPs', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange'],
+      });
+      manager.handlePeerExchange(peer, ['172.16.0.1:16127', '172.31.255.1:16127', '172.15.0.1:16127', '172.32.0.1:16127'], []);
+      const entry = manager.getTopologyEntry(peer.key);
+      expect(entry.outbound.has('172.16.0.1:16127')).to.be.false;
+      expect(entry.outbound.has('172.31.255.1:16127')).to.be.false;
+      expect(entry.outbound.has('172.15.0.1:16127')).to.be.true;
+      expect(entry.outbound.has('172.32.0.1:16127')).to.be.true;
+    });
+
+    it('should reject 192.168.x.x private IPs', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange'],
+      });
+      manager.handlePeerExchange(peer, ['192.168.1.1:16127', '192.169.1.1:16127'], []);
+      const entry = manager.getTopologyEntry(peer.key);
+      expect(entry.outbound.has('192.168.1.1:16127')).to.be.false;
+      expect(entry.outbound.has('192.169.1.1:16127')).to.be.true;
+    });
+
+    it('should reject loopback 127.x.x.x IPs', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange'],
+      });
+      manager.handlePeerExchange(peer, ['127.0.0.1:16127', '50.0.0.1:16127'], []);
+      const entry = manager.getTopologyEntry(peer.key);
+      expect(entry.outbound.has('127.0.0.1:16127')).to.be.false;
+      expect(entry.outbound.has('50.0.0.1:16127')).to.be.true;
+    });
+
+    it('should reject link-local 169.254.x.x IPs', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange'],
+      });
+      manager.handlePeerExchange(peer, ['169.254.1.1:16127', '50.0.0.1:16127'], []);
+      const entry = manager.getTopologyEntry(peer.key);
+      expect(entry.outbound.has('169.254.1.1:16127')).to.be.false;
+      expect(entry.outbound.has('50.0.0.1:16127')).to.be.true;
+    });
+
+    it('should reject CGN 100.64-127.x.x IPs', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange'],
+      });
+      manager.handlePeerExchange(peer, ['100.64.0.1:16127', '100.127.0.1:16127', '100.63.0.1:16127'], []);
+      const entry = manager.getTopologyEntry(peer.key);
+      expect(entry.outbound.has('100.64.0.1:16127')).to.be.false;
+      expect(entry.outbound.has('100.127.0.1:16127')).to.be.false;
+      expect(entry.outbound.has('100.63.0.1:16127')).to.be.true;
+    });
+
+    it('should reject invalid port', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange'],
+      });
+      manager.handlePeerExchange(peer, ['50.0.0.1:9999', '50.0.0.2:16127'], []);
+      const entry = manager.getTopologyEntry(peer.key);
+      expect(entry.outbound.has('50.0.0.1:9999')).to.be.false;
+      expect(entry.outbound.has('50.0.0.2:16127')).to.be.true;
+    });
+  });
+
+  describe('handlePeerUpdate size limit enforcement', () => {
+    it('should not exceed PEER_EXCHANGE_MAX_PEERS * 2 during a single update', () => {
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange'],
+      });
+      // Seed with 118 peers (close to 120 limit)
+      const initialOut = [];
+      const initialIn = [];
+      for (let i = 0; i < 59; i++) initialOut.push(`50.${Math.floor(i / 256)}.${i % 256}.1:16127`);
+      for (let i = 0; i < 59; i++) initialIn.push(`51.${Math.floor(i / 256)}.${i % 256}.1:16127`);
+      manager.handlePeerExchange(peer, initialOut, initialIn);
+      const entry = manager.getTopologyEntry(peer.key);
+      expect(entry.outbound.size + entry.inbound.size).to.equal(118);
+
+      // Try to add 50 more outbound — should only allow 2 before hitting 120
+      const extraOut = [];
+      for (let i = 0; i < 50; i++) extraOut.push(`52.${Math.floor(i / 256)}.${i % 256}.1:16127`);
+      manager.handlePeerUpdate(peer, extraOut, [], []);
+      expect(entry.outbound.size + entry.inbound.size).to.be.at.most(120);
+    });
+  });
+
+  describe('binary frame rate limiting', () => {
+    it('should rate limit binary frames', () => {
+
+      sinon.stub(rateLimit, 'lruRateLimit').returns(false);
+
+      const ws = createMockWs('44.0.0.1');
+      const peer = manager.add(ws, '44.0.0.1', '16127', {
+        source: PEER_SOURCE.RANDOM,
+        remoteCapabilities: ['peerExchange', 'binaryMessages'],
+      });
+      const spy = sinon.spy(manager, 'handleBinaryMessage');
+
+      const buf = peerCodec.encodeHashPresent('abcdef0123456789abcdef0123456789abcdef01');
+      ws.onmessage({ data: buf });
+
+      expect(spy.called).to.be.false;
+      expect(peer.messagesReceived).to.equal(0);
+    });
+  });
+
   describe('network health monitor integration', () => {
-    const { NetworkHealthMonitor } = require('../../ZelBack/src/services/utils/NetworkHealthMonitor');
+
 
     it('should call recordConnect on add()', () => {
       const monitor = new NetworkHealthMonitor();
