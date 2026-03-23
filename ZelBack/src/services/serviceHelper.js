@@ -7,7 +7,6 @@ const execFile = util.promisify(require('node:child_process').execFile);
 
 const axios = require('axios').default;
 const config = require('config');
-const splitargs = require('splitargs');
 const qs = require('qs');
 
 const asyncLock = require('./utils/asyncLock');
@@ -416,12 +415,26 @@ function dockerBufferToString(dataBuffer) {
 }
 
 /**
- * To convert string to array.
- * @param {string}
- * @returns {array}.
+ * Splits a command string into an array of arguments, respecting quoted substrings.
+ * @param {string} command - The command string to split.
+ * @returns {string[]} Array of arguments.
  */
 function commandStringToArray(command) {
-  return splitargs(command);
+  const args = [];
+  let current = '';
+  let singleQuote = false;
+  let doubleQuote = false;
+  for (const ch of command) {
+    if (ch === "'" && !doubleQuote) { singleQuote = !singleQuote; continue; }
+    if (ch === '"' && !singleQuote) { doubleQuote = !doubleQuote; continue; }
+    if (!singleQuote && !doubleQuote && /\s/.test(ch)) {
+      if (current) { args.push(current); current = ''; }
+    } else {
+      current += ch;
+    }
+  }
+  if (current) args.push(current);
+  return args;
 }
 
 /**
