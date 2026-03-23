@@ -183,6 +183,16 @@ function analyticsMiddleware(req, res, next) {
         timestamp: new Date().toISOString(),
       };
 
+      // For POST endpoints, extract appname from body (parsed by express.json())
+      if (req.body) {
+        const name = req.body.appname
+          || (req.body.appSpecification && typeof req.body.appSpecification === 'object' && req.body.appSpecification.name)
+          || null;
+        if (name && typeof name === 'string') {
+          event.appName = name.toLowerCase();
+        }
+      }
+
       addEvent(zelidauth, event);
     } catch (error) {
       log.warn(`Analytics middleware error: ${error.message}`);
