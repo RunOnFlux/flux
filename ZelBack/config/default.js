@@ -317,4 +317,7 @@ module.exports = {
     // Default: 15 minutes (15 * 60 * 1000 = 900000ms)
     tokenRefreshBufferMs: 15 * 60 * 1000,
   },
+  analytics: {
+    url: '', // analytics server URL (e.g. 'https://analytics.runonflux.io'). Empty = disabled.
+  },
 };
