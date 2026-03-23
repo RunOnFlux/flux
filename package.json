@@ -86,10 +86,12 @@
     "archiver": "~7.0.1",
     "axios": "~1.13.6",
     "bitcoinjs-message": "~2.2.0",
+    "bs58check": "~3.0.1",
     "cacheable-lookup": "~7.0.0",
     "compression": "~1.8.1",
     "config": "~3.3.12",
     "cors": "~2.8.5",
+    "create-hash": "~1.2.0",
     "crontab": "~1.4.2",
     "dockerode": "~4.0.7",
     "express": "^4.21.2",
@@ -110,12 +112,12 @@
     "path": "~0.12.7",
     "path-to-regexp": "~8.2.0",
     "qs": "~6.14.0",
+    "secp256k1": "~5.0.1",
     "socket.io": "~4.8.1",
     "splitargs": "~0.0.7",
     "store": "~2.0.12",
     "tar": "^7.4.3",
-    "ws": "~8.18.0",
-    "zeltrezjs": "~2.12.0"
+    "ws": "~8.18.0"
   },
   "devDependencies": {
     "@babel/core": "~7.28.0",

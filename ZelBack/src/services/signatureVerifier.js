@@ -1,4 +1,4 @@
-const zeltrezjs = require('zeltrezjs');
+const { pubKeyToAddr } = require('./utils/fluxCryptoUtils');
 const bitcoinMessage = require('bitcoinjs-message');
 const ethereumHelper = require('./ethereumHelper');
 const log = require('../lib/log');
@@ -29,7 +29,7 @@ function verifySignature(message, address, signature) {
       if (address.length > 36) {
         // bitcoin
         const btcPubKeyHash = '00';
-        const sigAddress = zeltrezjs.address.pubKeyToAddr(address, btcPubKeyHash);
+        const sigAddress = pubKeyToAddr(address, btcPubKeyHash);
         signingAddress = sigAddress;
       }
       isValid = bitcoinMessage.verify(message, signingAddress, signature);
