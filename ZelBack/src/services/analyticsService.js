@@ -220,12 +220,14 @@ function analyticsMiddleware(req, res, next) {
  * @param {string} appName - Application name
  * @param {string} action - 'open' or 'close'
  * @param {string} [ipAddress] - Client IP address
+ * @param {string} [component] - Component name for multi-component apps
  */
-function trackTerminalSession(zelidauth, appName, action, ipAddress) {
+function trackTerminalSession(zelidauth, appName, action, ipAddress, component) {
   if (!analyticsUrlCached || !zelidauth) return;
 
+  const terminalTarget = component ? `${component}_${appName}` : appName;
   const event = {
-    apiEndpoint: `/terminal/${action}/${appName}`,
+    apiEndpoint: `/terminal/${action}/${terminalTarget}`,
     httpMethod: 'WS',
     responseCode: 200,
     responseStatus: 'success',

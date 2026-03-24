@@ -24,9 +24,12 @@ async function dockerTerminalHandler(socket) {
       return;
     }
 
-    trackTerminalSession(zelidauth, mainAppName, 'open', clientIp);
+    const parts = nameOrId.split('_');
+    const component = parts.length > 1 ? parts[0].replace(/^(zel|flux)/, '') || null : null;
+    const analyticsAppName = parts.length > 1 ? mainAppName : mainAppName.replace(/^(zel|flux)/, '');
+    trackTerminalSession(zelidauth, analyticsAppName, 'open', clientIp, component);
     socket.on('disconnect', () => {
-      trackTerminalSession(zelidauth, mainAppName, 'close', clientIp);
+      trackTerminalSession(zelidauth, analyticsAppName, 'close', clientIp, component);
     });
 
     const cmd = {
