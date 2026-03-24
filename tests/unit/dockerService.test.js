@@ -133,6 +133,14 @@ describe('dockerService tests', () => {
       network = await dockerService.dockerCreateNetwork(options);
     });
 
+    afterEach(async () => {
+      try {
+        await dockerService.dockerRemoveNetwork(network);
+      } catch {
+        // already removed by test
+      }
+    });
+
     it('should remove a network', async () => {
       const result = await dockerService.dockerRemoveNetwork(network);
 
@@ -151,8 +159,8 @@ describe('dockerService tests', () => {
       network = await dockerService.dockerCreateNetwork(options);
     });
 
-    afterEach(() => {
-      dockerService.dockerRemoveNetwork(network);
+    afterEach(async () => {
+      await dockerService.dockerRemoveNetwork(network);
     });
 
     it('should return an inspect network object', async () => {

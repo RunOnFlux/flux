@@ -25,6 +25,7 @@ describe('FluxSocketServer tests', () => {
     const testParams = [['3333'], [], []];
 
     const server = new socketServer.FluxWebsocketServer({ routes });
+    const fakeRequest = { headers: {}, url: '/test' };
 
     testUrls.forEach((url, index) => {
       const handler = server.matchRoute(url);
@@ -32,9 +33,9 @@ describe('FluxSocketServer tests', () => {
 
       expect(handler).to.be.a('function');
 
-      handler(sock);
+      handler(sock, fakeRequest);
 
-      sinon.assert.calledWithExactly(testHandlers[index], sock, ...testParams[index]);
+      sinon.assert.calledWithExactly(testHandlers[index], sock, ...testParams[index], fakeRequest);
     });
   });
 

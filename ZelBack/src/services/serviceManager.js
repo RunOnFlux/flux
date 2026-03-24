@@ -239,6 +239,8 @@ async function startFluxFunctions() {
     log.info('Node allowed to bind privileged ports');
     fluxCommunication.keepConnectionsAlive();
     log.info('Connections polling prepared');
+    fluxNetworkHelper.initClockOffsetCache();
+    log.info('Clock offset cache initialized');
     daemonServiceMiscRpcs.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
     // Remove existing watchtower container (replaced by native image update service)

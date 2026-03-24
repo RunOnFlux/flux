@@ -396,9 +396,7 @@ async function handleSigterm() {
 
         log.info(`Broadcasting fluxnodesigterm message: ${JSON.stringify(sigtermMessage)}`);
 
-        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(sigtermMessage);
-        await serviceHelper.delay(500);
-        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(sigtermMessage);
+        await fluxCommunicationMessagesSender.broadcastMessageToAll(sigtermMessage);
 
         // Update local DB to expire app location records in ~7 minutes,
         // same manipulation that peers apply when receiving the sigterm.

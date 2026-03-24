@@ -6,8 +6,11 @@ const portManager = require('../../ZelBack/src/services/appNetwork/portManager')
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const { requireMongo } = require('./dbTestHelper');
 
 describe('portManager tests', () => {
+  before(requireMongo);
+
   afterEach(() => {
     sinon.restore();
   });
