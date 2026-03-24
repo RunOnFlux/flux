@@ -92,8 +92,11 @@ async function flushEvents() {
 
   // Atomic swap — new events during flush go to fresh Map
   const snapshot = eventBuffer;
+  const snapshotTotal = bufferTotal;
   eventBuffer = new Map();
   bufferTotal = 0;
+
+  log.info(`Analytics: flushing ${snapshotTotal} events from ${snapshot.size} users`);
 
   let anyFailed = false;
 
