@@ -10,24 +10,15 @@ let isFlushing = false;
 let consecutiveFailures = 0;
 let lastFailureTime = 0;
 let cachedNodeIp = null;
+let flushTimer = null;
+let analyticsUrlCached = '';
 
-const MAX_BUFFER_SIZE = 10000;
-const FLUSH_INTERVAL = 5000;
+const MAX_BUFFER_SIZE = 5000;
+const FLUSH_TIMEOUT = 5000;
 const FLUSH_THRESHOLD = 15;
 const REQUEST_TIMEOUT = 10000;
 const MAX_BACKOFF = 300000; // 5 minutes
 const NODE_IP_REFRESH_INTERVAL = 600000; // 10 minutes
-
-/**
- * Get the analytics URL from config. Returns empty string if disabled.
- */
-function getAnalyticsUrl() {
-  try {
-    return config.analytics.url || '';
-  } catch {
-    return '';
-  }
-}
 
 /**
  * Refresh cached node IP address.
@@ -50,22 +41,8 @@ async function refreshNodeIp() {
  */
 function addEvent(zelidauth, event) {
   if (bufferTotal >= MAX_BUFFER_SIZE) {
-    // Drop oldest events from the largest group
-    let largestKey = null;
-    let largestSize = 0;
-    for (const [key, events] of eventBuffer) {
-      if (events.length > largestSize) {
-        largestSize = events.length;
-        largestKey = key;
-      }
-    }
-    if (largestKey) {
-      const dropped = eventBuffer.get(largestKey).shift();
-      bufferTotal--;
-      if (dropped) {
-        log.warn('Analytics: buffer full, dropped oldest event');
-      }
-    }
+    log.warn('Analytics: buffer full, dropping event');
+    return;
   }
 
   if (!eventBuffer.has(zelidauth)) {
@@ -75,7 +52,11 @@ function addEvent(zelidauth, event) {
   bufferTotal++;
 
   if (bufferTotal >= FLUSH_THRESHOLD && !isFlushing) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
     flushEvents();
+  } else if (!flushTimer && !isFlushing) {
+    flushTimer = setTimeout(flushEvents, FLUSH_TIMEOUT);
   }
 }
 
@@ -84,16 +65,17 @@ function addEvent(zelidauth, event) {
  * Groups events by zelidauth and sends each group with the user's own auth.
  */
 async function flushEvents() {
-  const analyticsUrl = getAnalyticsUrl();
-  if (!analyticsUrl || isFlushing || eventBuffer.size === 0) return;
+  if (!analyticsUrlCached || isFlushing || eventBuffer.size === 0) return;
 
   // Exponential backoff check
   if (consecutiveFailures > 0) {
-    const backoffMs = Math.min(FLUSH_INTERVAL * (2 ** consecutiveFailures), MAX_BACKOFF);
+    const backoffMs = Math.min(FLUSH_TIMEOUT * (2 ** consecutiveFailures), MAX_BACKOFF);
     if (Date.now() - lastFailureTime < backoffMs) return;
   }
 
   isFlushing = true;
+  clearTimeout(flushTimer);
+  flushTimer = null;
 
   // Atomic swap — new events during flush go to fresh Map
   const snapshot = eventBuffer;
@@ -110,17 +92,22 @@ async function flushEvents() {
       for (let i = 0; i < events.length; i += 100) {
         const chunk = events.slice(i, i + 100);
         const promise = axios.post(
-          `${analyticsUrl}/api/v1/events`,
+          `${analyticsUrlCached}/api/v1/events`,
           { events: chunk },
           {
             headers: { zelidauth },
             timeout: REQUEST_TIMEOUT,
           },
-        ).catch((error) => {
-          log.warn(`Analytics: flush failed for batch of ${chunk.length} events: ${error.message}`);
+        ).then(() => chunk.length).catch((error) => {
+          const status = error.response?.status;
+          if (status && status >= 400 && status < 500) {
+            // 4xx — bad request, retrying won't help, drop batch
+            log.warn(`Analytics: dropping ${chunk.length} events (${status} response)`);
+            return 0;
+          }
+          // 5xx or network error — re-merge for retry
+          log.warn(`Analytics: flush failed for ${chunk.length} events: ${error.message}`);
           anyFailed = true;
-
-          // Re-merge failed chunk back into current buffer
           if (eventBuffer.has(zelidauth)) {
             const current = eventBuffer.get(zelidauth);
             eventBuffer.set(zelidauth, [...chunk, ...current]);
@@ -128,6 +115,7 @@ async function flushEvents() {
             eventBuffer.set(zelidauth, [...chunk]);
           }
           bufferTotal += chunk.length;
+          return 0;
         });
 
         promises.push(promise);
@@ -139,7 +127,7 @@ async function flushEvents() {
     if (anyFailed) {
       consecutiveFailures++;
       lastFailureTime = Date.now();
-      const backoffMs = Math.min(FLUSH_INTERVAL * (2 ** consecutiveFailures), MAX_BACKOFF);
+      const backoffMs = Math.min(FLUSH_TIMEOUT * (2 ** consecutiveFailures), MAX_BACKOFF);
       log.warn(`Analytics: ${consecutiveFailures} consecutive failures, next retry in ${Math.round(backoffMs / 1000)}s`);
     } else {
       if (consecutiveFailures > 0) {
@@ -157,19 +145,21 @@ async function flushEvents() {
  * Non-blocking — calls next() immediately, records on res 'finish'.
  */
 function analyticsMiddleware(req, res, next) {
-  const analyticsUrl = getAnalyticsUrl();
-  if (!analyticsUrl) {
+  if (!analyticsUrlCached) {
+    next();
+    return;
+  }
+
+  const zelidauth = req.headers.zelidauth;
+  if (!zelidauth) {
     next();
     return;
   }
 
   const startTime = Date.now();
 
-  res.on('finish', () => {
+  res.once('finish', () => {
     try {
-      const zelidauth = req.headers.zelidauth;
-      if (!zelidauth) return; // unauthenticated requests not tracked
-
       const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
 
       const event = {
@@ -210,8 +200,7 @@ function analyticsMiddleware(req, res, next) {
  * @param {string} [ipAddress] - Client IP address
  */
 function trackTerminalSession(zelidauth, appName, action, ipAddress) {
-  const analyticsUrl = getAnalyticsUrl();
-  if (!analyticsUrl || !zelidauth) return;
+  if (!analyticsUrlCached || !zelidauth) return;
 
   const event = {
     apiEndpoint: `/terminal/${action}/${appName}`,
@@ -228,24 +217,26 @@ function trackTerminalSession(zelidauth, appName, action, ipAddress) {
 }
 
 /**
- * Start the analytics flush timer and cache node IP.
+ * Initialize analytics — cache config and node IP.
  * Call once at server startup.
  */
 function startFlushTimer() {
-  const analyticsUrl = getAnalyticsUrl();
-  if (!analyticsUrl) {
+  try {
+    analyticsUrlCached = config.analytics.url || '';
+  } catch {
+    analyticsUrlCached = '';
+  }
+
+  if (!analyticsUrlCached) {
     log.info('Analytics: disabled (no analytics.url configured)');
     return;
   }
 
-  log.info(`Analytics: enabled, sending events to ${analyticsUrl}`);
+  log.info(`Analytics: enabled, sending events to ${analyticsUrlCached}`);
 
   // Cache node IP and refresh periodically
   refreshNodeIp();
   setInterval(refreshNodeIp, NODE_IP_REFRESH_INTERVAL);
-
-  // Start flush timer
-  setInterval(flushEvents, FLUSH_INTERVAL);
 }
 
 module.exports = {
