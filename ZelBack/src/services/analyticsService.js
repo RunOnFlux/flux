@@ -12,6 +12,7 @@ let lastFailureTime = 0;
 let cachedNodeIp = null;
 let flushTimer = null;
 let analyticsUrlCached = '';
+let initialized = false;
 
 const MAX_BUFFER_SIZE = 5000;
 const FLUSH_TIMEOUT = 5000;
@@ -248,6 +249,10 @@ function trackTerminalSession(zelidauth, appName, action, ipAddress, component) 
  * Call once at server startup.
  */
 function startFlushTimer() {
+  // Guard against multiple calls (FluxServer creates HTTP + HTTPS instances)
+  if (initialized) return;
+  initialized = true;
+
   try {
     analyticsUrlCached = config.analytics.url || '';
   } catch {
