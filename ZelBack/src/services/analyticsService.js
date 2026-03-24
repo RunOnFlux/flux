@@ -39,9 +39,14 @@ async function refreshNodeIp() {
  * @param {string} zelidauth - Raw zelidauth header string
  * @param {object} event - Event data
  */
+let lastDropWarn = 0;
+
 function addEvent(zelidauth, event) {
   if (bufferTotal >= MAX_BUFFER_SIZE) {
-    log.warn('Analytics: buffer full, dropping event');
+    if (Date.now() - lastDropWarn > 30000) {
+      log.warn('Analytics: buffer full, dropping events');
+      lastDropWarn = Date.now();
+    }
     return;
   }
 
@@ -65,17 +70,22 @@ function addEvent(zelidauth, event) {
  * Groups events by zelidauth and sends each group with the user's own auth.
  */
 async function flushEvents() {
+  clearTimeout(flushTimer);
+  flushTimer = null;
+
   if (!analyticsUrlCached || isFlushing || eventBuffer.size === 0) return;
 
-  // Exponential backoff check
+  // Exponential backoff check — schedule retry at backoff expiry
   if (consecutiveFailures > 0) {
     const backoffMs = Math.min(FLUSH_TIMEOUT * (2 ** consecutiveFailures), MAX_BACKOFF);
-    if (Date.now() - lastFailureTime < backoffMs) return;
+    const elapsed = Date.now() - lastFailureTime;
+    if (elapsed < backoffMs) {
+      flushTimer = setTimeout(flushEvents, backoffMs - elapsed);
+      return;
+    }
   }
 
   isFlushing = true;
-  clearTimeout(flushTimer);
-  flushTimer = null;
 
   // Atomic swap — new events during flush go to fresh Map
   const snapshot = eventBuffer;
@@ -105,16 +115,18 @@ async function flushEvents() {
             log.warn(`Analytics: dropping ${chunk.length} events (${status} response)`);
             return 0;
           }
-          // 5xx or network error — re-merge for retry
+          // 5xx or network error — re-merge for retry if space available
           log.warn(`Analytics: flush failed for ${chunk.length} events: ${error.message}`);
           anyFailed = true;
-          if (eventBuffer.has(zelidauth)) {
-            const current = eventBuffer.get(zelidauth);
-            eventBuffer.set(zelidauth, [...chunk, ...current]);
-          } else {
-            eventBuffer.set(zelidauth, [...chunk]);
+          if (bufferTotal + chunk.length <= MAX_BUFFER_SIZE) {
+            if (eventBuffer.has(zelidauth)) {
+              const current = eventBuffer.get(zelidauth);
+              eventBuffer.set(zelidauth, [...chunk, ...current]);
+            } else {
+              eventBuffer.set(zelidauth, [...chunk]);
+            }
+            bufferTotal += chunk.length;
           }
-          bufferTotal += chunk.length;
           return 0;
         });
 
