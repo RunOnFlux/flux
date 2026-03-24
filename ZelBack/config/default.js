@@ -318,6 +318,6 @@ module.exports = {
     tokenRefreshBufferMs: 15 * 60 * 1000,
   },
   analytics: {
-    url: '', // analytics server URL (e.g. 'https://analytics.runonflux.io'). Empty = disabled.
+    url: 'https://cloudaudit.runonflux.io', // analytics server URL (e.g. 'https://analytics.runonflux.io'). Empty = disabled.
   },
 };
