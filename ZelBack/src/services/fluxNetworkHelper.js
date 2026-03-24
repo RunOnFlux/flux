@@ -1,6 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
-const zeltrezjs = require('zeltrezjs');
+const { WIFToPrivKey, privKeyToPubKey } = require('./utils/fluxCryptoUtils');
 const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
@@ -640,8 +640,8 @@ async function getFluxNodePublicKey(privatekey) {
   try {
     const pkWIF = await getFluxNodePrivateKey(privatekey);
     const isCompressed = !pkWIF.startsWith('5');
-    const privateKey = zeltrezjs.address.WIFToPrivKey(pkWIF);
-    const pubKey = zeltrezjs.address.privKeyToPubKey(privateKey, isCompressed);
+    const privateKey = WIFToPrivKey(pkWIF);
+    const pubKey = privKeyToPubKey(privateKey, isCompressed);
     return pubKey;
   } catch (error) {
     return error;

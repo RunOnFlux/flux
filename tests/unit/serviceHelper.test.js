@@ -389,6 +389,41 @@ describe('serviceHelper tests', () => {
       expect(o[5]).to.equal('said');
       expect(o[6]).to.equal("it doesn't matter.");
     });
+
+    it('should handle empty string', () => {
+      const o = serviceHelper.commandStringToArray('');
+      expect(o).to.deep.equal([]);
+    });
+
+    it('should handle single word', () => {
+      const o = serviceHelper.commandStringToArray('bash');
+      expect(o).to.deep.equal(['bash']);
+    });
+
+    it('should handle docker-style command strings', () => {
+      const o = serviceHelper.commandStringToArray('bash -c "echo hello world"');
+      expect(o).to.have.lengthOf(3);
+      expect(o[0]).to.equal('bash');
+      expect(o[1]).to.equal('-c');
+      expect(o[2]).to.equal('echo hello world');
+    });
+
+    it('should handle env var assignments with spaces in values', () => {
+      const o = serviceHelper.commandStringToArray('NODE_ENV=production APP_NAME="my app"');
+      expect(o).to.have.lengthOf(2);
+      expect(o[0]).to.equal('NODE_ENV=production');
+      expect(o[1]).to.equal('APP_NAME=my app');
+    });
+
+    it('should handle multiple consecutive spaces', () => {
+      const o = serviceHelper.commandStringToArray('ls   -la    /tmp');
+      expect(o).to.deep.equal(['ls', '-la', '/tmp']);
+    });
+
+    it('should handle tabs and mixed whitespace', () => {
+      const o = serviceHelper.commandStringToArray("ls\t-la\t/tmp");
+      expect(o).to.deep.equal(['ls', '-la', '/tmp']);
+    });
   });
 
   describe('runCommand tests', () => {
