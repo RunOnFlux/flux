@@ -1,10 +1,13 @@
 const verificationHelperUtils = require('../../services/verificationHelperUtils');
 const dockerService = require('../../services/dockerService');
 const serviceHelper = require('../../services/serviceHelper');
+const { trackTerminalSession } = require('../../services/analyticsService');
 
 const log = require('../log');
 
 async function dockerTerminalHandler(socket) {
+  const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0]?.trim() || socket.handshake.address;
+
   socket.on('exec', async (zelidauth, nameOrId, dockerCmd, dockerEnv, dockerUser) => {
     const auth = {
       zelidauth,
@@ -20,6 +23,15 @@ async function dockerTerminalHandler(socket) {
       socket.emit('error', 'Container not found.');
       return;
     }
+
+    const parts = nameOrId.split('_');
+    const component = parts.length > 1 ? parts[0].replace(/^(zel|flux)/, '') || null : null;
+    const analyticsAppName = parts.length > 1 ? mainAppName : mainAppName.replace(/^(zel|flux)/, '');
+    trackTerminalSession(zelidauth, analyticsAppName, 'open', clientIp, component);
+    socket.on('disconnect', () => {
+      trackTerminalSession(zelidauth, analyticsAppName, 'close', clientIp, component);
+    });
+
     const cmd = {
       AttachStdout: true,
       AttachStderr: true,
