@@ -39,15 +39,18 @@ async function refreshNodeIp() {
  * @param {string} zelidauth - Raw zelidauth header string
  * @param {object} event - Event data
  */
-let lastDropWarn = 0;
-
 function addEvent(zelidauth, event) {
   if (bufferTotal >= MAX_BUFFER_SIZE) {
-    if (Date.now() - lastDropWarn > 30000) {
-      log.warn('Analytics: buffer full, dropping events');
-      lastDropWarn = Date.now();
+    // Drop oldest 20% from each group proportionally — keeps fresh events, amortized O(1)
+    let dropped = 0;
+    for (const [key, events] of eventBuffer) {
+      const toDrop = Math.ceil(events.length * 0.2);
+      events.splice(0, toDrop);
+      dropped += toDrop;
+      if (events.length === 0) eventBuffer.delete(key);
     }
-    return;
+    bufferTotal -= dropped;
+    log.warn(`Analytics: buffer full, dropped ${dropped} oldest events`);
   }
 
   if (!eventBuffer.has(zelidauth)) {
@@ -108,24 +111,27 @@ async function flushEvents() {
             headers: { zelidauth },
             timeout: REQUEST_TIMEOUT,
           },
-        ).then(() => chunk.length).catch((error) => {
+        ).catch((error) => {
           const status = error.response?.status;
-          if (status && status >= 400 && status < 500) {
+          if (status && status >= 400 && status < 500 && status !== 429) {
             // 4xx — bad request, retrying won't help, drop batch
             log.warn(`Analytics: dropping ${chunk.length} events (${status} response)`);
             return 0;
           }
-          // 5xx or network error — re-merge for retry if space available
+          // 5xx, 429, or network error — re-merge for retry if space available
           log.warn(`Analytics: flush failed for ${chunk.length} events: ${error.message}`);
           anyFailed = true;
-          if (bufferTotal + chunk.length <= MAX_BUFFER_SIZE) {
+          const available = MAX_BUFFER_SIZE - bufferTotal;
+          if (available > 0) {
+            // Keep newest events from failed chunk if only partial space
+            const remerge = chunk.length <= available ? chunk : chunk.slice(-available);
             if (eventBuffer.has(zelidauth)) {
               const current = eventBuffer.get(zelidauth);
-              eventBuffer.set(zelidauth, [...chunk, ...current]);
+              eventBuffer.set(zelidauth, [...remerge, ...current]);
             } else {
-              eventBuffer.set(zelidauth, [...chunk]);
+              eventBuffer.set(zelidauth, [...remerge]);
             }
-            bufferTotal += chunk.length;
+            bufferTotal += remerge.length;
           }
           return 0;
         });
@@ -149,6 +155,10 @@ async function flushEvents() {
     }
   } finally {
     isFlushing = false;
+    // Schedule flush for events that arrived during flush or were re-merged
+    if (eventBuffer.size > 0 && !flushTimer) {
+      flushTimer = setTimeout(flushEvents, FLUSH_TIMEOUT);
+    }
   }
 }
 
