@@ -94,6 +94,7 @@ const VerifyResult = Object.freeze({
   MALFORMED: 'malformed',
   NODE_NOT_FOUND: 'nodeNotFound',
   BAD_SIGNATURE: 'badSignature',
+  PUBKEY_MISMATCH: 'pubkeyMismatch',
 });
 
 async function verifyFluxBroadcast(broadcast) {
@@ -188,13 +189,19 @@ async function verifyFluxBroadcast(broadcast) {
   }
 
   // if we get a map, we have hit the default case and searched for pubkeys
-  const found = target instanceof Map
-    ? true
-    : Boolean(await networkStateService.getFluxnodeBySocketAddress(target));
-
-  if (!found) {
-    log.warn(error);
-    return VerifyResult.NODE_NOT_FOUND;
+  if (target instanceof Map) {
+    // default case: already verified pubkey exists in network
+  } else {
+    const node = await networkStateService.getFluxnodeBySocketAddress(target);
+    if (!node) {
+      log.warn(error);
+      return VerifyResult.NODE_NOT_FOUND;
+    }
+    // verify the sender's pubKey matches the node at the target IP
+    if (node.pubkey !== pubKey) {
+      log.warn(`Sender pubkey ${pubKey} does not match node at ${target}`);
+      return VerifyResult.PUBKEY_MISMATCH;
+    }
   }
 
   const messageToVerify = version + message + timestamp;
