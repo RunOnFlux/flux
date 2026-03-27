@@ -105,6 +105,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
         callback();
       });
@@ -140,6 +141,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       sinon.stub(net.Socket.prototype, 'connect').callsFake((port, ip, callback) => {
         callback();
       });
@@ -176,6 +178,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilityErrorResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedMessage = {
         status: 'error',
@@ -297,6 +300,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
         callback();
       });
@@ -323,6 +327,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
         callback();
       });
@@ -344,6 +349,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
@@ -359,6 +365,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
@@ -369,11 +376,22 @@ describe('fluxNetworkHelper tests', () => {
 
     it('Should return false if axios request throws error', async () => {
       stub = sinon.stub(serviceHelper, 'axiosGet').throws();
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
 
       sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
+      expect(isFluxAvailableResult).to.equal(false);
+    });
+
+    it('Should return false if node is not a confirmed flux node', async () => {
+      stub = sinon.stub(serviceHelper, 'axiosGet');
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(false);
+
+      const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
+
+      sinon.assert.notCalled(stub);
       expect(isFluxAvailableResult).to.equal(false);
     });
   });

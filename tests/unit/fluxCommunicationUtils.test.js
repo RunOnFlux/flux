@@ -577,12 +577,42 @@ describe('fluxCommunicationUtils tests', () => {
         signature,
       };
 
-      // Mock that node exists in network state
-      networkStateStub.withArgs(nodeIp).resolves({ ip: nodeIp, tier: 'CUMULUS' });
+      // Mock that node exists in network state with matching pubkey
+      networkStateStub.withArgs(nodeIp).resolves({ ip: nodeIp, tier: 'CUMULUS', pubkey: pubKey });
 
       const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend);
 
       expect(isValid).to.equal(VerifyResult.OK);
+    });
+
+    it('should return pubkeyMismatch for fluxnodesigterm message with wrong pubkey', async () => {
+      const nodeIp = '192.168.1.100:16127';
+      const broadcastedAt = Date.now();
+      const data = {
+        type: 'fluxnodesigterm',
+        ip: nodeIp,
+        broadcastedAt,
+        version: 1,
+      };
+      const message = JSON.stringify(data);
+      const timestamp = Date.now();
+      const version = 1;
+      const messageToSign = version + message + timestamp;
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp,
+        data,
+        signature,
+      };
+
+      // Mock node exists but with a different pubkey
+      networkStateStub.withArgs(nodeIp).resolves({ ip: nodeIp, tier: 'CUMULUS', pubkey: 'differentpubkey123' });
+
+      const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend);
+
+      expect(isValid).to.equal(VerifyResult.PUBKEY_MISMATCH);
     });
 
     it('should return false for fluxnodesigterm message from unknown node', async () => {
@@ -634,7 +664,7 @@ describe('fluxCommunicationUtils tests', () => {
         signature: 'invalidsignature12345',
       };
 
-      networkStateStub.withArgs(nodeIp).resolves({ ip: nodeIp, tier: 'CUMULUS' });
+      networkStateStub.withArgs(nodeIp).resolves({ ip: nodeIp, tier: 'CUMULUS', pubkey: pubKey });
 
       const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend);
 
