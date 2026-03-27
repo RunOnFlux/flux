@@ -126,11 +126,12 @@ describe('appHashSyncService tests', () => {
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
-      '../utils/establishedConnections': {
-        outgoingPeers: [
-          { ip: '192.168.1.1', port: 16127 },
-          { ip: '192.168.1.2', port: 16127 },
-        ],
+      '../utils/peerState': {
+        peerManager: {
+          getRandomPeer: () => ({
+            toPeerInfo: () => ({ ip: '192.168.1.1', port: '16127' }),
+          }),
+        },
       },
     });
   });

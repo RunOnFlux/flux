@@ -35,13 +35,13 @@ const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const { requireMongo } = require('./dbTestHelper');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 
 const net = require('node:net');
 
-const {
-  outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
-} = require('../../ZelBack/src/services/utils/establishedConnections');
+const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
+const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -105,6 +105,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
         callback();
       });
@@ -140,6 +141,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       sinon.stub(net.Socket.prototype, 'connect').callsFake((port, ip, callback) => {
         callback();
       });
@@ -176,6 +178,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilityErrorResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedMessage = {
         status: 'error',
@@ -297,6 +300,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
         callback();
       });
@@ -323,6 +327,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
         callback();
       });
@@ -344,6 +349,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
@@ -359,6 +365,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
@@ -369,11 +376,22 @@ describe('fluxNetworkHelper tests', () => {
 
     it('Should return false if axios request throws error', async () => {
       stub = sinon.stub(serviceHelper, 'axiosGet').throws();
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
 
       sinon.assert.calledWithExactly(stub, expectedAddress, axiosConfig);
+      expect(isFluxAvailableResult).to.equal(false);
+    });
+
+    it('Should return false if node is not a confirmed flux node', async () => {
+      stub = sinon.stub(serviceHelper, 'axiosGet');
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(false);
+
+      const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
+
+      sinon.assert.notCalled(stub);
       expect(isFluxAvailableResult).to.equal(false);
     });
   });
@@ -445,42 +463,32 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('closeConnection tests', () => {
     before(() => {
-      outgoingConnections.length = 0;
-      outgoingPeers.length = 0;
+      peerManager.reset();
     });
 
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
-      ws.port = port;
+      ws.port = String(port);
       ws.ip = ip;
       ws.readyState = readyState;
       ws.ping = sinon.stub().returns('pong');
       ws.close = sinon.stub().returns('okay');
+      ws.on = sinon.stub();
       ws._socket = {
         remoteAddress: ip,
       };
-      outgoingConnections.push(ws);
+      peerManager.add(ws, ip, String(port), { source: PEER_SOURCE.RANDOM });
       return ws;
-    };
-    const addPeerToListOfPeers = (ip, port) => {
-      const peer = {
-        ip,
-        port,
-        latency: 50,
-      };
-      outgoingPeers.push(peer);
-      return peer;
     };
 
     afterEach(() => {
-      outgoingConnections.length = 0;
-      outgoingPeers.length = 0;
+      peerManager.reset();
       sinon.restore();
     });
 
     it('should close outgoing connection properly if it exists', async () => {
       const ip = '127.9.9.1';
-      const port = 16127;
+      const port = '16127';
       const successMessage = {
         status: 'success',
         data: {
@@ -490,22 +498,16 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
-      websocket.ip = ip;
-      websocket.port = port;
-      addPeerToListOfPeers(ip, port);
-      incomingConnections.push(websocket);
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
-      sinon.assert.calledOnceWithExactly(websocket.close, 4009, 'purpusfully closed');
+      sinon.assert.calledOnceWithExactly(websocket.close, 4009, 'purposefully closed');
       expect(closeConnectionResult).to.eql(successMessage);
-      expect(outgoingConnections).to.have.length(0);
-      expect(outgoingPeers).to.have.length(0);
     });
 
     it('should close outgoing connection properly if it exists and peer is not added to the list', async () => {
       const ip = '127.9.9.1';
-      const port = 16127;
+      const port = '16127';
       const successMessage = {
         status: 'success',
         data: {
@@ -518,16 +520,14 @@ describe('fluxNetworkHelper tests', () => {
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
-      sinon.assert.calledOnceWithExactly(websocket.close, 4009, 'purpusfully closed');
+      sinon.assert.calledOnceWithExactly(websocket.close, 4009, 'purposefully closed');
       expect(closeConnectionResult).to.eql(successMessage);
-      expect(outgoingConnections).to.have.length(0);
-      expect(outgoingPeers).to.have.length(0);
     });
 
     it('should return warning message if the websocket does not exist', async () => {
       const ip = '127.9.9.1';
       const ip2 = '127.5.5.2';
-      const port = 16127;
+      const port = '16127';
       const errorMessage = {
         status: 'warning',
         data: {
@@ -536,19 +536,21 @@ describe('fluxNetworkHelper tests', () => {
           message: `Connection to ${ip}:${port} does not exists.`,
         },
       };
-      addPeerToListOfPeers(ip2, port);
-      outgoingConnections.push({ ip: ip2, port });
+      // Add a different peer so the target one is not found
+      const ws2 = {
+        ip: ip2, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
+      };
+      peerManager.add(ws2, ip2, port, { source: PEER_SOURCE.RANDOM });
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
       expect(closeConnectionResult).to.eql(errorMessage);
-      expect(outgoingConnections).to.have.length(1);
-      expect(outgoingPeers).to.have.length(1);
+      expect(peerManager.outboundCount).to.equal(1);
     });
 
     it('should return warning message if ip is not provided', async () => {
       const ip2 = '127.5.5.2';
-      const port = 16127;
+      const port = '16127';
       const errorMessage = {
         status: 'warning',
         data: {
@@ -557,43 +559,32 @@ describe('fluxNetworkHelper tests', () => {
           message: 'To close a connection please provide a proper IP number.',
         },
       };
-      const websocket = generateWebsocket(ip2, port, WebSocket.OPEN);
-      addPeerToListOfPeers(ip2, port);
+      const ws = {
+        ip: ip2, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
+      };
+      peerManager.add(ws, ip2, port, { source: PEER_SOURCE.RANDOM });
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection();
 
-      sinon.assert.notCalled(websocket.close);
+      sinon.assert.notCalled(ws.close);
       expect(closeConnectionResult).to.eql(errorMessage);
-      expect(outgoingConnections).to.have.length(1);
-      expect(outgoingPeers).to.have.length(1);
+      expect(peerManager.outboundCount).to.equal(1);
     });
   });
 
   describe('closeIncomingConnection tests', () => {
     before(() => {
-      incomingConnections.length = 0;
-      incomingPeers.length = 0;
+      peerManager.reset();
     });
 
-    const addPeerToListOfPeers = (ip, port) => {
-      const peer = {
-        ip,
-        port,
-        latency: 50,
-      };
-      incomingPeers.push(peer);
-      return peer;
-    };
-
     afterEach(() => {
-      incomingConnections.length = 0;
-      incomingPeers.length = 0;
+      peerManager.reset();
       sinon.restore();
     });
 
     it('should return warning message if the websocket does not exist', async () => {
       const ip2 = '127.5.5.2';
-      const port = 16127;
+      const port = '16127';
       const errorMessage = {
         status: 'warning',
         data: {
@@ -602,14 +593,15 @@ describe('fluxNetworkHelper tests', () => {
           message: 'To close a connection please provide a proper IP number.',
         },
       };
-      addPeerToListOfPeers(ip2, port);
-      incomingConnections.push({ ip: ip2, port });
+      const ws = {
+        ip: ip2, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
+      };
+      peerManager.add(ws, ip2, port, { source: PEER_SOURCE.INBOUND });
 
       const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection();
 
       expect(closeConnectionResult).to.eql(errorMessage);
-      expect(incomingConnections).to.have.length(1);
-      expect(incomingPeers).to.have.length(1);
+      expect(peerManager.inboundCount).to.equal(1);
     });
   });
 
@@ -622,14 +614,19 @@ describe('fluxNetworkHelper tests', () => {
     };
 
     afterEach(() => {
-      incomingPeers.length = 0;
+      peerManager.reset();
       sinon.restore();
     });
 
     it('should return success message with incoming connections\' ips', async () => {
       const ips = ['127.0.0.1', '127.0.0.2'];
-      const port = 16127;
-      ips.forEach((ip) => incomingPeers.push({ ip, port }));
+      const port = '16127';
+      ips.forEach((ip) => {
+        const ws = {
+          ip, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
+        };
+        peerManager.add(ws, ip, port, { source: PEER_SOURCE.INBOUND });
+      });
 
       const res = generateResponse();
       const expectedCallArgumeent = { status: 'success', data: ['127.0.0.1', '127.0.0.2'] };
@@ -656,18 +653,9 @@ describe('fluxNetworkHelper tests', () => {
       res.json = sinon.fake((param) => param);
       return res;
     };
-    const addPeerToListOfPeers = (ip, port) => {
-      const peer = {
-        ip,
-        port,
-        latency: 50,
-      };
-      incomingPeers.push(peer);
-      return peer;
-    };
 
     beforeEach(() => {
-      incomingPeers.length = 0;
+      peerManager.reset();
     });
 
     afterEach(() => {
@@ -676,15 +664,19 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should return success message with incoming connections\' info', async () => {
       const ips = ['127.0.0.1', '127.0.0.2'];
-      const port = 16127;
-      addPeerToListOfPeers(ips[0], port);
-      addPeerToListOfPeers(ips[1], port);
+      const port = '16127';
+      ips.forEach((ip) => {
+        const ws = {
+          ip, port, readyState: WebSocket.OPEN, close: sinon.stub(), ping: sinon.stub(), on: sinon.stub(),
+        };
+        peerManager.add(ws, ip, port, { source: PEER_SOURCE.INBOUND });
+      });
       const res = generateResponse();
       const expectedCallArgumeent = {
         status: 'success',
         data: [
-          { ip: '127.0.0.1', port: 16127, latency: 50 },
-          { ip: '127.0.0.2', port: 16127, latency: 50 },
+          { ip: '127.0.0.1', port: '16127' },
+          { ip: '127.0.0.2', port: '16127' },
         ],
       };
 
@@ -813,10 +805,7 @@ describe('fluxNetworkHelper tests', () => {
   describe('checkMyFluxAvailability tests', () => {
     let getRandomSocketAddress;
 
-    before(async () => {
-      // need this if running tests standalone
-      await dbHelper.initiateDB();
-    });
+    before(requireMongo);
 
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed('5.0.0');
@@ -2064,6 +2053,8 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('adjustFirewall tests', () => {
+    before(function () { if (process.platform !== 'linux') this.skip(); });
+
     let utilStub;
     let funcStub;
     let logSpy;
@@ -2145,29 +2136,31 @@ describe('fluxNetworkHelper tests', () => {
       return res;
     };
     const populatePeers = (numberOfincomingPeers, numberOfOutgoingPeers) => {
-      outgoingPeers.length = 0;
-      incomingPeers.length = 0;
+      peerManager.reset();
       const baseIp = '192.168.0.';
       for (let i = 1; i <= numberOfincomingPeers; i += 1) {
-        const dummyPeer = {
+        const ws = {
           ip: `${baseIp}${i}`,
-          port: 16127,
-          lastPingTime: Date.now(),
-          latency: 50,
+          port: '16127',
+          readyState: WebSocket.OPEN,
+          close: sinon.stub(),
+          ping: sinon.stub(),
+          on: sinon.stub(),
         };
-        incomingPeers.push(dummyPeer);
+        peerManager.add(ws, `${baseIp}${i}`, '16127', { source: PEER_SOURCE.INBOUND });
       }
 
       for (let i = 1; i <= numberOfOutgoingPeers; i += 1) {
-        const dummyPeer = {
-          ip: `${baseIp}${i}`,
-          port: 16127,
-          lastPingTime: Date.now(),
-          latency: 50,
+        const ws = {
+          ip: `${baseIp}${100 + i}`,
+          port: '16127',
+          readyState: WebSocket.OPEN,
+          close: sinon.stub(),
+          ping: sinon.stub(),
+          on: sinon.stub(),
         };
-        outgoingPeers.push(dummyPeer);
+        peerManager.add(ws, `${baseIp}${100 + i}`, '16127', { source: PEER_SOURCE.RANDOM });
       }
-      return { incomingPeers, outgoingPeers };
     };
 
     const expectedSuccesssResponse = {
@@ -2196,8 +2189,7 @@ describe('fluxNetworkHelper tests', () => {
     };
 
     afterEach(() => {
-      outgoingPeers.length = 0;
-      incomingPeers.length = 0;
+      peerManager.reset();
       sinon.restore();
     });
 
@@ -2248,6 +2240,175 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxUptime.data).to.be.gte(ut);
       const utb = process.uptime();
       expect(fluxUptime.data).to.be.lte(utb);
+    });
+  });
+
+  describe('parseChronyOffset tests', () => {
+    it('should parse slow offset', () => {
+      const output = 'System time     : 0.000012345 seconds slow of NTP time';
+      expect(fluxNetworkHelper.parseChronyOffset(output)).to.equal(-0.000012345);
+    });
+
+    it('should parse fast offset', () => {
+      const output = 'System time     : 0.000054321 seconds fast of NTP time';
+      expect(fluxNetworkHelper.parseChronyOffset(output)).to.equal(0.000054321);
+    });
+
+    it('should return null for unparseable output', () => {
+      expect(fluxNetworkHelper.parseChronyOffset('garbage')).to.equal(null);
+    });
+  });
+
+  describe('parseTimesyncOffset tests', () => {
+    it('should parse millisecond offset', () => {
+      const output = 'Offset: +1.234ms';
+      expect(fluxNetworkHelper.parseTimesyncOffset(output)).to.be.closeTo(0.001234, 1e-9);
+    });
+
+    it('should parse microsecond offset', () => {
+      const output = 'Offset: -567us';
+      expect(fluxNetworkHelper.parseTimesyncOffset(output)).to.be.closeTo(-0.000567, 1e-9);
+    });
+
+    it('should parse second offset', () => {
+      const output = 'Offset: +2.5s';
+      expect(fluxNetworkHelper.parseTimesyncOffset(output)).to.equal(2.5);
+    });
+
+    it('should return null for unparseable output', () => {
+      expect(fluxNetworkHelper.parseTimesyncOffset('garbage')).to.equal(null);
+    });
+  });
+
+  describe('getClockDrift tests', () => {
+    let runCommandStub;
+
+    beforeEach(() => {
+      fluxNetworkHelper.resetNtpSource();
+      sinon.stub(log, 'info');
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return chrony offset when chrony is available', async () => {
+      runCommandStub.resolves({
+        error: null,
+        stdout: 'System time     : 0.000003456 seconds fast of NTP time',
+      });
+
+      const result = await fluxNetworkHelper.getClockDrift();
+
+      expect(result.source).to.equal('chrony');
+      expect(result.offset).to.equal(0.000003456);
+      expect(result.time).to.be.a('number');
+      // detection call + drift call
+      sinon.assert.calledTwice(runCommandStub);
+      sinon.assert.alwaysCalledWith(runCommandStub, 'chronyc', sinon.match.object);
+    });
+
+    it('should fall back to timesyncd when chrony is not available', async () => {
+      runCommandStub.withArgs('chronyc', sinon.match.any).resolves({
+        error: new Error('command not found'),
+        stdout: '',
+      });
+      runCommandStub.withArgs('timedatectl', sinon.match.any).resolves({
+        error: null,
+        stdout: 'Offset: +1.234ms',
+      });
+
+      const result = await fluxNetworkHelper.getClockDrift();
+
+      expect(result.source).to.equal('timesyncd');
+      expect(result.offset).to.be.closeTo(0.001234, 1e-9);
+    });
+
+    it('should return source none when neither is available', async () => {
+      runCommandStub.resolves({
+        error: new Error('command not found'),
+        stdout: '',
+      });
+
+      const result = await fluxNetworkHelper.getClockDrift();
+
+      expect(result.source).to.equal('none');
+      expect(result.offset).to.equal(null);
+    });
+
+    it('should cache the NTP source and only detect once', async () => {
+      runCommandStub.resolves({
+        error: null,
+        stdout: 'System time     : 0.000001000 seconds slow of NTP time',
+      });
+
+      await fluxNetworkHelper.getClockDrift();
+      await fluxNetworkHelper.getClockDrift();
+
+      // detection (1 call) + 2 drift queries = 3 calls, all to chronyc
+      sinon.assert.calledThrice(runCommandStub);
+      sinon.assert.alwaysCalledWith(runCommandStub, 'chronyc', sinon.match.object);
+    });
+
+    it('should return null offset if chrony output is unparseable', async () => {
+      runCommandStub.resolves({
+        error: null,
+        stdout: 'Reference ID    : some garbage',
+      });
+
+      const result = await fluxNetworkHelper.getClockDrift();
+
+      // detection succeeds (no error) so source is chrony, but offset parse fails
+      expect(result.source).to.equal('chrony');
+      expect(result.offset).to.equal(null);
+    });
+  });
+
+  describe('clockDrift API handler tests', () => {
+    let runCommandStub;
+    let res;
+
+    beforeEach(() => {
+      fluxNetworkHelper.resetNtpSource();
+      sinon.stub(log, 'info');
+      runCommandStub = sinon.stub(serviceHelper, 'runCommand');
+      res = { json: sinon.stub() };
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return success response with drift data', async () => {
+      runCommandStub.resolves({
+        error: null,
+        stdout: 'System time     : 0.000005000 seconds fast of NTP time',
+      });
+
+      await fluxNetworkHelper.clockDrift(null, res);
+
+      sinon.assert.calledOnce(res.json);
+      const response = res.json.firstCall.args[0];
+      expect(response.status).to.equal('success');
+      expect(response.data.source).to.equal('chrony');
+      expect(response.data.offset).to.equal(0.000005);
+      expect(response.data.time).to.be.a('number');
+    });
+
+    it('should return none when both sources fail', async () => {
+      runCommandStub.resolves({
+        error: new Error('command not found'),
+        stdout: '',
+      });
+
+      await fluxNetworkHelper.clockDrift(null, res);
+
+      sinon.assert.calledOnce(res.json);
+      const response = res.json.firstCall.args[0];
+      expect(response.status).to.equal('success');
+      expect(response.data.source).to.equal('none');
+      expect(response.data.offset).to.equal(null);
     });
   });
 

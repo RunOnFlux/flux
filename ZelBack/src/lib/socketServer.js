@@ -1,6 +1,9 @@
 const { match } = require('path-to-regexp');
 const WebSocketServer = require('ws').Server;
 const log = require('./log');
+const { FLUX_VERSION } = require('../services/utils/FluxPeerSocket');
+
+const LOCAL_CAPABILITIES = ['transmissionTimestamps', 'peerExchange', 'binaryMessages'];
 
 class FluxWebsocketServer {
   static defautlErrorHandler = () => { };
@@ -45,6 +48,19 @@ class FluxWebsocketServer {
       }
     });
 
+    // Add our capabilities and clock offset to every WS upgrade response header.
+    // Old nodes silently ignore unknown headers.
+    this.#socketServer.on('headers', (headers) => {
+      headers.push(`X-Flux-Capabilities: ${LOCAL_CAPABILITIES.join(',')}`);
+      headers.push(`X-Flux-Version: ${FLUX_VERSION}`);
+      // Lazy require to avoid circular deps at module load time
+      const fluxNetworkHelper = require('../services/fluxNetworkHelper');
+      const offsetMs = fluxNetworkHelper.getLocalClockOffsetMs();
+      if (offsetMs !== null) {
+        headers.push(`X-Flux-Clock-Offset: ${offsetMs}`);
+      }
+    });
+
     this.#socketServer.on('connection', (ws, request) => {
       ws.on('error', (err) => this.errorHandler(err));
 
@@ -52,7 +68,7 @@ class FluxWebsocketServer {
 
       const handler = this.matchRoute(url);
 
-      if (handler) handler(ws);
+      if (handler) handler(ws, request);
     });
   }
 
@@ -78,9 +94,7 @@ class FluxWebsocketServer {
     });
 
     if (routeHandler) {
-      // Should probably pass these as is but all handlers only
-      // have one param, so easier this way for now
-      return (ws) => routeHandler(ws, ...Object.values(params));
+      return (ws, request) => routeHandler(ws, ...Object.values(params), request);
     }
 
     return null;

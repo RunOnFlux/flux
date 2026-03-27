@@ -7,8 +7,11 @@ const registryManager = require('../../ZelBack/src/services/appDatabase/registry
 // eslint-disable-next-line no-unused-vars
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const { requireMongo } = require('./dbTestHelper');
 
 describe('registryManager tests', () => {
+  before(requireMongo);
+
   let db;
   let database;
 

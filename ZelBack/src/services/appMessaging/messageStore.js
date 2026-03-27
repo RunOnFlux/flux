@@ -139,7 +139,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       // previousAppSpecs already fetched above for update validation
       const { owner } = previousAppSpecs;
       // here signature is checked against PREVIOUS app owner
-      await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block);
+      await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block, previousAppSpecs);
     }
   }
 

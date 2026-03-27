@@ -9,6 +9,7 @@ const deviceHelper = require('./deviceHelper');
 const generalService = require('./generalService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const log = require('../lib/log');
+const cpuBurstHelper = require('./utils/cpuBurstHelper');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -700,6 +701,17 @@ const getContainerIP = async (containerName) => {
  * @param {bool} isComponent
  * @returns {object}
  */
+async function getCpuHostConfig(fullAppSpecs, appSpecifications, identifier) {
+  const appOwner = fullAppSpecs?.owner || null;
+  const isBurstEligible = appOwner && cpuBurstHelper.isEnterpriseOwner(appOwner) && await cpuBurstHelper.isCpuBurstSupported();
+  if (isBurstEligible) {
+    const { periodUs, quotaUs } = cpuBurstHelper.calculateBurstParams(appSpecifications.cpu);
+    log.info(`CPU burst: using CpuPeriod/CpuQuota for enterprise app ${identifier} (period=${periodUs}, quota=${quotaUs})`);
+    return { CpuPeriod: periodUs, CpuQuota: quotaUs };
+  }
+  return { NanoCPUs: Math.round(appSpecifications.cpu * 1e9) };
+}
+
 async function appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   let exposedPorts = {};
@@ -876,6 +888,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       },
     };
   const autoAssignedIP = await getNextAvailableIPForApp(appName);
+  const cpuHostConfig = await getCpuHostConfig(fullAppSpecs, appSpecifications, identifier);
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -890,7 +903,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     // Conditionally include Labels only if it's not null
     ...(labels && { Labels: labels }),
     HostConfig: {
-      NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
+      ...cpuHostConfig,
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
       MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
@@ -1003,6 +1016,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     log.error(error);
     throw error;
   });
+
   return app;
 }
 
@@ -1042,6 +1056,21 @@ async function appDockerStart(idOrName) {
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
     await dockerContainer.start(); // may throw
+
+    // Apply CFS burst after start — cgroup paths only exist once the container is running
+    try {
+      const containerInspect = await dockerContainer.inspect();
+      const hostCfg = containerInspect.HostConfig || {};
+      if (hostCfg.CpuPeriod > 0 && hostCfg.CpuQuota > 0 && await cpuBurstHelper.isCpuBurstSupported()) {
+        const cpuCores = hostCfg.CpuQuota / hostCfg.CpuPeriod;
+        const { burstUs } = cpuBurstHelper.calculateBurstParams(cpuCores);
+        await cpuBurstHelper.setCpuBurst(containerInspect.Id, burstUs);
+      }
+    } catch (burstError) {
+      // Burst is best-effort — do not fail container start
+      log.warn(`CPU burst: failed to configure burst for ${idOrName}: ${burstError.message}`);
+    }
+
     return `Flux App ${idOrName} successfully started.`;
   } catch (error) {
     log.error(error);
