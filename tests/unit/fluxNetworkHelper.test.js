@@ -1413,6 +1413,7 @@ describe('fluxNetworkHelper tests', () => {
         {
           status: 'success',
           data: {
+            status: 'CONFIRMED',
             collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
           },
         },
@@ -1420,6 +1421,33 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
+      expect(fluxNetworkHelper.getDosMessage()).to.be.null;
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+    });
+
+    it('should skip availability check when node status is not CONFIRMED', async () => {
+      const ip = '127.0.0.1:5050';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: { ipaddress: ip },
+      };
+      getBenchmarksStub.resolves(getBenchmarkResponseData);
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      // Node is not in the deterministic list (expired)
+      deterministicFluxListStub.returns([]);
+      getFluxNodeStatusStub.returns(
+        {
+          status: 'success',
+          data: {
+            status: 'expired',
+            collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
+          },
+        },
+      );
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      // Node is expired and not in list — availability check is skipped, no DOS penalty
       expect(fluxNetworkHelper.getDosMessage()).to.be.null;
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });

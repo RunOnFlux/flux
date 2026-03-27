@@ -1427,6 +1427,16 @@ async function checkDeterministicNodesCollisions() {
           }
         }
       }
+      // If this node is not CONFIRMED, remote nodes will reject the availability
+      // check (they verify confirmed status before probing ports). Skip to avoid
+      // spamming the network with requests that will always fail.
+      if (nodeStatus.data?.status !== 'CONFIRMED') {
+        log.warn(`Node status is ${nodeStatus.data?.status}. Skipping remote availability check.`);
+        setTimeout(() => {
+          checkDeterministicNodesCollisions();
+        }, 60 * 1000);
+        return;
+      }
       // early stages of the network or testnet
       if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
         await checkMyFluxAvailability();
