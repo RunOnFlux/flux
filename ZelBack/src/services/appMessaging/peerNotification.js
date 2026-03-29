@@ -412,4 +412,5 @@ async function checkAndNotifyPeersOfRunningApps(
 
 module.exports = {
   checkAndNotifyPeersOfRunningApps,
+  handleMissingMasterSlaveContainer,
 };

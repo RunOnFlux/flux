@@ -211,6 +211,7 @@ describe('appInstaller tests', () => {
       '../appQuery/appQueryService': {
         installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
         listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+        decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps),
       },
       '../utils/enterpriseHelper': enterpriseHelperStub,
       '../utils/appSpecHelpers': appSpecHelpersStub,
@@ -1051,6 +1052,96 @@ describe('appInstaller tests', () => {
       expect(logStub.error.called).to.be.true;
       expect(res.write.called).to.be.true;
       expect(result).to.be.false;
+    });
+  });
+
+  describe('prune guard with encrypted enterprise apps', () => {
+    it('should call decryptEnterpriseApps on installed apps during registration', async () => {
+      const encryptedApp = {
+        version: 8,
+        name: 'enterpriseapp123',
+        compose: [],
+        enterprise: 'encryptedblob',
+      };
+      const decryptedApp = {
+        version: 8,
+        name: 'enterpriseapp123',
+        compose: [{ name: 'MyComponent', containerData: 'r:' }],
+        enterprise: 'encryptedblob',
+      };
+      const decryptEnterpriseAppsStub = sinon.stub().resolves([decryptedApp]);
+      const pruneContainersStub = sinon.stub().resolves();
+
+      // Use proxyquire without noCallThru so lazy requires are intercepted
+      const appInstallerFresh = proxyquire.noCallThru().load('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        config: configStub,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../dbHelper': {
+          databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+          findInDatabase: sinon.stub().resolves([]),
+          findOneInDatabase: sinon.stub().resolves(null),
+          insertOneToDatabase: sinon.stub().resolves(),
+        },
+        '../serviceHelper': { ensureString: sinon.stub().returnsArg(0), ensureNumber: sinon.stub().returnsArg(0), delay: sinon.stub().resolves() },
+        '../generalService': { nodeTier: sinon.stub().resolves('cumulus'), checkSynced: sinon.stub().resolves(true) },
+        '../benchmarkService': { getBenchmarks: sinon.stub().resolves({ status: 'success', data: { ipaddress: '192.168.1.1' } }) },
+        '../daemonService/daemonServiceMiscRpcs': { isDaemonSynced: sinon.stub().returns({ status: 'success', data: { synced: true, height: 2094961 } }) },
+        '../fluxNetworkHelper': { getNumberOfPeers: sinon.stub().returns(15), isFirewallActive: sinon.stub().resolves(false), allowPort: sinon.stub().resolves({ status: true }), removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true) },
+        '../geolocationService': { isStaticIP: sinon.stub().returns(true) },
+        '../dockerService': {
+          dockerListContainers: sinon.stub().resolves([]),
+          pruneContainers: pruneContainersStub,
+          pruneNetworks: sinon.stub().resolves(),
+          pruneVolumes: sinon.stub().resolves(),
+          pruneImages: sinon.stub().resolves(),
+          createFluxAppDockerNetwork: sinon.stub().resolves('net'),
+          getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
+          appDockerCreate: sinon.stub().resolves(),
+          appDockerStart: sinon.stub().resolves('ok'),
+          getAppIdentifier: sinon.stub().returns('testapp'),
+          dockerPullStream: sinon.stub().yields(null, 'pulled'),
+        },
+        './appUninstaller': { removeAppLocally: sinon.stub().resolves() },
+        './advancedWorkflows': { createAppVolume: sinon.stub().resolves() },
+        '../fluxCommunicationMessagesSender': { broadcastMessageToOutgoing: sinon.stub().resolves(), broadcastMessageToIncoming: sinon.stub().resolves() },
+        '../appMessaging/messageStore': { storeAppRunningMessage: sinon.stub().resolves(), storeAppInstallingErrorMessage: sinon.stub().resolves() },
+        '../appSystem/systemIntegration': { systemArchitecture: sinon.stub().resolves('amd64') },
+        '../appSecurity/imageManager': { checkApplicationImagesCompliance: sinon.stub().resolves(), verifyRepository: sinon.stub().resolves({ verified: true, supportedArchitectures: ['amd64'] }) },
+        '../appManagement/appInspector': { startAppMonitoring: sinon.stub() },
+        '../utils/imageVerifier': { ImageVerifier: sinon.stub().returns({ addCredentials: sinon.stub(), verifyImage: sinon.stub().resolves(), throwIfError: sinon.stub(), supported: true, provider: 'docker.io' }) },
+        '../pgpService': { decryptMessage: sinon.stub().resolves('user:token') },
+        '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
+        '../utils/enterpriseHelper': enterpriseHelperStub,
+        '../utils/appSpecHelpers': appSpecHelpersStub,
+        '../utils/globalState': { removalInProgress: false, installationInProgress: false, masterSlaveAppsRunning: false },
+        '../../lib/log': logStub,
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
+        '../appMessaging/messageVerifier': messageVerifierStub,
+        '../appDatabase/registryManager': { availableApps: sinon.stub().resolves([]), getApplicationGlobalSpecifications: sinon.stub().resolves(null) },
+        '../appRequirements/hwRequirements': hwRequirementsStub,
+        '../appQuery/appQueryService': {
+          installedApps: sinon.stub().resolves({ status: 'success', data: [encryptedApp] }),
+          listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+          decryptEnterpriseApps: decryptEnterpriseAppsStub,
+        },
+        '../utils/registryCredentialHelper': { addCredentialsToImageVerifier: sinon.stub().resolves() },
+        util: { promisify: (fn) => fn },
+      });
+
+      const newAppSpec = { version: 2, name: 'newapp', description: 'test', repotag: 'test/app', owner: '1abc', ports: [30000], containerPorts: [8080], domains: [''], cpu: 0.5, ram: 500, hdd: 5 };
+      // registerAppLocally will proceed past the prune guard before eventually failing on network setup
+      try {
+        await appInstallerFresh.registerAppLocally(newAppSpec, false, null);
+      } catch (e) {
+        // Expected — we only care that the prune guard logic ran correctly
+      }
+
+      expect(decryptEnterpriseAppsStub.calledOnce).to.be.true;
+      expect(decryptEnterpriseAppsStub.calledWith([encryptedApp], { formatSpecs: false })).to.be.true;
+      // Decrypted enterprise app has a stopped component (MyComponent_enterpriseapp123 not running)
+      // so pruneContainers should NOT be called
+      expect(pruneContainersStub.called).to.be.false;
     });
   });
 });
