@@ -265,6 +265,21 @@ async function mapUpnpPort(port, description) {
 }
 
 /**
+ * Get all active UPNP mappings on the router for this host.
+ * Uses { local: true } to filter to only mappings where private.host matches our local address.
+ * @returns {Promise<Array|null>} All local mappings, or null if query failed.
+ */
+async function getLocalMappings() {
+  try {
+    const mappings = await client.getMappings({ local: true });
+    return mappings || [];
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
+/**
  * To remove TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) port mappings from UPnP (Universal Plug and Play) port.
  * @param {number} port Port number.
  * @returns {Promise<boolean>} True if port mappings have been removed for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
@@ -469,6 +484,7 @@ module.exports = {
   mapPortApi,
   removeMapPortApi,
   getMapApi,
+  getLocalMappings,
   getIpApi,
   getGatewayApi,
   adjustFirewallForUPNP,

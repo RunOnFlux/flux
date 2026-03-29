@@ -15,6 +15,16 @@ const { localAppsInformation, globalAppsInformation } = require('../utils/appCon
 // Global cache for failed nodes
 const failedNodesTestPortsCache = new Map();
 
+// Track consecutive UPNP mapping-absent failures per app across restore cycles
+const upnpFailureCount = new Map(); // appName -> { count: number, firstFailure: number }
+const UPNP_FAILURE_THRESHOLD = 3; // consecutive cycles (~30 min at 10-min intervals)
+const UPNP_RETRY_COUNT = 2;
+const UPNP_RETRY_DELAY_MS = 5000;
+
+// Periodic cleanup of orphaned UPNP mappings
+let lastMappingCleanup = 0;
+const MAPPING_CLEANUP_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 /**
  * Check if ports in array are unique
  * @param {number[]} portsArray - Array of port numbers
@@ -253,6 +263,104 @@ async function restoreFluxPortsSupport() {
 }
 
 /**
+ * Removes orphaned UPNP mappings that belong to apps no longer installed on this node.
+ * Only removes mappings with the Flux_App_ description prefix.
+ * @param {Array} localMappings Current mappings from the router.
+ * @param {Set} installedAppNames Names of currently installed apps.
+ * @returns {Promise<void>}
+ */
+async function cleanupOrphanedUpnpMappings(localMappings, installedAppNames) {
+  const fluxAppPrefix = 'Flux_App_';
+  // Deduplicate by port since removeMapUpnpPort removes both TCP and UDP
+  const orphanedPorts = new Map(); // port -> description
+  // eslint-disable-next-line no-restricted-syntax
+  for (const m of localMappings) {
+    if (!m.description || !m.description.startsWith(fluxAppPrefix)) continue;
+    const appName = m.description.slice(fluxAppPrefix.length);
+    if (!installedAppNames.has(appName)) {
+      orphanedPorts.set(m.public.port, m.description);
+    }
+  }
+
+  if (orphanedPorts.size === 0) return;
+
+  log.info(`Cleaning up ${orphanedPorts.size} orphaned UPNP port mapping(s)`);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [port, description] of orphanedPorts) {
+    log.info(`Removing orphaned UPNP mapping: ${description} port ${port}`);
+    // eslint-disable-next-line no-await-in-loop
+    await upnpService.removeMapUpnpPort(port).catch((error) => log.error(error));
+  }
+  lastMappingCleanup = Date.now();
+}
+
+/**
+ * Attempts to retry UPNP port mapping after confirmed mapping loss.
+ * @param {number} port Port number.
+ * @param {string} description UPNP mapping description.
+ * @returns {Promise<boolean>} True if a retry succeeded.
+ */
+async function retryUpnpMapping(port, description) {
+  for (let i = 0; i < UPNP_RETRY_COUNT; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(UPNP_RETRY_DELAY_MS);
+    // eslint-disable-next-line no-await-in-loop
+    if (await upnpService.mapUpnpPort(port, description)) return true;
+  }
+  return false;
+}
+
+/**
+ * Handles a failed UPNP mapping attempt for a single port. Checks if the existing
+ * mapping is still valid on the router before taking action.
+ * @param {string} appName Application name.
+ * @param {number} port Port number.
+ * @param {string} description UPNP mapping description.
+ * @param {Array|null} localMappings Cached local mappings from router (null if query failed).
+ * @returns {Promise<boolean>} True if the port is ok (mapping exists or retry succeeded), false if genuinely failed.
+ */
+async function handleUpnpPortFailure(appName, port, description, localMappings) {
+  // Only positive confirmation of an active mapping is a free pass
+  if (localMappings && localMappings.some((m) => m.public.port === port && m.enabled)) {
+    log.warn(`UPNP refresh failed for ${appName} port ${port} but existing mapping is still active on router`);
+    return true;
+  }
+
+  if (localMappings === null) {
+    log.warn(`UPNP refresh failed for ${appName} port ${port} and unable to query router mapping state`);
+  }
+
+  if (await retryUpnpMapping(port, description)) return true;
+
+  log.error(`UPNP mapping missing and retries exhausted for ${appName} port ${port}`);
+  return false;
+}
+
+/**
+ * Handles the failure counting and potential removal of an app after confirmed UPNP failure.
+ * @param {string} appName Application name.
+ * @returns {Promise<boolean>} True if the app was removed.
+ */
+async function handleUpnpAppFailure(appName) {
+  const prev = upnpFailureCount.get(appName) || { count: 0, firstFailure: Date.now() };
+  const updated = { count: prev.count + 1, firstFailure: prev.firstFailure };
+  upnpFailureCount.set(appName, updated);
+
+  if (updated.count < UPNP_FAILURE_THRESHOLD) {
+    log.error(`UPNP mapping failure for ${appName} - attempt ${updated.count}/${UPNP_FAILURE_THRESHOLD}, will retry next cycle`);
+    return false;
+  }
+
+  log.warn(`REMOVAL REASON: UPNP port mapping failure - ${appName} failed ${UPNP_FAILURE_THRESHOLD} consecutive cycles (since ${new Date(updated.firstFailure).toISOString()})`);
+  // eslint-disable-next-line global-require
+  const appUninstaller = require('../appLifecycle/appUninstaller');
+  await appUninstaller.removeAppLocally(appName, null, true, true, true).catch((error) => log.error(error));
+  upnpFailureCount.delete(appName);
+  await serviceHelper.delay(3 * 60 * 1000);
+  return true;
+}
+
+/**
  * Restores applications firewall, UPNP rules
  * @returns {Promise<void>}
  */
@@ -262,7 +370,6 @@ async function restoreAppsPortsSupport() {
     const isUPNP = upnpService.isUPNP();
 
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    // setup UFW for apps
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const application of currentAppsPorts) {
@@ -274,27 +381,63 @@ async function restoreAppsPortsSupport() {
       }
     }
 
-    // UPNP
-    if (isUPNP) {
-      // map application ports
+    if (!isUPNP) return;
+
+    // Lazy-loaded on first mapping failure, one SOAP call to router per cycle max
+    let localMappings;
+    const currentAppNames = new Set();
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const application of currentAppsPorts) {
+      currentAppNames.add(application.name);
+      let appFailed = false;
+
       // eslint-disable-next-line no-restricted-syntax
-      for (const application of currentAppsPorts) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const port of application.ports) {
+      for (const port of application.ports) {
+        const portNum = serviceHelper.ensureNumber(port);
+        const description = `Flux_App_${application.name}`;
+        // eslint-disable-next-line no-await-in-loop
+        const upnpOk = await upnpService.mapUpnpPort(portNum, description);
+        if (upnpOk) continue;
+
+        if (localMappings === undefined) {
           // eslint-disable-next-line no-await-in-loop
-          const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
-          if (!upnpOk) {
-            log.warn(`REMOVAL REASON: UPNP port mapping failure - ${application.name} failed to map port ${port} via UPNP (portManager)`);
-            // Import locally to avoid circular dependency
-            // eslint-disable-next-line global-require
-            const appUninstaller = require('../appLifecycle/appUninstaller');
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(application.name, null, true, true, true).catch((error) => log.error(error)); // remove entire app
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(3 * 60 * 1000); // 3 mins
-            break;
-          }
+          localMappings = await upnpService.getLocalMappings();
         }
+
+        // eslint-disable-next-line no-await-in-loop
+        const portOk = await handleUpnpPortFailure(application.name, portNum, description, localMappings);
+        if (portOk) continue;
+
+        appFailed = true;
+        break;
+      }
+
+      if (!appFailed) {
+        upnpFailureCount.delete(application.name);
+        continue;
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      await handleUpnpAppFailure(application.name);
+    }
+
+    // Clean up stale failure counter entries for apps no longer installed
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appName of upnpFailureCount.keys()) {
+      if (!currentAppNames.has(appName)) {
+        upnpFailureCount.delete(appName);
+      }
+    }
+
+    // Periodically clean up orphaned UPNP mappings (from past failed removals)
+    // Only when no failures occurred this cycle (router is healthy)
+    const noFailuresThisCycle = localMappings === undefined;
+    const cleanupDue = Date.now() - lastMappingCleanup >= MAPPING_CLEANUP_INTERVAL_MS;
+    if (noFailuresThisCycle && cleanupDue) {
+      const mappings = await upnpService.getLocalMappings();
+      if (mappings && mappings.length > 0) {
+        await cleanupOrphanedUpnpMappings(mappings, currentAppNames);
       }
     }
   } catch (error) {
