@@ -81,7 +81,7 @@
     "@aws-sdk/client-ecr": "^3.922.0",
     "@azure/identity": "^4.13.0",
     "@isaacs/ttlcache": "~1.4.1",
-    "@runonflux/nat-upnp": "~1.0.2",
+    "@megachips/nat-upnp": "^2.0.2",
     "apicache": "~1.6.3",
     "archiver": "~7.0.1",
     "axios": "~1.13.6",

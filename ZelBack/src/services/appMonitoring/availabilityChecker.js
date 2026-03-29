@@ -37,9 +37,13 @@ async function handleTestShutdown(testingPort, testHttpServer, isArcane, options
   }
 
   if (!skipUpnp) {
-    await upnpService
-      .removeMapUpnpPort(testingPort, 'Flux_Test_App')
-      .catch((e) => log.error(e));
+    const caps = upnpService.getRouterCapabilities();
+    if (!caps.supportsLeaseDuration) {
+      await upnpService
+        .removeMapUpnpPort(testingPort, upnpService.MAPPING_DESC_APP_TEST)
+        .catch((e) => log.error(e));
+    }
+    // If router supports lease duration, test mapping auto-expires — skip explicit delete
   }
 
   if (!skipHttpServer) {
@@ -233,7 +237,9 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     }
 
     if (isUpnp) {
-      const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, 'Flux_Test_App');
+      const caps = upnpService.getRouterCapabilities();
+      const testTtl = caps.supportsLeaseDuration ? caps.minLeaseDuration : 0;
+      const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, upnpService.MAPPING_DESC_APP_TEST, { ttl: testTtl });
       if (!upnpMapResult) {
         if (dosState.lastUPNPMapFailed) {
           // eslint-disable-next-line no-param-reassign
