@@ -9,13 +9,16 @@ const util = require('util');
 
 const log = require('../lib/log');
 
-const client = new natUpnp.Client();
+const client = new natUpnp.Client({ cacheGateway: true });
 
 // UPnP mapping description constants
 const MAPPING_DESC_TEST = 'Flux_UPNP_Mapping_Test';
 const MAPPING_DESC_APP_TEST = 'Flux_Test_App';
 const MAPPING_DESC_APP_PREFIX = 'Flux_App_';
 const MAPPING_DESC_PRELAUNCH_PREFIX = 'Flux_Prelaunch_App_';
+
+// Minimum TTL for test mappings — must survive multi-retry peer checks (up to ~165s worst case)
+const MIN_TEST_MAPPING_TTL_S = 180;
 
 let upnpMachine = false;
 
@@ -669,4 +672,5 @@ module.exports = {
   MAPPING_DESC_APP_TEST,
   MAPPING_DESC_APP_PREFIX,
   MAPPING_DESC_PRELAUNCH_PREFIX,
+  MIN_TEST_MAPPING_TTL_S,
 };

@@ -21,6 +21,7 @@ const UPNP_FAILURE_THRESHOLD = 3; // consecutive cycles (~30 min at 10-min inter
 const UPNP_RETRY_COUNT = 2;
 const UPNP_RETRY_DELAY_MS = 5000;
 
+
 // Periodic cleanup of orphaned UPNP mappings
 let lastMappingCleanup = 0;
 const MAPPING_CLEANUP_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -731,8 +732,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
       if (isUPNP) {
         const caps = upnpService.getRouterCapabilities();
-        // Floor of 180s so mapping survives multi-retry peer checks (up to ~165s worst case)
-        const testTtl = caps.supportsLeaseDuration ? Math.max(caps.minLeaseDuration, 180) : 0;
+        const testTtl = caps.supportsLeaseDuration ? Math.max(caps.minLeaseDuration, upnpService.MIN_TEST_MAPPING_TTL_S) : 0;
         // eslint-disable-next-line no-await-in-loop
         const upnpMapResult = await upnpService.mapUpnpPort(portToTest, `${upnpService.MAPPING_DESC_PRELAUNCH_PREFIX}${portToTest}`, { ttl: testTtl });
         if (!upnpMapResult) {

@@ -119,7 +119,7 @@ Three call sites create short-lived test mappings:
 | `checkMyAppsAvailability()` | Continuous availability monitoring |
 
 When `supportsLeaseDuration` is true:
-- Test mappings use `minLeaseDuration` TTL (e.g. 60s) instead of `ttl=0`
+- Test mappings use `max(minLeaseDuration, 180)` seconds TTL instead of `ttl=0`
 - Explicit `removeMapUpnpPort` is skipped — mapping auto-expires
 - Saves 2 SOAP calls per test cycle
 

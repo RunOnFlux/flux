@@ -238,7 +238,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
     if (isUpnp) {
       const caps = upnpService.getRouterCapabilities();
-      const testTtl = caps.supportsLeaseDuration ? Math.max(caps.minLeaseDuration, 180) : 0;
+      const testTtl = caps.supportsLeaseDuration ? Math.max(caps.minLeaseDuration, upnpService.MIN_TEST_MAPPING_TTL_S) : 0;
       const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, upnpService.MAPPING_DESC_APP_TEST, { ttl: testTtl });
       if (!upnpMapResult) {
         if (dosState.lastUPNPMapFailed) {
