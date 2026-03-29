@@ -456,9 +456,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       throw new Error('Unable to check running Apps');
     }
     const appsInstalled = installedAppsRes.data;
+    const decryptedAppsInstalled = await appQueryService.decryptEnterpriseApps(appsInstalled, { formatSpecs: false });
     const runningApps = runningAppsRes.data;
     const installedAppComponentNames = [];
-    appsInstalled.forEach((app) => {
+    decryptedAppsInstalled.forEach((app) => {
       if (app.version >= 4) {
         app.compose.forEach((appAux) => {
           installedAppComponentNames.push(`${appAux.name}_${app.name}`);
