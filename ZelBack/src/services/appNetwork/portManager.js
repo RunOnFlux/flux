@@ -407,6 +407,7 @@ async function checkPortMapping(port) {
  */
 async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, currentAppNames, interCallDelayMs) {
   let repairCount = 0;
+  let unreachableCount = 0;
   let fluxOsMissing = false;
 
   // Check FluxOS ports
@@ -415,23 +416,29 @@ async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, curren
     // eslint-disable-next-line no-await-in-loop
     const result = await checkPortMapping(port);
     if (result === false) fluxOsMissing = true;
+    if (result === null) unreachableCount += 1;
     // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(interCallDelayMs);
   }
 
   // Re-map all FluxOS ports if any are missing (setupUPNP uses correct descriptions)
   if (fluxOsMissing) {
-    repairCount += 1;
     const userconfig = globalThis.userconfig;
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     log.info('UPnP verify: FluxOS mapping(s) missing — re-mapping via setupUPNP');
-    await upnpService.setupUPNP(apiPort);
+    const setupOk = await upnpService.setupUPNP(apiPort);
+    if (setupOk) {
+      repairCount += 1;
+    } else {
+      log.error('UPnP verify: setupUPNP failed to restore FluxOS mappings');
+    }
   }
 
   // Check and repair app ports
   // eslint-disable-next-line no-restricted-syntax
   for (const application of currentAppsPorts) {
     let appFailed = false;
+    let appVerified = false; // at least one port was confirmed present
 
     // eslint-disable-next-line no-restricted-syntax
     for (const port of application.ports) {
@@ -440,8 +447,9 @@ async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, curren
       // eslint-disable-next-line no-await-in-loop
       const result = await checkPortMapping(portNum);
 
+      if (result === null) unreachableCount += 1;
+      if (result === true) appVerified = true;
       if (result === true || result === null) {
-        // Present or router unreachable — move on
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(interCallDelayMs);
         continue;
@@ -454,6 +462,7 @@ async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, curren
       // eslint-disable-next-line no-await-in-loop
       const upnpOk = await upnpService.mapUpnpPort(portNum, description);
       if (upnpOk) {
+        appVerified = true;
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(interCallDelayMs);
         continue;
@@ -463,6 +472,7 @@ async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, curren
       // eslint-disable-next-line no-await-in-loop
       const portOk = await handleUpnpPortFailure(application.name, portNum, description, null);
       if (portOk) {
+        appVerified = true;
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(interCallDelayMs);
         continue;
@@ -472,18 +482,25 @@ async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, curren
       break;
     }
 
-    if (!appFailed) {
+    if (!appFailed && appVerified) {
+      // Only reset failure counter when we positively confirmed ports are present
       upnpFailureCount.delete(application.name);
       continue;
     }
 
-    // eslint-disable-next-line no-await-in-loop
-    await handleUpnpAppFailure(application.name);
+    if (appFailed) {
+      // eslint-disable-next-line no-await-in-loop
+      await handleUpnpAppFailure(application.name);
+    }
+    // If !appFailed && !appVerified (all ports unreachable), leave the counter unchanged
   }
 
-  if (repairCount === 0) {
+  if (unreachableCount > 0) {
+    log.warn(`UPnP verify: router unreachable for ${unreachableCount} port check(s)`);
+  }
+  if (repairCount === 0 && unreachableCount === 0) {
     log.info('UPnP verify: all mappings present');
-  } else {
+  } else if (repairCount > 0) {
     log.info(`UPnP verify: repaired ${repairCount} missing mapping(s)`);
   }
 
@@ -821,7 +838,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         const caps = upnpService.getRouterCapabilities();
         if (!caps.supportsLeaseDuration) {
           // eslint-disable-next-line no-await-in-loop
-          await upnpService.removeMapUpnpPort(portToTest, `${upnpService.MAPPING_DESC_PRELAUNCH_PREFIX}${portToTest}`);
+          await upnpService.removeMapUpnpPort(portToTest);
         }
         // If router supports lease duration, test mapping auto-expires — skip explicit delete
       }
@@ -852,7 +869,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         const caps = upnpService.getRouterCapabilities();
         if (!caps.supportsLeaseDuration) {
           // eslint-disable-next-line no-await-in-loop
-          await upnpService.removeMapUpnpPort(portToTest, `${upnpService.MAPPING_DESC_PRELAUNCH_PREFIX}${portToTest}`).catch((e) => log.error(e));
+          await upnpService.removeMapUpnpPort(portToTest).catch((e) => log.error(e));
         }
       }
     }

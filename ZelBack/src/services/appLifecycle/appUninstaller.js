@@ -552,7 +552,7 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `${upnpService.MAPPING_DESC_APP_PREFIX}${appName}`);
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port));
       }
     }
   } else if (appSpecifications.port) {
@@ -563,7 +563,7 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
     }
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
-      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `${upnpService.MAPPING_DESC_APP_PREFIX}${appName}`);
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port));
     }
   }
 

@@ -40,7 +40,7 @@ async function handleTestShutdown(testingPort, testHttpServer, isArcane, options
     const caps = upnpService.getRouterCapabilities();
     if (!caps.supportsLeaseDuration) {
       await upnpService
-        .removeMapUpnpPort(testingPort, upnpService.MAPPING_DESC_APP_TEST)
+        .removeMapUpnpPort(testingPort)
         .catch((e) => log.error(e));
     }
     // If router supports lease duration, test mapping auto-expires — skip explicit delete
@@ -238,7 +238,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
     if (isUpnp) {
       const caps = upnpService.getRouterCapabilities();
-      const testTtl = caps.supportsLeaseDuration ? caps.minLeaseDuration : 0;
+      const testTtl = caps.supportsLeaseDuration ? Math.max(caps.minLeaseDuration, 180) : 0;
       const upnpMapResult = await upnpService.mapUpnpPort(dosState.testingPort, upnpService.MAPPING_DESC_APP_TEST, { ttl: testTtl });
       if (!upnpMapResult) {
         if (dosState.lastUPNPMapFailed) {

@@ -435,39 +435,7 @@ describe('portManager tests', () => {
     });
   });
 
-  describe('restoreFluxPortsSupport tests', () => {
-    beforeEach(() => {
-      sinon.stub(upnpService, 'isUPNP').returns(false);
-      sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(false);
-      sinon.stub(fluxNetworkHelper, 'allowPort').resolves(true);
-      sinon.stub(upnpService, 'setupUPNP').resolves(true);
-    });
-
-    it('should setup firewall rules when firewall is active', async () => {
-      fluxNetworkHelper.isFirewallActive.resolves(true);
-
-      await portManager.restoreFluxPortsSupport();
-
-      sinon.assert.called(fluxNetworkHelper.allowPort);
-    });
-
-    it('should setup UPNP when UPNP is active', async () => {
-      upnpService.isUPNP.returns(true);
-
-      await portManager.restoreFluxPortsSupport();
-
-      sinon.assert.called(upnpService.setupUPNP);
-    });
-
-    it('should handle errors gracefully', async () => {
-      fluxNetworkHelper.isFirewallActive.rejects(new Error('Firewall error'));
-
-      // Should not throw
-      await portManager.restoreFluxPortsSupport();
-    });
-  });
-
-  describe('restoreAppsPortsSupport tests', () => {
+  describe('restorePortsSupport tests', () => {
     let db;
     let database;
 
@@ -495,30 +463,21 @@ describe('portManager tests', () => {
       sinon.stub(upnpService, 'isUPNP').returns(false);
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(false);
       sinon.stub(fluxNetworkHelper, 'allowPort').resolves(true);
-      sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
     });
 
-    it('should setup firewall for app ports when active', async () => {
+    it('should setup firewall rules when firewall is active', async () => {
       fluxNetworkHelper.isFirewallActive.resolves(true);
 
-      await portManager.restoreAppsPortsSupport();
+      await portManager.restorePortsSupport();
 
       sinon.assert.called(fluxNetworkHelper.allowPort);
     });
 
-    it('should setup UPNP for app ports when active', async () => {
-      upnpService.isUPNP.returns(true);
-
-      await portManager.restoreAppsPortsSupport();
-
-      sinon.assert.called(upnpService.mapUpnpPort);
-    });
-
     it('should handle errors gracefully', async () => {
-      fluxNetworkHelper.allowPort.rejects(new Error('Firewall error'));
+      fluxNetworkHelper.isFirewallActive.rejects(new Error('Firewall error'));
 
       // Should not throw
-      await portManager.restoreAppsPortsSupport();
+      await portManager.restorePortsSupport();
     });
   });
 
