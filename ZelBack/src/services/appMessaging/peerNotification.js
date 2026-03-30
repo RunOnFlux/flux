@@ -81,6 +81,37 @@ async function recreateMissingContainers(componentIdentifier) {
 }
 
 /**
+ * Handle master/slave apps with missing containers.
+ * Stopped containers are normal for master/slave apps. Missing containers need recovery.
+ * @param {string} stoppedApp - Component identifier
+ * @param {string} mainAppName - Main app name
+ * @param {object} appsMonitored - Monitored apps object
+ * @param {function} getGlobalState - Global state getter
+ */
+async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName, appsMonitored, getGlobalState) {
+  const containerExists = await dockerService.getDockerContainerOnly(stoppedApp);
+  if (containerExists) return;
+
+  log.warn(`Container for master/slave app ${stoppedApp} doesn't exist, recreating...`);
+  try {
+    await recreateMissingContainers(stoppedApp);
+    log.info(`Successfully recreated master/slave app container ${stoppedApp}`);
+    appInspector.startAppMonitoring(stoppedApp, appsMonitored);
+  } catch (recreateErr) {
+    // Check if container now exists — another process (e.g. masterSlaveApps) may have created it
+    const containerExistsNow = await dockerService.getDockerContainerOnly(stoppedApp);
+    if (containerExistsNow) {
+      log.info(`Container for ${stoppedApp} was created by another process, skipping removal`);
+      return;
+    }
+    log.error(`Failed to recreate master/slave app ${stoppedApp}: ${recreateErr.message}`);
+    log.warn(`REMOVAL REASON: Master/slave container recreation failure - ${mainAppName} (peerNotification)`);
+    await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {},
+      getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
+  }
+}
+
+/**
  * Check and notify peers of running applications
  * This function is called periodically to broadcast the status of running apps to the network
  * @param {function} installedApps - Function to get installed apps
@@ -185,7 +216,14 @@ async function checkAndNotifyPeersOfRunningApps(
           if (appInstalledSyncthing) {
             masterSlaveAppsInstalled.push(appInstalledMasterSlave);
           }
-          if (appDetails && !appInstalledMasterSlaveCheck) {
+          if (appInstalledMasterSlaveCheck && appDetails) {
+            const backupSkip = backupInProgress.some((backupItem) => stoppedApp === backupItem);
+            const restoreSkip = restoreInProgress.some((backupItem) => stoppedApp === backupItem);
+            if (!backupSkip && !restoreSkip) {
+              // eslint-disable-next-line no-await-in-loop
+              await handleMissingMasterSlaveContainer(stoppedApp, mainAppName, appsMonitored, getGlobalState);
+            }
+          } else if (appDetails) {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
             // check if some removal is in progress and if it is don't start it!
@@ -223,7 +261,6 @@ async function checkAndNotifyPeersOfRunningApps(
                   appInspector.startAppMonitoring(stoppedApp, appsMonitored);
                 } catch (recreateErr) {
                   log.error(`Failed to recreate containers for ${stoppedApp}: ${recreateErr.message}`);
-                  const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
                   log.warn(`REMOVAL REASON: Container recreation failure - ${mainAppName} failed to recreate with error: ${recreateErr.message} (peerNotification)`);
                   // eslint-disable-next-line no-await-in-loop
                   await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
@@ -247,7 +284,6 @@ async function checkAndNotifyPeersOfRunningApps(
         } catch (err) {
           log.error(err);
           if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress) {
-            const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
             log.warn(`REMOVAL REASON: App start failure - ${mainAppName} failed to start with error: ${err.message} (peerNotification)`);
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
@@ -376,4 +412,5 @@ async function checkAndNotifyPeersOfRunningApps(
 
 module.exports = {
   checkAndNotifyPeersOfRunningApps,
+  handleMissingMasterSlaveContainer,
 };
