@@ -67,34 +67,78 @@ interCallDelay = 75s / (totalPorts + 1)
 
 ## SOAP Call Budget
 
-### Per Cycle (steady state, nothing missing)
+### Old Behavior (before this change)
 
-| Operation | SOAP Calls |
-|-----------|------------|
-| Check 4 FluxOS ports | 4 |
-| Check N app ports | N |
-| **Total** | **4 + N** |
+Every 10 minutes, every node blindly re-created all its UPnP mappings:
 
-### Per Cycle (with repairs)
+| Operation | SOAP Calls | Type |
+|-----------|------------|------|
+| `setupUPNP()` — 4 FluxOS ports | 4 | Write (createMapping) |
+| `mapUpnpPort()` — N app ports × 2 (TCP+UDP) | 2N | Write (createMapping) |
+| **Total per cycle** | **4 + 2N** | |
+| SSDP discoveries (no gateway caching) | 4 + 2N | Multicast |
+
+With 7 app ports: **18 SOAP writes + 18 SSDP discoveries per cycle.** All 8 nodes fired simultaneously.
+
+### New Behavior
+
+Each node checks whether mappings exist before re-creating them, using O(1) lookups:
+
+#### Per Cycle — Steady State (nothing missing)
+
+| Operation | SOAP Calls | Type |
+|-----------|------------|------|
+| Check 4 FluxOS ports via `GetSpecificPortMappingEntry` | 4 | Read |
+| Check N app ports via `GetSpecificPortMappingEntry` | N | Read |
+| SSDP discoveries (gateway cached) | 0 | — |
+| **Total** | **4 + N** | |
+
+With 7 app ports: **11 SOAP reads, 0 writes, 0 SSDP.**
+
+#### Per Cycle — With Repairs
 
 | Scenario | SOAP Calls |
 |----------|------------|
-| 1 FluxOS port missing | 4 + N checks + 4 setupUPNP = **N + 8** |
-| 1 app port missing | 4 + N checks + 2 mapUpnpPort = **N + 6** |
-| All ports missing (reboot) | 4 + N checks + 4 setupUPNP + 2N mapUpnpPort = **3N + 8** |
+| 1 FluxOS port missing | 4 + N reads + 4 setupUPNP writes = **N + 8** |
+| 1 app port missing | 4 + N reads + 2 mapUpnpPort writes = **N + 6** |
+| All ports missing (router reboot) | 4 + N reads + 4 setupUPNP + 2N mapUpnpPort = **3N + 8** |
 
-### Per Hour (8 nodes, 7 app ports each, steady state)
+#### Startup (`verifyUPNPsupport`)
 
 | | Old | New |
 |---|---|---|
-| Calls per node per cycle | 18 | 11 |
-| Calls per node per hour (6 cycles) | 108 | 66 |
-| Calls from 8 nodes per hour | 864 | 528 |
-| Simultaneous calls to router | Up to 144 (all 8 at once) | Max 1 (time-slotted) |
+| SOAP calls | ~29 (getMappings enumerates all) | 7-8 (targeted getMapping) |
+| SSDP discoveries | Multiple | 1 (then cached) |
+
+### Comparison (8 nodes, 7 app ports each, steady state)
+
+| Metric | Old | New | Change |
+|--------|-----|-----|--------|
+| Calls per node per cycle | 18 writes | 11 reads | -39% |
+| Calls per node per hour (6 cycles) | 108 | 66 | -39% |
+| Calls from 8 nodes per hour | 864 | 528 | -39% |
+| SSDP discoveries per hour (8 nodes) | 864 | 0 | -100% |
+| Simultaneous calls to router | Up to 144 | Max 1 (time-slotted) | Eliminated |
+| Read vs write ratio | 0:18 | 11:0 | Reads only in steady state |
 
 ### Orphan Cleanup (every 2 hours)
 
 `getLocalMappings()` enumerates all router mappings via `GetGenericPortMappingEntry` — approximately 26 SOAP calls for a typical router. This happens once every 2 hours (1 in 12 cycles), adding ~13 calls/hour amortized.
+
+## Functionality Comparison
+
+| Capability | Old | New |
+|------------|-----|-----|
+| Detects missing mappings | No (blind re-map) | Yes (per-port check) |
+| Detects wrong-host mappings | No | Yes (`mapping.local` validation) |
+| Coordinates between nodes | No (all fire simultaneously) | Yes (wall-clock time slots) |
+| Retry on failure | No (immediate app removal) | Yes (2 retries, 3-cycle threshold) |
+| Orphan cleanup | No | Yes (every 2 hours, covers test mappings) |
+| Router capability awareness | No | Yes (TTL probe at startup) |
+| Slot overflow protection | N/A | Yes (monotonic time budget) |
+| Zombie mapping prevention | N/A | Yes (DB re-check before re-map) |
+| Peer failure cache expiry | No (unbounded, permanent) | Yes (1h TTL, max 75 entries) |
+| SSDP discovery caching | No | Yes (gateway cached after first use) |
 
 ## Router Capability Probing
 
