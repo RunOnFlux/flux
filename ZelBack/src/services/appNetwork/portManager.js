@@ -17,7 +17,7 @@ const fluxCaching = require('../utils/cacheManager').default;
 const upnpFailureCount = new Map(); // appName -> { count: number, firstFailure: number }
 const UPNP_FAILURE_THRESHOLD = 3; // consecutive cycles (~30 min at 10-min intervals)
 const UPNP_RETRY_COUNT = 2;
-const UPNP_RETRY_DELAY_MS = 5000;
+const UPNP_RETRY_DELAY_MS = 2000;
 
 
 // Periodic cleanup of orphaned UPNP mappings
