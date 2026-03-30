@@ -11,9 +11,7 @@ const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
-
-// Global cache for failed nodes
-const failedNodesTestPortsCache = new Map();
+const fluxCaching = require('../utils/cacheManager').default;
 
 // Track consecutive UPNP mapping-absent failures per app across restore cycles
 const upnpFailureCount = new Map(); // appName -> { count: number, firstFailure: number }
@@ -378,13 +376,20 @@ function secondsUntilSlot(slot) {
 
 /**
  * Check a single port's UPnP mapping via GetSpecificPortMappingEntry.
+ * Validates that the mapping points to this node's LAN IP (not another node
+ * misconfigured on the same port).
  * @param {number} port Port to check (TCP only — if TCP is gone, UDP is too).
- * @returns {Promise<boolean|null>} true=present, false=confirmed absent, null=router unreachable.
+ * @returns {Promise<boolean|null>} true=present and ours, false=absent or not ours, null=router unreachable.
  */
 async function checkPortMapping(port) {
   try {
     const mapping = await upnpService.getPortMapping(port);
-    return mapping ? true : false; // eslint-disable-line no-unneeded-ternary
+    if (!mapping) return false;
+    if (!mapping.local) {
+      log.error(`UPnP verify: port ${port} is mapped to ${mapping.private.host} — not this node. Another node may be configured on the same port.`);
+      return false;
+    }
+    return true;
   } catch (error) {
     log.warn(`UPnP verify: router unreachable checking port ${port} (${error.message})`);
     return null;
@@ -407,6 +412,8 @@ async function checkPortMapping(port) {
  * @returns {Promise<void>}
  */
 async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, currentAppNames, interCallDelayMs) {
+  const slotStartMono = performance.now();
+  const slotBudgetMs = SLOT_DURATION_S * 1000;
   let repairCount = 0;
   let unreachableCount = 0;
   let fluxOsMissing = false;
@@ -414,6 +421,10 @@ async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, curren
   // Check FluxOS ports
   // eslint-disable-next-line no-restricted-syntax
   for (const port of fluxOsPorts) {
+    if (performance.now() - slotStartMono >= slotBudgetMs) {
+      log.warn('UPnP verify: slot time exhausted during FluxOS port checks');
+      break;
+    }
     // eslint-disable-next-line no-await-in-loop
     const result = await checkPortMapping(port);
     if (result === false) fluxOsMissing = true;
@@ -438,6 +449,10 @@ async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, curren
   // Check and repair app ports
   // eslint-disable-next-line no-restricted-syntax
   for (const application of currentAppsPorts) {
+    if (performance.now() - slotStartMono >= slotBudgetMs) {
+      log.warn('UPnP verify: slot time exhausted, remaining apps will be checked next cycle');
+      break;
+    }
     let appFailed = false;
     let appVerified = false; // at least one port was confirmed present
 
@@ -456,7 +471,15 @@ async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, curren
         continue;
       }
 
-      // Mapping confirmed absent — re-map
+      // Mapping confirmed absent — verify app is still installed before re-mapping
+      // (app may have been uninstalled mid-cycle by another async process)
+      // eslint-disable-next-line no-await-in-loop
+      const stillInstalled = await assignedPortsInstalledApps();
+      if (!stillInstalled.some((a) => a.name === application.name)) {
+        log.info(`UPnP verify: ${application.name} was uninstalled mid-cycle, skipping re-map`);
+        break;
+      }
+
       repairCount += 1;
       const description = `${upnpService.MAPPING_DESC_APP_PREFIX}${application.name}`;
       log.info(`UPnP verify: mapping missing for ${application.name} port ${portNum} — re-mapping`);
@@ -919,7 +942,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
       callOtherNodeToKeepUpnpPortsOpen();
       return;
     }
-    if (failedNodesTestPortsCache.has(askingIP)) {
+    if (fluxCaching.failedPeersCache.has(askingIP)) {
       callOtherNodeToKeepUpnpPortsOpen();
       return;
     }
@@ -1006,5 +1029,4 @@ module.exports = {
   signCheckAppData,
   checkInstallingAppPortAvailable,
   callOtherNodeToKeepUpnpPortsOpen,
-  failedNodesTestPortsCache,
 };

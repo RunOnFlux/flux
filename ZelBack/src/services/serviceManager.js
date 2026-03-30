@@ -406,7 +406,6 @@ async function startFluxFunctions() {
         appQueryService.installedApps,
         dosState,
         portsNotWorking,
-        portManager.failedNodesTestPortsCache,
         fluxNetworkHelper.isArcane,
       );
     }, 3 * 60 * 1000);
