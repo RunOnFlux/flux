@@ -447,6 +447,7 @@ async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, curren
   }
 
   // Check and repair app ports
+  let installedAppsSnapshot; // lazy-loaded on first missing port
   // eslint-disable-next-line no-restricted-syntax
   for (const application of currentAppsPorts) {
     if (performance.now() - slotStartMono >= slotBudgetMs) {
@@ -473,9 +474,11 @@ async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, curren
 
       // Mapping confirmed absent — verify app is still installed before re-mapping
       // (app may have been uninstalled mid-cycle by another async process)
-      // eslint-disable-next-line no-await-in-loop
-      const stillInstalled = await assignedPortsInstalledApps();
-      if (!stillInstalled.some((a) => a.name === application.name)) {
+      if (!installedAppsSnapshot) {
+        // eslint-disable-next-line no-await-in-loop
+        installedAppsSnapshot = await assignedPortsInstalledApps();
+      }
+      if (!installedAppsSnapshot.some((a) => a.name === application.name)) {
         log.info(`UPnP verify: ${application.name} was uninstalled mid-cycle, skipping re-map`);
         break;
       }
@@ -942,7 +945,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
       callOtherNodeToKeepUpnpPortsOpen();
       return;
     }
-    if (fluxCaching.failedPeersCache.has(askingIP)) {
+    if (fluxCaching.failedPeersCache.has(randomSocketAddress)) {
       callOtherNodeToKeepUpnpPortsOpen();
       return;
     }

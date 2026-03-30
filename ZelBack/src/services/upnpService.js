@@ -430,19 +430,6 @@ async function getPortMapping(port, protocol = 'TCP') {
   }
 }
 
-/**
- * Get router connection status and uptime.
- * @returns {Promise<object|null>} { connectionStatus, lastConnectionError, uptime } or null on failure.
- */
-async function getStatusInfo() {
-  try {
-    const info = await client.getStatusInfo();
-    return info;
-  } catch (error) {
-    log.error(error);
-    return null;
-  }
-}
 
 /**
  * Get the current router capabilities (populated during verifyUPNPsupport).
