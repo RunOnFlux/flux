@@ -109,9 +109,6 @@ async function startFluxFunctions() {
     await systemService.mongoDBConfig();
     systemService.monitorSystem();
     log.info('System service initiated');
-    log.info('Initiating MongoDB connection');
-    await dbHelper.initiateDB(); // either true or throws error
-    log.info('DB connected');
     log.info('Preparing local database...');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);

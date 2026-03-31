@@ -29,6 +29,7 @@ const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
 const dockerService = require('./ZelBack/src/services/dockerService');
 const dbHelper = require('./ZelBack/src/services/dbHelper');
+const portManager = require('./ZelBack/src/services/appNetwork/portManager');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -178,8 +179,22 @@ async function loadUpnpIfRequired() {
   try {
     let verifyUpnp = false;
     if (globalThis.userconfig.initial.apiport) {
-      // verifyUPNPsupport probes capabilities and maps all FluxOS ports
-      verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+      // Build app port list from installed apps (DB is already initialized)
+      const installedApps = await portManager.assignedPortsInstalledApps();
+      const appPorts = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of installedApps) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of app.ports) {
+          appPorts.push({
+            port: serviceHelper.ensureNumber(port),
+            description: `${upnpService.MAPPING_DESC_APP_PREFIX}${app.name}`,
+            protocols: ['TCP', 'UDP'],
+          });
+        }
+      }
+      // verifyUPNPsupport probes capabilities and maps all FluxOS + app ports
+      verifyUpnp = await upnpService.verifyUPNPsupport(apiPort, appPorts);
     }
     if ((globalThis.userconfig.initial.apiport && globalThis.userconfig.initial.apiport !== config.server.apiport) || globalThis.userconfig.initial.routerIP) {
       if (verifyUpnp !== true) {
@@ -225,6 +240,14 @@ async function initiate() {
   });
 
   await createDnsCache();
+
+  log.info('Initiating MongoDB connection');
+  try {
+    await dbHelper.initiateDB();
+  } catch (error) {
+    await logErrorAndExit(`MongoDB connection failed: ${error.message}. Shutting down.`, { exitCode: 1, delay: 30_000 });
+  }
+  log.info('DB connected');
 
   await loadUpnpIfRequired();
 

@@ -158,9 +158,10 @@ async function adjustFirewallForUPNP() {
  * 8. removeMapping()      — final cleanup
  *
  * @param {number} apiport Port number.
+ * @param {Array} [appPorts=[]] App port entries to check/map: [{ port, description, protocols }].
  * @returns {Promise<boolean>} True if UPnP is functional. Otherwise false.
  */
-async function verifyUPNPsupport(apiport = config.server.apiport) {
+async function verifyUPNPsupport(apiport = config.server.apiport, appPorts = []) {
   const testPort = +apiport + 3;
 
   // Firewall setup for UPnP communication
@@ -347,6 +348,37 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
         log.error(`VerifyUPNPsupport - Failed to map FluxOS port ${port} (${def.description})`);
         upnpMachine = false;
         return false;
+      }
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(500);
+  }
+
+  // Check and map app ports (if any installed apps were passed in)
+  // eslint-disable-next-line no-restricted-syntax
+  for (const entry of appPorts) {
+    let needsMapping = false;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const mapping = await getPortMapping(entry.port);
+      if (!mapping) {
+        needsMapping = true;
+      } else if (!mapping.local) {
+        log.warn(`Startup: app port ${entry.port} mapped to ${mapping.private.host}, not this node — remapping`);
+        needsMapping = true;
+      } else if (mapping.ttl > 0 && mapping.ttl < MIN_STARTUP_TTL_S) {
+        log.info(`Startup: app port ${entry.port} TTL ${mapping.ttl}s too low — refreshing`);
+        needsMapping = true;
+      }
+    } catch (error) {
+      needsMapping = true;
+    }
+    if (needsMapping) {
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await mapUpnpPort(entry.port, entry.description, { protocols: entry.protocols });
+      if (!ok) {
+        // App port failure at startup is a warning, not fatal — loop will retry
+        log.warn(`Startup: failed to map app port ${entry.port} (${entry.description})`);
       }
     }
     // eslint-disable-next-line no-await-in-loop
