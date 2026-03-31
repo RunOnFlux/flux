@@ -53,7 +53,7 @@ describe('upnpService tests', () => {
 
       const promise = upnpService.verifyUPNPsupport();
 
-      await clock.tickAsync(2_500);
+      await clock.tickAsync(5_000);
       const result = await promise;
 
       expect(result).to.equal(true);
@@ -158,88 +158,6 @@ describe('upnpService tests', () => {
     });
   });
 
-  describe('setupUPNP tests', () => {
-    let logSpy;
-    let createMappingSpy;
-
-    beforeEach(() => {
-      logSpy = sinon.spy(log, 'error');
-      createMappingSpy = sinon.stub(natUpnp.Client.prototype, 'createMapping');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return true if all client responses are valid', async () => {
-      createMappingSpy.returns(true);
-
-      const clock = sinon.useFakeTimers();
-
-      const promise = upnpService.setupUPNP(123);
-
-      await clock.tickAsync(2_000);
-      const result = await promise;
-
-      expect(result).to.equal(true);
-      sinon.assert.notCalled(logSpy);
-      sinon.assert.callCount(createMappingSpy, 4);
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 123, private: 123, ttl: 0, description: 'Flux_Backend_API',
-      });
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 124, private: 124, ttl: 0, description: 'Flux_Backend_API_SSL',
-      });
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 122, private: 122, ttl: 0, description: 'Flux_Home_UI',
-      });
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 125, private: 125, ttl: 0, description: 'Flux_Syncthing',
-      });
-    });
-
-    it('should return true if all client responses are valid, no parameter passed', async () => {
-      createMappingSpy.returns(true);
-
-      const clock = sinon.useFakeTimers();
-
-      const promise = upnpService.setupUPNP();
-
-      await clock.tickAsync(2_000);
-      const result = await promise;
-
-      expect(result).to.equal(true);
-      sinon.assert.notCalled(logSpy);
-      sinon.assert.callCount(createMappingSpy, 4);
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 16127, private: 16127, ttl: 0, description: 'Flux_Backend_API',
-      });
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 16128, private: 16128, ttl: 0, description: 'Flux_Backend_API_SSL',
-      });
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 16126, private: 16126, ttl: 0, description: 'Flux_Home_UI',
-      });
-      sinon.assert.calledWithExactly(createMappingSpy, {
-        public: 16129, private: 16129, ttl: 0, description: 'Flux_Syncthing',
-      });
-    });
-
-    it('should return error if client response throws', async () => {
-      createMappingSpy.throws();
-
-      const clock = sinon.useFakeTimers();
-
-      const promise = upnpService.setupUPNP(123);
-
-      await clock.tickAsync(2_000);
-      const result = await promise;
-
-      expect(result).to.equal(false);
-      sinon.assert.calledOnce(logSpy);
-    });
-  });
-
   describe('mapUpnpPort tests', () => {
     let logSpy;
     let createMappingSpy;
@@ -260,7 +178,7 @@ describe('upnpService tests', () => {
 
       const promise = upnpService.mapUpnpPort(123, 'some description');
 
-      await clock.tickAsync(1_000);
+      await clock.tickAsync(1_500);
       const result = await promise;
 
       expect(result).to.equal(true);
@@ -282,15 +200,26 @@ describe('upnpService tests', () => {
       });
     });
 
+    it('should map single protocol when specified', async () => {
+      createMappingSpy.returns(true);
+
+      const result = await upnpService.mapUpnpPort(123, 'tcp only', { protocols: ['TCP'] });
+
+      expect(result).to.equal(true);
+      sinon.assert.calledOnce(createMappingSpy);
+      sinon.assert.calledWithExactly(createMappingSpy, {
+        public: 123,
+        private: 123,
+        ttl: 0,
+        protocol: 'TCP',
+        description: 'tcp only',
+      });
+    });
+
     it('should return error if client response throws', async () => {
       createMappingSpy.throws();
 
-      const clock = sinon.useFakeTimers();
-
-      const promise = upnpService.mapUpnpPort(123);
-
-      await clock.tickAsync(1_000);
-      const result = await promise;
+      const result = await upnpService.mapUpnpPort(123, 'desc', { delay: 0 });
 
       expect(result).to.equal(false);
       sinon.assert.calledOnce(logSpy);
@@ -315,9 +244,9 @@ describe('upnpService tests', () => {
 
       const clock = sinon.useFakeTimers();
 
-      const promise = upnpService.removeMapUpnpPort(123, 'some description');
+      const promise = upnpService.removeMapUpnpPort(123);
 
-      await clock.tickAsync(1_000);
+      await clock.tickAsync(1_500);
       const result = await promise;
 
       expect(result).to.equal(true);
@@ -327,15 +256,20 @@ describe('upnpService tests', () => {
       sinon.assert.calledWithExactly(removeMappingSpy, { public: 123, protocol: 'UDP' });
     });
 
+    it('should remove single protocol when specified', async () => {
+      removeMappingSpy.returns(true);
+
+      const result = await upnpService.removeMapUpnpPort(123, { protocols: ['TCP'] });
+
+      expect(result).to.equal(true);
+      sinon.assert.calledOnce(removeMappingSpy);
+      sinon.assert.calledWithExactly(removeMappingSpy, { public: 123, protocol: 'TCP' });
+    });
+
     it('should return error if client response throws', async () => {
       removeMappingSpy.throws();
 
-      const clock = sinon.useFakeTimers();
-
-      const promise = upnpService.removeMapUpnpPort(123);
-
-      await clock.tickAsync(1_000);
-      const result = await promise;
+      const result = await upnpService.removeMapUpnpPort(123, { delay: 0 });
 
       expect(result).to.equal(false);
       sinon.assert.calledOnce(logSpy);

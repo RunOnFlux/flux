@@ -17,6 +17,14 @@ const MAPPING_DESC_APP_TEST = 'Flux_Test_App';
 const MAPPING_DESC_APP_PREFIX = 'Flux_App_';
 const MAPPING_DESC_PRELAUNCH_PREFIX = 'Flux_Prelaunch_App_';
 
+// FluxOS service port definitions — offset from apiport, TCP-only HTTP services
+const FLUXOS_PORT_DEFS = [
+  { offset: 0, description: 'Flux_Backend_API', protocols: ['TCP'] },
+  { offset: 1, description: 'Flux_Backend_API_SSL', protocols: ['TCP'] },
+  { offset: -1, description: 'Flux_Home_UI', protocols: ['TCP'] },
+  { offset: 2, description: 'Flux_Syncthing', protocols: ['TCP'] },
+];
+
 // Minimum TTL for test mappings — must survive multi-retry peer checks (up to ~165s worst case)
 const MIN_TEST_MAPPING_TTL_S = 180;
 
@@ -308,86 +316,34 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 }
 
 /**
- * To set up UPnP (Universal Plug and Play) support.
- * @param {number} apiport Port number.
- * @returns {Promise<boolean>} True if port mappings can be set. Otherwise false.
- */
-async function setupUPNP(apiport = config.server.apiport) {
-  try {
-    await client.createMapping({
-      public: +apiport,
-      private: +apiport,
-      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
-      description: 'Flux_Backend_API',
-    });
-
-    await serviceHelper.delay(500);
-
-    await client.createMapping({
-      public: +apiport + 1,
-      private: +apiport + 1,
-      ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
-      description: 'Flux_Backend_API_SSL',
-    });
-
-    await serviceHelper.delay(500);
-
-    await client.createMapping({
-      public: +apiport - 1,
-      private: +apiport - 1,
-      ttl: 0,
-      description: 'Flux_Home_UI',
-    });
-
-    await serviceHelper.delay(500);
-
-    await client.createMapping({
-      public: +apiport + 2,
-      private: +apiport + 2,
-      ttl: 0,
-      description: 'Flux_Syncthing',
-    });
-
-    await serviceHelper.delay(500);
-
-    return true;
-  } catch (error) {
-    log.error(error);
-    return false;
-  }
-}
-
-/**
- * To create mappings for UPnP (Universal Plug and Play) port.
+ * Create UPnP port mapping(s) for the specified protocols.
  * @param {number} port Port number.
  * @param {string} description Port description.
  * @param {object} [options] Optional settings.
  * @param {number} [options.ttl=0] Lease duration in seconds (0 = permanent/router default).
- * @returns {Promise<boolean>} True if port mappings can be created for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
+ * @param {string[]} [options.protocols=['TCP','UDP']] Protocols to map.
+ * @param {number} [options.delay=1000] Delay in ms between protocol mappings (0 to disable).
+ * @returns {Promise<boolean>} True if all mappings created successfully. Otherwise false.
  */
 async function mapUpnpPort(port, description, options = {}) {
   const ttl = options.ttl ?? 0;
+  const protocols = options.protocols ?? ['TCP', 'UDP'];
+  const delay = options.delay ?? 1000;
   try {
-    await client.createMapping({
-      public: port,
-      private: port,
-      ttl,
-      protocol: 'TCP',
-      description,
-    });
-
-    await serviceHelper.delay(500);
-
-    await client.createMapping({
-      public: port,
-      private: port,
-      ttl,
-      protocol: 'UDP',
-      description,
-    });
-
-    await serviceHelper.delay(500);
-
+    for (let i = 0; i < protocols.length; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await client.createMapping({
+        public: port,
+        private: port,
+        ttl,
+        protocol: protocols[i],
+        description,
+      });
+      if (delay > 0 && i < protocols.length - 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(delay);
+      }
+    }
     return true;
   } catch (error) {
     log.error(error);
@@ -444,26 +400,28 @@ function getRouterCapabilities() {
 
 
 /**
- * To remove TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) port mappings from UPnP (Universal Plug and Play) port.
+ * Remove UPnP port mapping(s) for the specified protocols.
  * @param {number} port Port number.
- * @returns {Promise<boolean>} True if port mappings have been removed for both TCP (Transmission Control Protocol) and UDP (User Datagram Protocol) protocols. Otherwise false.
+ * @param {object} [options] Optional settings.
+ * @param {string[]} [options.protocols=['TCP','UDP']] Protocols to remove.
+ * @param {number} [options.delay=1000] Delay in ms between protocol removals (0 to disable).
+ * @returns {Promise<boolean>} True if all mappings removed successfully. Otherwise false.
  */
-async function removeMapUpnpPort(port) {
+async function removeMapUpnpPort(port, options = {}) {
+  const protocols = options.protocols ?? ['TCP', 'UDP'];
+  const delay = options.delay ?? 1000;
   try {
-    await client.removeMapping({
-      public: port,
-      protocol: 'TCP',
-    });
-
-    await serviceHelper.delay(500);
-
-    await client.removeMapping({
-      public: port,
-      protocol: 'UDP',
-    });
-
-    await serviceHelper.delay(500);
-
+    for (let i = 0; i < protocols.length; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await client.removeMapping({
+        public: port,
+        protocol: protocols[i],
+      });
+      if (delay > 0 && i < protocols.length - 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(delay);
+      }
+    }
     return true;
   } catch (error) {
     log.error(error);
@@ -642,7 +600,6 @@ async function getGatewayApi(req, res) {
 module.exports = {
   isUPNP,
   verifyUPNPsupport,
-  setupUPNP,
   mapUpnpPort,
   removeMapUpnpPort,
   mapPortApi,
@@ -654,6 +611,7 @@ module.exports = {
   getIpApi,
   getGatewayApi,
   adjustFirewallForUPNP,
+  FLUXOS_PORT_DEFS,
   MAPPING_DESC_APP_TEST,
   MAPPING_DESC_APP_PREFIX,
   MAPPING_DESC_PRELAUNCH_PREFIX,

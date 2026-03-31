@@ -397,129 +397,142 @@ async function checkPortMapping(port) {
 }
 
 /**
+ * Calculate adaptive delay based on remaining time budget and ports left.
+ * @param {number} slotStartMono Monotonic start time (performance.now()).
+ * @param {number} slotBudgetMs Total slot budget in milliseconds.
+ * @param {number} remainingPorts Number of ports still to process.
+ * @returns {number} Delay in milliseconds (0 if budget exhausted or no ports left).
+ */
+function adaptiveDelay(slotStartMono, slotBudgetMs, remainingPorts) {
+  if (remainingPorts <= 0) return 0;
+  const elapsed = performance.now() - slotStartMono;
+  const remainingMs = slotBudgetMs - elapsed;
+  if (remainingMs <= 0) return 0;
+  return Math.floor(remainingMs / (remainingPorts + 1));
+}
+
+/**
  * Verify all UPnP port mappings and repair any that are missing.
- * Each port is checked individually via GetSpecificPortMappingEntry (1 SOAP call
- * per port, TCP only). Calls are spaced by interCallDelayMs so sibling nodes
- * sharing the same router don't collide.
+ * Unified loop over FluxOS and app ports. Each port is checked via
+ * GetSpecificPortMappingEntry (1 SOAP call, TCP only). If missing,
+ * the specific port is repaired immediately. Delays between calls
+ * adapt to remaining time budget so repairs don't cause slot overruns.
  *
- * FluxOS ports are re-mapped via setupUPNP (correct per-port descriptions).
- * App ports are re-mapped via mapUpnpPort with the Flux_App_ prefix.
- *
- * @param {number[]} fluxOsPorts FluxOS port numbers [api, home, ssl, syncthing].
- * @param {Array} currentAppsPorts Apps and their ports.
+ * @param {Array} portEntries Unified list of { port, description, protocols, appName? }.
  * @param {Set} currentAppNames Installed app names (for orphan cleanup).
- * @param {number} interCallDelayMs Milliseconds between each SOAP call.
  * @returns {Promise<void>}
  */
-async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, currentAppNames, interCallDelayMs) {
+async function verifyAndRepairUpnpMappings(portEntries, currentAppNames) {
   const slotStartMono = performance.now();
   const slotBudgetMs = SLOT_DURATION_S * 1000;
   let repairCount = 0;
   let unreachableCount = 0;
-  let fluxOsMissing = false;
+  let installedAppsSnapshot; // lazy-loaded on first missing app port
 
-  // Check FluxOS ports
-  // eslint-disable-next-line no-restricted-syntax
-  for (const port of fluxOsPorts) {
+  // Per-app tracking for failure counting
+  const appResults = new Map(); // appName -> { failed: boolean, verified: boolean }
+
+  for (let i = 0; i < portEntries.length; i += 1) {
     if (performance.now() - slotStartMono >= slotBudgetMs) {
-      log.warn('UPnP verify: slot time exhausted during FluxOS port checks');
+      log.warn('UPnP verify: slot time exhausted, remaining ports will be checked next cycle');
       break;
     }
+
+    const entry = portEntries[i];
+    const remainingPorts = portEntries.length - i - 1;
+
     // eslint-disable-next-line no-await-in-loop
-    const result = await checkPortMapping(port);
-    if (result === false) fluxOsMissing = true;
+    const result = await checkPortMapping(entry.port);
+
     if (result === null) unreachableCount += 1;
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(interCallDelayMs);
-  }
 
-  // Re-map all FluxOS ports if any are missing (setupUPNP uses correct descriptions)
-  if (fluxOsMissing) {
-    const userconfig = globalThis.userconfig;
-    const apiPort = userconfig.initial.apiport || config.server.apiport;
-    log.info('UPnP verify: FluxOS mapping(s) missing — re-mapping via setupUPNP');
-    const setupOk = await upnpService.setupUPNP(apiPort);
-    if (setupOk) {
-      repairCount += 1;
-    } else {
-      log.error('UPnP verify: setupUPNP failed to restore FluxOS mappings');
-    }
-  }
-
-  // Check and repair app ports
-  let installedAppsSnapshot; // lazy-loaded on first missing port
-  // eslint-disable-next-line no-restricted-syntax
-  for (const application of currentAppsPorts) {
-    if (performance.now() - slotStartMono >= slotBudgetMs) {
-      log.warn('UPnP verify: slot time exhausted, remaining apps will be checked next cycle');
-      break;
-    }
-    let appFailed = false;
-    let appVerified = false; // at least one port was confirmed present
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const port of application.ports) {
-      const portNum = serviceHelper.ensureNumber(port);
-
-      // eslint-disable-next-line no-await-in-loop
-      const result = await checkPortMapping(portNum);
-
-      if (result === null) unreachableCount += 1;
-      if (result === true) appVerified = true;
-      if (result === true || result === null) {
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(interCallDelayMs);
-        continue;
+    if (result === true || result === null) {
+      // Track app verification
+      if (entry.appName && result === true) {
+        const ar = appResults.get(entry.appName) || { failed: false, verified: false };
+        ar.verified = true;
+        appResults.set(entry.appName, ar);
       }
+      const delayMs = adaptiveDelay(slotStartMono, slotBudgetMs, remainingPorts);
+      if (delayMs > 0) {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(delayMs);
+      }
+      continue;
+    }
 
-      // Mapping confirmed absent — verify app is still installed before re-mapping
-      // (app may have been uninstalled mid-cycle by another async process)
+    // Mapping confirmed absent — repair this specific port
+    // For app ports, verify the app is still installed before re-mapping
+    if (entry.appName) {
       if (!installedAppsSnapshot) {
         // eslint-disable-next-line no-await-in-loop
         installedAppsSnapshot = await assignedPortsInstalledApps();
       }
-      if (!installedAppsSnapshot.some((a) => a.name === application.name)) {
-        log.info(`UPnP verify: ${application.name} was uninstalled mid-cycle, skipping re-map`);
-        break;
-      }
-
-      repairCount += 1;
-      const description = `${upnpService.MAPPING_DESC_APP_PREFIX}${application.name}`;
-      log.info(`UPnP verify: mapping missing for ${application.name} port ${portNum} — re-mapping`);
-      // eslint-disable-next-line no-await-in-loop
-      const upnpOk = await upnpService.mapUpnpPort(portNum, description);
-      if (upnpOk) {
-        appVerified = true;
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(interCallDelayMs);
+      if (!installedAppsSnapshot.some((a) => a.name === entry.appName)) {
+        log.info(`UPnP verify: ${entry.appName} was uninstalled mid-cycle, skipping re-map`);
         continue;
       }
-
-      // Re-map failed — retry + threshold
-      // eslint-disable-next-line no-await-in-loop
-      const portOk = await handleUpnpPortFailure(application.name, portNum, description, null);
-      if (portOk) {
-        appVerified = true;
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(interCallDelayMs);
-        continue;
-      }
-
-      appFailed = true;
-      break;
     }
 
-    if (!appFailed && appVerified) {
-      // Only reset failure counter when we positively confirmed ports are present
-      upnpFailureCount.delete(application.name);
+    const portLabel = entry.appName ?? 'FluxOS';
+    log.info(`UPnP verify: mapping missing for ${portLabel} port ${entry.port} — re-mapping`);
+
+    // eslint-disable-next-line no-await-in-loop
+    const upnpOk = await upnpService.mapUpnpPort(entry.port, entry.description, {
+      protocols: entry.protocols,
+      delay: 0, // no inter-protocol delay during repair — budget is adaptive
+    });
+
+    if (upnpOk) {
+      repairCount += 1;
+      if (entry.appName) {
+        const ar = appResults.get(entry.appName) || { failed: false, verified: false };
+        ar.verified = true;
+        appResults.set(entry.appName, ar);
+      }
+      const delayMs = adaptiveDelay(slotStartMono, slotBudgetMs, remainingPorts);
+      if (delayMs > 0) {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(delayMs);
+      }
       continue;
     }
 
-    if (appFailed) {
+    // Re-map failed — retry + threshold (app ports only)
+    if (entry.appName) {
       // eslint-disable-next-line no-await-in-loop
-      await handleUpnpAppFailure(application.name);
+      const portOk = await handleUpnpPortFailure(entry.appName, entry.port, entry.description, null);
+      if (portOk) {
+        repairCount += 1;
+        const ar = appResults.get(entry.appName) || { failed: false, verified: false };
+        ar.verified = true;
+        appResults.set(entry.appName, ar);
+      } else {
+        const ar = appResults.get(entry.appName) || { failed: false, verified: false };
+        ar.failed = true;
+        appResults.set(entry.appName, ar);
+      }
+    } else {
+      log.error(`UPnP verify: failed to restore FluxOS port ${entry.port}`);
     }
-    // If !appFailed && !appVerified (all ports unreachable), leave the counter unchanged
+
+    const delayMs = adaptiveDelay(slotStartMono, slotBudgetMs, remainingPorts);
+    if (delayMs > 0) {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(delayMs);
+    }
+  }
+
+  // Process app failure/success counters
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [appName, ar] of appResults) {
+    if (ar.failed) {
+      // eslint-disable-next-line no-await-in-loop
+      await handleUpnpAppFailure(appName);
+    } else if (ar.verified) {
+      upnpFailureCount.delete(appName);
+    }
+    // If !failed && !verified (all ports unreachable), leave counter unchanged
   }
 
   if (unreachableCount > 0) {
@@ -542,8 +555,8 @@ async function verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, curren
 
 /**
  * Restores firewall rules and verifies/repairs UPnP mappings for all ports.
- * Each port is checked individually via GetSpecificPortMappingEntry with
- * inter-call spacing derived from the slot duration and total port count.
+ * Builds a unified port list (FluxOS + app) and delegates to
+ * verifyAndRepairUpnpMappings which uses adaptive timing.
  * @returns {Promise<void>}
  */
 async function restorePortsSupport() {
@@ -551,7 +564,9 @@ async function restorePortsSupport() {
     const currentAppsPorts = await assignedPortsInstalledApps();
     const userconfig = globalThis.userconfig;
     const apiPort = +(userconfig.initial.apiport || config.server.apiport);
-    const fluxOsPorts = [apiPort, apiPort - 1, apiPort + 1, apiPort + 2];
+
+    // Build FluxOS port list from definitions
+    const fluxOsPorts = upnpService.FLUXOS_PORT_DEFS.map((def) => apiPort + def.offset);
 
     // Firewall rules (local, cheap — no spacing needed)
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -587,18 +602,30 @@ async function restorePortsSupport() {
       }
     }
 
-    // Compute inter-call delay: spread SOAP calls evenly across the 75s slot
-    let appPortCount = 0;
+    // Build unified port entry list: FluxOS ports first, then app ports
+    const portEntries = [];
     // eslint-disable-next-line no-restricted-syntax
-    for (const app of currentAppsPorts) {
-      appPortCount += app.ports.length;
+    for (const def of upnpService.FLUXOS_PORT_DEFS) {
+      portEntries.push({
+        port: apiPort + def.offset,
+        description: def.description,
+        protocols: def.protocols,
+      });
     }
-    const totalPorts = fluxOsPorts.length + appPortCount;
-    const interCallDelayMs = totalPorts > 0
-      ? Math.floor((SLOT_DURATION_S * 1000) / (totalPorts + 1))
-      : 1000;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const application of currentAppsPorts) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of application.ports) {
+        portEntries.push({
+          port: serviceHelper.ensureNumber(port),
+          description: `${upnpService.MAPPING_DESC_APP_PREFIX}${application.name}`,
+          protocols: ['TCP', 'UDP'],
+          appName: application.name,
+        });
+      }
+    }
 
-    await verifyAndRepairUpnpMappings(fluxOsPorts, currentAppsPorts, currentAppNames, interCallDelayMs);
+    await verifyAndRepairUpnpMappings(portEntries, currentAppNames);
   } catch (error) {
     log.error(error);
   }
@@ -632,10 +659,15 @@ async function startPortsSupportLoop() {
       log.error(error);
     }
 
-    // Wait for the next cycle — slot won't come around for ~CYCLE_DURATION_S.
-    // Small buffer to ensure we don't fire twice in the same slot.
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay((SLOT_DURATION_S + 5) * 1000);
+    // If still inside our slot, sleep past the boundary to prevent double-fire.
+    // Next iteration's secondsUntilSlot re-aligns to the wall clock.
+    const nowOffset = Math.floor(Date.now() / 1000) % CYCLE_DURATION_S;
+    const slotEnd = (slot + 1) * SLOT_DURATION_S;
+    const remainingInSlot = slotEnd > nowOffset ? slotEnd - nowOffset : 0;
+    if (remainingInSlot > 0) {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay((remainingInSlot + 1) * 1000);
+    }
   }
 }
 
