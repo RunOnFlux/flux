@@ -25,10 +25,10 @@ let lastMappingCleanup = 0;
 const MAPPING_CLEANUP_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 // UPnP smart refresh: wall-clock-aligned slot scheduling
-// 8 fixed slots in a 600s (10 min) cycle. Each node's slot is determined by its API port.
+// 8 fixed slots in a CYCLE_DURATION_S cycle. Each node's slot is determined by its API port.
 // Slot formula: Math.floor((apiPort % 100) / 10) % 8
 // Standard Flux ports (16127–16197) each get a unique slot, no collisions.
-const CYCLE_DURATION_S = 600;
+const { CYCLE_DURATION_S } = upnpService;
 const SLOT_COUNT = 8;
 const SLOT_DURATION_S = CYCLE_DURATION_S / SLOT_COUNT; // 75 seconds
 

@@ -38,20 +38,13 @@ async function initiate() {
     process.exit();
   }
   let verifyUpnp = false;
-  let setupUpnp = false;
   if (userconfig.initial.apiport) {
+    // verifyUPNPsupport probes capabilities and maps all FluxOS ports
     verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
-    if (verifyUpnp) {
-      setupUpnp = await upnpService.setupUPNP(apiPort);
-    }
   }
   if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
     if (verifyUpnp !== true) {
-      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
-      process.exit();
-    }
-    if (setupUpnp !== true) {
-      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
+      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify or map ports. Shutting down.`);
       process.exit();
     }
   }

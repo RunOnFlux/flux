@@ -28,6 +28,12 @@ const FLUXOS_PORT_DEFS = [
 // Minimum TTL for test mappings — must survive multi-retry peer checks (up to ~165s worst case)
 const MIN_TEST_MAPPING_TTL_S = 180;
 
+// Smart refresh cycle duration — shared with portManager
+const CYCLE_DURATION_S = 600;
+
+// Minimum TTL at startup — must survive until first loop cycle completes
+const MIN_STARTUP_TTL_S = CYCLE_DURATION_S + 30;
+
 let upnpMachine = false;
 
 // Router capability state, populated during verifyUPNPsupport()
@@ -310,6 +316,42 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   routerCapabilities.probed = true;
 
   log.info(`Router capabilities: supportsLeaseDuration=${supportsLease}, minLeaseDuration=${routerCapabilities.minLeaseDuration}s, igdV2Capping=${igdV2Capping}, maxLeaseDuration=${maxLease}s`);
+
+  // Ensure all FluxOS service ports are mapped before servers bind.
+  // Check each port first — only map if absent, wrong host, or TTL too low
+  // to survive until the first loop cycle.
+  // eslint-disable-next-line no-restricted-syntax
+  for (const def of FLUXOS_PORT_DEFS) {
+    const port = +apiport + def.offset;
+    let needsMapping = false;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const mapping = await getPortMapping(port);
+      if (!mapping) {
+        needsMapping = true;
+      } else if (!mapping.local) {
+        log.warn(`Startup: port ${port} mapped to ${mapping.private.host}, not this node — remapping`);
+        needsMapping = true;
+      } else if (mapping.ttl > 0 && mapping.ttl < MIN_STARTUP_TTL_S) {
+        log.info(`Startup: port ${port} TTL ${mapping.ttl}s too low — refreshing`);
+        needsMapping = true;
+      }
+    } catch (error) {
+      // Router unreachable on query — try to map anyway
+      needsMapping = true;
+    }
+    if (needsMapping) {
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await mapUpnpPort(port, def.description, { protocols: def.protocols });
+      if (!ok) {
+        log.error(`VerifyUPNPsupport - Failed to map FluxOS port ${port} (${def.description})`);
+        upnpMachine = false;
+        return false;
+      }
+    }
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(500);
+  }
 
   upnpMachine = true;
   return true;
@@ -612,6 +654,7 @@ module.exports = {
   getGatewayApi,
   adjustFirewallForUPNP,
   FLUXOS_PORT_DEFS,
+  CYCLE_DURATION_S,
   MAPPING_DESC_APP_TEST,
   MAPPING_DESC_APP_PREFIX,
   MAPPING_DESC_PRELAUNCH_PREFIX,

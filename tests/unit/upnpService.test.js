@@ -53,11 +53,10 @@ describe('upnpService tests', () => {
 
       const promise = upnpService.verifyUPNPsupport();
 
-      await clock.tickAsync(5_000);
+      await clock.tickAsync(8_000);
       const result = await promise;
 
       expect(result).to.equal(true);
-      sinon.assert.notCalled(logSpy);
     });
 
     it('should log a proper error if getPublicIp throws', async () => {

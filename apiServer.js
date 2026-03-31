@@ -177,23 +177,14 @@ async function logErrorAndExit(msg, options = {}) {
 async function loadUpnpIfRequired() {
   try {
     let verifyUpnp = false;
-    let setupUpnp = false;
     if (globalThis.userconfig.initial.apiport) {
+      // verifyUPNPsupport probes capabilities and maps all FluxOS ports
       verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
-      if (verifyUpnp) {
-        setupUpnp = await upnpService.setupUPNP(apiPort);
-      }
     }
     if ((globalThis.userconfig.initial.apiport && globalThis.userconfig.initial.apiport !== config.server.apiport) || globalThis.userconfig.initial.routerIP) {
       if (verifyUpnp !== true) {
         await logErrorAndExit(
-          `Flux port ${globalThis.userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`,
-          { exitCode: 1, delay: 120_000 },
-        );
-      }
-      if (setupUpnp !== true) {
-        await logErrorAndExit(
-          `Flux port ${globalThis.userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`,
+          `Flux port ${globalThis.userconfig.initial.apiport} specified but UPnP failed to verify or map ports. Shutting down.`,
           { exitCode: 1, delay: 120_000 },
         );
       }
