@@ -31,8 +31,11 @@ const MIN_TEST_MAPPING_TTL_S = 180;
 // Smart refresh cycle duration — shared with portManager
 const CYCLE_DURATION_S = 600;
 
-// Minimum TTL at startup — must survive until first loop cycle completes
-const MIN_STARTUP_TTL_S = CYCLE_DURATION_S + 30;
+// TTL for persistent FluxOS/app mappings (used when router supports lease duration)
+const MAPPING_TTL_S = 14400; // 4 hours
+
+// Minimum TTL before a mapping is refreshed — 30 min gives 3 missed cycles of buffer
+const MIN_STARTUP_TTL_S = 1800;
 
 let upnpMachine = false;
 
@@ -318,9 +321,9 @@ async function verifyUPNPsupport(apiport = config.server.apiport, appPorts = [])
 
   log.info(`Router capabilities: supportsLeaseDuration=${supportsLease}, minLeaseDuration=${routerCapabilities.minLeaseDuration}s, igdV2Capping=${igdV2Capping}, maxLeaseDuration=${maxLease}s`);
 
-  // Ensure all FluxOS service ports are mapped before servers bind.
-  // Check each port first — only map if absent, wrong host, or TTL too low
-  // to survive until the first loop cycle.
+  // Ensure all FluxOS service ports and app ports are mapped before servers bind.
+  // Use finite TTL when supported so stale mappings auto-expire.
+  const mappingTtl = routerCapabilities.supportsLeaseDuration ? MAPPING_TTL_S : 0;
   // eslint-disable-next-line no-restricted-syntax
   for (const def of FLUXOS_PORT_DEFS) {
     const port = +apiport + def.offset;
@@ -343,7 +346,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport, appPorts = [])
     }
     if (needsMapping) {
       // eslint-disable-next-line no-await-in-loop
-      const ok = await mapUpnpPort(port, def.description, { protocols: def.protocols });
+      const ok = await mapUpnpPort(port, def.description, { protocols: def.protocols, ttl: mappingTtl });
       if (!ok) {
         log.error(`VerifyUPNPsupport - Failed to map FluxOS port ${port} (${def.description})`);
         upnpMachine = false;
@@ -375,7 +378,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport, appPorts = [])
     }
     if (needsMapping) {
       // eslint-disable-next-line no-await-in-loop
-      const ok = await mapUpnpPort(entry.port, entry.description, { protocols: entry.protocols });
+      const ok = await mapUpnpPort(entry.port, entry.description, { protocols: entry.protocols, ttl: mappingTtl });
       if (!ok) {
         // App port failure at startup is a warning, not fatal — loop will retry
         log.warn(`Startup: failed to map app port ${entry.port} (${entry.description})`);
@@ -687,6 +690,7 @@ module.exports = {
   adjustFirewallForUPNP,
   FLUXOS_PORT_DEFS,
   CYCLE_DURATION_S,
+  MAPPING_TTL_S,
   MAPPING_DESC_APP_TEST,
   MAPPING_DESC_APP_PREFIX,
   MAPPING_DESC_PRELAUNCH_PREFIX,

@@ -285,14 +285,15 @@ async function cleanupOrphanedUpnpMappings(localMappings, installedAppNames) {
  * Attempts to retry UPNP port mapping after confirmed mapping loss.
  * @param {number} port Port number.
  * @param {string} description UPNP mapping description.
+ * @param {object} [options] Options passed through to mapUpnpPort.
  * @returns {Promise<boolean>} True if a retry succeeded.
  */
-async function retryUpnpMapping(port, description) {
+async function retryUpnpMapping(port, description, options = {}) {
   for (let i = 0; i < UPNP_RETRY_COUNT; i += 1) {
     // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(UPNP_RETRY_DELAY_MS);
     // eslint-disable-next-line no-await-in-loop
-    if (await upnpService.mapUpnpPort(port, description)) return true;
+    if (await upnpService.mapUpnpPort(port, description, options)) return true;
   }
   return false;
 }
@@ -304,9 +305,10 @@ async function retryUpnpMapping(port, description) {
  * @param {number} port Port number.
  * @param {string} description UPNP mapping description.
  * @param {Array|null} localMappings Cached local mappings from router (null if query failed).
+ * @param {object} [options] Options passed through to mapUpnpPort.
  * @returns {Promise<boolean>} True if the port is ok (mapping exists or retry succeeded), false if genuinely failed.
  */
-async function handleUpnpPortFailure(appName, port, description, localMappings) {
+async function handleUpnpPortFailure(appName, port, description, localMappings, options = {}) {
   // Only positive confirmation of an active mapping is a free pass
   if (localMappings && localMappings.some((m) => m.public.port === port && m.enabled)) {
     log.warn(`UPNP refresh failed for ${appName} port ${port} but existing mapping is still active on router`);
@@ -317,7 +319,7 @@ async function handleUpnpPortFailure(appName, port, description, localMappings) 
     log.warn(`UPNP refresh failed for ${appName} port ${port} and unable to query router mapping state`);
   }
 
-  if (await retryUpnpMapping(port, description)) return true;
+  if (await retryUpnpMapping(port, description, options)) return true;
 
   log.error(`UPNP mapping missing and retries exhausted for ${appName} port ${port}`);
   return false;
@@ -427,6 +429,8 @@ async function verifyAndRepairUpnpMappings(portEntries, currentAppNames) {
   const slotBudgetMs = SLOT_DURATION_S * 1000;
   let repairCount = 0;
   let unreachableCount = 0;
+  const caps = upnpService.getRouterCapabilities();
+  const mappingTtl = caps.supportsLeaseDuration ? upnpService.MAPPING_TTL_S : 0;
   let installedAppsSnapshot; // lazy-loaded on first missing app port
 
   // Per-app tracking for failure counting
@@ -481,6 +485,7 @@ async function verifyAndRepairUpnpMappings(portEntries, currentAppNames) {
     const upnpOk = await upnpService.mapUpnpPort(entry.port, entry.description, {
       protocols: entry.protocols,
       delay: 0, // no inter-protocol delay during repair — budget is adaptive
+      ttl: mappingTtl,
     });
 
     if (upnpOk) {
@@ -501,7 +506,9 @@ async function verifyAndRepairUpnpMappings(portEntries, currentAppNames) {
     // Re-map failed — retry + threshold (app ports only)
     if (entry.appName) {
       // eslint-disable-next-line no-await-in-loop
-      const portOk = await handleUpnpPortFailure(entry.appName, entry.port, entry.description, null);
+      const portOk = await handleUpnpPortFailure(entry.appName, entry.port, entry.description, null, {
+        protocols: entry.protocols, ttl: mappingTtl,
+      });
       if (portOk) {
         repairCount += 1;
         const ar = appResults.get(entry.appName) || { failed: false, verified: false };
