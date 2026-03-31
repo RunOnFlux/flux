@@ -43,7 +43,7 @@ describe('upnpService tests', () => {
 
     it('should return true if all client responses are valid', async () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').returns(Promise.resolve(true));
-      sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve({ gateway: {} }));
+      sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve({ getDevice: () => Promise.resolve({ manufacturer: 'Test', modelName: 'TestRouter', modelDescription: 'Test daemon' }) }));
       sinon.stub(natUpnp.Client.prototype, 'createMapping').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'getMapping').returns(Promise.resolve({ ttl: 60, local: true }));
       sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
@@ -62,7 +62,7 @@ describe('upnpService tests', () => {
 
     it('should log a proper error if getPublicIp throws', async () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').throws();
-      sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve({ gateway: {} }));
+      sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve({ getDevice: () => Promise.resolve({ manufacturer: 'Test', modelName: 'TestRouter', modelDescription: 'Test daemon' }) }));
       sinon.stub(natUpnp.Client.prototype, 'createMapping').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'getMapping').returns(Promise.resolve({ ttl: 60, local: true }));
       sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
@@ -102,7 +102,7 @@ describe('upnpService tests', () => {
 
     it('should log a proper error if createMapping throws', async () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').returns(Promise.resolve(true));
-      sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve({ gateway: {} }));
+      sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve({ getDevice: () => Promise.resolve({ manufacturer: 'Test', modelName: 'TestRouter', modelDescription: 'Test daemon' }) }));
       sinon.stub(natUpnp.Client.prototype, 'createMapping').throws();
       sinon.stub(natUpnp.Client.prototype, 'getMapping').returns(Promise.resolve({ ttl: 60, local: true }));
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
@@ -121,7 +121,7 @@ describe('upnpService tests', () => {
 
     it('should log a proper error if getMapping readback throws', async () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').returns(Promise.resolve(true));
-      sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve({ gateway: {} }));
+      sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve({ getDevice: () => Promise.resolve({ manufacturer: 'Test', modelName: 'TestRouter', modelDescription: 'Test daemon' }) }));
       sinon.stub(natUpnp.Client.prototype, 'createMapping').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'getMapping').throws();
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
@@ -140,7 +140,7 @@ describe('upnpService tests', () => {
 
     it('should log a proper error if removeMapping throws', async () => {
       sinon.stub(natUpnp.Client.prototype, 'getPublicIp').returns(Promise.resolve(true));
-      sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve({ gateway: {} }));
+      sinon.stub(natUpnp.Client.prototype, 'getGateway').returns(Promise.resolve({ getDevice: () => Promise.resolve({ manufacturer: 'Test', modelName: 'TestRouter', modelDescription: 'Test daemon' }) }));
       sinon.stub(natUpnp.Client.prototype, 'createMapping').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'getMapping').returns(Promise.resolve({ ttl: 60, local: true }));
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').throws();

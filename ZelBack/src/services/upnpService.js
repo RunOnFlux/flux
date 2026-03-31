@@ -171,17 +171,17 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
 
   // Step 2: Get gateway + capture router info
   try {
-    const gateway = await client.getGateway();
+    const info = await client.getGateway();
     await serviceHelper.delay(500);
-    if (gateway && gateway.gateway && gateway.gateway.description) {
-      const desc = gateway.gateway.description;
+    const deviceInfo = await info.getDevice();
+    if (deviceInfo) {
       routerCapabilities.routerInfo = {
-        manufacturer: desc.manufacturer || 'unknown',
-        model: desc.modelName || desc.friendlyName || 'unknown',
-        daemonVersion: desc.modelDescription || 'unknown',
+        manufacturer: deviceInfo.manufacturer || 'unknown',
+        model: deviceInfo.modelName || deviceInfo.friendlyName || 'unknown',
+        daemonVersion: deviceInfo.modelDescription || 'unknown',
       };
-      log.info(`Router: ${routerCapabilities.routerInfo.manufacturer} ${routerCapabilities.routerInfo.model}`);
     }
+    log.info(`Router: ${routerCapabilities.routerInfo.manufacturer} ${routerCapabilities.routerInfo.model}`);
   } catch (error) {
     log.error(error);
     log.error('VerifyUPNPsupport - Failed get Gateway');
