@@ -495,3 +495,51 @@ describe('portManager tests', () => {
     });
   });
 });
+
+describe('checkPortMapping tests', () => {
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  it('should return true for healthy mapping with permanent TTL', async () => {
+    sinon.stub(upnpService, 'getPortMapping').resolves({ local: true, ttl: 0 });
+    const result = await portManager.checkPortMapping(16147);
+    expect(result).to.equal(true);
+  });
+
+  it('should return true for healthy mapping with sufficient TTL', async () => {
+    sinon.stub(upnpService, 'getPortMapping').resolves({ local: true, ttl: 7200 });
+    const result = await portManager.checkPortMapping(16147);
+    expect(result).to.equal(true);
+  });
+
+  it('should return false for missing mapping', async () => {
+    sinon.stub(upnpService, 'getPortMapping').resolves(null);
+    const result = await portManager.checkPortMapping(16147);
+    expect(result).to.equal(false);
+  });
+
+  it('should return false for mapping owned by another host', async () => {
+    sinon.stub(upnpService, 'getPortMapping').resolves({ local: false, private: { host: '192.168.1.99' } });
+    const result = await portManager.checkPortMapping(16147);
+    expect(result).to.equal(false);
+  });
+
+  it('should return false for mapping with TTL below threshold', async () => {
+    sinon.stub(upnpService, 'getPortMapping').resolves({ local: true, ttl: 600 });
+    const result = await portManager.checkPortMapping(16147);
+    expect(result).to.equal(false);
+  });
+
+  it('should return true for mapping with TTL exactly at threshold', async () => {
+    sinon.stub(upnpService, 'getPortMapping').resolves({ local: true, ttl: 1800 });
+    const result = await portManager.checkPortMapping(16147);
+    expect(result).to.equal(true);
+  });
+
+  it('should return null when router is unreachable', async () => {
+    sinon.stub(upnpService, 'getPortMapping').rejects(new Error('timeout'));
+    const result = await portManager.checkPortMapping(16147);
+    expect(result).to.equal(null);
+  });
+});

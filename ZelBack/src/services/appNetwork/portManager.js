@@ -1064,6 +1064,7 @@ module.exports = {
   isPortAvailable,
   findNextAvailablePort,
   signCheckAppData,
+  checkPortMapping,
   checkInstallingAppPortAvailable,
   callOtherNodeToKeepUpnpPortsOpen,
 };
