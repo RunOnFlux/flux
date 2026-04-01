@@ -1427,11 +1427,17 @@ async function checkDeterministicNodesCollisions() {
           }
         }
       }
-      // If this node is not CONFIRMED, remote nodes will reject the availability
-      // check (they verify confirmed status before probing ports). Skip to avoid
+      // If this node is not CONFIRMED, or our current IP isn't in the confirmed
+      // list (e.g. IP recently changed), remote nodes will reject the availability
+      // check via the confirmed-list gate in isFluxAvailable. Skip to avoid
       // spamming the network with requests that will always fail.
-      if (nodeStatus.data?.status !== 'CONFIRMED') {
-        log.warn(`Node status is ${nodeStatus.data?.status}. Skipping remote availability check.`);
+      const isConfirmed = nodeStatus.data?.status === 'CONFIRMED';
+      const inConfirmedList = await fluxCommunicationUtils.socketAddressInFluxList(myIP);
+      if (!isConfirmed || !inConfirmedList) {
+        const reason = !isConfirmed
+          ? `Node status is ${nodeStatus.data?.status}`
+          : `Our IP ${myIP} is not in the confirmed flux list`;
+        log.warn(`${reason}. Skipping remote availability check.`);
         setTimeout(() => {
           checkDeterministicNodesCollisions();
         }, 60 * 1000);
