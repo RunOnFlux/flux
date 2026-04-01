@@ -378,19 +378,15 @@ function secondsUntilSlot(slot) {
 
 /**
  * Check a single port's UPnP mapping via GetSpecificPortMappingEntry.
- * Validates that the mapping points to this node's LAN IP (not another node
- * misconfigured on the same port).
+ * Validates that the mapping is present, points to this node, and has sufficient TTL.
  * @param {number} port Port to check (TCP only — if TCP is gone, UDP is too).
- * @returns {Promise<boolean|null>} true=present and ours, false=absent or not ours, null=router unreachable.
+ * @returns {Promise<boolean|null>} true=healthy, false=needs repair, null=router unreachable.
  */
 async function checkPortMapping(port) {
   try {
     const mapping = await upnpService.getPortMapping(port);
-    if (!mapping) return false;
-    if (!mapping.local) {
-      log.error(`UPnP verify: port ${port} is mapped to ${mapping.private.host} — not this node. Another node may be configured on the same port.`);
-      return false;
-    }
+    if (!mapping || !mapping.local) return false;
+    if (mapping.ttl > 0 && mapping.ttl < upnpService.MIN_MAPPING_TTL_S) return false;
     return true;
   } catch (error) {
     log.warn(`UPnP verify: router unreachable checking port ${port} (${error.message})`);
@@ -448,10 +444,9 @@ async function verifyAndRepairUpnpMappings(portEntries, currentAppNames) {
     // eslint-disable-next-line no-await-in-loop
     const result = await checkPortMapping(entry.port);
 
-    if (result === null) unreachableCount += 1;
+    if (result === 'unreachable') unreachableCount += 1;
 
     if (result === true || result === null) {
-      // Track app verification
       if (entry.appName && result === true) {
         const ar = appResults.get(entry.appName) || { failed: false, verified: false };
         ar.verified = true;
@@ -465,7 +460,7 @@ async function verifyAndRepairUpnpMappings(portEntries, currentAppNames) {
       continue;
     }
 
-    // Mapping confirmed absent — repair this specific port
+    // Mapping missing, wrong host, or TTL too low — repair
     // For app ports, verify the app is still installed before re-mapping
     if (entry.appName) {
       if (!installedAppsSnapshot) {

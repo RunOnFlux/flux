@@ -35,7 +35,7 @@ const CYCLE_DURATION_S = 600;
 const MAPPING_TTL_S = 14400; // 4 hours
 
 // Minimum TTL before a mapping is refreshed — 30 min gives 3 missed cycles of buffer
-const MIN_STARTUP_TTL_S = 1800;
+const MIN_MAPPING_TTL_S = 1800;
 
 let upnpMachine = false;
 
@@ -336,7 +336,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport, appPorts = [])
       } else if (!mapping.local) {
         log.warn(`Startup: port ${port} mapped to ${mapping.private.host}, not this node — remapping`);
         needsMapping = true;
-      } else if (mapping.ttl > 0 && mapping.ttl < MIN_STARTUP_TTL_S) {
+      } else if (mapping.ttl > 0 && mapping.ttl < MIN_MAPPING_TTL_S) {
         log.info(`Startup: port ${port} TTL ${mapping.ttl}s too low — refreshing`);
         needsMapping = true;
       }
@@ -369,7 +369,7 @@ async function verifyUPNPsupport(apiport = config.server.apiport, appPorts = [])
       } else if (!mapping.local) {
         log.warn(`Startup: app port ${entry.port} mapped to ${mapping.private.host}, not this node — remapping`);
         needsMapping = true;
-      } else if (mapping.ttl > 0 && mapping.ttl < MIN_STARTUP_TTL_S) {
+      } else if (mapping.ttl > 0 && mapping.ttl < MIN_MAPPING_TTL_S) {
         log.info(`Startup: app port ${entry.port} TTL ${mapping.ttl}s too low — refreshing`);
         needsMapping = true;
       }
@@ -691,6 +691,7 @@ module.exports = {
   FLUXOS_PORT_DEFS,
   CYCLE_DURATION_S,
   MAPPING_TTL_S,
+  MIN_MAPPING_TTL_S,
   MAPPING_DESC_APP_TEST,
   MAPPING_DESC_APP_PREFIX,
   MAPPING_DESC_PRELAUNCH_PREFIX,
