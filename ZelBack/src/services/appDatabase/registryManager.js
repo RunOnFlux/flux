@@ -862,10 +862,10 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
       // replaceOne instead of $set to avoid accumulating ghost fields
       // from prior spec versions (e.g. flat fields from v1-v3 lingering
       // after upgrade to v4+ compose format)
-      await database.collection(globalAppsInformation).replaceOne(query, appSpecs, options);
+      await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
     }
   } else {
-    await database.collection(globalAppsInformation).replaceOne(query, appSpecs, options);
+    await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
   }
   return true;
 }
@@ -1225,10 +1225,10 @@ async function updateAppSpecifications(appSpecs) {
         // replaceOne instead of $set to avoid accumulating ghost fields
         // from prior spec versions (e.g. flat fields from v1-v3 lingering
         // after upgrade to v4+ compose format)
-        await database.collection(globalAppsInformation).replaceOne(query, appSpecs, options);
+        await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
       }
     } else {
-      await database.collection(globalAppsInformation).replaceOne(query, appSpecs, options);
+      await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
     }
     const queryDeleteAppErrors = { name: appSpecs.name };
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);

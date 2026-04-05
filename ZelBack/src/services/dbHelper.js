@@ -242,6 +242,24 @@ async function updateOneInDatabase(database, collection, query, update, options)
 }
 
 /**
+ * Replaces a single document in the collection. Unlike updateOne with $set,
+ * replaceOne completely replaces the document (except _id), preventing
+ * accumulation of stale fields from prior updates.
+ *
+ * @param {mongodb.Db} database
+ * @param {string} collection
+ * @param {object} query
+ * @param {object} replacement
+ * @param {object} [options]
+ * @returns {Promise<object>}
+ */
+async function replaceOneInDatabase(database, collection, query, replacement, options) {
+  const passedOptions = options || {};
+  const result = await database.collection(collection).replaceOne(query, replacement, passedOptions);
+  return result;
+}
+
+/**
  * Updates many documents in the collection
  *
  * @param {string} database
@@ -784,6 +802,7 @@ module.exports = {
   insertOneToDatabase,
   removeDocumentsFromCollection,
   repairNanInAppsMessagesDb,
+  replaceOneInDatabase,
   updateInDatabase,
   updateOneInDatabase,
   validateAppsInformation,
