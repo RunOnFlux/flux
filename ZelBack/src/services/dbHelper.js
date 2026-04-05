@@ -566,9 +566,22 @@ async function isReindexAppsInformationRequired(
       + ` Found ${appsFromInformation.count} apps from appsInformation`,
     );
 
-    const reindexRequired = appsFromMessages.count !== appsFromInformation.count;
+    if (appsFromMessages.count !== appsFromInformation.count) {
+      return true;
+    }
 
-    return reindexRequired;
+    // Detect ghost flat fields on v4+ specs caused by $set accumulating
+    // fields from prior spec versions. Fixed by replaceOne in registryManager.
+    const ghostCount = await countInDatabase(appsGlobalDb, appsInformationCol, {
+      version: { $gte: 4 },
+      repotag: { $exists: true },
+    });
+    if (ghostCount > 0) {
+      log.info(`Found ${ghostCount} v4+ specs with ghost fields from prior versions, reindex required`);
+      return true;
+    }
+
+    return false;
   } catch (err) {
     log.error(`isReindexAppsInformationRequired - Mongodb Error: ${err}`);
     return false;

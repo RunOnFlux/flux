@@ -844,40 +844,10 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
  * @returns {Promise<boolean>} Update result
  */
 async function updateAppSpecsForRescanReindex(appSpecs) {
-  // appSpecs: {
-  //   version: 3,
-  //   name: 'FoldingAtHomeB',
-  //   description: 'Folding @ Home is cool :)',
-  //   repotag: 'yurinnick/folding-at-home:latest',
-  //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-  //   ports: '[30001]',
-  //   containerPorts: '[7396]',
-  //   domains: '[""]',
-  //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
-  //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
-  //   containerData: '/config',
-  //   cpu: 0.5,
-  //   ram: 500,
-  //   hdd: 5,
-  //   tiered: true,
-  //   cpubasic: 0.5,
-  //   rambasic: 500,
-  //   hddbasic: 5,
-  //   cpusuper: 1,
-  //   ramsuper: 1000,
-  //   hddsuper: 5,
-  //   cpubamf: 2,
-  //   rambamf: 2000,
-  //   hddbamf: 5,
-  //   instances: 10, // version 3 fork
-  //   hash: hash of message that has these paramenters,
-  //   height: height containing the message
-  // };
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const query = { name: appSpecs.name };
-  const update = { $set: appSpecs };
   const options = {
     upsert: true,
   };
@@ -889,10 +859,13 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
   const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (appInfo) {
     if (appInfo.height < appSpecs.height) {
-      await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+      // replaceOne instead of $set to avoid accumulating ghost fields
+      // from prior spec versions (e.g. flat fields from v1-v3 lingering
+      // after upgrade to v4+ compose format)
+      await database.collection(globalAppsInformation).replaceOne(query, appSpecs, options);
     }
   } else {
-    await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+    await database.collection(globalAppsInformation).replaceOne(query, appSpecs, options);
   }
   return true;
 }
@@ -1234,73 +1207,10 @@ async function expireGlobalApplications() {
  */
 async function updateAppSpecifications(appSpecs) {
   try {
-    // appSpecs: {
-    //   version: 3,
-    //   name: 'FoldingAtHomeB',
-    //   description: 'Folding @ Home is cool :)',
-    //   repotag: 'yurinnick/folding-at-home:latest',
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    //   ports: '[30001]',
-    //   containerPorts: '[7396]',
-    //   domains: '[""]',
-    //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
-    //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
-    //   containerData: '/config',
-    //   cpu: 0.5,
-    //   ram: 500,
-    //   hdd: 5,
-    //   tiered: true,
-    //   cpubasic: 0.5,
-    //   rambasic: 500,
-    //   hddbasic: 5,
-    //   cpusuper: 1,
-    //   ramsuper: 1000,
-    //   hddsuper: 5,
-    //   cpubamf: 2,
-    //   rambamf: 2000,
-    //   hddbamf: 5,
-    //   instances: 10, // version 3 fork
-    //   hash: hash of message that has these paramenters,
-    //   height: height containing the message
-    // };
-    // const appSpecs = {
-    //   version: 4, // int
-    //   name: 'FoldingAtHomeB', // string
-    //   description: 'Folding @ Home is cool :)', // string
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', // string
-    //   compose: [ // array of max 5 objects of following specs
-    //     {
-    //       name: 'Daemon', // string
-    //       description: 'Main ddaemon for foldingAtHome', // string
-    //       repotag: 'yurinnick/folding-at-home:latest',
-    //       ports: '[30001]', // array of ints
-    //       containerPorts: '[7396]', // array of ints
-    //       domains: '[""]', // array of strings
-    //       environmentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // array of strings
-    //       commands: '["--allow","0/0","--web-allow","0/0"]', // array of strings
-    //       containerData: '/config', // string
-    //       cpu: 0.5, // float
-    //       ram: 500, // int
-    //       hdd: 5, // int
-    //       tiered: true, // bool
-    //       cpubasic: 0.5, // float
-    //       rambasic: 500, // int
-    //       hddbasic: 5, // int
-    //       cpusuper: 1, // float
-    //       ramsuper: 1000, // int
-    //       hddsuper: 5, // int
-    //       cpubamf: 2, // float
-    //       rambamf: 2000, // int
-    //       hddbamf: 5, // int
-    //     },
-    //   ],
-    //   instances: 10, // int
-    // };
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 
     const query = { name: appSpecs.name };
-    const update = { $set: appSpecs };
     const options = {
       upsert: true,
     };
@@ -1312,10 +1222,13 @@ async function updateAppSpecifications(appSpecs) {
     const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
     if (appInfo) {
       if (appInfo.height < appSpecs.height) {
-        await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+        // replaceOne instead of $set to avoid accumulating ghost fields
+        // from prior spec versions (e.g. flat fields from v1-v3 lingering
+        // after upgrade to v4+ compose format)
+        await database.collection(globalAppsInformation).replaceOne(query, appSpecs, options);
       }
     } else {
-      await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+      await database.collection(globalAppsInformation).replaceOne(query, appSpecs, options);
     }
     const queryDeleteAppErrors = { name: appSpecs.name };
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
