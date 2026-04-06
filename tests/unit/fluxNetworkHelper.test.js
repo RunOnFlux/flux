@@ -1369,6 +1369,7 @@ describe('fluxNetworkHelper tests', () => {
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
+      sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
       deterministicFluxnodeListResponse = [
         {
           collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
@@ -1448,6 +1449,34 @@ describe('fluxNetworkHelper tests', () => {
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
       // Node is expired and not in list — availability check is skipped, no DOS penalty
+      expect(fluxNetworkHelper.getDosMessage()).to.be.null;
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+    });
+
+    it('should skip availability check when IP is not in confirmed flux list', async () => {
+      const ip = '127.0.0.1:5050';
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: { ipaddress: ip },
+      };
+      getBenchmarksStub.resolves(getBenchmarkResponseData);
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
+      getFluxNodeStatusStub.returns(
+        {
+          status: 'success',
+          data: {
+            status: 'CONFIRMED',
+            collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
+          },
+        },
+      );
+      // Our IP changed and is not in the confirmed list
+      fluxCommunicationUtils.socketAddressInFluxList.resolves(false);
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      // CONFIRMED but IP not in list — availability check is skipped, no DOS penalty
       expect(fluxNetworkHelper.getDosMessage()).to.be.null;
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
