@@ -432,6 +432,45 @@ describe('registryManager tests', () => {
       expect(result.height).to.equal(300);
       expect(result.hash).to.equal('hash1');
     });
+
+    it('should not accumulate ghost fields when spec version changes', async () => {
+      // Simulate a v3 flat spec registration
+      const v3Spec = {
+        version: 3,
+        name: 'GhostFieldTestApp',
+        description: 'Test',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        repotag: 'test/image:latest',
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+        height: 100,
+        hash: 'hash1',
+      };
+      await registryManager.updateAppSpecifications(v3Spec);
+
+      // Simulate a v4 compose update (no flat fields)
+      const v4Spec = {
+        version: 4,
+        name: 'GhostFieldTestApp',
+        description: 'Test',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        compose: [{ name: 'main', cpu: 0.5, ram: 500, hdd: 5 }],
+        instances: 3,
+        height: 200,
+        hash: 'hash2',
+      };
+      await registryManager.updateAppSpecifications(v4Spec);
+
+      const result = await registryManager.getApplicationSpecifications('GhostFieldTestApp');
+      expect(result.version).to.equal(4);
+      expect(result.compose).to.exist;
+      // Ghost flat fields from v3 should NOT exist
+      expect(result.repotag).to.be.undefined;
+      expect(result.cpu).to.be.undefined;
+      expect(result.ram).to.be.undefined;
+      expect(result.hdd).to.be.undefined;
+    });
   });
 
   describe('registrationInformation tests', () => {
