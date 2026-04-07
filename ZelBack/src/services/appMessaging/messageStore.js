@@ -86,62 +86,72 @@ async function storeAppTemporaryMessage(message, options = {}) {
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
   if (furtherVerification) {
-    // Dynamic require to avoid circular dependency
-    // eslint-disable-next-line global-require
-    const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
-    const appRegistration = message.type === 'zelappregister' || message.type === 'fluxappregister';
-
-    // For updates, fetch previous app specs first - if registration doesn't exist yet, queue the update
-    let previousAppSpecs = null;
-    if (!appRegistration) {
-      previousAppSpecs = await advancedWorkflows.getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
-      if (!previousAppSpecs) {
-        // Registration doesn't exist yet - queue this update for later processing
-        const appName = appSpecFormatted.name;
-        log.info(`Queueing update for ${appName} - registration not yet stored`);
-        globalState.queuePendingUpdate(appName, message, block);
-        return false; // Don't rebroadcast - we'll process when registration arrives
-      }
-    }
-
-    if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-      if (!message.arcaneSender) {
-        return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
-      }
+    try {
+      // Dynamic require to avoid circular dependency
       // eslint-disable-next-line global-require
-      const fluxService = require('../fluxService');
-      if (await fluxService.isSystemSecure()) {
-        // eslint-disable-next-line no-use-before-define
-        const appSpecDecrypted = await checkAndDecryptAppSpecs(
-          appSpecFormatted,
-          { daemonHeight: block, owner: appSpecFormatted.owner },
-        );
-        // eslint-disable-next-line no-use-before-define
-        const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
-        await appValidator.verifyAppSpecifications(appSpecFormattedDecrypted, block);
-        if (appRegistration) {
-          await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
-        } else {
-          await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormattedDecrypted, previousAppSpecs);
+      const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
+      const appRegistration = message.type === 'zelappregister' || message.type === 'fluxappregister';
+
+      // For updates, fetch previous app specs first - if registration doesn't exist yet, queue the update
+      let previousAppSpecs = null;
+      if (!appRegistration) {
+        previousAppSpecs = await advancedWorkflows.getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
+        if (!previousAppSpecs) {
+          // Registration doesn't exist yet - queue this update for later processing
+          const appName = appSpecFormatted.name;
+          log.info(`Queueing update for ${appName} - registration not yet stored`);
+          globalState.queuePendingUpdate(appName, message, block);
+          return false; // Don't rebroadcast - we'll process when registration arrives
         }
       }
-    } else {
-      await appValidator.verifyAppSpecifications(appSpecFormatted, block);
-      if (appRegistration) {
-        await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
-      } else {
-        await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
-      }
-    }
 
-    await messageVerifier.verifyAppHash(message);
-    if (appRegistration) {
-      await messageVerifier.verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
-    } else {
-      // previousAppSpecs already fetched above for update validation
-      const { owner } = previousAppSpecs;
-      // here signature is checked against PREVIOUS app owner
-      await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block, previousAppSpecs);
+      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        if (!message.arcaneSender) {
+          return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
+        }
+        // eslint-disable-next-line global-require
+        const fluxService = require('../fluxService');
+        if (await fluxService.isSystemSecure()) {
+          // eslint-disable-next-line no-use-before-define
+          const appSpecDecrypted = await checkAndDecryptAppSpecs(
+            appSpecFormatted,
+            { daemonHeight: block, owner: appSpecFormatted.owner },
+          );
+          // eslint-disable-next-line no-use-before-define
+          const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
+          await appValidator.verifyAppSpecifications(appSpecFormattedDecrypted, block);
+          if (appRegistration) {
+            await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
+          } else {
+            await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormattedDecrypted, previousAppSpecs);
+          }
+        }
+      } else {
+        await appValidator.verifyAppSpecifications(appSpecFormatted, block);
+        if (appRegistration) {
+          await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
+        } else {
+          await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
+        }
+      }
+
+      await messageVerifier.verifyAppHash(message);
+      if (appRegistration) {
+        await messageVerifier.verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
+      } else {
+        // previousAppSpecs already fetched above for update validation
+        const { owner } = previousAppSpecs;
+        // here signature is checked against PREVIOUS app owner
+        await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block, previousAppSpecs);
+      }
+    } catch (error) {
+      if (isAppRequested) {
+        // Message has an on-chain tx but failed verification — permanently reject
+        log.warn(`Rejecting app message ${message.hash}: ${error.message}`);
+        const daemonDb = db.db(config.database.daemon.database);
+        await dbHelper.updateOneInDatabase(daemonDb, appsHashesCollection, { hash: message.hash }, { $set: { rejected: true } }, {});
+      }
+      throw error;
     }
   }
 

@@ -260,6 +260,84 @@ describe('messageStore tests', () => {
       expect(result).to.be.true;
       expect(dbHelperStub.insertOneToDatabase.calledOnce).to.be.true;
     });
+
+    it('should mark hash as rejected when verification fails for an on-chain message', async () => {
+      const message = {
+        type: 'fluxappupdate',
+        version: 1,
+        appSpecifications: { name: 'test', version: 8 },
+        hash: 'hash123',
+        timestamp: Date.now(),
+        signature: 'sig123',
+      };
+
+      const updateOneStub = sinon.stub().resolves();
+
+      messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
+        config: configStub,
+        '../dbHelper': {
+          ...dbHelperStub,
+          databaseConnection: sinon.stub().returns({ db: sinon.stub().returns('database') }),
+          findOneInDatabase: sinon.stub().resolves({ message: false, height: 1000 }), // appsHashesCollection — on-chain tx exists
+          updateOneInDatabase: updateOneStub,
+        },
+        '../serviceHelper': serviceHelperStub,
+        './messageVerifier': {
+          ...messageVerifierStub,
+          checkAppMessageExistence: sinon.stub().resolves(null),
+          checkAppTemporaryMessageExistence: sinon.stub().resolves(null),
+          verifyAppHash: sinon.stub().resolves(),
+          verifyAppMessageUpdateSignature: sinon.stub().rejects(new Error('Signature does not match')),
+        },
+        '../../lib/log': logStub,
+        '../daemonService/daemonServiceMiscRpcs': {
+          isDaemonSynced: sinon.stub().returns({ data: { height: 1000 } }),
+        },
+        '../appRequirements/appValidator': {
+          verifyAppSpecifications: sinon.stub().resolves(),
+        },
+        '../appDatabase/registryManager': {
+          checkApplicationRegistrationNameConflicts: sinon.stub().resolves(),
+        },
+        '../appLifecycle/advancedWorkflows': {
+          validateApplicationUpdateCompatibility: sinon.stub().resolves(),
+          getPreviousAppSpecifications: sinon.stub().resolves({ owner: 'owner1', version: 7 }),
+        },
+        '../utils/enterpriseHelper': {
+          checkAndDecryptAppSpecs: sinon.stub().resolves({}),
+        },
+        '../utils/globalState': {
+          queuePendingUpdate: sinon.stub(),
+        },
+        '../utils/appConstants': {
+          globalAppsMessages: 'appsMessages',
+          globalAppsTempMessages: 'appsTempMessages',
+          globalAppsLocations: 'appsLocations',
+          globalAppsInstallingLocations: 'appsInstallingLocations',
+          globalAppsInstallingErrorsLocations: 'appsInstallingErrorsLocations',
+          appsHashesCollection: 'appsHashes',
+        },
+        '../utils/appSpecHelpers': {
+          specificationFormatter: sinon.stub().returnsArg(0),
+        },
+      });
+
+      try {
+        await messageStore.storeAppTemporaryMessage(message);
+        expect.fail('Should have thrown');
+      } catch (err) {
+        expect(err.message).to.equal('Signature does not match');
+      }
+
+      // Verify rejected: true was set on the hash
+      const rejectedCall = updateOneStub.getCalls().find(
+        (call) => call.args[2] && call.args[2].hash === 'hash123'
+          && call.args[3] && call.args[3].$set && call.args[3].$set.rejected === true,
+      );
+      expect(rejectedCall).to.not.be.undefined;
+      expect(logStub.warn.calledOnce).to.be.true;
+      expect(logStub.warn.firstCall.args[0]).to.include('Rejecting app message');
+    });
   });
 
   describe('storeAppPermanentMessage', () => {
