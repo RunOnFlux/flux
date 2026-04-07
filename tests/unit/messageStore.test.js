@@ -197,75 +197,7 @@ describe('messageStore tests', () => {
       }
     });
 
-    it('should reject version change not targeting latest for current messages', async () => {
-      const message = {
-        type: 'fluxappupdate',
-        version: 1,
-        appSpecifications: { name: 'test', version: 6 },
-        hash: 'hash123',
-        timestamp: Date.now(),
-        signature: 'sig123',
-      };
-
-      messageVerifierStub.checkAppMessageExistence.resolves(null);
-      messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
-      messageVerifierStub.verifyAppHash = sinon.stub().resolves();
-      messageVerifierStub.verifyAppMessageUpdateSignature = sinon.stub().resolves();
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.findOneInDatabase.resolves(null);
-
-      try {
-        // previousAppSpecs returns version 5, update targets version 6 (not 8)
-        messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
-          config: {
-            ...configStub,
-            fluxapps: { latestSupportedSpecVersion: 8 },
-          },
-          '../dbHelper': dbHelperStub,
-          '../serviceHelper': serviceHelperStub,
-          './messageVerifier': messageVerifierStub,
-          '../../lib/log': logStub,
-          '../daemonService/daemonServiceMiscRpcs': {
-            isDaemonSynced: sinon.stub().returns({ data: { height: 1000 } }),
-          },
-          '../appRequirements/appValidator': {
-            verifyAppSpecifications: sinon.stub().resolves(),
-          },
-          '../appDatabase/registryManager': {
-            checkApplicationRegistrationNameConflicts: sinon.stub().resolves(),
-          },
-          '../appLifecycle/advancedWorkflows': {
-            validateApplicationUpdateCompatibility: sinon.stub().resolves(),
-            getPreviousAppSpecifications: sinon.stub().resolves({ owner: 'owner1', version: 5 }),
-          },
-          '../utils/enterpriseHelper': {
-            checkAndDecryptAppSpecs: sinon.stub().resolves({}),
-          },
-          '../utils/globalState': {
-            queuePendingUpdate: sinon.stub(),
-          },
-          '../utils/appConstants': {
-            globalAppsMessages: 'appsMessages',
-            globalAppsTempMessages: 'appsTempMessages',
-            globalAppsLocations: 'appsLocations',
-            globalAppsInstallingLocations: 'appsInstallingLocations',
-            globalAppsInstallingErrorsLocations: 'appsInstallingErrorsLocations',
-            appsHashesCollection: 'appsHashes',
-          },
-          '../utils/appSpecHelpers': {
-            specificationFormatter: sinon.stub().returnsArg(0),
-          },
-        });
-
-        await messageStore.storeAppTemporaryMessage(message);
-        expect.fail('Should have thrown error');
-      } catch (err) {
-        expect(err.message).to.include('Version changes are only allowed when updating to version 8');
-      }
-    });
-
-    it('should allow version change not targeting latest for historic sync', async () => {
+    it('should not enforce version upgrade policy (enforced at API layer)', async () => {
       const message = {
         type: 'fluxappupdate',
         version: 1,
@@ -285,10 +217,7 @@ describe('messageStore tests', () => {
       dbHelperStub.insertOneToDatabase.resolves();
 
       messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
-        config: {
-          ...configStub,
-          fluxapps: { latestSupportedSpecVersion: 8 },
-        },
+        config: configStub,
         '../dbHelper': dbHelperStub,
         '../serviceHelper': serviceHelperStub,
         './messageVerifier': messageVerifierStub,
@@ -325,8 +254,8 @@ describe('messageStore tests', () => {
         },
       });
 
-      // isHistoricSync: true should skip version policy check
-      const result = await messageStore.storeAppTemporaryMessage(message, { isHistoricSync: true });
+      // v5→v6 update should be accepted — version policy is enforced at API layer, not here
+      const result = await messageStore.storeAppTemporaryMessage(message);
 
       expect(result).to.be.true;
       expect(dbHelperStub.insertOneToDatabase.calledOnce).to.be.true;

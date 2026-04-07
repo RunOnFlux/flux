@@ -2799,7 +2799,145 @@ function setInstallationInProgressTrue() {
 }
 
 /**
- * Update application globally via API
+ * Validate and broadcast an app update to the network.
+ * Business logic only — no HTTP concerns.
+ * @param {object} params - Update parameters
+ * @param {object} params.appSpecification - The app specification
+ * @param {number} params.timestamp - Message timestamp
+ * @param {string} params.signature - Message signature
+ * @param {string} params.type - Message type (fluxappupdate/zelappupdate)
+ * @param {number} params.version - Message version
+ * @returns {Promise<string>} The message hash
+ */
+async function updateAppGlobaly(params) {
+  const {
+    appSpecification, timestamp, signature, type: messageType, version: typeVersion,
+  } = params;
+
+  if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
+    throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and signature are provided.');
+  }
+  if (messageType !== 'zelappupdate' && messageType !== 'fluxappupdate') {
+    throw new Error('Invalid type of message');
+  }
+  if (typeVersion !== 1) {
+    throw new Error('Invalid version of message');
+  }
+
+  const cleanTimestamp = serviceHelper.ensureNumber(timestamp);
+  const cleanSignature = serviceHelper.ensureString(signature);
+  const cleanMessageType = serviceHelper.ensureString(messageType);
+  const cleanTypeVersion = serviceHelper.ensureNumber(typeVersion);
+
+  const timestampNow = Date.now();
+  if (cleanTimestamp < timestampNow - 1000 * 3600) {
+    throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+  } else if (cleanTimestamp > timestampNow + 1000 * 60 * 5) {
+    throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+  }
+
+  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+  if (!syncStatus.data.synced) {
+    throw new Error('Daemon not yet synced.');
+  }
+  const daemonHeight = syncStatus.data.height;
+
+  const appSpecObj = serviceHelper.ensureObject(appSpecification);
+  const appSpecDecrypted = await checkAndDecryptAppSpecs(appSpecObj, { daemonHeight });
+  const appSpecFormatted = specificationFormatter(appSpecDecrypted);
+
+  // eslint-disable-next-line global-require
+  const appRequirements = require('../appRequirements/appValidator');
+  await appRequirements.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+  if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComponent of appSpecFormatted.compose) {
+      if (appComponent.secrets) {
+        // eslint-disable-next-line global-require
+        const appSecurity = require('../appSecurity/imageManager');
+        // eslint-disable-next-line no-await-in-loop
+        await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
+      }
+    }
+  }
+
+  // verify that app exists, does not change repotag and is signed by app owner.
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { name: appSpecFormatted.name };
+  const projection = { projection: { _id: 0 } };
+  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  if (!appInfo) {
+    throw new Error('Flux App update received but application to update does not exist!');
+  }
+  if (appInfo.version <= 3 && appSpecFormatted.version <= 3 && appInfo.repotag !== appSpecFormatted.repotag) {
+    throw new Error('Flux App update of repotag is not allowed');
+  }
+  const appOwner = appInfo.owner;
+
+  const isEnterprise = Boolean(appSpecObj.version >= 8 && appSpecObj.enterprise);
+  const toVerify = isEnterprise ? specificationFormatter(appSpecObj) : appSpecFormatted;
+
+  // eslint-disable-next-line global-require
+  const appMessaging = require('../appMessaging/messageVerifier');
+  await appMessaging.verifyAppMessageUpdateSignature(cleanMessageType, cleanTypeVersion, toVerify, cleanTimestamp, cleanSignature, appOwner, daemonHeight, appInfo);
+
+  // Enforce version upgrade policy
+  const { latestSupportedSpecVersion } = config.fluxapps;
+  if (appInfo.version !== appSpecFormatted.version && appSpecFormatted.version !== latestSupportedSpecVersion) {
+    throw new Error(
+      `Application update rejected: Version changes are only allowed when updating to version ${latestSupportedSpecVersion} (current latest supported version). `
+      + `Current version: ${appInfo.version}, Attempted version: ${appSpecFormatted.version}. `
+      + `To update this application, please use version ${latestSupportedSpecVersion} specifications.`,
+    );
+  }
+
+  // Validate structural compatibility
+  await validateApplicationUpdateCompatibility(appSpecFormatted, appInfo);
+
+  if (isEnterprise) {
+    appSpecFormatted.contacts = [];
+    appSpecFormatted.compose = [];
+  }
+
+  const message = cleanMessageType + cleanTypeVersion + JSON.stringify(appSpecFormatted) + cleanTimestamp + cleanSignature;
+  const messageHASH = await generalService.messageHash(message);
+
+  const temporaryAppMessage = {
+    type: cleanMessageType,
+    version: cleanTypeVersion,
+    appSpecifications: appSpecFormatted,
+    hash: messageHASH,
+    timestamp: cleanTimestamp,
+    signature: cleanSignature,
+    arcaneSender: isArcane,
+  };
+
+  // eslint-disable-next-line global-require
+  const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+  await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
+  await serviceHelper.delay(1200);
+  await appMessaging.requestAppMessage(messageHASH);
+  await serviceHelper.delay(1200);
+
+  let tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
+  for (let i = 0; i < 20; i += 1) {
+    if (!tempMessage) {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(500);
+      // eslint-disable-next-line no-await-in-loop
+      tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
+    }
+  }
+  if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+    return tempMessage.hash;
+  }
+  throw new Error('Unable to update application on the network. Try again later.');
+}
+
+/**
+ * API endpoint to update application globally
  * @param {object} req - Request object
  * @param {object} res - Response object
  * @returns {Promise<void>} Update result
@@ -2815,162 +2953,28 @@ async function updateAppGlobalyApi(req, res) {
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
-        // eslint-disable-next-line global-require
         return;
       }
-      // Dynamic require to avoid circular dependency
       // eslint-disable-next-line global-require
       const { peerManager } = require('../utils/peerState');
-      // first check if this node is available for application update
       if (peerManager.outboundCount < config.fluxapps.minOutgoing) {
         throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
       }
       if (peerManager.inboundCount < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
       }
+
       const processedBody = serviceHelper.ensureObject(body);
-      // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
-      // name and ports HAVE to be unique for application. Check if they don't exist in global database
-      // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
-      let { appSpecification, timestamp, signature } = processedBody;
-      let messageType = processedBody.type; // determines how data is treated in the future
-      let typeVersion = processedBody.version; // further determines how data is treated in the future
-      if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-        throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and signature are provided.');
-      }
-      if (messageType !== 'zelappupdate' && messageType !== 'fluxappupdate') {
-        throw new Error('Invalid type of message');
-      }
-      if (typeVersion !== 1) {
-        throw new Error('Invalid version of message');
-      }
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-      timestamp = serviceHelper.ensureNumber(timestamp);
-      signature = serviceHelper.ensureString(signature);
-      messageType = serviceHelper.ensureString(messageType);
-      typeVersion = serviceHelper.ensureNumber(typeVersion);
+      const hash = await updateAppGlobaly({
+        appSpecification: processedBody.appSpecification,
+        timestamp: processedBody.timestamp,
+        signature: processedBody.signature,
+        type: processedBody.type,
+        version: processedBody.version,
+      });
 
-      const timestampNow = Date.now();
-      if (timestamp < timestampNow - 1000 * 3600) {
-        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
-      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
-        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
-      }
-
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-
-      const appSpecDecrypted = await checkAndDecryptAppSpecs(
-        appSpecification,
-        {
-          daemonHeight,
-        },
-      );
-
-      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
-
-      // Dynamic require to avoid circular dependency
-      // eslint-disable-next-line global-require
-      const appRequirements = require('../appRequirements/appValidator');
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await appRequirements.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecFormatted.compose) {
-          if (appComponent.secrets) {
-            // eslint-disable-next-line global-require
-            const appSecurity = require('../appSecurity/imageManager');
-            // eslint-disable-next-line no-await-in-loop
-            await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
-          }
-        }
-      }
-
-      // verify that app exists, does not change repotag and is signed by app owner.
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
-      // may throw
-      const query = { name: appSpecFormatted.name };
-      const projection = {
-        projection: {
-          _id: 0,
-        },
-      };
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      if (!appInfo) {
-        throw new Error('Flux App update received but application to update does not exist!');
-      }
-      if (appInfo.version <= 3 && appSpecFormatted.version <= 3 && appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
-        throw new Error('Flux App update of repotag is not allowed');
-      }
-      const appOwner = appInfo.owner; // ensure previous app owner is signing this message
-
-      const isEnterprise = Boolean(
-        appSpecification.version >= 8 && appSpecification.enterprise,
-      );
-
-      const toVerify = isEnterprise
-        ? specificationFormatter(appSpecification)
-        : appSpecFormatted;
-
-      // eslint-disable-next-line global-require
-      const appMessaging = require('../appMessaging/messageVerifier');
-      // here signature is checked against PREVIOUS app owner
-      await appMessaging.verifyAppMessageUpdateSignature(messageType, typeVersion, toVerify, timestamp, signature, appOwner, daemonHeight, appInfo);
-
-      // Validate update compatibility: ensure structural consistency (component names/count for v4+, repotag for v1-3)
-      // Use appInfo (already fetched above) as previousAppSpecs
-      await validateApplicationUpdateCompatibility(appSpecFormatted, appInfo);
-
-      if (isEnterprise) {
-        appSpecFormatted.contacts = [];
-        appSpecFormatted.compose = [];
-      }
-
-      // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
-      // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
-      // We respond with a hash that is supposed to go to transaction.
-      const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
-      const messageHASH = await generalService.messageHash(message);
-
-      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
-      const temporaryAppMessage = { // specification of temp message
-        type: messageType,
-        version: typeVersion,
-        appSpecifications: appSpecFormatted,
-        hash: messageHASH,
-        timestamp,
-        signature,
-        arcaneSender: isArcane,
-      };
-      // eslint-disable-next-line global-require
-      const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
-      // above takes 2-3 seconds
-      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
-      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
-      await appMessaging.requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
-      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
-      // check temporary message storage
-      let tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
-      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
-        if (!tempMessage) {
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(500);
-          // eslint-disable-next-line no-await-in-loop
-          tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
-        }
-      }
-      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
-        res.json(responseHash); // all ok
-        return;
-      }
-      throw new Error('Unable to update application on the network. Try again later.');
+      const responseHash = messageHelper.createDataMessage(hash);
+      res.json(responseHash);
     } catch (error) {
       log.warn(error);
       const errorResponse = messageHelper.createErrorMessage(
@@ -4254,6 +4258,7 @@ module.exports = {
   hardRedeployComponent,
   redeployAPI,
   redeployComponentAPI,
+  updateAppGlobaly,
   updateAppGlobalyApi,
   stopSyncthingApp,
   appendBackupTask,
