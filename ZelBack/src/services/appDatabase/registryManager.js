@@ -1315,12 +1315,16 @@ async function reconstructAppMessagesHashCollection() {
 
       if (permanentMessageFound) {
         // update that we have the message
-        const update = { $set: { message: true, messageNotFound: false } };
+        const update = { $set: { message: true, messageNotFound: false, rejected: false } };
         // eslint-disable-next-line no-await-in-loop
         await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
       } else {
-        // update that we do not have the message
-        const update = { $set: { message: false, messageNotFound: false } };
+        // update that we do not have the message — preserve rejected if already set
+        const updateFields = { message: false, messageNotFound: false };
+        if (!appHash.rejected) {
+          updateFields.rejected = false;
+        }
+        const update = { $set: updateFields };
         // eslint-disable-next-line no-await-in-loop
         await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
       }

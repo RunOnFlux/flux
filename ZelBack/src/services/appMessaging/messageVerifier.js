@@ -13,6 +13,7 @@ const { appPricePerMonth } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { updateAppSpecifications } = require('../appDatabase/registryManager');
+const { getPreviousAppSpecifications } = require('../appLifecycle/advancedWorkflows');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
@@ -622,7 +623,36 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           log.error(`Temp message ${hash} has no specifications! Full message: ${JSON.stringify(tempMessage)}`);
           return false;
         }
-        // temp message means its all ok. store it as permanent app message
+        // Re-verify signature against current permanent state before promoting.
+        // This prevents a race condition where two updates are both verified against
+        // the same permanent state at temp arrival time, but the first one changes
+        // the owner before the second is promoted.
+        const isUpdate = tempMessage.type === 'fluxappupdate' || tempMessage.type === 'zelappupdate';
+        if (isUpdate) {
+          const previousAppSpecs = await getPreviousAppSpecifications(specifications, tempMessage.timestamp);
+          if (previousAppSpecs) {
+            const messageVersion = serviceHelper.ensureNumber(tempMessage.version);
+            const messageTimestamp = serviceHelper.ensureNumber(tempMessage.timestamp);
+            const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+            const daemonHeight = syncStatus.data.height;
+            try {
+              await verifyAppMessageUpdateSignature(
+                tempMessage.type, messageVersion, specifications, messageTimestamp,
+                tempMessage.signature, previousAppSpecs.owner, daemonHeight, previousAppSpecs,
+              );
+            } catch (error) {
+              log.warn(`Promotion re-verification failed for ${specifications.name} (${hash}): ${error.message}`);
+              // Mark hash as rejected so it is not retried
+              const db = dbHelper.databaseConnection();
+              const database = db.db(config.database.daemon.database);
+              const hashQuery = { hash };
+              const rejectUpdate = { $set: { rejected: true } };
+              await dbHelper.updateOneInDatabase(database, appsHashesCollection, hashQuery, rejectUpdate, {});
+              return false;
+            }
+          }
+        }
+
         const permanentAppMessage = {
           type: tempMessage.type,
           version: tempMessage.version,
@@ -947,8 +977,8 @@ async function continuousFluxAppHashesCheck(force = false) {
     }
     const explorerHeight = serviceHelper.ensureNumber(scanHeight.generalScannedHeight);
 
-    // get flux app hashes that do not have a message;
-    const query = { message: false };
+    // get flux app hashes that do not have a message (excluding rejected ones);
+    const query = { message: false, rejected: { $ne: true } };
     const projection = {
       projection: {
         _id: 0,
