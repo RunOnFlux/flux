@@ -1888,85 +1888,6 @@ async function redeployAPI(req, res) {
 }
 
 /**
- * Verify app update parameters
- * @param {object} req - Request object
- * @param {object} res - Response object
- */
-async function verifyAppUpdateParameters(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      let appSpecification = processedBody;
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-
-      const isEnterprise = Boolean(
-        appSpecification.version >= 8 && appSpecification.enterprise,
-      );
-
-      const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
-
-      const appSpecFormatted = specificationFormatter(decryptedSpecs);
-
-      // Dynamic require to avoid circular dependency
-      // eslint-disable-next-line global-require
-      const appRequirements = require('../appRequirements/appValidator');
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await appRequirements.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecFormatted.compose) {
-          if (appComponent.secrets) {
-            // eslint-disable-next-line global-require
-            const appSecurity = require('../appSecurity/imageManager');
-            // eslint-disable-next-line no-await-in-loop
-            await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
-          }
-        }
-      }
-
-      // Validate update compatibility with previous version
-      const timestamp = Date.now();
-      // eslint-disable-next-line no-use-before-define
-      const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, timestamp);
-      if (!previousAppSpecs) {
-        throw new Error(`Flux App ${appSpecFormatted.name} does not exist and cannot be updated`);
-      }
-      // eslint-disable-next-line no-use-before-define
-      await validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
-
-      if (isEnterprise) {
-        appSpecFormatted.contacts = [];
-        appSpecFormatted.compose = [];
-      }
-
-      // app is valid and can be registered
-      // respond with formatted specifications
-      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
-      res.json(respondPrice);
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
-    }
-  });
-}
-
-/**
  * Helper function to send chunk of data to response stream with delay
  * @param {object} res - Response object
  * @param {string} chunk - Data chunk to send
@@ -2719,7 +2640,9 @@ async function testAppMount() {
  * - v1-3: Repository tags (repotag) cannot be changed
  * - v4+: Component names and count must remain constant (repotag changes allowed)
  * - Version downgrades from v4+ to v1-3 are forbidden
- * - Version updates only allowed to version 8 (current latest supported version)
+ * Note: Version upgrade policy (e.g. "must upgrade to v8") is enforced in
+ * storeAppTemporaryMessage, not here. This function only validates structural
+ * compatibility so it can be safely used during hash sync replay of historical messages.
  *
  * @param {object} specifications - The new/updated application specifications to validate
  * @param {string} specifications.name - Application name
@@ -2733,19 +2656,10 @@ async function testAppMount() {
  *   - Component name changes (v4+)
  *   - Repository tag changes (v1-3)
  *   - Version downgrade from v4+ to v1-3
- *   - Version change to anything other than version 8
  */
 async function validateApplicationUpdateCompatibility(specifications, previousAppSpecs) {
   const appSpecs = previousAppSpecs;
 
-  // Only allow version changes to version 8 (current latest supported version)
-  if (appSpecs.version !== specifications.version && specifications.version !== 8) {
-    throw new Error(
-      'Application update rejected: Version changes are only allowed when updating to version 8 (current latest supported version). '
-      + `Current version: ${appSpecs.version}, Attempted version: ${specifications.version}. `
-      + 'To update this application, please use version 8 specifications.',
-    );
-  }
   if (specifications.version >= 4) {
     if (appSpecs.version >= 4) {
       // Both current and update are v4+ compositions
@@ -4340,7 +4254,6 @@ module.exports = {
   hardRedeployComponent,
   redeployAPI,
   redeployComponentAPI,
-  verifyAppUpdateParameters,
   updateAppGlobalyApi,
   stopSyncthingApp,
   appendBackupTask,

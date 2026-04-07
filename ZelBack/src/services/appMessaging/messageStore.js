@@ -22,10 +22,16 @@ const { specificationFormatter } = require('../utils/appSpecHelpers');
 /**
  * Store temporary app message
  * @param {object} message - Message to store
- * @param {boolean} furtherVerification - Whether further verification is needed
+ * @param {object} [options] - Options
+ * @param {boolean} [options.furtherVerification=true] - Whether further verification is needed
+ * @param {boolean} [options.isHistoricSync=false] - True when replaying historic permanent messages
+ *   during hash sync. Skips version upgrade policy check since the message was already accepted
+ *   by the network.
  * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
-async function storeAppTemporaryMessage(message, furtherVerification = false) {
+async function storeAppTemporaryMessage(message, options = {}) {
+  const furtherVerification = options.furtherVerification ?? true;
+  const isHistoricSync = options.isHistoricSync ?? false;
   /* message object
   * @param type string
   * @param version number
@@ -120,6 +126,17 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         if (appRegistration) {
           await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
         } else {
+          if (!isHistoricSync) {
+            // Enforce version upgrade policy for current messages only (not historic sync)
+            const { latestSupportedSpecVersion } = config.fluxapps;
+            if (previousAppSpecs.version !== appSpecFormattedDecrypted.version && appSpecFormattedDecrypted.version !== latestSupportedSpecVersion) {
+              throw new Error(
+                `Application update rejected: Version changes are only allowed when updating to version ${latestSupportedSpecVersion} (current latest supported version). `
+                + `Current version: ${previousAppSpecs.version}, Attempted version: ${appSpecFormattedDecrypted.version}. `
+                + `To update this application, please use version ${latestSupportedSpecVersion} specifications.`,
+              );
+            }
+          }
           await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormattedDecrypted, previousAppSpecs);
         }
       }
@@ -128,6 +145,17 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       if (appRegistration) {
         await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       } else {
+        if (!isHistoricSync) {
+          // Enforce version upgrade policy for current messages only (not historic sync)
+          const { latestSupportedSpecVersion } = config.fluxapps;
+          if (previousAppSpecs.version !== appSpecFormatted.version && appSpecFormatted.version !== latestSupportedSpecVersion) {
+            throw new Error(
+              `Application update rejected: Version changes are only allowed when updating to version ${latestSupportedSpecVersion} (current latest supported version). `
+              + `Current version: ${previousAppSpecs.version}, Attempted version: ${appSpecFormatted.version}. `
+              + `To update this application, please use version ${latestSupportedSpecVersion} specifications.`,
+            );
+          }
+        }
         await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
       }
     }

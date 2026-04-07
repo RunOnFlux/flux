@@ -695,7 +695,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
                   const pendingUpdate = pendingUpdates[idx];
                   try {
                     // eslint-disable-next-line no-await-in-loop
-                    await messageStore.storeAppTemporaryMessage(pendingUpdate.message, true);
+                    await messageStore.storeAppTemporaryMessage(pendingUpdate.message, { isHistoricSync: true });
                     log.info(`Processed pending update ${idx + 1}/${pendingUpdates.length} for ${appName}`);
                   } catch (error) {
                     // If an update fails, stop processing and clear remaining updates

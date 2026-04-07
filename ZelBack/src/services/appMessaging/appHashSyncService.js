@@ -108,7 +108,7 @@ async function checkAndSyncAppHashes() {
               cleanMessage.zelAppSpecifications = appMessage.zelAppSpecifications;
             }
             // eslint-disable-next-line no-await-in-loop
-            await messageStore.storeAppTemporaryMessage(cleanMessage, true);
+            await messageStore.storeAppTemporaryMessage(cleanMessage, { isHistoricSync: true });
             // eslint-disable-next-line no-await-in-loop
             await messageVerifier.checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.valueSat, 2);
             // eslint-disable-next-line no-await-in-loop
