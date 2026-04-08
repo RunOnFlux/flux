@@ -60,7 +60,16 @@ describe('cpuBurstHelper integration (real container, real cgroup)', function in
     }
   });
 
-  it('creates a container with NanoCpus, applies burst, reads it back', async () => {
+  // The cpu count is chosen at 2 because it's the smallest value that produces
+  // distinguishable quota/burst numbers and a meaningful round-trip. We do NOT
+  // hard-code expected burst values here — we ask the helper what it computed
+  // and assert the cgroup file matches that, so the test stays correct
+  // regardless of host size and regardless of whether the per-container
+  // fairness cap binds (the cap can produce burstUs < quotaUs on small hosts,
+  // burstUs == 0 on very small hosts).
+  const TEST_CPU_CORES = 2;
+
+  it('round-trips: helper computes burst, kernel accepts it, cgroup reflects it', async () => {
     if (!supported || !docker) return;
 
     // Pull a small image (alpine sleep — no stress dep needed for the assertion)
@@ -76,8 +85,8 @@ describe('cpuBurstHelper integration (real container, real cgroup)', function in
       name: `flux-burst-int-${Date.now()}`,
       Cmd: ['sleep', '60'],
       HostConfig: {
-        // 2 cores via NanoCpus (the same path real flux apps now use)
-        NanoCpus: 2 * 1e9,
+        // NanoCpus is the same path real flux apps now use post-#1714
+        NanoCpus: TEST_CPU_CORES * 1e9,
       },
     });
     await container.start();
@@ -85,39 +94,57 @@ describe('cpuBurstHelper integration (real container, real cgroup)', function in
     const inspect = await container.inspect();
     pid = inspect.State?.Pid;
     expect(pid).to.be.a('number').and.greaterThan(0);
+    expect(inspect.HostConfig.NanoCpus).to.equal(TEST_CPU_CORES * 1e9);
 
-    // Sanity: HostConfig should show NanoCpus, not CpuPeriod/CpuQuota
-    expect(inspect.HostConfig.NanoCpus).to.equal(2 * 1e9);
+    // Ask the helper what it computed for this cpu on this host. We assert
+    // the round-trip against THIS value, not against a magic number.
+    const params = cpuBurstHelper.calculateBurstParams(TEST_CPU_CORES);
+    expect(params.quotaUs).to.equal(TEST_CPU_CORES * params.periodUs);
+    expect(params.burstUs).to.be.at.most(params.quotaUs); // kernel rule
 
-    // calculateBurstParams should produce burst==quota for 2 cores
-    const params = cpuBurstHelper.calculateBurstParams(2);
-    expect(params.quotaUs).to.equal(200000);
-    expect(params.burstUs).to.equal(200000);
-
-    // Apply burst via the helper
+    // Apply burst via the helper. setCpuBurst writes whatever value we pass;
+    // even burstUs === 0 is a valid (no-op) write.
     const ok = await cpuBurstHelper.setCpuBurst(pid, params.burstUs);
     expect(ok).to.be.true;
 
-    // Read ground truth via isBurstActive
-    const active = await cpuBurstHelper.isBurstActive(pid);
-    expect(active).to.be.true;
-
-    // Read the cgroup file directly to confirm the exact value
+    // Read the cgroup file directly and confirm it matches what the helper
+    // told us — this is the actual round-trip assertion.
     const burstPath = await cpuBurstHelper.getCgroupBurstPath(pid);
     expect(burstPath).to.be.a('string');
     const raw = await fsp.readFile(burstPath, 'utf8');
-    expect(parseInt(raw.trim(), 10)).to.equal(200000);
+    expect(parseInt(raw.trim(), 10)).to.equal(params.burstUs);
+
+    // isBurstActive's contract: true iff cpu.max.burst > 0
+    const active = await cpuBurstHelper.isBurstActive(pid);
+    expect(active).to.equal(params.burstUs > 0);
   });
 
   it('rejects burst values above quota (kernel rule burst <= quota)', async () => {
     if (!supported || !docker || !pid) return;
 
-    // Empirical: writing burst > quota returns EINVAL on Linux 5.14+
-    const ok = await cpuBurstHelper.setCpuBurst(pid, 200001);
+    // Establish a known-good baseline first, so this test doesn't depend on
+    // whatever state the previous test left behind. Use the helper's own
+    // computed value (which is always within kernel rule + host cap).
+    const params = cpuBurstHelper.calculateBurstParams(TEST_CPU_CORES);
+    if (params.burstUs === 0) {
+      // Host is too small for burst at this cpu count. There is no
+      // "valid burst" baseline to compare against, so skip the rejection
+      // check — the kernel-rule path is exercised on larger hosts.
+      return;
+    }
+    const baseline = await cpuBurstHelper.setCpuBurst(pid, params.burstUs);
+    expect(baseline).to.be.true;
+
+    // Now try to write a value strictly above the kernel rule (quota+1us).
+    // The kernel must reject with EINVAL regardless of host size.
+    const aboveQuota = params.quotaUs + 1;
+    const ok = await cpuBurstHelper.setCpuBurst(pid, aboveQuota);
     expect(ok).to.be.false;
 
-    // The previous valid value should still be in place
-    const active = await cpuBurstHelper.isBurstActive(pid);
-    expect(active).to.be.true;
+    // The baseline should still be in place — the failed write must not
+    // have corrupted state.
+    const burstPath = await cpuBurstHelper.getCgroupBurstPath(pid);
+    const raw = await fsp.readFile(burstPath, 'utf8');
+    expect(parseInt(raw.trim(), 10)).to.equal(params.burstUs);
   });
 });
