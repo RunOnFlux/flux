@@ -268,7 +268,7 @@ describe('messageVerifier tests', () => {
       });
     });
 
-    it('should reject promotion when signature re-verification fails (ownership change race)', async () => {
+    it('should refuse promotion when signature re-verification fails (ownership change race)', async () => {
       // getPreviousAppSpecifications returns the NEW owner (after a prior ownership change was promoted)
       getPreviousAppSpecsStub.resolves({ owner: 'newOwner', version: 8 });
       // Signature verification will fail — message was signed by old owner
@@ -280,12 +280,6 @@ describe('messageVerifier tests', () => {
       expect(storeAppPermanentMessageStub.called).to.be.false;
       expect(logStub.warn.calledOnce).to.be.true;
       expect(logStub.warn.firstCall.args[0]).to.include('Promotion re-verification failed');
-      // Verify hash is marked as rejected in appsHashesCollection
-      const rejectedCall = updateOneInDatabaseStub.getCalls().find(
-        (call) => call.args[2] && call.args[2].hash === 'hash123'
-          && call.args[3] && call.args[3].$set && call.args[3].$set.rejected === true,
-      );
-      expect(rejectedCall).to.not.be.undefined;
     });
 
     it('should promote when signature re-verification passes', async () => {

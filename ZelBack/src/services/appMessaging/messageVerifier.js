@@ -642,12 +642,6 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               );
             } catch (error) {
               log.warn(`Promotion re-verification failed for ${specifications.name} (${hash}): ${error.message}`);
-              // Mark hash as rejected so it is not retried
-              const db = dbHelper.databaseConnection();
-              const database = db.db(config.database.daemon.database);
-              const hashQuery = { hash };
-              const rejectUpdate = { $set: { rejected: true } };
-              await dbHelper.updateOneInDatabase(database, appsHashesCollection, hashQuery, rejectUpdate, {});
               return false;
             }
           }
@@ -977,8 +971,8 @@ async function continuousFluxAppHashesCheck(force = false) {
     }
     const explorerHeight = serviceHelper.ensureNumber(scanHeight.generalScannedHeight);
 
-    // get flux app hashes that do not have a message (excluding rejected ones);
-    const query = { message: false, rejected: { $ne: true } };
+    // get flux app hashes that do not have a message
+    const query = { message: false };
     const projection = {
       projection: {
         _id: 0,

@@ -42,7 +42,7 @@ async function checkAndSyncAppHashes() {
       },
     };
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
-    const numberOfMissingApps = results.filter((app) => app.message === false && app.rejected !== true).length;
+    const numberOfMissingApps = results.filter((app) => app.message === false).length;
     if (numberOfMissingApps > results.length * 0.95) {
       let finished = false;
       let i = 0;
@@ -186,8 +186,8 @@ async function continuousFluxAppHashesCheck(force = false) {
     }
     const explorerHeight = serviceHelper.ensureNumber(scanHeight.generalScannedHeight);
 
-    // get flux app hashes that do not have a message (excluding rejected ones);
-    const query = { message: false, rejected: { $ne: true } };
+    // get flux app hashes that do not have a message
+    const query = { message: false };
     const projection = {
       projection: {
         _id: 0,
