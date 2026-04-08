@@ -701,17 +701,6 @@ const getContainerIP = async (containerName) => {
  * @param {bool} isComponent
  * @returns {object}
  */
-async function getCpuHostConfig(fullAppSpecs, appSpecifications, identifier) {
-  const appOwner = fullAppSpecs?.owner || null;
-  const isBurstEligible = appOwner && cpuBurstHelper.isEnterpriseOwner(appOwner) && await cpuBurstHelper.isCpuBurstSupported();
-  if (isBurstEligible) {
-    const { periodUs, quotaUs } = cpuBurstHelper.calculateBurstParams(appSpecifications.cpu);
-    log.info(`CPU burst: using CpuPeriod/CpuQuota for enterprise app ${identifier} (period=${periodUs}, quota=${quotaUs})`);
-    return { CpuPeriod: periodUs, CpuQuota: quotaUs };
-  }
-  return { NanoCPUs: Math.round(appSpecifications.cpu * 1e9) };
-}
-
 async function appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   let exposedPorts = {};
@@ -888,7 +877,28 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       },
     };
   const autoAssignedIP = await getNextAvailableIPForApp(appName);
-  const cpuHostConfig = await getCpuHostConfig(fullAppSpecs, appSpecifications, identifier);
+
+  // CPU burst eligibility is decided once here, where the full app spec is in
+  // scope, and stamped onto the container as docker labels. Every subsequent
+  // start of this container (initial start, restart, recovery) reads the
+  // labels in appDockerStart and reapplies burst — no per-caller plumbing.
+  const burstOwner = fullAppSpecs?.owner || null;
+  const burstEligible = burstOwner
+    && cpuBurstHelper.isEnterpriseOwner(burstOwner)
+    && await cpuBurstHelper.isCpuBurstSupported();
+  const burstLabels = burstEligible
+    ? {
+      'flux.burst.eligible': 'true',
+      'flux.burst.cores': String(appSpecifications.cpu),
+    }
+    : null;
+  const containerLabels = (labels || burstLabels)
+    ? { ...(labels || {}), ...(burstLabels || {}) }
+    : null;
+  if (burstEligible) {
+    log.info(`CPU burst: marking ${identifier} as burst-eligible (cores=${appSpecifications.cpu})`);
+  }
+
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -901,9 +911,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     Tty: false,
     ExposedPorts: exposedPorts,
     // Conditionally include Labels only if it's not null
-    ...(labels && { Labels: labels }),
+    ...(containerLabels && { Labels: containerLabels }),
     HostConfig: {
-      ...cpuHostConfig,
+      NanoCpus: Math.round(appSpecifications.cpu * 1e9),
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
       MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
@@ -1057,14 +1067,22 @@ async function appDockerStart(idOrName) {
 
     await dockerContainer.start(); // may throw
 
-    // Apply CFS burst after start — cgroup paths only exist once the container is running
+    // Apply CFS burst after start — cgroup paths only exist once the container
+    // is running. Eligibility was decided at appDockerCreate time and stamped
+    // onto the container as labels; we just read them here. This means burst
+    // is reapplied on every start path (initial install, restart, recovery)
+    // without each caller having to know about burst.
     try {
       const containerInspect = await dockerContainer.inspect();
-      const hostCfg = containerInspect.HostConfig || {};
-      if (hostCfg.CpuPeriod > 0 && hostCfg.CpuQuota > 0 && await cpuBurstHelper.isCpuBurstSupported()) {
-        const cpuCores = hostCfg.CpuQuota / hostCfg.CpuPeriod;
-        const { burstUs } = cpuBurstHelper.calculateBurstParams(cpuCores);
-        await cpuBurstHelper.setCpuBurst(containerInspect.Id, burstUs);
+      const dockerLabels = containerInspect.Config?.Labels || {};
+      if (dockerLabels['flux.burst.eligible'] === 'true') {
+        const cpuCores = parseFloat(dockerLabels['flux.burst.cores']);
+        const pid = containerInspect.State?.Pid;
+        if (pid && cpuCores > 0) {
+          await cpuBurstHelper.applyBurst(pid, cpuCores, idOrName);
+        } else {
+          log.warn(`CPU burst: ${idOrName} marked eligible but pid/cores missing (pid=${pid}, cores=${cpuCores})`);
+        }
       }
     } catch (burstError) {
       // Burst is best-effort — do not fail container start
