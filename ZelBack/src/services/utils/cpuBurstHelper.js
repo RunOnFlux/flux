@@ -1,5 +1,4 @@
 const fsp = require('fs').promises;
-const os = require('os');
 const path = require('path');
 const config = require('config');
 const log = require('../../lib/log');
@@ -25,16 +24,14 @@ async function isCpuBurstSupported() {
   if (burstSupportCache !== null) return burstSupportCache;
 
   try {
-    const burstConfig = config.cpuBurst || {};
-    if (!burstConfig.enabled) {
+    if (!config.cpuBurst?.enabled) {
       burstSupportCache = false;
       return false;
     }
 
     // Check cgroups v2: /sys/fs/cgroup/cgroup.controllers must exist
-    const cgroupV2Marker = '/sys/fs/cgroup/cgroup.controllers';
     try {
-      await fsp.access(cgroupV2Marker);
+      await fsp.access('/sys/fs/cgroup/cgroup.controllers');
     } catch {
       log.warn('CPU burst: cgroups v2 not detected, burst disabled');
       burstSupportCache = false;
@@ -68,77 +65,106 @@ async function isCpuBurstSupported() {
 }
 
 /**
- * Resolves the cgroup cpu.max.burst path for a Docker container.
- * Tries common systemd-based cgroup v2 paths.
- * @param {string} containerId - Full Docker container ID
- * @returns {string|null} Path to cpu.max.burst or null if not found
+ * Resolves the cpu.max.burst cgroup file path for a running container by
+ * reading /proc/<pid>/cgroup. Works regardless of cgroup driver, container
+ * runtime, or systemd integration.
+ * @param {number|string} pid - The container's main process pid
+ * @returns {Promise<string|null>} Path to cpu.max.burst, or null if not resolvable
  */
-async function getCgroupBurstPath(containerId) {
-  const candidates = [
-    path.join('/sys/fs/cgroup/system.slice', `docker-${containerId}.scope`, 'cpu.max.burst'),
-    path.join('/sys/fs/cgroup/docker', containerId, 'cpu.max.burst'),
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      await fsp.access(candidate);
-      return candidate;
-    } catch {
-      // continue to next candidate
-    }
+async function getCgroupBurstPath(pid) {
+  try {
+    const data = await fsp.readFile(`/proc/${pid}/cgroup`, 'utf8');
+    // cgroup v2 format: a single line "0::<path>"
+    const match = data.match(/^0::(.+)$/m);
+    if (!match) return null;
+    const burstPath = path.join('/sys/fs/cgroup', match[1].trim(), 'cpu.max.burst');
+    await fsp.access(burstPath);
+    return burstPath;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 /**
  * Calculates CpuPeriod, CpuQuota, and burst value for a given CPU spec.
- * Burst is capped so a single container's peak (quota + burst) never exceeds
- * (host vCPUs - reservedCores) * period, leaving headroom for system services.
+ *
+ * Burst is always set to the kernel maximum (== quota). The kernel rule is
+ * `0 <= burst <= quota` (cgroup-v2 docs: cpu.max.burst range is [0, $quota]),
+ * so burst==quota is the largest valid value. There is no operational reason
+ * to set it lower: burst is "free" headroom that only fires when banked idle
+ * time exists, and a smaller burst just means a smaller bank with no upside.
+ *
  * @param {number} cpuCores - CPU allocation from app spec (e.g. 2.5 means 2.5 cores)
  * @returns {{ periodUs: number, quotaUs: number, burstUs: number }}
  */
 function calculateBurstParams(cpuCores) {
-  const burstConfig = config.cpuBurst || {};
-  const periodUs = burstConfig.periodUs || 100000;
-  const burstMultiplier = burstConfig.burstMultiplier || 2.0;
-  const reservedCores = burstConfig.reservedCores ?? 1;
-
+  const periodUs = config.cpuBurst?.periodUs ?? 100000;
   const quotaUs = Math.round(cpuCores * periodUs);
-  let burstUs = Math.round(quotaUs * (burstMultiplier - 1));
-
-  // Cap burst so peak usage of this container stays within (hostCpus - reserved) cores
-  const hostCpus = os.cpus().length;
-  const maxPeakUs = Math.round(Math.max(0, hostCpus - reservedCores) * periodUs);
-  const maxBurstUs = Math.max(0, maxPeakUs - quotaUs);
-  if (burstUs > maxBurstUs) {
-    log.info(`CPU burst: capping burstUs from ${burstUs} to ${maxBurstUs} (host=${hostCpus} vCPUs, reserved=${reservedCores})`);
-    burstUs = maxBurstUs;
-  }
-
-  return { periodUs, quotaUs, burstUs };
+  return { periodUs, quotaUs, burstUs: quotaUs };
 }
 
 /**
- * Sets the CFS burst value for a Docker container via cgroup v2 filesystem.
- * @param {string} containerId - Full Docker container ID
+ * Writes the CFS burst value to a running container's cgroup.
+ * @param {number|string} pid - The container's main process pid
  * @param {number} burstUs - Burst value in microseconds
- * @returns {boolean} true if burst was set, false on failure
+ * @returns {Promise<boolean>} true on success, false on failure
  */
-async function setCpuBurst(containerId, burstUs) {
+async function setCpuBurst(pid, burstUs) {
   try {
-    const burstPath = await getCgroupBurstPath(containerId);
+    const burstPath = await getCgroupBurstPath(pid);
     if (!burstPath) {
-      log.warn(`CPU burst: cgroup burst path not found for container ${containerId.substring(0, 12)}`);
+      log.warn(`CPU burst: cgroup burst path not found for pid ${pid}`);
       return false;
     }
-
     await fsp.writeFile(burstPath, burstUs.toString());
-    log.info(`CPU burst: set ${burstUs}us for container ${containerId.substring(0, 12)}`);
+    log.info(`CPU burst: set ${burstUs}us for pid ${pid}`);
     return true;
   } catch (error) {
-    log.warn(`CPU burst: failed to set burst for container ${containerId.substring(0, 12)}: ${error.message}`);
+    log.warn(`CPU burst: failed to set burst for pid ${pid}: ${error.message}`);
     return false;
   }
+}
+
+/**
+ * Reads ground-truth burst state for a running container directly from the
+ * cgroup. This is the only authoritative answer to "is burst applied to this
+ * container right now". Used by the throttle loop to gate its bypass.
+ * @param {number|string} pid - The container's main process pid
+ * @returns {Promise<boolean>} true if cpu.max.burst > 0
+ */
+async function isBurstActive(pid) {
+  try {
+    const burstPath = await getCgroupBurstPath(pid);
+    if (!burstPath) return false;
+    const value = await fsp.readFile(burstPath, 'utf8');
+    return parseInt(value.trim(), 10) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Applies CFS burst to a running container. Idempotent — safe to call on every
+ * start of an enterprise container. Logs loudly on failure so the operator can
+ * see that an enterprise container is running without its expected burst.
+ * @param {number|string} pid - The container's main process pid
+ * @param {number} cpuCores - CPU allocation from app spec
+ * @param {string} [identifier] - Optional name for log lines
+ * @returns {Promise<boolean>} true if burst was successfully applied
+ */
+async function applyBurst(pid, cpuCores, identifier) {
+  if (!cpuCores || cpuCores <= 0) return false;
+  if (!await isCpuBurstSupported()) return false;
+
+  const { burstUs } = calculateBurstParams(cpuCores);
+  const ok = await setCpuBurst(pid, burstUs);
+  if (!ok) {
+    log.error(
+      `CPU burst: REQUESTED but FAILED for ${identifier || `pid ${pid}`} `
+      + '— enterprise app will run without burst capability',
+    );
+  }
+  return ok;
 }
 
 /**
@@ -154,5 +180,7 @@ module.exports = {
   getCgroupBurstPath,
   calculateBurstParams,
   setCpuBurst,
+  isBurstActive,
+  applyBurst,
   resetBurstSupportCache,
 };
