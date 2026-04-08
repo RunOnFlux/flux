@@ -2,7 +2,6 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const chai = require('chai');
 const sinon = require('sinon');
-const os = require('os');
 const fs = require('fs');
 const proxyquire = require('proxyquire');
 const config = require('config');
@@ -40,17 +39,22 @@ describe('cpuBurstHelper tests', () => {
   });
 
   describe('calculateBurstParams', () => {
-    // Stub os.cpus() to return 32 cores so burst is uncapped in basic tests
-    let cpusStub;
-    beforeEach(() => {
-      cpusStub = sinon.stub(os, 'cpus').returns(new Array(32).fill({ model: 'stub', speed: 2400 }));
-    });
+    // burstUs is always equal to quotaUs (kernel rule: burst <= quota), and there
+    // is no operational reason to set it lower. The function is now a trivial
+    // unit-converter from "fractional cores" to "{periodUs, quotaUs, burstUs}".
 
     it('should calculate correct params for 1 CPU core', () => {
       const params = cpuBurstHelper.calculateBurstParams(1);
       expect(params.periodUs).to.equal(100000);
       expect(params.quotaUs).to.equal(100000);
-      expect(params.burstUs).to.equal(100000); // (2.0 - 1) * 100000
+      expect(params.burstUs).to.equal(100000);
+    });
+
+    it('should calculate correct params for 2 CPU cores', () => {
+      const params = cpuBurstHelper.calculateBurstParams(2);
+      expect(params.periodUs).to.equal(100000);
+      expect(params.quotaUs).to.equal(200000);
+      expect(params.burstUs).to.equal(200000);
     });
 
     it('should calculate correct params for 2.5 CPU cores', () => {
@@ -74,38 +78,19 @@ describe('cpuBurstHelper tests', () => {
       expect(params.burstUs).to.equal(50000);
     });
 
-    it('should cap burst so peak does not exceed (hostCpus - reservedCores)', () => {
-      // 4-core host, reservedCores=1, app requests 2.5 cores (multiplier 2x)
-      // Uncapped burstUs = 250000, but peak would be 5 cores > 3 allowed
-      // maxPeakUs = (4 - 1) * 100000 = 300000, maxBurstUs = 300000 - 250000 = 50000
-      cpusStub.returns(new Array(4).fill({ model: 'stub', speed: 2400 }));
-      const params = cpuBurstHelper.calculateBurstParams(2.5);
-      expect(params.quotaUs).to.equal(250000);
-      expect(params.burstUs).to.equal(50000);
-    });
-
-    it('should set burst to 0 when quota already exceeds host capacity minus reserved', () => {
-      // 2-core host, reservedCores=1, app requests 2 cores
-      // maxPeakUs = (2 - 1) * 100000 = 100000, quotaUs = 200000 => maxBurstUs = 0
-      cpusStub.returns(new Array(2).fill({ model: 'stub', speed: 2400 }));
-      const params = cpuBurstHelper.calculateBurstParams(2);
-      expect(params.quotaUs).to.equal(200000);
-      expect(params.burstUs).to.equal(0);
-    });
-
-    it('should not cap burst when host has plenty of cores', () => {
-      cpusStub.returns(new Array(16).fill({ model: 'stub', speed: 2400 }));
-      const params = cpuBurstHelper.calculateBurstParams(2.5);
-      expect(params.burstUs).to.equal(250000); // uncapped
+    it('burstUs should always equal quotaUs (kernel rule burst <= quota)', () => {
+      [0.1, 0.5, 1, 2, 4, 8, 16, 32].forEach((cores) => {
+        const params = cpuBurstHelper.calculateBurstParams(cores);
+        expect(params.burstUs).to.equal(params.quotaUs);
+      });
     });
   });
 
   describe('isCpuBurstSupported', () => {
     it('should return false when burst config is disabled', async () => {
-      const configStub = sinon.stub(config, 'cpuBurst').value({ enabled: false, burstMultiplier: 2.0, periodUs: 100000 });
+      sinon.stub(config, 'cpuBurst').value({ enabled: false, periodUs: 100000 });
       cpuBurstHelper.resetBurstSupportCache();
 
-      // Need a fresh instance for config change
       const helper = proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {});
       helper.resetBurstSupportCache();
       const result = await helper.isCpuBurstSupported();
@@ -145,76 +130,140 @@ describe('cpuBurstHelper tests', () => {
 
       await cpuBurstHelper.isCpuBurstSupported();
       await cpuBurstHelper.isCpuBurstSupported();
-      // access called once for cgroup check, readFile called once for kernel
+      // readFile called once for kernel version (cached after that)
       expect(readStub.callCount).to.equal(1);
     });
   });
 
   describe('getCgroupBurstPath', () => {
-    it('should return systemd cgroup path when it exists', async () => {
-      const containerId = 'abc123def456';
-      sinon.stub(fs.promises, 'access').callsFake((p) => {
-        if (p.includes('system.slice')) return Promise.resolve();
+    it('should resolve cpu.max.burst path from /proc/<pid>/cgroup', async () => {
+      const pid = 12345;
+      const cgroupContent = '0::/system.slice/docker-abc123def456.scope\n';
+      sinon.stub(fs.promises, 'readFile').callsFake((p) => {
+        if (p === `/proc/${pid}/cgroup`) return Promise.resolve(cgroupContent);
         return Promise.reject(new Error('ENOENT'));
       });
+      sinon.stub(fs.promises, 'access').resolves();
 
-      const result = await cpuBurstHelper.getCgroupBurstPath(containerId);
-      expect(result).to.include('system.slice');
-      expect(result).to.include(containerId);
-      expect(result).to.include('cpu.max.burst');
+      const result = await cpuBurstHelper.getCgroupBurstPath(pid);
+      expect(result).to.equal('/sys/fs/cgroup/system.slice/docker-abc123def456.scope/cpu.max.burst');
     });
 
-    it('should return docker cgroup path as fallback', async () => {
-      const containerId = 'abc123def456';
-      sinon.stub(fs.promises, 'access').callsFake((p) => {
-        if (p.includes('/docker/')) return Promise.resolve();
-        return Promise.reject(new Error('ENOENT'));
-      });
+    it('should return null when /proc/<pid>/cgroup cannot be read', async () => {
+      sinon.stub(fs.promises, 'readFile').rejects(new Error('ENOENT'));
 
-      const result = await cpuBurstHelper.getCgroupBurstPath(containerId);
-      expect(result).to.include('/docker/');
-      expect(result).to.include(containerId);
+      const result = await cpuBurstHelper.getCgroupBurstPath(99999);
+      expect(result).to.be.null;
     });
 
-    it('should return null when no cgroup path exists', async () => {
+    it('should return null when cgroup file does not contain a v2 entry', async () => {
+      sinon.stub(fs.promises, 'readFile').resolves('1:cpu:/something/v1/style\n');
+
+      const result = await cpuBurstHelper.getCgroupBurstPath(12345);
+      expect(result).to.be.null;
+    });
+
+    it('should return null when cpu.max.burst file does not exist', async () => {
+      sinon.stub(fs.promises, 'readFile').resolves('0::/some/path\n');
       sinon.stub(fs.promises, 'access').rejects(new Error('ENOENT'));
 
-      const result = await cpuBurstHelper.getCgroupBurstPath('abc123');
+      const result = await cpuBurstHelper.getCgroupBurstPath(12345);
       expect(result).to.be.null;
     });
   });
 
   describe('setCpuBurst', () => {
     it('should write burst value to cgroup file', async () => {
-      const containerId = 'abc123def456789012345678901234567890123456789012345678901234abcd';
-      sinon.stub(fs.promises, 'access').callsFake((p) => {
-        if (p.includes('system.slice')) return Promise.resolve();
-        return Promise.reject(new Error('ENOENT'));
-      });
+      sinon.stub(fs.promises, 'readFile').resolves('0::/system.slice/docker-x.scope\n');
+      sinon.stub(fs.promises, 'access').resolves();
       const writeStub = sinon.stub(fs.promises, 'writeFile').resolves();
 
-      const result = await cpuBurstHelper.setCpuBurst(containerId, 100000);
+      const result = await cpuBurstHelper.setCpuBurst(12345, 200000);
       expect(result).to.be.true;
       expect(writeStub.calledOnce).to.be.true;
-      expect(writeStub.firstCall.args[1]).to.equal('100000');
+      expect(writeStub.firstCall.args[1]).to.equal('200000');
     });
 
     it('should return false when cgroup path not found', async () => {
-      sinon.stub(fs.promises, 'access').rejects(new Error('ENOENT'));
+      sinon.stub(fs.promises, 'readFile').rejects(new Error('ENOENT'));
 
-      const result = await cpuBurstHelper.setCpuBurst('abc123', 100000);
+      const result = await cpuBurstHelper.setCpuBurst(99999, 200000);
       expect(result).to.be.false;
     });
 
     it('should return false when write fails', async () => {
-      sinon.stub(fs.promises, 'access').callsFake((p) => {
-        if (p.includes('system.slice')) return Promise.resolve();
-        return Promise.reject(new Error('ENOENT'));
-      });
-      sinon.stub(fs.promises, 'writeFile').rejects(new Error('Permission denied'));
+      sinon.stub(fs.promises, 'readFile').resolves('0::/system.slice/docker-x.scope\n');
+      sinon.stub(fs.promises, 'access').resolves();
+      sinon.stub(fs.promises, 'writeFile').rejects(new Error('EINVAL'));
 
-      const result = await cpuBurstHelper.setCpuBurst('abc123def456', 100000);
+      const result = await cpuBurstHelper.setCpuBurst(12345, 200000);
       expect(result).to.be.false;
+    });
+  });
+
+  describe('isBurstActive', () => {
+    it('should return true when cpu.max.burst > 0', async () => {
+      const readStub = sinon.stub(fs.promises, 'readFile');
+      readStub.withArgs('/proc/12345/cgroup').resolves('0::/system.slice/docker-x.scope\n');
+      readStub.withArgs('/sys/fs/cgroup/system.slice/docker-x.scope/cpu.max.burst').resolves('200000\n');
+      sinon.stub(fs.promises, 'access').resolves();
+
+      const result = await cpuBurstHelper.isBurstActive(12345);
+      expect(result).to.be.true;
+    });
+
+    it('should return false when cpu.max.burst is 0', async () => {
+      const readStub = sinon.stub(fs.promises, 'readFile');
+      readStub.withArgs('/proc/12345/cgroup').resolves('0::/system.slice/docker-x.scope\n');
+      readStub.withArgs('/sys/fs/cgroup/system.slice/docker-x.scope/cpu.max.burst').resolves('0\n');
+      sinon.stub(fs.promises, 'access').resolves();
+
+      const result = await cpuBurstHelper.isBurstActive(12345);
+      expect(result).to.be.false;
+    });
+
+    it('should return false when cgroup path cannot be resolved', async () => {
+      sinon.stub(fs.promises, 'readFile').rejects(new Error('ENOENT'));
+
+      const result = await cpuBurstHelper.isBurstActive(99999);
+      expect(result).to.be.false;
+    });
+
+    it('should return false on null/undefined pid', async () => {
+      expect(await cpuBurstHelper.isBurstActive(null)).to.be.false;
+      expect(await cpuBurstHelper.isBurstActive(undefined)).to.be.false;
+    });
+  });
+
+  describe('applyBurst', () => {
+    it('should return false when cpuCores is 0', async () => {
+      const result = await cpuBurstHelper.applyBurst(12345, 0);
+      expect(result).to.be.false;
+    });
+
+    it('should return false when isCpuBurstSupported is false', async () => {
+      sinon.stub(fs.promises, 'access').rejects(new Error('ENOENT'));
+      cpuBurstHelper.resetBurstSupportCache();
+
+      const result = await cpuBurstHelper.applyBurst(12345, 2.0);
+      expect(result).to.be.false;
+    });
+
+    it('should write burstUs equal to quotaUs when supported', async () => {
+      const accessStub = sinon.stub(fs.promises, 'access').resolves();
+      const readStub = sinon.stub(fs.promises, 'readFile');
+      readStub.withArgs('/proc/version').resolves('Linux version 6.1.0-generic');
+      readStub.withArgs('/proc/12345/cgroup').resolves('0::/system.slice/docker-x.scope\n');
+      const writeStub = sinon.stub(fs.promises, 'writeFile').resolves();
+      cpuBurstHelper.resetBurstSupportCache();
+
+      const result = await cpuBurstHelper.applyBurst(12345, 2.0, 'test-app');
+      expect(result).to.be.true;
+      expect(writeStub.calledOnce).to.be.true;
+      // 2 cores * 100000 periodUs = 200000 quotaUs == burstUs
+      expect(writeStub.firstCall.args[1]).to.equal('200000');
+      // sanity: access was called for cgroup-v2 marker and the burst path
+      expect(accessStub.called).to.be.true;
     });
   });
 });
