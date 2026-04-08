@@ -1,4 +1,5 @@
 const fsp = require('fs').promises;
+const os = require('os');
 const path = require('path');
 const config = require('config');
 const log = require('../../lib/log');
@@ -88,19 +89,44 @@ async function getCgroupBurstPath(pid) {
 /**
  * Calculates CpuPeriod, CpuQuota, and burst value for a given CPU spec.
  *
- * Burst is always set to the kernel maximum (== quota). The kernel rule is
- * `0 <= burst <= quota` (cgroup-v2 docs: cpu.max.burst range is [0, $quota]),
- * so burst==quota is the largest valid value. There is no operational reason
- * to set it lower: burst is "free" headroom that only fires when banked idle
- * time exists, and a smaller burst just means a smaller bank with no upside.
+ * Two constraints govern the result:
+ *   1. Kernel rule: 0 <= burst <= quota (cgroup-v2 docs: cpu.max.burst range
+ *      is [0, $quota]). We start at the kernel maximum (burst == quota) since
+ *      burst is "free" headroom that only fires when banked idle time exists.
+ *   2. Host fairness: a single container's peak (quota + burst) must not
+ *      exceed (hostCpus - reservedCores) * period, leaving at least
+ *      `reservedCores` worth of CPU-time per period for system services
+ *      (systemd, fluxos itself, sshd, monitoring). This caps the burst per
+ *      container so big apps degrade gracefully — a 12-core app on a stratus
+ *      (16-core) host with reservedCores=1 gets quota=12, burst=3, peak=15.
+ *      A 15-core app gets burst=0 and runs without burst entirely.
+ *
+ * Note: this is a per-container cap, not a host-aggregate budget. Multiple
+ * burst-eligible containers on the same host can collectively oversubscribe
+ * the host during simultaneous bursts; the kernel CFS scheduler handles
+ * contention proportionally. See the burst design notes for the rationale.
  *
  * @param {number} cpuCores - CPU allocation from app spec (e.g. 2.5 means 2.5 cores)
  * @returns {{ periodUs: number, quotaUs: number, burstUs: number }}
  */
 function calculateBurstParams(cpuCores) {
   const periodUs = config.cpuBurst?.periodUs ?? 100000;
+  const reservedCores = config.cpuBurst?.reservedCores ?? 1;
   const quotaUs = Math.round(cpuCores * periodUs);
-  return { periodUs, quotaUs, burstUs: quotaUs };
+
+  // Start at the kernel maximum (burst == quota)
+  let burstUs = quotaUs;
+
+  // Cap so peak (quota + burst) leaves at least reservedCores free for the host
+  const hostCpus = os.cpus().length;
+  const maxPeakUs = Math.max(0, hostCpus - reservedCores) * periodUs;
+  const maxBurstUs = Math.max(0, maxPeakUs - quotaUs);
+  if (burstUs > maxBurstUs) {
+    log.info(`CPU burst: capping burstUs from ${burstUs} to ${maxBurstUs} (cpu=${cpuCores}, hostCpus=${hostCpus}, reservedCores=${reservedCores})`);
+    burstUs = maxBurstUs;
+  }
+
+  return { periodUs, quotaUs, burstUs };
 }
 
 /**

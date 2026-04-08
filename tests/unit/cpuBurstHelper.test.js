@@ -2,6 +2,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const chai = require('chai');
 const sinon = require('sinon');
+const os = require('os');
 const fs = require('fs');
 const proxyquire = require('proxyquire');
 const config = require('config');
@@ -39,49 +40,100 @@ describe('cpuBurstHelper tests', () => {
   });
 
   describe('calculateBurstParams', () => {
-    // burstUs is always equal to quotaUs (kernel rule: burst <= quota), and there
-    // is no operational reason to set it lower. The function is now a trivial
-    // unit-converter from "fractional cores" to "{periodUs, quotaUs, burstUs}".
+    // Stub os.cpus() so the host-fairness cap is deterministic across CI hosts.
+    // Default to 32 cores (well above any tier) so basic tests are uncapped.
+    beforeEach(() => {
+      sinon.stub(os, 'cpus').returns(new Array(32).fill({ model: 'stub', speed: 2400 }));
+    });
 
-    it('should calculate correct params for 1 CPU core', () => {
+    it('should calculate correct params for 1 CPU core (uncapped)', () => {
       const params = cpuBurstHelper.calculateBurstParams(1);
       expect(params.periodUs).to.equal(100000);
       expect(params.quotaUs).to.equal(100000);
-      expect(params.burstUs).to.equal(100000);
+      expect(params.burstUs).to.equal(100000); // == quota
     });
 
-    it('should calculate correct params for 2 CPU cores', () => {
-      const params = cpuBurstHelper.calculateBurstParams(2);
-      expect(params.periodUs).to.equal(100000);
-      expect(params.quotaUs).to.equal(200000);
-      expect(params.burstUs).to.equal(200000);
-    });
-
-    it('should calculate correct params for 2.5 CPU cores', () => {
+    it('should calculate correct params for 2.5 CPU cores (uncapped)', () => {
       const params = cpuBurstHelper.calculateBurstParams(2.5);
-      expect(params.periodUs).to.equal(100000);
       expect(params.quotaUs).to.equal(250000);
       expect(params.burstUs).to.equal(250000);
     });
 
-    it('should calculate correct params for 10 CPU cores', () => {
-      const params = cpuBurstHelper.calculateBurstParams(10);
-      expect(params.periodUs).to.equal(100000);
-      expect(params.quotaUs).to.equal(1000000);
-      expect(params.burstUs).to.equal(1000000);
-    });
-
     it('should handle fractional CPU values', () => {
       const params = cpuBurstHelper.calculateBurstParams(0.5);
-      expect(params.periodUs).to.equal(100000);
       expect(params.quotaUs).to.equal(50000);
       expect(params.burstUs).to.equal(50000);
     });
 
-    it('burstUs should always equal quotaUs (kernel rule burst <= quota)', () => {
-      [0.1, 0.5, 1, 2, 4, 8, 16, 32].forEach((cores) => {
+    it('burstUs equals quotaUs when host has plenty of headroom', () => {
+      // 32-core host, reservedCores=1 → max peak = 31 cores. Anything ≤ 15 uncapped.
+      [0.5, 1, 2, 4, 8, 15].forEach((cores) => {
         const params = cpuBurstHelper.calculateBurstParams(cores);
-        expect(params.burstUs).to.equal(params.quotaUs);
+        expect(params.burstUs, `cores=${cores}`).to.equal(params.quotaUs);
+      });
+    });
+
+    describe('host-fairness cap (peak <= hostCpus - reservedCores)', () => {
+      it('cumulus (4 cores, reserved=1): 1-core app gets burst=100000, peak=2', () => {
+        os.cpus.returns(new Array(4).fill({ model: 'stub', speed: 2400 }));
+        const params = cpuBurstHelper.calculateBurstParams(1);
+        expect(params.quotaUs).to.equal(100000);
+        expect(params.burstUs).to.equal(100000); // not capped
+      });
+
+      it('cumulus (4 cores, reserved=1): 2-core app gets burst=100000, peak=3', () => {
+        os.cpus.returns(new Array(4).fill({ model: 'stub', speed: 2400 }));
+        const params = cpuBurstHelper.calculateBurstParams(2);
+        expect(params.quotaUs).to.equal(200000);
+        expect(params.burstUs).to.equal(100000); // capped: maxPeak=300000, maxBurst=100000
+      });
+
+      it('cumulus (4 cores, reserved=1): 3-core app gets burst=0 (peak already at limit)', () => {
+        os.cpus.returns(new Array(4).fill({ model: 'stub', speed: 2400 }));
+        const params = cpuBurstHelper.calculateBurstParams(3);
+        expect(params.quotaUs).to.equal(300000);
+        expect(params.burstUs).to.equal(0);
+      });
+
+      it('nimbus (8 cores, reserved=1): 4-core app gets burst=300000, peak=7', () => {
+        os.cpus.returns(new Array(8).fill({ model: 'stub', speed: 2400 }));
+        const params = cpuBurstHelper.calculateBurstParams(4);
+        expect(params.quotaUs).to.equal(400000);
+        expect(params.burstUs).to.equal(300000); // capped: maxPeak=700000, maxBurst=300000
+      });
+
+      it('nimbus (8 cores, reserved=1): 7-core app gets burst=0', () => {
+        os.cpus.returns(new Array(8).fill({ model: 'stub', speed: 2400 }));
+        const params = cpuBurstHelper.calculateBurstParams(7);
+        expect(params.burstUs).to.equal(0);
+      });
+
+      it('stratus (16 cores, reserved=1): 7-core app uncapped, burst=quota=700000', () => {
+        os.cpus.returns(new Array(16).fill({ model: 'stub', speed: 2400 }));
+        const params = cpuBurstHelper.calculateBurstParams(7);
+        expect(params.quotaUs).to.equal(700000);
+        expect(params.burstUs).to.equal(700000);
+      });
+
+      it('stratus (16 cores, reserved=1): 8-core app capped, burst=700000, peak=15', () => {
+        os.cpus.returns(new Array(16).fill({ model: 'stub', speed: 2400 }));
+        const params = cpuBurstHelper.calculateBurstParams(8);
+        expect(params.quotaUs).to.equal(800000);
+        expect(params.burstUs).to.equal(700000); // capped
+      });
+
+      it('stratus (16 cores, reserved=1): 12-core app capped, burst=300000, peak=15', () => {
+        os.cpus.returns(new Array(16).fill({ model: 'stub', speed: 2400 }));
+        const params = cpuBurstHelper.calculateBurstParams(12);
+        expect(params.quotaUs).to.equal(1200000);
+        expect(params.burstUs).to.equal(300000); // capped
+      });
+
+      it('stratus (16 cores, reserved=1): 15-core app gets burst=0', () => {
+        os.cpus.returns(new Array(16).fill({ model: 'stub', speed: 2400 }));
+        const params = cpuBurstHelper.calculateBurstParams(15);
+        expect(params.quotaUs).to.equal(1500000);
+        expect(params.burstUs).to.equal(0);
       });
     });
   });
@@ -249,7 +301,9 @@ describe('cpuBurstHelper tests', () => {
       expect(result).to.be.false;
     });
 
-    it('should write burstUs equal to quotaUs when supported', async () => {
+    it('should write burstUs equal to quotaUs when supported and uncapped', async () => {
+      // Stub a 32-core host so the per-container fairness cap doesn't bind
+      sinon.stub(os, 'cpus').returns(new Array(32).fill({ model: 'stub', speed: 2400 }));
       const accessStub = sinon.stub(fs.promises, 'access').resolves();
       const readStub = sinon.stub(fs.promises, 'readFile');
       readStub.withArgs('/proc/version').resolves('Linux version 6.1.0-generic');
@@ -260,9 +314,8 @@ describe('cpuBurstHelper tests', () => {
       const result = await cpuBurstHelper.applyBurst(12345, 2.0, 'test-app');
       expect(result).to.be.true;
       expect(writeStub.calledOnce).to.be.true;
-      // 2 cores * 100000 periodUs = 200000 quotaUs == burstUs
+      // 2 cores * 100000 periodUs = 200000 quotaUs; uncapped on a 32-core host
       expect(writeStub.firstCall.args[1]).to.equal('200000');
-      // sanity: access was called for cgroup-v2 marker and the burst path
       expect(accessStub.called).to.be.true;
     });
   });

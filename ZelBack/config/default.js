@@ -307,12 +307,17 @@ module.exports = {
   ],
   cpuBurst: {
     // Enables CFS CPU burst for enterprise app owners on cgroups-v2 + kernel >= 5.14 hosts.
-    // The burst value written to the kernel is always equal to the container's quota, which
-    // is the maximum the kernel allows (cgroup-v2 rule: 0 <= cpu.max.burst <= cpu.max quota).
-    // This lets a container temporarily peak at up to 2x its base CPU allocation in any single
-    // CFS period, drawing from a bank that fills with unused idle quota from prior periods.
+    // The kernel rule (cgroup-v2: 0 <= cpu.max.burst <= cpu.max quota) lets a container
+    // temporarily peak at up to 2x its base allocation in any single CFS period, drawing from
+    // a bank that fills with unused idle quota from prior periods.
+    //
+    // reservedCores caps each container's peak so it cannot consume the entire host during a
+    // burst window: peak <= (hostCpus - reservedCores) * period. This is a per-container cap,
+    // not a host-aggregate budget — multiple burstable apps on the same host can collectively
+    // oversubscribe during simultaneous spikes, which CFS handles by sharing fairly.
     enabled: true,
     periodUs: 100000, // CFS period in microseconds (100ms, Linux default)
+    reservedCores: 1, // cores reserved for system services; bounds any single container's burst peak
   },
   registryAuth: {
     // Token refresh buffer in milliseconds
