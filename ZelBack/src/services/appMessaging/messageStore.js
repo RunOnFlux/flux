@@ -106,9 +106,6 @@ async function storeAppTemporaryMessage(message, options = {}) {
       }
 
       if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        if (!message.arcaneSender) {
-          return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
-        }
         // eslint-disable-next-line global-require
         const fluxService = require('../fluxService');
         if (await fluxService.isSystemSecure()) {
