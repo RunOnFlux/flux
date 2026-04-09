@@ -92,6 +92,7 @@ module.exports = {
   deterministicNodesStart: 558000,
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
+    latestSupportedSpecVersion: 8, // version changes on app updates must target this version
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.

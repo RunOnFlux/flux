@@ -449,7 +449,7 @@ module.exports = (app) => {
     appValidator.verifyAppRegistrationParameters(req, res);
   });
   app.post('/apps/verifyappupdatespecifications', (req, res) => { // returns formatted app specifications
-    appValidator.verifyAppUpdateParameters(req, res);
+    appValidator.verifyAppUpdateApi(req, res);
   });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
     deploymentInfoService.deploymentInformation(req, res);

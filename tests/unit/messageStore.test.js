@@ -164,7 +164,7 @@ describe('messageStore tests', () => {
       dbHelperStub.findOneInDatabase.resolves(null);
       dbHelperStub.insertOneToDatabase.resolves();
 
-      const result = await messageStore.storeAppTemporaryMessage(message);
+      const result = await messageStore.storeAppTemporaryMessage(message, { furtherVerification: false });
 
       expect(result).to.be.true;
       expect(dbHelperStub.insertOneToDatabase.calledOnce).to.be.true;
@@ -189,12 +189,76 @@ describe('messageStore tests', () => {
       dbHelperStub.insertOneToDatabase.rejects(error);
 
       try {
-        await messageStore.storeAppTemporaryMessage(message);
+        await messageStore.storeAppTemporaryMessage(message, { furtherVerification: false });
         expect.fail('Should have thrown error');
       } catch (err) {
         expect(err).to.equal(error);
         expect(logStub.error.calledWith(error)).to.be.true;
       }
+    });
+
+    it('should not enforce version upgrade policy (enforced at API layer)', async () => {
+      const message = {
+        type: 'fluxappupdate',
+        version: 1,
+        appSpecifications: { name: 'test', version: 6 },
+        hash: 'hash123',
+        timestamp: Date.now(),
+        signature: 'sig123',
+      };
+
+      messageVerifierStub.checkAppMessageExistence.resolves(null);
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves(null);
+      messageVerifierStub.verifyAppHash = sinon.stub().resolves();
+      messageVerifierStub.verifyAppMessageUpdateSignature = sinon.stub().resolves();
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+      dbHelperStub.findOneInDatabase.resolves(null);
+      dbHelperStub.insertOneToDatabase.resolves();
+
+      messageStore = proxyquire('../../ZelBack/src/services/appMessaging/messageStore', {
+        config: configStub,
+        '../dbHelper': dbHelperStub,
+        '../serviceHelper': serviceHelperStub,
+        './messageVerifier': messageVerifierStub,
+        '../../lib/log': logStub,
+        '../daemonService/daemonServiceMiscRpcs': {
+          isDaemonSynced: sinon.stub().returns({ data: { height: 1000 } }),
+        },
+        '../appRequirements/appValidator': {
+          verifyAppSpecifications: sinon.stub().resolves(),
+        },
+        '../appDatabase/registryManager': {
+          checkApplicationRegistrationNameConflicts: sinon.stub().resolves(),
+        },
+        '../appLifecycle/advancedWorkflows': {
+          validateApplicationUpdateCompatibility: sinon.stub().resolves(),
+          getPreviousAppSpecifications: sinon.stub().resolves({ owner: 'owner1', version: 5 }),
+        },
+        '../utils/enterpriseHelper': {
+          checkAndDecryptAppSpecs: sinon.stub().resolves({}),
+        },
+        '../utils/globalState': {
+          queuePendingUpdate: sinon.stub(),
+        },
+        '../utils/appConstants': {
+          globalAppsMessages: 'appsMessages',
+          globalAppsTempMessages: 'appsTempMessages',
+          globalAppsLocations: 'appsLocations',
+          globalAppsInstallingLocations: 'appsInstallingLocations',
+          globalAppsInstallingErrorsLocations: 'appsInstallingErrorsLocations',
+          appsHashesCollection: 'appsHashes',
+        },
+        '../utils/appSpecHelpers': {
+          specificationFormatter: sinon.stub().returnsArg(0),
+        },
+      });
+
+      // v5→v6 update should be accepted — version policy is enforced at API layer, not here
+      const result = await messageStore.storeAppTemporaryMessage(message);
+
+      expect(result).to.be.true;
+      expect(dbHelperStub.insertOneToDatabase.calledOnce).to.be.true;
     });
   });
 

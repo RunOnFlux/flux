@@ -13,6 +13,7 @@ const { appPricePerMonth } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { updateAppSpecifications } = require('../appDatabase/registryManager');
+const { getPreviousAppSpecifications } = require('../appLifecycle/advancedWorkflows');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
@@ -622,7 +623,30 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           log.error(`Temp message ${hash} has no specifications! Full message: ${JSON.stringify(tempMessage)}`);
           return false;
         }
-        // temp message means its all ok. store it as permanent app message
+        // Re-verify signature against current permanent state before promoting.
+        // This prevents a race condition where two updates are both verified against
+        // the same permanent state at temp arrival time, but the first one changes
+        // the owner before the second is promoted.
+        const isUpdate = tempMessage.type === 'fluxappupdate' || tempMessage.type === 'zelappupdate';
+        if (isUpdate) {
+          const previousAppSpecs = await getPreviousAppSpecifications(specifications, tempMessage.timestamp);
+          if (previousAppSpecs) {
+            const messageVersion = serviceHelper.ensureNumber(tempMessage.version);
+            const messageTimestamp = serviceHelper.ensureNumber(tempMessage.timestamp);
+            const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+            const daemonHeight = syncStatus.data.height;
+            try {
+              await verifyAppMessageUpdateSignature(
+                tempMessage.type, messageVersion, specifications, messageTimestamp,
+                tempMessage.signature, previousAppSpecs.owner, daemonHeight, previousAppSpecs,
+              );
+            } catch (error) {
+              log.warn(`Promotion re-verification failed for ${specifications.name} (${hash}): ${error.message}`);
+              return false;
+            }
+          }
+        }
+
         const permanentAppMessage = {
           type: tempMessage.type,
           version: tempMessage.version,
@@ -695,7 +719,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
                   const pendingUpdate = pendingUpdates[idx];
                   try {
                     // eslint-disable-next-line no-await-in-loop
-                    await messageStore.storeAppTemporaryMessage(pendingUpdate.message, true);
+                    await messageStore.storeAppTemporaryMessage(pendingUpdate.message);
                     log.info(`Processed pending update ${idx + 1}/${pendingUpdates.length} for ${appName}`);
                   } catch (error) {
                     // If an update fails, stop processing and clear remaining updates
@@ -947,7 +971,7 @@ async function continuousFluxAppHashesCheck(force = false) {
     }
     const explorerHeight = serviceHelper.ensureNumber(scanHeight.generalScannedHeight);
 
-    // get flux app hashes that do not have a message;
+    // get flux app hashes that do not have a message
     const query = { message: false };
     const projection = {
       projection: {

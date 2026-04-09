@@ -570,7 +570,7 @@ async function isReindexAppsInformationRequired(
     const appsFromInformation = await informationCursor.next();
 
     if (!appsFromMessages) {
-      log.warning('No apps from apps messages found, unable to validate apps information');
+      log.warn('No apps from apps messages found, unable to validate apps information');
       return false;
     }
 
