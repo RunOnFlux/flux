@@ -696,30 +696,24 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
     let stats;
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled) {
-      // Skip CPU throttling for enterprise app owners — they get CFS burst instead
-      if (cpuBurstHelper.isEnterpriseOwner(app.owner)) {
-        log.info(`checkApplicationsCpuUSage ${app.name} is enterprise burst-enabled, skipping CPU throttling`);
-        if (app.version <= 3) {
-          if (appsMonitored[app.name]) {
-            // eslint-disable-next-line no-param-reassign
-            appsMonitored[app.name].lastHourstatsStore = [];
-          }
-        } else {
-          // eslint-disable-next-line no-restricted-syntax
-          for (const appComponent of app.compose) {
-            if (appsMonitored[`${appComponent.name}_${app.name}`]) {
-              // eslint-disable-next-line no-param-reassign
-              appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
-            }
-          }
-        }
-        // eslint-disable-next-line no-continue
-        continue;
-      }
       if (app.version <= 3) {
         stats = appsMonitored[app.name]?.lastHourstatsStore;
         // eslint-disable-next-line no-await-in-loop
         const inspect = await dockerService.dockerContainerInspect(app.name);
+        // Skip CPU throttling for containers with CFS burst actively applied.
+        // Ground truth comes from the kernel (cpu.max.burst > 0), not from the
+        // owner whitelist — so a misconfigured/unsupported node where setCpuBurst
+        // failed still gets normal throttling, never "worst of both worlds".
+        // eslint-disable-next-line no-await-in-loop
+        if (inspect && await cpuBurstHelper.isBurstActive(inspect.State?.Pid)) {
+          log.info(`checkApplicationsCpuUSage ${app.name} burst-active, skipping CPU throttling`);
+          if (appsMonitored[app.name]) {
+            // eslint-disable-next-line no-param-reassign
+            appsMonitored[app.name].lastHourstatsStore = [];
+          }
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         if (inspect && stats && stats.length > 4) {
           const nanoCpus = inspect.HostConfig.NanoCpus;
           let cpuThrottlingRuns = 0;
@@ -775,9 +769,23 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of app.compose) {
-          stats = appsMonitored[`${appComponent.name}_${app.name}`]?.lastHourstatsStore;
+          const compName = `${appComponent.name}_${app.name}`;
+          stats = appsMonitored[compName]?.lastHourstatsStore;
           // eslint-disable-next-line no-await-in-loop
-          const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
+          const inspect = await dockerService.dockerContainerInspect(compName);
+          // Skip CPU throttling for components with CFS burst actively applied.
+          // Per-component check — components of the same app may have different
+          // burst state if some failed to apply.
+          // eslint-disable-next-line no-await-in-loop
+          if (inspect && await cpuBurstHelper.isBurstActive(inspect.State?.Pid)) {
+            log.info(`checkApplicationsCpuUSage ${compName} burst-active, skipping CPU throttling`);
+            if (appsMonitored[compName]) {
+              // eslint-disable-next-line no-param-reassign
+              appsMonitored[compName].lastHourstatsStore = [];
+            }
+            // eslint-disable-next-line no-continue
+            continue;
+          }
           if (inspect && stats && stats.length > 4) {
             const nanoCpus = inspect.HostConfig.NanoCpus;
             let cpuThrottlingRuns = 0;

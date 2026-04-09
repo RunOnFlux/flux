@@ -279,7 +279,6 @@ module.exports = {
   },
   cpuBurst: {
     enabled: true,
-    burstMultiplier: 2.0,
     periodUs: 100000,
     reservedCores: 1,
   },
