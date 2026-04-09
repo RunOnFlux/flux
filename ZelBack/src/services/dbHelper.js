@@ -458,6 +458,74 @@ async function repairNanInAppsMessagesDb() {
 }
 
 /**
+ * Returns an aggregation expression that computes the actual expiration block
+ * for a given (height, expire) pair, applying the PON fork rate adjustment.
+ *
+ * Pre-fork the chain runs at 1x. Post-fork (height >= daemonPONFork) it runs
+ * 4x faster. Apps registered before the fork whose original expiration straddles
+ * the fork have their post-fork tail multiplied by 4 so they get the same
+ * wall-clock lifetime they paid for.
+ *
+ * Mirrors the JS logic in registryManager.expireGlobalApplications so the
+ * count comparison and the rebuild stay consistent.
+ *
+ * @param {string} heightField mongo field reference, e.g. '$height'
+ * @param {string} expireField mongo field reference, e.g. '$expire'
+ * @returns {object} mongo aggregation expression
+ */
+function expireHeightExpr(heightField, expireField) {
+  const PON_FORK = config.fluxapps.daemonPONFork;
+  const PRE_FORK_DEFAULT_EXPIRE = config.fluxapps.blocksLasting;
+  const POST_FORK_DEFAULT_EXPIRE = PRE_FORK_DEFAULT_EXPIRE * 4;
+
+  return {
+    $let: {
+      vars: {
+        h: heightField,
+        e: {
+          $ifNull: [
+            expireField,
+            {
+              $cond: {
+                if: { $gte: [heightField, PON_FORK] },
+                then: POST_FORK_DEFAULT_EXPIRE,
+                else: PRE_FORK_DEFAULT_EXPIRE,
+              },
+            },
+          ],
+        },
+      },
+      in: {
+        $cond: {
+          if: { $gte: ['$$h', PON_FORK] },
+          // post-fork registration: straightforward
+          then: { $add: ['$$h', '$$e'] },
+          // pre-fork registration: if expiration crosses the fork, multiply
+          // the post-fork tail by 4 to preserve wall-clock lifetime
+          else: {
+            $cond: {
+              if: { $gt: [{ $add: ['$$h', '$$e'] }, PON_FORK] },
+              then: {
+                $add: [
+                  PON_FORK,
+                  {
+                    $multiply: [
+                      { $subtract: [{ $add: ['$$h', '$$e'] }, PON_FORK] },
+                      4,
+                    ],
+                  },
+                ],
+              },
+              else: { $add: ['$$h', '$$e'] },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+/**
  *
  * @param {mongodb.Db} appsGlobalDb
  * @param {string} appsMessagesCol mongo collection name
@@ -483,23 +551,10 @@ async function isReindexAppsInformationRequired(
       $match: {
         $expr: {
           $gt: [
-            {
-              $add: [
-                '$maxHeightMsg.height',
-                {
-                  $ifNull: [
-                    '$maxHeightMsg.appSpecifications.expire',
-                    {
-                      $cond: {
-                        if: { $gte: ['$maxHeightMsg.height', config.fluxapps.daemonPONFork] },
-                        then: 88000,
-                        else: 22000,
-                      },
-                    },
-                  ],
-                },
-              ],
-            },
+            expireHeightExpr(
+              '$maxHeightMsg.height',
+              '$maxHeightMsg.appSpecifications.expire',
+            ),
             scannedHeight,
           ],
         },
@@ -513,23 +568,7 @@ async function isReindexAppsInformationRequired(
   const appsInformationPipeline = [
     {
       $set: {
-        expireHeight: {
-          $add: [
-            '$height',
-            {
-              $ifNull: [
-                '$expire',
-                {
-                  $cond: {
-                    if: { $gte: ['$height', config.fluxapps.daemonPONFork] },
-                    then: 88000,
-                    else: 22000,
-                  },
-                },
-              ],
-            },
-          ],
-        },
+        expireHeight: expireHeightExpr('$height', '$expire'),
       },
     },
     {
@@ -616,7 +655,6 @@ async function isReindexAppsInformationRequired(
  * @param {string} localAppsInformationCol mongo collection name
  * @returns {Promise<Array<string>} Any installed app (by name) that need to be removed
  */
-// eslint-disable-next-line no-unused-vars
 async function syncAppsInformationCollection(
   appsDbCursor,
   globalDb,
@@ -658,8 +696,132 @@ async function syncAppsInformationCollection(
   return Array.from(installedApps);
 }
 
-// NOTE: The reindexGlobalAppsInformation function has been moved to registryManager.js
-// as part of the modularization effort.
+/**
+ * Drops the appsInformation collection and rebuilds it from appsMessages in a
+ * single mongo aggregation + chunked bulk inserts. Also clears the install
+ * errors collection (1-hour TTL anyway, no useful state to preserve through
+ * a full rebuild).
+ *
+ * Filtering for currently-alive apps happens inside the aggregation via
+ * expireHeightExpr (full PON fork rate adjustment), so there is no separate
+ * expire pass.
+ *
+ * @param {mongodb.Db} appsGlobalDb
+ * @param {mongodb.Db} appsLocalDb
+ * @param {string} globalAppsMessagesCol
+ * @param {string} globalAppsInformationCol
+ * @param {string} globalAppsInstallingErrorsLocationsCol
+ * @param {string} localAppsInformationCol
+ * @param {number} scannedHeight
+ * @returns {Promise<Array<string>>} installed app names that are no longer in
+ *   the live spec set (caller is responsible for removing them locally)
+ */
+async function reindexGlobalAppsInformation(
+  appsGlobalDb,
+  appsLocalDb,
+  globalAppsMessagesCol,
+  globalAppsInformationCol,
+  globalAppsInstallingErrorsLocationsCol,
+  localAppsInformationCol,
+  scannedHeight,
+) {
+  const dropped = await dropCollection(appsGlobalDb, globalAppsInformationCol)
+    .catch((error) => {
+      if (error.message !== 'ns not found') {
+        log.error('reindexGlobalAppsInformation - Unable to drop db. '
+          + `Error: ${error}`);
+        return false;
+      }
+      return true;
+    });
+
+  if (!dropped) return [];
+
+  const infoCol = appsGlobalDb.collection(globalAppsInformationCol);
+  await infoCol.createIndex(
+    { name: 1 },
+    { name: 'query for getting zelapp based on zelapp specs name' },
+  );
+  await infoCol.createIndex(
+    { owner: 1 },
+    { name: 'query for getting zelapp based on zelapp specs owner' },
+  );
+  await infoCol.createIndex(
+    { repotag: 1 },
+    { name: 'query for getting zelapp based on image' },
+  );
+  await infoCol.createIndex(
+    { height: 1 },
+    { name: 'query for getting zelapp based on last height update' },
+  );
+  await infoCol.createIndex(
+    { hash: 1 },
+    { name: 'query for getting zelapp based on last hash' },
+  );
+
+  const pipeline = [
+    { $sort: { 'appSpecifications.name': 1, height: -1 } },
+    {
+      $group: {
+        _id: '$appSpecifications.name',
+        maxHeightMsg: { $first: '$$ROOT' },
+      },
+    },
+    {
+      $match: {
+        $expr: {
+          $gt: [
+            expireHeightExpr(
+              '$maxHeightMsg.height',
+              '$maxHeightMsg.appSpecifications.expire',
+            ),
+            scannedHeight,
+          ],
+        },
+      },
+    },
+    {
+      $replaceWith: {
+        $mergeObjects: [
+          '$maxHeightMsg.appSpecifications',
+          {
+            hash: '$maxHeightMsg.hash',
+            height: '$maxHeightMsg.height',
+          },
+        ],
+      },
+    },
+  ];
+
+  const resultCursor = await aggregateInDatabase(
+    appsGlobalDb,
+    globalAppsMessagesCol,
+    pipeline,
+    { returnArray: false },
+  );
+
+  const appsToRemove = await syncAppsInformationCollection(
+    resultCursor,
+    appsGlobalDb,
+    appsLocalDb,
+    globalAppsInformationCol,
+    localAppsInformationCol,
+  );
+
+  // Drop all install errors. Collection has a 1-hour TTL anyway and any
+  // surviving errors would be tied to specs that may have just changed.
+  await removeDocumentsFromCollection(
+    appsGlobalDb,
+    globalAppsInstallingErrorsLocationsCol,
+    {},
+  );
+
+  log.info(
+    `Reindexing of global applications finished. Local apps to be removed: ${JSON.stringify(appsToRemove)}`,
+  );
+
+  return appsToRemove;
+}
 
 /**
  * Verifies the app count based on an aggregation from appsmessages and compares it to the
@@ -677,12 +839,12 @@ async function validateAppsInformation() {
         collections: {
           appsInformation: globalAppsInformationCol,
           appsMessages: globalAppsMessagesCol,
+          appsInstallingErrorsLocations: globalAppsInstallingErrorsLocationsCol,
         },
       },
       appslocal: {
         database: appsLocalDbName,
         collections: {
-          // eslint-disable-next-line no-unused-vars
           appsInformation: localAppsInformationCol,
         },
       },
@@ -702,7 +864,6 @@ async function validateAppsInformation() {
 
   try {
     const appsGlobalDb = client.db(appsGlobalDbName);
-    // eslint-disable-next-line no-unused-vars
     const appsLocalDb = client.db(appsLocalDbName);
     const daemonDb = client.db(daemonDbName);
 
@@ -728,14 +889,18 @@ async function validateAppsInformation() {
       return response;
     }
 
-    // Use the new registryManager reindexGlobalAppsInformation function
-    // Import registryManager here to avoid circular dependency
-    // eslint-disable-next-line global-require
-    const registryManager = require('./appDatabase/registryManager');
-    await registryManager.reindexGlobalAppsInformation();
+    const appsToRemove = await reindexGlobalAppsInformation(
+      appsGlobalDb,
+      appsLocalDb,
+      globalAppsMessagesCol,
+      globalAppsInformationCol,
+      globalAppsInstallingErrorsLocationsCol,
+      localAppsInformationCol,
+      scannedHeight,
+    );
 
     response.reindexed = true;
-    response.appsToRemove = []; // The new function doesn't return apps to remove
+    response.appsToRemove = appsToRemove;
   } catch (err) {
     log.error(`Unable to validate apps information. Error: ${err}`);
   }
@@ -800,6 +965,7 @@ module.exports = {
   initiateDB,
   insertManyToDatabase,
   insertOneToDatabase,
+  reindexGlobalAppsInformation,
   removeDocumentsFromCollection,
   repairNanInAppsMessagesDb,
   replaceOneInDatabase,

@@ -1241,8 +1241,14 @@ async function updateAppSpecifications(appSpecs) {
 }
 
 /**
- * Rebuild the global apps information collection from messages collection
- * @returns {Promise<string>} Success message
+ * Rebuild the global apps information collection from messages collection.
+ *
+ * Thin wrapper around dbHelper.reindexGlobalAppsInformation, which does the
+ * heavy lifting in a single mongo aggregation + chunked bulk inserts. The
+ * dbHelper version filters expired apps inside the aggregation (full PON fork
+ * rate adjustment), so no separate expire pass is needed here.
+ *
+ * @returns {Promise<boolean>} True on success
  */
 async function reindexGlobalAppsInformation() {
   try {
@@ -1253,32 +1259,34 @@ async function reindexGlobalAppsInformation() {
     log.info('Reindexing global application list');
 
     const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    await dbHelper.dropCollection(database, globalAppsInformation).catch((error) => {
-      if (error.message !== 'ns not found') {
-        throw error;
-      }
-    });
-    await database.collection(globalAppsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' });
-    await database.collection(globalAppsInformation).createIndex({ owner: 1 }, { name: 'query for getting zelapp based on zelapp specs owner' });
-    await database.collection(globalAppsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
-    await database.collection(globalAppsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' }); // we need to know the height of app adjustment
-    await database.collection(globalAppsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // we need to know the hash of the last message update which is the true identifier
-    const query = {};
-    const projection = { projection: { _id: 0 }, sort: { height: 1 } }; // sort from oldest to newest
-    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
-    // eslint-disable-next-line no-restricted-syntax
-    for (const message of results) {
-      const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
-      updateForSpecifications.hash = message.hash;
-      updateForSpecifications.height = message.height;
-      // eslint-disable-next-line no-await-in-loop
-      await updateAppSpecsForRescanReindex(updateForSpecifications);
+    const appsGlobalDb = db.db(config.database.appsglobal.database);
+    const appsLocalDb = db.db(config.database.appslocal.database);
+    const daemonDb = db.db(config.database.daemon.database);
+
+    const scannedHeightResult = await dbHelper.findOneInDatabase(
+      daemonDb,
+      scannedHeightCollection,
+      { generalScannedHeight: { $gte: 0 } },
+      { projection: { _id: 0, generalScannedHeight: 1 } },
+    );
+    if (!scannedHeightResult) {
+      throw new Error('Scanning not initiated');
     }
-    log.info('Reindexing of global application list finished. Starting expiring global apps.');
-    await expireGlobalApplications();
-    log.info('Expiration of global application list finished. Done.');
-    reindexRunning = false;
+    const scannedHeight = serviceHelper.ensureNumber(
+      scannedHeightResult.generalScannedHeight,
+    );
+
+    await dbHelper.reindexGlobalAppsInformation(
+      appsGlobalDb,
+      appsLocalDb,
+      globalAppsMessages,
+      globalAppsInformation,
+      globalAppsInstallingErrorsLocations,
+      localAppsInformation,
+      scannedHeight,
+    );
+
+    log.info('Reindexing of global application list finished.');
     return true;
   } catch (error) {
     log.error(error);
