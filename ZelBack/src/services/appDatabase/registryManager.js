@@ -844,40 +844,10 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
  * @returns {Promise<boolean>} Update result
  */
 async function updateAppSpecsForRescanReindex(appSpecs) {
-  // appSpecs: {
-  //   version: 3,
-  //   name: 'FoldingAtHomeB',
-  //   description: 'Folding @ Home is cool :)',
-  //   repotag: 'yurinnick/folding-at-home:latest',
-  //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-  //   ports: '[30001]',
-  //   containerPorts: '[7396]',
-  //   domains: '[""]',
-  //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
-  //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
-  //   containerData: '/config',
-  //   cpu: 0.5,
-  //   ram: 500,
-  //   hdd: 5,
-  //   tiered: true,
-  //   cpubasic: 0.5,
-  //   rambasic: 500,
-  //   hddbasic: 5,
-  //   cpusuper: 1,
-  //   ramsuper: 1000,
-  //   hddsuper: 5,
-  //   cpubamf: 2,
-  //   rambamf: 2000,
-  //   hddbamf: 5,
-  //   instances: 10, // version 3 fork
-  //   hash: hash of message that has these paramenters,
-  //   height: height containing the message
-  // };
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const query = { name: appSpecs.name };
-  const update = { $set: appSpecs };
   const options = {
     upsert: true,
   };
@@ -889,10 +859,13 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
   const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (appInfo) {
     if (appInfo.height < appSpecs.height) {
-      await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+      // replaceOne instead of $set to avoid accumulating ghost fields
+      // from prior spec versions (e.g. flat fields from v1-v3 lingering
+      // after upgrade to v4+ compose format)
+      await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
     }
   } else {
-    await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+    await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
   }
   return true;
 }
@@ -1234,73 +1207,10 @@ async function expireGlobalApplications() {
  */
 async function updateAppSpecifications(appSpecs) {
   try {
-    // appSpecs: {
-    //   version: 3,
-    //   name: 'FoldingAtHomeB',
-    //   description: 'Folding @ Home is cool :)',
-    //   repotag: 'yurinnick/folding-at-home:latest',
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    //   ports: '[30001]',
-    //   containerPorts: '[7396]',
-    //   domains: '[""]',
-    //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
-    //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
-    //   containerData: '/config',
-    //   cpu: 0.5,
-    //   ram: 500,
-    //   hdd: 5,
-    //   tiered: true,
-    //   cpubasic: 0.5,
-    //   rambasic: 500,
-    //   hddbasic: 5,
-    //   cpusuper: 1,
-    //   ramsuper: 1000,
-    //   hddsuper: 5,
-    //   cpubamf: 2,
-    //   rambamf: 2000,
-    //   hddbamf: 5,
-    //   instances: 10, // version 3 fork
-    //   hash: hash of message that has these paramenters,
-    //   height: height containing the message
-    // };
-    // const appSpecs = {
-    //   version: 4, // int
-    //   name: 'FoldingAtHomeB', // string
-    //   description: 'Folding @ Home is cool :)', // string
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', // string
-    //   compose: [ // array of max 5 objects of following specs
-    //     {
-    //       name: 'Daemon', // string
-    //       description: 'Main ddaemon for foldingAtHome', // string
-    //       repotag: 'yurinnick/folding-at-home:latest',
-    //       ports: '[30001]', // array of ints
-    //       containerPorts: '[7396]', // array of ints
-    //       domains: '[""]', // array of strings
-    //       environmentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // array of strings
-    //       commands: '["--allow","0/0","--web-allow","0/0"]', // array of strings
-    //       containerData: '/config', // string
-    //       cpu: 0.5, // float
-    //       ram: 500, // int
-    //       hdd: 5, // int
-    //       tiered: true, // bool
-    //       cpubasic: 0.5, // float
-    //       rambasic: 500, // int
-    //       hddbasic: 5, // int
-    //       cpusuper: 1, // float
-    //       ramsuper: 1000, // int
-    //       hddsuper: 5, // int
-    //       cpubamf: 2, // float
-    //       rambamf: 2000, // int
-    //       hddbamf: 5, // int
-    //     },
-    //   ],
-    //   instances: 10, // int
-    // };
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 
     const query = { name: appSpecs.name };
-    const update = { $set: appSpecs };
     const options = {
       upsert: true,
     };
@@ -1312,10 +1222,13 @@ async function updateAppSpecifications(appSpecs) {
     const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
     if (appInfo) {
       if (appInfo.height < appSpecs.height) {
-        await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+        // replaceOne instead of $set to avoid accumulating ghost fields
+        // from prior spec versions (e.g. flat fields from v1-v3 lingering
+        // after upgrade to v4+ compose format)
+        await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
       }
     } else {
-      await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+      await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
     }
     const queryDeleteAppErrors = { name: appSpecs.name };
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
@@ -1328,8 +1241,14 @@ async function updateAppSpecifications(appSpecs) {
 }
 
 /**
- * Rebuild the global apps information collection from messages collection
- * @returns {Promise<string>} Success message
+ * Rebuild the global apps information collection from messages collection.
+ *
+ * Thin wrapper around dbHelper.reindexGlobalAppsInformation, which does the
+ * heavy lifting in a single mongo aggregation + chunked bulk inserts. The
+ * dbHelper version filters expired apps inside the aggregation (full PON fork
+ * rate adjustment), so no separate expire pass is needed here.
+ *
+ * @returns {Promise<boolean>} True on success
  */
 async function reindexGlobalAppsInformation() {
   try {
@@ -1340,32 +1259,34 @@ async function reindexGlobalAppsInformation() {
     log.info('Reindexing global application list');
 
     const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    await dbHelper.dropCollection(database, globalAppsInformation).catch((error) => {
-      if (error.message !== 'ns not found') {
-        throw error;
-      }
-    });
-    await database.collection(globalAppsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' });
-    await database.collection(globalAppsInformation).createIndex({ owner: 1 }, { name: 'query for getting zelapp based on zelapp specs owner' });
-    await database.collection(globalAppsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
-    await database.collection(globalAppsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' }); // we need to know the height of app adjustment
-    await database.collection(globalAppsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // we need to know the hash of the last message update which is the true identifier
-    const query = {};
-    const projection = { projection: { _id: 0 }, sort: { height: 1 } }; // sort from oldest to newest
-    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
-    // eslint-disable-next-line no-restricted-syntax
-    for (const message of results) {
-      const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
-      updateForSpecifications.hash = message.hash;
-      updateForSpecifications.height = message.height;
-      // eslint-disable-next-line no-await-in-loop
-      await updateAppSpecsForRescanReindex(updateForSpecifications);
+    const appsGlobalDb = db.db(config.database.appsglobal.database);
+    const appsLocalDb = db.db(config.database.appslocal.database);
+    const daemonDb = db.db(config.database.daemon.database);
+
+    const scannedHeightResult = await dbHelper.findOneInDatabase(
+      daemonDb,
+      scannedHeightCollection,
+      { generalScannedHeight: { $gte: 0 } },
+      { projection: { _id: 0, generalScannedHeight: 1 } },
+    );
+    if (!scannedHeightResult) {
+      throw new Error('Scanning not initiated');
     }
-    log.info('Reindexing of global application list finished. Starting expiring global apps.');
-    await expireGlobalApplications();
-    log.info('Expiration of global application list finished. Done.');
-    reindexRunning = false;
+    const scannedHeight = serviceHelper.ensureNumber(
+      scannedHeightResult.generalScannedHeight,
+    );
+
+    await dbHelper.reindexGlobalAppsInformation(
+      appsGlobalDb,
+      appsLocalDb,
+      globalAppsMessages,
+      globalAppsInformation,
+      globalAppsInstallingErrorsLocations,
+      localAppsInformation,
+      scannedHeight,
+    );
+
+    log.info('Reindexing of global application list finished.');
     return true;
   } catch (error) {
     log.error(error);
@@ -1400,17 +1321,9 @@ async function reconstructAppMessagesHashCollection() {
 
       const permanentMessageFound = permanentMessages.find((message) => message.hash === appHash.hash);
 
-      if (permanentMessageFound) {
-        // update that we have the message
-        const update = { $set: { message: true, messageNotFound: false } };
-        // eslint-disable-next-line no-await-in-loop
-        await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
-      } else {
-        // update that we do not have the message
-        const update = { $set: { message: false, messageNotFound: false } };
-        // eslint-disable-next-line no-await-in-loop
-        await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
-      }
+      const update = { $set: { message: !!permanentMessageFound, messageNotFound: false } };
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
     }
 
     return 'Reconstruct success';

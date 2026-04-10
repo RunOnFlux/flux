@@ -108,7 +108,7 @@ async function checkAndSyncAppHashes() {
               cleanMessage.zelAppSpecifications = appMessage.zelAppSpecifications;
             }
             // eslint-disable-next-line no-await-in-loop
-            await messageStore.storeAppTemporaryMessage(cleanMessage, true);
+            await messageStore.storeAppTemporaryMessage(cleanMessage);
             // eslint-disable-next-line no-await-in-loop
             await messageVerifier.checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.valueSat, 2);
             // eslint-disable-next-line no-await-in-loop
@@ -186,7 +186,7 @@ async function continuousFluxAppHashesCheck(force = false) {
     }
     const explorerHeight = serviceHelper.ensureNumber(scanHeight.generalScannedHeight);
 
-    // get flux app hashes that do not have a message;
+    // get flux app hashes that do not have a message
     const query = { message: false };
     const projection = {
       projection: {

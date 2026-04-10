@@ -22,10 +22,12 @@ const { specificationFormatter } = require('../utils/appSpecHelpers');
 /**
  * Store temporary app message
  * @param {object} message - Message to store
- * @param {boolean} furtherVerification - Whether further verification is needed
+ * @param {object} [options] - Options
+ * @param {boolean} [options.furtherVerification=true] - Whether further verification is needed
  * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
-async function storeAppTemporaryMessage(message, furtherVerification = false) {
+async function storeAppTemporaryMessage(message, options = {}) {
+  const furtherVerification = options.furtherVerification ?? true;
   /* message object
   * @param type string
   * @param version number
@@ -103,9 +105,6 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     }
 
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-      if (!message.arcaneSender) {
-        return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
-      }
       // eslint-disable-next-line global-require
       const fluxService = require('../fluxService');
       if (await fluxService.isSystemSecure()) {

@@ -92,6 +92,7 @@ module.exports = {
   deterministicNodesStart: 558000,
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
+    latestSupportedSpecVersion: 8, // version changes on app updates must target this version
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.
@@ -306,10 +307,18 @@ module.exports = {
     '03e29783936a36b396c28706494dbfd35f3d087f2addeb3df32e451f71bf9a53f3',
   ],
   cpuBurst: {
+    // Enables CFS CPU burst for enterprise app owners on cgroups-v2 + kernel >= 5.14 hosts.
+    // The kernel rule (cgroup-v2: 0 <= cpu.max.burst <= cpu.max quota) lets a container
+    // temporarily peak at up to 2x its base allocation in any single CFS period, drawing from
+    // a bank that fills with unused idle quota from prior periods.
+    //
+    // reservedCores caps each container's peak so it cannot consume the entire host during a
+    // burst window: peak <= (hostCpus - reservedCores) * period. This is a per-container cap,
+    // not a host-aggregate budget — multiple burstable apps on the same host can collectively
+    // oversubscribe during simultaneous spikes, which CFS handles by sharing fairly.
     enabled: true,
-    burstMultiplier: 2.0, // burst bank can accumulate up to burstMultiplier * base quota per CFS period. Does NOT mean sustained 2x CPU - only banked idle quota.
     periodUs: 100000, // CFS period in microseconds (100ms, Linux default)
-    reservedCores: 1, // cores reserved for system services; caps any single container's burst peak to (host vCPUs - reservedCores)
+    reservedCores: 1, // cores reserved for system services; bounds any single container's burst peak
   },
   registryAuth: {
     // Token refresh buffer in milliseconds

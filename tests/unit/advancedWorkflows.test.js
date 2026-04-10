@@ -1475,6 +1475,33 @@ describe('advancedWorkflows tests', () => {
       }
     });
 
+    it('should allow version changes (policy enforced elsewhere)', async () => {
+      const oldAppSpecs = {
+        name: 'TestApp',
+        version: 5,
+        compose: [
+          { name: 'app', repotag: 'repo/app:1.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [], tiered: false },
+        ],
+      };
+
+      const newAppSpecs = {
+        name: 'TestApp',
+        version: 6,
+        compose: [
+          { name: 'app', repotag: 'repo/app:1.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [], tiered: false },
+        ],
+      };
+
+      // validateApplicationUpdateCompatibility no longer enforces version upgrade policy —
+      // that is now handled in storeAppTemporaryMessage. Structural compatibility should pass.
+      const result = await advancedWorkflows.validateApplicationUpdateCompatibility(
+        newAppSpecs,
+        oldAppSpecs,
+      );
+
+      expect(result).to.be.true;
+    });
+
     it('should allow repotag changes for all v4+ apps', async () => {
       const oldAppSpecs = {
         name: 'TestApp',

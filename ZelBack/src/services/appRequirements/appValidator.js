@@ -1414,62 +1414,83 @@ async function verifyAppRegistrationParameters(req, res) {
  * @param {object} res - Response object
  * @returns {Promise<void>} Validation result
  */
-async function verifyAppUpdateParameters(req, res) {
+/**
+ * Validate app update specifications against current state.
+ * Business logic only — no HTTP concerns.
+ * @param {object} appSpecification - The app specification to validate
+ * @returns {Promise<object>} Formatted and validated app specifications
+ */
+async function validateAppUpdate(appSpecification) {
+  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+  if (!syncStatus.data.synced) {
+    throw new Error('Daemon not yet synced.');
+  }
+  const daemonHeight = syncStatus.data.height;
+
+  const isEnterprise = Boolean(
+    appSpecification.version >= 8 && appSpecification.enterprise,
+  );
+
+  const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
+
+  const appSpecFormatted = specificationFormatter(decryptedSpecs);
+
+  await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+  if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComponent of appSpecFormatted.compose) {
+      if (appComponent.secrets) {
+        // eslint-disable-next-line no-await-in-loop
+        await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
+      }
+    }
+  }
+
+  // Validate update compatibility with previous version
+  const timestamp = Date.now();
+  // Dynamic require to avoid circular dependency
+  // eslint-disable-next-line global-require
+  const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
+  const previousAppSpecs = await advancedWorkflows.getPreviousAppSpecifications(appSpecFormatted, timestamp);
+  if (!previousAppSpecs) {
+    throw new Error(`Flux App ${appSpecFormatted.name} does not exist and cannot be updated`);
+  }
+
+  // Enforce version upgrade policy: new updates must target the latest supported spec version
+  const { latestSupportedSpecVersion } = config.fluxapps;
+  if (previousAppSpecs.version !== appSpecFormatted.version && appSpecFormatted.version !== latestSupportedSpecVersion) {
+    throw new Error(
+      `Application update rejected: Version changes are only allowed when updating to version ${latestSupportedSpecVersion} (current latest supported version). `
+      + `Current version: ${previousAppSpecs.version}, Attempted version: ${appSpecFormatted.version}. `
+      + `To update this application, please use version ${latestSupportedSpecVersion} specifications.`,
+    );
+  }
+
+  await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
+
+  if (isEnterprise) {
+    appSpecFormatted.contacts = [];
+    appSpecFormatted.compose = [];
+  }
+
+  return appSpecFormatted;
+}
+
+/**
+ * API endpoint to verify app update parameters
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ */
+async function verifyAppUpdateApi(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
   });
   req.on('end', async () => {
     try {
-      const processedBody = serviceHelper.ensureObject(body);
-      let appSpecification = processedBody;
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-
-      const isEnterprise = Boolean(
-        appSpecification.version >= 8 && appSpecification.enterprise,
-      );
-
-      const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
-
-      const appSpecFormatted = specificationFormatter(decryptedSpecs);
-
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecFormatted.compose) {
-          if (appComponent.secrets) {
-            // eslint-disable-next-line no-await-in-loop
-            await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
-          }
-        }
-      }
-
-      // Validate update compatibility with previous version
-      const timestamp = Date.now();
-      // Dynamic require to avoid circular dependency
-      // eslint-disable-next-line global-require
-      const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
-      const previousAppSpecs = await advancedWorkflows.getPreviousAppSpecifications(appSpecFormatted, timestamp);
-      if (!previousAppSpecs) {
-        throw new Error(`Flux App ${appSpecFormatted.name} does not exist and cannot be updated`);
-      }
-      await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
-
-      if (isEnterprise) {
-        appSpecFormatted.contacts = [];
-        appSpecFormatted.compose = [];
-      }
-
-      // app is valid and can be registered
-      // respond with formatted specifications
+      const appSpecification = serviceHelper.ensureObject(serviceHelper.ensureObject(body));
+      const appSpecFormatted = await validateAppUpdate(appSpecification);
       const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
       res.json(respondPrice);
     } catch (error) {
@@ -1654,6 +1675,7 @@ module.exports = {
   checkComposeHWParameters,
   verifyAppSpecifications,
   verifyAppRegistrationParameters,
-  verifyAppUpdateParameters,
+  validateAppUpdate,
+  verifyAppUpdateApi,
   registerAppGlobalyApi,
 };

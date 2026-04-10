@@ -1111,7 +1111,7 @@ describe('fluxCommunication tests', () => {
         await waitFor(() => storeAppTemporaryMessageStub.called);
 
         sinon.assert.calledOnceWithExactly(verifyFluxBroadcast, JSON.parse(message), undefined, sinon.match.number);
-        sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data, true);
+        sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data);
       });
     }
 
