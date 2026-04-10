@@ -103,10 +103,6 @@ async function checkAndSyncAppHashes() {
               timestamp: appMessage.timestamp,
               signature: appMessage.signature,
             };
-            // Support legacy field name if present
-            if (appMessage.zelAppSpecifications) {
-              cleanMessage.zelAppSpecifications = appMessage.zelAppSpecifications;
-            }
             // eslint-disable-next-line no-await-in-loop
             await messageStore.storeAppTemporaryMessage(cleanMessage);
             // eslint-disable-next-line no-await-in-loop

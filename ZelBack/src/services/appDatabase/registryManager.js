@@ -1640,7 +1640,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
 
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
-      const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
+      const updateForSpecifications = message.appSpecifications;
       updateForSpecifications.hash = message.hash;
       updateForSpecifications.height = message.height;
       // eslint-disable-next-line no-await-in-loop

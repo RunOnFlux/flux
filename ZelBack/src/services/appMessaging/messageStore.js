@@ -39,12 +39,11 @@ async function storeAppTemporaryMessage(message, options = {}) {
   if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.signature !== 'string' || typeof message.timestamp !== 'number' || typeof message.hash !== 'string') {
     return new Error('Invalid Flux App message for storing');
   }
-  // expect one to be present
-  if (typeof message.appSpecifications !== 'object' && typeof message.zelAppSpecifications !== 'object') {
+  if (typeof message.appSpecifications !== 'object') {
     return new Error('Invalid Flux App message for storing');
   }
 
-  const specifications = message.appSpecifications || message.zelAppSpecifications;
+  const specifications = message.appSpecifications;
   // eslint-disable-next-line no-use-before-define
   const appSpecFormatted = specificationFormatter(specifications);
   const messageTimestamp = serviceHelper.ensureNumber(message.timestamp);
