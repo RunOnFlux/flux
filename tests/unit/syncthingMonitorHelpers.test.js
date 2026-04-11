@@ -218,6 +218,9 @@ describe('syncthingMonitorHelpers tests', () => {
         maxConflicts: 0,
         paused: false,
         type: 'sendreceive',
+        syncOwnership: false,
+        sendOwnership: false,
+        ignorePerms: true,
         devices,
       };
       const newFolder = {

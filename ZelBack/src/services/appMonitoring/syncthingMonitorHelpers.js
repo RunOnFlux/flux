@@ -194,6 +194,9 @@ function createSyncthingFolderConfig(id, label, path, devices, type = 'sendrecei
     type,
     rescanIntervalS: SYNCTHING_RESCAN_INTERVAL_SECONDS,
     maxConflicts: SYNCTHING_MAX_CONFLICTS,
+    syncOwnership: false,
+    sendOwnership: false,
+    ignorePerms: true,
   };
 }
 
@@ -266,6 +269,9 @@ function folderNeedsUpdate(existingFolder, newFolder) {
     existingFolder.maxConflicts !== SYNCTHING_MAX_CONFLICTS
     || existingFolder.paused
     || existingFolder.type !== newFolder.type
+    || existingFolder.syncOwnership !== false
+    || existingFolder.sendOwnership !== false
+    || existingFolder.ignorePerms !== true
     || JSON.stringify(existingFolder.devices) !== JSON.stringify(newFolder.devices)
   );
 }

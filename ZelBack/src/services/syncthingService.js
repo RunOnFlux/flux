@@ -2319,12 +2319,22 @@ async function adjustSyncthing() {
         await adjustConfigDefaultsFolder('patch', newConfigDefaultFolders);
       }
     }
-    // remove default folder
+    // patch existing folders that still have old ownership/permission settings
+    // this ensures folders created before the defaults change also get updated
     const allFolders = await getConfigFolders();
     if (allFolders.status === 'success') {
       const defaultFolderExists = allFolders.data.find((syncthingFolder) => syncthingFolder.id === 'default');
       if (defaultFolderExists) {
         await adjustConfigFolders('delete', undefined, 'default');
+      }
+      // eslint-disable-next-line no-restricted-syntax
+      for (const folder of allFolders.data) {
+        if (folder.id === 'default') continue; // eslint-disable-line no-continue
+        if (folder.syncOwnership !== false || folder.sendOwnership !== false || folder.ignorePerms !== true) {
+          log.info(`Patching folder ${folder.id} to disable ownership sync and ignore permissions`);
+          // eslint-disable-next-line no-await-in-loop
+          await adjustConfigFolders('patch', { syncOwnership: false, sendOwnership: false, ignorePerms: true }, folder.id);
+        }
       }
     }
     // enable gui debugging for development nodes only
