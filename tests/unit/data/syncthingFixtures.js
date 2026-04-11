@@ -74,7 +74,7 @@ const configFile = `<configuration version="37">
         <connectionPriorityUpgradeThreshold>0</connectionPriorityUpgradeThreshold>
     </options>
     <defaults>
-        <folder id="" label="" path="~" type="sendreceive" rescanIntervalS="3600" fsWatcherEnabled="true" fsWatcherDelayS="10" ignorePerms="false" autoNormalize="true">
+        <folder id="" label="" path="~" type="sendreceive" rescanIntervalS="3600" fsWatcherEnabled="true" fsWatcherDelayS="10" ignorePerms="true" autoNormalize="true">
             <filesystemType>basic</filesystemType>
             <device id="AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM" introducedBy="">
                 <encryptionPassword></encryptionPassword>
@@ -106,8 +106,8 @@ const configFile = `<configuration version="37">
             <copyRangeMethod>standard</copyRangeMethod>
             <caseSensitiveFS>false</caseSensitiveFS>
             <junctionsAsDirs>false</junctionsAsDirs>
-            <syncOwnership>true</syncOwnership>
-            <sendOwnership>true</sendOwnership>
+            <syncOwnership>false</syncOwnership>
+            <sendOwnership>false</sendOwnership>
             <syncXattrs>true</syncXattrs>
             <sendXattrs>true</sendXattrs>
             <xattrFilter>

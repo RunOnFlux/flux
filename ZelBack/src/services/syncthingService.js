@@ -2293,10 +2293,11 @@ async function adjustSyncthing() {
       listenAddresses: [`tcp://:${myPort}`, `quic://:${myPort}`],
     };
     const newConfigDefaultFolders = {
-      syncOwnership: true,
-      sendOwnership: true,
+      syncOwnership: false,
+      sendOwnership: false,
       syncXattrs: true,
       sendXattrs: true,
+      ignorePerms: true,
       maxConflicts: 0,
     };
     if (currentConfigOptions.status === 'success') {
@@ -2312,7 +2313,8 @@ async function adjustSyncthing() {
       if (currentDefaultsFolderOptions.data.syncOwnership !== newConfigDefaultFolders.syncOwnership
         || currentDefaultsFolderOptions.data.sendOwnership !== newConfigDefaultFolders.sendOwnership
         || currentDefaultsFolderOptions.data.syncXattrs !== newConfigDefaultFolders.syncXattrs
-        || currentDefaultsFolderOptions.data.sendXattrs !== newConfigDefaultFolders.sendXattrs) {
+        || currentDefaultsFolderOptions.data.sendXattrs !== newConfigDefaultFolders.sendXattrs
+        || currentDefaultsFolderOptions.data.ignorePerms !== newConfigDefaultFolders.ignorePerms) {
         // patch our defaults folder config
         await adjustConfigDefaultsFolder('patch', newConfigDefaultFolders);
       }
