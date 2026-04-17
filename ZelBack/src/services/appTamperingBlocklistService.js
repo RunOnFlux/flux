@@ -12,6 +12,7 @@ const CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const SYNC_POLL_MS = 60 * 1000; // 60s while waiting for daemon sync
 const TAMPERING_EVENT_THRESHOLD = 10;
 const DOS_MESSAGE_PREFIX = 'Node flagged via tampering blocklist';
+const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 const tamperingEventsCollection = config.database.local.collections.appTamperingEvents;
 
@@ -88,6 +89,11 @@ async function waitForDaemonSynced() {
  * clears it when its own condition is no longer true.
  */
 async function enforceBlocklist() {
+  if (isArcane) {
+    log.info('appTamperingBlocklist - node is ArcaneOS, enforcement disabled');
+    return;
+  }
+
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
   if (!syncStatus || !syncStatus.data || !syncStatus.data.synced) {
     log.info('appTamperingBlocklist - daemon not synced, skipping this tick');
@@ -133,6 +139,10 @@ async function enforceBlocklist() {
  */
 async function start() {
   if (intervalHandle) return;
+  if (isArcane) {
+    log.info('appTamperingBlocklist - node is ArcaneOS, enforcer will not start');
+    return;
+  }
   log.info('appTamperingBlocklist - enforcer starting, waiting for daemon sync');
   try {
     await waitForDaemonSynced();

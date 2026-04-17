@@ -13,8 +13,33 @@ describe('appTamperingBlocklistService tests', () => {
   let cacheStub;
 
   const MOCK_TXHASH = 'abc123deadbeef';
+  let originalFluxOSPath;
+
+  function loadService() {
+    return proxyquire('../../ZelBack/src/services/appTamperingBlocklistService', {
+      config: {
+        database: {
+          local: {
+            database: 'zelfluxlocal',
+            collections: { appTamperingEvents: 'apptamperingevents' },
+          },
+        },
+      },
+      '../lib/log': {
+        info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(),
+      },
+      './serviceHelper': serviceHelperStub,
+      './dbHelper': dbHelperStub,
+      './fluxNetworkHelper': fluxNetworkHelperStub,
+      './generalService': generalServiceStub,
+      './daemonService/daemonServiceMiscRpcs': daemonMiscStub,
+      './utils/cacheManager': { default: cacheStub },
+    });
+  }
 
   beforeEach(() => {
+    originalFluxOSPath = process.env.FLUXOS_PATH;
+    delete process.env.FLUXOS_PATH; // default: non-Arcane
     cacheStore = new Map();
     cacheStub = {
       tamperingBlocklistCache: {
@@ -53,29 +78,16 @@ describe('appTamperingBlocklistService tests', () => {
       isDaemonSynced: sinon.stub().returns({ data: { synced: true } }),
     };
 
-    service = proxyquire('../../ZelBack/src/services/appTamperingBlocklistService', {
-      config: {
-        database: {
-          local: {
-            database: 'zelfluxlocal',
-            collections: { appTamperingEvents: 'apptamperingevents' },
-          },
-        },
-      },
-      '../lib/log': {
-        info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(),
-      },
-      './serviceHelper': serviceHelperStub,
-      './dbHelper': dbHelperStub,
-      './fluxNetworkHelper': fluxNetworkHelperStub,
-      './generalService': generalServiceStub,
-      './daemonService/daemonServiceMiscRpcs': daemonMiscStub,
-      './utils/cacheManager': { default: cacheStub },
-    });
+    service = loadService();
   });
 
   afterEach(() => {
     sinon.restore();
+    if (originalFluxOSPath !== undefined) {
+      process.env.FLUXOS_PATH = originalFluxOSPath;
+    } else {
+      delete process.env.FLUXOS_PATH;
+    }
   });
 
   // Helper: set documents returned by the mongo countDocuments stub
@@ -271,6 +283,45 @@ describe('appTamperingBlocklistService tests', () => {
       await service.enforceBlocklist();
 
       sinon.assert.called(fluxNetworkHelperStub.clearStickyDosMessage);
+    });
+  });
+
+  describe('ArcaneOS gating', () => {
+    it('enforceBlocklist is a no-op on ArcaneOS even when listed with many events', async () => {
+      process.env.FLUXOS_PATH = '/opt/fluxos';
+      const arcaneService = loadService();
+      serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+      setEventCount(100);
+
+      await arcaneService.enforceBlocklist();
+
+      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDosStateValue.called).to.be.false;
+      expect(arcaneService.isDosActive()).to.be.false;
+    });
+
+    it('enforceBlocklist does not read blocklist or count events on ArcaneOS', async () => {
+      process.env.FLUXOS_PATH = '/opt/fluxos';
+      const arcaneService = loadService();
+
+      await arcaneService.enforceBlocklist();
+
+      expect(serviceHelperStub.axiosGet.called).to.be.false;
+      expect(generalServiceStub.obtainNodeCollateralInformation.called).to.be.false;
+    });
+
+    it('start() does not install the interval on ArcaneOS', async () => {
+      process.env.FLUXOS_PATH = '/opt/fluxos';
+      const arcaneService = loadService();
+      const setIntervalSpy = sinon.spy(global, 'setInterval');
+
+      await arcaneService.start();
+
+      // No interval installed for the enforcer. (Other code may call setInterval,
+      // but we assert no call targets CHECK_INTERVAL_MS = 12h.)
+      const twelveH = 12 * 60 * 60 * 1000;
+      const calledWith12h = setIntervalSpy.getCalls().some((c) => c.args[1] === twelveH);
+      expect(calledWith12h).to.be.false;
     });
   });
 });
