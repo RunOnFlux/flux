@@ -25,6 +25,7 @@ module.exports = {
         geolocation: 'geolocation',
         benchmark: 'benchmark',
         appTamperingEvents: 'apptamperingevents',
+        nodeStartupTracker: 'nodestartuptracker',
       },
     },
     daemon: {

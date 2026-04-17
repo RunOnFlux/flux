@@ -49,6 +49,7 @@ const volumeValidationService = require('./volumeValidationService');
 const watchdogService = require('./watchdogService');
 const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
+const appTamperingDetectionService = require('./appTamperingDetectionService');
 const imageUpdateService = require('./imageUpdateService');
 // const throughputLogger = require('./utils/throughputLogger');
 
@@ -167,6 +168,7 @@ async function startFluxFunctions() {
       { appName: 1, detectedAt: -1 },
       { name: 'appName_detectedAt' },
     );
+    await appTamperingDetectionService.checkFrequentRestart();
     log.info('Local database prepared');
     log.info('Preparing temporary database...');
     // no need to drop temporary messages

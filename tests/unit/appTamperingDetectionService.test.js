@@ -29,6 +29,8 @@ describe('appTamperingDetectionService tests', () => {
         lastFindArgs = { db, coll, query, options };
         return findResults;
       }),
+      findOneInDatabase: sinon.stub().resolves(null),
+      findOneAndUpdateInDatabase: sinon.stub().resolves({ value: null }),
     };
 
     service = proxyquire('../../ZelBack/src/services/appTamperingDetectionService', {
@@ -36,7 +38,10 @@ describe('appTamperingDetectionService tests', () => {
         database: {
           local: {
             database: 'zelfluxlocal',
-            collections: { appTamperingEvents: 'apptamperingevents' },
+            collections: {
+              appTamperingEvents: 'apptamperingevents',
+              nodeStartupTracker: 'nodestartuptracker',
+            },
           },
         },
       },
@@ -188,6 +193,85 @@ describe('appTamperingDetectionService tests', () => {
       await service.getEvents(req, res);
 
       sinon.assert.calledWith(res.json, sinon.match({ status: 'error' }));
+    });
+  });
+
+  describe('checkFrequentRestart', () => {
+    it('records a frequent_restart event when previous start was under one hour ago', async () => {
+      const previousAt = new Date(Date.now() - (30 * 60 * 1000)); // 30 min ago
+      dbHelperStub.findOneInDatabase = sinon.stub().resolves({ _id: 'lastStartup', at: previousAt });
+
+      await service.checkFrequentRestart();
+
+      expect(insertedDocs).to.have.lengthOf(1);
+      const { doc } = insertedDocs[0];
+      expect(doc.appName).to.equal(service.SYSTEM_APP_NAME);
+      expect(doc.eventType).to.equal('frequent_restart');
+      expect(doc.details).to.match(/FluxOS restarted \d+s after previous start/);
+    });
+
+    it('does NOT record an event when previous start was over one hour ago', async () => {
+      const previousAt = new Date(Date.now() - (2 * 60 * 60 * 1000)); // 2 hours ago
+      dbHelperStub.findOneInDatabase = sinon.stub().resolves({ _id: 'lastStartup', at: previousAt });
+
+      await service.checkFrequentRestart();
+
+      expect(insertedDocs).to.have.lengthOf(0);
+    });
+
+    it('does NOT record an event when previous start is exactly at threshold', async () => {
+      const previousAt = new Date(Date.now() - service.FREQUENT_RESTART_THRESHOLD_MS);
+      dbHelperStub.findOneInDatabase = sinon.stub().resolves({ _id: 'lastStartup', at: previousAt });
+
+      await service.checkFrequentRestart();
+
+      expect(insertedDocs).to.have.lengthOf(0);
+    });
+
+    it('does NOT record an event on first-ever startup (no previous marker)', async () => {
+      dbHelperStub.findOneInDatabase = sinon.stub().resolves(null);
+
+      await service.checkFrequentRestart();
+
+      expect(insertedDocs).to.have.lengthOf(0);
+    });
+
+    it('ignores a negative delta (clock skew: previous marker in the future)', async () => {
+      const previousAt = new Date(Date.now() + (5 * 60 * 1000)); // 5 min in future
+      dbHelperStub.findOneInDatabase = sinon.stub().resolves({ _id: 'lastStartup', at: previousAt });
+
+      await service.checkFrequentRestart();
+
+      expect(insertedDocs).to.have.lengthOf(0);
+    });
+
+    it('always upserts the startup marker to now', async () => {
+      dbHelperStub.findOneInDatabase = sinon.stub().resolves(null);
+
+      await service.checkFrequentRestart();
+
+      sinon.assert.calledOnce(dbHelperStub.findOneAndUpdateInDatabase);
+      const args = dbHelperStub.findOneAndUpdateInDatabase.firstCall.args;
+      expect(args[1]).to.equal('nodestartuptracker'); // collection
+      expect(args[2]).to.deep.equal({ _id: 'lastStartup' });
+      expect(args[3].$set.at).to.be.instanceOf(Date);
+      expect(args[4]).to.deep.equal({ upsert: true });
+    });
+
+    it('no-ops when DB is unavailable', async () => {
+      dbHelperStub.databaseConnection = sinon.stub().returns(null);
+
+      await service.checkFrequentRestart();
+
+      expect(dbHelperStub.findOneInDatabase.called).to.be.false;
+      expect(dbHelperStub.findOneAndUpdateInDatabase.called).to.be.false;
+    });
+
+    it('swallows errors without throwing', async () => {
+      dbHelperStub.findOneInDatabase = sinon.stub().rejects(new Error('mongo down'));
+
+      await service.checkFrequentRestart();
+      // test passes if no exception propagates
     });
   });
 });

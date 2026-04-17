@@ -4,6 +4,11 @@ const dbHelper = require('./dbHelper');
 const messageHelper = require('./messageHelper');
 
 const tamperingEventsCollection = config.database.local.collections.appTamperingEvents;
+const nodeStartupTrackerCollection = config.database.local.collections.nodeStartupTracker;
+
+const FREQUENT_RESTART_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
+const STARTUP_MARKER_KEY = 'lastStartup';
+const SYSTEM_APP_NAME = '__system__';
 
 /**
  * Returns true when a Docker/daemon error message indicates a missing network
@@ -80,8 +85,52 @@ async function getEvents(req, res) {
   }
 }
 
+/**
+ * Compares the current time to the previous recorded startup time. If the
+ * gap is less than one hour, records a `frequent_restart` tampering event
+ * under a synthetic system app name. Always updates the startup marker to
+ * "now" before returning. Called once per FluxOS startup.
+ */
+async function checkFrequentRestart() {
+  try {
+    const db = dbHelper.databaseConnection();
+    if (!db) {
+      log.warn('appTamperingDetection - DB not available, skipping frequent-restart check');
+      return;
+    }
+    const database = db.db(config.database.local.database);
+    const now = new Date();
+    const previous = await dbHelper.findOneInDatabase(
+      database, nodeStartupTrackerCollection, { _id: STARTUP_MARKER_KEY },
+    );
+    if (previous && previous.at) {
+      const delta = now.getTime() - new Date(previous.at).getTime();
+      if (delta >= 0 && delta < FREQUENT_RESTART_THRESHOLD_MS) {
+        const deltaSec = Math.floor(delta / 1000);
+        await recordEvent(
+          SYSTEM_APP_NAME,
+          'frequent_restart',
+          `FluxOS restarted ${deltaSec}s after previous start`,
+        );
+      }
+    }
+    await dbHelper.findOneAndUpdateInDatabase(
+      database,
+      nodeStartupTrackerCollection,
+      { _id: STARTUP_MARKER_KEY },
+      { $set: { at: now } },
+      { upsert: true },
+    );
+  } catch (error) {
+    log.error(`appTamperingDetection - checkFrequentRestart failed: ${error.message}`);
+  }
+}
+
 module.exports = {
   recordEvent,
   getEvents,
   isNetworkMissingError,
+  checkFrequentRestart,
+  FREQUENT_RESTART_THRESHOLD_MS,
+  SYSTEM_APP_NAME,
 };
