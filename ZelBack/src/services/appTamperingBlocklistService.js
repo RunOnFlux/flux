@@ -18,6 +18,18 @@ const tamperingEventsCollection = config.database.local.collections.appTampering
 
 let intervalHandle = null;
 let ourDosActive = false;
+let stopping = false;
+let syncWaitTimer = null;
+let syncWaitResolver = null;
+
+/**
+ * True when the current sticky DOS message was set by this service.
+ * Identified by the DOS_MESSAGE_PREFIX we always prepend when we set it.
+ */
+function isOurStickyDos() {
+  const msg = fluxNetworkHelper.getStickyDosMessage();
+  return typeof msg === 'string' && msg.startsWith(DOS_MESSAGE_PREFIX);
+}
 
 /**
  * Fetch the manually-curated txhash blocklist from the RunOnFlux repo.
@@ -71,14 +83,21 @@ async function getMyTxhash() {
 
 /**
  * Block until the daemon reports synced. Polls every SYNC_POLL_MS.
+ * The per-iteration sleep is cancellable via stop() so shutdown is prompt.
  */
 async function waitForDaemonSynced() {
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
+  while (!stopping) {
     const s = daemonServiceMiscRpcs.isDaemonSynced();
     if (s && s.data && s.data.synced) return;
     // eslint-disable-next-line no-await-in-loop
-    await new Promise((resolve) => setTimeout(resolve, SYNC_POLL_MS));
+    await new Promise((resolve) => {
+      syncWaitResolver = resolve;
+      syncWaitTimer = setTimeout(() => {
+        syncWaitTimer = null;
+        syncWaitResolver = null;
+        resolve();
+      }, SYNC_POLL_MS);
+    });
   }
 }
 
@@ -126,7 +145,7 @@ async function enforceBlocklist() {
     return;
   }
 
-  if (ourDosActive || fluxNetworkHelper.getStickyDosMessage()) {
+  if (ourDosActive || isOurStickyDos()) {
     log.info(`appTamperingBlocklist - clearing sticky DOS (listed=${listed}, events=${eventCount})`);
     fluxNetworkHelper.clearStickyDosMessage();
     ourDosActive = false;
@@ -143,6 +162,7 @@ async function start() {
     log.info('appTamperingBlocklist - node is ArcaneOS, enforcer will not start');
     return;
   }
+  stopping = false;
   log.info('appTamperingBlocklist - enforcer starting, waiting for daemon sync');
   try {
     await waitForDaemonSynced();
@@ -150,10 +170,18 @@ async function start() {
     log.error(`appTamperingBlocklist - sync wait failed: ${err.message}`);
     return;
   }
+  if (stopping) {
+    log.info('appTamperingBlocklist - stop() called during sync wait, aborting start');
+    return;
+  }
   try {
     await enforceBlocklist();
   } catch (err) {
     log.error(`appTamperingBlocklist - first tick error: ${err.message}`);
+  }
+  if (stopping) {
+    log.info('appTamperingBlocklist - stop() called during first tick, not scheduling interval');
+    return;
   }
   intervalHandle = setInterval(() => {
     enforceBlocklist().catch((err) => log.error(`appTamperingBlocklist - tick error: ${err.message}`));
@@ -161,6 +189,16 @@ async function start() {
 }
 
 function stop() {
+  stopping = true;
+  if (syncWaitTimer) {
+    clearTimeout(syncWaitTimer);
+    syncWaitTimer = null;
+  }
+  if (syncWaitResolver) {
+    const resolve = syncWaitResolver;
+    syncWaitResolver = null;
+    resolve();
+  }
   if (intervalHandle) {
     clearInterval(intervalHandle);
     intervalHandle = null;

@@ -274,15 +274,61 @@ describe('appTamperingBlocklistService tests', () => {
       expect(service.isDosActive()).to.be.false;
     });
 
-    it('clears an orphaned sticky DOS message left by a previous process', async () => {
-      // ourDosActive is false, but sticky is set (e.g. leftover from prior run)
-      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('leftover message');
+    it('clears an orphaned sticky DOS message owned by this service', async () => {
+      // ourDosActive is false, but sticky owned by us (prefix match) from prior run
+      const ours = `${service.DOS_MESSAGE_PREFIX}: 42 events, txhash xyz`;
+      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns(ours);
       serviceHelperStub.axiosGet.resolves({ data: [] });
       setEventCount(0);
 
       await service.enforceBlocklist();
 
       sinon.assert.called(fluxNetworkHelperStub.clearStickyDosMessage);
+    });
+
+    it('does NOT clear a sticky DOS set by a different module', async () => {
+      // Some other module set sticky for an unrelated reason
+      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('some other module sticky reason');
+      serviceHelperStub.axiosGet.resolves({ data: [] });
+      setEventCount(0);
+
+      await service.enforceBlocklist();
+
+      expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
+    });
+  });
+
+  describe('start/stop cancellation', () => {
+    it('start() aborts without scheduling an interval if stop() is called during daemon-sync wait', async () => {
+      // Daemon never reports synced
+      daemonMiscStub.isDaemonSynced = sinon.stub().returns({ data: { synced: false } });
+      const setIntervalSpy = sinon.spy(global, 'setInterval');
+
+      // Kick off start() — it will enter waitForDaemonSynced and poll
+      const startPromise = service.start();
+
+      // Give the loop a tick to enter the polling wait, then stop
+      await new Promise((resolve) => setImmediate(resolve));
+      service.stop();
+
+      // Now make daemon report synced so a buggy implementation would proceed
+      daemonMiscStub.isDaemonSynced = sinon.stub().returns({ data: { synced: true } });
+      await startPromise;
+
+      const twelveH = 12 * 60 * 60 * 1000;
+      const scheduled12h = setIntervalSpy.getCalls().some((c) => c.args[1] === twelveH);
+      expect(scheduled12h).to.be.false;
+    });
+
+    it('stop() clears the interval after it has been installed', async () => {
+      // Daemon synced immediately so start() completes quickly
+      await service.start();
+      // Now interval should be set — stop and assert clearInterval ran
+      const clearSpy = sinon.spy(global, 'clearInterval');
+
+      service.stop();
+
+      sinon.assert.called(clearSpy);
     });
   });
 
