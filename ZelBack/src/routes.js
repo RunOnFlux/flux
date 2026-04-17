@@ -50,6 +50,7 @@ const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
 const IOUtils = require('./services/IOUtils');
 const arcaneAuthService = require('./services/arcaneAuthService');
+const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -459,6 +460,9 @@ module.exports = (app) => {
   });
   app.get('/apps/getappspecsusdprice', cache('30 minutes'), (req, res) => {
     deploymentInfoService.getAppSpecsUSDPrice(req, res);
+  });
+  app.get('/apps/tamperingevents/:appname?', cache('30 seconds'), (req, res) => {
+    appTamperingDetectionService.getEvents(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {
