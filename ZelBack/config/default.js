@@ -306,6 +306,11 @@ module.exports = {
     '03cf1d8b708ca7f5979accb4d0dba35a90391e3dfc4422cf12670c929bb58d16ac',
     '03e29783936a36b396c28706494dbfd35f3d087f2addeb3df32e451f71bf9a53f3',
   ],
+  // Pubkeys of nodes that opt into the enterprise network. A node whose own
+  // fluxnode pubkey is in this list will only spawn/run apps owned by
+  // enterpriseAppOwners above and will uninstall any non-matching apps on boot.
+  enterpriseNodesPublicKeys: [
+  ],
   cpuBurst: {
     // Enables CFS CPU burst for enterprise app owners on cgroups-v2 + kernel >= 5.14 hosts.
     // The kernel rule (cgroup-v2: 0 <= cpu.max.burst <= cpu.max quota) lets a container
