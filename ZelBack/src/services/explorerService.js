@@ -28,6 +28,7 @@ const chainParamsMessagesCollection = config.database.chainparams.collections.ch
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
 let isInInitiationOfBP = false;
+let zelAppSpecsMigrationDone = false;
 let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
@@ -876,6 +877,11 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       return;
     }
     isInInitiationOfBP = true;
+    if (!zelAppSpecsMigrationDone) {
+      const globalDb = db.db(config.database.appsglobal.database);
+      await migrateZelAppSpecifications(globalDb);
+      zelAppSpecsMigrationDone = true;
+    }
     const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
     if (daemonBlockCount.status !== 'success') {
       throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
@@ -966,7 +972,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         });
         log.info(resultE, resultF, resultG, resultH, resultI);
       }
-      await migrateZelAppSpecifications(databaseGlobal);
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ height: 1 }, { name: 'query for getting zelapp message based on height' });
