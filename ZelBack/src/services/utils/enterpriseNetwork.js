@@ -25,9 +25,9 @@ function isEnterpriseAppOwner(owner) {
  * process after a successful resolution; call resetEnterpriseNodeCache() if
  * the config is hot-reloaded and the membership might have changed.
  *
- * Throws if the pubkey cannot be resolved (daemon/benchmark down). Callers
- * that want a retry-until-clean semantic should let the throw propagate;
- * callers that just want a best-effort boolean should `.catch(() => false)`.
+ * Throws if the pubkey cannot be resolved (daemon/benchmark down). Prefer the
+ * boot-time scheduleIdentityResolution() + getCachedEnterpriseIdentity() pair
+ * over awaiting this from hot paths.
  */
 async function isEnterpriseNode() {
   if (cachedIsEnterpriseNode !== null) return cachedIsEnterpriseNode;
@@ -46,6 +46,41 @@ async function isEnterpriseNode() {
 
   cachedIsEnterpriseNode = allowed.includes(pubKey);
   return cachedIsEnterpriseNode;
+}
+
+/**
+ * Synchronous read of the cached identity. Returns:
+ *   - true  : node is in the enterprise set
+ *   - false : node is not in the enterprise set
+ *   - null  : identity not yet resolved (caller should defer)
+ *
+ * This is the read used by hot paths (e.g. the spawn loop) so they don't
+ * need to await or handle a throw on every iteration.
+ */
+function getCachedEnterpriseIdentity() {
+  return cachedIsEnterpriseNode;
+}
+
+/**
+ * Boot-time identity resolution. Calls isEnterpriseNode() to populate the
+ * cache; if the pubkey can't be resolved (daemon/benchmark still coming up),
+ * reschedules itself every retryDelayMs until a run succeeds. Returns a
+ * promise that resolves once the identity is cached.
+ */
+function scheduleIdentityResolution({ retryDelayMs = 5 * 60 * 1000 } = {}) {
+  return new Promise((resolve) => {
+    const tryResolve = async () => {
+      try {
+        await isEnterpriseNode();
+        log.info('enterpriseNetwork: identity resolved');
+        resolve();
+      } catch (err) {
+        log.warn(`enterpriseNetwork: identity resolution failed, retrying in ${Math.round(retryDelayMs / 1000)}s: ${err.message || err}`);
+        setTimeout(tryResolve, retryDelayMs);
+      }
+    };
+    tryResolve();
+  });
 }
 
 function resetEnterpriseNodeCache() {
@@ -131,10 +166,12 @@ async function cleanupOwnershipViolations() {
 module.exports = {
   cleanupOwnershipViolations,
   filterAppsByOwnership,
+  getCachedEnterpriseIdentity,
   getEnterpriseAppOwners,
   getEnterpriseNodesPublicKeys,
   getSpawnDelays,
   isEnterpriseAppOwner,
   isEnterpriseNode,
   resetEnterpriseNodeCache,
+  scheduleIdentityResolution,
 };

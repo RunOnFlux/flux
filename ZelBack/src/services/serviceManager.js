@@ -314,26 +314,25 @@ async function startFluxFunctions() {
       // Check for enterprise apps on non-arcaneOS nodes and remove them
       advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
     }, 2 * 60 * 1000); // 2 minutes after startup
-    // Enforce the enterprise-network ownership split: enterprise nodes drop
-    // any app whose owner isn't in enterpriseAppOwners; every other node
-    // drops any app whose owner IS in enterpriseAppOwners. Broadcasts
-    // fluxappremoved so peers update appLocations.
+    // Resolve this node's enterprise identity once, up front. Self-reschedules
+    // every 5 minutes until the pubkey resolves (daemon/benchmark may still be
+    // coming up). Once cached, hot paths (spawn loop) read it synchronously
+    // via getCachedEnterpriseIdentity() with no network call and no throws.
     //
-    // Retries every 5 minutes until a run completes without throwing, so we
-    // never act on a stale/unknown identity (pubkey can't resolve while the
-    // daemon or benchmark is still coming up).
-    const scheduleEnterpriseCleanup = () => {
+    // After identity is known, run the ownership-split cleanup once at T+5min:
+    // enterprise nodes drop any app whose owner isn't in enterpriseAppOwners;
+    // every other node drops any app whose owner IS in enterpriseAppOwners.
+    // Broadcasts fluxappremoved so peers update appLocations.
+    enterpriseNetwork.scheduleIdentityResolution().then(() => {
       setTimeout(async () => {
         try {
           await enterpriseNetwork.cleanupOwnershipViolations();
           log.info('Enterprise network cleanup completed');
         } catch (error) {
-          log.warn(`Enterprise network cleanup failed, retrying in 5 min: ${error.message || error}`);
-          scheduleEnterpriseCleanup();
+          log.error(`Enterprise network cleanup failed: ${error.message || error}`);
         }
       }, 5 * 60 * 1000);
-    };
-    scheduleEnterpriseCleanup();
+    });
     setInterval(() => {
       portManager.restorePortsSupport(); // restore fluxos and apps ports/upnp
     }, 10 * 60 * 1000); // every 10 minutes

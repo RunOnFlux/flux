@@ -158,6 +158,62 @@ describe('enterpriseNetwork', () => {
     });
   });
 
+  describe('getCachedEnterpriseIdentity', () => {
+    it('returns null before isEnterpriseNode resolves', () => {
+      const { module: m } = loadModule();
+      expect(m.getCachedEnterpriseIdentity()).to.equal(null);
+    });
+
+    it('returns the cached boolean after isEnterpriseNode resolves', async () => {
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubA') },
+      });
+      await m.isEnterpriseNode();
+      expect(m.getCachedEnterpriseIdentity()).to.equal(true);
+    });
+
+    it('returns null again after resetEnterpriseNodeCache', async () => {
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubA') },
+      });
+      await m.isEnterpriseNode();
+      m.resetEnterpriseNodeCache();
+      expect(m.getCachedEnterpriseIdentity()).to.equal(null);
+    });
+  });
+
+  describe('scheduleIdentityResolution', () => {
+    let clock;
+    beforeEach(() => { clock = sinon.useFakeTimers(); });
+    afterEach(() => clock.restore());
+
+    it('resolves immediately when the pubkey is available on first try', async () => {
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubA') },
+      });
+      await m.scheduleIdentityResolution({ retryDelayMs: 1000 });
+      expect(m.getCachedEnterpriseIdentity()).to.equal(true);
+    });
+
+    it('retries on failure and resolves once the pubkey becomes available', async () => {
+      const getPubKey = sinon.stub();
+      getPubKey.onFirstCall().resolves(new Error('down'));
+      getPubKey.onSecondCall().resolves('pubA');
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: getPubKey },
+      });
+
+      const resolved = m.scheduleIdentityResolution({ retryDelayMs: 1000 });
+      // First attempt fails; advance past the retry delay.
+      await clock.tickAsync(0);
+      expect(m.getCachedEnterpriseIdentity()).to.equal(null);
+      await clock.tickAsync(1000);
+      await resolved;
+      expect(getPubKey.callCount).to.equal(2);
+      expect(m.getCachedEnterpriseIdentity()).to.equal(true);
+    });
+  });
+
   describe('filterAppsByOwnership', () => {
     const apps = [
       { name: 'e1', owner: 'ownerA' },

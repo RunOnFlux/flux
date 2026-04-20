@@ -47,14 +47,19 @@ function initialize(deps) {
  * @returns {Promise<void>}
  */
 async function trySpawningGlobalApplication() {
-  let isEnterprise = false;
-  let { shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(false, 0);
+  // Identity is resolved once at boot by scheduleIdentityResolution() in
+  // serviceManager. Until that lands we defer the spawn attempt, mirroring
+  // the synced / isNodeConfirmed branches below — no exception-for-retry.
+  const isEnterprise = enterpriseNetwork.getCachedEnterpriseIdentity();
+  if (isEnterprise === null) {
+    log.info('Flux enterprise identity not yet resolved');
+    await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+    trySpawningGlobalApplication();
+    return;
+  }
+  let { shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(isEnterprise, 0);
   let appHash = null; // Declare outside try block to be accessible in catch
   try {
-    // Throws if fluxnode pubkey can't be resolved (daemon/benchmark down);
-    // the outer catch handles the retry so we never act on an unknown identity.
-    isEnterprise = await enterpriseNetwork.isEnterpriseNode();
-    ({ shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(isEnterprise, 0));
     // how do we continue with this function?
     // we have globalapplication specifics list
     // check if we are synced
