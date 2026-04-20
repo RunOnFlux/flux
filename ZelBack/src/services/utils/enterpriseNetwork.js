@@ -53,6 +53,35 @@ function resetEnterpriseNodeCache() {
 }
 
 /**
+ * Enterprise network ownership split applied as a single filter:
+ *   - enterprise-network nodes install ONLY apps owned by enterpriseAppOwners
+ *   - every other node NEVER installs apps owned by enterpriseAppOwners
+ */
+function filterAppsByOwnership(apps, isEnterprise) {
+  return apps.filter((app) => (
+    isEnterprise
+      ? isEnterpriseAppOwner(app.owner)
+      : !isEnterpriseAppOwner(app.owner)
+  ));
+}
+
+/**
+ * Spawn-loop cadence for trySpawningGlobalApplication. Enterprise nodes get
+ * a tight cadence that sticks regardless of how many apps are installable;
+ * non-enterprise nodes keep the original dynamic tuning (60s when more than
+ * one candidate exists, otherwise the legacy 5m/30m defaults).
+ */
+function getSpawnDelays(isEnterprise, appsAvailable) {
+  if (isEnterprise) {
+    return { shortDelayTime: 30 * 1000, delayTime: 60 * 1000 };
+  }
+  if (appsAvailable > 1) {
+    return { shortDelayTime: 60 * 1000, delayTime: 60 * 1000 };
+  }
+  return { shortDelayTime: 5 * 60 * 1000, delayTime: 30 * 60 * 1000 };
+}
+
+/**
  * Uninstall locally-installed apps whose ownership violates the enterprise
  * network split:
  *   - enterprise-network nodes must only host apps owned by enterpriseAppOwners
@@ -101,8 +130,10 @@ async function cleanupOwnershipViolations() {
 
 module.exports = {
   cleanupOwnershipViolations,
+  filterAppsByOwnership,
   getEnterpriseAppOwners,
   getEnterpriseNodesPublicKeys,
+  getSpawnDelays,
   isEnterpriseAppOwner,
   isEnterpriseNode,
   resetEnterpriseNodeCache,

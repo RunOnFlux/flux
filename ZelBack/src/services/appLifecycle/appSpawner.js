@@ -48,17 +48,13 @@ function initialize(deps) {
  */
 async function trySpawningGlobalApplication() {
   let isEnterprise = false;
-  let shortDelayTime = 5 * 60 * 1000; // Default 5 minutes
-  let delayTime = 30 * 60 * 1000; // Default 30 minutes
+  let { shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(false, 0);
   let appHash = null; // Declare outside try block to be accessible in catch
   try {
     // Throws if fluxnode pubkey can't be resolved (daemon/benchmark down);
     // the outer catch handles the retry so we never act on an unknown identity.
     isEnterprise = await enterpriseNetwork.isEnterpriseNode();
-    if (isEnterprise) {
-      shortDelayTime = 30 * 1000;
-      delayTime = 60 * 1000;
-    }
+    ({ shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(isEnterprise, 0));
     // how do we continue with this function?
     // we have globalapplication specifics list
     // check if we are synced
@@ -221,19 +217,10 @@ async function trySpawningGlobalApplication() {
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('a!c')).length === 0 || !app.geolocation.find((loc) => loc.startsWith('a!c') && `a!c${myNodeLocation}`.startsWith(loc.replace('_NONE', '')))));
       // filter apps that dont have geolocation or have and match my node geolocation
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('ac')).length === 0 || app.geolocation.find((loc) => loc.startsWith('ac') && `ac${myNodeLocation}`.startsWith(loc))));
-      // enterprise network gating:
-      //   enterprise-network nodes install ONLY apps owned by enterpriseAppOwners
-      //   every other node NEVER installs apps owned by enterpriseAppOwners
-      if (isEnterprise) {
-        globalAppNamesLocation = globalAppNamesLocation.filter((app) => enterpriseNetwork.isEnterpriseAppOwner(app.owner));
-      } else {
-        globalAppNamesLocation = globalAppNamesLocation.filter((app) => !enterpriseNetwork.isEnterpriseAppOwner(app.owner));
-      }
+      globalAppNamesLocation = enterpriseNetwork.filterAppsByOwnership(globalAppNamesLocation, isEnterprise);
 
       appsCountAvailableToInstallOnMyNode = globalAppNamesLocation.length + appsSyncthingToBeCheckedLater.length + appsToBeCheckedLater.length;
-      if (!isEnterprise) {
-        shortDelayTime = appsCountAvailableToInstallOnMyNode > 1 ? 60 * 1000 : 5 * 60 * 1000;
-      }
+      ({ shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(isEnterprise, appsCountAvailableToInstallOnMyNode));
 
       if (globalAppNamesLocation.length === 0) {
         log.info('trySpawningGlobalApplication - No app currently to be processed');
@@ -271,12 +258,6 @@ async function trySpawningGlobalApplication() {
         trySpawningGlobalApplication();
         return;
       }
-    }
-
-    // If there are multiple apps to process, use shorter delays
-    if (!isEnterprise) {
-      delayTime = appsCountAvailableToInstallOnMyNode > 1 ? 60 * 1000 : 30 * 60 * 1000;
-      shortDelayTime = appsCountAvailableToInstallOnMyNode > 1 ? 60 * 1000 : 5 * 60 * 1000;
     }
 
     globalState.trySpawningGlobalAppCache.set(appHash, '');

@@ -158,6 +158,53 @@ describe('enterpriseNetwork', () => {
     });
   });
 
+  describe('filterAppsByOwnership', () => {
+    const apps = [
+      { name: 'e1', owner: 'ownerA' },
+      { name: 'e2', owner: 'ownerB' },
+      { name: 'n1', owner: 'stranger' },
+      { name: 'n2', owner: null },
+    ];
+
+    it('enterprise=true keeps only apps whose owner is in enterpriseAppOwners', () => {
+      const { module: m } = loadModule();
+      const kept = m.filterAppsByOwnership(apps, true).map((a) => a.name);
+      expect(kept).to.deep.equal(['e1', 'e2']);
+    });
+
+    it('enterprise=false drops apps whose owner is in enterpriseAppOwners', () => {
+      const { module: m } = loadModule();
+      const kept = m.filterAppsByOwnership(apps, false).map((a) => a.name);
+      expect(kept).to.deep.equal(['n1', 'n2']);
+    });
+
+    it('empty input produces empty output either way', () => {
+      const { module: m } = loadModule();
+      expect(m.filterAppsByOwnership([], true)).to.deep.equal([]);
+      expect(m.filterAppsByOwnership([], false)).to.deep.equal([]);
+    });
+  });
+
+  describe('getSpawnDelays', () => {
+    it('enterprise: 30s/60s regardless of appsAvailable', () => {
+      const { module: m } = loadModule();
+      expect(m.getSpawnDelays(true, 0)).to.deep.equal({ shortDelayTime: 30 * 1000, delayTime: 60 * 1000 });
+      expect(m.getSpawnDelays(true, 1)).to.deep.equal({ shortDelayTime: 30 * 1000, delayTime: 60 * 1000 });
+      expect(m.getSpawnDelays(true, 42)).to.deep.equal({ shortDelayTime: 30 * 1000, delayTime: 60 * 1000 });
+    });
+
+    it('non-enterprise with appsAvailable > 1: 60s/60s', () => {
+      const { module: m } = loadModule();
+      expect(m.getSpawnDelays(false, 2)).to.deep.equal({ shortDelayTime: 60 * 1000, delayTime: 60 * 1000 });
+    });
+
+    it('non-enterprise with appsAvailable <= 1: legacy 5m/30m defaults', () => {
+      const { module: m } = loadModule();
+      expect(m.getSpawnDelays(false, 0)).to.deep.equal({ shortDelayTime: 5 * 60 * 1000, delayTime: 30 * 60 * 1000 });
+      expect(m.getSpawnDelays(false, 1)).to.deep.equal({ shortDelayTime: 5 * 60 * 1000, delayTime: 30 * 60 * 1000 });
+    });
+  });
+
   describe('cleanupOwnershipViolations', () => {
     function installedAppsStub(apps) {
       return {
