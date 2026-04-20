@@ -9,11 +9,9 @@ describe('appTamperingBlocklistService tests', () => {
   let fluxNetworkHelperStub;
   let generalServiceStub;
   let daemonMiscStub;
-  let cacheStore;
-  let cacheStub;
+  let benchmarkServiceStub;
 
   const MOCK_TXHASH = 'abc123deadbeef';
-  let originalFluxOSPath;
 
   function loadService() {
     return proxyquire('../../ZelBack/src/services/appTamperingBlocklistService', {
@@ -33,22 +31,11 @@ describe('appTamperingBlocklistService tests', () => {
       './fluxNetworkHelper': fluxNetworkHelperStub,
       './generalService': generalServiceStub,
       './daemonService/daemonServiceMiscRpcs': daemonMiscStub,
-      './utils/cacheManager': { default: cacheStub },
+      './benchmarkService': benchmarkServiceStub,
     });
   }
 
   beforeEach(() => {
-    originalFluxOSPath = process.env.FLUXOS_PATH;
-    delete process.env.FLUXOS_PATH; // default: non-Arcane
-    cacheStore = new Map();
-    cacheStub = {
-      tamperingBlocklistCache: {
-        get: (k) => cacheStore.get(k),
-        set: (k, v) => cacheStore.set(k, v),
-        clear: () => cacheStore.clear(),
-      },
-    };
-
     serviceHelperStub = {
       axiosGet: sinon.stub(),
     };
@@ -78,16 +65,16 @@ describe('appTamperingBlocklistService tests', () => {
       isDaemonSynced: sinon.stub().returns({ data: { synced: true } }),
     };
 
+    // Default: non-Arcane node (bench says systemsecure=false).
+    benchmarkServiceStub = {
+      getBenchmarks: sinon.stub().resolves({ status: 'success', data: { systemsecure: false } }),
+    };
+
     service = loadService();
   });
 
   afterEach(() => {
     sinon.restore();
-    if (originalFluxOSPath !== undefined) {
-      process.env.FLUXOS_PATH = originalFluxOSPath;
-    } else {
-      delete process.env.FLUXOS_PATH;
-    }
   });
 
   // Helper: set documents returned by the mongo countDocuments stub
@@ -102,22 +89,13 @@ describe('appTamperingBlocklistService tests', () => {
   }
 
   describe('fetchBlocklist', () => {
-    it('returns cached value when present', async () => {
-      cacheStore.set('tamperingBlocklist', ['cached']);
-
-      const result = await service.fetchBlocklist();
-
-      expect(result).to.deep.equal(['cached']);
-      expect(serviceHelperStub.axiosGet.called).to.be.false;
-    });
-
-    it('fetches and caches when cache is empty', async () => {
+    it('fetches blocklist from URL', async () => {
       serviceHelperStub.axiosGet.resolves({ data: ['tx1', 'tx2'] });
 
       const result = await service.fetchBlocklist();
 
       expect(result).to.deep.equal(['tx1', 'tx2']);
-      expect(cacheStore.get('tamperingBlocklist')).to.deep.equal(['tx1', 'tx2']);
+      sinon.assert.calledOnce(serviceHelperStub.axiosGet);
     });
 
     it('returns [] on axios failure', async () => {
@@ -253,7 +231,6 @@ describe('appTamperingBlocklistService tests', () => {
       expect(service.isDosActive()).to.be.true;
 
       // Second tick: txhash removed from list
-      cacheStore.clear();
       serviceHelperStub.axiosGet.resolves({ data: [] });
       await service.enforceBlocklist();
 
@@ -332,10 +309,17 @@ describe('appTamperingBlocklistService tests', () => {
     });
   });
 
-  describe('ArcaneOS gating', () => {
-    it('enforceBlocklist is a no-op on ArcaneOS even when listed with many events', async () => {
-      process.env.FLUXOS_PATH = '/opt/fluxos';
-      const arcaneService = loadService();
+  describe('ArcaneOS gating (via fluxbenchd)', () => {
+    function makeArcaneService() {
+      benchmarkServiceStub.getBenchmarks = sinon.stub().resolves({
+        status: 'success',
+        data: { systemsecure: true },
+      });
+      return loadService();
+    }
+
+    it('enforceBlocklist is a no-op when bench reports systemsecure=true', async () => {
+      const arcaneService = makeArcaneService();
       serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
       setEventCount(100);
 
@@ -346,9 +330,8 @@ describe('appTamperingBlocklistService tests', () => {
       expect(arcaneService.isDosActive()).to.be.false;
     });
 
-    it('enforceBlocklist does not read blocklist or count events on ArcaneOS', async () => {
-      process.env.FLUXOS_PATH = '/opt/fluxos';
-      const arcaneService = loadService();
+    it('enforceBlocklist does not read blocklist or count events when ArcaneOS', async () => {
+      const arcaneService = makeArcaneService();
 
       await arcaneService.enforceBlocklist();
 
@@ -356,18 +339,72 @@ describe('appTamperingBlocklistService tests', () => {
       expect(generalServiceStub.obtainNodeCollateralInformation.called).to.be.false;
     });
 
-    it('start() does not install the interval on ArcaneOS', async () => {
-      process.env.FLUXOS_PATH = '/opt/fluxos';
-      const arcaneService = loadService();
+    it('start() does not install the interval when ArcaneOS', async () => {
+      const arcaneService = makeArcaneService();
       const setIntervalSpy = sinon.spy(global, 'setInterval');
 
       await arcaneService.start();
 
-      // No interval installed for the enforcer. (Other code may call setInterval,
-      // but we assert no call targets CHECK_INTERVAL_MS = 12h.)
       const twelveH = 12 * 60 * 60 * 1000;
       const calledWith12h = setIntervalSpy.getCalls().some((c) => c.args[1] === twelveH);
       expect(calledWith12h).to.be.false;
+    });
+
+    it('enforceBlocklist skips tick when fluxbenchd is unreachable (errors)', async () => {
+      benchmarkServiceStub.getBenchmarks = sinon.stub().rejects(new Error('bench down'));
+      const svc = loadService();
+      serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+      setEventCount(100);
+
+      await svc.enforceBlocklist();
+
+      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(serviceHelperStub.axiosGet.called).to.be.false;
+    });
+
+    it('enforceBlocklist skips tick when fluxbenchd returns status=error', async () => {
+      benchmarkServiceStub.getBenchmarks = sinon.stub().resolves({ status: 'error' });
+      const svc = loadService();
+      serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+      setEventCount(100);
+
+      await svc.enforceBlocklist();
+
+      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(serviceHelperStub.axiosGet.called).to.be.false;
+    });
+
+    it('enforceBlocklist skips tick when systemsecure is not a boolean', async () => {
+      benchmarkServiceStub.getBenchmarks = sinon.stub().resolves({
+        status: 'success',
+        data: { systemsecure: null },
+      });
+      const svc = loadService();
+      serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+      setEventCount(100);
+
+      await svc.enforceBlocklist();
+
+      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+    });
+
+    it('FLUXOS_PATH env var alone does not skip enforcement (spoof guard)', async () => {
+      // Simulate a legacy operator trying to bypass by setting FLUXOS_PATH.
+      // Benchmark must be the source of truth.
+      const originalFluxOSPath = process.env.FLUXOS_PATH;
+      process.env.FLUXOS_PATH = '/fake/arcane/path';
+      try {
+        serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+        setEventCount(100);
+        const svc = loadService();
+
+        await svc.enforceBlocklist();
+
+        sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDosMessage);
+      } finally {
+        if (originalFluxOSPath !== undefined) process.env.FLUXOS_PATH = originalFluxOSPath;
+        else delete process.env.FLUXOS_PATH;
+      }
     });
   });
 });

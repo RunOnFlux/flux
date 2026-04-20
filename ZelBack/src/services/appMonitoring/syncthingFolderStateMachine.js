@@ -82,7 +82,7 @@ async function verifyFolderMountSafety(appId, folderPath) {
       result.isSafe = false;
       result.reason = 'base_directory_missing';
       log.warn(`verifyFolderMountSafety - ${appId} base directory does not exist: ${baseDir}`);
-      appTamperingDetectionService.recordEvent(appId, 'mount_vanished', `Base directory missing: ${baseDir}`);
+      await appTamperingDetectionService.recordEvent(appId, 'mount_vanished', `Base directory missing: ${baseDir}`);
       return result;
     }
 

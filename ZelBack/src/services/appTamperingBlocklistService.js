@@ -5,14 +5,13 @@ const dbHelper = require('./dbHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const generalService = require('./generalService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
-const fluxCaching = require('./utils/cacheManager').default;
+const benchmarkService = require('./benchmarkService');
 
 const BLOCKLIST_URL = 'https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/tamperingblockednodes.json';
 const CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const SYNC_POLL_MS = 60 * 1000; // 60s while waiting for daemon sync
 const TAMPERING_EVENT_THRESHOLD = 10;
 const DOS_MESSAGE_PREFIX = 'Node flagged via tampering blocklist';
-const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 const tamperingEventsCollection = config.database.local.collections.appTamperingEvents;
 
@@ -37,18 +36,38 @@ function isOurStickyDos() {
  */
 async function fetchBlocklist() {
   try {
-    const cached = fluxCaching.tamperingBlocklistCache.get('tamperingBlocklist');
-    if (cached) return cached;
     const res = await serviceHelper.axiosGet(BLOCKLIST_URL);
-    if (res && Array.isArray(res.data)) {
-      fluxCaching.tamperingBlocklistCache.set('tamperingBlocklist', res.data);
-      return res.data;
-    }
+    if (res && Array.isArray(res.data)) return res.data;
     log.warn('appTamperingBlocklist - unexpected response shape from blocklist URL');
     return [];
   } catch (error) {
     log.warn(`appTamperingBlocklist - failed to fetch blocklist: ${error.message}`);
     return [];
+  }
+}
+
+/**
+ * Three-state ArcaneOS check via fluxbenchd.
+ *   true  — confirmed ArcaneOS, skip enforcement
+ *   false — confirmed NOT ArcaneOS, enforce
+ *   null  — fluxbenchd unreachable or response malformed, skip this tick
+ *
+ * Harder to spoof than `process.env.FLUXOS_PATH` because it depends on a
+ * separate daemon process. The null case is intentional: we never want to
+ * falsely DOS a real ArcaneOS node just because bench is momentarily down.
+ */
+async function isArcaneOs() {
+  try {
+    const benchmarkResponse = await benchmarkService.getBenchmarks();
+    if (!benchmarkResponse || benchmarkResponse.status !== 'success' || !benchmarkResponse.data) {
+      return null;
+    }
+    const { systemsecure } = benchmarkResponse.data;
+    if (typeof systemsecure !== 'boolean') return null;
+    return systemsecure;
+  } catch (error) {
+    log.warn(`appTamperingBlocklist - benchmark check failed: ${error.message}`);
+    return null;
   }
 }
 
@@ -108,8 +127,13 @@ async function waitForDaemonSynced() {
  * clears it when its own condition is no longer true.
  */
 async function enforceBlocklist() {
-  if (isArcane) {
+  const arcane = await isArcaneOs();
+  if (arcane === true) {
     log.info('appTamperingBlocklist - node is ArcaneOS, enforcement disabled');
+    return;
+  }
+  if (arcane === null) {
+    log.info('appTamperingBlocklist - benchmark unreachable, skipping this tick');
     return;
   }
 
@@ -158,7 +182,7 @@ async function enforceBlocklist() {
  */
 async function start() {
   if (intervalHandle) return;
-  if (isArcane) {
+  if ((await isArcaneOs()) === true) {
     log.info('appTamperingBlocklist - node is ArcaneOS, enforcer will not start');
     return;
   }

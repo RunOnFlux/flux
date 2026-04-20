@@ -131,10 +131,6 @@ class FluxCacheManager {
       max: 10,
       ttl: 6 * FluxCacheManager.oneHour,
     },
-    tamperingBlocklistCache: {
-      max: 10,
-      ttl: 6 * FluxCacheManager.oneHour,
-    },
     registryProviderCache: {
       max: 500,
       ttl: 12 * FluxCacheManager.oneHour,
