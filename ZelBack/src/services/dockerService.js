@@ -1011,6 +1011,20 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     }
   }
 
+  // Template substitution: replace {{FLUX_NODE_IP}} in env values with the
+  // host's public IP. Runs after plain env, secrets, and F_S_ENV are merged
+  // so the token works from any source.
+  const nodeIpToken = '{{FLUX_NODE_IP}}';
+  if (options.Env.some((env) => typeof env === 'string' && env.includes(nodeIpToken))) {
+    const myFluxIp = await fluxNetworkHelper.getMyFluxIPandPort();
+    const resolvedIp = myFluxIp ? myFluxIp.split(':')[0] : null;
+    if (!resolvedIp) {
+      throw new Error(`Cannot resolve ${nodeIpToken}: node IP not available`);
+    }
+    options.Env = options.Env.map((env) => (typeof env === 'string' ? env.replaceAll(nodeIpToken, resolvedIp) : env));
+    log.info(`Substituted ${nodeIpToken} with ${resolvedIp} in env for ${identifier}`);
+  }
+
   // Ensure all required mount paths (files and directories) exist before creating container
   // This prevents Docker mount errors when files have been deleted or don't exist yet
   try {
