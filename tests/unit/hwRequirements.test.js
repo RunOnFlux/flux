@@ -953,10 +953,130 @@ describe('hwRequirements tests', () => {
     });
   });
 
+  describe('checkAppCpuBurstHeadroom tests', () => {
+    // Build a fresh hwRequirements module with plugable cpu/lock/app values.
+    // Formula: freeCoresAfterInstall = cpuCores - lockedSystemResources.cpu/10
+    //   - appsCpusLocked - appHWrequirements.cpu
+    // Throws when freeCoresAfterInstall <= 4.
+    function buildHw({ cpucores, appsCpusLocked, lockedCpuTenths = 10, appsResourcesStatus = 'success' }) {
+      return proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
+        '../serviceHelper': serviceHelperStub,
+        '../benchmarkService': {
+          getBenchmarks: sinon.stub().resolves({
+            status: 'success',
+            data: { cpucores, ram: 8000, ssd: 1000 },
+          }),
+        },
+        '../generalService': {
+          nodeTier: sinon.stub().resolves('stratus'),
+        },
+        '../geolocationService': {
+          isStaticIP: sinon.stub().returns(true),
+          getNodeGeolocation: sinon.stub().returns('US-NY'),
+        },
+        '../fluxNetworkHelper': {
+          getFluxNodeCount: sinon.stub().resolves(1000),
+        },
+        '../appDatabase/registryManager': {
+          availableApps: sinon.stub().resolves([]),
+        },
+        '../appQuery/appQueryService': {
+          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
+        },
+        '../appQuery/resourceQueryService': {
+          appsResources: sinon.stub().resolves({
+            status: appsResourcesStatus,
+            data: { appsCpusLocked, appsRamLocked: 0, appsHddLocked: 0 },
+          }),
+        },
+        '../../lib/log': logStub,
+        os: {
+          cpus: sinon.stub().returns(new Array(cpucores)),
+          totalmem: sinon.stub().returns(8000 * 1024 * 1024),
+        },
+        config: {
+          fluxSpecifics: {
+            cpu: { cumulus: 2, nimbus: 4, stratus: 8 },
+            ram: { cumulus: 4000, nimbus: 8000, stratus: 16000 },
+            hdd: { cumulus: 220, nimbus: 440, stratus: 880 },
+          },
+          lockedSystemResources: {
+            cpu: lockedCpuTenths, ram: 0, hdd: 0, extrahdd: 0,
+          },
+        },
+      });
+    }
+
+    it('passes when remaining free cores after install are > 4', async () => {
+      // 16 cores - 1 (system) - 3 (locked) - 2 (this app) = 10 > 4 → ok
+      const hw = buildHw({ cpucores: 16, appsCpusLocked: 3 });
+      const result = await hw.checkAppCpuBurstHeadroom({ version: 3, cpu: 2, ram: 10, hdd: 10 });
+      expect(result).to.equal(true);
+    });
+
+    it('throws when remaining free cores would be exactly 4 (boundary)', async () => {
+      // 10 cores - 1 - 3 - 2 = 4 → throw (rule is strict <=)
+      const hw = buildHw({ cpucores: 10, appsCpusLocked: 3 });
+      try {
+        await hw.checkAppCpuBurstHeadroom({ version: 3, cpu: 2, ram: 10, hdd: 10 });
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('CPU burst headroom');
+      }
+    });
+
+    it('passes at 5 free cores (just above the boundary)', async () => {
+      // 10 cores - 1 - 3 - 1 = 5 > 4 → ok
+      const hw = buildHw({ cpucores: 10, appsCpusLocked: 3 });
+      const result = await hw.checkAppCpuBurstHeadroom({ version: 3, cpu: 1, ram: 10, hdd: 10 });
+      expect(result).to.equal(true);
+    });
+
+    it('throws when remaining free cores would be negative (over-subscribed)', async () => {
+      // 8 cores - 1 - 5 - 4 = -2 → throw
+      const hw = buildHw({ cpucores: 8, appsCpusLocked: 5 });
+      try {
+        await hw.checkAppCpuBurstHeadroom({ version: 3, cpu: 4, ram: 10, hdd: 10 });
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('CPU burst headroom');
+      }
+    });
+
+    it('throws when appsResources cannot be read', async () => {
+      const hw = buildHw({ cpucores: 16, appsCpusLocked: 0, appsResourcesStatus: 'error' });
+      try {
+        await hw.checkAppCpuBurstHeadroom({ version: 3, cpu: 1, ram: 10, hdd: 10 });
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('locked system resources');
+      }
+    });
+
+    it('sums cpu across compose components for v4+ apps', async () => {
+      // 10 cores - 1 - 0 - (3+3) = 0 → throw (compose summed)
+      const hw = buildHw({ cpucores: 10, appsCpusLocked: 0 });
+      const appSpecs = {
+        version: 4,
+        compose: [
+          { name: 'c1', cpu: 3, ram: 10, hdd: 10 },
+          { name: 'c2', cpu: 3, ram: 10, hdd: 10 },
+        ],
+      };
+      try {
+        await hw.checkAppCpuBurstHeadroom(appSpecs);
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('CPU burst headroom');
+      }
+    });
+  });
+
   describe('exported functions', () => {
     it('should export requirement checking functions', () => {
       expect(hwRequirements.totalAppHWRequirements).to.be.a('function');
       expect(hwRequirements.checkAppHWRequirements).to.be.a('function');
+      expect(hwRequirements.checkAppCpuBurstHeadroom).to.be.a('function');
       expect(hwRequirements.checkAppStaticIpRequirements).to.be.a('function');
       expect(hwRequirements.checkAppNodesRequirements).to.be.a('function');
       expect(hwRequirements.checkAppGeolocationRequirements).to.be.a('function');

@@ -33,6 +33,7 @@ const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
 const stoppedAppsRecovery = require('./appLifecycle/stoppedAppsRecovery');
 const hardwareValidationService = require('./appLifecycle/hardwareValidationService');
 const globalState = require('./utils/globalState');
+const enterpriseNetwork = require('./utils/enterpriseNetwork');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
@@ -349,6 +350,25 @@ async function startFluxFunctions() {
       // Check for enterprise apps on non-arcaneOS nodes and remove them
       advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
     }, 2 * 60 * 1000); // 2 minutes after startup
+    // Resolve this node's enterprise identity once, up front. Self-reschedules
+    // every 5 minutes until the pubkey resolves (daemon/benchmark may still be
+    // coming up). Once cached, hot paths (spawn loop) read it synchronously
+    // via getCachedEnterpriseIdentity() with no network call and no throws.
+    //
+    // After identity is known, run the ownership-split cleanup once at T+5min:
+    // enterprise nodes drop any app whose owner isn't in enterpriseAppOwners;
+    // every other node drops any app whose owner IS in enterpriseAppOwners.
+    // Broadcasts fluxappremoved so peers update appLocations.
+    enterpriseNetwork.scheduleIdentityResolution().then(() => {
+      setTimeout(async () => {
+        try {
+          await enterpriseNetwork.cleanupOwnershipViolations();
+          log.info('Enterprise network cleanup completed');
+        } catch (error) {
+          log.error(`Enterprise network cleanup failed: ${error.message || error}`);
+        }
+      }, 5 * 60 * 1000);
+    });
     setInterval(() => {
       portManager.restorePortsSupport(); // restore fluxos and apps ports/upnp
     }, 10 * 60 * 1000); // every 10 minutes
