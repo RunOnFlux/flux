@@ -790,6 +790,33 @@ async function cleanupDuplicateScannedHeight(database) {
   }
 }
 
+// One-time migration: rename zelAppSpecifications → appSpecifications in
+// zelappsmessages and drop the corresponding legacy indexes. Safe to remove
+// once the fleet has been fully upgraded.
+async function migrateZelAppSpecifications(databaseGlobal) {
+  const col = databaseGlobal.collection(config.database.appsglobal.collections.appsMessages);
+  const result = await col.updateMany(
+    { zelAppSpecifications: { $exists: true } },
+    { $rename: { zelAppSpecifications: 'appSpecifications' } },
+  );
+  if (result.modifiedCount > 0) {
+    log.info(`Migrated ${result.modifiedCount} records from zelAppSpecifications to appSpecifications`);
+  }
+  const existingIndexes = await col.indexes();
+  const legacyIndexNames = [
+    'query for getting zelapp message based on zelapp specs name',
+    'query for getting zelapp message based on zelapp specs owner',
+    'query for getting zelapp message based on image',
+  ];
+  for (const idx of existingIndexes) {
+    if (legacyIndexNames.includes(idx.name)) {
+      // eslint-disable-next-line no-await-in-loop
+      await col.dropIndex(idx.name);
+      log.info(`Dropped legacy index: ${idx.name}`);
+    }
+  }
+}
+
 /**
  * To start the block processor.
  * @param {boolean} restoreDatabase True if database is to be restored.
@@ -939,6 +966,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         });
         log.info(resultE, resultF, resultG, resultH, resultI);
       }
+      await migrateZelAppSpecifications(databaseGlobal);
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ height: 1 }, { name: 'query for getting zelapp message based on height' });
