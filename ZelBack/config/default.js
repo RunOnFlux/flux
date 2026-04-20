@@ -24,6 +24,8 @@ module.exports = {
         completedPayments: 'completedpayments',
         geolocation: 'geolocation',
         benchmark: 'benchmark',
+        appTamperingEvents: 'apptamperingevents',
+        nodeStartupTracker: 'nodestartuptracker',
       },
     },
     daemon: {
@@ -286,7 +288,7 @@ module.exports = {
     port: 8384, // local
   },
   enterpriseAppOwners: [ // list of whitelisted app owner addresses allowed to deploy apps with datacenter=true
-    '16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW',
+    '15ULw4JU6wqGESRYU3z3MjFETqLN3sA9Gn',
   ],
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
     '045bd4f81d7bda582141793463edb58e0f3228a873bd6b6680b78586db2969f51dfeda672eae65e64ca814316f77557012d02c73db7876764f5eddb6b6d9d02b5b',
@@ -305,6 +307,12 @@ module.exports = {
     '04c765d054bcded999c404145c7396725df81973fe803b3da5e9455173410743f43e20294e17bb41adff8b4ff1ab5540b8bcd98521b438840b6a38e904eb0b247f',
     '03cf1d8b708ca7f5979accb4d0dba35a90391e3dfc4422cf12670c929bb58d16ac',
     '03e29783936a36b396c28706494dbfd35f3d087f2addeb3df32e451f71bf9a53f3',
+  ],
+  // Pubkeys of nodes that opt into the enterprise network. A node whose own
+  // fluxnode pubkey is in this list will only spawn/run apps owned by
+  // enterpriseAppOwners above and will uninstall any non-matching apps on boot.
+  enterpriseNodesPublicKeys: [
+    '027595b0b8257d7b901fc024d7c5b66a7af68b64240dea0359dec3ffb1f2a33a8d',
   ],
   cpuBurst: {
     // Enables CFS CPU burst for enterprise app owners on cgroups-v2 + kernel >= 5.14 hosts.

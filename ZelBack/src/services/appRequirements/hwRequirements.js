@@ -420,6 +420,35 @@ async function checkAppHWRequirements(appSpecs) {
 }
 
 /**
+ * Reject apps that would leave <= 4 free vCores on the node once their CPU
+ * reservation is added to everything currently locked. The headroom is needed
+ * because FluxOS offers automatic CPU burst for enterprise apps, and burst
+ * needs spare capacity to draw from.
+ *
+ * @param {object} appSpecs App specifications.
+ * @returns {Promise<boolean>} True if enough burst headroom remains.
+ * @throws if remaining free cores would be <= 4.
+ */
+async function checkAppCpuBurstHeadroom(appSpecs) {
+  const tier = await generalService.nodeTier();
+  const resourcesLocked = await appsResources();
+  if (resourcesLocked.status !== 'success') {
+    throw new Error('Unable to obtain locked system resources by Flux Apps. Aborting.');
+  }
+  const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
+  const specs = await getNodeSpecs();
+  const systemReservedCores = config.lockedSystemResources.cpu / 10;
+  const freeCoresAfterInstall = specs.cpuCores
+    - systemReservedCores
+    - resourcesLocked.data.appsCpusLocked
+    - appHWrequirements.cpu;
+  if (freeCoresAfterInstall <= 4) {
+    throw new Error('Insufficient CPU burst headroom on Flux Node to spawn an application');
+  }
+  return true;
+}
+
+/**
  * To check app requirements to include HDD space, CPU power, RAM and GEO for a node
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if all checks passed.
@@ -441,6 +470,7 @@ module.exports = {
   returnNodeSpecs,
   totalAppHWRequirements,
   checkAppHWRequirements,
+  checkAppCpuBurstHeadroom,
   checkAppRequirements,
   nodeFullGeolocation,
   checkAppStaticIpRequirements,

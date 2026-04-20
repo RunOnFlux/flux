@@ -336,10 +336,10 @@ async function monitorFolderHealth(params) {
         log.error(`monitorFolderHealth - REMOVING app ${appName} (folder ${folderId}) due to ${issueType} for ${issueDuration.toFixed(0)} minutes`);
 
         try {
-          // removeAppLocallyFn expects app name, not folderId
-          // Also pass null for res, force=true to bypass checks, endResponse=false, sendMessage=false
+          // Broadcast fluxappremoved so peers drop this IP from appLocations;
+          // otherwise the next spawner keeps selecting this node and hits the same unreachable peer.
           // eslint-disable-next-line no-await-in-loop
-          await removeAppLocallyFn(appName, null, true, false, false);
+          await removeAppLocallyFn(appName, null, true, false, true);
           healthStatus.lastAction = 'removed';
           results.actions.push({
             folderId,

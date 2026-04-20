@@ -17,6 +17,7 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const { localAppsInformation } = require('../utils/appConstants');
 const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
+const appTamperingDetectionService = require('../appTamperingDetectionService');
 
 // Database collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -106,6 +107,10 @@ async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName, appsMo
     }
     log.error(`Failed to recreate master/slave app ${stoppedApp}: ${recreateErr.message}`);
     log.warn(`REMOVAL REASON: Master/slave container recreation failure - ${mainAppName} (peerNotification)`);
+    await appTamperingDetectionService.recordEvent(mainAppName, 'recreation_failed', `Master/slave container recreation failure: ${recreateErr.message}`);
+    if (appTamperingDetectionService.isNetworkMissingError(recreateErr.message)) {
+      await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Docker network missing during recreation: ${recreateErr.message}`);
+    }
     await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {},
       getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
   }
@@ -254,6 +259,8 @@ async function checkAndNotifyPeersOfRunningApps(
 
               if (!containerExists) {
                 log.warn(`Container for ${stoppedApp} doesn't exist, recreating immediately...`);
+                // eslint-disable-next-line no-await-in-loop
+                await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${stoppedApp} missing, not found in Docker`);
                 try {
                   // eslint-disable-next-line no-await-in-loop
                   await recreateMissingContainers(stoppedApp);
@@ -262,6 +269,12 @@ async function checkAndNotifyPeersOfRunningApps(
                 } catch (recreateErr) {
                   log.error(`Failed to recreate containers for ${stoppedApp}: ${recreateErr.message}`);
                   log.warn(`REMOVAL REASON: Container recreation failure - ${mainAppName} failed to recreate with error: ${recreateErr.message} (peerNotification)`);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appTamperingDetectionService.recordEvent(mainAppName, 'recreation_failed', `Container recreation failure: ${recreateErr.message}`);
+                  if (appTamperingDetectionService.isNetworkMissingError(recreateErr.message)) {
+                    // eslint-disable-next-line no-await-in-loop
+                    await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Docker network missing during recreation: ${recreateErr.message}`);
+                  }
                   // eslint-disable-next-line no-await-in-loop
                   await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
                     // Handle response
