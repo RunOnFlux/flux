@@ -24,6 +24,8 @@ module.exports = {
         completedPayments: 'completedpayments',
         geolocation: 'geolocation',
         benchmark: 'benchmark',
+        appTamperingEvents: 'apptamperingevents',
+        nodeStartupTracker: 'nodestartuptracker',
       },
     },
     daemon: {

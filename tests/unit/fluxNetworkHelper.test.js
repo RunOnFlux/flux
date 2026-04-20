@@ -1841,6 +1841,88 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('sticky DOS tests', () => {
+    beforeEach(() => {
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+      fluxNetworkHelper.clearStickyDosMessage();
+    });
+
+    afterEach(() => {
+      fluxNetworkHelper.clearStickyDosMessage();
+      fluxNetworkHelper.setDosMessage(null);
+      fluxNetworkHelper.setDosStateValue(0);
+    });
+
+    it('getStickyDosMessage returns null when nothing set', () => {
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.be.null;
+    });
+
+    it('setStickyDosMessage / getStickyDosMessage roundtrips', () => {
+      fluxNetworkHelper.setStickyDosMessage('tampering flag');
+
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal('tampering flag');
+    });
+
+    it('clearStickyDosMessage resets sticky state', () => {
+      fluxNetworkHelper.setStickyDosMessage('tampering flag');
+      fluxNetworkHelper.setStickyDosStateValue(100);
+
+      fluxNetworkHelper.clearStickyDosMessage();
+
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.be.null;
+    });
+
+    it('getDosMessage returns regular when sticky is null', () => {
+      fluxNetworkHelper.setDosMessage('regular reason');
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal('regular reason');
+    });
+
+    it('getDosMessage prefers sticky over regular', () => {
+      fluxNetworkHelper.setDosMessage('regular reason');
+      fluxNetworkHelper.setStickyDosMessage('sticky reason');
+
+      expect(fluxNetworkHelper.getDosMessage()).to.equal('sticky reason');
+    });
+
+    it('setDosMessage(null) does NOT clear sticky message', () => {
+      fluxNetworkHelper.setStickyDosMessage('sticky reason');
+      fluxNetworkHelper.setDosMessage('regular reason');
+
+      fluxNetworkHelper.setDosMessage(null);
+
+      expect(fluxNetworkHelper.getStickyDosMessage()).to.equal('sticky reason');
+      expect(fluxNetworkHelper.getDosMessage()).to.equal('sticky reason');
+    });
+
+    it('getDOSState returns sticky pair when sticky is set', () => {
+      fluxNetworkHelper.setDosMessage('regular reason');
+      fluxNetworkHelper.setDosStateValue(50);
+      fluxNetworkHelper.setStickyDosMessage('sticky reason');
+      fluxNetworkHelper.setStickyDosStateValue(100);
+
+      const result = fluxNetworkHelper.getDOSState();
+
+      expect(result).to.eql({
+        status: 'success',
+        data: { dosState: 100, dosMessage: 'sticky reason' },
+      });
+    });
+
+    it('getDOSState returns regular pair when sticky is null', () => {
+      fluxNetworkHelper.setDosMessage('regular reason');
+      fluxNetworkHelper.setDosStateValue(50);
+
+      const result = fluxNetworkHelper.getDOSState();
+
+      expect(result).to.eql({
+        status: 'success',
+        data: { dosState: 50, dosMessage: 'regular reason' },
+      });
+    });
+  });
+
   describe('allowPort tests', () => {
     const port = '12345';
     afterEach(() => {

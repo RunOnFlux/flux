@@ -48,6 +48,8 @@ const fluxNodeService = require('./fluxNodeService');
 const volumeValidationService = require('./volumeValidationService');
 const watchdogService = require('./watchdogService');
 const cloudUIUpdateService = require('./cloudUIUpdateService');
+const appTamperingBlocklistService = require('./appTamperingBlocklistService');
+const appTamperingDetectionService = require('./appTamperingDetectionService');
 const imageUpdateService = require('./imageUpdateService');
 // const throughputLogger = require('./utils/throughputLogger');
 
@@ -72,6 +74,26 @@ const dosState = {
 };
 const portsNotWorking = new Set();
 const appsStorageViolations = [];
+
+/**
+ * createIndex that tolerates a pre-existing index with conflicting options
+ * (IndexOptionsConflict / IndexKeySpecsConflict) by dropping the old one and
+ * recreating. Every other error bubbles up.
+ */
+async function ensureIndex(collection, spec, options = {}) {
+  try {
+    await collection.createIndex(spec, options);
+  } catch (err) {
+    const conflict = err && (err.codeName === 'IndexOptionsConflict' || err.codeName === 'IndexKeySpecsConflict');
+    if (!conflict) throw err;
+    const indexName = options.name || Object.entries(spec).map(([k, v]) => `${k}_${v}`).join('_');
+    log.warn(`ensureIndex - conflicting index ${indexName} on ${collection.collectionName}, dropping and recreating`);
+    await collection.dropIndex(indexName).catch((dropErr) => {
+      log.warn(`ensureIndex - dropIndex ${indexName} failed: ${dropErr.message}`);
+    });
+    await collection.createIndex(spec, options);
+  }
+}
 
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
@@ -136,6 +158,17 @@ async function startFluxFunctions() {
     await database.collection(config.database.local.collections.activePaymentRequests).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 }); // 1 hour
     await database.collection(config.database.local.collections.completedPayments).createIndex({ paymentId: 1 });
     await database.collection(config.database.local.collections.completedPayments).createIndex({ createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 }); // 7 days
+    await ensureIndex(
+      database.collection(config.database.local.collections.appTamperingEvents),
+      { detectedAt: 1 },
+      { expireAfterSeconds: 30 * 24 * 60 * 60, name: 'detectedAt_ttl' }, // 30 days
+    );
+    await ensureIndex(
+      database.collection(config.database.local.collections.appTamperingEvents),
+      { appName: 1, detectedAt: -1 },
+      { name: 'appName_detectedAt' },
+    );
+    await appTamperingDetectionService.checkFrequentRestart();
     log.info('Local database prepared');
     log.info('Preparing temporary database...');
     // no need to drop temporary messages
@@ -251,6 +284,9 @@ async function startFluxFunctions() {
       log.info('Native image update service started');
     }, 10 * 60 * 1000); // 10 minutes after startup
     fluxNetworkHelper.checkDeterministicNodesCollisions();
+    appTamperingBlocklistService.start().catch((err) => {
+      log.error(`appTamperingBlocklist start error: ${err.message}`);
+    });
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();
     log.info('Flux Discovery started');

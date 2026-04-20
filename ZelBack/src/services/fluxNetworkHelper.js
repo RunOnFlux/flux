@@ -29,6 +29,13 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
+// Sticky DOS state. Owned exclusively by whoever set it (e.g. the tampering
+// blocklist enforcer). Not affected by setDosMessage(null) / setDosStateValue
+// calls from other checks. When set, it takes precedence in getDosMessage()
+// and getDOSState() over the regular dosMessage/dosState.
+let stickyDosState = 0;
+let stickyDosMessage = null;
+
 let storedFluxBenchAllowed = null;
 let ipChangeData = null;
 let dosTooManyIpChanges = false;
@@ -578,12 +585,47 @@ function setDosMessage(message) {
 
 /**
  * Getter for dosMessage.
+ * Returns the sticky DOS message if one is set, otherwise the regular one.
  * Main goal for this is testing availability.
  *
  * @returns {string} dosMessage
  */
 function getDosMessage() {
-  return dosMessage;
+  return stickyDosMessage || dosMessage;
+}
+
+/**
+ * Setter for the sticky DOS message. The sticky slot is not cleared by
+ * setDosMessage(null); only the owner that set it should clear it via
+ * clearStickyDosMessage().
+ * @param {string} message
+ */
+function setStickyDosMessage(message) {
+  stickyDosMessage = message;
+}
+
+/**
+ * Getter for the sticky DOS message (ignores regular dosMessage).
+ * @returns {string|null}
+ */
+function getStickyDosMessage() {
+  return stickyDosMessage;
+}
+
+/**
+ * Clears the sticky DOS message and sticky state value.
+ */
+function clearStickyDosMessage() {
+  stickyDosMessage = null;
+  stickyDosState = 0;
+}
+
+/**
+ * Setter for the sticky DOS state value.
+ * @param {number} value
+ */
+function setStickyDosStateValue(value) {
+  stickyDosState = value;
 }
 
 /**
@@ -1493,8 +1535,8 @@ async function checkDeterministicNodesCollisions() {
  */
 function getDOSState(req, res) {
   const data = {
-    dosState,
-    dosMessage,
+    dosState: stickyDosMessage ? stickyDosState : dosState,
+    dosMessage: stickyDosMessage || dosMessage,
   };
   const message = messageHelper.createDataMessage(data);
   return res ? res.json(message) : message;
@@ -2178,6 +2220,10 @@ module.exports = {
   setDosMessage,
   setDosStateValue,
   getDosStateValue,
+  setStickyDosMessage,
+  getStickyDosMessage,
+  clearStickyDosMessage,
+  setStickyDosStateValue,
   fluxUptime,
   fluxSystemUptime,
   isCommunicationEstablished,
