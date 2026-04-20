@@ -310,6 +310,7 @@ module.exports = {
   // fluxnode pubkey is in this list will only spawn/run apps owned by
   // enterpriseAppOwners above and will uninstall any non-matching apps on boot.
   enterpriseNodesPublicKeys: [
+    '027595b0b8257d7b901fc024d7c5b66a7af68b64240dea0359dec3ffb1f2a33a8d',
   ],
   cpuBurst: {
     // Enables CFS CPU burst for enterprise app owners on cgroups-v2 + kernel >= 5.14 hosts.
