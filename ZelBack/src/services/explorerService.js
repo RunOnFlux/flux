@@ -878,9 +878,13 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     }
     isInInitiationOfBP = true;
     if (!zelAppSpecsMigrationDone) {
-      const globalDb = db.db(config.database.appsglobal.database);
-      await migrateZelAppSpecifications(globalDb);
-      zelAppSpecsMigrationDone = true;
+      try {
+        const globalDb = db.db(config.database.appsglobal.database);
+        await migrateZelAppSpecifications(globalDb);
+        zelAppSpecsMigrationDone = true;
+      } catch (error) {
+        log.error(`zelAppSpecifications migration failed: ${error.message}`);
+      }
     }
     const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
     if (daemonBlockCount.status !== 'success') {
