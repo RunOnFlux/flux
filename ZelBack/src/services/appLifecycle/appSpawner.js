@@ -464,6 +464,22 @@ async function trySpawningGlobalApplication() {
       }
     }
 
+    if (!appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater
+      && appToRunAux.nodes.length > 0 && !appToRunAux.nodes.find((ip) => ip === myIP)) {
+      const appToCheck = {
+        timeToCheck: appToRunAux.enterprise ? Date.now() + 0.5 * 60 * 60 * 1000 : Date.now() + 0.95 * 60 * 60 * 1000,
+        appName: appToRun,
+        hash: appHash,
+        required: minInstances,
+      };
+      log.info(`trySpawningGlobalApplication - App ${appToRun} specs have target ips, will check in around 0.5h if instances are still missing`);
+      globalState.appsToBeCheckedLater.push(appToCheck);
+      globalState.trySpawningGlobalAppCache.delete(appHash);
+      await serviceHelper.delay(shortDelayTime);
+      trySpawningGlobalApplication();
+      return;
+    }
+
     if (!isEnterprise && !appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater) {
       const tier = await generalService.nodeTier();
       const appHWrequirements = hwRequirements.totalAppHWRequirements(appSpecifications, tier);
@@ -499,17 +515,6 @@ async function trySpawningGlobalApplication() {
           required: minInstances,
         };
         log.info(`trySpawningGlobalApplication - App ${appToRun} does not require datacenter but node is datacenter, will check in around 27m if instances are still missing`);
-        globalState.appsToBeCheckedLater.push(appToCheck);
-        globalState.trySpawningGlobalAppCache.delete(appHash);
-        delay = true;
-      } else if (appToRunAux.nodes.length > 0 && !appToRunAux.nodes.find((ip) => ip === myIP)) {
-        const appToCheck = {
-          timeToCheck: appToRunAux.enterprise ? Date.now() + 0.5 * 60 * 60 * 1000 : Date.now() + 0.95 * 60 * 60 * 1000,
-          appName: appToRun,
-          hash: appHash,
-          required: minInstances,
-        };
-        log.info(`trySpawningGlobalApplication - App ${appToRun} specs have target ips, will check in around 0.5h if instances are still missing`);
         globalState.appsToBeCheckedLater.push(appToCheck);
         globalState.trySpawningGlobalAppCache.delete(appHash);
         delay = true;
