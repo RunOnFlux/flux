@@ -122,7 +122,7 @@ async function respondWithAppMessage(msgObj, peer) {
         temporaryAppMessage = { // specification of temp message
           type: appMessage.type,
           version: appMessage.version,
-          appSpecifications: appMessage.appSpecifications || appMessage.zelAppSpecifications,
+          appSpecifications: appMessage.appSpecifications,
           hash: appMessage.hash,
           timestamp: appMessage.timestamp,
           signature: appMessage.signature,

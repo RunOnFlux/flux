@@ -1747,6 +1747,7 @@ describe('explorerService tests', () => {
 
     afterEach(() => {
       explorerService.setIsInInitiationOfBP(false);
+      explorerService.setZelAppSpecsMigrationDone(false);
       sinon.restore();
     });
 
@@ -1769,6 +1770,7 @@ describe('explorerService tests', () => {
     });
 
     it('should return error if daemon service getBlockCountStub does not return success message', async () => {
+      explorerService.setZelAppSpecsMigrationDone(true);
       getBlockCountStub.returns({
         status: 'error',
         data: {
@@ -1797,7 +1799,7 @@ describe('explorerService tests', () => {
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
       sinon.stub(dbHelper, 'countInDatabase').resolves(1);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
+      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
       getBlockCountStub.returns({
@@ -1824,7 +1826,7 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
+      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
       getBlockCountStub.returns({
@@ -1853,7 +1855,7 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
+      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
       getBlockCountStub.returns({
@@ -1882,7 +1884,7 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
-      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
+      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake, updateMany: sinon.fake.resolves({ modifiedCount: 0 }), indexes: sinon.fake.resolves([]) });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
       getBlockCountStub.returns({

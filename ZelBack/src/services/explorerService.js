@@ -28,6 +28,7 @@ const chainParamsMessagesCollection = config.database.chainparams.collections.ch
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
 let isInInitiationOfBP = false;
+let zelAppSpecsMigrationDone = false;
 let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
@@ -790,6 +791,33 @@ async function cleanupDuplicateScannedHeight(database) {
   }
 }
 
+// One-time migration: rename zelAppSpecifications → appSpecifications in
+// zelappsmessages and drop the corresponding legacy indexes. Safe to remove
+// once the fleet has been fully upgraded.
+async function migrateZelAppSpecifications(databaseGlobal) {
+  const col = databaseGlobal.collection(config.database.appsglobal.collections.appsMessages);
+  const result = await col.updateMany(
+    { zelAppSpecifications: { $exists: true } },
+    { $rename: { zelAppSpecifications: 'appSpecifications' } },
+  );
+  if (result.modifiedCount > 0) {
+    log.info(`Migrated ${result.modifiedCount} records from zelAppSpecifications to appSpecifications`);
+  }
+  const existingIndexes = await col.indexes();
+  const legacyIndexNames = [
+    'query for getting zelapp message based on zelapp specs name',
+    'query for getting zelapp message based on zelapp specs owner',
+    'query for getting zelapp message based on image',
+  ];
+  for (const idx of existingIndexes) {
+    if (legacyIndexNames.includes(idx.name)) {
+      // eslint-disable-next-line no-await-in-loop
+      await col.dropIndex(idx.name);
+      log.info(`Dropped legacy index: ${idx.name}`);
+    }
+  }
+}
+
 /**
  * To start the block processor.
  * @param {boolean} restoreDatabase True if database is to be restored.
@@ -849,6 +877,15 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       return;
     }
     isInInitiationOfBP = true;
+    if (!zelAppSpecsMigrationDone) {
+      try {
+        const globalDb = db.db(config.database.appsglobal.database);
+        await migrateZelAppSpecifications(globalDb);
+        zelAppSpecsMigrationDone = true;
+      } catch (error) {
+        log.error(`zelAppSpecifications migration failed: ${error.message}`);
+      }
+    }
     const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
     if (daemonBlockCount.status !== 'success') {
       throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
@@ -942,9 +979,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ height: 1 }, { name: 'query for getting zelapp message based on height' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'zelAppSpecifications.name': 1 }, { name: 'query for getting zelapp message based on zelapp specs name' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'zelAppSpecifications.owner': 1 }, { name: 'query for getting zelapp message based on zelapp specs owner' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'zelAppSpecifications.repotag': 1 }, { name: 'query for getting zelapp message based on image' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.name': 1 }, { name: 'query for getting app message based on zelapp specs name' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.owner': 1 }, { name: 'query for getting app message based on zelapp specs owner' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.repotag': 1 }, { name: 'query for getting app message based on image' });
@@ -1723,6 +1757,11 @@ function setIsInInitiationOfBP(value) {
   isInInitiationOfBP = value;
 }
 
+// testing purposes
+function setZelAppSpecsMigrationDone(value) {
+  zelAppSpecsMigrationDone = value;
+}
+
 module.exports = {
   initiateBlockProcessor,
   processBlock,
@@ -1752,6 +1791,7 @@ module.exports = {
   processStandard,
   setBlockProccessingCanContinue,
   setIsInInitiationOfBP,
+  setZelAppSpecsMigrationDone,
   restoreDatabaseToBlockheightState,
 
   // temporary function
