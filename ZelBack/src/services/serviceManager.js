@@ -531,12 +531,30 @@ async function startFluxFunctions() {
       }, 30 * 60 * 1000);
       appHashSyncService.continuousFluxAppHashesCheck();
     }, (Math.floor(Math.random() * (30 - 15 + 1)) + 15) * 60 * 1000); // start between 15m and 30m after fluxOs start
-    setTimeout(() => {
-      // after 125 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
-      // 125 minutes should give enough time for node receive currently two times the apprunning messages
-      log.info('Starting to spawn applications');
-      appSpawner.trySpawningGlobalApplication();
-    }, (Math.floor(Math.random() * (135 - 125 + 1)) + 125) * 60 * 1000); // start between 125 and 135m after fluxos starts;
+    setTimeout(async () => {
+      // Enterprise-network nodes (pubkey in enterpriseNodesPublicKeys) start
+      // spawning at T+62m. Every other node keeps the legacy 125-135m window,
+      // which gives enough time to receive apprunning messages at least twice.
+      let isEnterprise = enterpriseNetwork.getCachedEnterpriseIdentity();
+      if (isEnterprise === null) {
+        try {
+          isEnterprise = await enterpriseNetwork.isEnterpriseNode();
+        } catch (err) {
+          log.warn(`Enterprise identity unresolved at spawn-gate, treating as non-enterprise: ${err.message || err}`);
+          isEnterprise = false;
+        }
+      }
+      if (isEnterprise) {
+        log.info('Starting to spawn applications (enterprise, 62m)');
+        appSpawner.trySpawningGlobalApplication();
+        return;
+      }
+      const remainingMs = (Math.floor(Math.random() * (135 - 125 + 1)) + 125 - 62) * 60 * 1000;
+      setTimeout(() => {
+        log.info('Starting to spawn applications');
+        appSpawner.trySpawningGlobalApplication();
+      }, remainingMs);
+    }, 62 * 60 * 1000);
     setInterval(() => {
       imageManager.checkApplicationsCompliance(appQueryService.installedApps, appUninstaller.removeAppLocally);
     }, 60 * 60 * 1000); //  every hour
