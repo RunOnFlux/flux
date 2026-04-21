@@ -1011,6 +1011,19 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     }
   }
 
+  // Inject Flux-provided env vars so apps can reference them directly or
+  // via ${VAR} expansion in their own config files (e.g. Datadog's
+  // DD_HOSTNAME=${FLUX_NODE_HOST_IP}). Appended last so they win over any
+  // identically-named values supplied by the operator.
+  const myFluxIp = await fluxNetworkHelper.getMyFluxIPandPort();
+  const nodeHostIp = myFluxIp ? myFluxIp.split(':')[0] : null;
+  if (nodeHostIp) {
+    options.Env.push(`FLUX_NODE_HOST_IP=${nodeHostIp}`);
+  } else {
+    log.warn(`FLUX_NODE_HOST_IP not injected for ${identifier}: node IP not available`);
+  }
+  options.Env.push(`FLUX_APP_NAME=${appName}`);
+
   // Ensure all required mount paths (files and directories) exist before creating container
   // This prevents Docker mount errors when files have been deleted or don't exist yet
   try {
