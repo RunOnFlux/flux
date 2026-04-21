@@ -1757,6 +1757,11 @@ function setIsInInitiationOfBP(value) {
   isInInitiationOfBP = value;
 }
 
+// testing purposes
+function setZelAppSpecsMigrationDone(value) {
+  zelAppSpecsMigrationDone = value;
+}
+
 module.exports = {
   initiateBlockProcessor,
   processBlock,
@@ -1786,6 +1791,7 @@ module.exports = {
   processStandard,
   setBlockProccessingCanContinue,
   setIsInInitiationOfBP,
+  setZelAppSpecsMigrationDone,
   restoreDatabaseToBlockheightState,
 
   // temporary function
