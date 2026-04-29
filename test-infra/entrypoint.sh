@@ -18,6 +18,15 @@ if [ -n "$FLUX_SYNCTHING_HOST" ]; then
   socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &
 fi
 
+# cgroup v2: move existing processes to an init sub-cgroup so dockerd
+# can enable subtree controllers (same approach as official docker:dind)
+if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+  mkdir -p /sys/fs/cgroup/init
+  xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null || :
+  sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers \
+      > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || :
+fi
+
 # Start dockerd (FluxOS expects Docker on the local socket)
 dockerd &
 DOCKERD_PID=$!
