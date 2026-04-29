@@ -126,8 +126,8 @@ const rpcHandlers = {
 
   getzelnodestatus: () => ({
     status: 'CONFIRMED',
-    collateral: 'txhash:0',
-    txhash: 'stub-txhash',
+    collateral: 'COutPoint(e6c2e1ab89fa12fc1c73ee1eea79a2cb40c5ab06a3a0315eb8d048c49e700d1a, 0)',
+    txhash: 'e6c2e1ab89fa12fc1c73ee1eea79a2cb40c5ab06a3a0315eb8d048c49e700d1a',
     outidx: '0',
     ip: process.env.NODE_IP || '127.0.0.1',
     network: '',

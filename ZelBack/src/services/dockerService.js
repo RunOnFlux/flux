@@ -21,14 +21,10 @@ const appsFolder = `${appsFolderPath}/`;
 
 const dockerOpts = {};
 if (process.env.DOCKER_HOST) {
-  try {
-    const url = new URL(process.env.DOCKER_HOST);
-    dockerOpts.host = url.hostname;
-    dockerOpts.port = url.port;
-    dockerOpts.protocol = url.protocol.replace(':', '');
-  } catch {
-    dockerOpts.socketPath = process.env.DOCKER_HOST;
-  }
+  const parsed = new URL(process.env.DOCKER_HOST);
+  dockerOpts.host = parsed.hostname;
+  dockerOpts.port = parsed.port;
+  dockerOpts.protocol = parsed.protocol.replace(':', '');
 }
 const docker = new Docker(Object.keys(dockerOpts).length ? dockerOpts : undefined);
 

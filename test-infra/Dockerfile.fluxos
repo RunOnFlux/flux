@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mount \
     cron \
     gnupg \
+    iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -18,15 +19,21 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 WORKDIR /flux
 
-COPY package.json package-lock.json ./
-RUN npm ci --production
+COPY package.json ./
+RUN npm install --production
 
 COPY . .
 
 COPY test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
 
+RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log
+
 ENV NODE_CONFIG_DIR=/flux/ZelBack/config
+
+COPY test-infra/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 16126 16127 16128 16129
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "app.js"]

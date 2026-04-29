@@ -57,6 +57,8 @@ services:
     build:
       context: ..
       dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
     networks:
       flux-test-net:
         ipv4_address: 10.10.1.0
@@ -66,7 +68,7 @@ services:
       FLUX_DB_HOST: "10.10.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "tcp://10.10.1.1:2375"
+      DOCKER_HOST: "http://10.10.1.1:2375"
       # Daemon config
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
       FLUX_DAEMON_HOST: "10.10.0.3"
