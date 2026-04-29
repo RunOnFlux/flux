@@ -125,6 +125,11 @@ services:
       FLUX_NODE_IP: "198.18.1.0"
       FLUX_ADMIN_ZELID: "1PmSzuhNQsC8YaxaQRyq4ckRWsTCWuvhDR"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -198,6 +203,11 @@ services:
       FLUX_NODE_IP: "198.18.2.0"
       FLUX_ADMIN_ZELID: "19qgBBcX6phQbLQoVu2qzYDK2uokwYb2cs"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -271,6 +281,11 @@ services:
       FLUX_NODE_IP: "198.18.3.0"
       FLUX_ADMIN_ZELID: "1DnaJ9VKDtm3ALdDPLQt8T7KsgTpN1vF2V"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -344,6 +359,11 @@ services:
       FLUX_NODE_IP: "198.18.4.0"
       FLUX_ADMIN_ZELID: "1BsNnwbWWLd8o35cG4YaAt5mVwwuQv49Np"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -417,6 +437,11 @@ services:
       FLUX_NODE_IP: "198.18.5.0"
       FLUX_ADMIN_ZELID: "1AxW1PaVZuZUZaLmTRh1o2NdRVkXdeXiqg"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -490,6 +515,11 @@ services:
       FLUX_NODE_IP: "198.18.6.0"
       FLUX_ADMIN_ZELID: "1F1jYFQmuRZoJHhJLqSibtkQpFsUAQLFxx"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -563,6 +593,11 @@ services:
       FLUX_NODE_IP: "198.18.7.0"
       FLUX_ADMIN_ZELID: "1FATEv3jN5akRDNPchUum7aX6RvxvChJLD"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -636,6 +671,11 @@ services:
       FLUX_NODE_IP: "198.18.8.0"
       FLUX_ADMIN_ZELID: "12jZmBsknYZhcTG3Kx7s1xFy8eBGMHVfCS"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -709,6 +749,11 @@ services:
       FLUX_NODE_IP: "198.18.9.0"
       FLUX_ADMIN_ZELID: "1EiF9yMrgCxyn1m3L5ms1KGsukACSiC62K"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -782,6 +827,11 @@ services:
       FLUX_NODE_IP: "198.18.10.0"
       FLUX_ADMIN_ZELID: "16UpVBGYzbd8fcNsUb9CGcZ8jq7hkVnTet"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -855,6 +905,11 @@ services:
       FLUX_NODE_IP: "198.18.11.0"
       FLUX_ADMIN_ZELID: "17JNeroTTFcjik24FK1PvURrR4Hm4BEK84"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -928,6 +983,11 @@ services:
       FLUX_NODE_IP: "198.18.12.0"
       FLUX_ADMIN_ZELID: "1CrAabhNnPh1bEPjSQVufutuAz8KuSxC2G"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -1001,6 +1061,11 @@ services:
       FLUX_NODE_IP: "198.18.13.0"
       FLUX_ADMIN_ZELID: "1BVPr2Ls3ayGyoGJ5zStcjmx8P3SfZ5K6v"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -1074,6 +1139,11 @@ services:
       FLUX_NODE_IP: "198.18.14.0"
       FLUX_ADMIN_ZELID: "13iA3DLMePG2ewfsv6aBmMfv92Y8GUpr8h"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -1147,6 +1217,11 @@ services:
       FLUX_NODE_IP: "198.18.15.0"
       FLUX_ADMIN_ZELID: "1EopUrQjE7Ne2AmGLqC982g1S35HsqVWKx"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
@@ -1220,6 +1295,11 @@ services:
       FLUX_NODE_IP: "198.18.16.0"
       FLUX_ADMIN_ZELID: "1CL8CQwn4AZ1wvKHQ1TVvg6XxHnW5s1VxA"
       FLUX_API_PORT: "16127"
+      # Peer thresholds
+      FLUX_MIN_OUTGOING: "4"
+      FLUX_MIN_INCOMING: "2"
+      FLUX_MIN_UNIQUE_OUTGOING: "3"
+      FLUX_MIN_UNIQUE_INCOMING: "2"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"

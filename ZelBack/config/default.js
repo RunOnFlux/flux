@@ -212,10 +212,10 @@ module.exports = {
     minimumInstancesV8: 1,
     minimumInstancesV8Block: 2176519, // block height where v8+ apps can have 1 instance - expected around December 19th 2025
     maximumInstances: 100,
-    minOutgoing: 8,
-    minUniqueIpsOutgoing: 7,
-    minIncoming: 4,
-    minUniqueIpsIncoming: 3,
+    minOutgoing: Number(process.env.FLUX_MIN_OUTGOING) || 8,
+    minUniqueIpsOutgoing: Number(process.env.FLUX_MIN_UNIQUE_OUTGOING) || 7,
+    minIncoming: Number(process.env.FLUX_MIN_INCOMING) || 4,
+    minUniqueIpsIncoming: Number(process.env.FLUX_MIN_UNIQUE_INCOMING) || 3,
     minUpTime: 1800, // 30 mins
     installation: {
       probability: 100, // 1%

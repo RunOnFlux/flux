@@ -140,6 +140,11 @@ for (let i = 0; i < NODE_COUNT; i++) {
   w(`      FLUX_NODE_IP: "${nodeIp}"`);
   w(`      FLUX_ADMIN_ZELID: "${node.zelid}"`);
   w('      FLUX_API_PORT: "16127"');
+  w('      # Peer thresholds');
+  w('      FLUX_MIN_OUTGOING: "4"');
+  w('      FLUX_MIN_INCOMING: "2"');
+  w('      FLUX_MIN_UNIQUE_OUTGOING: "3"');
+  w('      FLUX_MIN_UNIQUE_INCOMING: "2"');
   w('      # Timing compression');
   w('      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"');
   w('      FLUX_SPAWN_DELAY_MS: "10000"');
