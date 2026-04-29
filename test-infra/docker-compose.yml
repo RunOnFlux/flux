@@ -1,0 +1,1174 @@
+networks:
+  flux-test-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.0.0/16
+
+volumes:
+  mongo-data:
+  dind-01-data:
+  dind-02-data:
+  dind-03-data:
+  dind-04-data:
+  dind-05-data:
+  dind-06-data:
+  dind-07-data:
+  dind-08-data:
+  dind-09-data:
+  dind-10-data:
+  dind-11-data:
+  dind-12-data:
+  dind-13-data:
+  dind-14-data:
+  dind-15-data:
+  dind-16-data:
+
+services:
+  mongodb:
+    image: mongo:7
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.0.2
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  daemon-stub:
+    build: ./daemon-stub
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.0.3
+    environment:
+      FLUXD_PORT: "16124"
+      BENCHD_PORT: "16224"
+      CONTROL_PORT: "18232"
+    volumes:
+      - ./fixtures:/fixtures
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:18232/state', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  syncthing-stub:
+    build: ./syncthing-stub
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.0.4
+    environment:
+      SYNCTHING_PORT: "8384"
+      CONTROL_PORT: "8385"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8384/rest/noauth/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  dind-01:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.1.1
+    volumes:
+      - dind-01-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-01:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.1.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node01_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.1.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.1.0"
+      FLUX_ADMIN_ZELID: "1ApJJQANLsXZUjqk99ZQfaAYY8hajzr7vG"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-01:
+        condition: service_healthy
+
+  dind-02:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.2.1
+    volumes:
+      - dind-02-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-02:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.2.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node02_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.2.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.2.0"
+      FLUX_ADMIN_ZELID: "1Q6zr4DfL25rGcvbV4Mxp92fCo8zXg89xr"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-02:
+        condition: service_healthy
+
+  dind-03:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.3.1
+    volumes:
+      - dind-03-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-03:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.3.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node03_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.3.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.3.0"
+      FLUX_ADMIN_ZELID: "1Aig8wfePstuHgeaocfWMm7BD7cLuAahB7"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-03:
+        condition: service_healthy
+
+  dind-04:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.4.1
+    volumes:
+      - dind-04-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-04:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.4.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node04_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.4.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.4.0"
+      FLUX_ADMIN_ZELID: "12ddxQL8or9T7qcezh3NzRDM1yuVFvMWXR"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-04:
+        condition: service_healthy
+
+  dind-05:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.5.1
+    volumes:
+      - dind-05-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-05:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.5.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node05_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.5.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.5.0"
+      FLUX_ADMIN_ZELID: "1KGsmBXWWqznBfbgHuTarMdb7wMwianmpz"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-05:
+        condition: service_healthy
+
+  dind-06:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.6.1
+    volumes:
+      - dind-06-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-06:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.6.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node06_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.6.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.6.0"
+      FLUX_ADMIN_ZELID: "1EcBXvMktCu8WbnteJ9cnRxSvCueXK6NMZ"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-06:
+        condition: service_healthy
+
+  dind-07:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.7.1
+    volumes:
+      - dind-07-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-07:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.7.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node07_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.7.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.7.0"
+      FLUX_ADMIN_ZELID: "1BAiD4BjDmxujzrmUUhsydYXSQzQnXV8Ma"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-07:
+        condition: service_healthy
+
+  dind-08:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.8.1
+    volumes:
+      - dind-08-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-08:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.8.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node08_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.8.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.8.0"
+      FLUX_ADMIN_ZELID: "1LqYDJe3z4uRFV97cEtMqj97cfyW1H2qbN"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-08:
+        condition: service_healthy
+
+  dind-09:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.9.1
+    volumes:
+      - dind-09-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-09:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.9.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node09_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.9.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.9.0"
+      FLUX_ADMIN_ZELID: "12aBDE8zRXzrhu94qraqLjac1C4Vsvdrj4"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-09:
+        condition: service_healthy
+
+  dind-10:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.10.1
+    volumes:
+      - dind-10-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-10:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.10.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node10_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.10.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.10.0"
+      FLUX_ADMIN_ZELID: "14Mo2gTRrXk1staR83CXwtpae5Yxd5H62N"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-10:
+        condition: service_healthy
+
+  dind-11:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.11.1
+    volumes:
+      - dind-11-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-11:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.11.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node11_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.11.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.11.0"
+      FLUX_ADMIN_ZELID: "1AUqCG8Ew3QDunuGYLMgosLijmm1Q9WUkj"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-11:
+        condition: service_healthy
+
+  dind-12:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.12.1
+    volumes:
+      - dind-12-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-12:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.12.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node12_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.12.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.12.0"
+      FLUX_ADMIN_ZELID: "1JxcUykCFGRoHp9LiUf5Dsq92ivTcw9C7E"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-12:
+        condition: service_healthy
+
+  dind-13:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.13.1
+    volumes:
+      - dind-13-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-13:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.13.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node13_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.13.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.13.0"
+      FLUX_ADMIN_ZELID: "189fAkArYScRc715YfGA9Yt9FfVHM75ZwX"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-13:
+        condition: service_healthy
+
+  dind-14:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.14.1
+    volumes:
+      - dind-14-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-14:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.14.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node14_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.14.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.14.0"
+      FLUX_ADMIN_ZELID: "12paMxHaWZQRCfHH7Ec3oYbQZmuL9wkBSD"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-14:
+        condition: service_healthy
+
+  dind-15:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.15.1
+    volumes:
+      - dind-15-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-15:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.15.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node15_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.15.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.15.0"
+      FLUX_ADMIN_ZELID: "1EjZ632g6JuB2jAVYCje21kkoxdgPWY12n"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-15:
+        condition: service_healthy
+
+  dind-16:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.16.1
+    volumes:
+      - dind-16-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  fluxos-16:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    cap_add:
+      - NET_ADMIN
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.16.0
+    environment:
+      # Arcane OS
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
+      # Database
+      FLUX_DB_PREFIX: "node16_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "http://10.10.16.1:2375"
+      # Services
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      # Node identity
+      FLUX_NODE_IP: "10.10.16.0"
+      FLUX_ADMIN_ZELID: "1AoYJoo41aMjcEf7NiUEM2i5yJ9ZMMJSCg"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
+      dind-16:
+        condition: service_healthy
