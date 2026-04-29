@@ -14,7 +14,7 @@ volumes:
 services:
   mongodb:
     image: mongo:8
-    command: ["--wiredTigerCacheSizeGB", "1"]
+    command: ["--wiredTigerCacheSizeGB", "1", "--setParameter", "maxNumActiveUserIndexBuilds=64"]
     networks:
       flux-test-net:
         ipv4_address: 198.18.0.2
