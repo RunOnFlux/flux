@@ -177,12 +177,24 @@ const rpcHandlers = {
     const txid = params[0];
     const verbose = params[1] || 0;
     if (verbose) {
+      const collateralAmounts = { CUMULUS: 1000, NIMBUS: 12500, STRATUS: 40000 };
+      const node = deterministicNodeList.find((n) => n.txhash === txid);
+      const outidx = node ? Number(node.outidx) : 0;
+      const amount = node ? (collateralAmounts[node.tier] || 1000) : 0;
+      const vout = [];
+      for (let i = 0; i <= outidx; i++) {
+        vout.push({
+          value: i === outidx ? amount : 0,
+          n: i,
+          scriptPubKey: { addresses: [node ? node.payment_address : 'stub-address'] },
+        });
+      }
       return {
         txid,
         version: 1,
         locktime: 0,
         vin: [],
-        vout: [],
+        vout,
         blockhash: `000000000000stub${currentHeight}`,
         confirmations: 1,
         time: Math.floor(Date.now() / 1000),
