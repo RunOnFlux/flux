@@ -28,7 +28,7 @@ w('services:');
 
 // MongoDB
 w('  mongodb:');
-w('    image: mongo:7');
+w('    image: mongo:8');
 w('    command: ["--wiredTigerCacheSizeGB", "1"]');
 w('    networks:');
 w('      flux-test-net:');

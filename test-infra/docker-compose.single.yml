@@ -13,7 +13,7 @@ volumes:
 
 services:
   mongodb:
-    image: mongo:7
+    image: mongo:8
     command: ["--wiredTigerCacheSizeGB", "1"]
     networks:
       flux-test-net:
