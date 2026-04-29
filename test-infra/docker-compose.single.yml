@@ -99,7 +99,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.1.0"
-      FLUX_ADMIN_ZELID: "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC"
+      FLUX_ADMIN_ZELID: "${NODE01_ZELID:-1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC}"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
