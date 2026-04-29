@@ -323,14 +323,54 @@ control.get('/state', (req, res) => {
   res.json({ currentHeight, nodeCount: deterministicNodeList.length, pendingBlocks: pendingBlocks.length });
 });
 
+function buildAppRegistrationTx(appHash, height) {
+  const opReturnHex = Buffer.from(appHash, 'utf-8').toString('hex');
+  return {
+    txid: `apptx-${appHash.substring(0, 16)}-${height}`,
+    version: 1,
+    vin: [{ txid: 'prev-tx-stub', vout: 0, address: 'stub-sender-address' }],
+    vout: [
+      {
+        valueSat: 10000000,
+        scriptPubKey: {
+          addresses: ['t3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX'],
+          asm: '',
+        },
+      },
+      {
+        valueSat: 0,
+        scriptPubKey: {
+          addresses: [],
+          asm: `OP_RETURN ${opReturnHex}`,
+        },
+      },
+    ],
+  };
+}
+
 control.post('/advance-block', (req, res) => {
-  const { block } = req.body;
+  const { block, appHash } = req.body;
   currentHeight += 1;
   if (block) {
     block.height = block.height || currentHeight;
     block.hash = block.hash || `000000000000stub${currentHeight}`;
     block.confirmations = 1;
     pendingBlocks.push(block);
+  } else if (appHash) {
+    const newBlock = {
+      hash: `000000000000stub${currentHeight}`,
+      confirmations: 1,
+      size: 1000,
+      height: currentHeight,
+      version: 4,
+      merkleroot: '0000000000000000000000000000000000000000000000000000000000000000',
+      tx: [buildAppRegistrationTx(appHash, currentHeight)],
+      time: Math.floor(Date.now() / 1000),
+      nonce: 0,
+      difficulty: 1000,
+      previousblockhash: `000000000000stub${currentHeight - 1}`,
+    };
+    pendingBlocks.push(newBlock);
   }
   res.json({ currentHeight });
 });

@@ -82,13 +82,42 @@ async function main() {
     process.exit(1);
   }
 
-  console.log('\n=== Step 4: Check propagation ===');
-  console.log('Waiting 30s for message propagation...');
-  await new Promise((r) => setTimeout(r, 30000));
+  const appHash = registerData.data;
+  console.log(`App hash: ${appHash}`);
 
+  console.log('\n=== Step 4: Check temp message propagation ===');
+  console.log('Waiting 15s for P2P propagation...');
+  await new Promise((r) => setTimeout(r, 15000));
+
+  let nodesWithTemp = 0;
+  for (let i = 1; i <= NODE_COUNT; i++) {
+    const nodeIp = `198.18.${i}.0`;
+    try {
+      const res = await fetch(`http://${nodeIp}:16127/apps/temporarymessages/${appHash}`);
+      const data = await res.json();
+      if (data.status === 'success' && data.data && data.data.length > 0) {
+        nodesWithTemp++;
+      }
+    } catch { /* */ }
+  }
+  console.log(`Temp messages propagated to ${nodesWithTemp}/${NODE_COUNT} nodes`);
+
+  console.log('\n=== Step 5: Inject blockchain confirmation ===');
+  const DAEMON_CONTROL = process.env.DAEMON_CONTROL || 'http://198.18.0.3:18232';
+  const advanceRes = await fetch(`${DAEMON_CONTROL}/advance-block`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ appHash }),
+  });
+  const advanceData = await advanceRes.json();
+  console.log(`Block advanced to height ${advanceData.currentHeight} with app tx`);
+
+  console.log('Waiting 60s for explorer to process block and promote to permanent...');
+  await new Promise((r) => setTimeout(r, 60000));
+
+  console.log('\n=== Step 6: Check permanent registration ===');
   let nodesWithSpec = 0;
   for (let i = 1; i <= NODE_COUNT; i++) {
-    const num = String(i).padStart(2, '0');
     const nodeIp = `198.18.${i}.0`;
     try {
       const res = await fetch(`http://${nodeIp}:16127/apps/appspecifications/e2eTestApp`);
@@ -96,19 +125,15 @@ async function main() {
       if (data.status === 'success' && data.data) {
         nodesWithSpec++;
       }
-    } catch {
-      // node unreachable
-    }
+    } catch { /* */ }
   }
 
-  console.log(`App spec propagated to ${nodesWithSpec}/${NODE_COUNT} nodes`);
+  console.log(`App spec in permanent registry on ${nodesWithSpec}/${NODE_COUNT} nodes`);
 
-  if (nodesWithSpec === NODE_COUNT) {
-    console.log('\nFull propagation confirmed!');
-  } else if (nodesWithSpec > 0) {
-    console.log('\nPartial propagation — some nodes may need more time');
+  if (nodesWithSpec > 0) {
+    console.log('\nBlockchain confirmation working — spec promoted to permanent!');
   } else {
-    console.log('\nNo propagation detected — check logs');
+    console.log('\nSpec not yet promoted — explorer may need more time or block format may need fixing');
   }
 }
 
