@@ -11,14 +11,13 @@ const PEER_EXCHANGE_MAX_PEERS = 60;
 const PEER_TOPOLOGY_MAX_REPORTERS = 100;
 const PEER_UPDATE_DEBOUNCE_MS = 2000;
 const allowedPortsSet = new Set(config.server.allowedPorts);
-const allowPrivatePeers = Boolean(process.env.FLUX_ALLOW_PRIVATE_PEERS);
 
 function isValidPeerKey(key) {
   if (typeof key !== 'string') return false;
   const colon = key.lastIndexOf(':');
   if (colon === -1) return false;
   if (!allowedPortsSet.has(+key.substring(colon + 1))) return false;
-  return allowPrivatePeers || !serviceHelper.isNonRoutableAddress(key.substring(0, colon));
+  return !serviceHelper.isNonRoutableAddress(key.substring(0, colon));
 }
 
 // Reverse lookup: code number → enum name
@@ -721,7 +720,7 @@ class FluxPeerManager {
         return;
       }
 
-      if (!allowPrivatePeers && serviceHelper.isNonRoutableAddress(ipv4Peer)) {
+      if (serviceHelper.isNonRoutableAddress(ipv4Peer)) {
         setTimeout(() => {
           ws.close(CLOSE_CODES.PRIVATE_IP, 'Peer received is using internal IP');
         }, 1000);

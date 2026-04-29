@@ -5,7 +5,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 10.10.0.0/16
+        - subnet: 198.18.0.0/16
 
 volumes:
   mongo-data:
@@ -31,7 +31,7 @@ services:
     image: mongo:7
     networks:
       flux-test-net:
-        ipv4_address: 10.10.0.2
+        ipv4_address: 198.18.0.2
     volumes:
       - mongo-data:/data/db
     healthcheck:
@@ -44,7 +44,7 @@ services:
     build: ./daemon-stub
     networks:
       flux-test-net:
-        ipv4_address: 10.10.0.3
+        ipv4_address: 198.18.0.3
     environment:
       FLUXD_PORT: "16124"
       BENCHD_PORT: "16224"
@@ -61,7 +61,7 @@ services:
     build: ./syncthing-stub
     networks:
       flux-test-net:
-        ipv4_address: 10.10.0.4
+        ipv4_address: 198.18.0.4
     environment:
       SYNCTHING_PORT: "8384"
       CONTROL_PORT: "8385"
@@ -78,7 +78,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.1.1
+        ipv4_address: 198.18.1.1
     volumes:
       - dind-01-data:/var/lib/docker
     healthcheck:
@@ -95,11 +95,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.1.0
+        ipv4_address: 198.18.1.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-01.conf"
@@ -109,17 +108,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node01_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.1.1:2375"
+      DOCKER_HOST: "http://198.18.1.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.1.0"
-      FLUX_ADMIN_ZELID: "15NLqjc1XJDHiYYo8hsdSP73Fbt3qFrFvB"
+      FLUX_NODE_IP: "198.18.1.0"
+      FLUX_ADMIN_ZELID: "1PmSzuhNQsC8YaxaQRyq4ckRWsTCWuvhDR"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -152,7 +151,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.2.1
+        ipv4_address: 198.18.2.1
     volumes:
       - dind-02-data:/var/lib/docker
     healthcheck:
@@ -169,11 +168,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.2.0
+        ipv4_address: 198.18.2.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-02.conf"
@@ -183,17 +181,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node02_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.2.1:2375"
+      DOCKER_HOST: "http://198.18.2.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.2.0"
-      FLUX_ADMIN_ZELID: "1HQY2rPRqckWRDoghnBpjU8fCgmSPzbmxZ"
+      FLUX_NODE_IP: "198.18.2.0"
+      FLUX_ADMIN_ZELID: "19qgBBcX6phQbLQoVu2qzYDK2uokwYb2cs"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -226,7 +224,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.3.1
+        ipv4_address: 198.18.3.1
     volumes:
       - dind-03-data:/var/lib/docker
     healthcheck:
@@ -243,11 +241,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.3.0
+        ipv4_address: 198.18.3.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-03.conf"
@@ -257,17 +254,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node03_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.3.1:2375"
+      DOCKER_HOST: "http://198.18.3.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.3.0"
-      FLUX_ADMIN_ZELID: "1H4FVCzKysVaZv3RNAL48AbHFAhi74Ayq7"
+      FLUX_NODE_IP: "198.18.3.0"
+      FLUX_ADMIN_ZELID: "1DnaJ9VKDtm3ALdDPLQt8T7KsgTpN1vF2V"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -300,7 +297,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.4.1
+        ipv4_address: 198.18.4.1
     volumes:
       - dind-04-data:/var/lib/docker
     healthcheck:
@@ -317,11 +314,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.4.0
+        ipv4_address: 198.18.4.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-04.conf"
@@ -331,17 +327,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node04_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.4.1:2375"
+      DOCKER_HOST: "http://198.18.4.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.4.0"
-      FLUX_ADMIN_ZELID: "12Jdf9TCGfu2uroiWmWZ3dNXhot1tvxWCq"
+      FLUX_NODE_IP: "198.18.4.0"
+      FLUX_ADMIN_ZELID: "1BsNnwbWWLd8o35cG4YaAt5mVwwuQv49Np"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -374,7 +370,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.5.1
+        ipv4_address: 198.18.5.1
     volumes:
       - dind-05-data:/var/lib/docker
     healthcheck:
@@ -391,11 +387,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.5.0
+        ipv4_address: 198.18.5.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-05.conf"
@@ -405,17 +400,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node05_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.5.1:2375"
+      DOCKER_HOST: "http://198.18.5.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.5.0"
-      FLUX_ADMIN_ZELID: "149VyVzNhKF7PvySoSnkK9qoFCue7nyK4Z"
+      FLUX_NODE_IP: "198.18.5.0"
+      FLUX_ADMIN_ZELID: "1AxW1PaVZuZUZaLmTRh1o2NdRVkXdeXiqg"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -448,7 +443,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.6.1
+        ipv4_address: 198.18.6.1
     volumes:
       - dind-06-data:/var/lib/docker
     healthcheck:
@@ -465,11 +460,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.6.0
+        ipv4_address: 198.18.6.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-06.conf"
@@ -479,17 +473,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node06_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.6.1:2375"
+      DOCKER_HOST: "http://198.18.6.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.6.0"
-      FLUX_ADMIN_ZELID: "1NjYhUrCjB9zBMW3Zeon73UX7j8ECWvERa"
+      FLUX_NODE_IP: "198.18.6.0"
+      FLUX_ADMIN_ZELID: "1F1jYFQmuRZoJHhJLqSibtkQpFsUAQLFxx"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -522,7 +516,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.7.1
+        ipv4_address: 198.18.7.1
     volumes:
       - dind-07-data:/var/lib/docker
     healthcheck:
@@ -539,11 +533,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.7.0
+        ipv4_address: 198.18.7.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-07.conf"
@@ -553,17 +546,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node07_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.7.1:2375"
+      DOCKER_HOST: "http://198.18.7.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.7.0"
-      FLUX_ADMIN_ZELID: "1LAvPuTbmj26F4vTLZxF5jabhDpTQ2YinP"
+      FLUX_NODE_IP: "198.18.7.0"
+      FLUX_ADMIN_ZELID: "1FATEv3jN5akRDNPchUum7aX6RvxvChJLD"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -596,7 +589,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.8.1
+        ipv4_address: 198.18.8.1
     volumes:
       - dind-08-data:/var/lib/docker
     healthcheck:
@@ -613,11 +606,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.8.0
+        ipv4_address: 198.18.8.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-08.conf"
@@ -627,17 +619,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node08_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.8.1:2375"
+      DOCKER_HOST: "http://198.18.8.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.8.0"
-      FLUX_ADMIN_ZELID: "1KjNhqN3ixBpjs2poa52DwvqnMzx7WQ1PY"
+      FLUX_NODE_IP: "198.18.8.0"
+      FLUX_ADMIN_ZELID: "12jZmBsknYZhcTG3Kx7s1xFy8eBGMHVfCS"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -670,7 +662,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.9.1
+        ipv4_address: 198.18.9.1
     volumes:
       - dind-09-data:/var/lib/docker
     healthcheck:
@@ -687,11 +679,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.9.0
+        ipv4_address: 198.18.9.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-09.conf"
@@ -701,17 +692,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node09_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.9.1:2375"
+      DOCKER_HOST: "http://198.18.9.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.9.0"
-      FLUX_ADMIN_ZELID: "1EqVbVQ1aw6PPfm88C3VN8Yvpmqpej8tbW"
+      FLUX_NODE_IP: "198.18.9.0"
+      FLUX_ADMIN_ZELID: "1EiF9yMrgCxyn1m3L5ms1KGsukACSiC62K"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -744,7 +735,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.10.1
+        ipv4_address: 198.18.10.1
     volumes:
       - dind-10-data:/var/lib/docker
     healthcheck:
@@ -761,11 +752,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.10.0
+        ipv4_address: 198.18.10.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-10.conf"
@@ -775,17 +765,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node10_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.10.1:2375"
+      DOCKER_HOST: "http://198.18.10.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.10.0"
-      FLUX_ADMIN_ZELID: "1P2J6Wf92t56n5P8274Z341cnVdVVeM12U"
+      FLUX_NODE_IP: "198.18.10.0"
+      FLUX_ADMIN_ZELID: "16UpVBGYzbd8fcNsUb9CGcZ8jq7hkVnTet"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -818,7 +808,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.11.1
+        ipv4_address: 198.18.11.1
     volumes:
       - dind-11-data:/var/lib/docker
     healthcheck:
@@ -835,11 +825,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.11.0
+        ipv4_address: 198.18.11.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-11.conf"
@@ -849,17 +838,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node11_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.11.1:2375"
+      DOCKER_HOST: "http://198.18.11.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.11.0"
-      FLUX_ADMIN_ZELID: "17pJ4RKHnNVa8HGsFmQJKS2xFmDoKWEZhq"
+      FLUX_NODE_IP: "198.18.11.0"
+      FLUX_ADMIN_ZELID: "17JNeroTTFcjik24FK1PvURrR4Hm4BEK84"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -892,7 +881,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.12.1
+        ipv4_address: 198.18.12.1
     volumes:
       - dind-12-data:/var/lib/docker
     healthcheck:
@@ -909,11 +898,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.12.0
+        ipv4_address: 198.18.12.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-12.conf"
@@ -923,17 +911,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node12_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.12.1:2375"
+      DOCKER_HOST: "http://198.18.12.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.12.0"
-      FLUX_ADMIN_ZELID: "133jN1iJKYR3YCSXrEEGGXu6u79ZmYVAja"
+      FLUX_NODE_IP: "198.18.12.0"
+      FLUX_ADMIN_ZELID: "1CrAabhNnPh1bEPjSQVufutuAz8KuSxC2G"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -966,7 +954,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.13.1
+        ipv4_address: 198.18.13.1
     volumes:
       - dind-13-data:/var/lib/docker
     healthcheck:
@@ -983,11 +971,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.13.0
+        ipv4_address: 198.18.13.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-13.conf"
@@ -997,17 +984,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node13_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.13.1:2375"
+      DOCKER_HOST: "http://198.18.13.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.13.0"
-      FLUX_ADMIN_ZELID: "18Lrf7uW7efSdWvm4rWWHvAvdyXfsyXn3X"
+      FLUX_NODE_IP: "198.18.13.0"
+      FLUX_ADMIN_ZELID: "1BVPr2Ls3ayGyoGJ5zStcjmx8P3SfZ5K6v"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -1040,7 +1027,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.14.1
+        ipv4_address: 198.18.14.1
     volumes:
       - dind-14-data:/var/lib/docker
     healthcheck:
@@ -1057,11 +1044,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.14.0
+        ipv4_address: 198.18.14.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-14.conf"
@@ -1071,17 +1057,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node14_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.14.1:2375"
+      DOCKER_HOST: "http://198.18.14.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.14.0"
-      FLUX_ADMIN_ZELID: "1xB27vW3iBC484i4jWgWEcJiXUyEoLEB6"
+      FLUX_NODE_IP: "198.18.14.0"
+      FLUX_ADMIN_ZELID: "13iA3DLMePG2ewfsv6aBmMfv92Y8GUpr8h"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -1114,7 +1100,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.15.1
+        ipv4_address: 198.18.15.1
     volumes:
       - dind-15-data:/var/lib/docker
     healthcheck:
@@ -1131,11 +1117,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.15.0
+        ipv4_address: 198.18.15.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-15.conf"
@@ -1145,17 +1130,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node15_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.15.1:2375"
+      DOCKER_HOST: "http://198.18.15.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.15.0"
-      FLUX_ADMIN_ZELID: "1MDzCYXWUdQNuxAfpAsLP1WrJgUWf1xwEM"
+      FLUX_NODE_IP: "198.18.15.0"
+      FLUX_ADMIN_ZELID: "1EopUrQjE7Ne2AmGLqC982g1S35HsqVWKx"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -1188,7 +1173,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.16.1
+        ipv4_address: 198.18.16.1
     volumes:
       - dind-16-data:/var/lib/docker
     healthcheck:
@@ -1205,11 +1190,10 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.16.0
+        ipv4_address: 198.18.16.0
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-16.conf"
@@ -1219,17 +1203,17 @@ services:
       FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node16_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.16.1:2375"
+      DOCKER_HOST: "http://198.18.16.1:2375"
       # Services
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.16.0"
-      FLUX_ADMIN_ZELID: "16vK3jxy9TeFoxqRAuvuGCwo76Joihwi5N"
+      FLUX_NODE_IP: "198.18.16.0"
+      FLUX_ADMIN_ZELID: "1CL8CQwn4AZ1wvKHQ1TVvg6XxHnW5s1VxA"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"

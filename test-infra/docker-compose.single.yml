@@ -5,7 +5,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 10.10.0.0/16
+        - subnet: 198.18.0.0/16
 
 volumes:
   mongo-data:
@@ -16,7 +16,7 @@ services:
     image: mongo:7
     networks:
       flux-test-net:
-        ipv4_address: 10.10.0.2
+        ipv4_address: 198.18.0.2
     volumes:
       - mongo-data:/data/db
     healthcheck:
@@ -29,13 +29,11 @@ services:
     build: ./daemon-stub
     networks:
       flux-test-net:
-        ipv4_address: 10.10.0.3
+        ipv4_address: 198.18.0.3
     environment:
       FLUXD_PORT: "16124"
       BENCHD_PORT: "16224"
       CONTROL_PORT: "18232"
-      NODE_IP: "10.10.1.0"
-      NODE_TIER: "CUMULUS"
     volumes:
       - ./fixtures:/fixtures
     healthcheck:
@@ -48,7 +46,7 @@ services:
     build: ./syncthing-stub
     networks:
       flux-test-net:
-        ipv4_address: 10.10.0.4
+        ipv4_address: 198.18.0.4
     environment:
       SYNCTHING_PORT: "8384"
       CONTROL_PORT: "8385"
@@ -65,7 +63,7 @@ services:
       DOCKER_TLS_CERTDIR: ""
     networks:
       flux-test-net:
-        ipv4_address: 10.10.1.1
+        ipv4_address: 198.18.1.1
     volumes:
       - dind-01-data:/var/lib/docker
     healthcheck:
@@ -82,26 +80,25 @@ services:
       - NET_ADMIN
     networks:
       flux-test-net:
-        ipv4_address: 10.10.1.0
+        ipv4_address: 198.18.1.0
     environment:
       # Arcane OS paths
       FLUX_LOG_CONSOLE: "1"
-      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-01.conf"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       # Database
       FLUX_DB_PREFIX: "node01_"
-      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
-      DOCKER_HOST: "http://10.10.1.1:2375"
+      DOCKER_HOST: "http://198.18.1.1:2375"
       # Daemon / Benchmark / Syncthing
-      FLUX_DAEMON_HOST: "10.10.0.3"
-      FLUX_BENCH_HOST: "10.10.0.3"
-      FLUX_SYNCTHING_HOST: "10.10.0.4"
+      FLUX_DAEMON_HOST: "198.18.0.3"
+      FLUX_BENCH_HOST: "198.18.0.3"
+      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
-      FLUX_NODE_IP: "10.10.1.0"
+      FLUX_NODE_IP: "198.18.1.0"
       FLUX_ADMIN_ZELID: "${NODE01_ZELID:-1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC}"
       FLUX_API_PORT: "16127"
       # Timing compression

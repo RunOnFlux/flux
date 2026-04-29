@@ -72,7 +72,7 @@ for (let i = 0; i < NODE_COUNT; i++) {
     staticIp: staticIps[i],
     txhash,
     outidx: '0',
-    ip: `10.10.${i + 1}.0`,
+    ip: `198.18.${i + 1}.0`,
   });
 
   writeFileSync(join(keysDir, `node-${num}.json`), JSON.stringify(kp, null, 2) + '\n');
