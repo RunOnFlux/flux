@@ -152,6 +152,7 @@ for (let i = 0; i < NODE_COUNT; i++) {
   w('      FLUX_SPAWN_DELAY_MS: "10000"');
   w('      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"');
   w('      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"');
+  w('      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"');
   w('      FLUX_LOCATION_TTL_S: "300"');
   w('      FLUX_INSTALLING_TTL_S: "60"');
   w('      FLUX_TEMP_MSG_TTL_S: "300"');
