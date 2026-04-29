@@ -42,6 +42,20 @@ services:
       timeout: 5s
       retries: 5
 
+  syncthing-stub:
+    build: ./syncthing-stub
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.0.4
+    environment:
+      SYNCTHING_PORT: "8384"
+      CONTROL_PORT: "8385"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8384/rest/noauth/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   dind-01:
     image: docker:27-dind
     privileged: true
@@ -52,6 +66,11 @@ services:
         ipv4_address: 10.10.1.1
     volumes:
       - dind-01-data:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
   fluxos-01:
     build:
@@ -63,17 +82,21 @@ services:
       flux-test-net:
         ipv4_address: 10.10.1.0
     environment:
+      # Arcane OS paths
+      FLUX_LOG_CONSOLE: "1"
+      FLUXOS_PATH: "/flux"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       # Database
       FLUX_DB_PREFIX: "node01_"
       FLUX_DB_HOST: "10.10.0.2"
       FLUX_DB_PORT: "27017"
       # Docker
       DOCKER_HOST: "http://10.10.1.1:2375"
-      # Daemon config
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      # Daemon / Benchmark / Syncthing
       FLUX_DAEMON_HOST: "10.10.0.3"
       FLUX_BENCH_HOST: "10.10.0.3"
-      FLUXBENCH_PATH: "/tmp"
+      FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.1.0"
       FLUX_ADMIN_ZELID: "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC"
@@ -97,5 +120,7 @@ services:
         condition: service_healthy
       daemon-stub:
         condition: service_healthy
+      syncthing-stub:
+        condition: service_healthy
       dind-01:
-        condition: service_started
+        condition: service_healthy

@@ -286,8 +286,8 @@ module.exports = {
     },
   },
   syncthing: { // operates on apiPort + 2
-    ip: '127.0.0.1', // local
-    port: 8384, // local
+    ip: process.env.FLUX_SYNCTHING_HOST || '127.0.0.1',
+    port: Number(process.env.FLUX_SYNCTHING_PORT) || 8384,
   },
   enterpriseAppOwners: [ // list of whitelisted app owner addresses allowed to deploy apps with datacenter=true
     '15ULw4JU6wqGESRYU3z3MjFETqLN3sA9Gn',
