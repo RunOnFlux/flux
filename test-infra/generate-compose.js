@@ -29,6 +29,7 @@ w('services:');
 // MongoDB
 w('  mongodb:');
 w('    image: mongo:7');
+w('    command: ["--wiredTigerCacheSizeGB", "1"]');
 w('    networks:');
 w('      flux-test-net:');
 w('        ipv4_address: 198.18.0.2');

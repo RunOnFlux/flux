@@ -29,6 +29,7 @@ volumes:
 services:
   mongodb:
     image: mongo:7
+    command: ["--wiredTigerCacheSizeGB", "1"]
     networks:
       flux-test-net:
         ipv4_address: 198.18.0.2
