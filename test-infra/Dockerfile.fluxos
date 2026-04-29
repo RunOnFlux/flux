@@ -1,0 +1,32 @@
+FROM ubuntu:26.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    sudo \
+    ufw \
+    mount \
+    cron \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /flux
+
+COPY package.json package-lock.json ./
+RUN npm ci --production
+
+COPY . .
+
+COPY test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
+
+ENV NODE_CONFIG_DIR=/flux/ZelBack/config
+
+EXPOSE 16126 16127 16128 16129
+
+CMD ["node", "app.js"]

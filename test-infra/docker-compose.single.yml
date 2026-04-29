@@ -1,0 +1,99 @@
+networks:
+  flux-test-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.0.0/16
+
+volumes:
+  mongo-data:
+  dind-01-data:
+
+services:
+  mongodb:
+    image: mongo:7
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.0.2
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  daemon-stub:
+    build: ./daemon-stub
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.0.3
+    environment:
+      FLUXD_PORT: "16124"
+      BENCHD_PORT: "16224"
+      CONTROL_PORT: "18232"
+      NODE_IP: "10.10.1.0"
+      NODE_TIER: "CUMULUS"
+    volumes:
+      - ./fixtures:/fixtures
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:18232/state', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  dind-01:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.1.1
+    volumes:
+      - dind-01-data:/var/lib/docker
+
+  fluxos-01:
+    build:
+      context: ..
+      dockerfile: test-infra/Dockerfile.fluxos
+    networks:
+      flux-test-net:
+        ipv4_address: 10.10.1.0
+    environment:
+      # Database
+      FLUX_DB_PREFIX: "node01_"
+      FLUX_DB_HOST: "10.10.0.2"
+      FLUX_DB_PORT: "27017"
+      # Docker
+      DOCKER_HOST: "tcp://10.10.1.1:2375"
+      # Daemon config
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUX_DAEMON_HOST: "10.10.0.3"
+      FLUX_BENCH_HOST: "10.10.0.3"
+      FLUXBENCH_PATH: "/tmp"
+      # Node identity
+      FLUX_NODE_IP: "10.10.1.0"
+      FLUX_ADMIN_ZELID: "1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC"
+      FLUX_API_PORT: "16127"
+      # Timing compression
+      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
+      FLUX_SPAWN_DELAY_MS: "10000"
+      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_LOCATION_TTL_S: "300"
+      FLUX_INSTALLING_TTL_S: "60"
+      FLUX_TEMP_MSG_TTL_S: "300"
+      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
+      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
+      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
+      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
+      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
+      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
+      FLUX_REMOVAL_SPACING_MS: "1000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      daemon-stub:
+        condition: service_healthy
+      dind-01:
+        condition: service_started
