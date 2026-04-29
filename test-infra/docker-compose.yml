@@ -118,7 +118,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.1.0"
-      FLUX_ADMIN_ZELID: "114FoyBsMa5C72VtCsu2XPmXag9UpQMXey"
+      FLUX_ADMIN_ZELID: "15NLqjc1XJDHiYYo8hsdSP73Fbt3qFrFvB"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -191,7 +191,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.2.0"
-      FLUX_ADMIN_ZELID: "1ECQn2fEUehFuoRRuZgfc4FYtGjLdRbtpb"
+      FLUX_ADMIN_ZELID: "1HQY2rPRqckWRDoghnBpjU8fCgmSPzbmxZ"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -264,7 +264,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.3.0"
-      FLUX_ADMIN_ZELID: "1G6tiudSAbaFmbQz9cLQa8rm3n34r1LTW5"
+      FLUX_ADMIN_ZELID: "1H4FVCzKysVaZv3RNAL48AbHFAhi74Ayq7"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -337,7 +337,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.4.0"
-      FLUX_ADMIN_ZELID: "1FN4W1DpzkDhQMTnPHhhEF1xPhwCeXMNTY"
+      FLUX_ADMIN_ZELID: "12Jdf9TCGfu2uroiWmWZ3dNXhot1tvxWCq"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -410,7 +410,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.5.0"
-      FLUX_ADMIN_ZELID: "133Hny2TsjPRXDEsgwvayBbCgdzQyN8z3L"
+      FLUX_ADMIN_ZELID: "149VyVzNhKF7PvySoSnkK9qoFCue7nyK4Z"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -483,7 +483,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.6.0"
-      FLUX_ADMIN_ZELID: "13jLamo1YJmMdR8YDf2TsUSPrC4KUM8dxV"
+      FLUX_ADMIN_ZELID: "1NjYhUrCjB9zBMW3Zeon73UX7j8ECWvERa"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -556,7 +556,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.7.0"
-      FLUX_ADMIN_ZELID: "17FzF9nPbqBgTGudMQFVK2Wz5hbhyyEnqM"
+      FLUX_ADMIN_ZELID: "1LAvPuTbmj26F4vTLZxF5jabhDpTQ2YinP"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -629,7 +629,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.8.0"
-      FLUX_ADMIN_ZELID: "15tC5NcskErGTYeXJmYMkvmyBHDaK9J2a5"
+      FLUX_ADMIN_ZELID: "1KjNhqN3ixBpjs2poa52DwvqnMzx7WQ1PY"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -702,7 +702,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.9.0"
-      FLUX_ADMIN_ZELID: "1LN5SvRD3HH7RDdvECNDyKH878iSpxEkoY"
+      FLUX_ADMIN_ZELID: "1EqVbVQ1aw6PPfm88C3VN8Yvpmqpej8tbW"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -775,7 +775,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.10.0"
-      FLUX_ADMIN_ZELID: "1Humc8jTUmu2BEe2FvYKdUab1gorCfhT9F"
+      FLUX_ADMIN_ZELID: "1P2J6Wf92t56n5P8274Z341cnVdVVeM12U"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -848,7 +848,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.11.0"
-      FLUX_ADMIN_ZELID: "1JawfiDJRFHAXfZ9RrWtR2ndasQ5S3xv6z"
+      FLUX_ADMIN_ZELID: "17pJ4RKHnNVa8HGsFmQJKS2xFmDoKWEZhq"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -921,7 +921,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.12.0"
-      FLUX_ADMIN_ZELID: "1M8tpbWsNSCsoX2nX7kp8dGC8AiXuNQrfL"
+      FLUX_ADMIN_ZELID: "133jN1iJKYR3YCSXrEEGGXu6u79ZmYVAja"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -994,7 +994,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.13.0"
-      FLUX_ADMIN_ZELID: "1CPTMgMGY3ibw6WvAomapUcdAP8JcY1hf8"
+      FLUX_ADMIN_ZELID: "18Lrf7uW7efSdWvm4rWWHvAvdyXfsyXn3X"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -1067,7 +1067,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.14.0"
-      FLUX_ADMIN_ZELID: "1JCfCk7GbNG2YCCdevszmMigUeEejpueS2"
+      FLUX_ADMIN_ZELID: "1xB27vW3iBC484i4jWgWEcJiXUyEoLEB6"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -1140,7 +1140,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.15.0"
-      FLUX_ADMIN_ZELID: "1Ni8KZL8AGPSCPYQHKHLnAuYDUrJe4g1ZP"
+      FLUX_ADMIN_ZELID: "1MDzCYXWUdQNuxAfpAsLP1WrJgUWf1xwEM"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -1213,7 +1213,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.16.0"
-      FLUX_ADMIN_ZELID: "1Lzr5odXFhFe8wRXz1jkNZ24axsvFdbiDM"
+      FLUX_ADMIN_ZELID: "16vK3jxy9TeFoxqRAuvuGCwo76Joihwi5N"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
