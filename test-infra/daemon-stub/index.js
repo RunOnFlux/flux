@@ -84,11 +84,12 @@ const rpcHandlers = {
   getblock: (params) => {
     const hashOrHeight = params[0];
     const verbosity = params[1] || 1;
+    const asNum = Number(hashOrHeight);
 
-    const pending = pendingBlocks.find((b) => b.height === hashOrHeight || b.hash === hashOrHeight);
+    const pending = pendingBlocks.find((b) => b.height === asNum || b.height === hashOrHeight || b.hash === hashOrHeight);
     if (pending) return pending;
 
-    const height = typeof hashOrHeight === 'number' ? hashOrHeight : currentHeight;
+    const height = !Number.isNaN(asNum) ? asNum : currentHeight;
     const block = {
       hash: `000000000000stub${height}`,
       confirmations: currentHeight - height + 1,
