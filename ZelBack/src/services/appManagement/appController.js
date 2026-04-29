@@ -8,6 +8,8 @@ const appInspector = require('./appInspector');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const log = require('../../lib/log');
 
+const globalCmdDelayMs = Number(process.env.FLUX_GLOBAL_CMD_DELAY_MS) || 500;
+
 /**
  * Get application locations from the global database
  * @param {string} appname - Application name
@@ -85,7 +87,7 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
           log.error(`Axios request failed for ${url}`, error);
         });
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500);
+      await serviceHelper.delay(globalCmdDelayMs);
     }
   } catch (error) {
     log.error(error);

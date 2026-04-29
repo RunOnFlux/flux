@@ -61,6 +61,21 @@ const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
 const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
 
+const bootDelayMultiplier = Number(process.env.FLUX_BOOT_DELAY_MULTIPLIER) || 1;
+function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
+
+const portRestoreIntervalMs = Number(process.env.FLUX_PORT_RESTORE_INTERVAL_MS) || 10 * 60 * 1000;
+const cpuCheckIntervalMs = Number(process.env.FLUX_CPU_CHECK_INTERVAL_MS) || 15 * 60 * 1000;
+const imageComplianceIntervalMs = Number(process.env.FLUX_IMAGE_COMPLIANCE_INTERVAL_MS) || 60 * 60 * 1000;
+const forceRemovalIntervalMs = Number(process.env.FLUX_FORCE_REMOVAL_INTERVAL_MS) || 2 * 60 * 60 * 1000;
+const hashSyncIntervalMs = Number(process.env.FLUX_HASH_SYNC_INTERVAL_MS) || 30 * 60 * 1000;
+const peerNotifyIntervalMs = Number(process.env.FLUX_PEER_NOTIFY_INTERVAL_MS) || 60 * 60 * 1000;
+const locationTtlS = Number(process.env.FLUX_LOCATION_TTL_S) || 7500;
+const installingTtlS = Number(process.env.FLUX_INSTALLING_TTL_S) || 900;
+const installErrorTtlS = Number(process.env.FLUX_INSTALL_ERROR_TTL_S) || 3600;
+const tempMsgTtlS = Number(process.env.FLUX_TEMP_MSG_TTL_S) || 3600;
+const removalSpacingMs = Number(process.env.FLUX_REMOVAL_SPACING_MS) || 60_000;
+
 // State objects for monitoring services
 const dosState = {
   dosMessage: null,
@@ -174,7 +189,7 @@ async function startFluxFunctions() {
     log.info('Preparing temporary database...');
     // no need to drop temporary messages
     const databaseTemp = db.db(config.database.appsglobal.database);
-    await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
+    await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: tempMsgTtlS });
     log.info('Temporary database prepared');
     log.info('Preparing Flux Apps locations');
 
@@ -192,7 +207,7 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
     // more than 2 hours and 5m. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
-    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: locationTtlS });
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
     log.info('Flux Apps locations prepared');
     // we just keep installing messages for 15 minutes
@@ -201,15 +216,15 @@ async function startFluxFunctions() {
       collMod: config.database.appsglobal.collections.appsInstallingLocations,
       index: {
         keyPattern: { broadcastedAt: 1 },
-        expireAfterSeconds: 900,
+        expireAfterSeconds: installingTtlS,
       },
     }).catch(() => {}); // Ignore error if index doesn't exist yet
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 900 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: installingTtlS });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install location based on specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
     log.info('Flux Apps installing locations prepared');
     // we keep installing error messages for 60 minutes
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ cachedAt: 1 }, { expireAfterSeconds: 3600 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ cachedAt: 1 }, { expireAfterSeconds: installErrorTtlS });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
@@ -231,7 +246,7 @@ async function startFluxFunctions() {
         // eslint-disable-next-line no-await-in-loop
         await appUninstaller.removeAppLocally(appName, null, false, true, true);
         // eslint-disable-next-line no-await-in-loop
-        await new Promise((r) => { setTimeout(r, 60_000); });
+        await new Promise((r) => { setTimeout(r, removalSpacingMs); });
       }
     };
 
@@ -243,7 +258,7 @@ async function startFluxFunctions() {
       volumeValidationService.checkAndFixIncorrectVolumeMounts().catch((error) => {
         log.error(`Volume validation service error: ${error.message}`);
       });
-    }, 45 * 1000); // Run after 45 seconds to allow system to stabilize
+    }, bootDelay(45 * 1000)); // Run after 45 seconds to allow system to stabilize
 
     // Validate hardware requirements and remove non-compliant apps FIRST
     log.info('Scheduling hardware validation check...');
@@ -251,7 +266,7 @@ async function startFluxFunctions() {
       hardwareValidationService.performBootTimeHardwareValidation().catch((error) => {
         log.error(`Hardware validation service error: ${error.message}`);
       });
-    }, 50 * 1000); // Run at 50 seconds - BEFORE stopped apps recovery
+    }, bootDelay(50 * 1000)); // Run at 50 seconds - BEFORE stopped apps recovery
 
     // Start stopped apps on boot (excluding g: syncthing mode apps which are managed by masterSlaveApps)
     log.info('Scheduling stopped apps recovery check...');
@@ -259,7 +274,7 @@ async function startFluxFunctions() {
       stoppedAppsRecovery.startStoppedAppsOnBoot().catch((error) => {
         log.error(`Stopped apps recovery service error: ${error.message}`);
       });
-    }, 55 * 1000); // Run after 55 seconds, after hardware validation
+    }, bootDelay(55 * 1000)); // Run after 55 seconds, after hardware validation
 
     log.info('Flux Apps installing locations prepared');
 
@@ -283,7 +298,7 @@ async function startFluxFunctions() {
     setTimeout(() => {
       imageUpdateService.startImageUpdateService();
       log.info('Native image update service started');
-    }, 10 * 60 * 1000); // 10 minutes after startup
+    }, bootDelay(10 * 60 * 1000)); // 10 minutes after startup
     fluxNetworkHelper.checkDeterministicNodesCollisions();
     appTamperingBlocklistService.start().catch((err) => {
       log.error(`appTamperingBlocklist start error: ${err.message}`);
@@ -340,16 +355,16 @@ async function startFluxFunctions() {
       log.info('Rechecking firewall app rules');
       await fluxNetworkHelper.purgeUFW();
       advancedWorkflows.testAppMount(); // test if our node can mount a volume
-    }, 30 * 1000);
+    }, bootDelay(30 * 1000));
     setTimeout(() => {
       appController.stopAllNonFluxRunningApps();
       monitoringOrchestrator.startMonitoringOfApps(null, globalState.appsMonitored, appQueryService.installedApps);
       portManager.restoreAppsPortsSupport();
-    }, 1 * 60 * 1000);
+    }, bootDelay(1 * 60 * 1000));
     setTimeout(() => {
       // Check for enterprise apps on non-arcaneOS nodes and remove them
       advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
-    }, 2 * 60 * 1000); // 2 minutes after startup
+    }, bootDelay(2 * 60 * 1000)); // 2 minutes after startup
     // Resolve this node's enterprise identity once, up front. Self-reschedules
     // every 5 minutes until the pubkey resolves (daemon/benchmark may still be
     // coming up). Once cached, hot paths (spawn loop) read it synchronously
@@ -371,7 +386,7 @@ async function startFluxFunctions() {
     });
     setInterval(() => {
       portManager.restorePortsSupport(); // restore fluxos and apps ports/upnp
-    }, 10 * 60 * 1000); // every 10 minutes
+    }, portRestoreIntervalMs); // every 10 minutes
     log.info('Starting setting Node Geolocation');
     geolocationService.setNodeGeolocation();
     setTimeout(() => {
@@ -382,7 +397,7 @@ async function startFluxFunctions() {
       } catch (err) {
         log.error(err);
       }
-    }, 20 * 60 * 1000);
+    }, bootDelay(20 * 60 * 1000));
     setTimeout(async () => { // wait as of restarts due to ui building
       try {
         // todo code shall be removed after some time
@@ -452,13 +467,13 @@ async function startFluxFunctions() {
         explorerService.initiateBlockProcessor(true, true);
         log.info('Flux Block Processing Service started with exception.');
       }
-    }, 2 * 60 * 1000);
+    }, bootDelay(2 * 60 * 1000));
     setTimeout(() => {
       appInspector.checkApplicationsCpuUSage(globalState.appsMonitored, appQueryService.installedApps);
       setInterval(() => {
         appInspector.checkApplicationsCpuUSage(globalState.appsMonitored, appQueryService.installedApps);
-      }, 15 * 60 * 1000);
-    }, 15 * 60 * 1000);
+      }, cpuCheckIntervalMs);
+    }, bootDelay(cpuCheckIntervalMs));
     setTimeout(() => {
       // appsService.checkForNonAllowedAppsOnLocalNetwork();
       availabilityChecker.checkMyAppsAvailability(
@@ -468,10 +483,10 @@ async function startFluxFunctions() {
         portManager.failedNodesTestPortsCache,
         fluxNetworkHelper.isArcane,
       );
-    }, 3 * 60 * 1000);
+    }, bootDelay(3 * 60 * 1000));
     setTimeout(() => {
       nodeStatusMonitor.monitorNodeStatus(appQueryService.installedApps, appUninstaller.removeAppLocally);
-    }, 1.5 * 60 * 1000);
+    }, bootDelay(1.5 * 60 * 1000));
     setTimeout(() => {
       peerNotification.checkAndNotifyPeersOfRunningApps(
         appQueryService.installedApps,
@@ -485,7 +500,7 @@ async function startFluxFunctions() {
         () => globalState,
         cacheManager,
       ); // first broadcast after 1m of starting fluxos
-      setInterval(() => { // every 60 mins messages stay on db for 65m
+      setInterval(() => { // every 60 mins
         peerNotification.checkAndNotifyPeersOfRunningApps(
           appQueryService.installedApps,
           appQueryService.listRunningApps,
@@ -498,8 +513,8 @@ async function startFluxFunctions() {
           () => globalState,
           cacheManager,
         );
-      }, 60 * 60 * 1000);
-    }, 1 * 60 * 1000);
+      }, peerNotifyIntervalMs);
+    }, bootDelay(1 * 60 * 1000));
     setTimeout(() => {
       syncthingMonitor.syncthingApps(
         globalState,
@@ -524,53 +539,61 @@ async function startFluxFunctions() {
       setTimeout(() => {
         appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally, globalState); // Monitor SharedDB Apps.
       }, 60 * 1000);
-    }, 3 * 60 * 1000);
+    }, bootDelay(3 * 60 * 1000));
     setTimeout(() => {
-      setInterval(() => { // every 30 mins (15 blocks)
+      setInterval(() => {
         appHashSyncService.continuousFluxAppHashesCheck();
-      }, 30 * 60 * 1000);
+      }, hashSyncIntervalMs);
       appHashSyncService.continuousFluxAppHashesCheck();
-    }, (Math.floor(Math.random() * (30 - 15 + 1)) + 15) * 60 * 1000); // start between 15m and 30m after fluxOs start
-    setTimeout(async () => {
-      // Enterprise-network nodes (pubkey in enterpriseNodesPublicKeys) start
-      // spawning at T+62m. Every other node keeps the legacy 125-135m window,
-      // which gives enough time to receive apprunning messages at least twice.
-      let isEnterprise = enterpriseNetwork.getCachedEnterpriseIdentity();
-      if (isEnterprise === null) {
-        try {
-          isEnterprise = await enterpriseNetwork.isEnterpriseNode();
-        } catch (err) {
-          log.warn(`Enterprise identity unresolved at spawn-gate, treating as non-enterprise: ${err.message || err}`);
-          isEnterprise = false;
-        }
-      }
-      if (isEnterprise) {
-        log.info('Starting to spawn applications (enterprise, 62m)');
-        appSpawner.trySpawningGlobalApplication();
-        return;
-      }
-      const remainingMs = (Math.floor(Math.random() * (135 - 125 + 1)) + 125 - 62) * 60 * 1000;
+    }, bootDelay((Math.floor(Math.random() * (30 - 15 + 1)) + 15) * 60 * 1000)); // start between 15m and 30m after fluxOs start
+    const spawnDelayMs = Number(process.env.FLUX_SPAWN_DELAY_MS) || 0;
+    if (spawnDelayMs > 0) {
       setTimeout(() => {
-        log.info('Starting to spawn applications');
+        log.info('Starting to spawn applications (configured delay)');
         appSpawner.trySpawningGlobalApplication();
-      }, remainingMs);
-    }, 62 * 60 * 1000);
+      }, spawnDelayMs);
+    } else {
+      setTimeout(async () => {
+        // Enterprise-network nodes (pubkey in enterpriseNodesPublicKeys) start
+        // spawning at T+62m. Every other node keeps the legacy 125-135m window,
+        // which gives enough time to receive apprunning messages at least twice.
+        let isEnterprise = enterpriseNetwork.getCachedEnterpriseIdentity();
+        if (isEnterprise === null) {
+          try {
+            isEnterprise = await enterpriseNetwork.isEnterpriseNode();
+          } catch (err) {
+            log.warn(`Enterprise identity unresolved at spawn-gate, treating as non-enterprise: ${err.message || err}`);
+            isEnterprise = false;
+          }
+        }
+        if (isEnterprise) {
+          log.info('Starting to spawn applications (enterprise, 62m)');
+          appSpawner.trySpawningGlobalApplication();
+          return;
+        }
+        const remainingMs = (Math.floor(Math.random() * (135 - 125 + 1)) + 125 - 62) * 60 * 1000;
+        setTimeout(() => {
+          log.info('Starting to spawn applications');
+          appSpawner.trySpawningGlobalApplication();
+        }, remainingMs);
+      }, bootDelay(62 * 60 * 1000));
+    }
     setInterval(() => {
       imageManager.checkApplicationsCompliance(appQueryService.installedApps, appUninstaller.removeAppLocally);
-    }, 60 * 60 * 1000); //  every hour
+    }, imageComplianceIntervalMs);
     setTimeout(() => {
-      advancedWorkflows.forceAppRemovals(); // force cleanup of apps every 2h
+      advancedWorkflows.forceAppRemovals();
       setInterval(() => {
         advancedWorkflows.forceAppRemovals();
-      }, 2 * 60 * 60 * 1000);
-    }, 30 * 60 * 1000);
-    // Daemon health monitoring - check every 15 minutes
+      }, forceRemovalIntervalMs);
+    }, bootDelay(30 * 60 * 1000));
+    // Daemon health monitoring
     setTimeout(() => {
       daemonHealthMonitor.checkDaemonHealthAndCleanup();
       setInterval(() => {
         daemonHealthMonitor.checkDaemonHealthAndCleanup();
-      }, 15 * 60 * 1000); // Every 15 minutes
-    }, 5 * 60 * 1000); // Initial delay: 5 minutes (let daemon try to sync first)
+      }, bootDelay(15 * 60 * 1000));
+    }, bootDelay(5 * 60 * 1000));
     setTimeout(() => {
       appInspector.checkStorageSpaceForApps(
         appQueryService.installedApps,
@@ -578,10 +601,10 @@ async function startFluxFunctions() {
         advancedWorkflows.softRedeploy,
         appsStorageViolations,
       );
-    }, 20 * 60 * 1000);
+    }, bootDelay(20 * 60 * 1000));
     setInterval(() => {
       backupRestoreService.cleanLocalBackup();
-    }, 25 * 60 * 1000); // every 25 minutes
+    }, bootDelay(25 * 60 * 1000));
     if (development) { // just on development branch
       setInterval(async () => {
         await fluxService.enterDevelopment().catch((error) => log.error(error));

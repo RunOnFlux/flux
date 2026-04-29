@@ -19,7 +19,18 @@ const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'Z
 // eslint-disable-next-line no-unused-vars
 const appsFolder = `${appsFolderPath}/`;
 
-const docker = new Docker();
+const dockerOpts = {};
+if (process.env.DOCKER_HOST) {
+  try {
+    const url = new URL(process.env.DOCKER_HOST);
+    dockerOpts.host = url.hostname;
+    dockerOpts.port = url.port;
+    dockerOpts.protocol = url.protocol.replace(':', '');
+  } catch {
+    dockerOpts.socketPath = process.env.DOCKER_HOST;
+  }
+}
+const docker = new Docker(Object.keys(dockerOpts).length ? dockerOpts : undefined);
 
 /**
  * Creates a docker container object with a given ID.

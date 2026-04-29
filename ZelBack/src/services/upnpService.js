@@ -11,6 +11,17 @@ const log = require('../lib/log');
 
 const client = new natUpnp.Client();
 
+if (process.env.FLUX_UPNP_GATEWAY_URL) {
+  // eslint-disable-next-line global-require
+  const { Device } = require('@runonflux/nat-upnp/build/src/nat-upnp/device');
+  const gatewayUrl = process.env.FLUX_UPNP_GATEWAY_URL;
+  const nodeIp = process.env.FLUX_NODE_IP || '127.0.0.1';
+  client.getGateway = async () => ({
+    gateway: new Device(gatewayUrl),
+    address: nodeIp,
+  });
+}
+
 let upnpMachine = false;
 
 /**

@@ -3,6 +3,8 @@ let userconfig = require('../../config/userconfig');
 
 const isDevelopment = userconfig.initial.development || false;
 
+const dbPrefix = process.env.FLUX_DB_PREFIX || '';
+
 module.exports = {
   development: isDevelopment,
   loglevel: 'debug', // severity ordering specified by RFC5424
@@ -12,10 +14,10 @@ module.exports = {
     fluxNodeServiceAddress: '169.254.43.43',
   },
   database: {
-    url: '127.0.0.1',
-    port: 27017,
+    url: process.env.FLUX_DB_HOST || '127.0.0.1',
+    port: Number(process.env.FLUX_DB_PORT) || 27017,
     local: {
-      database: 'zelfluxlocal',
+      database: `${dbPrefix}zelfluxlocal`,
       collections: {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
@@ -29,7 +31,7 @@ module.exports = {
       },
     },
     daemon: {
-      database: 'zelcashdata',
+      database: `${dbPrefix}zelcashdata`,
       collections: {
         // addreesIndex contains a) balance, b) list of all transacitons, c) list of utxos
         scannedHeight: 'scannedheight',
@@ -41,13 +43,13 @@ module.exports = {
       },
     },
     appslocal: {
-      database: 'localzelapps',
+      database: `${dbPrefix}localzelapps`,
       collections: {
         appsInformation: 'zelappsinformation',
       },
     },
     appsglobal: {
-      database: 'globalzelapps',
+      database: `${dbPrefix}globalzelapps`,
       collections: {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
@@ -58,14 +60,14 @@ module.exports = {
       },
     },
     chainparams: {
-      database: 'chainparams',
+      database: `${dbPrefix}chainparams`,
       collections: {
         chainMessages: 'chainmessages', // soft fork messages occuring on chain, Messages have immediate activation from its occurance blockheight (next blockheight mined are already new specs enforced)
         // height, txid, message, version (version X_ determines the value of adjustment p_ specifies new price structure as per fluxapps.price array values)
       },
     },
     fluxshare: {
-      database: 'zelshare',
+      database: `${dbPrefix}zelshare`,
       collections: {
         shared: 'shared',
       },

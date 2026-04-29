@@ -25,6 +25,9 @@ let appInstaller; // Will be initialized to avoid circular dependency
 let appUninstaller; // Will be initialized to avoid circular dependency
 let appsCountAvailableToInstallOnMyNode = 0;
 
+const collisionWaitMs = Number(process.env.FLUX_INSTALL_COLLISION_WAIT_MS) || 90 * 1000;
+const spawnReconfirmDelayMs = Number(process.env.FLUX_SPAWN_RECONFIRM_DELAY_MS) || 125 * 60 * 1000;
+
 /**
  * Initialize the module with dependencies
  * @param {object} deps - Dependencies object
@@ -104,7 +107,7 @@ async function trySpawningGlobalApplication() {
         // after 125 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
         // 125 minutes should give enough time for node receive currently two times the apprunning messages
         trySpawningGlobalApplication();
-      }, 125 * 60 * 1000);
+      }, spawnReconfirmDelayMs);
       return;
     }
     globalState.fluxNodeWasAlreadyConfirmed = true;
@@ -614,7 +617,7 @@ async function trySpawningGlobalApplication() {
     const fluxCommMessagesSender = require('../fluxCommunicationMessagesSender');
     await fluxCommMessagesSender.broadcastMessageToAll(newAppInstallingMessage);
 
-    await serviceHelper.delay(90 * 1000); // give it 1.5m so messages are propagated on the network
+    await serviceHelper.delay(collisionWaitMs); // give it 1.5m so messages are propagated on the network
 
     // double check if app is installed in more of the instances requested
     runningAppList = await registryManager.appLocation(appToRun);
