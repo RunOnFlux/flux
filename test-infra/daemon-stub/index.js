@@ -24,6 +24,11 @@ try {
   console.error('Failed to load deterministic list:', e.message);
 }
 
+function nodeBySourceIp(sourceIp) {
+  const clean = sourceIp.replace('::ffff:', '');
+  return deterministicNodeList.find((n) => n.ip.split(':')[0] === clean) || null;
+}
+
 const rpcHandlers = {
   getblockchaininfo: () => ({
     chain: 'main',
@@ -124,26 +129,30 @@ const rpcHandlers = {
   viewdeterministiczelnodelist: () => deterministicNodeList,
   viewdeterministicfluxnodelist: () => deterministicNodeList,
 
-  getzelnodestatus: () => ({
-    status: 'CONFIRMED',
-    collateral: 'COutPoint(e6c2e1ab89fa12fc1c73ee1eea79a2cb40c5ab06a3a0315eb8d048c49e700d1a, 0)',
-    txhash: 'e6c2e1ab89fa12fc1c73ee1eea79a2cb40c5ab06a3a0315eb8d048c49e700d1a',
-    outidx: '0',
-    ip: process.env.NODE_IP || '127.0.0.1',
-    network: '',
-    added_height: currentHeight - 1000,
-    confirmed_height: currentHeight - 500,
-    last_confirmed_height: currentHeight - 10,
-    last_paid_height: currentHeight - 100,
-    tier: process.env.NODE_TIER || 'CUMULUS',
-    payment_address: 'stub-payment-address',
-    pubkey: process.env.NODE_PUBKEY || 'stub-pubkey',
-    activesince: Math.floor(Date.now() / 1000) - 86400,
-    lastpaid: Math.floor(Date.now() / 1000) - 3600,
-    rank: 1,
-  }),
+  getzelnodestatus: (params, sourceIp) => {
+    const node = nodeBySourceIp(sourceIp);
+    return {
+      status: 'CONFIRMED',
+      collateral: node ? node.collateral : 'COutPoint(0000000000000000000000000000000000000000000000000000000000000000, 0)',
+      txhash: node ? node.txhash : '0000000000000000000000000000000000000000000000000000000000000000',
+      outidx: node ? node.outidx : '0',
+      ip: node ? node.ip : '127.0.0.1',
+      network: '',
+      added_height: node ? node.added_height : currentHeight - 1000,
+      confirmed_height: node ? node.confirmed_height : currentHeight - 500,
+      last_confirmed_height: node ? node.last_confirmed_height : currentHeight - 10,
+      last_paid_height: node ? node.last_paid_height : currentHeight - 100,
+      tier: node ? node.tier : 'CUMULUS',
+      payment_address: node ? node.payment_address : 'stub-payment-address',
+      pubkey: node ? node.pubkey : 'stub-pubkey',
+      activesince: node ? String(node.activesince) : String(Math.floor(Date.now() / 1000) - 86400),
+      lastpaid: node ? String(node.lastpaid) : String(Math.floor(Date.now() / 1000) - 3600),
+      amount: '1000.00',
+      rank: node ? node.rank : 1,
+    };
+  },
 
-  getfluxnodestatus: function f(params) { return this.getzelnodestatus(params); },
+  getfluxnodestatus: function f(params, sourceIp) { return this.getzelnodestatus(params, sourceIp); },
 
   getzelnodecount: () => ({
     total: deterministicNodeList.length,
@@ -213,8 +222,9 @@ const rpcHandlers = {
 };
 
 const benchHandlers = {
-  getbenchmarks: () => {
-    const tier = (process.env.NODE_TIER || 'CUMULUS').toLowerCase();
+  getbenchmarks: (params, sourceIp) => {
+    const node = nodeBySourceIp(sourceIp);
+    const tier = node ? node.tier.toLowerCase() : 'cumulus';
     const specs = {
       cumulus: { cores: 4, ram: 7.5, ssd: 240, hdd: 0, ddwrite: 200, eps: 500, ping: 5, download_speed: 200, upload_speed: 100 },
       nimbus: { cores: 8, ram: 31, ssd: 480, hdd: 0, ddwrite: 300, eps: 1000, ping: 3, download_speed: 500, upload_speed: 250 },
@@ -222,7 +232,7 @@ const benchHandlers = {
     };
     const s = specs[tier] || specs.cumulus;
     return {
-      ipaddress: process.env.NODE_IP || '127.0.0.1',
+      ipaddress: node ? node.ip.split(':')[0] : '127.0.0.1',
       cores: s.cores,
       ram: s.ram,
       ssd: s.ssd,
@@ -249,9 +259,15 @@ const benchHandlers = {
     flux: true,
   }),
 
-  getpublicip: () => process.env.NODE_IP || '127.0.0.1',
+  getpublicip: (params, sourceIp) => {
+    const node = nodeBySourceIp(sourceIp);
+    return node ? node.ip.split(':')[0] : '127.0.0.1';
+  },
 
-  getpublickey: () => process.env.NODE_PUBKEY || 'stub-pubkey',
+  getpublickey: (params, sourceIp) => {
+    const node = nodeBySourceIp(sourceIp);
+    return node ? node.pubkey : 'stub-pubkey';
+  },
 
   getinfo: () => ({
     version: '5.0.0',
@@ -264,6 +280,7 @@ const benchHandlers = {
 
 function handleRpc(handlers, req, res) {
   const { method, params, id } = req.body;
+  const sourceIp = req.ip;
 
   if (!method) {
     return res.status(400).json({ result: null, error: { code: -32600, message: 'Missing method' }, id });
@@ -273,15 +290,15 @@ function handleRpc(handlers, req, res) {
   const handler = handlers[lowerMethod];
 
   if (!handler) {
-    console.log(`Unhandled RPC method: ${method}`);
+    console.log(`Unhandled RPC method: ${method} from ${sourceIp}`);
     return res.json({ result: null, error: { code: -32601, message: `Method not found: ${method}` }, id });
   }
 
   try {
-    const result = typeof handler === 'function' ? handler.call(handlers, params || []) : handler;
+    const result = typeof handler === 'function' ? handler.call(handlers, params || [], sourceIp) : handler;
     return res.json({ result, error: null, id });
   } catch (e) {
-    console.error(`RPC error for ${method}:`, e.message);
+    console.error(`RPC error for ${method} from ${sourceIp}:`, e.message);
     return res.json({ result: null, error: { code: -1, message: e.message }, id });
   }
 }
