@@ -146,10 +146,12 @@ for (let i = 0; i < NODE_COUNT; i++) {
   w('      FLUX_MIN_INCOMING: "2"');
   w('      FLUX_MIN_UNIQUE_OUTGOING: "3"');
   w('      FLUX_MIN_UNIQUE_INCOMING: "2"');
+  w('      FLUX_MIN_HASH_SYNC_PEERS: "4"');
   w('      # Timing compression');
   w('      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"');
   w('      FLUX_SPAWN_DELAY_MS: "10000"');
   w('      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"');
+  w('      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"');
   w('      FLUX_LOCATION_TTL_S: "300"');
   w('      FLUX_INSTALLING_TTL_S: "60"');
   w('      FLUX_TEMP_MSG_TTL_S: "300"');

@@ -216,6 +216,7 @@ module.exports = {
     minUniqueIpsOutgoing: Number(process.env.FLUX_MIN_UNIQUE_OUTGOING) || 7,
     minIncoming: Number(process.env.FLUX_MIN_INCOMING) || 4,
     minUniqueIpsIncoming: Number(process.env.FLUX_MIN_UNIQUE_INCOMING) || 3,
+    minHashSyncPeers: Number(process.env.FLUX_MIN_HASH_SYNC_PEERS) || 12,
     minUpTime: 1800, // 30 mins
     installation: {
       probability: 100, // 1%

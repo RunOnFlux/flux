@@ -894,7 +894,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
 async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
   try {
     const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();
-    if (numberOfPeers < 12) {
+    if (numberOfPeers < config.fluxapps.minHashSyncPeers) {
       log.info('checkAndRequestMultipleApps - Not enough connected peers to request missing Flux App messages');
       return;
     }
@@ -936,7 +936,7 @@ async function continuousFluxAppHashesCheck(force = false) {
     log.info('Requesting missing Flux App messages');
     continuousFluxAppHashesCheckRunning = true;
     const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();
-    if (numberOfPeers < 12) {
+    if (numberOfPeers < config.fluxapps.minHashSyncPeers) {
       log.info('Not enough connected peers to request missing Flux App messages');
       continuousFluxAppHashesCheckRunning = false;
       return;
