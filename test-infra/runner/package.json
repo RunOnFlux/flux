@@ -1,0 +1,14 @@
+{
+  "name": "flux-e2e-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "E2E test runner and helpers for FluxOS test network",
+  "scripts": {
+    "test": "node test-network.js"
+  },
+  "dependencies": {
+    "@noble/secp256k1": "^2.2.3",
+    "@noble/hashes": "^1.7.2"
+  }
+}
