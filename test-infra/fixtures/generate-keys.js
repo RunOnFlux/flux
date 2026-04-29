@@ -22,10 +22,15 @@ function generateKeypair(label) {
   const addrPayload = Buffer.concat([Buffer.from([0x00]), Buffer.from(h160)]);
   const zelid = bs58check.encode(addrPayload);
 
+  // WIF: 0x80 + privkey + 0x01 (compressed) → base58check
+  const wifPayload = Buffer.concat([Buffer.from([0x80]), privKeyBytes, Buffer.from([0x01])]);
+  const wif = bs58check.encode(wifPayload);
+
   return {
     label,
     privkey: Buffer.from(privKeyBytes).toString('hex'),
     pubkey: Buffer.from(pubKeyBytes).toString('hex'),
+    wif,
     zelid,
   };
 }
@@ -114,6 +119,15 @@ writeFileSync(
   join(__dirname, 'node-manifest.json'),
   JSON.stringify({ nodes: nodeManifest, appOwner: { zelid: appOwner.zelid } }, null, 2) + '\n',
 );
+
+// Per-node flux.conf files
+const confDir = join(__dirname, 'conf');
+mkdirSync(confDir, { recursive: true });
+for (const n of nodes) {
+  const num = String(n.index + 1).padStart(2, '0');
+  const conf = `rpcuser=fluxtest\nrpcpassword=fluxtest\nrpcport=16124\nrpcallowip=0.0.0.0/0\nzelnodeprivkey=${n.wif}\n`;
+  writeFileSync(join(confDir, `flux-${num}.conf`), conf);
+}
 
 console.log(`Generated ${NODE_COUNT} node keypairs + app-owner keypair`);
 console.log(`  keys/node-01.json .. keys/node-${String(NODE_COUNT).padStart(2, '0')}.json`);

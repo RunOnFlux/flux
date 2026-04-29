@@ -101,7 +101,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-01.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -118,7 +118,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.1.0"
-      FLUX_ADMIN_ZELID: "1ApJJQANLsXZUjqk99ZQfaAYY8hajzr7vG"
+      FLUX_ADMIN_ZELID: "114FoyBsMa5C72VtCsu2XPmXag9UpQMXey"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -174,7 +174,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-02.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -191,7 +191,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.2.0"
-      FLUX_ADMIN_ZELID: "1Q6zr4DfL25rGcvbV4Mxp92fCo8zXg89xr"
+      FLUX_ADMIN_ZELID: "1ECQn2fEUehFuoRRuZgfc4FYtGjLdRbtpb"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -247,7 +247,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-03.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -264,7 +264,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.3.0"
-      FLUX_ADMIN_ZELID: "1Aig8wfePstuHgeaocfWMm7BD7cLuAahB7"
+      FLUX_ADMIN_ZELID: "1G6tiudSAbaFmbQz9cLQa8rm3n34r1LTW5"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -320,7 +320,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-04.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -337,7 +337,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.4.0"
-      FLUX_ADMIN_ZELID: "12ddxQL8or9T7qcezh3NzRDM1yuVFvMWXR"
+      FLUX_ADMIN_ZELID: "1FN4W1DpzkDhQMTnPHhhEF1xPhwCeXMNTY"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -393,7 +393,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-05.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -410,7 +410,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.5.0"
-      FLUX_ADMIN_ZELID: "1KGsmBXWWqznBfbgHuTarMdb7wMwianmpz"
+      FLUX_ADMIN_ZELID: "133Hny2TsjPRXDEsgwvayBbCgdzQyN8z3L"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -466,7 +466,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-06.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -483,7 +483,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.6.0"
-      FLUX_ADMIN_ZELID: "1EcBXvMktCu8WbnteJ9cnRxSvCueXK6NMZ"
+      FLUX_ADMIN_ZELID: "13jLamo1YJmMdR8YDf2TsUSPrC4KUM8dxV"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -539,7 +539,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-07.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -556,7 +556,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.7.0"
-      FLUX_ADMIN_ZELID: "1BAiD4BjDmxujzrmUUhsydYXSQzQnXV8Ma"
+      FLUX_ADMIN_ZELID: "17FzF9nPbqBgTGudMQFVK2Wz5hbhyyEnqM"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -612,7 +612,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-08.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -629,7 +629,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.8.0"
-      FLUX_ADMIN_ZELID: "1LqYDJe3z4uRFV97cEtMqj97cfyW1H2qbN"
+      FLUX_ADMIN_ZELID: "15tC5NcskErGTYeXJmYMkvmyBHDaK9J2a5"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -685,7 +685,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-09.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -702,7 +702,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.9.0"
-      FLUX_ADMIN_ZELID: "12aBDE8zRXzrhu94qraqLjac1C4Vsvdrj4"
+      FLUX_ADMIN_ZELID: "1LN5SvRD3HH7RDdvECNDyKH878iSpxEkoY"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -758,7 +758,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-10.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -775,7 +775,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.10.0"
-      FLUX_ADMIN_ZELID: "14Mo2gTRrXk1staR83CXwtpae5Yxd5H62N"
+      FLUX_ADMIN_ZELID: "1Humc8jTUmu2BEe2FvYKdUab1gorCfhT9F"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -831,7 +831,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-11.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -848,7 +848,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.11.0"
-      FLUX_ADMIN_ZELID: "1AUqCG8Ew3QDunuGYLMgosLijmm1Q9WUkj"
+      FLUX_ADMIN_ZELID: "1JawfiDJRFHAXfZ9RrWtR2ndasQ5S3xv6z"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -904,7 +904,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-12.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -921,7 +921,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.12.0"
-      FLUX_ADMIN_ZELID: "1JxcUykCFGRoHp9LiUf5Dsq92ivTcw9C7E"
+      FLUX_ADMIN_ZELID: "1M8tpbWsNSCsoX2nX7kp8dGC8AiXuNQrfL"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -977,7 +977,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-13.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -994,7 +994,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.13.0"
-      FLUX_ADMIN_ZELID: "189fAkArYScRc715YfGA9Yt9FfVHM75ZwX"
+      FLUX_ADMIN_ZELID: "1CPTMgMGY3ibw6WvAomapUcdAP8JcY1hf8"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -1050,7 +1050,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-14.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -1067,7 +1067,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.14.0"
-      FLUX_ADMIN_ZELID: "12paMxHaWZQRCfHH7Ec3oYbQZmuL9wkBSD"
+      FLUX_ADMIN_ZELID: "1JCfCk7GbNG2YCCdevszmMigUeEejpueS2"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -1123,7 +1123,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-15.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -1140,7 +1140,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.15.0"
-      FLUX_ADMIN_ZELID: "1EjZ632g6JuB2jAVYCje21kkoxdgPWY12n"
+      FLUX_ADMIN_ZELID: "1Ni8KZL8AGPSCPYQHKHLnAuYDUrJe4g1ZP"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
@@ -1196,7 +1196,7 @@ services:
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-16.conf"
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
@@ -1213,7 +1213,7 @@ services:
       FLUX_SYNCTHING_HOST: "10.10.0.4"
       # Node identity
       FLUX_NODE_IP: "10.10.16.0"
-      FLUX_ADMIN_ZELID: "1AoYJoo41aMjcEf7NiUEM2i5yJ9ZMMJSCg"
+      FLUX_ADMIN_ZELID: "1Lzr5odXFhFe8wRXz1jkNZ24axsvFdbiDM"
       FLUX_API_PORT: "16127"
       # Timing compression
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"

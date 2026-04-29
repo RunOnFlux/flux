@@ -1,6 +1,7 @@
 {
   "label": "node-14",
-  "privkey": "48c4c52b3450778c70e1d400bc132cbc1a68f73c99b993a786595967028abe35",
-  "pubkey": "0223f1141da346137e38d737e9cd36799260cefb0f11f80a9b3a75093438eee188",
-  "zelid": "12paMxHaWZQRCfHH7Ec3oYbQZmuL9wkBSD"
+  "privkey": "0946816a78d755e806c63f7a66801bc89fe22a1f0c32b746d4cde766689c2610",
+  "pubkey": "0391b05c5cc7ae75620c4288b712fc20476587b4e802d21a136c4c70b8e5f5a85e",
+  "wif": "KwXjwDRS45x5qbpC3abQbox7ojXXRQJEje983F1tV2pJKRaUchyb",
+  "zelid": "1JCfCk7GbNG2YCCdevszmMigUeEejpueS2"
 }

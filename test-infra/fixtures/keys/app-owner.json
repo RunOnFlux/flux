@@ -1,6 +1,7 @@
 {
   "label": "app-owner",
-  "privkey": "ceff6ecae73c84d712289d9c88150cfaa083f21b9caf02a23ea61eb23d117a2a",
-  "pubkey": "02678fbde2de56e2cf2cbffb76e874047ac4fcadf5ac5b39727837faadefc8c5a0",
-  "zelid": "12NY4QuPJRfZ8dQDVWeYrdoXnnd6KFtXrT"
+  "privkey": "39e03f5e456e0f3799f80895820415d1f240c77f4bddcc815683bd01bacfe1c5",
+  "pubkey": "027ab1d9380f76bb1dcf547ff4166ee99957c9aa30b421c4817850b69cdede967a",
+  "wif": "KyADNpGfAh22zPq3LVccFyRfAMYJoFg5XoXAp7vo1aGC3RuVto1K",
+  "zelid": "1AUSngscpcUUunaeHxQxVCmrZUfuRb44i6"
 }

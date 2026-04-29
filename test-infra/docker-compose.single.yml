@@ -87,7 +87,7 @@ services:
       # Arcane OS paths
       FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
-      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"
+      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-01.conf"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       # Database
       FLUX_DB_PREFIX: "node01_"

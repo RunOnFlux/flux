@@ -116,7 +116,7 @@ for (let i = 0; i < NODE_COUNT; i++) {
   w('      FLUX_LOG_CONSOLE: "1"');
   w('      FLUXOS_PATH: "/flux"');
   w('      FLUXD_PATH: "/dat/var/lib/fluxd"');
-  w('      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"');
+  w(`      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-${num}.conf"`);
   w('      SYNCTHING_PATH: "/dat/usr/lib/syncthing"');
   w('      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"');
   w('      FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"');
