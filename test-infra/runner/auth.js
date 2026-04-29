@@ -69,7 +69,7 @@ export async function authenticate(nodeUrl, keypair) {
 
   const verifyRes = await fetch(`${nodeUrl}/id/verifylogin`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify({ zelid, loginPhrase, signature }),
   });
 
