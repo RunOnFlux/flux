@@ -9,4 +9,11 @@ mkdir -p /dat/var/lib/fluxd \
          /dat/usr/lib/fluxwatchdog \
          /dat/var/lib/fluxos/flux-apps
 
+# Syncthing listens on apiport+2 in production. The availability checker
+# tests this port. Forward it to the syncthing stub's API port.
+SYNCTHING_LISTEN_PORT=$((${FLUX_API_PORT:-16127} + 2))
+if [ -n "$FLUX_SYNCTHING_HOST" ]; then
+  socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &
+fi
+
 exec "$@"
