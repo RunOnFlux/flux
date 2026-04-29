@@ -115,8 +115,12 @@ for (let i = 0; i < NODE_COUNT; i++) {
   w('      # Arcane OS');
   w('      FLUX_LOG_CONSOLE: "1"');
   w('      FLUXOS_PATH: "/flux"');
+  w('      FLUXD_PATH: "/dat/var/lib/fluxd"');
   w('      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/flux.conf"');
+  w('      SYNCTHING_PATH: "/dat/usr/lib/syncthing"');
   w('      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"');
+  w('      FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"');
+  w('      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"');
   w('      # Database');
   w(`      FLUX_DB_PREFIX: "node${num}_"`);
   w('      FLUX_DB_HOST: "10.10.0.2"');
