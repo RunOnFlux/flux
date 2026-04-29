@@ -86,6 +86,7 @@ services:
     environment:
       # Arcane OS paths
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-01.conf"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"

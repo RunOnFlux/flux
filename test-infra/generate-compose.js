@@ -114,6 +114,7 @@ for (let i = 0; i < NODE_COUNT; i++) {
   w('    environment:');
   w('      # Arcane OS');
   w('      FLUX_LOG_CONSOLE: "1"');
+  w('      FLUX_ALLOW_PRIVATE_PEERS: "1"');
   w('      FLUXOS_PATH: "/flux"');
   w('      FLUXD_PATH: "/dat/var/lib/fluxd"');
   w(`      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-${num}.conf"`);

@@ -99,6 +99,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-01.conf"
@@ -172,6 +173,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-02.conf"
@@ -245,6 +247,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-03.conf"
@@ -318,6 +321,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-04.conf"
@@ -391,6 +395,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-05.conf"
@@ -464,6 +469,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-06.conf"
@@ -537,6 +543,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-07.conf"
@@ -610,6 +617,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-08.conf"
@@ -683,6 +691,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-09.conf"
@@ -756,6 +765,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-10.conf"
@@ -829,6 +839,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-11.conf"
@@ -902,6 +913,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-12.conf"
@@ -975,6 +987,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-13.conf"
@@ -1048,6 +1061,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-14.conf"
@@ -1121,6 +1135,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-15.conf"
@@ -1194,6 +1209,7 @@ services:
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
+      FLUX_ALLOW_PRIVATE_PEERS: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-16.conf"
