@@ -10,21 +10,37 @@ networks:
 volumes:
   mongo-data:
   docker-01-data:
+  appdata-01:
   docker-02-data:
+  appdata-02:
   docker-03-data:
+  appdata-03:
   docker-04-data:
+  appdata-04:
   docker-05-data:
+  appdata-05:
   docker-06-data:
+  appdata-06:
   docker-07-data:
+  appdata-07:
   docker-08-data:
+  appdata-08:
   docker-09-data:
+  appdata-09:
   docker-10-data:
+  appdata-10:
   docker-11-data:
+  appdata-11:
   docker-12-data:
+  appdata-12:
   docker-13-data:
+  appdata-13:
   docker-14-data:
+  appdata-14:
   docker-15-data:
+  appdata-15:
   docker-16-data:
+  appdata-16:
 
 services:
   mongodb:
@@ -87,6 +103,7 @@ services:
         ipv4_address: 198.18.1.0
     volumes:
       - docker-01-data:/var/lib/docker
+      - appdata-01:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -96,7 +113,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node01_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -149,6 +166,7 @@ services:
         ipv4_address: 198.18.2.0
     volumes:
       - docker-02-data:/var/lib/docker
+      - appdata-02:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -158,7 +176,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node02_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -211,6 +229,7 @@ services:
         ipv4_address: 198.18.3.0
     volumes:
       - docker-03-data:/var/lib/docker
+      - appdata-03:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -220,7 +239,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node03_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -273,6 +292,7 @@ services:
         ipv4_address: 198.18.4.0
     volumes:
       - docker-04-data:/var/lib/docker
+      - appdata-04:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -282,7 +302,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node04_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -335,6 +355,7 @@ services:
         ipv4_address: 198.18.5.0
     volumes:
       - docker-05-data:/var/lib/docker
+      - appdata-05:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -344,7 +365,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node05_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -397,6 +418,7 @@ services:
         ipv4_address: 198.18.6.0
     volumes:
       - docker-06-data:/var/lib/docker
+      - appdata-06:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -406,7 +428,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node06_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -459,6 +481,7 @@ services:
         ipv4_address: 198.18.7.0
     volumes:
       - docker-07-data:/var/lib/docker
+      - appdata-07:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -468,7 +491,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node07_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -521,6 +544,7 @@ services:
         ipv4_address: 198.18.8.0
     volumes:
       - docker-08-data:/var/lib/docker
+      - appdata-08:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -530,7 +554,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node08_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -583,6 +607,7 @@ services:
         ipv4_address: 198.18.9.0
     volumes:
       - docker-09-data:/var/lib/docker
+      - appdata-09:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -592,7 +617,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node09_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -645,6 +670,7 @@ services:
         ipv4_address: 198.18.10.0
     volumes:
       - docker-10-data:/var/lib/docker
+      - appdata-10:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -654,7 +680,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node10_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -707,6 +733,7 @@ services:
         ipv4_address: 198.18.11.0
     volumes:
       - docker-11-data:/var/lib/docker
+      - appdata-11:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -716,7 +743,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node11_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -769,6 +796,7 @@ services:
         ipv4_address: 198.18.12.0
     volumes:
       - docker-12-data:/var/lib/docker
+      - appdata-12:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -778,7 +806,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node12_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -831,6 +859,7 @@ services:
         ipv4_address: 198.18.13.0
     volumes:
       - docker-13-data:/var/lib/docker
+      - appdata-13:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -840,7 +869,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node13_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -893,6 +922,7 @@ services:
         ipv4_address: 198.18.14.0
     volumes:
       - docker-14-data:/var/lib/docker
+      - appdata-14:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -902,7 +932,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node14_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -955,6 +985,7 @@ services:
         ipv4_address: 198.18.15.0
     volumes:
       - docker-15-data:/var/lib/docker
+      - appdata-15:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -964,7 +995,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node15_"
       FLUX_DB_HOST: "198.18.0.2"
@@ -1017,6 +1048,7 @@ services:
         ipv4_address: 198.18.16.0
     volumes:
       - docker-16-data:/var/lib/docker
+      - appdata-16:/mnt/appdata
     environment:
       # Arcane OS
       FLUX_LOG_CONSOLE: "1"
@@ -1026,7 +1058,7 @@ services:
       SYNCTHING_PATH: "/dat/usr/lib/syncthing"
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
-      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"
+      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
       # Database
       FLUX_DB_PREFIX: "node16_"
       FLUX_DB_HOST: "198.18.0.2"

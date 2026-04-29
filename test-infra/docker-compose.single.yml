@@ -10,6 +10,7 @@ networks:
 volumes:
   mongo-data:
   docker-01-data:
+  appdata-01:
 
 services:
   mongodb:
@@ -72,6 +73,7 @@ services:
         ipv4_address: 198.18.1.0
     volumes:
       - docker-01-data:/var/lib/docker
+      - appdata-01:/mnt/appdata
     environment:
       # Arcane OS paths
       FLUX_LOG_CONSOLE: "1"

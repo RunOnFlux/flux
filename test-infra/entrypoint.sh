@@ -7,7 +7,7 @@ mkdir -p /dat/var/lib/fluxd \
          /dat/usr/lib/syncthing \
          /dat/usr/lib/fluxbenchd \
          /dat/usr/lib/fluxwatchdog \
-         /dat/var/lib/fluxos/flux-apps
+         /mnt/appdata/flux-apps
 
 cp /flux/test-infra/fixtures/syncthing-config.xml /dat/usr/lib/syncthing/config.xml 2>/dev/null || true
 

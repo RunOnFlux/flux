@@ -22,6 +22,7 @@ w('volumes:');
 w('  mongo-data:');
 for (let i = 1; i <= NODE_COUNT; i++) {
   w(`  docker-${String(i).padStart(2, '0')}-data:`);
+  w(`  appdata-${String(i).padStart(2, '0')}:`);
 }
 w();
 w('services:');
@@ -98,6 +99,7 @@ for (let i = 0; i < NODE_COUNT; i++) {
   w(`        ipv4_address: ${nodeIp}`);
   w('    volumes:');
   w(`      - docker-${num}-data:/var/lib/docker`);
+  w(`      - appdata-${num}:/mnt/appdata`);
   w('    environment:');
   w('      # Arcane OS');
   w('      FLUX_LOG_CONSOLE: "1"');
@@ -107,7 +109,7 @@ for (let i = 0; i < NODE_COUNT; i++) {
   w('      SYNCTHING_PATH: "/dat/usr/lib/syncthing"');
   w('      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"');
   w('      FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"');
-  w('      FLUX_APPS_FOLDER: "/dat/var/lib/fluxos/flux-apps"');
+  w('      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"');
   w('      # Database');
   w(`      FLUX_DB_PREFIX: "node${num}_"`);
   w('      FLUX_DB_HOST: "198.18.0.2"');
