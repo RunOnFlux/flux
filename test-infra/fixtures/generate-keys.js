@@ -125,7 +125,7 @@ const confDir = join(__dirname, 'conf');
 mkdirSync(confDir, { recursive: true });
 for (const n of nodes) {
   const num = String(n.index + 1).padStart(2, '0');
-  const conf = `rpcuser=fluxtest\nrpcpassword=fluxtest\nrpcport=16124\nrpcallowip=0.0.0.0/0\nzelnodeprivkey=${n.wif}\n`;
+  const conf = `rpcuser=fluxtest\nrpcpassword=fluxtest\nrpcport=16124\nrpcallowip=0.0.0.0/0\nzelnodeprivkey=${n.wif}\ninsightexplorer=1\n`;
   writeFileSync(join(confDir, `flux-${num}.conf`), conf);
 }
 
