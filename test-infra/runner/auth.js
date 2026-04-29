@@ -24,15 +24,13 @@ function btcMagicHash(message) {
 
 async function signBtcMessage(message, privkeyHex, compressed = true) {
   const hash = btcMagicHash(message);
-  const sig = await signAsync(hash, privkeyHex, { recovered: true, der: false });
+  const sig = await signAsync(hash, privkeyHex, { lowS: true });
 
-  const recid = sig.recovery;
-  const flag = 27 + recid + (compressed ? 4 : 0);
+  const flag = 27 + sig.recovery + (compressed ? 4 : 0);
 
   const out = Buffer.alloc(65);
   out[0] = flag;
-  const rBytes = Buffer.from(sig.toCompactRawBytes());
-  rBytes.copy(out, 1);
+  Buffer.from(sig.toCompactRawBytes()).copy(out, 1);
 
   return out.toString('base64');
 }
