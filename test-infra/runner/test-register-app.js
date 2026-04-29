@@ -102,18 +102,37 @@ async function main() {
   }
   console.log(`Temp messages propagated to ${nodesWithTemp}/${NODE_COUNT} nodes`);
 
-  console.log('\n=== Step 5: Inject blockchain confirmation ===');
+  console.log('\n=== Step 5: Queue blockchain confirmation ===');
   const DAEMON_CONTROL = process.env.DAEMON_CONTROL || 'http://198.18.0.3:18232';
-  const advanceRes = await fetch(`${DAEMON_CONTROL}/advance-block`, {
+  const queueRes = await fetch(`${DAEMON_CONTROL}/queue-app-tx`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ appHash }),
   });
-  const advanceData = await advanceRes.json();
-  console.log(`Block advanced to height ${advanceData.currentHeight} with app tx`);
+  const queueData = await queueRes.json();
+  console.log(`App tx queued. Will be included in next block (~height ${queueData.nextBlockHeight})`);
 
-  console.log('Waiting 60s for explorer to process block and promote to permanent...');
-  await new Promise((r) => setTimeout(r, 60000));
+  // Poll explorer scanned height until it passes the target block
+  const targetHeight = queueData.nextBlockHeight + 2; // +2 for safety
+  console.log(`Waiting for explorer to reach height ${targetHeight}...`);
+  const POLL_INTERVAL = 5000;
+  const MAX_WAIT = 120000;
+  const start = Date.now();
+  let explorerHeight = 0;
+  while (Date.now() - start < MAX_WAIT) {
+    try {
+      const res = await fetch(`${NODE_URL}/explorer/issynced`);
+      const data = await res.json();
+      if (data.status === 'success' && data.data === true) {
+        const stateRes = await fetch(`${DAEMON_CONTROL}/state`);
+        const state = await stateRes.json();
+        explorerHeight = state.currentHeight;
+        if (explorerHeight >= targetHeight) break;
+      }
+    } catch { /* */ }
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+  }
+  console.log(`Explorer reached daemon height ${explorerHeight}`);
 
   console.log('\n=== Step 6: Check permanent registration ===');
   let nodesWithSpec = 0;

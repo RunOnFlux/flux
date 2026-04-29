@@ -316,12 +316,50 @@ benchd.use(express.json());
 benchd.post('/', (req, res) => handleRpc(benchHandlers, req, res));
 benchd.listen(BENCHD_PORT, () => console.log(`Fluxbenchd stub listening on port ${BENCHD_PORT}`));
 
+// -- Block ticker --
+const BLOCK_INTERVAL_MS = Number(process.env.BLOCK_INTERVAL_MS) || 5000;
+const pendingAppTxQueue = [];
+
+function tickBlock() {
+  currentHeight += 1;
+  const txs = [];
+  while (pendingAppTxQueue.length > 0) {
+    const appHash = pendingAppTxQueue.shift();
+    txs.push(buildAppRegistrationTx(appHash, currentHeight));
+  }
+  if (txs.length > 0) {
+    pendingBlocks.push({
+      hash: `000000000000stub${currentHeight}`,
+      confirmations: 1,
+      size: 1000,
+      height: currentHeight,
+      version: 4,
+      merkleroot: '0000000000000000000000000000000000000000000000000000000000000000',
+      tx: txs,
+      time: Math.floor(Date.now() / 1000),
+      nonce: 0,
+      difficulty: 1000,
+      previousblockhash: `000000000000stub${currentHeight - 1}`,
+    });
+    console.log(`Block ${currentHeight}: ${txs.length} app tx(s)`);
+  }
+}
+
+setInterval(tickBlock, BLOCK_INTERVAL_MS);
+console.log(`Block ticker running every ${BLOCK_INTERVAL_MS}ms`);
+
 // -- Test harness control API --
 const control = express();
 control.use(express.json());
 
 control.get('/state', (req, res) => {
-  res.json({ currentHeight, nodeCount: deterministicNodeList.length, pendingBlocks: pendingBlocks.length });
+  res.json({
+    currentHeight,
+    nodeCount: deterministicNodeList.length,
+    pendingBlocks: pendingBlocks.length,
+    pendingAppTxQueue: pendingAppTxQueue.length,
+    blockIntervalMs: BLOCK_INTERVAL_MS,
+  });
 });
 
 function buildAppRegistrationTx(appHash, height) {
@@ -384,6 +422,13 @@ control.post('/set-height', (req, res) => {
 control.post('/set-node-list', (req, res) => {
   deterministicNodeList = req.body.nodes;
   res.json({ nodeCount: deterministicNodeList.length });
+});
+
+control.post('/queue-app-tx', (req, res) => {
+  const { appHash } = req.body;
+  if (!appHash) return res.status(400).json({ error: 'appHash required' });
+  pendingAppTxQueue.push(appHash);
+  return res.json({ queued: true, queueLength: pendingAppTxQueue.length, nextBlockHeight: currentHeight + 1 });
 });
 
 control.post('/add-block-fixture', (req, res) => {
