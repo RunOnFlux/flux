@@ -114,6 +114,9 @@ for (let i = 0; i < NODE_COUNT; i++) {
   w('      dockerfile: test-infra/Dockerfile.fluxos');
   w('    cap_add:');
   w('      - NET_ADMIN');
+  w('      - SYS_ADMIN');
+  w('    devices:');
+  w('      - /dev/loop-control:/dev/loop-control');
   w('    networks:');
   w('      flux-test-net:');
   w(`        ipv4_address: ${nodeIp}`);
