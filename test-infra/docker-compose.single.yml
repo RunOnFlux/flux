@@ -9,7 +9,7 @@ networks:
 
 volumes:
   mongo-data:
-  dind-01-data:
+  docker-01-data:
 
 services:
   mongodb:
@@ -62,31 +62,16 @@ services:
       timeout: 5s
       retries: 5
 
-  dind-01:
-    image: docker:27-dind
-    privileged: true
-    environment:
-      DOCKER_TLS_CERTDIR: ""
-    networks:
-      flux-test-net:
-        ipv4_address: 198.18.1.1
-    volumes:
-      - dind-01-data:/var/lib/docker
-    healthcheck:
-      test: ["CMD", "docker", "info"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-
   fluxos-01:
     build:
       context: ..
       dockerfile: test-infra/Dockerfile.fluxos
-    cap_add:
-      - NET_ADMIN
+    privileged: true
     networks:
       flux-test-net:
         ipv4_address: 198.18.1.0
+    volumes:
+      - docker-01-data:/var/lib/docker
     environment:
       # Arcane OS paths
       FLUX_LOG_CONSOLE: "1"
@@ -97,8 +82,6 @@ services:
       FLUX_DB_PREFIX: "node01_"
       FLUX_DB_HOST: "198.18.0.2"
       FLUX_DB_PORT: "27017"
-      # Docker
-      DOCKER_HOST: "http://198.18.1.1:2375"
       # Daemon / Benchmark / Syncthing
       FLUX_DAEMON_HOST: "198.18.0.3"
       FLUX_BENCH_HOST: "198.18.0.3"
@@ -111,6 +94,8 @@ services:
       FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
       FLUX_SPAWN_DELAY_MS: "10000"
       FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
+      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
+      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
       FLUX_LOCATION_TTL_S: "300"
       FLUX_INSTALLING_TTL_S: "60"
       FLUX_TEMP_MSG_TTL_S: "300"
@@ -127,6 +112,4 @@ services:
       daemon-stub:
         condition: service_healthy
       syncthing-stub:
-        condition: service_healthy
-      dind-01:
         condition: service_healthy

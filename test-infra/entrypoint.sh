@@ -18,4 +18,24 @@ if [ -n "$FLUX_SYNCTHING_HOST" ]; then
   socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &
 fi
 
+# Start dockerd (FluxOS expects Docker on the local socket)
+dockerd &
+DOCKERD_PID=$!
+
+TIMEOUT=30
+ELAPSED=0
+until docker info > /dev/null 2>&1; do
+  if ! kill -0 "$DOCKERD_PID" 2>/dev/null; then
+    echo "ERROR: dockerd exited unexpectedly" >&2
+    exit 1
+  fi
+  if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+    echo "ERROR: dockerd failed to start within ${TIMEOUT}s" >&2
+    exit 1
+  fi
+  sleep 1
+  ELAPSED=$((ELAPSED + 1))
+done
+echo "dockerd is ready (took ${ELAPSED}s)"
+
 exec "$@"

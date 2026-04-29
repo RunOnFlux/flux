@@ -21,7 +21,7 @@ w();
 w('volumes:');
 w('  mongo-data:');
 for (let i = 1; i <= NODE_COUNT; i++) {
-  w(`  dind-${String(i).padStart(2, '0')}-data:`);
+  w(`  docker-${String(i).padStart(2, '0')}-data:`);
 }
 w();
 w('services:');
@@ -87,39 +87,17 @@ for (let i = 0; i < NODE_COUNT; i++) {
   const num = String(i + 1).padStart(2, '0');
   const node = manifest.nodes[i];
   const nodeIp = `198.18.${i + 1}.0`;
-  const dindIp = `198.18.${i + 1}.1`;
 
-  // DinD sidecar
-  w(`  dind-${num}:`);
-  w('    image: docker:27-dind');
-  w('    privileged: true');
-  w('    environment:');
-  w('      DOCKER_TLS_CERTDIR: ""');
-  w('    networks:');
-  w('      flux-test-net:');
-  w(`        ipv4_address: ${dindIp}`);
-  w('    volumes:');
-  w(`      - dind-${num}-data:/var/lib/docker`);
-  w('    healthcheck:');
-  w('      test: ["CMD", "docker", "info"]');
-  w('      interval: 3s');
-  w('      timeout: 3s');
-  w('      retries: 10');
-  w();
-
-  // FluxOS node
   w(`  fluxos-${num}:`);
   w('    build:');
   w('      context: ..');
   w('      dockerfile: test-infra/Dockerfile.fluxos');
-  w('    cap_add:');
-  w('      - NET_ADMIN');
-  w('      - SYS_ADMIN');
-  w('    devices:');
-  w('      - /dev/loop-control:/dev/loop-control');
+  w('    privileged: true');
   w('    networks:');
   w('      flux-test-net:');
   w(`        ipv4_address: ${nodeIp}`);
+  w('    volumes:');
+  w(`      - docker-${num}-data:/var/lib/docker`);
   w('    environment:');
   w('      # Arcane OS');
   w('      FLUX_LOG_CONSOLE: "1"');
@@ -134,8 +112,6 @@ for (let i = 0; i < NODE_COUNT; i++) {
   w(`      FLUX_DB_PREFIX: "node${num}_"`);
   w('      FLUX_DB_HOST: "198.18.0.2"');
   w('      FLUX_DB_PORT: "27017"');
-  w('      # Docker');
-  w(`      DOCKER_HOST: "http://${dindIp}:2375"`);
   w('      # Services');
   w('      FLUX_DAEMON_HOST: "198.18.0.3"');
   w('      FLUX_BENCH_HOST: "198.18.0.3"');
@@ -173,11 +149,9 @@ for (let i = 0; i < NODE_COUNT; i++) {
   w('        condition: service_healthy');
   w('      syncthing-stub:');
   w('        condition: service_healthy');
-  w(`      dind-${num}:`);
-  w('        condition: service_healthy');
   w();
 }
 
 const output = lines.join('\n');
 writeFileSync(join(__dirname, 'docker-compose.yml'), output);
-console.log(`Generated docker-compose.yml with ${NODE_COUNT} nodes (${NODE_COUNT * 2 + 3} containers)`);
+console.log(`Generated docker-compose.yml with ${NODE_COUNT} nodes (${NODE_COUNT + 3} containers)`);

@@ -493,8 +493,6 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       okVolumes.push(volume);
     } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
       okVolumes.push(volume);
-    } else if (volume.filesystem === 'overlay' && volume.mount === '/') {
-      okVolumes.push(volume);
     }
   });
 
@@ -2570,8 +2568,6 @@ async function testAppMount() {
       if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
         okVolumes.push(volume);
       } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
-        okVolumes.push(volume);
-      } else if (volume.filesystem === 'overlay' && volume.mount === '/') {
         okVolumes.push(volume);
       }
     });
