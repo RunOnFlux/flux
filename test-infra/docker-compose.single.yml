@@ -24,6 +24,7 @@ services:
         ipv4_address: 198.18.0.2
     volumes:
       - mongo-data:/data/db
+      - ./fixtures/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 5s

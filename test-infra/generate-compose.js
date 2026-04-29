@@ -39,6 +39,7 @@ w('      flux-test-net:');
 w('        ipv4_address: 198.18.0.2');
 w('    volumes:');
 w('      - mongo-data:/data/db');
+w('      - ./fixtures/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro');
 w('    healthcheck:');
 w('      test: ["CMD", "mongosh", "--eval", "db.adminCommand(\'ping\')"]');
 w('      interval: 5s');

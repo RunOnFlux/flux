@@ -39,6 +39,7 @@ services:
         ipv4_address: 198.18.0.2
     volumes:
       - mongo-data:/data/db
+      - ./fixtures/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 5s
@@ -123,7 +124,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.1.0"
-      FLUX_ADMIN_ZELID: "1PmSzuhNQsC8YaxaQRyq4ckRWsTCWuvhDR"
+      FLUX_ADMIN_ZELID: "14dQFmgDLVEVG7vNH8ibWuUEkuvxuogg13"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -201,7 +202,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.2.0"
-      FLUX_ADMIN_ZELID: "19qgBBcX6phQbLQoVu2qzYDK2uokwYb2cs"
+      FLUX_ADMIN_ZELID: "1HeAi8u8gAr89ekYsemWqwwg9wp3zXohkq"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -279,7 +280,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.3.0"
-      FLUX_ADMIN_ZELID: "1DnaJ9VKDtm3ALdDPLQt8T7KsgTpN1vF2V"
+      FLUX_ADMIN_ZELID: "1NeQjrGRuAhAQYgugBPBEMB3BW2tnqLE2G"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -357,7 +358,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.4.0"
-      FLUX_ADMIN_ZELID: "1BsNnwbWWLd8o35cG4YaAt5mVwwuQv49Np"
+      FLUX_ADMIN_ZELID: "17bNDmy6nN2jMz4v6BWZxCpLAkVze6zrUH"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -435,7 +436,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.5.0"
-      FLUX_ADMIN_ZELID: "1AxW1PaVZuZUZaLmTRh1o2NdRVkXdeXiqg"
+      FLUX_ADMIN_ZELID: "1AFfatFHuMpgmuRkfW4vLiqDQQPksLeFBu"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -513,7 +514,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.6.0"
-      FLUX_ADMIN_ZELID: "1F1jYFQmuRZoJHhJLqSibtkQpFsUAQLFxx"
+      FLUX_ADMIN_ZELID: "1AjGYYAdkLZLJQHC8A4PNQcTds6SNaowaK"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -591,7 +592,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.7.0"
-      FLUX_ADMIN_ZELID: "1FATEv3jN5akRDNPchUum7aX6RvxvChJLD"
+      FLUX_ADMIN_ZELID: "1L5TLXRGRcyPtopXYYHtpxe9CHAaeh3rYw"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -669,7 +670,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.8.0"
-      FLUX_ADMIN_ZELID: "12jZmBsknYZhcTG3Kx7s1xFy8eBGMHVfCS"
+      FLUX_ADMIN_ZELID: "12TrNc2yK8MAy9gBv3Qw6qjFqDZSZQZq6h"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -747,7 +748,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.9.0"
-      FLUX_ADMIN_ZELID: "1EiF9yMrgCxyn1m3L5ms1KGsukACSiC62K"
+      FLUX_ADMIN_ZELID: "15uqimLo5QqMV2uEoUEFMKD8FnpVrBpgYb"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -825,7 +826,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.10.0"
-      FLUX_ADMIN_ZELID: "16UpVBGYzbd8fcNsUb9CGcZ8jq7hkVnTet"
+      FLUX_ADMIN_ZELID: "1GxtCJwXU4pQiTfqbPxUPdQbogTvrtf4p"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -903,7 +904,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.11.0"
-      FLUX_ADMIN_ZELID: "17JNeroTTFcjik24FK1PvURrR4Hm4BEK84"
+      FLUX_ADMIN_ZELID: "1DsGyjKcvSS2HPbwcA3FJtmxnzTuppG9LN"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -981,7 +982,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.12.0"
-      FLUX_ADMIN_ZELID: "1CrAabhNnPh1bEPjSQVufutuAz8KuSxC2G"
+      FLUX_ADMIN_ZELID: "1G27Ms8zJqqtfJbec8poTwWLwNuRHp7ZpL"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -1059,7 +1060,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.13.0"
-      FLUX_ADMIN_ZELID: "1BVPr2Ls3ayGyoGJ5zStcjmx8P3SfZ5K6v"
+      FLUX_ADMIN_ZELID: "1B4KkvzmF47CmAmZmksGLoaXWaswF9TApp"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -1137,7 +1138,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.14.0"
-      FLUX_ADMIN_ZELID: "13iA3DLMePG2ewfsv6aBmMfv92Y8GUpr8h"
+      FLUX_ADMIN_ZELID: "1LC59SMrRCefaAa8GRSG7A91XgXJykQg6E"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -1215,7 +1216,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.15.0"
-      FLUX_ADMIN_ZELID: "1EopUrQjE7Ne2AmGLqC982g1S35HsqVWKx"
+      FLUX_ADMIN_ZELID: "19ndcTikMqWatuCBbiD4jJ5JeBRJkxmTak"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
@@ -1293,7 +1294,7 @@ services:
       FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.16.0"
-      FLUX_ADMIN_ZELID: "1CL8CQwn4AZ1wvKHQ1TVvg6XxHnW5s1VxA"
+      FLUX_ADMIN_ZELID: "1EpVCybiP1dbPEgu82bcotZ6NKN28U4iXU"
       FLUX_API_PORT: "16127"
       # Peer thresholds
       FLUX_MIN_OUTGOING: "4"
