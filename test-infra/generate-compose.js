@@ -9,6 +9,8 @@ const NODE_COUNT = manifest.nodes.length;
 const lines = [];
 const w = (s = '') => lines.push(s);
 
+w('name: flux-e2e');
+w();
 w('networks:');
 w('  flux-test-net:');
 w('    driver: bridge');
