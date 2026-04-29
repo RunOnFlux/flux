@@ -30,6 +30,10 @@ services:
   mongodb:
     image: mongo:8
     command: ["--wiredTigerCacheSizeGB", "1", "--setParameter", "maxNumActiveUserIndexBuilds=64"]
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     networks:
       flux-test-net:
         ipv4_address: 198.18.0.2
