@@ -25,9 +25,9 @@ const peerNotification = require('./appMessaging/peerNotification');
 const syncthingMonitor = require('./appMonitoring/syncthingMonitor');
 const daemonHealthMonitor = require('./appMonitoring/daemonHealthMonitor');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
-const appHashSyncService = require('./appMessaging/appHashSyncService');
 const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
+const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
 const stoppedAppsRecovery = require('./appLifecycle/stoppedAppsRecovery');
@@ -263,8 +263,14 @@ async function startFluxFunctions() {
 
     log.info('Flux Apps installing locations prepared');
 
-    // Initialize appSpawner with dependencies to avoid circular dependency
-    appSpawner.initialize({ appInstaller, appUninstaller });
+    // Initialize app sync orchestrator and spawner
+    const { peerManager } = require('./utils/peerState');
+    const orchestrator = new AppSyncOrchestrator({
+      blockEmitter: explorerService.getBlockEmitter(),
+      peerManager,
+      isEnterprise: () => enterpriseNetwork.getCachedEnterpriseIdentity(),
+    });
+    appSpawner.initialize({ appInstaller, appUninstaller, orchestrator });
     log.info('App Spawner initialized');
 
     fluxNetworkHelper.adjustFirewall();
@@ -473,34 +479,6 @@ async function startFluxFunctions() {
       nodeStatusMonitor.monitorNodeStatus(appQueryService.installedApps, appUninstaller.removeAppLocally);
     }, 1.5 * 60 * 1000);
     setTimeout(() => {
-      peerNotification.checkAndNotifyPeersOfRunningApps(
-        appQueryService.installedApps,
-        appQueryService.listRunningApps,
-        globalState.appsMonitored,
-        globalState.removalInProgress,
-        globalState.installationInProgress,
-        globalState.softRedeployInProgress,
-        globalState.hardRedeployInProgress,
-        globalState.reinstallationOfOldAppsInProgress,
-        () => globalState,
-        cacheManager,
-      ); // first broadcast after 1m of starting fluxos
-      setInterval(() => { // every 60 mins messages stay on db for 65m
-        peerNotification.checkAndNotifyPeersOfRunningApps(
-          appQueryService.installedApps,
-          appQueryService.listRunningApps,
-          globalState.appsMonitored,
-          globalState.removalInProgress,
-          globalState.installationInProgress,
-          globalState.softRedeployInProgress,
-          globalState.hardRedeployInProgress,
-          globalState.reinstallationOfOldAppsInProgress,
-          () => globalState,
-          cacheManager,
-        );
-      }, 60 * 60 * 1000);
-    }, 1 * 60 * 1000);
-    setTimeout(() => {
       syncthingMonitor.syncthingApps(
         globalState,
         appQueryService.installedApps,
@@ -525,36 +503,9 @@ async function startFluxFunctions() {
         appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally, globalState); // Monitor SharedDB Apps.
       }, 60 * 1000);
     }, 3 * 60 * 1000);
-    setTimeout(() => {
-      setInterval(() => { // every 30 mins (15 blocks)
-        appHashSyncService.continuousFluxAppHashesCheck();
-      }, 30 * 60 * 1000);
-      appHashSyncService.continuousFluxAppHashesCheck();
-    }, (Math.floor(Math.random() * (30 - 15 + 1)) + 15) * 60 * 1000); // start between 15m and 30m after fluxOs start
-    setTimeout(async () => {
-      // Enterprise-network nodes (pubkey in enterpriseNodesPublicKeys) start
-      // spawning at T+62m. Every other node keeps the legacy 125-135m window,
-      // which gives enough time to receive apprunning messages at least twice.
-      let isEnterprise = enterpriseNetwork.getCachedEnterpriseIdentity();
-      if (isEnterprise === null) {
-        try {
-          isEnterprise = await enterpriseNetwork.isEnterpriseNode();
-        } catch (err) {
-          log.warn(`Enterprise identity unresolved at spawn-gate, treating as non-enterprise: ${err.message || err}`);
-          isEnterprise = false;
-        }
-      }
-      if (isEnterprise) {
-        log.info('Starting to spawn applications (enterprise, 62m)');
-        appSpawner.trySpawningGlobalApplication();
-        return;
-      }
-      const remainingMs = (Math.floor(Math.random() * (135 - 125 + 1)) + 125 - 62) * 60 * 1000;
-      setTimeout(() => {
-        log.info('Starting to spawn applications');
-        appSpawner.trySpawningGlobalApplication();
-      }, remainingMs);
-    }, 62 * 60 * 1000);
+    // Hash sync and spawner startup are now managed by the AppSyncOrchestrator (event-driven)
+    orchestrator.start();
+    log.info('AppSyncOrchestrator started');
     setInterval(() => {
       imageManager.checkApplicationsCompliance(appQueryService.installedApps, appUninstaller.removeAppLocally);
     }, 60 * 60 * 1000); //  every hour

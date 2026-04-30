@@ -215,6 +215,8 @@ module.exports = {
     minIncoming: 4,
     minUniqueIpsIncoming: 3,
     minUpTime: 1800, // 30 mins
+    appSyncPeerThreshold: 12, // peers needed before starting app sync / spawning
+    appSyncDegradedThreshold: 4, // below this, pause spawner — gossip unreliable
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds

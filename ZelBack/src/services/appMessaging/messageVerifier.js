@@ -26,13 +26,8 @@ const {
   globalAppsInformation,
   localAppsInformation,
 } = require('../utils/appConstants');
-const { invalidMessages } = require('../invalidMessages');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const globalState = require('../utils/globalState');
-
-// Import hashesNumberOfSearchs from appsService - this should be shared state
-// For now, we'll create a local instance, but ideally this should be moved to globalState
-const hashesNumberOfSearchs = new Map();
 
 /**
  * Verify app hash against message content
@@ -862,11 +857,6 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
       }
 
       if (i < 2) {
-      // request the message and broadcast the message further to our connected peers.
-      // rerun this after 1 min delay
-      // We ask to the connected nodes 2 times in 1 minute interval for the app message, if connected nodes don't
-      // have the app message we will ask for it again when continuousFluxAppHashesCheck executes again.
-      // in total we ask to the connected nodes 10 (30m interval) x 2 (1m interval) = 20 times before apphash is marked as not found
         await requestAppMessage(hash);
         await serviceHelper.delay(60 * 1000);
         return checkAndRequestApp(hash, txid, height, valueSat, i + 1);
@@ -919,159 +909,6 @@ async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
   }
 }
 
-// Global variables for continuousFluxAppHashesCheck
-let continuousFluxAppHashesCheckRunning = false;
-let firstContinuousFluxAppHashesCheckRun = true;
-
-/**
- * Continuously checks for missing flux app hashes and requests missing messages
- * @param {boolean} force - Force check even if already running
- * @returns {Promise<void>}
- */
-async function continuousFluxAppHashesCheck(force = false) {
-  try {
-    if (continuousFluxAppHashesCheckRunning) {
-      return;
-    }
-    log.info('Requesting missing Flux App messages');
-    continuousFluxAppHashesCheckRunning = true;
-    const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();
-    if (numberOfPeers < 12) {
-      log.info('Not enough connected peers to request missing Flux App messages');
-      continuousFluxAppHashesCheckRunning = false;
-      return;
-    }
-
-    const synced = await generalService.checkSynced();
-    if (synced !== true) {
-      log.info('Flux not yet synced');
-      continuousFluxAppHashesCheckRunning = false;
-      return;
-    }
-
-    if (firstContinuousFluxAppHashesCheckRun && !globalState.checkAndSyncAppHashesWasEverExecuted) {
-      // Import checkAndSyncAppHashes from appHashSyncService
-      // eslint-disable-next-line global-require
-      const appHashSyncService = require('./appHashSyncService');
-      await appHashSyncService.checkAndSyncAppHashes();
-    }
-
-    const dbopen = dbHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const queryHeight = { generalScannedHeight: { $gte: 0 } };
-    const projectionHeight = {
-      projection: {
-        _id: 0,
-        generalScannedHeight: 1,
-      },
-    };
-    const scanHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, queryHeight, projectionHeight);
-    if (!scanHeight) {
-      throw new Error('Scanning not initiated');
-    }
-    const explorerHeight = serviceHelper.ensureNumber(scanHeight.generalScannedHeight);
-
-    // get flux app hashes that do not have a message
-    const query = { message: false };
-    const projection = {
-      projection: {
-        _id: 0,
-        txid: 1,
-        hash: 1,
-        height: 1,
-        value: 1,
-        message: 1,
-        messageNotFound: 1,
-      },
-    };
-    const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
-    // sort it by height, so we request oldest messages first
-    results.sort((a, b) => a.height - b.height);
-    let appsMessagesMissing = [];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const result of results) {
-      if (!result.messageNotFound || force || firstContinuousFluxAppHashesCheckRun) { // most likely wrong data, if no message found. This attribute is cleaned every reconstructAppMessagesHashPeriod blocks so all nodes search again for missing messages
-        let heightDifference = explorerHeight - result.height;
-        if (heightDifference < 0) {
-          heightDifference = 0;
-        }
-        let maturity = Math.round(heightDifference / config.fluxapps.blocksLasting);
-        if (maturity > 12) {
-          maturity = 16; // maturity of max 16 representing its older than 1 year. Old messages will only be searched 3 times, newer messages more oftenly
-        }
-        if (invalidMessages.find((message) => message.hash === result.hash && message.txid === result.txid)) {
-          if (!force) {
-            maturity = 30; // do not request known invalid messages.
-          }
-        }
-        // every config.fluxapps.blocksLasting increment maturity by 2;
-        let numberOfSearches = maturity;
-        if (hashesNumberOfSearchs.has(result.hash)) {
-          numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 2; // max 10 tries
-        }
-        hashesNumberOfSearchs.set(result.hash, numberOfSearches);
-        log.info(`Requesting missing Flux App message: ${result.hash}, ${result.txid}, ${result.height}`);
-        if (numberOfSearches <= 20) { // up to 10 searches
-          const appMessageInformation = {
-            hash: result.hash,
-            txid: result.txid,
-            height: result.height,
-            value: result.value,
-          };
-          appsMessagesMissing.push(appMessageInformation);
-          if (appsMessagesMissing.length === 500) {
-            log.info('Requesting 500 app messages');
-            checkAndRequestMultipleApps(appsMessagesMissing);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(2 * 60 * 1000); // delay 2 minutes to give enough time to process all messages received
-            appsMessagesMissing = [];
-          }
-        } else {
-          // eslint-disable-next-line no-await-in-loop
-          await appHashHasMessageNotFound(result.hash); // mark message as not found
-          hashesNumberOfSearchs.delete(result.hash); // remove from our map
-        }
-      }
-    }
-    if (appsMessagesMissing.length > 0) {
-      log.info(`Requesting ${appsMessagesMissing.length} app messages`);
-      checkAndRequestMultipleApps(appsMessagesMissing);
-    }
-    continuousFluxAppHashesCheckRunning = false;
-    firstContinuousFluxAppHashesCheckRun = false;
-  } catch (error) {
-    log.error(error);
-    continuousFluxAppHashesCheckRunning = false;
-    firstContinuousFluxAppHashesCheckRun = false;
-  }
-}
-
-/**
- * API endpoint to manually trigger app hashes check
- * @param {object} req - Request object
- * @param {object} res - Response object
- * @returns {Promise<void>}
- */
-async function triggerAppHashesCheckAPI(req, res) {
-  try {
-    // only flux team and node owner can do this
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
-    }
-
-    continuousFluxAppHashesCheck(true);
-    const resultsResponse = messageHelper.createSuccessMessage('Running check on missing application messages ');
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
 module.exports = {
   verifyAppHash,
   verifyAppMessageSignature,
@@ -1088,6 +925,4 @@ module.exports = {
   getAppsPermanentMessages,
   checkAndRequestApp,
   checkAndRequestMultipleApps,
-  continuousFluxAppHashesCheck,
-  triggerAppHashesCheckAPI,
 };

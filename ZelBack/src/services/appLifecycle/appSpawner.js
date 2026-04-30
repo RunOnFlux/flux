@@ -35,6 +35,17 @@ function initialize(deps) {
   appInstaller = deps.appInstaller;
   // eslint-disable-next-line prefer-destructuring
   appUninstaller = deps.appUninstaller;
+  if (deps.orchestrator) {
+    deps.orchestrator.on('spawnerReady', () => {
+      log.info('AppSyncOrchestrator signals ready, starting spawn loop');
+      globalState.spawnerPaused = false;
+      trySpawningGlobalApplication();
+    });
+    deps.orchestrator.on('readinessLost', () => {
+      log.warn('AppSyncOrchestrator signals readiness lost, spawner will pause on next iteration');
+      globalState.spawnerPaused = true;
+    });
+  }
 }
 
 // Note: Docker Hub error classification and caching is now handled by imageManager.js
@@ -48,9 +59,10 @@ function initialize(deps) {
  * @returns {Promise<void>}
  */
 async function trySpawningGlobalApplication() {
-  // Identity is resolved once at boot by scheduleIdentityResolution() in
-  // serviceManager. Until that lands we defer the spawn attempt, mirroring
-  // the synced / isNodeConfirmed branches below — no exception-for-retry.
+  if (globalState.spawnerPaused) {
+    log.info('Spawner paused by orchestrator, waiting for readiness');
+    return;
+  }
   const isEnterprise = enterpriseNetwork.getCachedEnterpriseIdentity();
   if (isEnterprise === null) {
     log.info('Flux enterprise identity not yet resolved');

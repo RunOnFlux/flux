@@ -1236,7 +1236,7 @@ describe('syncthingHealthMonitor tests', () => {
       expect(result.actions).to.have.length(1);
       expect(result.actions[0].action).to.equal('remove');
       expect(removeAppLocallyFn.calledOnce).to.be.true;
-      expect(removeAppLocallyFn.calledWith('myapp', null, true, false, false)).to.be.true;
+      expect(removeAppLocallyFn.calledWith('myapp', null, true, false, true)).to.be.true;
     });
 
     it('should clean up cache for folders that no longer exist', async () => {

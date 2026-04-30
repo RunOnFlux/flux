@@ -17,6 +17,8 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const { localAppsInformation } = require('../utils/appConstants');
 const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
+const appQueryService = require('../appQuery/appQueryService');
+const cacheManager = require('../utils/cacheManager').default;
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 
 // Database collections
@@ -89,7 +91,7 @@ async function recreateMissingContainers(componentIdentifier) {
  * @param {object} appsMonitored - Monitored apps object
  * @param {function} getGlobalState - Global state getter
  */
-async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName, appsMonitored, getGlobalState) {
+async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName) {
   const containerExists = await dockerService.getDockerContainerOnly(stoppedApp);
   if (containerExists) return;
 
@@ -97,7 +99,7 @@ async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName, appsMo
   try {
     await recreateMissingContainers(stoppedApp);
     log.info(`Successfully recreated master/slave app container ${stoppedApp}`);
-    appInspector.startAppMonitoring(stoppedApp, appsMonitored);
+    appInspector.startAppMonitoring(stoppedApp, globalState.appsMonitored);
   } catch (recreateErr) {
     // Check if container now exists — another process (e.g. masterSlaveApps) may have created it
     const containerExistsNow = await dockerService.getDockerContainerOnly(stoppedApp);
@@ -112,7 +114,7 @@ async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName, appsMo
       await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Docker network missing during recreation: ${recreateErr.message}`);
     }
     await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {},
-      getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
+      () => globalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, globalState.appsMonitored));
   }
 }
 
@@ -130,21 +132,8 @@ async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName, appsMo
  * @param {function} getGlobalState - Function to get global state
  * @param {object} cacheManager - Cache manager instance with stoppedAppsCache
  */
-async function checkAndNotifyPeersOfRunningApps(
-  installedApps,
-  listRunningApps,
-  appsMonitored,
-  removalInProgress,
-  installationInProgress,
-  softRedeployInProgress,
-  hardRedeployInProgress,
-  reinstallationOfOldAppsInProgress,
-  getGlobalState,
-  cacheManager,
-) {
+async function checkAndNotifyPeersOfRunningApps() {
   try {
-    // Sync global state before checking
-    getGlobalState();
     let isNodeConfirmed = false;
     isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {
@@ -167,11 +156,11 @@ async function checkAndNotifyPeersOfRunningApps(
     }
     // get list of locally installed apps. Store them in database as running and send info to our peers.
     // check if they are running?
-    const installedAppsRes = await installedApps();
+    const installedAppsRes = await appQueryService.installedApps();
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
-    const runningAppsRes = await listRunningApps();
+    const runningAppsRes = await appQueryService.listRunningApps();
     if (runningAppsRes.status !== 'success') {
       throw new Error('Unable to check running Apps');
     }
@@ -200,14 +189,12 @@ async function checkAndNotifyPeersOfRunningApps(
     const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
     const masterSlaveAppsInstalled = [];
 
-    // Get necessary references from global state
-    const globalState = getGlobalState();
     const backupInProgress = globalState.backupInProgress || [];
     const restoreInProgress = globalState.restoreInProgress || [];
     const appsStopedCache = cacheManager.stoppedAppsCache;
 
     // check if stoppedApp is a global application present in specifics. If so, try to start it.
-    if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress) {
+    if (!globalState.removalInProgress && !globalState.installationInProgress && !globalState.softRedeployInProgress && !globalState.hardRedeployInProgress && !globalState.reinstallationOfOldAppsInProgress) {
       // eslint-disable-next-line no-restricted-syntax
       for (const stoppedApp of stoppedApps) { // will uninstall app if some component is missing
         try {
@@ -226,7 +213,7 @@ async function checkAndNotifyPeersOfRunningApps(
             const restoreSkip = restoreInProgress.some((backupItem) => stoppedApp === backupItem);
             if (!backupSkip && !restoreSkip) {
               // eslint-disable-next-line no-await-in-loop
-              await handleMissingMasterSlaveContainer(stoppedApp, mainAppName, appsMonitored, getGlobalState);
+              await handleMissingMasterSlaveContainer(stoppedApp, mainAppName);
             }
           } else if (appDetails) {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
@@ -237,7 +224,7 @@ async function checkAndNotifyPeersOfRunningApps(
             if (backupSkip || restoreSkip) {
               log.warn(`Application ${stoppedApp} backup/restore is in progress...`);
             }
-            if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
+            if (!globalState.removalInProgress && !globalState.installationInProgress && !globalState.softRedeployInProgress && !globalState.hardRedeployInProgress && !globalState.reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
               // eslint-disable-next-line no-await-in-loop
               const containerExists = await dockerService.getDockerContainerOnly(stoppedApp);
 
@@ -265,7 +252,7 @@ async function checkAndNotifyPeersOfRunningApps(
                   // eslint-disable-next-line no-await-in-loop
                   await recreateMissingContainers(stoppedApp);
                   log.info(`Successfully recreated ${stoppedApp}`);
-                  appInspector.startAppMonitoring(stoppedApp, appsMonitored);
+                  appInspector.startAppMonitoring(stoppedApp, globalState.appsMonitored);
                 } catch (recreateErr) {
                   log.error(`Failed to recreate containers for ${stoppedApp}: ${recreateErr.message}`);
                   log.warn(`REMOVAL REASON: Container recreation failure - ${mainAppName} failed to recreate with error: ${recreateErr.message} (peerNotification)`);
@@ -278,7 +265,7 @@ async function checkAndNotifyPeersOfRunningApps(
                   // eslint-disable-next-line no-await-in-loop
                   await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
                     // Handle response
-                  }, getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
+                  }, () => globalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, globalState.appsMonitored));
                 }
               } else {
                 log.warn(`${stoppedApp} is stopped, starting`);
@@ -287,7 +274,7 @@ async function checkAndNotifyPeersOfRunningApps(
                 } else {
                   // eslint-disable-next-line no-await-in-loop
                   await dockerService.appDockerStart(stoppedApp);
-                  appInspector.startAppMonitoring(stoppedApp, appsMonitored);
+                  appInspector.startAppMonitoring(stoppedApp, globalState.appsMonitored);
                 }
               }
             } else {
@@ -296,12 +283,12 @@ async function checkAndNotifyPeersOfRunningApps(
           }
         } catch (err) {
           log.error(err);
-          if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress) {
+          if (!globalState.removalInProgress && !globalState.installationInProgress && !globalState.softRedeployInProgress && !globalState.hardRedeployInProgress && !globalState.reinstallationOfOldAppsInProgress) {
             log.warn(`REMOVAL REASON: App start failure - ${mainAppName} failed to start with error: ${err.message} (peerNotification)`);
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
               // Handle response
-            }, getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
+            }, () => globalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, globalState.appsMonitored));
           }
         }
       }

@@ -71,6 +71,8 @@ async function storeAppTemporaryMessage(message, options = {}) {
       _id: 0,
       message: 1,
       height: 1,
+      txid: 1,
+      value: 1,
     },
   };
   let database = db.db(config.database.daemon.database);
@@ -166,7 +168,12 @@ async function storeAppTemporaryMessage(message, options = {}) {
   });
   // it is stored and rebroadcasted
   if (isAppRequested) {
-    // node received the message but it is coming from a requestappmessage we should not rebroadcast to all peers
+    if (result && result.txid && result.height) {
+      setImmediate(() => {
+        messageVerifier.checkAndRequestApp(message.hash, result.txid, result.height, result.value, 2)
+          .catch((err) => log.error(`Immediate promotion failed for ${message.hash}: ${err.message}`));
+      });
+    }
     return false;
   }
   return true;

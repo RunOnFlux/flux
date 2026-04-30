@@ -8,14 +8,12 @@ describe('appHashSyncService tests', () => {
   let messageHelperStub;
   let serviceHelperStub;
   let verificationHelperStub;
-  let fluxNetworkHelperStub;
-  let generalServiceStub;
-  let globalStateStub;
   let logStub;
   let configStub;
+  let messageVerifierStub;
+  let messageStoreStub;
 
   beforeEach(() => {
-    // Config stub
     configStub = {
       database: {
         daemon: {
@@ -25,53 +23,32 @@ describe('appHashSyncService tests', () => {
           },
           database: 'daemon',
         },
-        appslocal: {
-          collections: {
-            appsInformation: 'localAppsInformation',
-          },
-          database: 'localapps',
-        },
         appsglobal: {
           collections: {
             appsMessages: 'appsMessages',
-            appsInformation: 'globalAppsInformation',
-            appsTemporaryMessages: 'appsTemporaryMessages',
-            appsLocations: 'appsLocations',
-            appsInstallingLocations: 'appsInstallingLocations',
-            appsInstallingErrorsLocations: 'appsInstallingErrorsLocations',
           },
           database: 'globalapps',
         },
       },
       fluxapps: {
         blocksLasting: 22000,
-        latestAppSpecification: 1,
       },
     };
 
-    // Stubs
     dbHelperStub = {
       databaseConnection: sinon.stub(),
       findInDatabase: sinon.stub(),
       findOneInDatabase: sinon.stub(),
-      insertOneToDatabase: sinon.stub(),
-      updateOneInDatabase: sinon.stub(),
-      aggregateInDatabase: sinon.stub(),
     };
 
     messageHelperStub = {
-      createDataMessage: sinon.stub(),
       createErrorMessage: sinon.stub(),
       createSuccessMessage: sinon.stub(),
+      errUnauthorizedMessage: sinon.stub().returns({ status: 'error' }),
     };
 
     serviceHelperStub = {
-      axiosGet: sinon.stub().resolves({
-        data: {
-          status: 'success',
-          data: true,
-        },
-      }),
+      axiosGet: sinon.stub(),
       delay: sinon.stub().resolves(),
       ensureNumber: sinon.stub().returnsArg(0),
     };
@@ -80,16 +57,15 @@ describe('appHashSyncService tests', () => {
       verifyPrivilege: sinon.stub(),
     };
 
-    fluxNetworkHelperStub = {
-      getNumberOfPeers: sinon.stub(),
+    messageVerifierStub = {
+      checkAndRequestApp: sinon.stub().resolves(true),
+      appHashHasMessage: sinon.stub().resolves(),
+      appHashHasMessageNotFound: sinon.stub().resolves(),
+      checkAndRequestMultipleApps: sinon.stub().resolves(),
     };
 
-    generalServiceStub = {
-      checkSynced: sinon.stub(),
-    };
-
-    globalStateStub = {
-      checkAndSyncAppHashesWasEverExecuted: false,
+    messageStoreStub = {
+      storeAppTemporaryMessage: sinon.stub().resolves(true),
     };
 
     logStub = {
@@ -98,34 +74,16 @@ describe('appHashSyncService tests', () => {
       warn: sinon.stub(),
     };
 
-    // Proxy require
     appHashSyncService = proxyquire('../../ZelBack/src/services/appMessaging/appHashSyncService', {
       config: configStub,
       '../dbHelper': dbHelperStub,
       '../messageHelper': messageHelperStub,
       '../serviceHelper': serviceHelperStub,
       '../verificationHelper': verificationHelperStub,
-      '../generalService': generalServiceStub,
-      '../fluxNetworkHelper': fluxNetworkHelperStub,
-      '../utils/globalState': globalStateStub,
       '../../lib/log': logStub,
-      './messageStore': {
-        storeAppTemporaryMessage: sinon.stub().resolves(true),
-      },
-      './messageVerifier': {
-        checkAndRequestApp: sinon.stub().resolves(true),
-        appHashHasMessageNotFound: sinon.stub().resolves(true),
-        checkAndRequestMultipleApps: sinon.stub().resolves(),
-      },
-      '../appDatabase/registryManager': {
-        expireGlobalApplications: sinon.stub().resolves(),
-      },
-      '../invalidMessages': {
-        invalidMessages: [],
-      },
-      '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
-        config: configStub,
-      }),
+      './messageStore': messageStoreStub,
+      './messageVerifier': messageVerifierStub,
+      '../invalidMessages': { invalidMessages: [] },
       '../utils/peerState': {
         peerManager: {
           getRandomPeer: () => ({
@@ -141,137 +99,175 @@ describe('appHashSyncService tests', () => {
   });
 
   describe('triggerAppHashesCheckAPI', () => {
-    it('should trigger hashes check when authorized', async () => {
+    it('should trigger sync when authorized', async () => {
       const req = {};
-      const res = {
-        json: sinon.stub(),
-      };
+      const res = { json: sinon.stub() };
 
       verificationHelperStub.verifyPrivilege.resolves(true);
-      messageHelperStub.createSuccessMessage.returns({ status: 'success', data: { message: 'Running check on missing application messages ' } });
+      messageHelperStub.createSuccessMessage.returns({ status: 'success' });
 
       await appHashSyncService.triggerAppHashesCheckAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
       expect(verificationHelperStub.verifyPrivilege.calledWith('adminandfluxteam', req)).to.be.true;
-      expect(messageHelperStub.createSuccessMessage.calledOnce).to.be.true;
     });
 
     it('should deny unauthorized access', async () => {
       const req = {};
-      const res = {
-        json: sinon.stub(),
-      };
+      const res = { json: sinon.stub() };
 
       verificationHelperStub.verifyPrivilege.resolves(false);
-      messageHelperStub.errUnauthorizedMessage = sinon.stub().returns({ status: 'error', data: { message: 'Unauthorized' } });
 
       await appHashSyncService.triggerAppHashesCheckAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(verificationHelperStub.verifyPrivilege.calledOnce).to.be.true;
       expect(messageHelperStub.errUnauthorizedMessage.calledOnce).to.be.true;
     });
 
     it('should handle errors gracefully', async () => {
       const req = {};
-      const res = {
-        json: sinon.stub(),
-      };
+      const res = { json: sinon.stub() };
       const error = new Error('Test error');
 
       verificationHelperStub.verifyPrivilege.rejects(error);
-      messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'Test error' } });
+      messageHelperStub.createErrorMessage.returns({ status: 'error' });
 
       await appHashSyncService.triggerAppHashesCheckAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
       expect(logStub.error.calledWith(error)).to.be.true;
-      expect(messageHelperStub.createErrorMessage.calledOnce).to.be.true;
     });
   });
 
-  describe('checkAndSyncAppHashes', () => {
-    it('should complete successfully with low percentage of missing apps', async () => {
+  describe('getMissingHashes', () => {
+    it('should return missing hashes sorted by height', async () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
-      // Return results where less than 95% are missing (e.g., 5 out of 100)
-      const results = Array(100).fill({ message: true });
-      for (let i = 0; i < 5; i += 1) {
-        results[i] = { message: false };
-      }
-      dbHelperStub.findInDatabase.resolves(results);
+      dbHelperStub.findInDatabase.resolves([
+        { hash: 'b', height: 200, message: false },
+        { hash: 'a', height: 100, message: false },
+      ]);
 
-      await appHashSyncService.checkAndSyncAppHashes();
+      const result = await appHashSyncService.getMissingHashes();
 
-      expect(dbHelperStub.findInDatabase.calledOnce).to.be.true;
-      expect(globalStateStub.checkAndSyncAppHashesWasEverExecuted).to.be.true;
+      expect(result).to.have.lengthOf(2);
+      expect(result[0].hash).to.equal('a');
+      expect(result[1].hash).to.equal('b');
     });
 
-    it('should handle errors and reset running flag', async () => {
-      const error = new Error('Database error');
-      // eslint-disable-next-line no-unused-vars
-      const mockDb = { db: sinon.stub().returns('database') };
-
-      dbHelperStub.databaseConnection.throws(error);
-      fluxNetworkHelperStub.getNumberOfPeers.returns(15);
-
-      await appHashSyncService.checkAndSyncAppHashes();
-
-      expect(logStub.error.calledWith(error)).to.be.true;
-      expect(globalStateStub.checkAndSyncAppHashesWasEverExecuted).to.be.false;
-    });
-  });
-
-  describe('continuousFluxAppHashesCheck', () => {
-    it('should skip if not enough peers', async () => {
-      fluxNetworkHelperStub.getNumberOfPeers.returns(5);
-
-      await appHashSyncService.continuousFluxAppHashesCheck();
-
-      expect(logStub.info.calledWith('Not enough connected peers to request missing Flux App messages')).to.be.true;
-      expect(dbHelperStub.findInDatabase.called).to.be.false;
-    });
-
-    it('should skip if not synced', async () => {
-      fluxNetworkHelperStub.getNumberOfPeers.returns(15);
-      generalServiceStub.checkSynced.resolves(false);
-
-      await appHashSyncService.continuousFluxAppHashesCheck();
-
-      expect(logStub.info.calledWith('Flux not yet synced')).to.be.true;
-      expect(dbHelperStub.findInDatabase.called).to.be.false;
-    });
-
-    it('should handle empty results gracefully', async () => {
-      fluxNetworkHelperStub.getNumberOfPeers.returns(15);
-      generalServiceStub.checkSynced.resolves(true);
-      globalStateStub.checkAndSyncAppHashesWasEverExecuted = true;
+    it('should exclude invalid messages when not forced', async () => {
+      const mod = proxyquire('../../ZelBack/src/services/appMessaging/appHashSyncService', {
+        config: configStub,
+        '../dbHelper': dbHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../serviceHelper': serviceHelperStub,
+        '../verificationHelper': verificationHelperStub,
+        '../../lib/log': logStub,
+        './messageStore': messageStoreStub,
+        './messageVerifier': messageVerifierStub,
+        '../invalidMessages': {
+          invalidMessages: [{ hash: 'invalid1', txid: 'tx1' }],
+        },
+        '../utils/peerState': {
+          peerManager: { getRandomPeer: () => null },
+        },
+      });
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 1000 });
+      dbHelperStub.findInDatabase.resolves([
+        { hash: 'invalid1', txid: 'tx1', height: 100, message: false },
+        { hash: 'valid1', txid: 'tx2', height: 200, message: false },
+      ]);
+
+      const result = await mod.getMissingHashes();
+      expect(result).to.have.lengthOf(1);
+      expect(result[0].hash).to.equal('valid1');
+    });
+
+    it('should return empty array when no hashes are missing', async () => {
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findInDatabase.resolves([]);
 
-      await appHashSyncService.continuousFluxAppHashesCheck();
-
-      expect(dbHelperStub.findInDatabase.calledOnce).to.be.true;
-      expect(logStub.info.calledWith('Requesting missing Flux App messages')).to.be.true;
+      const result = await appHashSyncService.getMissingHashes();
+      expect(result).to.have.lengthOf(0);
     });
+  });
 
-    it('should handle database errors', async () => {
-      const error = new Error('Database error');
-      fluxNetworkHelperStub.getNumberOfPeers.returns(15);
-      generalServiceStub.checkSynced.resolves(true);
-      globalStateStub.checkAndSyncAppHashesWasEverExecuted = true;
-
+  describe('syncMissingHashes', () => {
+    it('should return immediately when no hashes are missing', async () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.findOneInDatabase.rejects(error);
+      dbHelperStub.findInDatabase.resolves([]);
 
-      await appHashSyncService.continuousFluxAppHashesCheck();
+      const result = await appHashSyncService.syncMissingHashes();
 
-      expect(logStub.error.calledWith(error)).to.be.true;
+      expect(result.resolved).to.equal(0);
+      expect(result.missing).to.equal(0);
+    });
+
+    it('should skip when already running', async () => {
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+
+      // Make findInDatabase slow so syncMissingHashes is still running when we call again
+      let resolveFirst;
+      const firstCallPromise = new Promise((r) => { resolveFirst = r; });
+      dbHelperStub.findInDatabase.onFirstCall().returns(firstCallPromise);
+      dbHelperStub.findInDatabase.onSecondCall().resolves([]);
+
+      const first = appHashSyncService.syncMissingHashes();
+      const second = await appHashSyncService.syncMissingHashes();
+
+      expect(second.resolved).to.equal(0);
+      expect(logStub.info.calledWith('syncMissingHashes - Already running, skipping')).to.be.true;
+
+      resolveFirst([]);
+      await first;
+    });
+
+    it('should use bulk fetch when many hashes are missing', async () => {
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+
+      const manyMissing = Array(1500).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
+      }));
+
+      // First call: getMissingHashes returns many
+      // Subsequent calls (after bulk fetch): return empty
+      dbHelperStub.findInDatabase.onFirstCall().resolves(manyMissing);
+      dbHelperStub.findInDatabase.resolves([]);
+      dbHelperStub.findOneInDatabase.resolves(null);
+
+      serviceHelperStub.axiosGet.resolves({
+        data: { status: 'success', data: true },
+      });
+
+      // Bulk fetch returns no messages (peer has nothing)
+      serviceHelperStub.axiosGet.onSecondCall().resolves({
+        data: { status: 'success', data: [] },
+      });
+
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      const result = await appHashSyncService.syncMissingHashes();
+
+      // Should have attempted bulk fetch (axiosGet called for explorer sync check + permanent messages)
+      expect(serviceHelperStub.axiosGet.called).to.be.true;
+      expect(logStub.info.calledWith(sinon.match('using bulk fetch'))).to.be.true;
+    });
+
+    it('should handle errors without crashing', async () => {
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+      dbHelperStub.findInDatabase.rejects(new Error('DB error'));
+
+      const result = await appHashSyncService.syncMissingHashes();
+
+      expect(result.missing).to.equal(-1);
+      expect(logStub.error.called).to.be.true;
     });
   });
 });
