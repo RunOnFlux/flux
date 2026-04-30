@@ -6,6 +6,7 @@ const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
+const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
 
 // Import modular services
@@ -129,7 +130,59 @@ async function trySpawningGlobalApplication() {
     // get all the applications list names missing instances
     // eslint-disable-next-line global-require
     const { globalAppsInformation } = require('../utils/appConstants');
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const currentHeight = syncStatus.data.height;
+    const ponFork = config.fluxapps.daemonPONFork;
+    const blocksLasting = config.fluxapps.blocksLasting;
+    const minBlocksAllowance = config.fluxapps.newMinBlocksAllowance;
     const pipeline = [
+      // Filter out apps that are expired or expiring within minBlocksAllowance (100) blocks
+      {
+        $addFields: {
+          _expireIn: {
+            $ifNull: [
+              '$expire',
+              {
+                $cond: {
+                  if: { $gte: ['$height', ponFork] },
+                  then: blocksLasting * 4,
+                  else: blocksLasting,
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        $addFields: {
+          _actualExpirationHeight: {
+            $cond: {
+              if: { $lt: ['$height', ponFork] },
+              then: {
+                $cond: {
+                  if: { $lte: [{ $add: ['$height', '$_expireIn'] }, ponFork] },
+                  then: { $add: ['$height', '$_expireIn'] },
+                  else: {
+                    $add: [
+                      ponFork,
+                      { $multiply: [
+                        { $subtract: [{ $add: ['$height', '$_expireIn'] }, ponFork] },
+                        4,
+                      ] },
+                    ],
+                  },
+                },
+              },
+              else: { $add: ['$height', '$_expireIn'] },
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          _actualExpirationHeight: { $gt: currentHeight + minBlocksAllowance },
+        },
+      },
       {
         $lookup: {
           from: 'zelappslocation',
@@ -184,8 +237,8 @@ async function trySpawningGlobalApplication() {
     let appFromAppsToBeCheckedLater = false;
     let appFromAppsSyncthingToBeCheckedLater = false;
     const { appsToBeCheckedLater, appsSyncthingToBeCheckedLater } = globalState;
-    const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
-    const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
+    const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
+    const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
     let runningAppList = [];
     let installingAppList = [];
 
@@ -215,7 +268,7 @@ async function trySpawningGlobalApplication() {
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
         && !globalState.spawnErrorsLongerAppCache.has(app.hash)
         && !globalState.trySpawningGlobalAppCache.has(app.hash)
-        && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
+        && !appsToBeCheckedLater.some((appAux) => appAux.appName === app.name));
       // filter apps that are non enterprise or are marked to install on my node
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP) || app.version >= 8);
       // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
