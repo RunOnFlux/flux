@@ -9,6 +9,7 @@
  * Type 0x03 — nak                 [type:1][hash:20][reason:1]  = 22 bytes
  * Type 0x10 — peerExchange        [type:1][count:2][peer:6]... = 3 + count*6
  * Type 0x11 — peerUpdate          [type:1][addCnt:2][rmCnt:2][peer:6]... = 5 + total*6
+ * Type 0x20 — requestTempMessages [type:1]                    = 1 byte
  */
 
 const MSG_TYPE = Object.freeze({
@@ -17,6 +18,7 @@ const MSG_TYPE = Object.freeze({
   NAK: 0x03,
   PEER_EXCHANGE: 0x10,
   PEER_UPDATE: 0x11,
+  REQUEST_TEMP_MESSAGES: 0x20,
 });
 
 const NAK_REASON = Object.freeze({
@@ -188,6 +190,14 @@ function decodePeerUpdate(buf) {
   return { addOutbound, addInbound, rm };
 }
 
+// --- Temp Message Sync ---
+
+function encodeRequestTempMessages() {
+  const buf = Buffer.allocUnsafe(1);
+  buf[0] = MSG_TYPE.REQUEST_TEMP_MESSAGES;
+  return buf;
+}
+
 module.exports = {
   MSG_TYPE,
   NAK_REASON,
@@ -203,4 +213,5 @@ module.exports = {
   decodePeerExchange,
   encodePeerUpdate,
   decodePeerUpdate,
+  encodeRequestTempMessages,
 };

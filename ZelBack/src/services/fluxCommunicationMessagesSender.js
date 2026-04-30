@@ -1,9 +1,11 @@
 /* eslint-disable no-underscore-dangle */
+const config = require('config');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
+const dbHelper = require('./dbHelper');
 const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 
@@ -310,10 +312,36 @@ async function broadcastTemporaryAppMessage(message) {
   await broadcastMessageToAll(message);
 }
 
+async function respondWithTempMessages(peer) {
+  try {
+    const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const tempMessages = await dbHelper.findInDatabase(
+      database, globalAppsTempMessages, {}, { projection: { _id: 0, receivedAt: 0, expireAt: 0 } },
+    );
+    const messages = tempMessages.map((msg) => ({
+      type: msg.type,
+      version: msg.version,
+      appSpecifications: msg.appSpecifications,
+      hash: msg.hash,
+      timestamp: msg.timestamp,
+      signature: msg.signature,
+      arcaneSender: msg.arcaneSender,
+    }));
+    log.info(`respondWithTempMessages - Sending ${messages.length} temp messages to ${peer.key}`);
+    const response = { type: 'fluxapptempsync', version: 1, messages };
+    await sendSignedMessage(response, peer);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   relay,
   sendSignedMessage,
   respondWithAppMessage,
+  respondWithTempMessages,
   serialiseAndSignFluxBroadcast,
   getFluxMessageSignature,
   broadcastMessageToOutgoingFromUser,

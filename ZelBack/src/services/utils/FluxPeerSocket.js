@@ -84,6 +84,7 @@ class FluxPeerSocket {
     this.remoteCapabilities = new Set();
     this.remoteClockOffsetMs = null;
     this.remoteVersion = null;
+    this.remoteFluxUptime = null;
     this.source = PEER_SOURCE.INBOUND;
     this.msgMap = new Map([['requestHash', 0], ['newHash', 0]]);
     this.messagesReceived = 0;
