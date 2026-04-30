@@ -6,44 +6,68 @@ describe('appSpawner tests', () => {
   let appSpawner;
   let logStub;
   let configStub;
+  let globalStateStub;
+  let aggregateStub;
+  let delayStub;
+  let daemonSyncStub;
 
-  beforeEach(() => {
-    // Config stub
-    configStub = {
+  function createConfigStub(overrides = {}) {
+    return {
       database: {
-        daemon: {
-          database: 'daemon',
-        },
-        appslocal: {
-          database: 'localapps',
-        },
-        appsglobal: {
-          database: 'globalapps',
-        },
+        daemon: { database: 'daemon' },
+        appslocal: { database: 'localapps' },
+        appsglobal: { database: 'globalapps' },
       },
       fluxapps: {
-        installation: {
-          delay: 300,
-        },
+        installation: { delay: 300 },
+        daemonPONFork: 2020000,
+        blocksLasting: 22000,
+        newMinBlocksAllowance: 100,
+        ...overrides,
       },
     };
+  }
 
-    logStub = {
-      error: sinon.stub(),
-      info: sinon.stub(),
-      warn: sinon.stub(),
+  function createGlobalStateStub() {
+    return {
+      checkAndSyncAppHashesWasEverExecuted: true,
+      fluxNodeWasNotConfirmedOnLastCheck: false,
+      fluxNodeWasAlreadyConfirmed: true,
+      firstExecutionAfterItsSynced: false,
+      spawnErrorsLongerAppCache: new Map(),
+      trySpawningGlobalAppCache: new Map(),
+      appsToBeCheckedLater: [],
+      appsSyncthingToBeCheckedLater: [],
     };
+  }
 
-    // Proxy require - note: we're NOT actually running trySpawningGlobalApplication in tests
+  function buildModule(opts = {}) {
+    configStub = createConfigStub(opts.configOverrides);
+    globalStateStub = createGlobalStateStub();
+    if (opts.globalStateOverrides) {
+      Object.assign(globalStateStub, opts.globalStateOverrides);
+    }
+
+    logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
+    aggregateStub = sinon.stub().resolves(opts.aggregateResult || []);
+    // First delay resolves normally, subsequent calls reject to break recursion
+    delayStub = sinon.stub();
+    delayStub.onFirstCall().resolves();
+    delayStub.onSecondCall().rejects(new Error('break recursion'));
+    delayStub.rejects(new Error('break recursion'));
+    daemonSyncStub = sinon.stub().returns({
+      data: { height: opts.daemonHeight || 2555563, synced: true },
+    });
+
     appSpawner = proxyquire('../../ZelBack/src/services/appLifecycle/appSpawner', {
       config: configStub,
       '../dbHelper': {
-        databaseConnection: sinon.stub(),
-        aggregateInDatabase: sinon.stub(),
-        findInDatabase: sinon.stub(),
+        databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+        aggregateInDatabase: aggregateStub,
+        findInDatabase: sinon.stub().resolves([]),
       },
       '../serviceHelper': {
-        delay: sinon.stub().resolves(),
+        delay: delayStub,
         ensureNumber: sinon.stub().returnsArg(0),
       },
       '../generalService': {
@@ -61,6 +85,9 @@ describe('appSpawner tests', () => {
         isPortOpen: sinon.stub().resolves(true),
         isPortUserBlocked: sinon.stub().returns(false),
       },
+      '../daemonService/daemonServiceMiscRpcs': {
+        isDaemonSynced: daemonSyncStub,
+      },
       '../../lib/log': logStub,
       '../appQuery/appQueryService': {
         listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
@@ -76,10 +103,12 @@ describe('appSpawner tests', () => {
       '../appSecurity/imageManager': {
         checkApplicationImagesCompliance: sinon.stub().resolves(),
         verifyRepository: sinon.stub().resolves(),
+        isAppVetted: sinon.stub().resolves(false),
       },
       '../appRequirements/hwRequirements': {
         checkAppRequirements: sinon.stub().resolves(),
         totalAppHWRequirements: sinon.stub().returns({ cpu: 1, ram: 1000, hdd: 10 }),
+        checkAppCpuBurstHeadroom: sinon.stub().resolves(),
       },
       '../appNetwork/portManager': {
         ensureApplicationPortsNotUsed: sinon.stub().resolves(),
@@ -92,15 +121,10 @@ describe('appSpawner tests', () => {
         systemArchitecture: sinon.stub().resolves('amd64'),
         nodeFullGeolocation: sinon.stub().returns('US-NY'),
       },
-      '../utils/globalState': {
-        checkAndSyncAppHashesWasEverExecuted: true,
-        fluxNodeWasNotConfirmedOnLastCheck: false,
-        fluxNodeWasAlreadyConfirmed: false,
-        firstExecutionAfterItsSynced: false,
-        spawnErrorsLongerAppCache: new Map(),
-        trySpawningGlobalAppCache: new Map(),
-        appsToBeCheckedLater: [],
-        appsSyncthingToBeCheckedLater: [],
+      '../utils/globalState': globalStateStub,
+      '../geolocationService': {
+        isStaticIP: sinon.stub().returns(false),
+        isDataCenter: sinon.stub().returns(false),
       },
       './advancedWorkflows': {
         getPeerAppsInstallingErrorMessages: sinon.stub().resolves(),
@@ -108,54 +132,278 @@ describe('appSpawner tests', () => {
       '../fluxCommunicationMessagesSender': {
         broadcastMessageToOutgoing: sinon.stub().resolves(),
         broadcastMessageToIncoming: sinon.stub().resolves(),
+        broadcastMessageToAll: sinon.stub().resolves(),
       },
       '../utils/appConstants': {
         globalAppsInformation: 'appsInformation',
         localAppsInformation: 'localAppsInformation',
       },
+      '../utils/enterpriseNetwork': {
+        getCachedEnterpriseIdentity: sinon.stub().returns(false),
+        getSpawnDelays: sinon.stub().returns({ shortDelayTime: 60000, delayTime: 60000 }),
+        filterAppsByOwnership: sinon.stub().callsFake((apps) => apps),
+      },
+      '../utils/cacheManager': {
+        FluxCacheManager: { oneHour: 3600000 },
+      },
     });
-  });
+  }
 
   afterEach(() => {
     sinon.restore();
   });
 
   describe('initialize', () => {
+    beforeEach(() => buildModule());
+
     it('should initialize appInstaller and appUninstaller dependencies', () => {
-      const mockAppInstaller = { registerAppLocally: sinon.stub() };
-      const mockAppUninstaller = { removeAppLocally: sinon.stub() };
-
       const deps = {
-        appInstaller: mockAppInstaller,
-        appUninstaller: mockAppUninstaller,
+        appInstaller: { registerAppLocally: sinon.stub() },
+        appUninstaller: { removeAppLocally: sinon.stub() },
       };
-
-      // Initialize should not throw
       appSpawner.initialize(deps);
-
-      // After initialization, the module should have stored these dependencies
-      // We can't easily test this without exposing them, but at least verify it doesn't throw
       expect(appSpawner.initialize).to.be.a('function');
     });
 
     it('should handle empty dependencies object', () => {
-      const deps = {};
-
-      // Should not throw even with empty deps
-      appSpawner.initialize(deps);
-
+      appSpawner.initialize({});
       expect(appSpawner.initialize).to.be.a('function');
     });
   });
 
   describe('trySpawningGlobalApplication', () => {
+    beforeEach(() => buildModule());
+
     it('should be exported as a function', () => {
       expect(appSpawner.trySpawningGlobalApplication).to.be.a('function');
     });
+  });
 
-    // Note: We don't actually call trySpawningGlobalApplication in these tests
-    // because it's a long-running recursive function with complex business logic.
-    // Testing it properly would require integration tests or significant mocking.
-    // The function is tested indirectly through integration tests.
+  describe('expiration filter pipeline', () => {
+    beforeEach(() => buildModule({ daemonHeight: 2555563 }));
+
+    function getPipelineFromCall() {
+      expect(aggregateStub.calledOnce).to.be.true;
+      return aggregateStub.firstCall.args[2];
+    }
+
+    function evaluateExpiration(height, expire, currentHeight) {
+      const ponFork = 2020000;
+      const blocksLasting = 22000;
+      const minBlocksAllowance = 100;
+
+      const expireIn = expire ?? (height >= ponFork ? blocksLasting * 4 : blocksLasting);
+      let actualExpirationHeight;
+      if (height < ponFork) {
+        const originalExpiration = height + expireIn;
+        if (originalExpiration <= ponFork) {
+          actualExpirationHeight = originalExpiration;
+        } else {
+          const blocksAfterFork = originalExpiration - ponFork;
+          actualExpirationHeight = ponFork + (blocksAfterFork * 4);
+        }
+      } else {
+        actualExpirationHeight = height + expireIn;
+      }
+      return {
+        actualExpirationHeight,
+        wouldInstall: actualExpirationHeight > currentHeight + minBlocksAllowance,
+      };
+    }
+
+    it('should include expiration filter stages before $lookup', async () => {
+      await appSpawner.trySpawningGlobalApplication();
+      const pipeline = getPipelineFromCall();
+
+      // First stage: $addFields for _expireIn
+      expect(pipeline[0]).to.have.property('$addFields');
+      expect(pipeline[0].$addFields).to.have.property('_expireIn');
+
+      // Second stage: $addFields for _actualExpirationHeight
+      expect(pipeline[1]).to.have.property('$addFields');
+      expect(pipeline[1].$addFields).to.have.property('_actualExpirationHeight');
+
+      // Third stage: $match on _actualExpirationHeight
+      expect(pipeline[2]).to.have.property('$match');
+      expect(pipeline[2].$match).to.have.property('_actualExpirationHeight');
+
+      // Fourth stage should be the $lookup (previously first)
+      expect(pipeline[3]).to.have.property('$lookup');
+    });
+
+    it('should use daemon height + newMinBlocksAllowance as threshold', async () => {
+      await appSpawner.trySpawningGlobalApplication();
+      const pipeline = getPipelineFromCall();
+
+      expect(pipeline[2].$match._actualExpirationHeight.$gt).to.equal(2555563 + 100);
+    });
+
+    it('should use correct post-PON default expire (blocksLasting * 4)', async () => {
+      await appSpawner.trySpawningGlobalApplication();
+      const pipeline = getPipelineFromCall();
+
+      // The $ifNull fallback for post-PON should be 88000
+      const expireField = pipeline[0].$addFields._expireIn;
+      const condThen = expireField.$ifNull[1].$cond.then;
+      expect(condThen).to.equal(22000 * 4);
+    });
+
+    it('should use correct pre-PON default expire (blocksLasting)', async () => {
+      await appSpawner.trySpawningGlobalApplication();
+      const pipeline = getPipelineFromCall();
+
+      const expireField = pipeline[0].$addFields._expireIn;
+      const condElse = expireField.$ifNull[1].$cond.else;
+      expect(condElse).to.equal(22000);
+    });
+
+    it('should not include _expireIn or _actualExpirationHeight in $project output', async () => {
+      await appSpawner.trySpawningGlobalApplication();
+      const pipeline = getPipelineFromCall();
+
+      const projectStage = pipeline.find((stage) => stage.$project);
+      expect(projectStage.$project).to.not.have.property('_expireIn');
+      expect(projectStage.$project).to.not.have.property('_actualExpirationHeight');
+    });
+
+    // Expiration math verification using the same logic as the pipeline
+    describe('expiration math', () => {
+      const currentHeight = 2555563;
+
+      it('should reject post-PON app with expire=100 (cancellation)', () => {
+        const result = evaluateExpiration(2555500, 100, currentHeight);
+        expect(result.wouldInstall).to.be.false;
+      });
+
+      it('should reject post-PON app with expire=85', () => {
+        const result = evaluateExpiration(2555500, 85, currentHeight);
+        expect(result.wouldInstall).to.be.false;
+      });
+
+      it('should accept post-PON app with 101+ blocks remaining', () => {
+        const result = evaluateExpiration(2555500, 164, currentHeight);
+        expect(result.wouldInstall).to.be.true;
+      });
+
+      it('should accept post-PON app with default expire (88000)', () => {
+        const result = evaluateExpiration(2550000, 88000, currentHeight);
+        expect(result.wouldInstall).to.be.true;
+      });
+
+      it('should accept post-PON app with no expire field (defaults to 88000)', () => {
+        const result = evaluateExpiration(2550000, undefined, currentHeight);
+        expect(result.actualExpirationHeight).to.equal(2550000 + 88000);
+        expect(result.wouldInstall).to.be.true;
+      });
+
+      it('should reject pre-PON app that expires before fork', () => {
+        const result = evaluateExpiration(2019000, 85, currentHeight);
+        expect(result.actualExpirationHeight).to.equal(2019085);
+        expect(result.wouldInstall).to.be.false;
+      });
+
+      it('should apply 4x multiplier to blocks after PON fork', () => {
+        // height=2000000, expire=22000 -> original=2022000
+        // blocksAfterFork = 2022000 - 2020000 = 2000
+        // adjusted = 2000 * 4 = 8000
+        // actual = 2020000 + 8000 = 2028000
+        const result = evaluateExpiration(2000000, 22000, currentHeight);
+        expect(result.actualExpirationHeight).to.equal(2028000);
+        expect(result.wouldInstall).to.be.false;
+      });
+
+      it('should handle pre-PON app close to threshold (under)', () => {
+        // Computed to have 49 blocks remaining after adjustment
+        const result = evaluateExpiration(2000000, 153903, currentHeight);
+        expect(result.actualExpirationHeight).to.equal(2555612);
+        expect(result.wouldInstall).to.be.false;
+      });
+
+      it('should handle pre-PON app close to threshold (over)', () => {
+        // Computed to have 249 blocks remaining after adjustment
+        const result = evaluateExpiration(2000000, 153953, currentHeight);
+        expect(result.actualExpirationHeight).to.equal(2555812);
+        expect(result.wouldInstall).to.be.true;
+      });
+
+      it('should accept pre-PON app with long lease (264000)', () => {
+        const result = evaluateExpiration(2000000, 264000, currentHeight);
+        expect(result.actualExpirationHeight).to.equal(2996000);
+        expect(result.wouldInstall).to.be.true;
+      });
+
+      it('should reject pre-PON app with no expire field (defaults to 22000)', () => {
+        const result = evaluateExpiration(2000000, undefined, currentHeight);
+        expect(result.actualExpirationHeight).to.equal(2028000);
+        expect(result.wouldInstall).to.be.false;
+      });
+
+      it('should reject post-PON app with exactly 100 blocks remaining', () => {
+        // height + expire - currentHeight = 100 exactly
+        const result = evaluateExpiration(2555414, 249, currentHeight);
+        expect(result.actualExpirationHeight - currentHeight).to.equal(100);
+        expect(result.wouldInstall).to.be.false;
+      });
+    });
+  });
+
+  describe('deferred queue fixes', () => {
+    it('findIndex should match apps whose timeToCheck is in the past (<=)', () => {
+      const now = Date.now();
+      const queue = [
+        { timeToCheck: now - 1000, appName: 'ready', hash: 'abc', required: 3 },
+        { timeToCheck: now + 60000, appName: 'notReady', hash: 'def', required: 3 },
+      ];
+      // Fixed: <= means we find apps whose time has passed
+      const index = queue.findIndex((app) => app.timeToCheck <= now);
+      expect(index).to.equal(0);
+      expect(queue[index].appName).to.equal('ready');
+    });
+
+    it('findIndex should not match apps whose timeToCheck is in the future', () => {
+      const now = Date.now();
+      const queue = [
+        { timeToCheck: now + 60000, appName: 'notReady', hash: 'abc', required: 3 },
+      ];
+      const index = queue.findIndex((app) => app.timeToCheck <= now);
+      expect(index).to.equal(-1);
+    });
+
+    it('findIndex with old bug (>=) would incorrectly match future apps', () => {
+      const now = Date.now();
+      const queue = [
+        { timeToCheck: now + 60000, appName: 'notReady', hash: 'abc', required: 3 },
+      ];
+      // Old buggy behavior: >= matches apps still waiting
+      const buggyIndex = queue.findIndex((app) => app.timeToCheck >= now);
+      expect(buggyIndex).to.equal(0); // Bug: would pop an app that should still be waiting
+    });
+
+    it('Array.some should correctly filter apps already in deferred queue', () => {
+      const queue = [
+        { appName: 'myApp', hash: 'abc', required: 3, timeToCheck: Date.now() + 60000 },
+      ];
+      const apps = [
+        { name: 'myApp', hash: 'abc' },
+        { name: 'otherApp', hash: 'def' },
+      ];
+      const filtered = apps.filter((app) => !queue.some((appAux) => appAux.appName === app.name));
+      expect(filtered).to.have.lengthOf(1);
+      expect(filtered[0].name).to.equal('otherApp');
+    });
+
+    it('Array.includes with callback (old bug) never filters anything', () => {
+      const queue = [
+        { appName: 'myApp', hash: 'abc', required: 3, timeToCheck: Date.now() + 60000 },
+      ];
+      const apps = [
+        { name: 'myApp', hash: 'abc' },
+        { name: 'otherApp', hash: 'def' },
+      ];
+      // Old buggy behavior: includes() with a function always returns false
+      // eslint-disable-next-line no-array-constructor
+      const filtered = apps.filter((app) => !queue.includes((appAux) => appAux.appName === app.name));
+      expect(filtered).to.have.lengthOf(2); // Bug: nothing filtered
+    });
   });
 });

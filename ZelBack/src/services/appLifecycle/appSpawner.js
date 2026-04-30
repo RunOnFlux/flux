@@ -6,6 +6,7 @@ const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
+const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
 
 // Import modular services
@@ -133,7 +134,59 @@ async function trySpawningGlobalApplication() {
     // get all the applications list names missing instances
     // eslint-disable-next-line global-require
     const { globalAppsInformation } = require('../utils/appConstants');
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const currentHeight = syncStatus.data.height;
+    const ponFork = config.fluxapps.daemonPONFork;
+    const blocksLasting = config.fluxapps.blocksLasting;
+    const minBlocksAllowance = config.fluxapps.newMinBlocksAllowance;
     const pipeline = [
+      // Filter out apps that are expired or expiring within minBlocksAllowance (100) blocks
+      {
+        $addFields: {
+          _expireIn: {
+            $ifNull: [
+              '$expire',
+              {
+                $cond: {
+                  if: { $gte: ['$height', ponFork] },
+                  then: blocksLasting * 4,
+                  else: blocksLasting,
+                },
+              },
+            ],
+          },
+        },
+      },
+      {
+        $addFields: {
+          _actualExpirationHeight: {
+            $cond: {
+              if: { $lt: ['$height', ponFork] },
+              then: {
+                $cond: {
+                  if: { $lte: [{ $add: ['$height', '$_expireIn'] }, ponFork] },
+                  then: { $add: ['$height', '$_expireIn'] },
+                  else: {
+                    $add: [
+                      ponFork,
+                      { $multiply: [
+                        { $subtract: [{ $add: ['$height', '$_expireIn'] }, ponFork] },
+                        4,
+                      ] },
+                    ],
+                  },
+                },
+              },
+              else: { $add: ['$height', '$_expireIn'] },
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          _actualExpirationHeight: { $gt: currentHeight + minBlocksAllowance },
+        },
+      },
       {
         $lookup: {
           from: 'zelappslocation',
