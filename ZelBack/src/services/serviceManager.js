@@ -195,9 +195,9 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
     log.info('Flux Apps locations prepared');
-    // Signed apprunning broadcasts for sync — one doc per IP, TTL matches location TTL
     await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ ip: 1 }, { unique: true });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).dropIndex('ip_1').catch(() => {});
+    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ ip: 1, 'data.name': 1 }, { unique: true });
     log.info('Signed apprunning broadcasts collection prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 900 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ 'data.name': 1, 'data.ip': 1 }, { unique: true });
