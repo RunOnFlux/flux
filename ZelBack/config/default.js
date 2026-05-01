@@ -59,6 +59,7 @@ module.exports = {
         appsInstallingLocations: 'appsinstallinglocations', // stores install location of flux apps as documents containing name, ip, obtainedAt
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
         appsRunningBroadcasts: 'fluxapprunningbroadcasts', // stores signed apprunning broadcasts for sync
+        appsInstallingBroadcasts: 'fluxappinstallingbroadcasts', // stores signed appinstalling broadcasts for sync
       },
     },
     chainparams: {

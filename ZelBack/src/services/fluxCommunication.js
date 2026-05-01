@@ -121,6 +121,35 @@ async function handleAppRunningSyncResponse(message) {
   }
 }
 
+async function handleAppInstallingSyncResponse(message) {
+  try {
+    if (!message.data || message.data.type !== 'fluxappinstallingsync') return;
+    const { messages, done } = message.data;
+    if (!Array.isArray(messages)) return;
+    log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts (done: ${!!done})`);
+    const verified = [];
+    for (const broadcast of messages) {
+      try {
+        const result = await fluxCommunicationUtils.verifyFluxBroadcast(broadcast);
+        if (result === fluxCommunicationUtils.VerifyResult.OK) {
+          verified.push(broadcast);
+        }
+      } catch (err) {
+        log.error(`handleAppInstallingSyncResponse - Verification error: ${err.message}`);
+      }
+    }
+    if (verified.length > 0) {
+      const { stored } = await messageStore.storeBatchAppInstallingMessages(verified);
+      log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
+    }
+    if (done) {
+      log.info('handleAppInstallingSyncResponse - Sync complete');
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 async function handleCheckMessageHashPresent(messageHash, fromIP, port) {
   try {
     if (!messageCache.has(messageHash)) {
@@ -189,10 +218,8 @@ async function handleAppRunningMessage(message, fromIP, port) {
  */
 async function handleAppInstallingMessage(message, fromIP, port) {
   try {
-    // check if we have it exactly like that in database and if not, update
-    // if not in database, rebroadcast to all connections
-    // do furtherVerification of message
     const rebroadcastToPeers = await messageStore.storeAppInstallingMessage(message.data);
+    messageStore.storeSignedAppInstallingBroadcast(message);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
@@ -445,6 +472,8 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
           setImmediate(() => handleTempSyncResponse(msgObj));
         } else if (msgObj.data.type === 'fluxapprunningsync') {
           setImmediate(() => handleAppRunningSyncResponse(msgObj));
+        } else if (msgObj.data.type === 'fluxappinstallingsync') {
+          setImmediate(() => handleAppInstallingSyncResponse(msgObj));
         } else {
           log.warn(`Unrecognised message type of ${msgObj.data.type}`);
         }
@@ -509,6 +538,13 @@ peerManager.hashHandlers = {
     if (now - last < 5 * 60 * 1000) return;
     peer.lastAppRunningSyncResponse = now;
     setImmediate(() => fluxCommunicationMessagesSender.respondWithAppRunningMessages(peer, sinceTimestamp));
+  },
+  handleAppInstallingRequest: (peer, sinceTimestamp) => {
+    const now = Date.now();
+    const last = peer.lastAppInstallingSyncResponse || 0;
+    if (now - last < 5 * 60 * 1000) return;
+    peer.lastAppInstallingSyncResponse = now;
+    setImmediate(() => fluxCommunicationMessagesSender.respondWithAppInstallingMessages(peer, sinceTimestamp));
   },
 };
 
