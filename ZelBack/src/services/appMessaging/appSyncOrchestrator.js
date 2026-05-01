@@ -152,7 +152,7 @@ class AppSyncOrchestrator extends EventEmitter {
 
   async #fetchTempMessages() {
     try {
-      const eligible = this.#peerManager.getEligibleTempSyncPeers(7200);
+      const eligible = this.#peerManager.getEligibleTempSyncPeers(7500);
       if (eligible.length === 0) {
         log.info('AppSyncOrchestrator - No eligible peers for temp message catch-up');
         return;
@@ -173,7 +173,7 @@ class AppSyncOrchestrator extends EventEmitter {
 
   #fetchAppRunningMessages() {
     try {
-      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(7200);
+      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(7500);
       if (eligible.length === 0) {
         log.info('AppSyncOrchestrator - No eligible peers for apprunning sync');
         return;
@@ -194,7 +194,7 @@ class AppSyncOrchestrator extends EventEmitter {
 
   #fetchAppInstallingMessages() {
     try {
-      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(7200);
+      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(7500);
       if (eligible.length === 0) return;
       const peersToAsk = eligible.slice(0, 3);
       log.info(`AppSyncOrchestrator - Requesting appinstalling sync from ${peersToAsk.length} peers`);
@@ -212,7 +212,7 @@ class AppSyncOrchestrator extends EventEmitter {
 
   #fetchAppInstallingErrorMessages() {
     try {
-      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(7200);
+      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(7500);
       if (eligible.length === 0) return;
       const peersToAsk = eligible.slice(0, 3);
       log.info(`AppSyncOrchestrator - Requesting appinstalling errors sync from ${peersToAsk.length} peers`);
