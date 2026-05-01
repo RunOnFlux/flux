@@ -678,7 +678,7 @@ const appsInstallingBroadcasts = config.database.appsglobal.collections.appsInst
 function storeSignedAppInstallingBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.name || !data.broadcastedAt) return;
-  const validTill = data.broadcastedAt + (5 * 60 * 1000);
+  const validTill = data.broadcastedAt + (15 * 60 * 1000);
   if (validTill < Date.now()) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -709,7 +709,7 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
 
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
-    const validTill = data.broadcastedAt + (5 * 60 * 1000);
+    const validTill = data.broadcastedAt + (15 * 60 * 1000);
     if (validTill < Date.now()) continue;
 
     signedOps.push({

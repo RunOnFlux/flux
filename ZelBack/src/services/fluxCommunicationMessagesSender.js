@@ -390,7 +390,7 @@ async function respondWithAppInstallingMessages(peer, sinceTimestamp = 0) {
     const adjustedTimestamp = sinceTimestamp > 0
       ? new Date(sinceTimestamp - (peer.remoteClockOffsetMs || 0))
       : new Date(0);
-    const validAfter = new Date(Date.now() - 5 * 60 * 1000);
+    const validAfter = new Date(Date.now() - 15 * 60 * 1000);
     const minTimestamp = adjustedTimestamp > validAfter ? adjustedTimestamp : validAfter;
     const cursor = database.collection(appsInstallingBroadcasts)
       .find({ broadcastedAt: { $gt: minTimestamp } }, { projection: { _id: 0, expireAt: 0 } })
