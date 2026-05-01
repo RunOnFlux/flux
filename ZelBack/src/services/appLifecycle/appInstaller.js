@@ -643,22 +643,21 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       const broadcastedAt = Date.now();
       const newAppRunningMessage = {
         type: 'fluxapprunning',
-        version: 1,
-        name: appSpecifications.name,
-        hash: appSpecifications.hash, // hash of application specifics that are running
+        version: 2,
+        apps: [{
+          name: appSpecifications.name,
+          hash: appSpecifications.hash,
+          runningSince: new Date(broadcastedAt).toISOString(),
+        }],
         ip: myIP,
         broadcastedAt,
-        runningSince: new Date(broadcastedAt).toISOString(),
         osUptime: os.uptime(),
         staticIp: geolocationService.isStaticIP(),
       };
 
-      // store it in local database first
       // eslint-disable-next-line no-await-in-loop, no-use-before-define
       await storeAppRunningMessage(newAppRunningMessage);
-      // broadcast messages about running apps to all peers
       await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessage);
-      // broadcast messages about running apps to all peers
     }
 
     // all done message

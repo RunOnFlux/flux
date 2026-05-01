@@ -322,77 +322,34 @@ async function checkAndNotifyPeersOfRunningApps() {
         const queryFind = { name: application.name, ip: myIP };
         const projection = { _id: 0, runningSince: 1 };
         let runningOnMyNodeSince = new Date().toISOString();
-        // we already have the exact same data
         // eslint-disable-next-line no-await-in-loop
         const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
         if (result && result.runningSince) {
           runningOnMyNodeSince = result.runningSince;
         }
         log.info(`${application.name} is running/installed properly. Broadcasting status.`);
-        // eslint-disable-next-line no-await-in-loop
-        // we can distinguish pure local apps from global with hash and height
-        const newAppRunningMessage = {
-          type: 'fluxapprunning',
-          version: 1,
-          name: application.name,
-          hash: application.hash, // hash of application specifics that are running
-          ip: myIP,
-          broadcastedAt: Date.now(),
-          runningSince: runningOnMyNodeSince,
-          osUptime: os.uptime(),
-          staticIp: geolocationService.isStaticIP(),
-        };
-        const app = {
+        apps.push({
           name: application.name,
           hash: application.hash,
           runningSince: runningOnMyNodeSince,
-        };
-        apps.push(app);
-        // store it in local database first
-        // eslint-disable-next-line no-await-in-loop
-        await messageStore.storeAppRunningMessage(newAppRunningMessage);
-        if (installedAndRunning.length === 1) {
-          // eslint-disable-next-line no-await-in-loop
-          await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessage);
-          // broadcast messages about running apps to all peers
-          log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessage)}`);
-        }
+        });
       }
-      if (installedAndRunning.length > 1) {
-        // send v2 unique message instead
-        const newAppRunningMessageV2 = {
-          type: 'fluxapprunning',
-          version: 2,
-          apps,
-          ip: myIP,
-          broadcastedAt: Date.now(),
-          osUptime: os.uptime(),
-          staticIp: geolocationService.isStaticIP(),
-        };
-        // eslint-disable-next-line no-await-in-loop
-        await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessageV2);
-        // broadcast messages about running apps to all peers
-        log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessageV2)}`);
-      } else if (installedAndRunning.length === 0 && checkAndNotifyPeersOfRunningAppsFirstRun) {
-        checkAndNotifyPeersOfRunningAppsFirstRun = false;
-        // we will broadcast a message that we are not running any app
-        // if multitoolbox option to reinstall fluxos or fix mongodb is executed all apps are removed from the node, once the node starts and it's confirmed
-        // should broadcast to the network what is running or not
-        // the nodes who receive the message will only rebroadcast if they had information about a app running on this node
-        const newAppRunningMessageV2 = {
-          type: 'fluxapprunning',
-          version: 2,
-          apps,
-          ip: myIP,
-          broadcastedAt: Date.now(),
-          osUptime: os.uptime(),
-          staticIp: geolocationService.isStaticIP(),
-        };
-        // eslint-disable-next-line no-await-in-loop
-        await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessageV2);
-        // broadcast messages about running apps to all peers
-        log.info(`No Apps Running Message broadcasted ${JSON.stringify(newAppRunningMessageV2)}`);
+      if (apps.length === 0 && !checkAndNotifyPeersOfRunningAppsFirstRun) {
+        return;
       }
+      checkAndNotifyPeersOfRunningAppsFirstRun = false;
+      const appRunningMessage = {
+        type: 'fluxapprunning',
+        version: 2,
+        apps,
+        ip: myIP,
+        broadcastedAt: Date.now(),
+        osUptime: os.uptime(),
+        staticIp: geolocationService.isStaticIP(),
+      };
+      await messageStore.storeAppRunningMessage(appRunningMessage);
+      await fluxCommunicationMessagesSender.broadcastMessageToAll(appRunningMessage);
+      log.info(`App Running Message broadcasted: ${apps.length} apps`);
     } catch (err) {
       log.error(err);
       // removeAppLocally(stoppedApp);
