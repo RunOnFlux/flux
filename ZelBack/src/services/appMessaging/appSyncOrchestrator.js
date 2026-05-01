@@ -16,7 +16,7 @@ const STATES = Object.freeze({
   RESYNCING: 'RESYNCING',
 });
 
-const MIN_SYNC_PEERS = 3;
+const MIN_SYNC_PEERS = config.fluxapps.appSyncMinCompletions || 3;
 const SYNC_TIMEOUT_MS = 2 * 60 * 1000;
 const MIN_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime || 7500;
 
