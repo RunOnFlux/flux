@@ -1,5 +1,4 @@
 const { EventEmitter } = require('events');
-const config = require('config');
 const log = require('../../lib/log');
 const generalService = require('../generalService');
 const appHashSyncService = require('./appHashSyncService');
@@ -28,6 +27,7 @@ class AppSyncOrchestrator extends EventEmitter {
   #locationBlockThreshold = 0;
   #blockReceivedHandler = null;
   #appRunningBroadcastInterval = null;
+  #syncInProgress = false;
 
   constructor(options = {}) {
     super();
@@ -69,6 +69,7 @@ class AppSyncOrchestrator extends EventEmitter {
     await this.#fetchTempMessages();
 
     if (this.#state === STATES.RESYNCING) {
+      if (this.#syncInProgress) return;
       await this.#runHashSync();
       this.#checkReadiness();
     }
@@ -102,6 +103,7 @@ class AppSyncOrchestrator extends EventEmitter {
   }
 
   async #runInitialSync() {
+    if (this.#syncInProgress) return;
     log.info('AppSyncOrchestrator - Starting initial hash sync');
     this.emit('syncStarted');
     await this.#runHashSync();
@@ -109,24 +111,25 @@ class AppSyncOrchestrator extends EventEmitter {
   }
 
   async #runHashSync() {
+    if (this.#syncInProgress) return;
+    this.#syncInProgress = true;
     try {
       const result = await appHashSyncService.syncMissingHashes({
         onProgress: (progress) => this.emit('syncProgress', progress),
       });
-      this.#hashSyncComplete = result.missing === 0;
-      if (this.#hashSyncComplete) {
-        log.info('AppSyncOrchestrator - Hash sync complete');
-        this.emit('syncComplete');
-        await this.#rebuildDb();
+      if (result.missing > 0) {
+        log.warn(`AppSyncOrchestrator - Hash sync has ${result.missing} unresolvable hashes, proceeding`);
       } else {
-        log.warn(`AppSyncOrchestrator - Hash sync incomplete, ${result.missing} still missing`);
-        this.#hashSyncComplete = true;
-        this.emit('syncComplete');
-        await this.#rebuildDb();
+        log.info('AppSyncOrchestrator - Hash sync complete');
       }
+      this.#hashSyncComplete = true;
+      this.emit('syncComplete');
+      await this.#rebuildDb();
       globalState.checkAndSyncAppHashesWasEverExecuted = true;
     } catch (error) {
       log.error(`AppSyncOrchestrator - Hash sync failed: ${error.message}`);
+    } finally {
+      this.#syncInProgress = false;
     }
   }
 
@@ -167,7 +170,6 @@ class AppSyncOrchestrator extends EventEmitter {
   #isLocationReady() {
     if (this.#locationBlockThreshold === 0) {
       const enterprise = this.#isEnterprise();
-      const ponFork = config.fluxapps.daemonPONFork;
       const blocksPerMinute = 2;
       this.#locationBlockThreshold = enterprise
         ? 62 * blocksPerMinute
