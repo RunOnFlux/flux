@@ -1,3 +1,4 @@
+const config = require('config');
 const { EventEmitter } = require('events');
 const log = require('../../lib/log');
 const generalService = require('../generalService');
@@ -15,6 +16,10 @@ const STATES = Object.freeze({
   RESYNCING: 'RESYNCING',
 });
 
+const MIN_SYNC_PEERS = 3;
+const SYNC_TIMEOUT_MS = 2 * 60 * 1000;
+const MIN_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime || 7500;
+
 class AppSyncOrchestrator extends EventEmitter {
   #state = STATES.INITIALIZING;
   #blockEmitter = null;
@@ -24,10 +29,14 @@ class AppSyncOrchestrator extends EventEmitter {
   #hashSyncComplete = false;
   #dbRebuilt = false;
   #blocksSinceSyncStarted = 0;
-  #locationBlockThreshold = 0;
+  #blockThreshold = 0;
   #blockReceivedHandler = null;
   #appRunningBroadcastInterval = null;
   #syncInProgress = false;
+  #askedPeers = new Set();
+  #syncCompletions = { apprunning: 0, appinstalling: 0, apperrors: 0 };
+  #stateSyncComplete = false;
+  #syncTimeout = null;
 
   constructor(options = {}) {
     super();
@@ -59,6 +68,24 @@ class AppSyncOrchestrator extends EventEmitter {
     this.#blockEmitter.on('blockReceived', this.#blockReceivedHandler);
   }
 
+  onSyncComplete(syncType) {
+    if (this.#stateSyncComplete) return;
+    if (this.#syncCompletions[syncType] === undefined) return;
+    this.#syncCompletions[syncType] += 1;
+    log.info(`AppSyncOrchestrator - ${syncType} sync complete (${this.#syncCompletions[syncType]}/${MIN_SYNC_PEERS})`);
+    if (this.#syncCompletions.apprunning >= MIN_SYNC_PEERS
+      && this.#syncCompletions.appinstalling >= MIN_SYNC_PEERS
+      && this.#syncCompletions.apperrors >= MIN_SYNC_PEERS) {
+      this.#stateSyncComplete = true;
+      if (this.#syncTimeout) {
+        clearTimeout(this.#syncTimeout);
+        this.#syncTimeout = null;
+      }
+      log.info('AppSyncOrchestrator - All state syncs complete');
+      this.#checkReadiness();
+    }
+  }
+
   async #onPeersReady() {
     if (this.#state === STATES.DEGRADED) {
       this.#state = STATES.RESYNCING;
@@ -66,10 +93,7 @@ class AppSyncOrchestrator extends EventEmitter {
     }
 
     this.#startAppRunningBroadcast();
-    await this.#fetchTempMessages();
-    this.#fetchAppRunningMessages();
-    this.#fetchAppInstallingMessages();
-    this.#fetchAppInstallingErrorMessages();
+    this.#requestSyncs();
 
     if (this.#state === STATES.RESYNCING) {
       if (this.#syncInProgress) return;
@@ -78,14 +102,69 @@ class AppSyncOrchestrator extends EventEmitter {
     }
   }
 
+  #requestSyncs() {
+    const eligible = this.#peerManager.getEligibleSyncPeers(MIN_UPTIME_SECONDS);
+    const fresh = eligible.filter((p) => !this.#askedPeers.has(p.key));
+
+    if (fresh.length < MIN_SYNC_PEERS && this.#askedPeers.size === 0) {
+      log.info(`AppSyncOrchestrator - Only ${fresh.length} eligible sync peers (need ${MIN_SYNC_PEERS}), falling back to block timer`);
+      return;
+    }
+
+    if (fresh.length === 0) {
+      log.info('AppSyncOrchestrator - No new eligible sync peers to ask');
+      return;
+    }
+
+    const peersToAsk = fresh.slice(0, MIN_SYNC_PEERS);
+    for (const peer of peersToAsk) {
+      this.#askedPeers.add(peer.key);
+    }
+
+    this.#sendRequests(peersToAsk, 'temp messages', peerCodec.encodeRequestTempMessages());
+    this.#sendRequests(peersToAsk, 'apprunning', peerCodec.encodeRequestAppRunning(0));
+    this.#sendRequests(peersToAsk, 'appinstalling', peerCodec.encodeRequestAppInstalling(0));
+    this.#sendRequests(peersToAsk, 'apperrors', peerCodec.encodeRequestAppInstallingErrors(0));
+
+    if (!this.#syncTimeout && !this.#stateSyncComplete) {
+      this.#syncTimeout = setTimeout(() => {
+        this.#syncTimeout = null;
+        if (!this.#stateSyncComplete) {
+          log.warn(`AppSyncOrchestrator - Sync timeout, completions: apprunning=${this.#syncCompletions.apprunning} appinstalling=${this.#syncCompletions.appinstalling} apperrors=${this.#syncCompletions.apperrors}`);
+        }
+      }, SYNC_TIMEOUT_MS);
+    }
+  }
+
+  #sendRequests(peers, label, message) {
+    log.info(`AppSyncOrchestrator - Requesting ${label} sync from ${peers.length} peers`);
+    for (const peer of peers) {
+      try {
+        peer.send(message);
+      } catch (error) {
+        log.error(`AppSyncOrchestrator - Failed to request ${label} from ${peer.key}: ${error.message}`);
+      }
+    }
+  }
+
   #onPeersDegraded() {
     if (this.#state === STATES.READY) {
       this.#state = STATES.DEGRADED;
       this.#hashSyncComplete = false;
       this.#dbRebuilt = false;
-      globalState.appRunningSyncComplete = false;
+      this.#resetSyncState();
       log.warn('AppSyncOrchestrator - Degraded, pausing spawner');
       this.emit('readinessLost');
+    }
+  }
+
+  #resetSyncState() {
+    this.#askedPeers.clear();
+    this.#syncCompletions = { apprunning: 0, appinstalling: 0, apperrors: 0 };
+    this.#stateSyncComplete = false;
+    if (this.#syncTimeout) {
+      clearTimeout(this.#syncTimeout);
+      this.#syncTimeout = null;
     }
   }
 
@@ -100,7 +179,7 @@ class AppSyncOrchestrator extends EventEmitter {
     }
     if (this.#state === STATES.SYNCING || this.#state === STATES.READY) {
       this.#blocksSinceSyncStarted += 1;
-      if (!this.#isLocationReady() && this.#hashSyncComplete && this.#dbRebuilt) {
+      if (this.#hashSyncComplete && this.#dbRebuilt) {
         this.#checkReadiness();
       }
     }
@@ -150,95 +229,16 @@ class AppSyncOrchestrator extends EventEmitter {
     }
   }
 
-  async #fetchTempMessages() {
-    try {
-      const eligible = this.#peerManager.getEligibleTempSyncPeers(7500);
-      if (eligible.length === 0) {
-        log.info('AppSyncOrchestrator - No eligible peers for temp message catch-up');
-        return;
-      }
-      const peersToAsk = eligible.slice(0, 5);
-      log.info(`AppSyncOrchestrator - Requesting temp messages from ${peersToAsk.length} peers`);
-      for (const peer of peersToAsk) {
-        try {
-          peer.send(peerCodec.encodeRequestTempMessages());
-        } catch (error) {
-          log.error(`AppSyncOrchestrator - Failed to request temp messages from ${peer.key}: ${error.message}`);
-        }
-      }
-    } catch (error) {
-      log.error(`AppSyncOrchestrator - Temp message catch-up failed: ${error.message}`);
-    }
-  }
-
-  #fetchAppRunningMessages() {
-    try {
-      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(7500);
-      if (eligible.length === 0) {
-        log.info('AppSyncOrchestrator - No eligible peers for apprunning sync');
-        return;
-      }
-      const peersToAsk = eligible.slice(0, 3);
-      log.info(`AppSyncOrchestrator - Requesting apprunning sync from ${peersToAsk.length} peers`);
-      for (const peer of peersToAsk) {
-        try {
-          peer.send(peerCodec.encodeRequestAppRunning(0));
-        } catch (error) {
-          log.error(`AppSyncOrchestrator - Failed to request apprunning from ${peer.key}: ${error.message}`);
-        }
-      }
-    } catch (error) {
-      log.error(`AppSyncOrchestrator - Apprunning sync request failed: ${error.message}`);
-    }
-  }
-
-  #fetchAppInstallingMessages() {
-    try {
-      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(7500);
-      if (eligible.length === 0) return;
-      const peersToAsk = eligible.slice(0, 3);
-      log.info(`AppSyncOrchestrator - Requesting appinstalling sync from ${peersToAsk.length} peers`);
-      for (const peer of peersToAsk) {
-        try {
-          peer.send(peerCodec.encodeRequestAppInstalling(0));
-        } catch (error) {
-          log.error(`AppSyncOrchestrator - Failed to request appinstalling from ${peer.key}: ${error.message}`);
-        }
-      }
-    } catch (error) {
-      log.error(`AppSyncOrchestrator - Appinstalling sync request failed: ${error.message}`);
-    }
-  }
-
-  #fetchAppInstallingErrorMessages() {
-    try {
-      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(7500);
-      if (eligible.length === 0) return;
-      const peersToAsk = eligible.slice(0, 3);
-      log.info(`AppSyncOrchestrator - Requesting appinstalling errors sync from ${peersToAsk.length} peers`);
-      for (const peer of peersToAsk) {
-        try {
-          peer.send(peerCodec.encodeRequestAppInstallingErrors(0));
-        } catch (error) {
-          log.error(`AppSyncOrchestrator - Failed to request appinstalling errors from ${peer.key}: ${error.message}`);
-        }
-      }
-    } catch (error) {
-      log.error(`AppSyncOrchestrator - Appinstalling errors sync request failed: ${error.message}`);
-    }
-  }
-
-  #isLocationReady() {
-    if (globalState.appRunningSyncComplete) return true;
-    // Fallback for networks without appStateSync peers
-    if (this.#locationBlockThreshold === 0) {
+  #isStateSyncReady() {
+    if (this.#stateSyncComplete) return true;
+    if (this.#blockThreshold === 0) {
       const enterprise = this.#isEnterprise();
       const blocksPerMinute = 2;
-      this.#locationBlockThreshold = enterprise
+      this.#blockThreshold = enterprise
         ? 62 * blocksPerMinute
         : 125 * blocksPerMinute;
     }
-    return this.#blocksSinceSyncStarted >= this.#locationBlockThreshold;
+    return this.#blocksSinceSyncStarted >= this.#blockThreshold;
   }
 
   async #checkReadiness() {
@@ -246,7 +246,7 @@ class AppSyncOrchestrator extends EventEmitter {
     if (!this.#explorerSynced) return;
     if (!this.#hashSyncComplete) return;
     if (!this.#dbRebuilt) return;
-    if (!this.#isLocationReady()) return;
+    if (!this.#isStateSyncReady()) return;
 
     const isConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isConfirmed) {
@@ -277,6 +277,10 @@ class AppSyncOrchestrator extends EventEmitter {
     if (this.#appRunningBroadcastInterval) {
       clearInterval(this.#appRunningBroadcastInterval);
       this.#appRunningBroadcastInterval = null;
+    }
+    if (this.#syncTimeout) {
+      clearTimeout(this.#syncTimeout);
+      this.#syncTimeout = null;
     }
     this.removeAllListeners();
   }

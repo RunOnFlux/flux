@@ -16,11 +16,22 @@ describe('AppSyncOrchestrator', () => {
   let globalStateStub;
   let checkAndNotifyStub;
 
+  function makePeer(key) {
+    return { key, send: sinon.stub(), missedPongs: 0 };
+  }
+
+  function makeEligiblePeers(count) {
+    const peers = [];
+    for (let i = 0; i < count; i += 1) {
+      peers.push(makePeer(`10.0.0.${i + 1}:16127`));
+    }
+    return peers;
+  }
+
   beforeEach(() => {
     blockEmitter = new EventEmitter();
     peerManager = new EventEmitter();
-    peerManager.getEligibleTempSyncPeers = sinon.stub().returns([]);
-    peerManager.getEligibleAppRunningSyncPeers = sinon.stub().returns([]);
+    peerManager.getEligibleSyncPeers = sinon.stub().returns([]);
 
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
     syncMissingHashesStub = sinon.stub().resolves({ resolved: 0, missing: 0, unreachable: 0 });
@@ -29,7 +40,6 @@ describe('AppSyncOrchestrator', () => {
     isNodeStatusConfirmedStub = sinon.stub().resolves(true);
     globalStateStub = {
       checkAndSyncAppHashesWasEverExecuted: false,
-      appRunningSyncComplete: false,
     };
     checkAndNotifyStub = sinon.stub().resolves();
 
@@ -126,12 +136,12 @@ describe('AppSyncOrchestrator', () => {
   });
 
   describe('peer threshold events', () => {
-    it('should trigger temp message catch-up on peerThresholdReached', async () => {
+    it('should call getEligibleSyncPeers on peerThresholdReached', async () => {
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
       orchestrator.start();
       peerManager.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
-      expect(peerManager.getEligibleTempSyncPeers.calledOnce).to.be.true;
+      expect(peerManager.getEligibleSyncPeers.calledOnce).to.be.true;
     });
 
     it('should start apprunning broadcast on peerThresholdReached', async () => {
@@ -148,10 +158,8 @@ describe('AppSyncOrchestrator', () => {
       });
       orchestrator.start();
 
-      // Get to READY state: sync completes + enough blocks + confirmed
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
-      // Simulate enough blocks for location readiness (enterprise = 124 blocks)
       for (let i = 0; i < 130; i += 1) {
         blockEmitter.emit('blockReceived', 2555000 + i);
       }
@@ -185,82 +193,142 @@ describe('AppSyncOrchestrator', () => {
     });
   });
 
-  describe('temp message catch-up', () => {
-    it('should send binary request to eligible peers', async () => {
-      const fakePeer = { key: '1.2.3.4:16127', send: sinon.stub() };
-      peerManager.getEligibleTempSyncPeers = sinon.stub().returns([fakePeer]);
+  describe('sync requests', () => {
+    it('should send all 4 request types to eligible peers', async () => {
+      const peers = makeEligiblePeers(3);
+      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
 
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
       orchestrator.start();
       peerManager.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
 
-      expect(fakePeer.send.calledOnce).to.be.true;
+      for (const peer of peers) {
+        expect(peer.send.callCount).to.equal(4);
+      }
     });
 
-    it('should not send requests when no eligible peers', async () => {
-      peerManager.getEligibleTempSyncPeers = sinon.stub().returns([]);
-    peerManager.getEligibleAppRunningSyncPeers = sinon.stub().returns([]);
+    it('should not send when fewer than 3 eligible peers on first attempt', async () => {
+      const peers = makeEligiblePeers(2);
+      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
 
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
       orchestrator.start();
       peerManager.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
 
-      expect(logStub.info.calledWith('AppSyncOrchestrator - No eligible peers for temp message catch-up')).to.be.true;
+      for (const peer of peers) {
+        expect(peer.send.called).to.be.false;
+      }
     });
-  });
 
-  describe('apprunning sync', () => {
-    it('should request apprunning sync from eligible peers', async () => {
-      const fakePeer = { key: '1.2.3.4:16127', send: sinon.stub() };
-      peerManager.getEligibleTempSyncPeers = sinon.stub().returns([]);
-      peerManager.getEligibleAppRunningSyncPeers = sinon.stub().returns([fakePeer]);
+    it('should not ask the same peer twice in the same cycle', async () => {
+      const peers = makeEligiblePeers(3);
+      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
 
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
       orchestrator.start();
       peerManager.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
 
-      expect(peerManager.getEligibleAppRunningSyncPeers.called).to.be.true;
-      // send called for apprunning + appinstalling + appinstalling errors
-      expect(fakePeer.send.callCount).to.be.at.least(3);
-    });
-
-    it('should skip apprunning sync when no eligible peers', async () => {
-      peerManager.getEligibleTempSyncPeers = sinon.stub().returns([]);
-      peerManager.getEligibleAppRunningSyncPeers = sinon.stub().returns([]);
-
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
-      orchestrator.start();
-      peerManager.emit('peerThresholdReached', 12);
+      // Second threshold event — same peers returned, but already asked
+      peerManager.emit('peerThresholdReached', 15);
       await new Promise((r) => setTimeout(r, 50));
 
-      expect(logStub.info.calledWith('AppSyncOrchestrator - No eligible peers for apprunning sync')).to.be.true;
+      for (const peer of peers) {
+        expect(peer.send.callCount).to.equal(4);
+      }
     });
-  });
 
-  describe('location readiness', () => {
-    it('should use appRunningSyncComplete when set', async () => {
-      globalStateStub.appRunningSyncComplete = true;
+    it('should reset asked peers on degradation', async () => {
+      const peers = makeEligiblePeers(3);
+      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
+
       const orchestrator = new AppSyncOrchestrator({
         blockEmitter, peerManager, isEnterprise: () => true,
       });
       orchestrator.start();
+
+      // Get to READY via block-count fallback
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+      peerManager.emit('peerThresholdReached', 12);
+      await new Promise((r) => setTimeout(r, 50));
+      for (let i = 0; i < 130; i += 1) {
+        blockEmitter.emit('blockReceived', 2555000 + i);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+
+      if (orchestrator.state === STATES.READY) {
+        // Degrade and recover — peers should be asked again
+        peerManager.emit('peersBelowThreshold', 3);
+        const sendCountBefore = peers[0].send.callCount;
+        peerManager.emit('peerThresholdReached', 12);
+        await new Promise((r) => setTimeout(r, 50));
+        expect(peers[0].send.callCount).to.be.greaterThan(sendCountBefore);
+      }
+    });
+  });
+
+  describe('state sync readiness', () => {
+    it('should reach READY when all 3 sync types complete from 3 peers', async () => {
+      const peers = makeEligiblePeers(3);
+      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
+
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, peerManager, isEnterprise: () => true,
+      });
+      orchestrator.start();
+
+      // Start hash sync
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
 
-      // With appRunningSyncComplete=true, should reach READY without 124 blocks
-      if (orchestrator.state !== STATES.READY) {
-        // Need a couple more blocks for checkReadiness to trigger
-        blockEmitter.emit('blockReceived', 2555001);
-        await new Promise((r) => setTimeout(r, 50));
+      // Send sync requests
+      peerManager.emit('peerThresholdReached', 12);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Complete all syncs from 3 peers
+      for (let i = 0; i < 3; i += 1) {
+        orchestrator.onSyncComplete('apprunning');
+        orchestrator.onSyncComplete('appinstalling');
+        orchestrator.onSyncComplete('apperrors');
       }
+      await new Promise((r) => setTimeout(r, 50));
+
       expect(orchestrator.state).to.equal(STATES.READY);
     });
 
-    it('should fall back to block count when appRunningSyncComplete is false', async () => {
-      globalStateStub.appRunningSyncComplete = false;
+    it('should not reach READY when only 2 peers complete apprunning', async () => {
+      const peers = makeEligiblePeers(3);
+      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
+
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, peerManager, isEnterprise: () => true,
+      });
+      orchestrator.start();
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      peerManager.emit('peerThresholdReached', 12);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Only 2 apprunning, but 3 of the others
+      orchestrator.onSyncComplete('apprunning');
+      orchestrator.onSyncComplete('apprunning');
+      for (let i = 0; i < 3; i += 1) {
+        orchestrator.onSyncComplete('appinstalling');
+        orchestrator.onSyncComplete('apperrors');
+      }
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(orchestrator.state).to.equal(STATES.SYNCING);
+    });
+
+    it('should fall back to block count when no sync peers available', async () => {
+      peerManager.getEligibleSyncPeers = sinon.stub().returns([]);
+
       const orchestrator = new AppSyncOrchestrator({
         blockEmitter, peerManager, isEnterprise: () => true,
       });
@@ -270,25 +338,46 @@ describe('AppSyncOrchestrator', () => {
 
       // After sync but before enough blocks, should still be SYNCING
       expect(orchestrator.state).to.equal(STATES.SYNCING);
-    });
 
-    it('should reset appRunningSyncComplete on degradation', async () => {
-      globalStateStub.appRunningSyncComplete = true;
-      const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
-      });
-      orchestrator.start();
-      blockEmitter.emit('blockReceived', 2555000);
-      await new Promise((r) => setTimeout(r, 50));
+      // After enough blocks (enterprise = 124), should reach READY
       for (let i = 0; i < 130; i += 1) {
         blockEmitter.emit('blockReceived', 2555000 + i);
       }
       await new Promise((r) => setTimeout(r, 50));
+      expect(orchestrator.state).to.equal(STATES.READY);
+    });
 
-      if (orchestrator.state === STATES.READY) {
-        peerManager.emit('peersBelowThreshold', 3);
-        expect(globalStateStub.appRunningSyncComplete).to.be.false;
+    it('should reset sync completions on degradation', async () => {
+      const peers = makeEligiblePeers(3);
+      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
+
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, peerManager, isEnterprise: () => true,
+      });
+      orchestrator.start();
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+      peerManager.emit('peerThresholdReached', 12);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Complete all syncs → READY
+      for (let i = 0; i < 3; i += 1) {
+        orchestrator.onSyncComplete('apprunning');
+        orchestrator.onSyncComplete('appinstalling');
+        orchestrator.onSyncComplete('apperrors');
       }
+      await new Promise((r) => setTimeout(r, 50));
+      expect(orchestrator.state).to.equal(STATES.READY);
+
+      // Degrade
+      peerManager.emit('peersBelowThreshold', 3);
+      expect(orchestrator.state).to.equal(STATES.DEGRADED);
+
+      // Recovery — need fresh syncs, previous completions reset
+      peerManager.emit('peerThresholdReached', 12);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(orchestrator.state).to.equal(STATES.RESYNCING);
     });
   });
 

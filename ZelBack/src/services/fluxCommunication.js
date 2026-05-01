@@ -15,9 +15,12 @@ const dbHelper = require('./dbHelper');
 const { peerManager, PEER_SOURCE } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
-const globalState = require('./utils/globalState');
-
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
+
+let onSyncComplete = null;
+function setOnSyncComplete(callback) {
+  onSyncComplete = callback;
+}
 
 const { messageCache, wsPeerCache } = cacheManager;
 
@@ -113,7 +116,7 @@ async function handleAppRunningSyncResponse(message) {
       log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
     }
     if (done) {
-      globalState.appRunningSyncComplete = true;
+      if (onSyncComplete) onSyncComplete('apprunning');
       log.info('handleAppRunningSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -145,6 +148,7 @@ async function handleAppInstallingSyncResponse(message) {
       log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
     }
     if (done) {
+      if (onSyncComplete) onSyncComplete('appinstalling');
       log.info('handleAppInstallingSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -176,6 +180,7 @@ async function handleAppInstallingErrorsSyncResponse(message) {
       log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
     }
     if (done) {
+      if (onSyncComplete) onSyncComplete('apperrors');
       log.info('handleAppInstallingErrorsSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -1320,4 +1325,5 @@ module.exports = {
   getPeerHistory,
   getTopology,
   getNetworkHealth,
+  setOnSyncComplete,
 };

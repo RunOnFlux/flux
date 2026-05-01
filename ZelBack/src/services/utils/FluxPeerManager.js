@@ -370,26 +370,20 @@ class FluxPeerManager extends EventEmitter {
     return peer.remoteFluxUptime + (Date.now() - peer.connectedAt) / 1000;
   }
 
-  getEligibleTempSyncPeers(minUptimeSeconds) {
+  getEligibleSyncPeers(minUptimeSeconds, count) {
     const eligible = [];
     for (const peer of this.#peers.values()) {
+      if (peer.missedPongs !== 0) continue;
       if (!peer.remoteCapabilities.has('appStateSync')) continue;
       const uptime = this.getPeerFluxUptime(peer.key);
       if (uptime === null || uptime < minUptimeSeconds) continue;
       eligible.push(peer);
     }
-    return eligible;
-  }
-
-  getEligibleAppRunningSyncPeers(minUptimeSeconds) {
-    const eligible = [];
-    for (const peer of this.#peers.values()) {
-      if (!peer.remoteCapabilities.has('appStateSync')) continue;
-      const uptime = this.getPeerFluxUptime(peer.key);
-      if (uptime === null || uptime < minUptimeSeconds) continue;
-      eligible.push(peer);
+    for (let i = eligible.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
     }
-    return eligible;
+    return count ? eligible.slice(0, count) : eligible;
   }
 
   // --- Liveness ---

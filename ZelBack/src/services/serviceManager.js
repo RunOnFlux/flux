@@ -279,6 +279,7 @@ async function startFluxFunctions() {
       isEnterprise: () => enterpriseNetwork.getCachedEnterpriseIdentity(),
     });
     appSpawner.initialize({ appInstaller, appUninstaller, orchestrator });
+    fluxCommunication.setOnSyncComplete((syncType) => orchestrator.onSyncComplete(syncType));
     log.info('App Spawner initialized');
 
     fluxNetworkHelper.adjustFirewall();
