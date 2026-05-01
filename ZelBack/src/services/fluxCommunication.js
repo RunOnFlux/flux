@@ -73,8 +73,12 @@ async function handleTempSyncResponse(message) {
     const { messages } = message.data;
     if (!Array.isArray(messages)) return;
     log.info(`handleTempSyncResponse - Received ${messages.length} temp messages`);
+    const toProcess = messages.slice(0, 500);
+    if (messages.length > 500) {
+      log.warn(`handleTempSyncResponse - Capped from ${messages.length} to 500`);
+    }
     let stored = 0;
-    for (const msg of messages) {
+    for (const msg of toProcess) {
       try {
         const result = await messageStore.storeAppTemporaryMessage(msg, { furtherVerification: true });
         if (result === true || result === false) stored += 1;
@@ -82,7 +86,7 @@ async function handleTempSyncResponse(message) {
         log.error(`Temp sync message failed: ${err.message}`);
       }
     }
-    log.info(`handleTempSyncResponse - Processed ${stored} of ${messages.length} messages`);
+    log.info(`handleTempSyncResponse - Processed ${stored} of ${toProcess.length} messages`);
   } catch (error) {
     log.error(error);
   }
@@ -464,6 +468,10 @@ peerManager.hashHandlers = {
     setImmediate(() => handleRequestMessageHash(hexHash, peer.ip, peer.port));
   },
   handleTempMessagesRequest: (peer) => {
+    const now = Date.now();
+    const last = peer.lastTempSyncResponse || 0;
+    if (now - last < 5 * 60 * 1000) return;
+    peer.lastTempSyncResponse = now;
     setImmediate(() => fluxCommunicationMessagesSender.respondWithTempMessages(peer));
   },
 };

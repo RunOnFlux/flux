@@ -32,14 +32,6 @@ describe('AppSyncOrchestrator', () => {
     checkAndNotifyStub = sinon.stub().resolves();
 
     const mod = proxyquire('../../ZelBack/src/services/appMessaging/appSyncOrchestrator', {
-      config: {
-        fluxapps: {
-          daemonPONFork: 2020000,
-          blocksLasting: 22000,
-          appSyncPeerThreshold: 12,
-          appSyncDegradedThreshold: 4,
-        },
-      },
       '../../lib/log': logStub,
       '../generalService': { isNodeStatusConfirmed: isNodeStatusConfirmedStub },
       './appHashSyncService': { syncMissingHashes: syncMissingHashesStub },
