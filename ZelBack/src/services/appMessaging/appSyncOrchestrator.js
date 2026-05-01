@@ -31,7 +31,7 @@ class AppSyncOrchestrator extends EventEmitter {
   #blocksSinceSyncStarted = 0;
   #blockThreshold = 0;
   #blockReceivedHandler = null;
-  #appRunningBroadcastInterval = null;
+  #broadcastStarted = null;
   #syncInProgress = false;
   #askedPeers = new Set();
   #syncCompletions = { apprunning: 0, appinstalling: 0, apperrors: 0 };
@@ -261,12 +261,9 @@ class AppSyncOrchestrator extends EventEmitter {
   }
 
   #startAppRunningBroadcast() {
-    if (this.#appRunningBroadcastInterval) return;
-
+    if (this.#broadcastStarted) return;
+    this.#broadcastStarted = true;
     peerNotification.checkAndNotifyPeersOfRunningApps();
-    this.#appRunningBroadcastInterval = setInterval(() => {
-      peerNotification.checkAndNotifyPeersOfRunningApps();
-    }, 60 * 60 * 1000);
     log.info('AppSyncOrchestrator - App running broadcast started');
   }
 
@@ -274,10 +271,8 @@ class AppSyncOrchestrator extends EventEmitter {
     if (this.#blockReceivedHandler) {
       this.#blockEmitter.removeListener('blockReceived', this.#blockReceivedHandler);
     }
-    if (this.#appRunningBroadcastInterval) {
-      clearInterval(this.#appRunningBroadcastInterval);
-      this.#appRunningBroadcastInterval = null;
-    }
+    peerNotification.stopBroadcastInterval();
+    this.#broadcastStarted = null;
     if (this.#syncTimeout) {
       clearTimeout(this.#syncTimeout);
       this.#syncTimeout = null;
