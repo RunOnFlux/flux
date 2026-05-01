@@ -163,6 +163,7 @@ async function relay(data, excludeKey) {
 async function broadcastMessageToAll(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   await relay(serialisedData);
+  return JSON.parse(serialisedData);
 }
 
 /**

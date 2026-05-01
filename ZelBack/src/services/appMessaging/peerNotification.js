@@ -125,7 +125,8 @@ async function checkAndNotifyPeersOfRunningApps() {
         staticIp: geolocationService.isStaticIP(),
       };
       await messageStore.storeAppRunningMessage(appRunningMessage);
-      await fluxCommunicationMessagesSender.broadcastMessageToAll(appRunningMessage);
+      const signed = await fluxCommunicationMessagesSender.broadcastMessageToAll(appRunningMessage);
+      messageStore.storeSignedAppRunningBroadcast(signed);
       log.info(`App Running Message broadcasted: ${apps.length} apps`);
     } catch (err) {
       log.error(err);
