@@ -581,9 +581,10 @@ function storeSignedAppRunningBroadcast(signedBroadcast) {
     broadcastedAt: new Date(data.broadcastedAt),
     expireAt: new Date(validTill),
   };
+  const filter = data.apps ? { ip: data.ip } : { ip: data.ip, 'data.name': data.name };
   return dbHelper.updateOneInDatabase(
     database, appsRunningBroadcasts,
-    { ip: data.ip },
+    filter,
     { $set: doc },
     { upsert: true },
   ).catch((err) => log.error(`storeSignedAppRunningBroadcast: ${err.message}`));
@@ -602,9 +603,10 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     const validTill = data.broadcastedAt + (125 * 60 * 1000);
     if (validTill < Date.now()) continue;
 
+    const filter = data.apps ? { ip: data.ip } : { ip: data.ip, 'data.name': data.name };
     signedOps.push({
       updateOne: {
-        filter: { ip: data.ip },
+        filter,
         update: {
           $set: {
             ip: data.ip,
