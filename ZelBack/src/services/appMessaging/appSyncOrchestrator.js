@@ -68,6 +68,7 @@ class AppSyncOrchestrator extends EventEmitter {
     this.#startAppRunningBroadcast();
     await this.#fetchTempMessages();
     this.#fetchAppRunningMessages();
+    this.#fetchAppInstallingMessages();
 
     if (this.#state === STATES.RESYNCING) {
       if (this.#syncInProgress) return;
@@ -190,9 +191,27 @@ class AppSyncOrchestrator extends EventEmitter {
     }
   }
 
+  #fetchAppInstallingMessages() {
+    try {
+      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(60);
+      if (eligible.length === 0) return;
+      const peersToAsk = eligible.slice(0, 3);
+      log.info(`AppSyncOrchestrator - Requesting appinstalling sync from ${peersToAsk.length} peers`);
+      for (const peer of peersToAsk) {
+        try {
+          peer.send(peerCodec.encodeRequestAppInstalling(0));
+        } catch (error) {
+          log.error(`AppSyncOrchestrator - Failed to request appinstalling from ${peer.key}: ${error.message}`);
+        }
+      }
+    } catch (error) {
+      log.error(`AppSyncOrchestrator - Appinstalling sync request failed: ${error.message}`);
+    }
+  }
+
   #isLocationReady() {
     if (globalState.appRunningSyncComplete) return true;
-    // Fallback for networks without appRunningSync peers
+    // Fallback for networks without appStateSync peers
     if (this.#locationBlockThreshold === 0) {
       const enterprise = this.#isEnterprise();
       const blocksPerMinute = 2;

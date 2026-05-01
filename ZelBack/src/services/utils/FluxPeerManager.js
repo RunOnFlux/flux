@@ -373,7 +373,7 @@ class FluxPeerManager extends EventEmitter {
   getEligibleTempSyncPeers(minUptimeSeconds) {
     const eligible = [];
     for (const peer of this.#peers.values()) {
-      if (!peer.remoteCapabilities.has('tempMessageSync')) continue;
+      if (!peer.remoteCapabilities.has('appStateSync')) continue;
       const uptime = this.getPeerFluxUptime(peer.key);
       if (uptime === null || uptime < minUptimeSeconds) continue;
       eligible.push(peer);
@@ -384,7 +384,7 @@ class FluxPeerManager extends EventEmitter {
   getEligibleAppRunningSyncPeers(minUptimeSeconds) {
     const eligible = [];
     for (const peer of this.#peers.values()) {
-      if (!peer.remoteCapabilities.has('appRunningSync')) continue;
+      if (!peer.remoteCapabilities.has('appStateSync')) continue;
       const uptime = this.getPeerFluxUptime(peer.key);
       if (uptime === null || uptime < minUptimeSeconds) continue;
       eligible.push(peer);
@@ -999,6 +999,14 @@ class FluxPeerManager extends EventEmitter {
           const sinceTimestamp = peerCodec.decodeSyncTimestamp(buf);
           if (this.hashHandlers && this.hashHandlers.handleAppRunningRequest) {
             this.hashHandlers.handleAppRunningRequest(peer, sinceTimestamp);
+          }
+          break;
+        }
+        case peerCodec.MSG_TYPE.REQUEST_APP_INSTALLING: {
+          if (buf.length < 9) break;
+          const sinceTimestamp = peerCodec.decodeSyncTimestamp(buf);
+          if (this.hashHandlers && this.hashHandlers.handleAppInstallingRequest) {
+            this.hashHandlers.handleAppInstallingRequest(peer, sinceTimestamp);
           }
           break;
         }

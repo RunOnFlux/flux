@@ -199,6 +199,9 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ ip: 1 }, { unique: true });
     log.info('Signed apprunning broadcasts collection prepared');
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 900 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ 'data.name': 1, 'data.ip': 1 }, { unique: true });
+    log.info('Signed appinstalling broadcasts collection prepared');
     // we just keep installing messages for 15 minutes
     // Update existing TTL index if it exists (for nodes that already have it created with old value)
     await databaseTemp.command({
