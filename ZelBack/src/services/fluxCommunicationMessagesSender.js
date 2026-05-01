@@ -358,8 +358,10 @@ async function respondWithAppRunningMessages(peer, sinceTimestamp = 0) {
     const adjustedTimestamp = sinceTimestamp > 0
       ? new Date(sinceTimestamp - (peer.remoteClockOffsetMs || 0))
       : new Date(0);
+    const validAfter = new Date(Date.now() - 125 * 60 * 1000);
+    const minTimestamp = adjustedTimestamp > validAfter ? adjustedTimestamp : validAfter;
     const cursor = database.collection(appsRunningBroadcasts)
-      .find({ broadcastedAt: { $gt: adjustedTimestamp } }, { projection: { _id: 0, expireAt: 0 } })
+      .find({ broadcastedAt: { $gt: minTimestamp } }, { projection: { _id: 0, expireAt: 0 } })
       .sort({ broadcastedAt: 1 });
 
     const batchSize = 2000;
