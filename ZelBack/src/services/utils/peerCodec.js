@@ -12,6 +12,7 @@
  * Type 0x20 — requestTempMessages  [type:1][sinceTs:8]          = 9 bytes
  * Type 0x21 — requestAppRunning   [type:1][sinceTs:8]          = 9 bytes
  * Type 0x22 — requestAppInstalling [type:1][sinceTs:8]         = 9 bytes
+ * Type 0x23 — requestAppInstallingErrors [type:1][sinceTs:8]  = 9 bytes
  */
 
 const MSG_TYPE = Object.freeze({
@@ -23,6 +24,7 @@ const MSG_TYPE = Object.freeze({
   REQUEST_TEMP_MESSAGES: 0x20,
   REQUEST_APP_RUNNING: 0x21,
   REQUEST_APP_INSTALLING: 0x22,
+  REQUEST_APP_INSTALLING_ERRORS: 0x23,
 });
 
 const NAK_REASON = Object.freeze({
@@ -217,6 +219,13 @@ function encodeRequestAppInstalling(sinceTimestamp = 0) {
   return buf;
 }
 
+function encodeRequestAppInstallingErrors(sinceTimestamp = 0) {
+  const buf = Buffer.allocUnsafe(9);
+  buf[0] = MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS;
+  buf.writeBigUInt64BE(BigInt(sinceTimestamp), 1);
+  return buf;
+}
+
 function decodeSyncTimestamp(buf) {
   if (buf.length < 9) return 0;
   return Number(buf.readBigUInt64BE(1));
@@ -240,5 +249,6 @@ module.exports = {
   encodeRequestTempMessages,
   encodeRequestAppRunning,
   encodeRequestAppInstalling,
+  encodeRequestAppInstallingErrors,
   decodeSyncTimestamp,
 };

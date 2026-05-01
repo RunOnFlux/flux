@@ -215,14 +215,15 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install location based on specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
     log.info('Flux Apps installing locations prepared');
-    // we keep installing error messages for 60 minutes
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ cachedAt: 1 }, { expireAfterSeconds: 3600 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).dropIndex('cachedAt_1').catch(() => {});
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 86400 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
-    log.info('Clearing app installing errors from previous sessions...');
-    await dbHelper.removeDocumentsFromCollection(databaseTemp, config.database.appsglobal.collections.appsInstallingErrorsLocations, {});
-    log.info('App installing errors cleared');
+    log.info('App installing errors locations prepared');
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 86400 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).createIndex({ 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, { unique: true });
+    log.info('Signed app installing errors broadcasts collection prepared');
 
     // This fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,
     // we can remove this.

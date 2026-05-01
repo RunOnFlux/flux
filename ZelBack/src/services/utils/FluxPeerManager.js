@@ -1010,6 +1010,14 @@ class FluxPeerManager extends EventEmitter {
           }
           break;
         }
+        case peerCodec.MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS: {
+          if (buf.length < 9) break;
+          const sinceTimestamp = peerCodec.decodeSyncTimestamp(buf);
+          if (this.hashHandlers && this.hashHandlers.handleAppInstallingErrorsRequest) {
+            this.hashHandlers.handleAppInstallingErrorsRequest(peer, sinceTimestamp);
+          }
+          break;
+        }
         default:
           // Unknown type — ignore for forward compatibility
           break;

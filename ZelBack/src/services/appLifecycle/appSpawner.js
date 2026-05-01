@@ -105,10 +105,6 @@ async function trySpawningGlobalApplication() {
       log.info('Explorer Synced, checking for expired apps');
       await registryManager.expireGlobalApplications();
       globalState.firstExecutionAfterItsSynced = false;
-      // Dynamic require to avoid circular dependency
-      // eslint-disable-next-line global-require
-      const advancedWorkflows = require('./advancedWorkflows');
-      await advancedWorkflows.getPeerAppsInstallingErrorMessages();
     }
 
     if (globalState.fluxNodeWasAlreadyConfirmed && globalState.fluxNodeWasNotConfirmedOnLastCheck) {
@@ -333,11 +329,11 @@ async function trySpawningGlobalApplication() {
     globalState.trySpawningGlobalAppCache.set(appHash, '');
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
-    /* const installingAppErrorsList = await registryManager.appInstallingErrorsLocation(appToRun);
-    if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
+    const errorCount = await registryManager.countAppInstallingErrors(appHash);
+    if (errorCount >= 5) {
       globalState.spawnErrorsLongerAppCache.set(appHash, '');
-      throw new Error(`trySpawningGlobalApplication - App ${appToRun} is marked as having errors on app installing errors locations.`);
-    } */
+      throw new Error(`trySpawningGlobalApplication - App ${appToRun} hash ${appHash} has ${errorCount} network-wide install failures, skipping`);
+    }
 
     runningAppList = await registryManager.appLocation(appToRun);
 

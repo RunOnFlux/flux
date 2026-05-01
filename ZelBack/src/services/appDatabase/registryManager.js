@@ -116,6 +116,12 @@ async function appInstallingLocation(appname) {
  * @param {string} appname - Application name (optional)
  * @returns {Promise<Array>} Array of app installing error locations
  */
+async function countAppInstallingErrors(hash) {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  return dbHelper.countInDatabase(database, globalAppsInstallingErrorsLocations, { hash });
+}
+
 async function appInstallingErrorsLocation(appname) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
@@ -131,8 +137,6 @@ async function appInstallingErrorsLocation(appname) {
       ip: 1,
       error: 1,
       broadcastedAt: 1,
-      cachedAt: 1,
-      expireAt: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsInstallingErrorsLocations, query, projection);
@@ -1716,6 +1720,7 @@ module.exports = {
   appLocation,
   appInstallingLocation,
   appInstallingErrorsLocation,
+  countAppInstallingErrors,
   storeAppInstallingMessage,
   getAppsLocations,
   getAppsLocation,
