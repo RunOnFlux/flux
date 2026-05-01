@@ -206,6 +206,10 @@ module.exports = {
     minIncoming: 4,
     minUniqueIpsIncoming: 3,
     minUpTime: 1800, // 30 mins
+    appSyncPeerThreshold: 12,
+    appSyncDegradedThreshold: 4,
+    appSyncMinPeerUptime: 60,
+    appSyncMinCompletions: 3,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds
