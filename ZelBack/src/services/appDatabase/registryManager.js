@@ -15,6 +15,7 @@ const {
   globalAppsLocations,
   globalAppsInstallingLocations,
   globalAppsInstallingErrorsLocations,
+  globalAppsInstallingErrorsBroadcasts,
   appsHashesCollection,
   scannedHeightCollection,
 } = require('../utils/appConstants');
@@ -1138,6 +1139,8 @@ async function expireGlobalApplications() {
       const queryDeleteAppErrors = { name: app.name };
       // eslint-disable-next-line no-await-in-loop
       await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsBroadcasts, { 'data.name': app.name });
     }
 
     // get list of locally installed apps.
@@ -1236,6 +1239,7 @@ async function updateAppSpecifications(appSpecs) {
     }
     const queryDeleteAppErrors = { name: appSpecs.name };
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
   } catch (error) {
     // retry
     log.error(error);
@@ -1285,7 +1289,6 @@ async function reindexGlobalAppsInformation() {
       appsLocalDb,
       globalAppsMessages,
       globalAppsInformation,
-      globalAppsInstallingErrorsLocations,
       localAppsInformation,
       scannedHeight,
     );

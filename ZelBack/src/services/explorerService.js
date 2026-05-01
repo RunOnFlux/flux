@@ -937,7 +937,12 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
             throw error;
           }
         });
-        log.info(resultE, resultF, resultG, resultH, resultI);
+        const resultJ = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).catch((error) => {
+          if (error.message !== 'ns not found') {
+            throw error;
+          }
+        });
+        log.info(resultE, resultF, resultG, resultH, resultI, resultJ);
       }
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
