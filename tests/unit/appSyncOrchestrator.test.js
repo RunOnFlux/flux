@@ -20,6 +20,7 @@ describe('AppSyncOrchestrator', () => {
     blockEmitter = new EventEmitter();
     peerManager = new EventEmitter();
     peerManager.getEligibleTempSyncPeers = sinon.stub().returns([]);
+    peerManager.getEligibleAppRunningSyncPeers = sinon.stub().returns([]);
 
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
     syncMissingHashesStub = sinon.stub().resolves({ resolved: 0, missing: 0, unreachable: 0 });
@@ -28,6 +29,7 @@ describe('AppSyncOrchestrator', () => {
     isNodeStatusConfirmedStub = sinon.stub().resolves(true);
     globalStateStub = {
       checkAndSyncAppHashesWasEverExecuted: false,
+      appRunningSyncComplete: false,
     };
     checkAndNotifyStub = sinon.stub().resolves();
 
@@ -41,7 +43,10 @@ describe('AppSyncOrchestrator', () => {
         expireGlobalApplications: expireStub,
       },
       '../utils/globalState': globalStateStub,
-      '../utils/peerCodec': { encodeRequestTempMessages: sinon.stub().returns(Buffer.from([0x20])) },
+      '../utils/peerCodec': {
+        encodeRequestTempMessages: sinon.stub().returns(Buffer.alloc(9, 0x20)),
+        encodeRequestAppRunning: sinon.stub().returns(Buffer.alloc(9, 0x21)),
+      },
     });
     AppSyncOrchestrator = mod.AppSyncOrchestrator;
     STATES = mod.STATES;
@@ -193,6 +198,7 @@ describe('AppSyncOrchestrator', () => {
 
     it('should not send requests when no eligible peers', async () => {
       peerManager.getEligibleTempSyncPeers = sinon.stub().returns([]);
+    peerManager.getEligibleAppRunningSyncPeers = sinon.stub().returns([]);
 
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
       orchestrator.start();

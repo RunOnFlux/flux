@@ -67,6 +67,7 @@ class AppSyncOrchestrator extends EventEmitter {
 
     this.#startAppRunningBroadcast();
     await this.#fetchTempMessages();
+    this.#fetchAppRunningMessages();
 
     if (this.#state === STATES.RESYNCING) {
       if (this.#syncInProgress) return;
@@ -80,6 +81,7 @@ class AppSyncOrchestrator extends EventEmitter {
       this.#state = STATES.DEGRADED;
       this.#hashSyncComplete = false;
       this.#dbRebuilt = false;
+      globalState.appRunningSyncComplete = false;
       log.warn('AppSyncOrchestrator - Degraded, pausing spawner');
       this.emit('readinessLost');
     }
@@ -167,7 +169,30 @@ class AppSyncOrchestrator extends EventEmitter {
     }
   }
 
+  #fetchAppRunningMessages() {
+    try {
+      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(60);
+      if (eligible.length === 0) {
+        log.info('AppSyncOrchestrator - No eligible peers for apprunning sync');
+        return;
+      }
+      const peersToAsk = eligible.slice(0, 3);
+      log.info(`AppSyncOrchestrator - Requesting apprunning sync from ${peersToAsk.length} peers`);
+      for (const peer of peersToAsk) {
+        try {
+          peer.send(peerCodec.encodeRequestAppRunning(0));
+        } catch (error) {
+          log.error(`AppSyncOrchestrator - Failed to request apprunning from ${peer.key}: ${error.message}`);
+        }
+      }
+    } catch (error) {
+      log.error(`AppSyncOrchestrator - Apprunning sync request failed: ${error.message}`);
+    }
+  }
+
   #isLocationReady() {
+    if (globalState.appRunningSyncComplete) return true;
+    // Fallback for networks without appRunningSync peers
     if (this.#locationBlockThreshold === 0) {
       const enterprise = this.#isEnterprise();
       const blocksPerMinute = 2;
