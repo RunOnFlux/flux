@@ -339,4 +339,12 @@ class FluxPeerSocket {
   }
 }
 
-module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION };
+const FLUX_CAPABILITIES = Object.freeze([
+  'transmissionTimestamps',
+  'peerExchange',
+  'binaryMessages',
+  'tempMessageSync',
+  'appRunningSync',
+]);
+
+module.exports = { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES };
