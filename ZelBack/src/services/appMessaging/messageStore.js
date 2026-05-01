@@ -15,6 +15,7 @@ const {
   globalAppsLocations,
   globalAppsInstallingLocations,
   globalAppsInstallingErrorsLocations,
+  globalAppsInstallingErrorsBroadcasts,
   appsHashesCollection,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -738,8 +739,6 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
   return { stored: signedOps.length };
 }
 
-const appsInstallingErrorsBroadcasts = config.database.appsglobal.collections.appsInstallingErrorsBroadcasts;
-
 function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.name || !data.hash || !data.broadcastedAt) return;
@@ -756,7 +755,7 @@ function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
     broadcastedAt: new Date(data.broadcastedAt),
   };
   return dbHelper.updateOneInDatabase(
-    database, appsInstallingErrorsBroadcasts,
+    database, globalAppsInstallingErrorsBroadcasts,
     { 'data.name': data.name, 'data.hash': data.hash, 'data.ip': data.ip },
     { $set: doc },
     { upsert: true },
@@ -811,7 +810,7 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
   }
 
   if (signedOps.length > 0) {
-    await database.collection(appsInstallingErrorsBroadcasts).bulkWrite(signedOps, { ordered: false })
+    await database.collection(globalAppsInstallingErrorsBroadcasts).bulkWrite(signedOps, { ordered: false })
       .catch((err) => log.error(`storeBatchAppInstallingErrorMessages signed: ${err.message}`));
   }
   if (locationOps.length > 0) {

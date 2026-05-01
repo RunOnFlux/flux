@@ -20,6 +20,7 @@ const globalAppsTempMessages = config.database.appsglobal.collections.appsTempor
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 const globalAppsInstallingLocations = config.database.appsglobal.collections.appsInstallingLocations;
 const globalAppsInstallingErrorsLocations = config.database.appsglobal.collections.appsInstallingErrorsLocations;
+const globalAppsInstallingErrorsBroadcasts = config.database.appsglobal.collections.appsInstallingErrorsBroadcasts;
 
 // Supported architectures
 const supportedArchitectures = ['amd64', 'arm64'];
@@ -79,6 +80,7 @@ module.exports = {
   globalAppsLocations,
   globalAppsInstallingLocations,
   globalAppsInstallingErrorsLocations,
+  globalAppsInstallingErrorsBroadcasts,
 
   // Configuration
   supportedArchitectures,

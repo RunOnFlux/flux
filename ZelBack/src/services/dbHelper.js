@@ -721,7 +721,6 @@ async function reindexGlobalAppsInformation(
   appsLocalDb,
   globalAppsMessagesCol,
   globalAppsInformationCol,
-  globalAppsInstallingErrorsLocationsCol,
   localAppsInformationCol,
   scannedHeight,
 ) {
@@ -808,14 +807,6 @@ async function reindexGlobalAppsInformation(
     localAppsInformationCol,
   );
 
-  // Drop all install errors. Collection has a 1-hour TTL anyway and any
-  // surviving errors would be tied to specs that may have just changed.
-  await removeDocumentsFromCollection(
-    appsGlobalDb,
-    globalAppsInstallingErrorsLocationsCol,
-    {},
-  );
-
   log.info(
     `Reindexing of global applications finished. Local apps to be removed: ${JSON.stringify(appsToRemove)}`,
   );
@@ -839,7 +830,6 @@ async function validateAppsInformation() {
         collections: {
           appsInformation: globalAppsInformationCol,
           appsMessages: globalAppsMessagesCol,
-          appsInstallingErrorsLocations: globalAppsInstallingErrorsLocationsCol,
         },
       },
       appslocal: {
@@ -894,7 +884,6 @@ async function validateAppsInformation() {
       appsLocalDb,
       globalAppsMessagesCol,
       globalAppsInformationCol,
-      globalAppsInstallingErrorsLocationsCol,
       localAppsInformationCol,
       scannedHeight,
     );
