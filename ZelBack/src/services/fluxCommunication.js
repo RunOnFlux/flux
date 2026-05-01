@@ -29,7 +29,7 @@ const { messageCache, wsPeerCache } = cacheManager;
 
 const testListCache = new LRUCache(LRUTest); */
 
-const { FluxPeerManager, DIRECTION, FLUX_VERSION } = require('./utils/FluxPeerManager');
+const { FluxPeerManager, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require('./utils/FluxPeerManager');
 const { NAK_REASON } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 
@@ -731,7 +731,7 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
       // should not be compressed if context takeover is disabled.
       },
       headers: {
-        'X-Flux-Capabilities': 'transmissionTimestamps,peerExchange,binaryMessages,tempMessageSync,appRunningSync',
+        'X-Flux-Capabilities': FLUX_CAPABILITIES.join(','),
         'X-Flux-Version': FLUX_VERSION,
         'X-Flux-Uptime': String(Math.floor(process.uptime())),
       },
