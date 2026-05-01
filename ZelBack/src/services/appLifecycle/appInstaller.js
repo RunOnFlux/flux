@@ -15,7 +15,12 @@ const geolocationService = require('../geolocationService');
 const appUninstaller = require('./appUninstaller');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-const { storeAppRunningMessage, storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
+const { storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
+
+let onInstallComplete = null;
+function setOnInstallComplete(callback) {
+  onInstallComplete = callback;
+}
 const { systemArchitecture } = require('../appSystem/systemIntegration');
 const { checkApplicationImagesCompliance, verifyRepository } = require('../appSecurity/imageManager');
 const { startAppMonitoring } = require('../appManagement/appInspector');
@@ -639,25 +644,8 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
 
     log.info(`Flux App: ${appName} is test install: ${test}`);
 
-    if (!test) {
-      const broadcastedAt = Date.now();
-      const newAppRunningMessage = {
-        type: 'fluxapprunning',
-        version: 2,
-        apps: [{
-          name: appSpecifications.name,
-          hash: appSpecifications.hash,
-          runningSince: new Date(broadcastedAt).toISOString(),
-        }],
-        ip: myIP,
-        broadcastedAt,
-        osUptime: os.uptime(),
-        staticIp: geolocationService.isStaticIP(),
-      };
-
-      // eslint-disable-next-line no-await-in-loop, no-use-before-define
-      await storeAppRunningMessage(newAppRunningMessage);
-      await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessage);
+    if (!test && onInstallComplete) {
+      await onInstallComplete();
     }
 
     // all done message
@@ -1234,4 +1222,5 @@ module.exports = {
   installAppLocally,
   checkAppRequirements,
   testAppInstall,
+  setOnInstallComplete,
 };

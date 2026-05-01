@@ -280,6 +280,7 @@ async function startFluxFunctions() {
       isEnterprise: () => enterpriseNetwork.getCachedEnterpriseIdentity(),
     });
     appSpawner.initialize({ appInstaller, appUninstaller, orchestrator });
+    appInstaller.setOnInstallComplete(() => peerNotification.checkAndNotifyPeersOfRunningApps());
     fluxCommunication.setOnSyncComplete((syncType) => orchestrator.onSyncComplete(syncType));
     log.info('App Spawner initialized');
 

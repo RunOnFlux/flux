@@ -47,7 +47,7 @@ describe('AppSyncOrchestrator', () => {
       '../../lib/log': logStub,
       '../generalService': { isNodeStatusConfirmed: isNodeStatusConfirmedStub },
       './appHashSyncService': { syncMissingHashes: syncMissingHashesStub },
-      './peerNotification': { checkAndNotifyPeersOfRunningApps: checkAndNotifyStub },
+      './peerNotification': { checkAndNotifyPeersOfRunningApps: checkAndNotifyStub, stopBroadcastInterval: sinon.stub() },
       '../appDatabase/registryManager': {
         reindexGlobalAppsInformation: reindexStub,
         expireGlobalApplications: expireStub,
