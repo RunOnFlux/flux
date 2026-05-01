@@ -195,6 +195,10 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
     log.info('Flux Apps locations prepared');
+    // Signed apprunning broadcasts for sync — one doc per IP, TTL matches location TTL
+    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ ip: 1 }, { unique: true });
+    log.info('Signed apprunning broadcasts collection prepared');
     // we just keep installing messages for 15 minutes
     // Update existing TTL index if it exists (for nodes that already have it created with old value)
     await databaseTemp.command({

@@ -579,10 +579,105 @@ async function storeIPChangedMessage(message) {
   return true;
 }
 
+const appsRunningBroadcasts = config.database.appsglobal.collections.appsRunningBroadcasts;
+
+function storeSignedAppRunningBroadcast(signedBroadcast) {
+  const { data } = signedBroadcast;
+  if (!data || !data.ip || !data.broadcastedAt) return;
+  const validTill = data.broadcastedAt + (125 * 60 * 1000);
+  if (validTill < Date.now()) return;
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const doc = {
+    ip: data.ip,
+    version: signedBroadcast.version,
+    timestamp: signedBroadcast.timestamp,
+    pubKey: signedBroadcast.pubKey,
+    signature: signedBroadcast.signature,
+    data,
+    broadcastedAt: new Date(data.broadcastedAt),
+    expireAt: new Date(validTill),
+  };
+  return dbHelper.updateOneInDatabase(
+    database, appsRunningBroadcasts,
+    { ip: data.ip },
+    { $set: doc },
+    { upsert: true },
+  ).catch((err) => log.error(`storeSignedAppRunningBroadcast: ${err.message}`));
+}
+
+async function storeBatchAppRunningMessages(verifiedBroadcasts) {
+  if (verifiedBroadcasts.length === 0) return { stored: 0 };
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+
+  const signedOps = [];
+  const locationOps = [];
+
+  for (const broadcast of verifiedBroadcasts) {
+    const { data } = broadcast;
+    const validTill = data.broadcastedAt + (125 * 60 * 1000);
+    if (validTill < Date.now()) continue;
+
+    signedOps.push({
+      updateOne: {
+        filter: { ip: data.ip },
+        update: {
+          $set: {
+            ip: data.ip,
+            version: broadcast.version,
+            timestamp: broadcast.timestamp,
+            pubKey: broadcast.pubKey,
+            signature: broadcast.signature,
+            data,
+            broadcastedAt: new Date(data.broadcastedAt),
+            expireAt: new Date(validTill),
+          },
+        },
+        upsert: true,
+      },
+    });
+
+    const apps = data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }];
+    for (const app of apps) {
+      const locationDoc = {
+        name: app.name,
+        hash: app.hash,
+        ip: data.ip,
+        broadcastedAt: new Date(data.broadcastedAt),
+        expireAt: new Date(validTill),
+        osUptime: data.osUptime,
+        staticIp: data.staticIp,
+      };
+      if (data.runningSince) locationDoc.runningSince = new Date(data.runningSince);
+      else if (app.runningSince) locationDoc.runningSince = new Date(app.runningSince);
+      locationOps.push({
+        updateOne: {
+          filter: { name: app.name, ip: data.ip },
+          update: { $set: locationDoc },
+          upsert: true,
+        },
+      });
+    }
+  }
+
+  if (signedOps.length > 0) {
+    await database.collection(appsRunningBroadcasts).bulkWrite(signedOps, { ordered: false })
+      .catch((err) => log.error(`storeBatchAppRunningMessages signed: ${err.message}`));
+  }
+  if (locationOps.length > 0) {
+    await database.collection(globalAppsLocations).bulkWrite(locationOps, { ordered: false })
+      .catch((err) => log.error(`storeBatchAppRunningMessages locations: ${err.message}`));
+  }
+  return { stored: signedOps.length };
+}
+
 module.exports = {
   storeAppTemporaryMessage,
   storeAppPermanentMessage,
   storeAppRunningMessage,
+  storeSignedAppRunningBroadcast,
+  storeBatchAppRunningMessages,
   storeAppInstallingMessage,
   storeAppRemovedMessage,
   storeAppInstallingErrorMessage,

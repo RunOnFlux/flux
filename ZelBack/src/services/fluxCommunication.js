@@ -15,6 +15,7 @@ const dbHelper = require('./dbHelper');
 const { peerManager, PEER_SOURCE } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
+const globalState = require('./utils/globalState');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
@@ -70,15 +71,11 @@ async function handleAppMessages(message, fromIP, port) {
 async function handleTempSyncResponse(message) {
   try {
     if (!message.data || message.data.type !== 'fluxapptempsync') return;
-    const { messages } = message.data;
+    const { messages, done } = message.data;
     if (!Array.isArray(messages)) return;
-    log.info(`handleTempSyncResponse - Received ${messages.length} temp messages`);
-    const toProcess = messages.slice(0, 500);
-    if (messages.length > 500) {
-      log.warn(`handleTempSyncResponse - Capped from ${messages.length} to 500`);
-    }
+    log.info(`handleTempSyncResponse - Received ${messages.length} temp messages (done: ${!!done})`);
     let stored = 0;
-    for (const msg of toProcess) {
+    for (const msg of messages) {
       try {
         const result = await messageStore.storeAppTemporaryMessage(msg, { furtherVerification: true });
         if (result === true || result === false) stored += 1;
@@ -86,7 +83,39 @@ async function handleTempSyncResponse(message) {
         log.error(`Temp sync message failed: ${err.message}`);
       }
     }
-    log.info(`handleTempSyncResponse - Processed ${stored} of ${toProcess.length} messages`);
+    log.info(`handleTempSyncResponse - Processed ${stored} of ${messages.length} messages`);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function handleAppRunningSyncResponse(message) {
+  try {
+    if (!message.data || message.data.type !== 'fluxapprunningsync') return;
+    const { messages, done } = message.data;
+    if (!Array.isArray(messages)) return;
+    log.info(`handleAppRunningSyncResponse - Received ${messages.length} broadcasts (done: ${!!done})`);
+    const verified = [];
+    for (const broadcast of messages) {
+      try {
+        const result = await fluxCommunicationUtils.verifyFluxBroadcast(broadcast);
+        if (result === fluxCommunicationUtils.VerifyResult.OK) {
+          verified.push(broadcast);
+        } else {
+          log.warn(`handleAppRunningSyncResponse - Broadcast from ${broadcast.data?.ip} failed verification: ${result}`);
+        }
+      } catch (err) {
+        log.error(`handleAppRunningSyncResponse - Verification error: ${err.message}`);
+      }
+    }
+    if (verified.length > 0) {
+      const { stored } = await messageStore.storeBatchAppRunningMessages(verified);
+      log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
+    }
+    if (done) {
+      globalState.appRunningSyncComplete = true;
+      log.info('handleAppRunningSyncResponse - Sync complete');
+    }
   } catch (error) {
     log.error(error);
   }
@@ -134,10 +163,8 @@ async function handleRequestMessageHash(messageHash, fromIP, port) {
  */
 async function handleAppRunningMessage(message, fromIP, port) {
   try {
-    // check if we have it exactly like that in database and if not, update
-    // if not in database, rebroadcast to all connections
-    // do furtherVerification of message
     const rebroadcastToPeers = await messageStore.storeAppRunningMessage(message.data);
+    messageStore.storeSignedAppRunningBroadcast(message);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers === true && timestampOK) {
@@ -416,6 +443,8 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
           setImmediate(() => handleNodeSigtermMessage(msgObj, peerSocket.ip, peerSocket.port));
         } else if (msgObj.data.type === 'fluxapptempsync') {
           setImmediate(() => handleTempSyncResponse(msgObj));
+        } else if (msgObj.data.type === 'fluxapprunningsync') {
+          setImmediate(() => handleAppRunningSyncResponse(msgObj));
         } else {
           log.warn(`Unrecognised message type of ${msgObj.data.type}`);
         }
@@ -467,12 +496,19 @@ peerManager.hashHandlers = {
     peer.msgMap.set('requestHash', counter + 1);
     setImmediate(() => handleRequestMessageHash(hexHash, peer.ip, peer.port));
   },
-  handleTempMessagesRequest: (peer) => {
+  handleTempMessagesRequest: (peer, sinceTimestamp) => {
     const now = Date.now();
     const last = peer.lastTempSyncResponse || 0;
     if (now - last < 5 * 60 * 1000) return;
     peer.lastTempSyncResponse = now;
-    setImmediate(() => fluxCommunicationMessagesSender.respondWithTempMessages(peer));
+    setImmediate(() => fluxCommunicationMessagesSender.respondWithTempMessages(peer, sinceTimestamp));
+  },
+  handleAppRunningRequest: (peer, sinceTimestamp) => {
+    const now = Date.now();
+    const last = peer.lastAppRunningSyncResponse || 0;
+    if (now - last < 5 * 60 * 1000) return;
+    peer.lastAppRunningSyncResponse = now;
+    setImmediate(() => fluxCommunicationMessagesSender.respondWithAppRunningMessages(peer, sinceTimestamp));
   },
 };
 
@@ -695,7 +731,7 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
       // should not be compressed if context takeover is disabled.
       },
       headers: {
-        'X-Flux-Capabilities': 'transmissionTimestamps,peerExchange,binaryMessages,tempMessageSync',
+        'X-Flux-Capabilities': 'transmissionTimestamps,peerExchange,binaryMessages,tempMessageSync,appRunningSync',
         'X-Flux-Version': FLUX_VERSION,
         'X-Flux-Uptime': String(Math.floor(process.uptime())),
       },

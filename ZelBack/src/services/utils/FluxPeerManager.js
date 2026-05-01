@@ -381,6 +381,17 @@ class FluxPeerManager extends EventEmitter {
     return eligible;
   }
 
+  getEligibleAppRunningSyncPeers(minUptimeSeconds) {
+    const eligible = [];
+    for (const peer of this.#peers.values()) {
+      if (!peer.remoteCapabilities.has('appRunningSync')) continue;
+      const uptime = this.getPeerFluxUptime(peer.key);
+      if (uptime === null || uptime < minUptimeSeconds) continue;
+      eligible.push(peer);
+    }
+    return eligible;
+  }
+
   // --- Liveness ---
 
   /**
@@ -978,7 +989,16 @@ class FluxPeerManager extends EventEmitter {
         }
         case peerCodec.MSG_TYPE.REQUEST_TEMP_MESSAGES: {
           if (this.hashHandlers && this.hashHandlers.handleTempMessagesRequest) {
-            this.hashHandlers.handleTempMessagesRequest(peer);
+            const sinceTimestamp = buf.length >= 9 ? peerCodec.decodeSyncTimestamp(buf) : 0;
+            this.hashHandlers.handleTempMessagesRequest(peer, sinceTimestamp);
+          }
+          break;
+        }
+        case peerCodec.MSG_TYPE.REQUEST_APP_RUNNING: {
+          if (buf.length < 9) break;
+          const sinceTimestamp = peerCodec.decodeSyncTimestamp(buf);
+          if (this.hashHandlers && this.hashHandlers.handleAppRunningRequest) {
+            this.hashHandlers.handleAppRunningRequest(peer, sinceTimestamp);
           }
           break;
         }
