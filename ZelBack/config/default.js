@@ -231,6 +231,7 @@ module.exports = {
     minUpTime: 1800, // 30 mins
     appSyncPeerThreshold: 12, // peers needed before starting app sync / spawning
     appSyncDegradedThreshold: 4, // below this, pause spawner — gossip unreliable
+    appSyncMinPeerUptime: 60, // seconds a peer must have been running before we sync from it
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds
