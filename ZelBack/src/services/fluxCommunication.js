@@ -133,6 +133,8 @@ async function handleAppInstallingSyncResponse(message) {
         const result = await fluxCommunicationUtils.verifyFluxBroadcast(broadcast);
         if (result === fluxCommunicationUtils.VerifyResult.OK) {
           verified.push(broadcast);
+        } else {
+          log.warn(`handleAppInstallingSyncResponse - Broadcast from ${broadcast.data?.ip} failed: ${result}`);
         }
       } catch (err) {
         log.error(`handleAppInstallingSyncResponse - Verification error: ${err.message}`);
