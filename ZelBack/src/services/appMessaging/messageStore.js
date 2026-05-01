@@ -319,18 +319,19 @@ async function storeAppRunningMessage(message) {
     const result = await dbHelper.findInDatabase(database, globalAppsLocations, queryFind, projection);
     if (result.length > 0) {
       await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, queryFind);
-      // also clean up any installing records for this IP
       await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
+      await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.ip': message.ip });
     } else {
       return false;
     }
   }
 
-  // clean up installing records for all apps that are now running
   for (const app of appsMessages) {
     const queryFind = { name: app.name, ip: message.ip };
     // eslint-disable-next-line no-await-in-loop
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
+    // eslint-disable-next-line no-await-in-loop
+    await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.name': app.name, 'data.ip': message.ip });
   }
 
   if (messageNotOk) {
