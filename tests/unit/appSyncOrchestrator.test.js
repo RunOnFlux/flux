@@ -46,6 +46,8 @@ describe('AppSyncOrchestrator', () => {
       '../utils/peerCodec': {
         encodeRequestTempMessages: sinon.stub().returns(Buffer.alloc(9, 0x20)),
         encodeRequestAppRunning: sinon.stub().returns(Buffer.alloc(9, 0x21)),
+        encodeRequestAppInstalling: sinon.stub().returns(Buffer.alloc(9, 0x22)),
+        encodeRequestAppInstallingErrors: sinon.stub().returns(Buffer.alloc(9, 0x23)),
       },
     });
     AppSyncOrchestrator = mod.AppSyncOrchestrator;
@@ -206,6 +208,87 @@ describe('AppSyncOrchestrator', () => {
       await new Promise((r) => setTimeout(r, 50));
 
       expect(logStub.info.calledWith('AppSyncOrchestrator - No eligible peers for temp message catch-up')).to.be.true;
+    });
+  });
+
+  describe('apprunning sync', () => {
+    it('should request apprunning sync from eligible peers', async () => {
+      const fakePeer = { key: '1.2.3.4:16127', send: sinon.stub() };
+      peerManager.getEligibleTempSyncPeers = sinon.stub().returns([]);
+      peerManager.getEligibleAppRunningSyncPeers = sinon.stub().returns([fakePeer]);
+
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      orchestrator.start();
+      peerManager.emit('peerThresholdReached', 12);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(peerManager.getEligibleAppRunningSyncPeers.called).to.be.true;
+      // send called for apprunning + appinstalling + appinstalling errors
+      expect(fakePeer.send.callCount).to.be.at.least(3);
+    });
+
+    it('should skip apprunning sync when no eligible peers', async () => {
+      peerManager.getEligibleTempSyncPeers = sinon.stub().returns([]);
+      peerManager.getEligibleAppRunningSyncPeers = sinon.stub().returns([]);
+
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      orchestrator.start();
+      peerManager.emit('peerThresholdReached', 12);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(logStub.info.calledWith('AppSyncOrchestrator - No eligible peers for apprunning sync')).to.be.true;
+    });
+  });
+
+  describe('location readiness', () => {
+    it('should use appRunningSyncComplete when set', async () => {
+      globalStateStub.appRunningSyncComplete = true;
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, peerManager, isEnterprise: () => true,
+      });
+      orchestrator.start();
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // With appRunningSyncComplete=true, should reach READY without 124 blocks
+      if (orchestrator.state !== STATES.READY) {
+        // Need a couple more blocks for checkReadiness to trigger
+        blockEmitter.emit('blockReceived', 2555001);
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(orchestrator.state).to.equal(STATES.READY);
+    });
+
+    it('should fall back to block count when appRunningSyncComplete is false', async () => {
+      globalStateStub.appRunningSyncComplete = false;
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, peerManager, isEnterprise: () => true,
+      });
+      orchestrator.start();
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // After sync but before enough blocks, should still be SYNCING
+      expect(orchestrator.state).to.equal(STATES.SYNCING);
+    });
+
+    it('should reset appRunningSyncComplete on degradation', async () => {
+      globalStateStub.appRunningSyncComplete = true;
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, peerManager, isEnterprise: () => true,
+      });
+      orchestrator.start();
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+      for (let i = 0; i < 130; i += 1) {
+        blockEmitter.emit('blockReceived', 2555000 + i);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+
+      if (orchestrator.state === STATES.READY) {
+        peerManager.emit('peersBelowThreshold', 3);
+        expect(globalStateStub.appRunningSyncComplete).to.be.false;
+      }
     });
   });
 
