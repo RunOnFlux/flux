@@ -15,6 +15,11 @@ const {
   decodePeerExchange,
   encodePeerUpdate,
   decodePeerUpdate,
+  encodeRequestTempMessages,
+  encodeRequestAppRunning,
+  encodeRequestAppInstalling,
+  encodeRequestAppInstallingErrors,
+  decodeSyncTimestamp,
 } = require('../../ZelBack/src/services/utils/peerCodec');
 
 describe('peerCodec', () => {
@@ -235,6 +240,52 @@ describe('peerCodec', () => {
       expect(decoded.addOutbound).to.deep.equal([]);
       expect(decoded.addInbound).to.deep.equal([]);
       expect(decoded.rm).to.deep.equal([]);
+    });
+  });
+
+  describe('sync messages', () => {
+    it('should encode REQUEST_TEMP_MESSAGES with timestamp', () => {
+      const buf = encodeRequestTempMessages(1777626000000);
+      expect(buf.length).to.equal(9);
+      expect(buf[0]).to.equal(MSG_TYPE.REQUEST_TEMP_MESSAGES);
+      expect(decodeSyncTimestamp(buf)).to.equal(1777626000000);
+    });
+
+    it('should encode REQUEST_APP_RUNNING with timestamp', () => {
+      const buf = encodeRequestAppRunning(1777626000000);
+      expect(buf.length).to.equal(9);
+      expect(buf[0]).to.equal(MSG_TYPE.REQUEST_APP_RUNNING);
+      expect(decodeSyncTimestamp(buf)).to.equal(1777626000000);
+    });
+
+    it('should encode REQUEST_APP_INSTALLING with timestamp', () => {
+      const buf = encodeRequestAppInstalling(1777626000000);
+      expect(buf.length).to.equal(9);
+      expect(buf[0]).to.equal(MSG_TYPE.REQUEST_APP_INSTALLING);
+      expect(decodeSyncTimestamp(buf)).to.equal(1777626000000);
+    });
+
+    it('should encode REQUEST_APP_INSTALLING_ERRORS with timestamp', () => {
+      const buf = encodeRequestAppInstallingErrors(1777626000000);
+      expect(buf.length).to.equal(9);
+      expect(buf[0]).to.equal(MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS);
+      expect(decodeSyncTimestamp(buf)).to.equal(1777626000000);
+    });
+
+    it('should default to timestamp 0', () => {
+      const buf = encodeRequestTempMessages();
+      expect(decodeSyncTimestamp(buf)).to.equal(0);
+    });
+
+    it('should handle short buffer in decodeSyncTimestamp', () => {
+      const buf = Buffer.from([0x20]);
+      expect(decodeSyncTimestamp(buf)).to.equal(0);
+    });
+
+    it('should roundtrip large timestamps', () => {
+      const ts = Date.now();
+      const buf = encodeRequestAppRunning(ts);
+      expect(decodeSyncTimestamp(buf)).to.equal(ts);
     });
   });
 });
