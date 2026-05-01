@@ -198,6 +198,7 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).dropIndex('ip_1').catch(() => {});
     await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ ip: 1, 'data.name': 1 }, { unique: true });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ 'data.apps.name': 1 }, { name: 'query for app location from v2 broadcasts' });
     log.info('Signed apprunning broadcasts collection prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 900 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ 'data.name': 1, 'data.ip': 1 }, { unique: true });

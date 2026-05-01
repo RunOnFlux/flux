@@ -13,6 +13,7 @@ const {
   localAppsInformation,
   globalAppsMessages,
   globalAppsLocations,
+  globalAppsRunningBroadcasts,
   globalAppsInstallingLocations,
   globalAppsInstallingErrorsLocations,
   globalAppsInstallingErrorsBroadcasts,
@@ -84,6 +85,76 @@ async function appLocation(appname) {
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  return results;
+}
+
+async function appLocationFromBroadcasts(appname) {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  const collection = database.collection(globalAppsRunningBroadcasts);
+
+  const nameMatch = appname ? new RegExp(`^${appname}$`, 'i') : null;
+
+  const pipeline = [
+    {
+      $facet: {
+        v2: [
+          { $match: { 'data.apps': { $exists: true } } },
+          { $unwind: '$data.apps' },
+          {
+            $project: {
+              _id: 0,
+              name: '$data.apps.name',
+              hash: '$data.apps.hash',
+              ip: '$data.ip',
+              broadcastedAt: '$broadcastedAt',
+              runningSince: { $ifNull: ['$data.apps.runningSince', '$data.runningSince'] },
+              osUptime: '$data.osUptime',
+              staticIp: '$data.staticIp',
+            },
+          },
+        ],
+        v1: [
+          { $match: { 'data.name': { $exists: true } } },
+          {
+            $project: {
+              _id: 0,
+              name: '$data.name',
+              hash: '$data.hash',
+              ip: '$data.ip',
+              broadcastedAt: '$broadcastedAt',
+              runningSince: '$data.runningSince',
+              osUptime: '$data.osUptime',
+              staticIp: '$data.staticIp',
+            },
+          },
+        ],
+      },
+    },
+    { $project: { all: { $concatArrays: ['$v2', '$v1'] } } },
+    { $unwind: '$all' },
+    { $replaceRoot: { newRoot: '$all' } },
+    { $sort: { broadcastedAt: -1 } },
+    {
+      $group: {
+        _id: { name: '$name', ip: '$ip' },
+        name: { $first: '$name' },
+        hash: { $first: '$hash' },
+        ip: { $first: '$ip' },
+        broadcastedAt: { $first: '$broadcastedAt' },
+        runningSince: { $first: '$runningSince' },
+        osUptime: { $first: '$osUptime' },
+        staticIp: { $first: '$staticIp' },
+      },
+    },
+    { $project: { _id: 0 } },
+  ];
+
+  if (nameMatch) {
+    pipeline.push({ $match: { name: nameMatch } });
+  }
+
+  const results = await collection.aggregate(pipeline).toArray();
   return results;
 }
 
@@ -1721,6 +1792,7 @@ async function rescanGlobalAppsInformationAPI(req, res) {
 module.exports = {
   getAppHashes,
   appLocation,
+  appLocationFromBroadcasts,
   appInstallingLocation,
   appInstallingErrorsLocation,
   countAppInstallingErrors,
