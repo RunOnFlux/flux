@@ -478,10 +478,9 @@ async function storeAppInstallingErrorMessage(message) {
     return new Error(`Invalid Flux App Installing Error message for storing version ${message.version} not supported`);
   }
 
-  const validTill = message.broadcastedAt + (60 * 60 * 1000); // 60 minutes
+  const validTill = message.broadcastedAt + (5 * 60 * 1000);
   if (validTill < Date.now()) {
     log.warn(`Rejecting old/not valid fluxappinstallingerror message, message:${JSON.stringify(message)}`);
-    // reject old message
     return false;
   }
 
@@ -494,40 +493,22 @@ async function storeAppInstallingErrorMessage(message) {
     ip: message.ip,
     error: message.error,
     broadcastedAt: new Date(message.broadcastedAt),
-    startCacheAt: new Date(message.broadcastedAt),
-    expireAt: new Date(validTill),
   };
 
-  let queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash, ip: newAppInstallingErrorMessage.ip };
-  const projection = { _id: 0 };
-  // we already have the exact same data
-  // eslint-disable-next-line no-await-in-loop
+  const queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash, ip: newAppInstallingErrorMessage.ip };
+  const projection = { _id: 0, broadcastedAt: 1 };
   const result = await dbHelper.findOneInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, projection);
   if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingErrorMessage.broadcastedAt) {
-    // found a message that was already stored/probably from duplicated message processsed
     return false;
   }
 
-  let update = { $set: newAppInstallingErrorMessage };
-  const options = {
-    upsert: true,
-  };
-  await dbHelper.updateOneInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update, options);
+  const update = { $set: newAppInstallingErrorMessage };
+  await dbHelper.updateOneInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update, { upsert: true });
 
-  // clean up installing record since installation failed
   const installingQuery = { name: newAppInstallingErrorMessage.name, ip: newAppInstallingErrorMessage.ip };
   await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, installingQuery);
+  await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.name': newAppInstallingErrorMessage.name, 'data.ip': newAppInstallingErrorMessage.ip });
 
-  queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash };
-  // we already have the exact same data
-  // eslint-disable-next-line no-await-in-loop
-  const results = await dbHelper.countInDatabase(database, globalAppsInstallingErrorsLocations, queryFind);
-  if (results >= 5) {
-    update = { $set: { startCacheAt: null, expireAt: null } };
-    // eslint-disable-next-line no-await-in-loop
-    await dbHelper.updateInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update);
-  }
-  // all stored, rebroadcast
   return true;
 }
 
@@ -757,6 +738,89 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
   return { stored: signedOps.length };
 }
 
+const appsInstallingErrorsBroadcasts = config.database.appsglobal.collections.appsInstallingErrorsBroadcasts;
+
+function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
+  const { data } = signedBroadcast;
+  if (!data || !data.ip || !data.name || !data.hash || !data.broadcastedAt) return;
+  const validTill = data.broadcastedAt + (24 * 60 * 60 * 1000);
+  if (validTill < Date.now()) return;
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const doc = {
+    version: signedBroadcast.version,
+    timestamp: signedBroadcast.timestamp,
+    pubKey: signedBroadcast.pubKey,
+    signature: signedBroadcast.signature,
+    data,
+    broadcastedAt: new Date(data.broadcastedAt),
+  };
+  return dbHelper.updateOneInDatabase(
+    database, appsInstallingErrorsBroadcasts,
+    { 'data.name': data.name, 'data.hash': data.hash, 'data.ip': data.ip },
+    { $set: doc },
+    { upsert: true },
+  ).catch((err) => log.error(`storeSignedAppInstallingErrorBroadcast: ${err.message}`));
+}
+
+async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
+  if (verifiedBroadcasts.length === 0) return { stored: 0 };
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+
+  const signedOps = [];
+  const locationOps = [];
+
+  for (const broadcast of verifiedBroadcasts) {
+    const { data } = broadcast;
+    const validTill = data.broadcastedAt + (24 * 60 * 60 * 1000);
+    if (validTill < Date.now()) continue;
+
+    signedOps.push({
+      updateOne: {
+        filter: { 'data.name': data.name, 'data.hash': data.hash, 'data.ip': data.ip },
+        update: {
+          $set: {
+            version: broadcast.version,
+            timestamp: broadcast.timestamp,
+            pubKey: broadcast.pubKey,
+            signature: broadcast.signature,
+            data,
+            broadcastedAt: new Date(data.broadcastedAt),
+          },
+        },
+        upsert: true,
+      },
+    });
+
+    locationOps.push({
+      updateOne: {
+        filter: { name: data.name, hash: data.hash, ip: data.ip },
+        update: {
+          $set: {
+            name: data.name,
+            hash: data.hash,
+            ip: data.ip,
+            error: data.error,
+            broadcastedAt: new Date(data.broadcastedAt),
+          },
+        },
+        upsert: true,
+      },
+    });
+  }
+
+  if (signedOps.length > 0) {
+    await database.collection(appsInstallingErrorsBroadcasts).bulkWrite(signedOps, { ordered: false })
+      .catch((err) => log.error(`storeBatchAppInstallingErrorMessages signed: ${err.message}`));
+  }
+  if (locationOps.length > 0) {
+    await database.collection(globalAppsInstallingErrorsLocations).bulkWrite(locationOps, { ordered: false })
+      .catch((err) => log.error(`storeBatchAppInstallingErrorMessages locations: ${err.message}`));
+  }
+  return { stored: signedOps.length };
+}
+
 module.exports = {
   storeAppTemporaryMessage,
   storeAppPermanentMessage,
@@ -768,5 +832,7 @@ module.exports = {
   storeBatchAppInstallingMessages,
   storeAppRemovedMessage,
   storeAppInstallingErrorMessage,
+  storeSignedAppInstallingErrorBroadcast,
+  storeBatchAppInstallingErrorMessages,
   storeIPChangedMessage,
 };

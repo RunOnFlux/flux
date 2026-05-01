@@ -69,6 +69,7 @@ class AppSyncOrchestrator extends EventEmitter {
     await this.#fetchTempMessages();
     this.#fetchAppRunningMessages();
     this.#fetchAppInstallingMessages();
+    this.#fetchAppInstallingErrorMessages();
 
     if (this.#state === STATES.RESYNCING) {
       if (this.#syncInProgress) return;
@@ -206,6 +207,24 @@ class AppSyncOrchestrator extends EventEmitter {
       }
     } catch (error) {
       log.error(`AppSyncOrchestrator - Appinstalling sync request failed: ${error.message}`);
+    }
+  }
+
+  #fetchAppInstallingErrorMessages() {
+    try {
+      const eligible = this.#peerManager.getEligibleAppRunningSyncPeers(60);
+      if (eligible.length === 0) return;
+      const peersToAsk = eligible.slice(0, 3);
+      log.info(`AppSyncOrchestrator - Requesting appinstalling errors sync from ${peersToAsk.length} peers`);
+      for (const peer of peersToAsk) {
+        try {
+          peer.send(peerCodec.encodeRequestAppInstallingErrors(0));
+        } catch (error) {
+          log.error(`AppSyncOrchestrator - Failed to request appinstalling errors from ${peer.key}: ${error.message}`);
+        }
+      }
+    } catch (error) {
+      log.error(`AppSyncOrchestrator - Appinstalling errors sync request failed: ${error.message}`);
     }
   }
 
