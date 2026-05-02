@@ -191,39 +191,39 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
-    // more than 2 hours and 5m. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
-    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
+    // TTL is driven by expireAt (set per-document by store functions). Migrate from old broadcastedAt-based TTL.
+    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).dropIndex('broadcastedAt_1').catch(() => {});
+    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1, name: 1 });
     log.info('Flux Apps locations prepared');
-    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
+    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ broadcastedAt: 1 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).dropIndex('ip_1').catch(() => {});
     await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ ip: 1, 'data.name': 1 }, { unique: true });
     await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ 'data.apps.name': 1 }, { name: 'query for app location from v2 broadcasts' });
     log.info('Signed apprunning broadcasts collection prepared');
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 900 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ broadcastedAt: 1 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ 'data.name': 1, 'data.ip': 1 }, { unique: true });
     log.info('Signed appinstalling broadcasts collection prepared');
-    // we just keep installing messages for 15 minutes
-    // Update existing TTL index if it exists (for nodes that already have it created with old value)
-    await databaseTemp.command({
-      collMod: config.database.appsglobal.collections.appsInstallingLocations,
-      index: {
-        keyPattern: { broadcastedAt: 1 },
-        expireAfterSeconds: 900,
-      },
-    }).catch(() => {}); // Ignore error if index doesn't exist yet
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 900 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).dropIndex('broadcastedAt_1').catch(() => {});
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install location based on specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
     log.info('Flux Apps installing locations prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).dropIndex('cachedAt_1').catch(() => {});
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 86400 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).dropIndex('broadcastedAt_1').catch(() => {});
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
     log.info('App installing errors locations prepared');
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 86400 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).createIndex({ broadcastedAt: 1 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).createIndex({ 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, { unique: true });
     log.info('Signed app installing errors broadcasts collection prepared');
 

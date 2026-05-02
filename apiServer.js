@@ -398,21 +398,20 @@ async function handleSigterm() {
 
         await fluxCommunicationMessagesSender.broadcastMessageToAll(sigtermMessage);
 
-        // Update local DB to expire app location records in ~7 minutes,
-        // same manipulation that peers apply when receiving the sigterm.
-        // This keeps the local DB consistent with the network so that on
-        // reboot the TTL check correctly detects expired locations.
+        // Update local DB to expire app records in ~7 minutes.
+        // Peers apply the same expireAt update when receiving the sigterm.
         try {
           const db = dbHelper.databaseConnection();
           const database = db.db(config.database.appsglobal.database);
           const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
-          const newBroadcastedAt = new Date(sigtermMessage.broadcastedAt - (7500 - 420) * 1000);
+          const appsRunningBroadcasts = config.database.appsglobal.collections.appsRunningBroadcasts;
           const newExpireAt = new Date(sigtermMessage.broadcastedAt + (420 * 1000));
-          const update = { $set: { broadcastedAt: newBroadcastedAt, expireAt: newExpireAt } };
+          const update = { $set: { expireAt: newExpireAt } };
           await dbHelper.updateInDatabase(database, globalAppsLocations, { ip }, update);
-          log.info('Local app location records updated to expire in ~7 minutes');
+          await dbHelper.updateInDatabase(database, appsRunningBroadcasts, { ip }, update);
+          log.info('Local app location and broadcast records updated to expire in ~7 minutes');
         } catch (dbError) {
-          log.warn(`Failed to update local app location expiration: ${dbError.message}`);
+          log.warn(`Failed to update local app expiration: ${dbError.message}`);
         }
 
         log.info('Shutdown notification broadcasted successfully');

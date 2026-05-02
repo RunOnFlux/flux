@@ -16,6 +16,7 @@ const { peerManager, PEER_SOURCE } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
+const appsRunningBroadcasts = config.database.appsglobal.collections.appsRunningBroadcasts;
 
 let onSyncComplete = null;
 function setOnSyncComplete(callback) {
@@ -389,12 +390,10 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
 
     log.info(`Found ${appsOnNode.length} apps for node ${ip}, updating expiration and rebroadcasting sigterm`);
 
-    // Update broadcastedAt to make records expire 7 minutes after the sigterm broadcastedAt
-    // TTL index is 7500 seconds, so set broadcastedAt = sigtermBroadcastedAt - (7500 - 420) seconds
-    const newBroadcastedAt = new Date(broadcastedAt - (7500 - 420) * 1000);
     const newExpireAt = new Date(broadcastedAt + (420 * 1000));
-    const update = { $set: { broadcastedAt: newBroadcastedAt, expireAt: newExpireAt } };
+    const update = { $set: { expireAt: newExpireAt } };
     await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
+    await dbHelper.updateInDatabase(database, appsRunningBroadcasts, query, update);
 
     // Rebroadcast to other peers
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();

@@ -20,6 +20,11 @@ const {
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 
+const GOSSIP_VALIDITY_MS = 5 * 60 * 1000;
+const RUNNING_EXPIRY_MS = 125 * 60 * 1000;
+const INSTALLING_EXPIRY_MS = 15 * 60 * 1000;
+const INSTALLING_ERRORS_EXPIRY_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Store temporary app message
  * @param {object} message - Message to store
@@ -263,14 +268,14 @@ async function storeAppRunningMessage(message) {
     }
   }
 
-  const validTill = message.broadcastedAt + (5 * 60 * 1000);
-  if (validTill < Date.now()) {
+  if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
     log.warn(`Rejecting old/not valid Fluxapprunning message, message:${JSON.stringify(message)}`);
     return { stored: false, rebroadcast: false };
   }
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
+  const expireAt = new Date(message.broadcastedAt + RUNNING_EXPIRY_MS);
 
   let anyStored = false;
   for (let i = 0; i < appsMessages.length; i += 1) {
@@ -280,7 +285,7 @@ async function storeAppRunningMessage(message) {
       hash: app.hash, // hash of application specifics that are running
       ip: message.ip,
       broadcastedAt: new Date(message.broadcastedAt),
-      expireAt: new Date(validTill),
+      expireAt,
       osUptime: message.osUptime,
       staticIp: message.staticIp,
     };
@@ -312,12 +317,13 @@ async function storeAppRunningMessage(message) {
   }
 
   if (message.version === 2 && appsMessages.length === 0) {
-    const queryFind = { ip: message.ip };
-    const projection = { _id: 0, runningSince: 1 };
-    const result = await dbHelper.findInDatabase(database, globalAppsLocations, queryFind, projection);
+    const result = await dbHelper.findInDatabase(database, globalAppsLocations, { ip: message.ip }, { _id: 0, runningSince: 1 });
     if (result.length > 0) {
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, queryFind);
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
+      const broadcastDate = new Date(message.broadcastedAt);
+      const olderThanBroadcast = { ip: message.ip, broadcastedAt: { $lte: broadcastDate } };
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, olderThanBroadcast);
+      await dbHelper.removeDocumentsFromCollection(database, appsRunningBroadcasts, olderThanBroadcast);
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, { ip: message.ip });
       await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.ip': message.ip });
       anyStored = true;
     } else {
@@ -358,10 +364,8 @@ async function storeAppInstallingMessage(message) {
     return new Error(`Invalid Flux App Installing message for storing version ${message.version} not supported`);
   }
 
-  const validTill = message.broadcastedAt + (5 * 60 * 1000); // 5 minutes
-  if (validTill < Date.now()) {
+  if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
     log.warn(`Rejecting old/not valid fluxappinstalling message, message:${JSON.stringify(message)}`);
-    // reject old message
     return false;
   }
 
@@ -372,7 +376,7 @@ async function storeAppInstallingMessage(message) {
     name: message.name,
     ip: message.ip,
     broadcastedAt: new Date(message.broadcastedAt),
-    expireAt: new Date(validTill),
+    expireAt: new Date(message.broadcastedAt + INSTALLING_EXPIRY_MS),
   };
 
   // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
@@ -472,8 +476,7 @@ async function storeAppInstallingErrorMessage(message) {
     return new Error(`Invalid Flux App Installing Error message for storing version ${message.version} not supported`);
   }
 
-  const validTill = message.broadcastedAt + (5 * 60 * 1000);
-  if (validTill < Date.now()) {
+  if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
     log.warn(`Rejecting old/not valid fluxappinstallingerror message, message:${JSON.stringify(message)}`);
     return false;
   }
@@ -487,6 +490,7 @@ async function storeAppInstallingErrorMessage(message) {
     ip: message.ip,
     error: message.error,
     broadcastedAt: new Date(message.broadcastedAt),
+    expireAt: new Date(message.broadcastedAt + INSTALLING_ERRORS_EXPIRY_MS),
   };
 
   const queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash, ip: newAppInstallingErrorMessage.ip };
@@ -560,8 +564,7 @@ const appsRunningBroadcasts = config.database.appsglobal.collections.appsRunning
 function storeSignedAppRunningBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.broadcastedAt) return;
-  const validTill = data.broadcastedAt + (125 * 60 * 1000);
-  if (validTill < Date.now()) return;
+  if (data.broadcastedAt + RUNNING_EXPIRY_MS < Date.now()) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const doc = {
@@ -572,7 +575,7 @@ function storeSignedAppRunningBroadcast(signedBroadcast) {
     signature: signedBroadcast.signature,
     data,
     broadcastedAt: new Date(data.broadcastedAt),
-    expireAt: new Date(validTill),
+    expireAt: new Date(data.broadcastedAt + RUNNING_EXPIRY_MS),
   };
   const filter = data.apps ? { ip: data.ip } : { ip: data.ip, 'data.name': data.name };
   return dbHelper.updateOneInDatabase(
@@ -594,7 +597,7 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
 
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
-    const validTill = data.broadcastedAt + (125 * 60 * 1000);
+    const validTill = data.broadcastedAt + RUNNING_EXPIRY_MS;
     if (validTill < Date.now()) continue;
 
     const filter = data.apps ? { ip: data.ip } : { ip: data.ip, 'data.name': data.name };
@@ -682,8 +685,7 @@ const appsInstallingBroadcasts = config.database.appsglobal.collections.appsInst
 function storeSignedAppInstallingBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.name || !data.broadcastedAt) return;
-  if (data.broadcastedAt + (5 * 60 * 1000) < Date.now()) return;
-  const validTill = data.broadcastedAt + (15 * 60 * 1000);
+  if (data.broadcastedAt + INSTALLING_EXPIRY_MS < Date.now()) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const doc = {
@@ -693,7 +695,7 @@ function storeSignedAppInstallingBroadcast(signedBroadcast) {
     signature: signedBroadcast.signature,
     data,
     broadcastedAt: new Date(data.broadcastedAt),
-    expireAt: new Date(validTill),
+    expireAt: new Date(data.broadcastedAt + INSTALLING_EXPIRY_MS),
   };
   return dbHelper.updateOneInDatabase(
     database, appsInstallingBroadcasts,
@@ -713,7 +715,7 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
 
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
-    const validTill = data.broadcastedAt + (15 * 60 * 1000);
+    const validTill = data.broadcastedAt + INSTALLING_EXPIRY_MS;
     if (validTill < Date.now()) continue;
 
     signedOps.push({
@@ -765,8 +767,7 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
 function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.name || !data.hash || !data.broadcastedAt) return;
-  if (data.broadcastedAt + (5 * 60 * 1000) < Date.now()) return;
-  const validTill = data.broadcastedAt + (24 * 60 * 60 * 1000);
+  if (data.broadcastedAt + INSTALLING_ERRORS_EXPIRY_MS < Date.now()) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const doc = {
@@ -776,6 +777,7 @@ function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
     signature: signedBroadcast.signature,
     data,
     broadcastedAt: new Date(data.broadcastedAt),
+    expireAt: new Date(data.broadcastedAt + INSTALLING_ERRORS_EXPIRY_MS),
   };
   return dbHelper.updateOneInDatabase(
     database, globalAppsInstallingErrorsBroadcasts,
@@ -795,8 +797,11 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
 
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
-    const validTill = data.broadcastedAt + (24 * 60 * 60 * 1000);
+    const validTill = data.broadcastedAt + INSTALLING_ERRORS_EXPIRY_MS;
     if (validTill < Date.now()) continue;
+
+    const incomingDate = new Date(data.broadcastedAt);
+    const incomingExpiry = new Date(validTill);
 
     signedOps.push({
       updateOne: {
@@ -808,14 +813,14 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
             pubKey: broadcast.pubKey,
             signature: broadcast.signature,
             data,
-            broadcastedAt: new Date(data.broadcastedAt),
+            broadcastedAt: incomingDate,
+            expireAt: incomingExpiry,
           },
         },
         upsert: true,
       },
     });
 
-    const incomingDate = new Date(data.broadcastedAt);
     const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
     locationOps.push({
       updateOne: {
@@ -826,6 +831,7 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
           ip: data.ip,
           error: { $cond: [isNewer, data.error, { $ifNull: ['$error', data.error] }] },
           broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
+          expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
         } }],
         upsert: true,
       },
