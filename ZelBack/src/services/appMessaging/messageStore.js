@@ -572,8 +572,8 @@ const appsRunningBroadcasts = config.database.appsglobal.collections.appsRunning
 function storeSignedAppRunningBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.broadcastedAt) return;
+  if (data.broadcastedAt + (5 * 60 * 1000) < Date.now()) return;
   const validTill = data.broadcastedAt + (125 * 60 * 1000);
-  if (validTill < Date.now()) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const doc = {
@@ -710,8 +710,8 @@ const appsInstallingBroadcasts = config.database.appsglobal.collections.appsInst
 function storeSignedAppInstallingBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.name || !data.broadcastedAt) return;
+  if (data.broadcastedAt + (5 * 60 * 1000) < Date.now()) return;
   const validTill = data.broadcastedAt + (15 * 60 * 1000);
-  if (validTill < Date.now()) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const doc = {
@@ -793,8 +793,8 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
 function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.name || !data.hash || !data.broadcastedAt) return;
+  if (data.broadcastedAt + (5 * 60 * 1000) < Date.now()) return;
   const validTill = data.broadcastedAt + (24 * 60 * 60 * 1000);
-  if (validTill < Date.now()) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const doc = {
