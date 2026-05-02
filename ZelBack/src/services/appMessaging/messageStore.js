@@ -624,22 +624,27 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     });
 
     const apps = data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }];
+    const incomingDate = new Date(data.broadcastedAt);
+    const incomingExpiry = new Date(validTill);
+    const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
     for (const app of apps) {
-      const locationDoc = {
+      const setFields = {
         name: app.name,
-        hash: app.hash,
         ip: data.ip,
-        broadcastedAt: new Date(data.broadcastedAt),
-        expireAt: new Date(validTill),
-        osUptime: data.osUptime,
-        staticIp: data.staticIp,
+        hash: { $cond: [isNewer, app.hash, { $ifNull: ['$hash', app.hash] }] },
+        broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
+        expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
+        osUptime: { $cond: [isNewer, data.osUptime, { $ifNull: ['$osUptime', data.osUptime] }] },
+        staticIp: { $cond: [isNewer, data.staticIp ?? null, { $ifNull: ['$staticIp', data.staticIp ?? null] }] },
       };
-      if (data.runningSince) locationDoc.runningSince = new Date(data.runningSince);
-      else if (app.runningSince) locationDoc.runningSince = new Date(app.runningSince);
+      const runningSince = data.runningSince ? new Date(data.runningSince) : (app.runningSince ? new Date(app.runningSince) : null);
+      if (runningSince) {
+        setFields.runningSince = { $cond: [isNewer, runningSince, { $ifNull: ['$runningSince', runningSince] }] };
+      }
       locationOps.push({
         updateOne: {
           filter: { name: app.name, ip: data.ip },
-          update: { $set: locationDoc },
+          update: [{ $set: setFields }],
           upsert: true,
         },
       });
@@ -714,17 +719,18 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
       },
     });
 
+    const incomingDate = new Date(data.broadcastedAt);
+    const incomingExpiry = new Date(validTill);
+    const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
     locationOps.push({
       updateOne: {
         filter: { name: data.name, ip: data.ip },
-        update: {
-          $set: {
-            name: data.name,
-            ip: data.ip,
-            broadcastedAt: new Date(data.broadcastedAt),
-            expireAt: new Date(validTill),
-          },
-        },
+        update: [{ $set: {
+          name: data.name,
+          ip: data.ip,
+          broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
+          expireAt: { $cond: [isNewer, incomingExpiry, '$expireAt'] },
+        } }],
         upsert: true,
       },
     });
@@ -794,18 +800,18 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
       },
     });
 
+    const incomingDate = new Date(data.broadcastedAt);
+    const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
     locationOps.push({
       updateOne: {
         filter: { name: data.name, hash: data.hash, ip: data.ip },
-        update: {
-          $set: {
-            name: data.name,
-            hash: data.hash,
-            ip: data.ip,
-            error: data.error,
-            broadcastedAt: new Date(data.broadcastedAt),
-          },
-        },
+        update: [{ $set: {
+          name: data.name,
+          hash: data.hash,
+          ip: data.ip,
+          error: { $cond: [isNewer, data.error, { $ifNull: ['$error', data.error] }] },
+          broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
+        } }],
         upsert: true,
       },
     });
