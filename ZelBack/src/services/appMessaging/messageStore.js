@@ -587,12 +587,19 @@ function storeSignedAppRunningBroadcast(signedBroadcast) {
     expireAt: new Date(validTill),
   };
   const filter = data.apps ? { ip: data.ip } : { ip: data.ip, 'data.name': data.name };
-  return dbHelper.updateOneInDatabase(
+  const upsertPromise = dbHelper.updateOneInDatabase(
     database, appsRunningBroadcasts,
     filter,
     { $set: doc },
     { upsert: true },
   ).catch((err) => log.error(`storeSignedAppRunningBroadcast: ${err.message}`));
+  if (data.apps && data.apps.length > 0) {
+    const appNames = data.apps.map((a) => a.name);
+    dbHelper.removeDocumentsFromCollection(database, appsRunningBroadcasts, {
+      ip: data.ip, 'data.name': { $nin: [null, ...appNames] },
+    }).catch((err) => log.error(`storeSignedAppRunningBroadcast cleanup: ${err.message}`));
+  }
+  return upsertPromise;
 }
 
 async function storeBatchAppRunningMessages(verifiedBroadcasts) {
@@ -672,17 +679,27 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
       .catch((err) => log.error(`storeBatchAppRunningMessages locations: ${err.message}`));
   }
 
-  const cleanupOps = [];
+  const locationCleanupOps = [];
+  const signedCleanupOps = [];
   for (const [ip, { names }] of v2AppsByIp) {
-    cleanupOps.push({
+    locationCleanupOps.push({
       deleteMany: {
         filter: { ip, name: { $nin: names } },
       },
     });
+    signedCleanupOps.push({
+      deleteMany: {
+        filter: { ip, 'data.name': { $nin: [null, ...names] } },
+      },
+    });
   }
-  if (cleanupOps.length > 0) {
-    await database.collection(globalAppsLocations).bulkWrite(cleanupOps, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppRunningMessages cleanup: ${err.message}`));
+  if (locationCleanupOps.length > 0) {
+    await database.collection(globalAppsLocations).bulkWrite(locationCleanupOps, { ordered: false })
+      .catch((err) => log.error(`storeBatchAppRunningMessages location cleanup: ${err.message}`));
+  }
+  if (signedCleanupOps.length > 0) {
+    await database.collection(appsRunningBroadcasts).bulkWrite(signedCleanupOps, { ordered: false })
+      .catch((err) => log.error(`storeBatchAppRunningMessages signed cleanup: ${err.message}`));
   }
 
   return { stored: signedOps.length };
