@@ -334,7 +334,7 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.be.false;
+      expect(result).to.deep.equal({ stored: false, rebroadcast: false });
       expect(logStub.warn.called).to.be.true;
     });
 
@@ -356,7 +356,7 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.be.true;
+      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
       expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
     });
 
@@ -380,10 +380,10 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.be.true;
+      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
       expect(dbHelperStub.updateOneInDatabase.callCount).to.equal(2);
-      // Should clean up installing records for each app
-      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(2);
+      // Should clean up installing records for each app (location + broadcast per app)
+      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(4);
     });
 
     it('should handle version 2 message with empty apps array', async () => {
@@ -402,9 +402,9 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.be.true;
-      // Called twice: once for locations, once for installing locations
-      expect(dbHelperStub.removeDocumentsFromCollection.calledTwice).to.be.true;
+      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
+      // Called three times: locations, installing locations, installing broadcasts
+      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(3);
     });
   });
 
@@ -531,8 +531,8 @@ describe('messageStore tests', () => {
 
       expect(result).to.be.true;
       expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
-      // Should clean up installing record since installation failed
-      expect(dbHelperStub.removeDocumentsFromCollection.calledOnce).to.be.true;
+      // Should clean up installing record since installation failed (location + broadcast)
+      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(2);
       expect(dbHelperStub.removeDocumentsFromCollection.calledWith(
         'database',
         'appsInstallingLocations',
@@ -562,8 +562,7 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppInstallingErrorMessage(message);
 
       expect(result).to.be.true;
-      expect(dbHelperStub.updateInDatabase.calledOnce).to.be.true;
-      expect(dbHelperStub.removeDocumentsFromCollection.calledOnce).to.be.true;
+      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(2);
     });
   });
 
