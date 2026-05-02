@@ -266,14 +266,13 @@ async function storeAppRunningMessage(message) {
   const validTill = message.broadcastedAt + (5 * 60 * 1000);
   if (validTill < Date.now()) {
     log.warn(`Rejecting old/not valid Fluxapprunning message, message:${JSON.stringify(message)}`);
-    // reject old message
-    return false;
+    return { stored: false, rebroadcast: false };
   }
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
-  let messageNotOk = false;
+  let anyStored = false;
   for (let i = 0; i < appsMessages.length; i += 1) {
     const app = appsMessages[i];
     const newAppRunningMessage = {
@@ -289,13 +288,11 @@ async function storeAppRunningMessage(message) {
     // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
     const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
     const projection = { _id: 0, runningSince: 1, broadcastedAt: 1 };
-    // we already have the exact same data
     // eslint-disable-next-line no-await-in-loop
     const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
     if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
-      // found a message that was already stored/probably from duplicated message processsed
-      messageNotOk = true;
-      break;
+      // eslint-disable-next-line no-continue
+      continue;
     }
     if (message.runningSince) {
       newAppRunningMessage.runningSince = new Date(message.runningSince);
@@ -311,19 +308,20 @@ async function storeAppRunningMessage(message) {
     };
     // eslint-disable-next-line no-await-in-loop
     await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+    anyStored = true;
   }
 
   if (message.version === 2 && appsMessages.length === 0) {
     const queryFind = { ip: message.ip };
     const projection = { _id: 0, runningSince: 1 };
-    // we already have the exact same data
     const result = await dbHelper.findInDatabase(database, globalAppsLocations, queryFind, projection);
     if (result.length > 0) {
       await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, queryFind);
       await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
       await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.ip': message.ip });
+      anyStored = true;
     } else {
-      return false;
+      return { stored: false, rebroadcast: false };
     }
   }
 
@@ -335,12 +333,7 @@ async function storeAppRunningMessage(message) {
     await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.name': app.name, 'data.ip': message.ip });
   }
 
-  if (messageNotOk) {
-    return false;
-  }
-
-  // all stored, rebroadcast
-  return true;
+  return { stored: anyStored, rebroadcast: anyStored };
 }
 
 /**
@@ -567,8 +560,8 @@ const appsRunningBroadcasts = config.database.appsglobal.collections.appsRunning
 function storeSignedAppRunningBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.broadcastedAt) return;
-  if (data.broadcastedAt + (5 * 60 * 1000) < Date.now()) return;
   const validTill = data.broadcastedAt + (125 * 60 * 1000);
+  if (validTill < Date.now()) return;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const doc = {

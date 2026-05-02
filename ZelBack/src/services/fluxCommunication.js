@@ -230,11 +230,13 @@ async function handleRequestMessageHash(messageHash, fromIP, port) {
  */
 async function handleAppRunningMessage(message, fromIP, port) {
   try {
-    const rebroadcastToPeers = await messageStore.storeAppRunningMessage(message.data);
-    messageStore.storeSignedAppRunningBroadcast(message);
+    const result = await messageStore.storeAppRunningMessage(message.data);
+    if (result.stored) {
+      messageStore.storeSignedAppRunningBroadcast(message);
+    }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
-    if (rebroadcastToPeers === true && timestampOK) {
+    if (result.rebroadcast && timestampOK) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height || 0;
       if (daemonHeight >= config.messagesBroadcastRefactorStart) {
