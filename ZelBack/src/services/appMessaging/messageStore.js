@@ -335,11 +335,6 @@ async function storeAppRunningMessage(message) {
     await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.name': app.name, 'data.ip': message.ip });
   }
 
-  if (message.version === 2 && appsMessages.length > 0) {
-    const appNames = appsMessages.map((a) => a.name);
-    await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: message.ip, name: { $nin: appNames } });
-  }
-
   if (messageNotOk) {
     return false;
   }
@@ -587,19 +582,12 @@ function storeSignedAppRunningBroadcast(signedBroadcast) {
     expireAt: new Date(validTill),
   };
   const filter = data.apps ? { ip: data.ip } : { ip: data.ip, 'data.name': data.name };
-  const upsertPromise = dbHelper.updateOneInDatabase(
+  return dbHelper.updateOneInDatabase(
     database, appsRunningBroadcasts,
     filter,
     { $set: doc },
     { upsert: true },
   ).catch((err) => log.error(`storeSignedAppRunningBroadcast: ${err.message}`));
-  if (data.apps && data.apps.length > 0) {
-    const appNames = data.apps.map((a) => a.name);
-    dbHelper.removeDocumentsFromCollection(database, appsRunningBroadcasts, {
-      ip: data.ip, 'data.name': { $nin: [null, ...appNames] },
-    }).catch((err) => log.error(`storeSignedAppRunningBroadcast cleanup: ${err.message}`));
-  }
-  return upsertPromise;
 }
 
 async function storeBatchAppRunningMessages(verifiedBroadcasts) {
@@ -670,6 +658,20 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     }
   }
 
+  for (const [ip, { names, broadcastedAt }] of v2AppsByIp) {
+    const cutoff = new Date(broadcastedAt);
+    locationOps.push({
+      deleteMany: {
+        filter: { ip, name: { $nin: names }, broadcastedAt: { $lte: cutoff } },
+      },
+    });
+    signedOps.push({
+      deleteMany: {
+        filter: { ip, 'data.name': { $nin: [null, ...names] }, broadcastedAt: { $lte: cutoff } },
+      },
+    });
+  }
+
   if (signedOps.length > 0) {
     await database.collection(appsRunningBroadcasts).bulkWrite(signedOps, { ordered: false })
       .catch((err) => log.error(`storeBatchAppRunningMessages signed: ${err.message}`));
@@ -677,29 +679,6 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
   if (locationOps.length > 0) {
     await database.collection(globalAppsLocations).bulkWrite(locationOps, { ordered: false })
       .catch((err) => log.error(`storeBatchAppRunningMessages locations: ${err.message}`));
-  }
-
-  const locationCleanupOps = [];
-  const signedCleanupOps = [];
-  for (const [ip, { names }] of v2AppsByIp) {
-    locationCleanupOps.push({
-      deleteMany: {
-        filter: { ip, name: { $nin: names } },
-      },
-    });
-    signedCleanupOps.push({
-      deleteMany: {
-        filter: { ip, 'data.name': { $nin: [null, ...names] } },
-      },
-    });
-  }
-  if (locationCleanupOps.length > 0) {
-    await database.collection(globalAppsLocations).bulkWrite(locationCleanupOps, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppRunningMessages location cleanup: ${err.message}`));
-  }
-  if (signedCleanupOps.length > 0) {
-    await database.collection(appsRunningBroadcasts).bulkWrite(signedCleanupOps, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppRunningMessages signed cleanup: ${err.message}`));
   }
 
   return { stored: signedOps.length };
