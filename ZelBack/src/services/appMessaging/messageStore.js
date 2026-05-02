@@ -335,6 +335,11 @@ async function storeAppRunningMessage(message) {
     await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.name': app.name, 'data.ip': message.ip });
   }
 
+  if (message.version === 2 && appsMessages.length > 0) {
+    const appNames = appsMessages.map((a) => a.name);
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: message.ip, name: { $nin: appNames } });
+  }
+
   if (messageNotOk) {
     return false;
   }
@@ -597,6 +602,7 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
 
   const signedOps = [];
   const locationOps = [];
+  const v2AppsByIp = new Map();
 
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
@@ -624,6 +630,12 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     });
 
     const apps = data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }];
+    if (data.version === 2 && apps.length > 0) {
+      const existing = v2AppsByIp.get(data.ip);
+      if (!existing || data.broadcastedAt > existing.broadcastedAt) {
+        v2AppsByIp.set(data.ip, { names: apps.map((a) => a.name), broadcastedAt: data.broadcastedAt });
+      }
+    }
     const incomingDate = new Date(data.broadcastedAt);
     const incomingExpiry = new Date(validTill);
     const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
@@ -659,6 +671,20 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     await database.collection(globalAppsLocations).bulkWrite(locationOps, { ordered: false })
       .catch((err) => log.error(`storeBatchAppRunningMessages locations: ${err.message}`));
   }
+
+  const cleanupOps = [];
+  for (const [ip, { names }] of v2AppsByIp) {
+    cleanupOps.push({
+      deleteMany: {
+        filter: { ip, name: { $nin: names } },
+      },
+    });
+  }
+  if (cleanupOps.length > 0) {
+    await database.collection(globalAppsLocations).bulkWrite(cleanupOps, { ordered: false })
+      .catch((err) => log.error(`storeBatchAppRunningMessages cleanup: ${err.message}`));
+  }
+
   return { stored: signedOps.length };
 }
 
