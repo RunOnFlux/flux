@@ -639,7 +639,7 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
 function handleAppRunningEvent({ signedBroadcast }) {
   const { data } = signedBroadcast;
   if (!data || !data.ip || !data.broadcastedAt) return;
-  if (data.broadcastedAt + RUNNING_EXPIRY_MS < Date.now()) return;
+  if (data.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) return;
 
   const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
   const incomingDate = new Date(data.broadcastedAt);
