@@ -352,7 +352,7 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
 
 async function respondWithAppRunningMessages(peer, sinceTimestamp = 0) {
   try {
-    const appsRunningBroadcasts = config.database.appsglobal.collections.appsRunningBroadcasts;
+    const appStateEvents = config.database.appsglobal.collections.appStateEvents;
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 
@@ -361,8 +361,11 @@ async function respondWithAppRunningMessages(peer, sinceTimestamp = 0) {
       : new Date(0);
     const validAfter = new Date(Date.now() - 125 * 60 * 1000);
     const minTimestamp = adjustedTimestamp > validAfter ? adjustedTimestamp : validAfter;
-    const cursor = database.collection(appsRunningBroadcasts)
-      .find({ broadcastedAt: { $gt: minTimestamp } }, { projection: { _id: 0, expireAt: 0 } })
+    const cursor = database.collection(appStateEvents)
+      .find(
+        { $or: [{ broadcastedAt: { $gt: minTimestamp } }, { createdAt: { $gt: minTimestamp } }] },
+        { projection: { _id: 0, expireAt: 0 } },
+      )
       .sort({ broadcastedAt: 1 });
 
     const batchSize = 2000;

@@ -48,7 +48,7 @@ describe('messageStore tests', () => {
           database: 'appsdb',
           collections: {
             appsLocations: 'appsLocations',
-            appsRunningBroadcasts: 'appsRunningBroadcasts',
+            appStateEvents: 'appStateEvents',
             appsInstallingBroadcasts: 'appsInstallingBroadcasts',
             appsInstallingErrorsBroadcasts: 'appsInstallingErrorsBroadcasts',
           },
@@ -86,6 +86,7 @@ describe('messageStore tests', () => {
         globalAppsInstallingLocations: 'appsInstallingLocations',
         globalAppsInstallingErrorsLocations: 'appsInstallingErrorsLocations',
         globalAppsInstallingErrorsBroadcasts: 'appsInstallingErrorsBroadcasts',
+        globalAppStateEvents: 'appStateEvents',
         appsHashesCollection: 'appsHashes',
       },
       '../utils/appSpecHelpers': {
@@ -407,8 +408,8 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppRunningMessage(message);
 
       expect(result).to.deep.equal({ stored: true, rebroadcast: true });
-      // Called four times: locations, running broadcasts, installing locations, installing broadcasts
-      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(4);
+      // Called three times: locations, installing locations, installing broadcasts
+      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(3);
     });
   });
 
@@ -483,7 +484,7 @@ describe('messageStore tests', () => {
       expect(result.message).to.include('appName cannot be empty');
     });
 
-    it('should store valid removed message and clean up broadcasts', async () => {
+    it('should store valid removed message and delete location', async () => {
       const message = {
         type: 'fluxappremoved',
         version: 1,
@@ -495,23 +496,14 @@ describe('messageStore tests', () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findOneAndDeleteInDatabase.resolves();
-      dbHelperStub.removeDocumentsFromCollection.resolves();
-      dbHelperStub.updateOneInDatabase.resolves();
 
       const result = await messageStore.storeAppRemovedMessage(message);
 
       expect(result).to.be.true;
       expect(dbHelperStub.findOneAndDeleteInDatabase.calledOnce).to.be.true;
-      // Should delete v1 broadcast for this ip+name
-      expect(dbHelperStub.removeDocumentsFromCollection.calledOnce).to.be.true;
-      expect(dbHelperStub.removeDocumentsFromCollection.firstCall.args[2]).to.deep.equal({
-        ip: '192.168.1.1', 'data.name': 'testapp',
+      expect(dbHelperStub.findOneAndDeleteInDatabase.firstCall.args[2]).to.deep.equal({
+        ip: '192.168.1.1', name: 'testapp',
       });
-      // Should add to excludedApps on v2 broadcast
-      expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
-      const updateArgs = dbHelperStub.updateOneInDatabase.firstCall.args;
-      expect(updateArgs[2]).to.deep.equal({ ip: '192.168.1.1', 'data.apps': { $exists: true } });
-      expect(updateArgs[3]).to.deep.equal({ $addToSet: { excludedApps: 'testapp' } });
     });
   });
 
@@ -642,29 +634,83 @@ describe('messageStore tests', () => {
     });
   });
 
-  describe('storeSignedAppRunningBroadcast', () => {
-    it('should clear excludedApps when storing a broadcast', () => {
-      const signedBroadcast = {
-        version: 1,
-        timestamp: Date.now(),
-        pubKey: 'pubkey',
-        signature: 'sig',
-        data: {
-          ip: '192.168.1.1',
-          broadcastedAt: Date.now(),
-          apps: [{ name: 'app1', hash: 'h1' }],
+  describe('storeAppStateEvent', () => {
+    let collectionStub;
+
+    beforeEach(() => {
+      collectionStub = { updateOne: sinon.stub().resolves({ modifiedCount: 1 }) };
+      const mockDb = { db: sinon.stub().returns({ collection: sinon.stub().returns(collectionStub) }) };
+      dbHelperStub.databaseConnection.returns(mockDb);
+    });
+
+    it('should store apprunning v2 event with correct dedupKey', async () => {
+      const payload = {
+        signedBroadcast: {
+          version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
+          data: { ip: '1.2.3.4', broadcastedAt: Date.now(), apps: [{ name: 'a', hash: 'h' }] },
         },
       };
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
+      expect(collectionStub.updateOne.calledOnce).to.be.true;
+      const filter = collectionStub.updateOne.firstCall.args[0];
+      expect(filter.ip).to.equal('1.2.3.4');
+      expect(filter.type).to.equal('apprunning');
+      expect(filter.dedupKey).to.equal('v2');
+    });
 
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.updateOneInDatabase.resolves();
+    it('should store apprunning v1 event with name in dedupKey', async () => {
+      const payload = {
+        signedBroadcast: {
+          version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
+          data: { ip: '1.2.3.4', broadcastedAt: Date.now(), name: 'myapp', hash: 'h' },
+        },
+      };
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
+      expect(collectionStub.updateOne.calledOnce).to.be.true;
+      const filter = collectionStub.updateOne.firstCall.args[0];
+      expect(filter.dedupKey).to.equal('v1:myapp');
+    });
 
-      messageStore.storeSignedAppRunningBroadcast(signedBroadcast);
+    it('should store sigterm event', async () => {
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, {
+        ip: '1.2.3.4', broadcastedAt: Date.now(), envelope: { version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig' },
+      });
+      expect(collectionStub.updateOne.calledOnce).to.be.true;
+      const filter = collectionStub.updateOne.firstCall.args[0];
+      expect(filter.type).to.equal('sigterm');
+      expect(filter.dedupKey).to.equal('sigterm');
+    });
 
-      expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
-      const updateArg = dbHelperStub.updateOneInDatabase.firstCall.args[3];
-      expect(updateArg.$unset).to.deep.equal({ excludedApps: '' });
+    it('should store appremoved event', async () => {
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPREMOVED, {
+        message: { ip: '1.2.3.4', appName: 'myapp', broadcastedAt: Date.now() },
+        envelope: { version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig' },
+      });
+      expect(collectionStub.updateOne.calledOnce).to.be.true;
+      const filter = collectionStub.updateOne.firstCall.args[0];
+      expect(filter.type).to.equal('appremoved');
+      expect(filter.dedupKey).to.equal('appremoved:myapp');
+    });
+
+    it('should store evicted event with createdAt', async () => {
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.EVICTED, { ip: '1.2.3.4' });
+      expect(collectionStub.updateOne.calledOnce).to.be.true;
+      const filter = collectionStub.updateOne.firstCall.args[0];
+      expect(filter.type).to.equal('evicted');
+      expect(filter.dedupKey).to.equal('evicted');
+      const update = collectionStub.updateOne.firstCall.args[1];
+      expect(update.$set.createdAt).to.be.instanceOf(Date);
+    });
+
+    it('should reject expired apprunning events', async () => {
+      const payload = {
+        signedBroadcast: {
+          version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
+          data: { ip: '1.2.3.4', broadcastedAt: Date.now() - (130 * 60 * 1000), apps: [{ name: 'a', hash: 'h' }] },
+        },
+      };
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
+      expect(collectionStub.updateOne.called).to.be.false;
     });
   });
 });

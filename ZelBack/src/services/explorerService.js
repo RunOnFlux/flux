@@ -945,7 +945,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
             throw error;
           }
         });
-        const resultK = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsRunningBroadcasts).catch((error) => {
+        const resultK = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appStateEvents).catch((error) => {
           if (error.message !== 'ns not found') {
             throw error;
           }

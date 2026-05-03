@@ -50,7 +50,7 @@ module.exports = {
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsInstallingLocations',
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
-        appsRunningBroadcasts: 'fluxapprunningbroadcasts',
+        appStateEvents: 'appstateevents',
         appsInstallingBroadcasts: 'fluxappinstallingbroadcasts',
         appsInstallingErrorsBroadcasts: 'fluxappinstallingerrorsbroadcasts',
       },

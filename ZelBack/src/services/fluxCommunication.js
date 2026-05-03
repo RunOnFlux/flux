@@ -16,7 +16,6 @@ const { peerManager, PEER_SOURCE } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
-const appsRunningBroadcasts = config.database.appsglobal.collections.appsRunningBroadcasts;
 
 let onSyncComplete = null;
 function setOnSyncComplete(callback) {
@@ -98,23 +97,44 @@ async function handleAppRunningSyncResponse(message) {
     if (!message.data || message.data.type !== 'fluxapprunningsync') return;
     const { messages, done } = message.data;
     if (!Array.isArray(messages)) return;
-    log.info(`handleAppRunningSyncResponse - Received ${messages.length} broadcasts (done: ${!!done})`);
-    const verified = [];
-    for (const broadcast of messages) {
+    log.info(`handleAppRunningSyncResponse - Received ${messages.length} events (done: ${!!done})`);
+    const verifiedAppRunning = [];
+    const otherEvents = [];
+    for (const event of messages) {
       try {
-        const result = await fluxCommunicationUtils.verifyFluxBroadcast(broadcast);
-        if (result === fluxCommunicationUtils.VerifyResult.OK) {
-          verified.push(broadcast);
-        } else {
-          log.warn(`handleAppRunningSyncResponse - Broadcast from ${broadcast.data?.ip} failed verification: ${result}`);
+        if (event.envelope && event.type === 'apprunning') {
+          const broadcast = { ...event.envelope, data: event.data };
+          const result = await fluxCommunicationUtils.verifyFluxBroadcast(broadcast);
+          if (result === fluxCommunicationUtils.VerifyResult.OK) {
+            verifiedAppRunning.push(broadcast);
+          } else {
+            log.warn(`handleAppRunningSyncResponse - Event from ${event.ip} failed verification: ${result}`);
+          }
+        } else if (event.type === 'evicted') {
+          otherEvents.push(event);
+        } else if (event.envelope) {
+          const broadcast = { ...event.envelope, data: event.data };
+          const result = await fluxCommunicationUtils.verifyFluxBroadcast(broadcast);
+          if (result === fluxCommunicationUtils.VerifyResult.OK) {
+            otherEvents.push(event);
+          }
         }
       } catch (err) {
         log.error(`handleAppRunningSyncResponse - Verification error: ${err.message}`);
       }
     }
-    if (verified.length > 0) {
-      const { stored } = await messageStore.storeBatchAppRunningMessages(verified);
-      log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
+    if (verifiedAppRunning.length > 0) {
+      const { stored } = await messageStore.storeBatchAppRunningMessages(verifiedAppRunning);
+      log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verifiedAppRunning.length} verified apprunning events`);
+    }
+    for (const event of otherEvents) {
+      if (event.type === 'sigterm') {
+        messageStore.storeAppStateEvent(event.type, { ip: event.ip, broadcastedAt: event.data.broadcastedAt, envelope: event.envelope });
+      } else if (event.type === 'appremoved') {
+        messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
+      } else if (event.type === 'evicted') {
+        messageStore.storeAppStateEvent(event.type, { ip: event.ip });
+      }
     }
     if (done) {
       if (onSyncComplete) onSyncComplete('apprunning');
@@ -231,10 +251,8 @@ async function handleRequestMessageHash(messageHash, fromIP, port) {
  */
 async function handleAppRunningMessage(message, fromIP, port) {
   try {
+    messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: message });
     const result = await messageStore.storeAppRunningMessage(message.data);
-    if (result.stored) {
-      messageStore.storeSignedAppRunningBroadcast(message);
-    }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (result.rebroadcast && timestampOK) {
@@ -340,6 +358,8 @@ async function handleAppRemovedMessage(message, fromIP, port) {
   try {
     // check if we have it any app running on that location and if yes, delete that information
     // rebroadcast message to the network if it's valid
+    const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
+    messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPREMOVED, { message: message.data, envelope });
     const rebroadcastToPeers = await messageStore.storeAppRemovedMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
@@ -390,10 +410,12 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
 
     log.info(`Found ${appsOnNode.length} apps for node ${ip}, updating expiration and rebroadcasting sigterm`);
 
+    const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
+    messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { ip, broadcastedAt, envelope });
+
     const newExpireAt = new Date(broadcastedAt + (420 * 1000));
     const update = { $set: { expireAt: newExpireAt } };
     await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
-    await dbHelper.updateInDatabase(database, appsRunningBroadcasts, query, update);
 
     // Rebroadcast to other peers
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();

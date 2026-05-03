@@ -212,13 +212,10 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1, name: 1 });
     log.info('Flux Apps locations prepared');
-    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
-    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ broadcastedAt: 1 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).dropIndex('ip_1').catch(() => {});
-    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ ip: 1, 'data.name': 1 }, { unique: true });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsRunningBroadcasts).createIndex({ 'data.apps.name': 1 }, { name: 'query for app location from v2 broadcasts' });
-    log.info('Signed apprunning broadcasts collection prepared');
+    await databaseTemp.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ ip: 1, type: 1, dedupKey: 1 }, { unique: true });
+    await databaseTemp.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ broadcastedAt: 1 });
+    log.info('App state events collection prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ broadcastedAt: 1 });

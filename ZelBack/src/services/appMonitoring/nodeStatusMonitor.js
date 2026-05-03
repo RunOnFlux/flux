@@ -6,12 +6,12 @@ const serviceHelper = require('../serviceHelper');
 const generalService = require('../generalService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
+const messageStore = require('../appMessaging/messageStore');
 const log = require('../../lib/log');
 const fluxEventBus = require('../utils/fluxEventBus');
 
 // Database collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
-const appsRunningBroadcasts = config.database.appsglobal.collections.appsRunningBroadcasts;
 
 /**
  * Method responsible to monitor node status and uninstall apps if node is not confirmed
@@ -121,11 +121,11 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
           log.info(`monitorNodeStatus - IP ${location} is available and confirmed, awaiting for a new confirmation transaction`);
         } else {
           log.info(`monitorNodeStatus - Removing IP ${location} from globalAppsLocations`);
+          // eslint-disable-next-line no-await-in-loop
+          await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.EVICTED, { ip: location });
           const query = { ip: location };
           // eslint-disable-next-line no-await-in-loop
           await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
-          // eslint-disable-next-line no-await-in-loop
-          await dbHelper.removeDocumentsFromCollection(database, appsRunningBroadcasts, query);
         }
       }
     }

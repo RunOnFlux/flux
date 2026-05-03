@@ -126,7 +126,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       };
       await messageStore.storeAppRunningMessage(appRunningMessage);
       const signed = await fluxCommunicationMessagesSender.broadcastMessageToAll(appRunningMessage);
-      messageStore.storeSignedAppRunningBroadcast(signed);
+      messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed });
       log.info(`App Running Message broadcasted: ${apps.length} apps`);
     } catch (err) {
       log.error(err);

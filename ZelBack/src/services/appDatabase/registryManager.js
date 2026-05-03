@@ -14,7 +14,7 @@ const {
   localAppsInformation,
   globalAppsMessages,
   globalAppsLocations,
-  globalAppsRunningBroadcasts,
+  globalAppStateEvents,
   globalAppsInstallingLocations,
   globalAppsInstallingErrorsLocations,
   globalAppsInstallingErrorsBroadcasts,
@@ -92,17 +92,17 @@ async function appLocation(appname) {
 async function appLocationFromBroadcasts(appname) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
-  const collection = database.collection(globalAppsRunningBroadcasts);
+  const collection = database.collection(globalAppStateEvents);
 
   const nameMatch = appname ? new RegExp(`^${appname}$`, 'i') : null;
 
   const pipeline = [
+    { $match: { type: 'apprunning' } },
     {
       $facet: {
         v2: [
           { $match: { 'data.apps': { $exists: true } } },
           { $unwind: '$data.apps' },
-          { $match: { $expr: { $not: { $in: ['$data.apps.name', { $ifNull: ['$excludedApps', []] }] } } } },
           {
             $project: {
               _id: 0,
@@ -1626,7 +1626,7 @@ async function reindexGlobalAppsLocation() {
         throw error;
       }
     });
-    await dbHelper.dropCollection(database, globalAppsRunningBroadcasts).catch((error) => {
+    await dbHelper.dropCollection(database, globalAppStateEvents).catch((error) => {
       if (error.message !== 'ns not found') {
         throw error;
       }
