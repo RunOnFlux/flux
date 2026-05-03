@@ -95,13 +95,24 @@ async function appLocationFromBroadcasts(appname) {
   const collection = database.collection(globalAppStateEvents);
 
   const nameMatch = appname ? new RegExp(`^${appname}$`, 'i') : null;
+  const now = new Date();
 
   const pipeline = [
-    { $match: { type: 'apprunning' } },
+    {
+      $match: {
+        $or: [
+          { type: { $in: ['apprunning', 'appremoved'] }, expireAt: { $gt: now } },
+          { type: { $in: ['sigterm', 'evicted'] } },
+        ],
+      },
+    },
+    { $sort: { broadcastedAt: -1 } },
     {
       $facet: {
         v2: [
-          { $match: { 'data.apps': { $exists: true } } },
+          { $match: { type: 'apprunning', 'data.apps': { $exists: true } } },
+          { $group: { _id: '$ip', doc: { $first: '$$ROOT' } } },
+          { $replaceRoot: { newRoot: '$doc' } },
           { $unwind: '$data.apps' },
           {
             $project: {
@@ -109,44 +120,149 @@ async function appLocationFromBroadcasts(appname) {
               name: '$data.apps.name',
               hash: '$data.apps.hash',
               ip: '$data.ip',
-              broadcastedAt: '$broadcastedAt',
+              broadcastedAt: 1,
               runningSince: { $ifNull: ['$data.apps.runningSince', '$data.runningSince'] },
               osUptime: '$data.osUptime',
               staticIp: '$data.staticIp',
+              _src: { $literal: 'v2' },
             },
           },
         ],
         v1: [
-          { $match: { 'data.name': { $exists: true } } },
+          { $match: { type: 'apprunning', 'data.name': { $exists: true } } },
+          {
+            $group: {
+              _id: { ip: '$ip', name: '$data.name' },
+              doc: { $first: '$$ROOT' },
+            },
+          },
+          { $replaceRoot: { newRoot: '$doc' } },
           {
             $project: {
               _id: 0,
               name: '$data.name',
               hash: '$data.hash',
               ip: '$data.ip',
-              broadcastedAt: '$broadcastedAt',
+              broadcastedAt: 1,
               runningSince: '$data.runningSince',
               osUptime: '$data.osUptime',
               staticIp: '$data.staticIp',
+              _src: { $literal: 'v1' },
+            },
+          },
+        ],
+        v2Timestamps: [
+          { $match: { type: 'apprunning', 'data.apps': { $exists: true } } },
+          { $group: { _id: '$ip', latestV2: { $first: '$broadcastedAt' } } },
+        ],
+        removals: [
+          { $match: { type: 'appremoved' } },
+          {
+            $group: {
+              _id: { ip: '$ip', name: '$data.appName' },
+              removedAt: { $first: '$broadcastedAt' },
+            },
+          },
+        ],
+        shutdowns: [
+          { $match: { type: { $in: ['sigterm', 'evicted'] } } },
+          { $addFields: { _eventAt: { $ifNull: ['$broadcastedAt', '$createdAt'] } } },
+          { $sort: { _eventAt: -1 } },
+          {
+            $group: {
+              _id: '$ip',
+              eventAt: { $first: '$_eventAt' },
+              expireAt: { $first: '$expireAt' },
             },
           },
         ],
       },
     },
-    { $project: { all: { $concatArrays: ['$v2', '$v1'] } } },
-    { $unwind: '$all' },
-    { $replaceRoot: { newRoot: '$all' } },
-    { $sort: { broadcastedAt: -1 } },
+    {
+      $project: {
+        apps: { $concatArrays: ['$v2', '$v1'] },
+        v2Timestamps: 1,
+        removals: 1,
+        shutdowns: 1,
+      },
+    },
+    { $unwind: '$apps' },
+    {
+      $addFields: {
+        _v2Ts: {
+          $let: {
+            vars: {
+              match: { $filter: { input: '$v2Timestamps', cond: { $eq: ['$$this._id', '$apps.ip'] } } },
+            },
+            in: { $ifNull: [{ $arrayElemAt: ['$$match.latestV2', 0] }, new Date(0)] },
+          },
+        },
+      },
+    },
+    {
+      $match: {
+        $expr: {
+          $or: [
+            { $eq: ['$apps._src', 'v2'] },
+            { $gt: ['$apps.broadcastedAt', '$_v2Ts'] },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        _removedAt: {
+          $let: {
+            vars: {
+              match: {
+                $filter: {
+                  input: '$removals',
+                  cond: { $and: [{ $eq: ['$$this._id.ip', '$apps.ip'] }, { $eq: ['$$this._id.name', '$apps.name'] }] },
+                },
+              },
+            },
+            in: { $ifNull: [{ $arrayElemAt: ['$$match.removedAt', 0] }, new Date(0)] },
+          },
+        },
+      },
+    },
+    { $match: { $expr: { $gt: ['$apps.broadcastedAt', '$_removedAt'] } } },
+    {
+      $addFields: {
+        _shutdown: {
+          $let: {
+            vars: {
+              match: { $filter: { input: '$shutdowns', cond: { $eq: ['$$this._id', '$apps.ip'] } } },
+            },
+            in: {
+              at: { $ifNull: [{ $arrayElemAt: ['$$match.eventAt', 0] }, new Date(0)] },
+              expireAt: { $ifNull: [{ $arrayElemAt: ['$$match.expireAt', 0] }, new Date('2099-01-01')] },
+            },
+          },
+        },
+      },
+    },
+    {
+      $match: {
+        $expr: {
+          $or: [
+            { $gte: ['$apps.broadcastedAt', '$_shutdown.at'] },
+            { $gt: ['$_shutdown.expireAt', now] },
+          ],
+        },
+      },
+    },
+    { $sort: { 'apps.broadcastedAt': -1 } },
     {
       $group: {
-        _id: { name: '$name', ip: '$ip' },
-        name: { $first: '$name' },
-        hash: { $first: '$hash' },
-        ip: { $first: '$ip' },
-        broadcastedAt: { $first: '$broadcastedAt' },
-        runningSince: { $first: '$runningSince' },
-        osUptime: { $first: '$osUptime' },
-        staticIp: { $first: '$staticIp' },
+        _id: { name: '$apps.name', ip: '$apps.ip' },
+        name: { $first: '$apps.name' },
+        hash: { $first: '$apps.hash' },
+        ip: { $first: '$apps.ip' },
+        broadcastedAt: { $first: '$apps.broadcastedAt' },
+        runningSince: { $first: '$apps.runningSince' },
+        osUptime: { $first: '$apps.osUptime' },
+        staticIp: { $first: '$apps.staticIp' },
       },
     },
     { $project: { _id: 0 } },

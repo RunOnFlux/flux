@@ -608,4 +608,236 @@ describe('registryManager tests', () => {
       expect(result).to.be.empty;
     });
   });
+
+  describe('appLocationFromBroadcasts tests', () => {
+    const eventsCollection = config.database.appsglobal.collections.appStateEvents;
+    const now = Date.now();
+
+    beforeEach(async () => {
+      try {
+        await database.collection(eventsCollection).drop();
+      } catch (err) {
+        // Collection doesn't exist
+      }
+    });
+
+    function makeV2Event(ip, apps, broadcastedAt, opts = {}) {
+      return {
+        ip,
+        type: 'apprunning',
+        dedupKey: 'v2',
+        broadcastedAt: new Date(broadcastedAt),
+        expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
+        data: {
+          ip, version: 2, apps, broadcastedAt, osUptime: 1000, staticIp: true,
+        },
+        envelope: { version: 1, timestamp: broadcastedAt, pubKey: '04abc', signature: 'sig' },
+        ...opts,
+      };
+    }
+
+    function makeV1Event(ip, name, hash, broadcastedAt) {
+      return {
+        ip,
+        type: 'apprunning',
+        dedupKey: `v1:${name}`,
+        broadcastedAt: new Date(broadcastedAt),
+        expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
+        data: {
+          ip, name, hash, broadcastedAt, runningSince: new Date(broadcastedAt), osUptime: 1000, staticIp: true,
+        },
+        envelope: { version: 1, timestamp: broadcastedAt, pubKey: '04abc', signature: 'sig' },
+      };
+    }
+
+    function makeAppRemovedEvent(ip, appName, broadcastedAt) {
+      return {
+        ip,
+        type: 'appremoved',
+        dedupKey: `appremoved:${appName}`,
+        broadcastedAt: new Date(broadcastedAt),
+        expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
+        data: { ip, appName, broadcastedAt },
+        envelope: { version: 1, timestamp: broadcastedAt, pubKey: '04abc', signature: 'sig' },
+      };
+    }
+
+    function makeSigtermEvent(ip, broadcastedAt) {
+      return {
+        ip,
+        type: 'sigterm',
+        dedupKey: 'sigterm',
+        broadcastedAt: new Date(broadcastedAt),
+        expireAt: new Date(broadcastedAt + 7 * 60 * 1000),
+        envelope: { version: 1, timestamp: broadcastedAt, pubKey: '04abc', signature: 'sig' },
+      };
+    }
+
+    function makeEvictedEvent(ip, createdAt) {
+      return {
+        ip,
+        type: 'evicted',
+        dedupKey: 'evicted',
+        createdAt: new Date(createdAt),
+        expireAt: new Date(createdAt + 7 * 60 * 1000),
+      };
+    }
+
+    it('should derive locations from v2 events', async () => {
+      await database.collection(eventsCollection).insertOne(
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }, { name: 'AppB', hash: 'h2' }], now),
+      );
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(2);
+      const names = result.map((r) => r.name).sort();
+      expect(names).to.deep.equal(['AppA', 'AppB']);
+      expect(result[0].ip).to.equal('1.2.3.4');
+    });
+
+    it('should derive locations from v1 events', async () => {
+      await database.collection(eventsCollection).insertOne(
+        makeV1Event('5.6.7.8', 'AppC', 'h3', now),
+      );
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(1);
+      expect(result[0].name).to.equal('AppC');
+    });
+
+    it('should include v1 newer than latest v2 for same IP', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now - 60000),
+        makeV1Event('1.2.3.4', 'AppB', 'h2', now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(2);
+      const names = result.map((r) => r.name).sort();
+      expect(names).to.deep.equal(['AppA', 'AppB']);
+    });
+
+    it('should exclude v1 older than latest v2 for same IP', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeV1Event('1.2.3.4', 'OldApp', 'h0', now - 120000),
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(1);
+      expect(result[0].name).to.equal('AppA');
+    });
+
+    it('should exclude apps with newer appremoved event', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }, { name: 'AppB', hash: 'h2' }], now - 60000),
+        makeAppRemovedEvent('1.2.3.4', 'AppA', now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(1);
+      expect(result[0].name).to.equal('AppB');
+    });
+
+    it('should keep apps when appremoved is older than broadcast', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeAppRemovedEvent('1.2.3.4', 'AppA', now - 120000),
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(1);
+      expect(result[0].name).to.equal('AppA');
+    });
+
+    it('should exclude apps when sigterm is newer and expired', async () => {
+      const sigtermTime = now - 8 * 60 * 1000;
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now - 10 * 60 * 1000),
+        makeSigtermEvent('1.2.3.4', sigtermTime),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(0);
+    });
+
+    it('should keep apps when sigterm expiry has not passed', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now - 60000),
+        makeSigtermEvent('1.2.3.4', now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(1);
+      expect(result[0].name).to.equal('AppA');
+    });
+
+    it('should keep apps when broadcast is newer than sigterm', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeSigtermEvent('1.2.3.4', now - 120000),
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(1);
+    });
+
+    it('should exclude apps when evicted and expired', async () => {
+      const evictedTime = now - 8 * 60 * 1000;
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now - 10 * 60 * 1000),
+        makeEvictedEvent('1.2.3.4', evictedTime),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(0);
+    });
+
+    it('should exclude expired events', async () => {
+      const expired = now - 130 * 60 * 1000;
+      await database.collection(eventsCollection).insertOne(
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], expired),
+      );
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(0);
+    });
+
+    it('should filter by appname (case insensitive)', async () => {
+      await database.collection(eventsCollection).insertOne(
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }, { name: 'AppB', hash: 'h2' }], now),
+      );
+
+      const result = await registryManager.appLocationFromBroadcasts('appa');
+      expect(result).to.be.an('array').with.lengthOf(1);
+      expect(result[0].name).to.equal('AppA');
+    });
+
+    it('should dedup v1 overriding same app in v2 with newer timestamp', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'old' }, { name: 'AppB', hash: 'h2' }], now - 60000),
+        makeV1Event('1.2.3.4', 'AppA', 'new', now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(2);
+      const appA = result.find((r) => r.name === 'AppA');
+      expect(appA.hash).to.equal('new');
+      const appB = result.find((r) => r.name === 'AppB');
+      expect(appB.hash).to.equal('h2');
+    });
+
+    it('should handle multiple IPs independently', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
+        makeV2Event('5.6.7.8', [{ name: 'AppB', hash: 'h2' }], now),
+        makeAppRemovedEvent('5.6.7.8', 'AppB', now + 1000),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(1);
+      expect(result[0].name).to.equal('AppA');
+      expect(result[0].ip).to.equal('1.2.3.4');
+    });
+  });
 });
