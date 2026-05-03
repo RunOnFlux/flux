@@ -127,13 +127,40 @@ describe('peerNotification tests', () => {
     });
   });
 
-  describe('handleMissingMasterSlaveContainer', () => {
+  describe('handleMissingMasterSlaveContainer (stoppedAppsRecovery)', () => {
+    let stoppedAppsRecovery;
+
+    beforeEach(() => {
+      stoppedAppsRecovery = proxyquire('../../ZelBack/src/services/appLifecycle/stoppedAppsRecovery', {
+        config: {
+          database: {
+            appslocal: { collections: { appsInformation: 'localAppsInformation' }, database: 'localapps' },
+            appsglobal: { database: 'globalapps', collections: { appsLocations: 'appsLocations' } },
+          },
+        },
+        '../dbHelper': dbHelperStub,
+        '../dockerService': dockerServiceStub,
+        '../serviceHelper': { delay: sinon.stub().resolves() },
+        '../generalService': { isNodeStatusConfirmed: sinon.stub().resolves(true), nodeTier: sinon.stub().resolves('cumulus') },
+        '../appDatabase/registryManager': { getApplicationGlobalSpecifications: sinon.stub().resolves(null) },
+        '../appManagement/appInspector': appInspectorStub,
+        './appInstaller': appInstallerStub,
+        './appUninstaller': appUninstallerStub,
+        './advancedWorkflows': {},
+        '../appTamperingDetectionService': { recordEvent: sinon.stub().resolves(), isNetworkMissingError: sinon.stub().returns(false) },
+        '../utils/globalState': { backupInProgress: [], restoreInProgress: [], appsMonitored: new Map() },
+        '../utils/cacheManager': { default: { stoppedAppsCache: new Map() } },
+        '../appQuery/appQueryService': { decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps) },
+        '../utils/appConstants': { localAppsInformation: 'localAppsInformation' },
+        '../fluxNetworkHelper': { getFluxNodePrivateKey: sinon.stub().returns('') },
+        '../../lib/log': logStub,
+      });
+    });
+
     it('should return early if container exists', async () => {
       dockerServiceStub.getDockerContainerOnly.resolves({ Id: 'abc123' });
 
-      await peerNotification.handleMissingMasterSlaveContainer(
-        'MyComponent_testapp', 'testapp', {}, () => ({}),
-      );
+      await stoppedAppsRecovery.handleMissingMasterSlaveContainer('MyComponent_testapp', 'testapp');
 
       expect(appInstallerStub.installApplicationHard.called).to.be.false;
       expect(appUninstallerStub.removeAppLocally.called).to.be.false;
@@ -148,9 +175,7 @@ describe('peerNotification tests', () => {
       };
       dbHelperStub.findOneInDatabase.resolves(appSpec);
 
-      await peerNotification.handleMissingMasterSlaveContainer(
-        'MyComponent_testapp', 'testapp', {}, () => ({}),
-      );
+      await stoppedAppsRecovery.handleMissingMasterSlaveContainer('MyComponent_testapp', 'testapp');
 
       expect(appInstallerStub.installApplicationHard.calledOnce).to.be.true;
       expect(appInspectorStub.startAppMonitoring.calledWith('MyComponent_testapp')).to.be.true;
@@ -159,11 +184,9 @@ describe('peerNotification tests', () => {
 
     it('should remove app when recreation fails and container still missing', async () => {
       dockerServiceStub.getDockerContainerOnly.resolves(null);
-      dbHelperStub.findOneInDatabase.resolves(null); // causes recreateMissingContainers to throw
+      dbHelperStub.findOneInDatabase.resolves(null);
 
-      await peerNotification.handleMissingMasterSlaveContainer(
-        'MyComponent_testapp', 'testapp', {}, () => ({}),
-      );
+      await stoppedAppsRecovery.handleMissingMasterSlaveContainer('MyComponent_testapp', 'testapp');
 
       expect(appUninstallerStub.removeAppLocally.calledOnce).to.be.true;
       expect(appUninstallerStub.removeAppLocally.firstCall.args[0]).to.equal('testapp');
@@ -171,15 +194,12 @@ describe('peerNotification tests', () => {
     });
 
     it('should skip removal when recreation fails but container was created by another process', async () => {
-      // First call: missing. Second call (in catch): now exists
       dockerServiceStub.getDockerContainerOnly
         .onFirstCall().resolves(null)
         .onSecondCall().resolves({ Id: 'abc123' });
-      dbHelperStub.findOneInDatabase.resolves(null); // causes recreateMissingContainers to throw
+      dbHelperStub.findOneInDatabase.resolves(null);
 
-      await peerNotification.handleMissingMasterSlaveContainer(
-        'MyComponent_testapp', 'testapp', {}, () => ({}),
-      );
+      await stoppedAppsRecovery.handleMissingMasterSlaveContainer('MyComponent_testapp', 'testapp');
 
       expect(appUninstallerStub.removeAppLocally.called).to.be.false;
       expect(logStub.info.calledWithMatch(/created by another process/)).to.be.true;
