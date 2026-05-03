@@ -535,4 +535,5 @@ module.exports = {
   appHasValidLocationOnNode,
   checkStoppedApps,
   parseContainerName,
+  handleMissingMasterSlaveContainer,
 };

@@ -271,7 +271,9 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should broadcast the app message if a proper data is given', async () => {
-      sinon.stub(messageStore, 'storeAppRunningMessage').returns(true);
+      sinon.stub(messageStore, 'storeAppRunningMessage').resolves({ stored: true, rebroadcast: true });
+      sinon.stub(messageStore, 'storeSignedAppRunningBroadcast');
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 0 } });
       const fromIp = '127.0.0.5';
       const port = '16127';
       const type = 'fluxappregister';
@@ -1513,7 +1515,7 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Received SIGTERM notification from node/));
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Found 2 apps for node/));
-      sinon.assert.calledOnce(updateInDatabaseStub);
+      sinon.assert.calledTwice(updateInDatabaseStub);
       sinon.assert.calledOnce(relaySpy);
     }).timeout(10000);
 

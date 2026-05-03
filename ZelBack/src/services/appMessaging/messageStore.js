@@ -448,10 +448,11 @@ async function storeAppRemovedMessage(message) {
   await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, query, projection);
 
   await dbHelper.removeDocumentsFromCollection(database, appsRunningBroadcasts, { ip: message.ip, 'data.name': message.appName });
-  const remaining = await dbHelper.countInDatabase(database, globalAppsLocations, { ip: message.ip });
-  if (remaining === 0) {
-    await dbHelper.removeDocumentsFromCollection(database, appsRunningBroadcasts, { ip: message.ip });
-  }
+  await dbHelper.updateOneInDatabase(
+    database, appsRunningBroadcasts,
+    { ip: message.ip, 'data.apps': { $exists: true } },
+    { $addToSet: { excludedApps: message.appName } },
+  ).catch(() => {});
 
   // all stored, rebroadcast
   return true;
@@ -587,7 +588,7 @@ function storeSignedAppRunningBroadcast(signedBroadcast) {
   return dbHelper.updateOneInDatabase(
     database, appsRunningBroadcasts,
     filter,
-    { $set: doc },
+    { $set: doc, $unset: { excludedApps: '' } },
     { upsert: true },
   ).catch((err) => log.error(`storeSignedAppRunningBroadcast: ${err.message}`));
 }
@@ -621,6 +622,7 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
             broadcastedAt: new Date(data.broadcastedAt),
             expireAt: new Date(validTill),
           },
+          $unset: { excludedApps: '' },
         },
         upsert: true,
       },

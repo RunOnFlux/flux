@@ -48,6 +48,9 @@ describe('messageStore tests', () => {
           database: 'appsdb',
           collections: {
             appsLocations: 'appsLocations',
+            appsRunningBroadcasts: 'appsRunningBroadcasts',
+            appsInstallingBroadcasts: 'appsInstallingBroadcasts',
+            appsInstallingErrorsBroadcasts: 'appsInstallingErrorsBroadcasts',
           },
         },
       },
@@ -82,6 +85,7 @@ describe('messageStore tests', () => {
         globalAppsLocations: 'appsLocations',
         globalAppsInstallingLocations: 'appsInstallingLocations',
         globalAppsInstallingErrorsLocations: 'appsInstallingErrorsLocations',
+        globalAppsInstallingErrorsBroadcasts: 'appsInstallingErrorsBroadcasts',
         appsHashesCollection: 'appsHashes',
       },
       '../utils/appSpecHelpers': {
@@ -403,8 +407,8 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppRunningMessage(message);
 
       expect(result).to.deep.equal({ stored: true, rebroadcast: true });
-      // Called three times: locations, installing locations, installing broadcasts
-      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(3);
+      // Called four times: locations, running broadcasts, installing locations, installing broadcasts
+      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(4);
     });
   });
 
@@ -479,7 +483,7 @@ describe('messageStore tests', () => {
       expect(result.message).to.include('appName cannot be empty');
     });
 
-    it('should store valid removed message', async () => {
+    it('should store valid removed message and clean up broadcasts', async () => {
       const message = {
         type: 'fluxappremoved',
         version: 1,
@@ -491,11 +495,23 @@ describe('messageStore tests', () => {
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findOneAndDeleteInDatabase.resolves();
+      dbHelperStub.removeDocumentsFromCollection.resolves();
+      dbHelperStub.updateOneInDatabase.resolves();
 
       const result = await messageStore.storeAppRemovedMessage(message);
 
       expect(result).to.be.true;
       expect(dbHelperStub.findOneAndDeleteInDatabase.calledOnce).to.be.true;
+      // Should delete v1 broadcast for this ip+name
+      expect(dbHelperStub.removeDocumentsFromCollection.calledOnce).to.be.true;
+      expect(dbHelperStub.removeDocumentsFromCollection.firstCall.args[2]).to.deep.equal({
+        ip: '192.168.1.1', 'data.name': 'testapp',
+      });
+      // Should add to excludedApps on v2 broadcast
+      expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
+      const updateArgs = dbHelperStub.updateOneInDatabase.firstCall.args;
+      expect(updateArgs[2]).to.deep.equal({ ip: '192.168.1.1', 'data.apps': { $exists: true } });
+      expect(updateArgs[3]).to.deep.equal({ $addToSet: { excludedApps: 'testapp' } });
     });
   });
 
@@ -623,6 +639,32 @@ describe('messageStore tests', () => {
 
       expect(result).to.be.true;
       expect(dbHelperStub.updateInDatabase.calledOnce).to.be.true;
+    });
+  });
+
+  describe('storeSignedAppRunningBroadcast', () => {
+    it('should clear excludedApps when storing a broadcast', () => {
+      const signedBroadcast = {
+        version: 1,
+        timestamp: Date.now(),
+        pubKey: 'pubkey',
+        signature: 'sig',
+        data: {
+          ip: '192.168.1.1',
+          broadcastedAt: Date.now(),
+          apps: [{ name: 'app1', hash: 'h1' }],
+        },
+      };
+
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+      dbHelperStub.updateOneInDatabase.resolves();
+
+      messageStore.storeSignedAppRunningBroadcast(signedBroadcast);
+
+      expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
+      const updateArg = dbHelperStub.updateOneInDatabase.firstCall.args[3];
+      expect(updateArg.$unset).to.deep.equal({ excludedApps: '' });
     });
   });
 });

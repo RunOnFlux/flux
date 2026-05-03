@@ -101,6 +101,7 @@ async function appLocationFromBroadcasts(appname) {
         v2: [
           { $match: { 'data.apps': { $exists: true } } },
           { $unwind: '$data.apps' },
+          { $match: { $expr: { $not: { $in: ['$data.apps.name', { $ifNull: ['$excludedApps', []] }] } } } },
           {
             $project: {
               _id: 0,
@@ -1621,6 +1622,11 @@ async function reindexGlobalAppsLocation() {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     await dbHelper.dropCollection(database, globalAppsLocations).catch((error) => {
+      if (error.message !== 'ns not found') {
+        throw error;
+      }
+    });
+    await dbHelper.dropCollection(database, globalAppsRunningBroadcasts).catch((error) => {
       if (error.message !== 'ns not found') {
         throw error;
       }
