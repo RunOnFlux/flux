@@ -447,6 +447,12 @@ async function storeAppRemovedMessage(message) {
   const projection = {};
   await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, query, projection);
 
+  await dbHelper.removeDocumentsFromCollection(database, appsRunningBroadcasts, { ip: message.ip, 'data.name': message.appName });
+  const remaining = await dbHelper.countInDatabase(database, globalAppsLocations, { ip: message.ip });
+  if (remaining === 0) {
+    await dbHelper.removeDocumentsFromCollection(database, appsRunningBroadcasts, { ip: message.ip });
+  }
+
   // all stored, rebroadcast
   return true;
 }

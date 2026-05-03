@@ -11,6 +11,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 
 // Database collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
+const appsRunningBroadcasts = config.database.appsglobal.collections.appsRunningBroadcasts;
 
 /**
  * Method responsible to monitor node status and uninstall apps if node is not confirmed
@@ -123,6 +124,8 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
           const query = { ip: location };
           // eslint-disable-next-line no-await-in-loop
           await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
+          // eslint-disable-next-line no-await-in-loop
+          await dbHelper.removeDocumentsFromCollection(database, appsRunningBroadcasts, query);
         }
       }
     }
