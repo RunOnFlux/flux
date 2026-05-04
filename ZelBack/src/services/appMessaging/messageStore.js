@@ -667,6 +667,7 @@ async function handleAppRunningEvent({ signedBroadcast }) {
           expireAt: { $cond: [isNewer, new Date(data.broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
           data: { $cond: [isNewer, data, { $ifNull: ['$data', data] }] },
           envelope: { $cond: [isNewer, envelope, { $ifNull: ['$envelope', envelope] }] },
+          receivedAt: new Date(),
         },
       }],
       { upsert: true },
@@ -693,6 +694,7 @@ function handleSigtermEvent({ ip, broadcastedAt, envelope }) {
         broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
         expireAt: { $cond: [isNewer, new Date(broadcastedAt + SIGTERM_EXPIRY_MS), '$expireAt'] },
         envelope: { $cond: [isNewer, envelope, { $ifNull: ['$envelope', envelope] }] },
+        receivedAt: new Date(),
       },
     }],
     { upsert: true },
@@ -717,6 +719,7 @@ function handleAppRemovedStateEvent({ message, envelope }) {
         expireAt: { $cond: [isNewer, new Date(message.broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
         envelope: { $cond: [isNewer, envelope, { $ifNull: ['$envelope', envelope] }] },
         data: { $cond: [isNewer, { ip: message.ip, appName: message.appName, broadcastedAt: message.broadcastedAt }, { $ifNull: ['$data', { ip: message.ip, appName: message.appName, broadcastedAt: message.broadcastedAt }] }] },
+        receivedAt: new Date(),
       },
     }],
     { upsert: true },
@@ -731,7 +734,7 @@ function handleEvictedEvent({ ip }) {
   const database = db.db(config.database.appsglobal.database);
   return database.collection(globalAppStateEvents).updateOne(
     { ip, type: APP_STATE_EVENT_TYPES.EVICTED, dedupKey: 'evicted' },
-    { $set: { ip, type: APP_STATE_EVENT_TYPES.EVICTED, dedupKey: 'evicted', createdAt: now, expireAt: new Date(now.getTime() + EVICTED_EXPIRY_MS) } },
+    { $set: { ip, type: APP_STATE_EVENT_TYPES.EVICTED, dedupKey: 'evicted', createdAt: now, expireAt: new Date(now.getTime() + EVICTED_EXPIRY_MS), receivedAt: now } },
     { upsert: true },
   ).catch((err) => log.error(`storeAppStateEvent(evicted): ${err.message}`));
 }
@@ -754,6 +757,7 @@ function handleIPChangedEvent({ oldIP, newIP, broadcastedAt, envelope }) {
         expireAt: { $cond: [isNewer, new Date(broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
         data: { $cond: [isNewer, { oldIP, newIP, broadcastedAt }, { $ifNull: ['$data', { oldIP, newIP, broadcastedAt }] }] },
         envelope: { $cond: [isNewer, envelope ?? null, { $ifNull: ['$envelope', envelope ?? null] }] },
+        receivedAt: new Date(),
       },
     }],
     { upsert: true },
