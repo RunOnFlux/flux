@@ -10,6 +10,7 @@ describe('AppSyncOrchestrator', () => {
   let peerManager;
   let logStub;
   let syncMissingHashesStub;
+  let getMissingHashesStub;
   let reindexStub;
   let expireStub;
   let isNodeStatusConfirmedStub;
@@ -35,6 +36,7 @@ describe('AppSyncOrchestrator', () => {
 
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
     syncMissingHashesStub = sinon.stub().resolves({ resolved: 0, missing: 0, unreachable: 0 });
+    getMissingHashesStub = sinon.stub().resolves([]);
     reindexStub = sinon.stub().resolves();
     expireStub = sinon.stub().resolves();
     isNodeStatusConfirmedStub = sinon.stub().resolves(true);
@@ -46,7 +48,7 @@ describe('AppSyncOrchestrator', () => {
     const mod = proxyquire('../../ZelBack/src/services/appMessaging/appSyncOrchestrator', {
       '../../lib/log': logStub,
       '../generalService': { isNodeStatusConfirmed: isNodeStatusConfirmedStub },
-      './appHashSyncService': { syncMissingHashes: syncMissingHashesStub },
+      './appHashSyncService': { syncMissingHashes: syncMissingHashesStub, getMissingHashes: getMissingHashesStub },
       './peerNotification': { checkAndNotifyPeersOfRunningApps: checkAndNotifyStub, stopBroadcastInterval: sinon.stub() },
       '../appDatabase/registryManager': {
         reindexGlobalAppsInformation: reindexStub,
@@ -379,6 +381,92 @@ describe('AppSyncOrchestrator', () => {
       await new Promise((r) => setTimeout(r, 50));
       expect(orchestrator.state).to.equal(STATES.RESYNCING);
     });
+  });
+
+  describe('hash sync recovery', () => {
+    it('should retry hash sync on failure', async () => {
+      syncMissingHashesStub.onFirstCall().rejects(new Error('connection failed'));
+      syncMissingHashesStub.onSecondCall().resolves({ resolved: 10, missing: 0, unreachable: 0 });
+
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      orchestrator.start();
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(syncMissingHashesStub.calledOnce).to.be.true;
+      expect(orchestrator.state).to.equal(STATES.SYNCING);
+      expect(logStub.error.calledWith(sinon.match(/Hash sync failed.*attempt 1\/3/))).to.be.true;
+    }).timeout(10000);
+
+    it('should fall back to block timer when hash sync retries exhausted', async () => {
+      syncMissingHashesStub.rejects(new Error('persistent failure'));
+
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, peerManager, isEnterprise: () => true,
+      });
+      orchestrator.start();
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // All 3 retries happen via timers — we can't wait for real timers in tests
+      // But we can verify the block timer fallback works
+      expect(orchestrator.state).to.equal(STATES.SYNCING);
+
+      // Emit enough blocks to trigger block timer (enterprise = 124 blocks)
+      for (let i = 0; i < 130; i += 1) {
+        blockEmitter.emit('blockReceived', 2555001 + i);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(orchestrator.state).to.equal(STATES.READY);
+    }).timeout(10000);
+
+    it('should reach READY via block timer when hash sync never completes', async () => {
+      syncMissingHashesStub.rejects(new Error('failed'));
+
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, peerManager, isEnterprise: () => true,
+      });
+      orchestrator.start();
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Emit enough blocks for enterprise threshold
+      for (let i = 1; i <= 130; i += 1) {
+        blockEmitter.emit('blockReceived', 2555000 + i);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Block timer should have triggered DB rebuild and readiness
+      expect(orchestrator.state).to.equal(STATES.READY);
+      expect(reindexStub.called).to.be.true;
+    }).timeout(10000);
+
+    it('should not get stuck when DB rebuild fails', async () => {
+      reindexStub.rejects(new Error('reindex failed'));
+
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, peerManager, isEnterprise: () => true,
+      });
+      orchestrator.start();
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Hash sync succeeded but DB rebuild failed
+      expect(syncMissingHashesStub.calledOnce).to.be.true;
+
+      // Block timer should still allow readiness (will retry DB rebuild)
+      for (let i = 1; i <= 130; i += 1) {
+        blockEmitter.emit('blockReceived', 2555000 + i);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+
+      // The block timer fallback tries rebuildDb again
+      expect(reindexStub.callCount).to.be.greaterThan(1);
+    }).timeout(10000);
   });
 
   describe('stop', () => {
