@@ -679,7 +679,7 @@ describe('registryManager tests', () => {
         type: 'evicted',
         dedupKey: 'evicted',
         createdAt: new Date(createdAt),
-        expireAt: new Date(createdAt + 7 * 60 * 1000),
+        expireAt: new Date(createdAt + 125 * 60 * 1000),
       };
     }
 
@@ -782,6 +782,16 @@ describe('registryManager tests', () => {
       expect(result).to.be.an('array').with.lengthOf(1);
     });
 
+    it('should exclude apps immediately when evicted (no grace period)', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now - 60000),
+        makeEvictedEvent('1.2.3.4', now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(0);
+    });
+
     it('should exclude apps when evicted and expired', async () => {
       const evictedTime = now - 8 * 60 * 1000;
       await database.collection(eventsCollection).insertMany([
@@ -791,6 +801,16 @@ describe('registryManager tests', () => {
 
       const result = await registryManager.appLocationFromBroadcasts();
       expect(result).to.be.an('array').with.lengthOf(0);
+    });
+
+    it('should keep apps when broadcast is newer than eviction', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeEvictedEvent('1.2.3.4', now - 60000),
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(1);
     });
 
     it('should exclude expired events', async () => {

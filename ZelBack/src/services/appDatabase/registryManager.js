@@ -173,6 +173,7 @@ async function appLocationFromBroadcasts(appname) {
               _id: '$ip',
               eventAt: { $first: '$_eventAt' },
               expireAt: { $first: '$expireAt' },
+              type: { $first: '$type' },
             },
           },
         ],
@@ -237,6 +238,7 @@ async function appLocationFromBroadcasts(appname) {
             in: {
               at: { $ifNull: [{ $arrayElemAt: ['$$match.eventAt', 0] }, new Date(0)] },
               expireAt: { $ifNull: [{ $arrayElemAt: ['$$match.expireAt', 0] }, new Date('2099-01-01')] },
+              type: { $ifNull: [{ $arrayElemAt: ['$$match.type', 0] }, null] },
             },
           },
         },
@@ -247,7 +249,7 @@ async function appLocationFromBroadcasts(appname) {
         $expr: {
           $or: [
             { $gte: ['$apps.broadcastedAt', '$_shutdown.at'] },
-            { $gt: ['$_shutdown.expireAt', now] },
+            { $and: [{ $eq: ['$_shutdown.type', 'sigterm'] }, { $gt: ['$_shutdown.expireAt', now] }] },
           ],
         },
       },
