@@ -1471,9 +1471,10 @@ describe('fluxCommunication tests', () => {
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 1000000 } });
 
       // Mock database operations
+      const mockCollection = { findOne: sinon.stub().resolves(null) };
       const mockDb = {
         db: sinon.stub().returns({
-          collection: sinon.stub(),
+          collection: sinon.stub().returns(mockCollection),
         }),
       };
       dbHelperStub = sinon.stub(dbHelper, 'databaseConnection').returns(mockDb);
@@ -1502,8 +1503,9 @@ describe('fluxCommunication tests', () => {
         timestamp: broadcastedAt,
       };
 
-      // Mock finding apps on the node
-      findInDatabaseStub.resolves([{ name: 'app1' }, { name: 'app2' }]);
+      // Mock finding app events for the node in event log
+      const mockColl = dbHelperStub().db().collection();
+      mockColl.findOne.resolves({ ip: '192.168.1.100:16127', type: 'apprunning' });
 
       const wsOutgoing = await connectWs();
       wsOutgoing.ip = '127.8.8.1';
@@ -1515,7 +1517,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Received SIGTERM notification from node/));
-      sinon.assert.calledWith(logInfoSpy, sinon.match(/Found 2 apps for node/));
+      sinon.assert.calledWith(logInfoSpy, sinon.match(/Found app events for node/));
       sinon.assert.calledOnce(updateInDatabaseStub);
       sinon.assert.calledOnce(relaySpy);
     }).timeout(10000);
@@ -1534,12 +1536,11 @@ describe('fluxCommunication tests', () => {
         timestamp: broadcastedAt,
       };
 
-      // Mock finding no apps on the node
-      findInDatabaseStub.resolves([]);
+      // findOne defaults to null (no events for this IP)
 
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
-      sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node/));
+      sinon.assert.calledWith(logInfoSpy, sinon.match(/No app events found for node/));
       sinon.assert.notCalled(updateInDatabaseStub);
       sinon.assert.notCalled(relaySpy);
     });
@@ -1579,7 +1580,8 @@ describe('fluxCommunication tests', () => {
         timestamp: broadcastedAt,
       };
 
-      findInDatabaseStub.resolves([{ name: 'app1' }]);
+      const mockColl = dbHelperStub().db().collection();
+      mockColl.findOne.resolves({ ip: '192.168.1.100:16127', type: 'apprunning' });
 
       // Add sender connection
       const wsSender = await connectWs();
@@ -1619,12 +1621,11 @@ describe('fluxCommunication tests', () => {
         timestamp: broadcastedAt,
       };
 
-      // Mock finding null (no results)
-      findInDatabaseStub.resolves(null);
+      // findOne defaults to null (no events for this IP)
 
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
-      sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node/));
+      sinon.assert.calledWith(logInfoSpy, sinon.match(/No app events found for node/));
       sinon.assert.notCalled(relaySpy);
     });
   });

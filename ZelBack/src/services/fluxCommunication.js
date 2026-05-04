@@ -400,25 +400,25 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
       return;
     }
 
-    // Check if this IP has any apps running in our database
+    // Check if this IP has any apps in the event log
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    const query = { ip };
-    const projection = { _id: 0, name: 1 };
-    const appsOnNode = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+    const eventLogCollection = config.database.appsglobal.collections.appStateEvents;
+    const hasEvents = await database.collection(eventLogCollection).findOne({ ip, type: 'apprunning' });
 
-    if (!appsOnNode || appsOnNode.length === 0) {
-      log.info(`No apps found for node ${ip} in locations database, not rebroadcasting sigterm`);
+    if (!hasEvents) {
+      log.info(`No app events found for node ${ip}, not rebroadcasting sigterm`);
       return;
     }
 
-    log.info(`Found ${appsOnNode.length} apps for node ${ip}, updating expiration and rebroadcasting sigterm`);
+    log.info(`Found app events for node ${ip}, updating expiration and rebroadcasting sigterm`);
 
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { ip, broadcastedAt, envelope });
 
     const newExpireAt = new Date(broadcastedAt + (420 * 1000));
     const update = { $set: { expireAt: newExpireAt } };
+    const query = { ip };
     await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
 
     // Rebroadcast to other peers

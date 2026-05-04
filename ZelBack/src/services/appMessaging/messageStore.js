@@ -637,33 +637,43 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
 
 // --- Event Log Functions ---
 
-function handleAppRunningEvent({ signedBroadcast }) {
-  const { data } = signedBroadcast;
-  if (!data || !data.ip || !data.broadcastedAt) return;
-  if (data.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) return;
+async function handleAppRunningEvent({ signedBroadcast }) {
+  try {
+    const { data } = signedBroadcast;
+    if (!data || !data.ip || !data.broadcastedAt) return;
+    if (data.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) return;
 
-  const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
-  const incomingDate = new Date(data.broadcastedAt);
-  const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
-  const envelope = { version: signedBroadcast.version, timestamp: signedBroadcast.timestamp, pubKey: signedBroadcast.pubKey, signature: signedBroadcast.signature };
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
 
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  return database.collection(globalAppStateEvents).updateOne(
-    { ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING, dedupKey },
-    [{
-      $set: {
-        ip: data.ip,
-        type: APP_STATE_EVENT_TYPES.APPRUNNING,
-        dedupKey,
-        broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
-        expireAt: { $cond: [isNewer, new Date(data.broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
-        data: { $cond: [isNewer, data, { $ifNull: ['$data', data] }] },
-        envelope: { $cond: [isNewer, envelope, { $ifNull: ['$envelope', envelope] }] },
-      },
-    }],
-    { upsert: true },
-  ).catch((err) => log.error(`storeAppStateEvent(apprunning): ${err.message}`));
+    if (data.version === 2 && (!data.apps || data.apps.length === 0)) {
+      const existing = await database.collection(globalAppStateEvents).findOne({ ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING });
+      if (!existing) return;
+    }
+
+    const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
+    const incomingDate = new Date(data.broadcastedAt);
+    const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
+    const envelope = { version: signedBroadcast.version, timestamp: signedBroadcast.timestamp, pubKey: signedBroadcast.pubKey, signature: signedBroadcast.signature };
+
+    await database.collection(globalAppStateEvents).updateOne(
+      { ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING, dedupKey },
+      [{
+        $set: {
+          ip: data.ip,
+          type: APP_STATE_EVENT_TYPES.APPRUNNING,
+          dedupKey,
+          broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
+          expireAt: { $cond: [isNewer, new Date(data.broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
+          data: { $cond: [isNewer, data, { $ifNull: ['$data', data] }] },
+          envelope: { $cond: [isNewer, envelope, { $ifNull: ['$envelope', envelope] }] },
+        },
+      }],
+      { upsert: true },
+    );
+  } catch (err) {
+    log.error(`storeAppStateEvent(apprunning): ${err.message}`);
+  }
 }
 
 function handleSigtermEvent({ ip, broadcastedAt, envelope }) {
