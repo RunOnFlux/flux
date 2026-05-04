@@ -865,6 +865,7 @@ function storeSignedAppInstallingBroadcast(signedBroadcast) {
     data,
     broadcastedAt: new Date(data.broadcastedAt),
     expireAt: new Date(data.broadcastedAt + INSTALLING_EXPIRY_MS),
+    receivedAt: new Date(),
   };
   return dbHelper.updateOneInDatabase(
     database, appsInstallingBroadcasts,
@@ -899,6 +900,7 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
             data,
             broadcastedAt: new Date(data.broadcastedAt),
             expireAt: new Date(validTill),
+            receivedAt: new Date(broadcast.receivedAt),
           },
         },
         upsert: true,
@@ -947,6 +949,7 @@ function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {
     data,
     broadcastedAt: new Date(data.broadcastedAt),
     expireAt: new Date(data.broadcastedAt + INSTALLING_ERRORS_EXPIRY_MS),
+    receivedAt: new Date(),
   };
   return dbHelper.updateOneInDatabase(
     database, globalAppsInstallingErrorsBroadcasts,
@@ -984,6 +987,7 @@ async function storeBatchAppInstallingErrorMessages(verifiedBroadcasts) {
             data,
             broadcastedAt: incomingDate,
             expireAt: incomingExpiry,
+            receivedAt: new Date(broadcast.receivedAt),
           },
         },
         upsert: true,
