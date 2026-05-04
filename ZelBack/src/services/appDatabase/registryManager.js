@@ -90,6 +90,15 @@ async function appLocation(appname) {
 }
 
 // Derives running app locations from the event log. Will replace appLocation() once callers are switched.
+//
+// Performance: shutdown/v1 filtering happens at IP level BEFORE unwinding to individual apps.
+// Lookups use $filter + $first against small arrays (shutdowns ~10, ipChanges ~5) which is
+// O(IPs * arraySize) — fast because the arrays are small. The v2Timestamps lookup for v1
+// filtering is O(v1Count * v2IPs) which dominates at ~2.4M comparisons at steady state.
+//
+// MongoDB 7.2+ optimization: $getField supports dynamic field references, enabling
+// $arrayToObject maps with O(1) key lookup via $getField({ field: '$$var.ip', input: '$map' }).
+// This would reduce all lookups to O(n) total. Blocked by MongoDB 7.0 on CI (SERVER-74371).
 async function appLocationFromBroadcasts(appname) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
@@ -99,7 +108,6 @@ async function appLocationFromBroadcasts(appname) {
   const nameMatch = escapedName ? new RegExp(`^${escapedName}$`, 'i') : null;
   const now = new Date();
 
-  const v2NameFilter = nameMatch ? [{ $match: { 'data.apps.name': nameMatch } }] : [];
   const v1NameFilter = nameMatch ? [{ $match: { 'data.name': nameMatch } }] : [];
   const removalNameFilter = nameMatch ? [{ $match: { 'data.appName': nameMatch } }] : [];
 
@@ -187,16 +195,7 @@ async function appLocationFromBroadcasts(appname) {
         ],
       },
     },
-    // Build O(1) lookup maps from facet results
-    {
-      $addFields: {
-        _v2TsMap: { $arrayToObject: { $map: { input: '$v2Timestamps', as: 't', in: { k: '$$t._id', v: '$$t.latestV2' } } } },
-        _shutdownMap: { $arrayToObject: { $map: { input: '$shutdowns', as: 's', in: { k: '$$s._id', v: { eventAt: '$$s.eventAt', expireAt: '$$s.expireAt', type: '$$s.type' } } } } },
-        _removalMap: { $arrayToObject: { $map: { input: '$removals', as: 'r', in: { k: { $concat: ['$$r._id.ip', '|', '$$r._id.name'] }, v: '$$r.removedAt' } } } },
-        _ipChangeMap: { $arrayToObject: { $map: { input: '$ipChanges', as: 'c', in: { k: '$$c._id', v: { newIP: '$$c.newIP', changedAt: '$$c.changedAt' } } } } },
-      },
-    },
-    // Filter v2 entries at IP level before unwinding (shutdown check)
+    // Filter v2 at IP level before unwinding — shutdown check against small array
     {
       $addFields: {
         _v2Filtered: {
@@ -205,7 +204,7 @@ async function appLocationFromBroadcasts(appname) {
             as: 'entry',
             cond: {
               $let: {
-                vars: { sd: { $getField: { field: '$$entry.ip', input: '$_shutdownMap' } } },
+                vars: { sd: { $first: { $filter: { input: '$shutdowns', as: 's', cond: { $eq: ['$$s._id', '$$entry.ip'] } } } } },
                 in: {
                   $or: [
                     { $eq: ['$$sd', null] },
@@ -230,13 +229,13 @@ async function appLocationFromBroadcasts(appname) {
               $and: [
                 {
                   $let: {
-                    vars: { v2Ts: { $getField: { field: '$$entry.ip', input: '$_v2TsMap' } } },
-                    in: { $or: [{ $eq: ['$$v2Ts', null] }, { $gt: ['$$entry.broadcastedAt', '$$v2Ts'] }] },
+                    vars: { v2Ts: { $first: { $filter: { input: '$v2Timestamps', as: 't', cond: { $eq: ['$$t._id', '$$entry.ip'] } } } } },
+                    in: { $or: [{ $eq: ['$$v2Ts', null] }, { $gt: ['$$entry.broadcastedAt', '$$v2Ts.latestV2'] }] },
                   },
                 },
                 {
                   $let: {
-                    vars: { sd: { $getField: { field: '$$entry.ip', input: '$_shutdownMap' } } },
+                    vars: { sd: { $first: { $filter: { input: '$shutdowns', as: 's', cond: { $eq: ['$$s._id', '$$entry.ip'] } } } } },
                     in: {
                       $or: [
                         { $eq: ['$$sd', null] },
@@ -252,7 +251,7 @@ async function appLocationFromBroadcasts(appname) {
         },
       },
     },
-    // Unwind v2 apps and v1 into flat docs, apply per-app removal filter
+    // Unwind v2 apps and v1 into flat docs, apply per-app removal + IP change filters
     {
       $facet: {
         fromV2: [
@@ -269,22 +268,27 @@ async function appLocationFromBroadcasts(appname) {
               runningSince: { $ifNull: ['$_v2Filtered.apps.runningSince', '$_v2Filtered.runningSince'] },
               osUptime: '$_v2Filtered.osUptime',
               staticIp: '$_v2Filtered.staticIp',
-              _removalMap: 1,
-              _ipChangeMap: 1,
+              removals: 1,
+              ipChanges: 1,
             },
           },
           {
             $addFields: {
               _removedAt: {
-                $ifNull: [{ $getField: { field: { $concat: ['$ip', '|', '$name'] }, input: '$_removalMap' } }, new Date(0)],
+                $ifNull: [
+                  { $let: {
+                    vars: { r: { $first: { $filter: { input: '$removals', as: 'r', cond: { $and: [{ $eq: ['$$r._id.ip', '$ip'] }, { $eq: ['$$r._id.name', '$name'] }] } } } } },
+                    in: '$$r.removedAt',
+                  } },
+                  new Date(0),
+                ],
               },
             },
           },
           { $match: { $expr: { $gt: ['$broadcastedAt', '$_removedAt'] } } },
-          // Remap IP if an ipchanged event exists and is newer than the broadcast
           {
             $addFields: {
-              _ipChange: { $getField: { field: '$ip', input: '$_ipChangeMap' } },
+              _ipChange: { $first: { $filter: { input: '$ipChanges', as: 'c', cond: { $eq: ['$$c._id', '$ip'] } } } },
             },
           },
           {
@@ -298,7 +302,7 @@ async function appLocationFromBroadcasts(appname) {
               },
             },
           },
-          { $project: { _removalMap: 0, _removedAt: 0, _ipChangeMap: 0, _ipChange: 0 } },
+          { $project: { removals: 0, ipChanges: 0, _removedAt: 0, _ipChange: 0 } },
         ],
         fromV1: [
           { $unwind: '$_v1Filtered' },
@@ -312,21 +316,27 @@ async function appLocationFromBroadcasts(appname) {
               runningSince: '$_v1Filtered.runningSince',
               osUptime: '$_v1Filtered.osUptime',
               staticIp: '$_v1Filtered.staticIp',
-              _removalMap: 1,
-              _ipChangeMap: 1,
+              removals: 1,
+              ipChanges: 1,
             },
           },
           {
             $addFields: {
               _removedAt: {
-                $ifNull: [{ $getField: { field: { $concat: ['$ip', '|', '$name'] }, input: '$_removalMap' } }, new Date(0)],
+                $ifNull: [
+                  { $let: {
+                    vars: { r: { $first: { $filter: { input: '$removals', as: 'r', cond: { $and: [{ $eq: ['$$r._id.ip', '$ip'] }, { $eq: ['$$r._id.name', '$name'] }] } } } } },
+                    in: '$$r.removedAt',
+                  } },
+                  new Date(0),
+                ],
               },
             },
           },
           { $match: { $expr: { $gt: ['$broadcastedAt', '$_removedAt'] } } },
           {
             $addFields: {
-              _ipChange: { $getField: { field: '$ip', input: '$_ipChangeMap' } },
+              _ipChange: { $first: { $filter: { input: '$ipChanges', as: 'c', cond: { $eq: ['$$c._id', '$ip'] } } } },
             },
           },
           {
@@ -340,7 +350,7 @@ async function appLocationFromBroadcasts(appname) {
               },
             },
           },
-          { $project: { _removalMap: 0, _removedAt: 0, _ipChangeMap: 0, _ipChange: 0 } },
+          { $project: { removals: 0, ipChanges: 0, _removedAt: 0, _ipChange: 0 } },
         ],
       },
     },
