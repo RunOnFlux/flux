@@ -15,6 +15,7 @@ const dbHelper = require('./dbHelper');
 const { peerManager, PEER_SOURCE } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
+const registryManager = require('./appDatabase/registryManager');
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 let onSyncComplete = null;
@@ -400,22 +401,20 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
       return;
     }
 
-    // Check if this IP has any apps in the event log
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const eventLogCollection = config.database.appsglobal.collections.appStateEvents;
-    const hasEvents = await database.collection(eventLogCollection).findOne({ ip, type: 'apprunning' });
+    const appsOnNode = await registryManager.appLocationFromEvents({ ip });
 
-    if (!hasEvents) {
-      log.info(`No app events found for node ${ip}, not rebroadcasting sigterm`);
+    if (!appsOnNode || appsOnNode.length === 0) {
+      log.info(`No apps found for node ${ip} in event log view, not rebroadcasting sigterm`);
       return;
     }
 
-    log.info(`Found app events for node ${ip}, updating expiration and rebroadcasting sigterm`);
+    log.info(`Found ${appsOnNode.length} apps for node ${ip}, updating expiration and rebroadcasting sigterm`);
 
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { ip, broadcastedAt, envelope });
 
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
     const newExpireAt = new Date(broadcastedAt + (420 * 1000));
     const update = { $set: { expireAt: newExpireAt } };
     const query = { ip };

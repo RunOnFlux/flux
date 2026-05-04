@@ -16,6 +16,7 @@ const messageStore = require('../../ZelBack/src/services/appMessaging/messageSto
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
+const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const { peerManager } = require('../../ZelBack/src/services/utils/peerState');
 const { PEER_SOURCE } = require('../../ZelBack/src/services/utils/FluxPeerSocket');
 const rateLimit = require('../../ZelBack/src/services/utils/rateLimit');
@@ -1471,16 +1472,16 @@ describe('fluxCommunication tests', () => {
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 1000000 } });
 
       // Mock database operations
-      const mockCollection = { findOne: sinon.stub().resolves(null) };
       const mockDb = {
         db: sinon.stub().returns({
-          collection: sinon.stub().returns(mockCollection),
+          collection: sinon.stub(),
         }),
       };
       dbHelperStub = sinon.stub(dbHelper, 'databaseConnection').returns(mockDb);
       findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
       updateInDatabaseStub = sinon.stub(dbHelper, 'updateInDatabase').resolves();
       sinon.stub(messageStore, 'storeAppStateEvent');
+      sinon.stub(registryManager, 'appLocationFromEvents').resolves([]);
 
       logInfoSpy = sinon.spy(log, 'info');
     });
@@ -1503,9 +1504,7 @@ describe('fluxCommunication tests', () => {
         timestamp: broadcastedAt,
       };
 
-      // Mock finding app events for the node in event log
-      const mockColl = dbHelperStub().db().collection();
-      mockColl.findOne.resolves({ ip: '192.168.1.100:16127', type: 'apprunning' });
+      registryManager.appLocationFromEvents.resolves([{ name: 'app1', ip: '192.168.1.100:16127' }, { name: 'app2', ip: '192.168.1.100:16127' }]);
 
       const wsOutgoing = await connectWs();
       wsOutgoing.ip = '127.8.8.1';
@@ -1517,7 +1516,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Received SIGTERM notification from node/));
-      sinon.assert.calledWith(logInfoSpy, sinon.match(/Found app events for node/));
+      sinon.assert.calledWith(logInfoSpy, sinon.match(/Found 2 apps for node/));
       sinon.assert.calledOnce(updateInDatabaseStub);
       sinon.assert.calledOnce(relaySpy);
     }).timeout(10000);
@@ -1536,11 +1535,11 @@ describe('fluxCommunication tests', () => {
         timestamp: broadcastedAt,
       };
 
-      // findOne defaults to null (no events for this IP)
+      // appLocationFromEvents defaults to [] (no apps for this IP)
 
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
-      sinon.assert.calledWith(logInfoSpy, sinon.match(/No app events found for node/));
+      sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node.*event log view/));
       sinon.assert.notCalled(updateInDatabaseStub);
       sinon.assert.notCalled(relaySpy);
     });
@@ -1580,8 +1579,7 @@ describe('fluxCommunication tests', () => {
         timestamp: broadcastedAt,
       };
 
-      const mockColl = dbHelperStub().db().collection();
-      mockColl.findOne.resolves({ ip: '192.168.1.100:16127', type: 'apprunning' });
+      registryManager.appLocationFromEvents.resolves([{ name: 'app1', ip: '192.168.1.100:16127' }]);
 
       // Add sender connection
       const wsSender = await connectWs();
@@ -1621,11 +1619,11 @@ describe('fluxCommunication tests', () => {
         timestamp: broadcastedAt,
       };
 
-      // findOne defaults to null (no events for this IP)
+      registryManager.appLocationFromEvents.resolves(null);
 
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
-      sinon.assert.calledWith(logInfoSpy, sinon.match(/No app events found for node/));
+      sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node.*event log view/));
       sinon.assert.notCalled(relaySpy);
     });
   });

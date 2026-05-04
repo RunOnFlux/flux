@@ -609,7 +609,7 @@ describe('registryManager tests', () => {
     });
   });
 
-  describe('appLocationFromBroadcasts tests', () => {
+  describe('appLocationFromEvents tests', () => {
     const eventsCollection = config.database.appsglobal.collections.appStateEvents;
     const now = Date.now();
 
@@ -699,7 +699,7 @@ describe('registryManager tests', () => {
         makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }, { name: 'AppB', hash: 'h2' }], now),
       );
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(2);
       const names = result.map((r) => r.name).sort();
       expect(names).to.deep.equal(['AppA', 'AppB']);
@@ -711,7 +711,7 @@ describe('registryManager tests', () => {
         makeV1Event('5.6.7.8', 'AppC', 'h3', now),
       );
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(1);
       expect(result[0].name).to.equal('AppC');
     });
@@ -722,7 +722,7 @@ describe('registryManager tests', () => {
         makeV1Event('1.2.3.4', 'AppB', 'h2', now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(2);
       const names = result.map((r) => r.name).sort();
       expect(names).to.deep.equal(['AppA', 'AppB']);
@@ -734,7 +734,7 @@ describe('registryManager tests', () => {
         makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(1);
       expect(result[0].name).to.equal('AppA');
     });
@@ -745,7 +745,7 @@ describe('registryManager tests', () => {
         makeAppRemovedEvent('1.2.3.4', 'AppA', now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(1);
       expect(result[0].name).to.equal('AppB');
     });
@@ -756,7 +756,7 @@ describe('registryManager tests', () => {
         makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(1);
       expect(result[0].name).to.equal('AppA');
     });
@@ -768,7 +768,7 @@ describe('registryManager tests', () => {
         makeSigtermEvent('1.2.3.4', sigtermTime),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(0);
     });
 
@@ -778,7 +778,7 @@ describe('registryManager tests', () => {
         makeSigtermEvent('1.2.3.4', now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(1);
       expect(result[0].name).to.equal('AppA');
     });
@@ -789,7 +789,7 @@ describe('registryManager tests', () => {
         makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(1);
     });
 
@@ -799,7 +799,7 @@ describe('registryManager tests', () => {
         makeEvictedEvent('1.2.3.4', now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(0);
     });
 
@@ -810,7 +810,7 @@ describe('registryManager tests', () => {
         makeEvictedEvent('1.2.3.4', evictedTime),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(0);
     });
 
@@ -820,7 +820,7 @@ describe('registryManager tests', () => {
         makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(1);
     });
 
@@ -830,7 +830,7 @@ describe('registryManager tests', () => {
         makeIPChangedEvent('1.1.1.1', '2.2.2.2', now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(2);
       result.forEach((r) => expect(r.ip).to.equal('2.2.2.2'));
     });
@@ -841,7 +841,7 @@ describe('registryManager tests', () => {
         makeV2Event('1.1.1.1', [{ name: 'AppA', hash: 'h1' }], now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(1);
       expect(result[0].ip).to.equal('1.1.1.1');
     });
@@ -853,7 +853,7 @@ describe('registryManager tests', () => {
         makeV2Event('2.2.2.2', [{ name: 'AppA', hash: 'h1' }, { name: 'AppB', hash: 'h2' }, { name: 'AppC', hash: 'h3' }], now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(3);
       const names = result.map((r) => r.name).sort();
       expect(names).to.deep.equal(['AppA', 'AppB', 'AppC']);
@@ -866,7 +866,7 @@ describe('registryManager tests', () => {
         makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], expired),
       );
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(0);
     });
 
@@ -875,7 +875,7 @@ describe('registryManager tests', () => {
         makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }, { name: 'AppB', hash: 'h2' }], now),
       );
 
-      const result = await registryManager.appLocationFromBroadcasts('appa');
+      const result = await registryManager.appLocationFromEvents({ appname: 'appa' });
       expect(result).to.be.an('array').with.lengthOf(1);
       expect(result[0].name).to.equal('AppA');
     });
@@ -886,7 +886,7 @@ describe('registryManager tests', () => {
         makeV1Event('1.2.3.4', 'AppA', 'new', now),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(2);
       const appA = result.find((r) => r.name === 'AppA');
       expect(appA.hash).to.equal('new');
@@ -901,10 +901,31 @@ describe('registryManager tests', () => {
         makeAppRemovedEvent('5.6.7.8', 'AppB', now + 1000),
       ]);
 
-      const result = await registryManager.appLocationFromBroadcasts();
+      const result = await registryManager.appLocationFromEvents();
       expect(result).to.be.an('array').with.lengthOf(1);
       expect(result[0].name).to.equal('AppA');
       expect(result[0].ip).to.equal('1.2.3.4');
+    });
+
+    it('should filter by ip option', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
+        makeV2Event('5.6.7.8', [{ name: 'AppB', hash: 'h2' }], now),
+      ]);
+
+      const result = await registryManager.appLocationFromEvents({ ip: '5.6.7.8' });
+      expect(result).to.be.an('array').with.lengthOf(1);
+      expect(result[0].name).to.equal('AppB');
+      expect(result[0].ip).to.equal('5.6.7.8');
+    });
+
+    it('should return empty when filtering by ip with no apps', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now),
+      ]);
+
+      const result = await registryManager.appLocationFromEvents({ ip: '9.9.9.9' });
+      expect(result).to.be.an('array').with.lengthOf(0);
     });
   });
 });

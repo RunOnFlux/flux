@@ -99,7 +99,8 @@ async function appLocation(appname) {
 // MongoDB 7.2+ optimization: $getField supports dynamic field references, enabling
 // $arrayToObject maps with O(1) key lookup via $getField({ field: '$$var.ip', input: '$map' }).
 // This would reduce all lookups to O(n) total. Blocked by MongoDB 7.0 on CI (SERVER-74371).
-async function appLocationFromBroadcasts(appname) {
+async function appLocationFromEvents(options = {}) {
+  const { appname, ip } = options;
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
   const collection = database.collection(globalAppStateEvents);
@@ -111,15 +112,16 @@ async function appLocationFromBroadcasts(appname) {
   const v1NameFilter = nameMatch ? [{ $match: { 'data.name': nameMatch } }] : [];
   const removalNameFilter = nameMatch ? [{ $match: { 'data.appName': nameMatch } }] : [];
 
+  const initialMatch = {
+    $or: [
+      { type: { $in: ['apprunning', 'appremoved', 'ipchanged'] }, expireAt: { $gt: now } },
+      { type: { $in: ['sigterm', 'evicted'] } },
+    ],
+  };
+  if (ip) initialMatch.ip = ip;
+
   const pipeline = [
-    {
-      $match: {
-        $or: [
-          { type: { $in: ['apprunning', 'appremoved', 'ipchanged'] }, expireAt: { $gt: now } },
-          { type: { $in: ['sigterm', 'evicted'] } },
-        ],
-      },
-    },
+    { $match: initialMatch },
     { $sort: { broadcastedAt: -1 } },
     {
       $facet: {
@@ -2016,7 +2018,7 @@ async function rescanGlobalAppsInformationAPI(req, res) {
 module.exports = {
   getAppHashes,
   appLocation,
-  appLocationFromBroadcasts,
+  appLocationFromEvents,
   appInstallingLocation,
   appInstallingErrorsLocation,
   countAppInstallingErrors,
