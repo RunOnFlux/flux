@@ -16,9 +16,12 @@ const STATES = Object.freeze({
   RESYNCING: 'RESYNCING',
 });
 
-const MIN_SYNC_PEERS = config.fluxapps.appSyncMinCompletions || 3;
+const MIN_SYNC_PEERS = config.fluxapps.appSyncMinCompletions ?? 3;
 const SYNC_TIMEOUT_MS = 2 * 60 * 1000;
-const MIN_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime || 7500;
+const MIN_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime ?? 7500;
+const HASH_SYNC_MAX_RETRIES = 3;
+const HASH_SYNC_RETRY_MS = 5 * 60 * 1000;
+const HASH_SYNC_RECHECK_MS = 20 * 60 * 1000;
 
 class AppSyncOrchestrator extends EventEmitter {
   #state = STATES.INITIALIZING;
@@ -37,6 +40,9 @@ class AppSyncOrchestrator extends EventEmitter {
   #syncCompletions = { apprunning: 0, appinstalling: 0, apperrors: 0 };
   #stateSyncComplete = false;
   #syncTimeout = null;
+  #hashSyncAttempts = 0;
+  #hashSyncRetryTimer = null;
+  #lastHashSyncCheck = 0;
 
   constructor(options = {}) {
     super();
@@ -174,14 +180,37 @@ class AppSyncOrchestrator extends EventEmitter {
       log.info(`AppSyncOrchestrator - Explorer synced at block ${blockHeight}`);
       if (this.#state === STATES.INITIALIZING) {
         this.#state = STATES.SYNCING;
+        this.#ensureBlockThreshold();
         this.#runInitialSync();
       }
     }
     if (this.#state === STATES.SYNCING || this.#state === STATES.READY) {
       this.#blocksSinceSyncStarted += 1;
-      if (this.#hashSyncComplete && this.#dbRebuilt) {
+      this.#checkReadiness();
+      this.#backgroundHashRecheck();
+    }
+  }
+
+  async #backgroundHashRecheck() {
+    if (this.#hashSyncComplete) return;
+    if (this.#syncInProgress) return;
+    if (Date.now() - this.#lastHashSyncCheck < HASH_SYNC_RECHECK_MS) return;
+    this.#lastHashSyncCheck = Date.now();
+
+    try {
+      const missing = await appHashSyncService.getMissingHashes();
+      if (missing.length === 0) {
+        log.info('AppSyncOrchestrator - No missing hashes, marking hash sync complete');
+        this.#hashSyncComplete = true;
+        await this.#rebuildDb();
         this.#checkReadiness();
+        return;
       }
+      log.info(`AppSyncOrchestrator - Background recheck: ${missing.length} hashes still missing, retrying`);
+      await this.#runHashSync();
+      this.#checkReadiness();
+    } catch (error) {
+      log.error(`AppSyncOrchestrator - Background hash recheck failed: ${error.message}`);
     }
   }
 
@@ -197,6 +226,7 @@ class AppSyncOrchestrator extends EventEmitter {
     if (this.#syncInProgress) return;
     this.#syncInProgress = true;
     try {
+      this.#hashSyncAttempts += 1;
       const result = await appHashSyncService.syncMissingHashes({
         onProgress: (progress) => this.emit('syncProgress', progress),
       });
@@ -206,11 +236,21 @@ class AppSyncOrchestrator extends EventEmitter {
         log.info('AppSyncOrchestrator - Hash sync complete');
       }
       this.#hashSyncComplete = true;
+      this.#lastHashSyncCheck = Date.now();
       this.emit('syncComplete');
       await this.#rebuildDb();
       globalState.checkAndSyncAppHashesWasEverExecuted = true;
     } catch (error) {
-      log.error(`AppSyncOrchestrator - Hash sync failed: ${error.message}`);
+      log.error(`AppSyncOrchestrator - Hash sync failed (attempt ${this.#hashSyncAttempts}/${HASH_SYNC_MAX_RETRIES}): ${error.message}`);
+      if (this.#hashSyncAttempts < HASH_SYNC_MAX_RETRIES) {
+        log.info(`AppSyncOrchestrator - Scheduling hash sync retry in ${HASH_SYNC_RETRY_MS / 1000}s`);
+        this.#hashSyncRetryTimer = setTimeout(() => {
+          this.#hashSyncRetryTimer = null;
+          this.#runHashSync().then(() => this.#checkReadiness());
+        }, HASH_SYNC_RETRY_MS);
+      } else {
+        log.warn('AppSyncOrchestrator - Hash sync retries exhausted, falling back to block timer');
+      }
     } finally {
       this.#syncInProgress = false;
     }
@@ -229,8 +269,7 @@ class AppSyncOrchestrator extends EventEmitter {
     }
   }
 
-  #isStateSyncReady() {
-    if (this.#stateSyncComplete) return true;
+  #ensureBlockThreshold() {
     if (this.#blockThreshold === 0) {
       const enterprise = this.#isEnterprise();
       const blocksPerMinute = 2;
@@ -238,14 +277,32 @@ class AppSyncOrchestrator extends EventEmitter {
         ? 62 * blocksPerMinute
         : 125 * blocksPerMinute;
     }
+  }
+
+  #isBlockTimerExpired() {
+    this.#ensureBlockThreshold();
     return this.#blocksSinceSyncStarted >= this.#blockThreshold;
+  }
+
+  #isStateSyncReady() {
+    if (this.#stateSyncComplete) return true;
+    return this.#isBlockTimerExpired();
   }
 
   async #checkReadiness() {
     if (this.#state !== STATES.SYNCING && this.#state !== STATES.RESYNCING) return;
     if (!this.#explorerSynced) return;
-    if (!this.#hashSyncComplete) return;
-    if (!this.#dbRebuilt) return;
+
+    const blockTimerExpired = this.#isBlockTimerExpired();
+    if (!this.#hashSyncComplete && !blockTimerExpired) return;
+    if (!this.#dbRebuilt && !blockTimerExpired) return;
+
+    // Block timer fired but hash sync / DB rebuild never completed — rebuild from whatever data we have
+    if (blockTimerExpired && !this.#dbRebuilt) {
+      await this.#rebuildDb();
+      if (!this.#dbRebuilt) return;
+    }
+
     if (!this.#isStateSyncReady()) return;
 
     const isConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
@@ -276,6 +333,10 @@ class AppSyncOrchestrator extends EventEmitter {
     if (this.#syncTimeout) {
       clearTimeout(this.#syncTimeout);
       this.#syncTimeout = null;
+    }
+    if (this.#hashSyncRetryTimer) {
+      clearTimeout(this.#hashSyncRetryTimer);
+      this.#hashSyncRetryTimer = null;
     }
     this.removeAllListeners();
   }

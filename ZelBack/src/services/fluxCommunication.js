@@ -75,7 +75,7 @@ async function handleTempSyncResponse(message) {
   try {
     if (!message.data || message.data.type !== 'fluxapptempsync') return;
     const { messages, done } = message.data;
-    if (!Array.isArray(messages)) return;
+    if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleTempSyncResponse - Received ${messages.length} temp messages (done: ${!!done})`);
     let stored = 0;
     for (const msg of messages) {
@@ -96,7 +96,7 @@ async function handleAppRunningSyncResponse(message) {
   try {
     if (!message.data || message.data.type !== 'fluxapprunningsync') return;
     const { messages, done } = message.data;
-    if (!Array.isArray(messages)) return;
+    if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppRunningSyncResponse - Received ${messages.length} events (done: ${!!done})`);
     const verifiedAppRunning = [];
     const otherEvents = [];
@@ -129,11 +129,13 @@ async function handleAppRunningSyncResponse(message) {
     }
     for (const event of otherEvents) {
       if (event.type === 'sigterm') {
-        messageStore.storeAppStateEvent(event.type, { ip: event.ip, broadcastedAt: event.data.broadcastedAt, envelope: event.envelope });
+        await messageStore.storeAppStateEvent(event.type, { ip: event.ip, broadcastedAt: event.data.broadcastedAt, envelope: event.envelope });
       } else if (event.type === 'appremoved') {
-        messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
+        await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
       } else if (event.type === 'evicted') {
-        messageStore.storeAppStateEvent(event.type, { ip: event.ip });
+        await messageStore.storeAppStateEvent(event.type, { ip: event.ip });
+      } else if (event.type === 'ipchanged') {
+        await messageStore.storeAppStateEvent(event.type, { oldIP: event.data.oldIP, newIP: event.data.newIP, broadcastedAt: event.data.broadcastedAt, envelope: event.envelope });
       }
     }
     if (done) {
@@ -149,7 +151,7 @@ async function handleAppInstallingSyncResponse(message) {
   try {
     if (!message.data || message.data.type !== 'fluxappinstallingsync') return;
     const { messages, done } = message.data;
-    if (!Array.isArray(messages)) return;
+    if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts (done: ${!!done})`);
     const verified = [];
     for (const broadcast of messages) {
@@ -181,7 +183,7 @@ async function handleAppInstallingErrorsSyncResponse(message) {
   try {
     if (!message.data || message.data.type !== 'fluxappinstallingerrorssync') return;
     const { messages, done } = message.data;
-    if (!Array.isArray(messages)) return;
+    if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts (done: ${!!done})`);
     const verified = [];
     for (const broadcast of messages) {
@@ -251,7 +253,7 @@ async function handleRequestMessageHash(messageHash, fromIP, port) {
  */
 async function handleAppRunningMessage(message, fromIP, port) {
   try {
-    messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: message });
+    await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: message });
     const result = await messageStore.storeAppRunningMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
@@ -329,8 +331,10 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
  */
 async function handleIPChangedMessage(message, fromIP, port) {
   try {
-    // check if we have it any app running on that location and if yes, update information
-    // rebroadcast message to the network if it's valid
+    const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
+    await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, {
+      oldIP: message.data.oldIP, newIP: message.data.newIP, broadcastedAt: message.data.broadcastedAt, envelope,
+    });
     const rebroadcastToPeers = await messageStore.storeIPChangedMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
@@ -359,7 +363,7 @@ async function handleAppRemovedMessage(message, fromIP, port) {
     // check if we have it any app running on that location and if yes, delete that information
     // rebroadcast message to the network if it's valid
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
-    messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPREMOVED, { message: message.data, envelope });
+    await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPREMOVED, { message: message.data, envelope });
     const rebroadcastToPeers = await messageStore.storeAppRemovedMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
@@ -411,7 +415,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
     log.info(`Found ${appsOnNode.length} apps for node ${ip}, updating expiration and rebroadcasting sigterm`);
 
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
-    messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { ip, broadcastedAt, envelope });
+    await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { ip, broadcastedAt, envelope });
 
     const newExpireAt = new Date(broadcastedAt + (420 * 1000));
     const update = { $set: { expireAt: newExpireAt } };

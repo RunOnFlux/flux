@@ -33,6 +33,7 @@ const APP_STATE_EVENT_TYPES = Object.freeze({
   SIGTERM: 'sigterm',
   APPREMOVED: 'appremoved',
   EVICTED: 'evicted',
+  IPCHANGED: 'ipchanged',
 });
 
 /**
@@ -643,7 +644,7 @@ function handleAppRunningEvent({ signedBroadcast }) {
 
   const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
   const incomingDate = new Date(data.broadcastedAt);
-  const isNewer = { $gte: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
+  const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
   const envelope = { version: signedBroadcast.version, timestamp: signedBroadcast.timestamp, pubKey: signedBroadcast.pubKey, signature: signedBroadcast.signature };
 
   const db = dbHelper.databaseConnection();
@@ -668,7 +669,7 @@ function handleAppRunningEvent({ signedBroadcast }) {
 function handleSigtermEvent({ ip, broadcastedAt, envelope }) {
   if (!ip || !broadcastedAt) return;
   const incomingDate = new Date(broadcastedAt);
-  const isNewer = { $gte: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
+  const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -691,7 +692,7 @@ function handleSigtermEvent({ ip, broadcastedAt, envelope }) {
 function handleAppRemovedStateEvent({ message, envelope }) {
   if (!message || !message.ip || !message.appName || !message.broadcastedAt) return;
   const incomingDate = new Date(message.broadcastedAt);
-  const isNewer = { $gte: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
+  const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -725,12 +726,37 @@ function handleEvictedEvent({ ip }) {
   ).catch((err) => log.error(`storeAppStateEvent(evicted): ${err.message}`));
 }
 
+function handleIPChangedEvent({ oldIP, newIP, broadcastedAt, envelope }) {
+  if (!oldIP || !newIP || !broadcastedAt) return;
+  const incomingDate = new Date(broadcastedAt);
+  const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  return database.collection(globalAppStateEvents).updateOne(
+    { ip: oldIP, type: APP_STATE_EVENT_TYPES.IPCHANGED, dedupKey: 'ipchanged' },
+    [{
+      $set: {
+        ip: oldIP,
+        type: APP_STATE_EVENT_TYPES.IPCHANGED,
+        dedupKey: 'ipchanged',
+        broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
+        expireAt: { $cond: [isNewer, new Date(broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
+        data: { $cond: [isNewer, { oldIP, newIP, broadcastedAt }, { $ifNull: ['$data', { oldIP, newIP, broadcastedAt }] }] },
+        envelope: { $cond: [isNewer, envelope ?? null, { $ifNull: ['$envelope', envelope ?? null] }] },
+      },
+    }],
+    { upsert: true },
+  ).catch((err) => log.error(`storeAppStateEvent(ipchanged): ${err.message}`));
+}
+
 function storeAppStateEvent(type, payload) {
   switch (type) {
     case APP_STATE_EVENT_TYPES.APPRUNNING: return handleAppRunningEvent(payload);
     case APP_STATE_EVENT_TYPES.SIGTERM: return handleSigtermEvent(payload);
     case APP_STATE_EVENT_TYPES.APPREMOVED: return handleAppRemovedStateEvent(payload);
     case APP_STATE_EVENT_TYPES.EVICTED: return handleEvictedEvent(payload);
+    case APP_STATE_EVENT_TYPES.IPCHANGED: return handleIPChangedEvent(payload);
     default: log.error(`storeAppStateEvent: unknown type ${type}`); return undefined;
   }
 }
@@ -751,7 +777,7 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
 
     const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
     const incomingDate = new Date(data.broadcastedAt);
-    const isNewer = { $gte: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
+    const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
 
     ops.push({
       updateOne: {

@@ -215,6 +215,7 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
     await databaseTemp.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ ip: 1, type: 1, dedupKey: 1 }, { unique: true });
     await databaseTemp.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ broadcastedAt: 1 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ createdAt: 1 });
     log.info('App state events collection prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });

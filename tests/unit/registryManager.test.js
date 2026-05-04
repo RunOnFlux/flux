@@ -683,6 +683,17 @@ describe('registryManager tests', () => {
       };
     }
 
+    function makeIPChangedEvent(oldIP, newIP, broadcastedAt) {
+      return {
+        ip: oldIP,
+        type: 'ipchanged',
+        dedupKey: 'ipchanged',
+        broadcastedAt: new Date(broadcastedAt),
+        expireAt: new Date(broadcastedAt + 125 * 60 * 1000),
+        data: { oldIP, newIP, broadcastedAt },
+      };
+    }
+
     it('should derive locations from v2 events', async () => {
       await database.collection(eventsCollection).insertOne(
         makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }, { name: 'AppB', hash: 'h2' }], now),
@@ -811,6 +822,42 @@ describe('registryManager tests', () => {
 
       const result = await registryManager.appLocationFromBroadcasts();
       expect(result).to.be.an('array').with.lengthOf(1);
+    });
+
+    it('should remap IP when ipchanged event is newer than broadcast', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.1.1.1', [{ name: 'AppA', hash: 'h1' }, { name: 'AppB', hash: 'h2' }], now - 60000),
+        makeIPChangedEvent('1.1.1.1', '2.2.2.2', now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(2);
+      result.forEach((r) => expect(r.ip).to.equal('2.2.2.2'));
+    });
+
+    it('should not remap IP when ipchanged is older than broadcast', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeIPChangedEvent('1.1.1.1', '2.2.2.2', now - 120000),
+        makeV2Event('1.1.1.1', [{ name: 'AppA', hash: 'h1' }], now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(1);
+      expect(result[0].ip).to.equal('1.1.1.1');
+    });
+
+    it('should dedup remapped apps with fresh broadcast at new IP', async () => {
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.1.1.1', [{ name: 'AppA', hash: 'h1' }, { name: 'AppB', hash: 'h2' }], now - 120000),
+        makeIPChangedEvent('1.1.1.1', '2.2.2.2', now - 60000),
+        makeV2Event('2.2.2.2', [{ name: 'AppA', hash: 'h1' }, { name: 'AppB', hash: 'h2' }, { name: 'AppC', hash: 'h3' }], now),
+      ]);
+
+      const result = await registryManager.appLocationFromBroadcasts();
+      expect(result).to.be.an('array').with.lengthOf(3);
+      const names = result.map((r) => r.name).sort();
+      expect(names).to.deep.equal(['AppA', 'AppB', 'AppC']);
+      result.forEach((r) => expect(r.ip).to.equal('2.2.2.2'));
     });
 
     it('should exclude expired events', async () => {
