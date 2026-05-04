@@ -8,6 +8,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxEventBus = require('../utils/fluxEventBus');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
+const { SIGTERM_EXPIRY_MS } = require('../appMessaging/messageStore');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const {
   globalAppsInformation,
@@ -211,7 +212,7 @@ async function appLocationFromEvents(options = {}) {
                   $or: [
                     { $eq: ['$$sd', null] },
                     { $gte: ['$$entry.broadcastedAt', '$$sd.eventAt'] },
-                    { $and: [{ $eq: ['$$sd.type', 'sigterm'] }, { $gt: ['$$sd.expireAt', now] }] },
+                    { $and: [{ $eq: ['$$sd.type', 'sigterm'] }, { $gt: [{ $add: ['$$sd.eventAt', SIGTERM_EXPIRY_MS] }, now] }] },
                   ],
                 },
               },
@@ -242,7 +243,7 @@ async function appLocationFromEvents(options = {}) {
                       $or: [
                         { $eq: ['$$sd', null] },
                         { $gte: ['$$entry.broadcastedAt', '$$sd.eventAt'] },
-                        { $and: [{ $eq: ['$$sd.type', 'sigterm'] }, { $gt: ['$$sd.expireAt', now] }] },
+                        { $and: [{ $eq: ['$$sd.type', 'sigterm'] }, { $gt: [{ $add: ['$$sd.eventAt', SIGTERM_EXPIRY_MS] }, now] }] },
                       ],
                     },
                   },

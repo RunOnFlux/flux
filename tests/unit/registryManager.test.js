@@ -783,6 +783,17 @@ describe('registryManager tests', () => {
       expect(result[0].name).to.equal('AppA');
     });
 
+    it('should exclude apps when sigterm is past grace period but still in event log', async () => {
+      const sigtermTime = now - 30 * 60 * 1000; // 30 min ago — past 7-min grace, within 125-min TTL
+      await database.collection(eventsCollection).insertMany([
+        makeV2Event('1.2.3.4', [{ name: 'AppA', hash: 'h1' }], now - 60 * 60 * 1000),
+        makeSigtermEvent('1.2.3.4', sigtermTime),
+      ]);
+
+      const result = await registryManager.appLocationFromEvents();
+      expect(result).to.be.an('array').with.lengthOf(0);
+    });
+
     it('should keep apps when broadcast is newer than sigterm', async () => {
       await database.collection(eventsCollection).insertMany([
         makeSigtermEvent('1.2.3.4', now - 120000),

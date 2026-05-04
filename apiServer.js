@@ -408,7 +408,7 @@ async function handleSigterm() {
           const db = dbHelper.databaseConnection();
           const database = db.db(config.database.appsglobal.database);
           const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
-          const newExpireAt = new Date(sigtermMessage.broadcastedAt + (420 * 1000));
+          const newExpireAt = new Date(sigtermMessage.broadcastedAt + messageStore.SIGTERM_EXPIRY_MS);
           const update = { $set: { expireAt: newExpireAt } };
           await dbHelper.updateInDatabase(database, globalAppsLocations, { ip }, update);
           log.info('Local sigterm event stored and location records updated to expire in ~7 minutes');

@@ -415,7 +415,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
 
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    const newExpireAt = new Date(broadcastedAt + (420 * 1000));
+    const newExpireAt = new Date(broadcastedAt + messageStore.SIGTERM_EXPIRY_MS);
     const update = { $set: { expireAt: newExpireAt } };
     const query = { ip };
     await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
