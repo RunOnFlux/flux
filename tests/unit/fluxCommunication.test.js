@@ -272,7 +272,7 @@ describe('fluxCommunication tests', () => {
 
     it('should broadcast the app message if a proper data is given', async () => {
       sinon.stub(messageStore, 'storeAppRunningMessage').resolves({ stored: true, rebroadcast: true });
-      sinon.stub(messageStore, 'storeSignedAppRunningBroadcast');
+      sinon.stub(messageStore, 'storeAppStateEvent');
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 0 } });
       const fromIp = '127.0.0.5';
       const port = '16127';
@@ -1479,6 +1479,7 @@ describe('fluxCommunication tests', () => {
       dbHelperStub = sinon.stub(dbHelper, 'databaseConnection').returns(mockDb);
       findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
       updateInDatabaseStub = sinon.stub(dbHelper, 'updateInDatabase').resolves();
+      sinon.stub(messageStore, 'storeAppStateEvent');
 
       logInfoSpy = sinon.spy(log, 'info');
     });
@@ -1515,7 +1516,7 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Received SIGTERM notification from node/));
       sinon.assert.calledWith(logInfoSpy, sinon.match(/Found 2 apps for node/));
-      sinon.assert.calledTwice(updateInDatabaseStub);
+      sinon.assert.calledOnce(updateInDatabaseStub);
       sinon.assert.calledOnce(relaySpy);
     }).timeout(10000);
 
