@@ -16,7 +16,7 @@ const STATES = Object.freeze({
   RESYNCING: 'RESYNCING',
 });
 
-const MIN_SYNC_PEERS = config.fluxapps.appSyncMinCompletions ?? 3;
+const MIN_SYNC_COMPLETIONS = config.fluxapps.appSyncMinCompletions ?? 3;
 const SYNC_TIMEOUT_MS = 2 * 60 * 1000;
 const MIN_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime ?? 7500;
 const HASH_SYNC_MAX_RETRIES = 3;
@@ -78,10 +78,10 @@ class AppSyncOrchestrator extends EventEmitter {
     if (this.#stateSyncComplete) return;
     if (this.#syncCompletions[syncType] === undefined) return;
     this.#syncCompletions[syncType] += 1;
-    log.info(`AppSyncOrchestrator - ${syncType} sync complete (${this.#syncCompletions[syncType]}/${MIN_SYNC_PEERS})`);
-    if (this.#syncCompletions.apprunning >= MIN_SYNC_PEERS
-      && this.#syncCompletions.appinstalling >= MIN_SYNC_PEERS
-      && this.#syncCompletions.apperrors >= MIN_SYNC_PEERS) {
+    log.info(`AppSyncOrchestrator - ${syncType} sync complete (${this.#syncCompletions[syncType]}/${MIN_SYNC_COMPLETIONS})`);
+    if (this.#syncCompletions.apprunning >= MIN_SYNC_COMPLETIONS
+      && this.#syncCompletions.appinstalling >= MIN_SYNC_COMPLETIONS
+      && this.#syncCompletions.apperrors >= MIN_SYNC_COMPLETIONS) {
       this.#stateSyncComplete = true;
       if (this.#syncTimeout) {
         clearTimeout(this.#syncTimeout);
@@ -112,8 +112,8 @@ class AppSyncOrchestrator extends EventEmitter {
     const eligible = this.#peerManager.getEligibleSyncPeers(MIN_UPTIME_SECONDS);
     const fresh = eligible.filter((p) => !this.#askedPeers.has(p.key));
 
-    if (fresh.length < MIN_SYNC_PEERS && this.#askedPeers.size === 0) {
-      log.info(`AppSyncOrchestrator - Only ${fresh.length} eligible sync peers (need ${MIN_SYNC_PEERS}), falling back to block timer`);
+    if (fresh.length < MIN_SYNC_COMPLETIONS && this.#askedPeers.size === 0) {
+      log.info(`AppSyncOrchestrator - Only ${fresh.length} eligible sync peers (need ${MIN_SYNC_COMPLETIONS}), falling back to block timer`);
       return;
     }
 
@@ -122,7 +122,7 @@ class AppSyncOrchestrator extends EventEmitter {
       return;
     }
 
-    const peersToAsk = fresh.slice(0, MIN_SYNC_PEERS);
+    const peersToAsk = fresh.slice(0, MIN_SYNC_COMPLETIONS);
     for (const peer of peersToAsk) {
       this.#askedPeers.add(peer.key);
     }

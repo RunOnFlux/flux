@@ -89,6 +89,7 @@ async function appLocation(appname) {
   return results;
 }
 
+// Derives running app locations from the event log. Will replace appLocation() once callers are switched.
 async function appLocationFromBroadcasts(appname) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);

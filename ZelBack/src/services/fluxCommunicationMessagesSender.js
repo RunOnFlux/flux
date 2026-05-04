@@ -350,22 +350,21 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
   }
 }
 
-async function respondWithAppRunningMessages(peer, sinceTimestamp = 0) {
+async function streamBatchedSync(peer, { sinceTimestamp, collectionName, validityMs, query, projection, messageType, label }) {
   try {
-    const appStateEvents = config.database.appsglobal.collections.appStateEvents;
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 
     const adjustedTimestamp = sinceTimestamp > 0
       ? new Date(sinceTimestamp - (peer.remoteClockOffsetMs || 0))
       : new Date(0);
-    const validAfter = new Date(Date.now() - 125 * 60 * 1000);
+    const validAfter = new Date(Date.now() - validityMs);
     const minTimestamp = adjustedTimestamp > validAfter ? adjustedTimestamp : validAfter;
-    const cursor = database.collection(appStateEvents)
-      .find(
-        { $or: [{ broadcastedAt: { $gt: minTimestamp } }, { createdAt: { $gt: minTimestamp } }] },
-        { projection: { _id: 0, expireAt: 0 } },
-      )
+
+    const finalQuery = query ? query(minTimestamp) : { broadcastedAt: { $gt: minTimestamp } };
+    const finalProjection = projection ?? { _id: 0, expireAt: 0 };
+    const cursor = database.collection(collectionName)
+      .find(finalQuery, { projection: finalProjection })
       .sort({ broadcastedAt: 1 });
 
     const batchSize = 2000;
@@ -374,85 +373,50 @@ async function respondWithAppRunningMessages(peer, sinceTimestamp = 0) {
     for await (const doc of cursor) {
       batch.push(doc);
       if (batch.length >= batchSize) {
-        log.info(`respondWithAppRunningMessages - Sending chunk of ${batch.length} to ${peer.key}`);
-        await sendSignedMessage({ type: 'fluxapprunningsync', messages: batch, done: false }, peer);
+        log.info(`${label} - Sending chunk of ${batch.length} to ${peer.key}`);
+        await sendSignedMessage({ type: messageType, messages: batch, done: false }, peer);
         total += batch.length;
         batch = [];
       }
     }
-    log.info(`respondWithAppRunningMessages - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
-    await sendSignedMessage({ type: 'fluxapprunningsync', messages: batch, done: true }, peer);
+    log.info(`${label} - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
+    await sendSignedMessage({ type: messageType, messages: batch, done: true }, peer);
   } catch (error) {
     log.error(error);
   }
+}
+
+async function respondWithAppRunningMessages(peer, sinceTimestamp = 0) {
+  return streamBatchedSync(peer, {
+    sinceTimestamp,
+    collectionName: config.database.appsglobal.collections.appStateEvents,
+    validityMs: 125 * 60 * 1000,
+    query: (min) => ({ $or: [{ broadcastedAt: { $gt: min } }, { createdAt: { $gt: min } }] }),
+    projection: { _id: 0, expireAt: 0 },
+    messageType: 'fluxapprunningsync',
+    label: 'respondWithAppRunningMessages',
+  });
 }
 
 async function respondWithAppInstallingMessages(peer, sinceTimestamp = 0) {
-  try {
-    const appsInstallingBroadcasts = config.database.appsglobal.collections.appsInstallingBroadcasts;
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const adjustedTimestamp = sinceTimestamp > 0
-      ? new Date(sinceTimestamp - (peer.remoteClockOffsetMs || 0))
-      : new Date(0);
-    const validAfter = new Date(Date.now() - 15 * 60 * 1000);
-    const minTimestamp = adjustedTimestamp > validAfter ? adjustedTimestamp : validAfter;
-    const cursor = database.collection(appsInstallingBroadcasts)
-      .find({ broadcastedAt: { $gt: minTimestamp } }, { projection: { _id: 0, expireAt: 0 } })
-      .sort({ broadcastedAt: 1 });
-
-    const batchSize = 2000;
-    let batch = [];
-    let total = 0;
-    for await (const doc of cursor) {
-      batch.push(doc);
-      if (batch.length >= batchSize) {
-        log.info(`respondWithAppInstallingMessages - Sending chunk of ${batch.length} to ${peer.key}`);
-        await sendSignedMessage({ type: 'fluxappinstallingsync', messages: batch, done: false }, peer);
-        total += batch.length;
-        batch = [];
-      }
-    }
-    log.info(`respondWithAppInstallingMessages - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
-    await sendSignedMessage({ type: 'fluxappinstallingsync', messages: batch, done: true }, peer);
-  } catch (error) {
-    log.error(error);
-  }
+  return streamBatchedSync(peer, {
+    sinceTimestamp,
+    collectionName: config.database.appsglobal.collections.appsInstallingBroadcasts,
+    validityMs: 15 * 60 * 1000,
+    messageType: 'fluxappinstallingsync',
+    label: 'respondWithAppInstallingMessages',
+  });
 }
 
 async function respondWithAppInstallingErrorsMessages(peer, sinceTimestamp = 0) {
-  try {
-    const appsInstallingErrorsBroadcasts = config.database.appsglobal.collections.appsInstallingErrorsBroadcasts;
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const adjustedTimestamp = sinceTimestamp > 0
-      ? new Date(sinceTimestamp - (peer.remoteClockOffsetMs || 0))
-      : new Date(0);
-    const validAfter = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const minTimestamp = adjustedTimestamp > validAfter ? adjustedTimestamp : validAfter;
-    const cursor = database.collection(appsInstallingErrorsBroadcasts)
-      .find({ broadcastedAt: { $gt: minTimestamp } }, { projection: { _id: 0 } })
-      .sort({ broadcastedAt: 1 });
-
-    const batchSize = 2000;
-    let batch = [];
-    let total = 0;
-    for await (const doc of cursor) {
-      batch.push(doc);
-      if (batch.length >= batchSize) {
-        log.info(`respondWithAppInstallingErrorsMessages - Sending chunk of ${batch.length} to ${peer.key}`);
-        await sendSignedMessage({ type: 'fluxappinstallingerrorssync', messages: batch, done: false }, peer);
-        total += batch.length;
-        batch = [];
-      }
-    }
-    log.info(`respondWithAppInstallingErrorsMessages - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
-    await sendSignedMessage({ type: 'fluxappinstallingerrorssync', messages: batch, done: true }, peer);
-  } catch (error) {
-    log.error(error);
-  }
+  return streamBatchedSync(peer, {
+    sinceTimestamp,
+    collectionName: config.database.appsglobal.collections.appsInstallingErrorsBroadcasts,
+    validityMs: 24 * 60 * 60 * 1000,
+    projection: { _id: 0 },
+    messageType: 'fluxappinstallingerrorssync',
+    label: 'respondWithAppInstallingErrorsMessages',
+  });
 }
 
 module.exports = {
