@@ -5,11 +5,18 @@ const verificationHelper = require('../verificationHelper');
 const serviceHelper = require('../serviceHelper');
 const messageStore = require('./messageStore');
 const messageVerifier = require('./messageVerifier');
+const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const log = require('../../lib/log');
 const { invalidMessages } = require('../invalidMessages');
 
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
+
+const SETTLE_TIME_MS = 4000;
+const RESPONSE_TIME_PER_HASH_MS = 150;
+const BUFFER_MS = 5000;
+const MAX_ROUNDS = 4;
+const PEERS_PER_ROUND = 3;
 
 let syncRunning = false;
 
@@ -101,8 +108,76 @@ async function processMessages(messages, onProgress) {
   return { processed, skipped, total: filtered.length };
 }
 
+/**
+ * Poll until responses settle or timeout. Responses arrive asynchronously
+ * via gossip — we detect resolution by checking getMissingHashes() count.
+ * @param {number} previousCount - Missing count before this round
+ * @param {number} maxWaitMs - Maximum time to wait
+ * @param {boolean} force - Pass to getMissingHashes
+ * @returns {Promise<Array>} Remaining missing hashes
+ */
+async function waitForResolution(previousCount, maxWaitMs, force) {
+  const deadline = Date.now() + maxWaitMs;
+  let lastChangeAt = Date.now();
+  let lastCount = previousCount;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    await serviceHelper.delay(1000);
+    const current = await getMissingHashes({ force });
+    if (current.length === 0) return [];
+
+    if (current.length < lastCount) {
+      lastCount = current.length;
+      lastChangeAt = Date.now();
+    }
+
+    if (Date.now() - lastChangeAt >= SETTLE_TIME_MS) return current;
+    if (Date.now() >= deadline) return current;
+  }
+}
+
+/**
+ * Pick N random peers that haven't been tried yet.
+ * @param {object} peerManager
+ * @param {number} count
+ * @param {object} [options]
+ * @param {Set} [options.excludeKeys] - Peer keys already tried
+ * @param {string[]} [options.excludeSources] - Peer sources to exclude (e.g. ['deterministic'])
+ * @returns {Array} Array of peer objects
+ */
+function pickRandomPeers(peerManager, count, options = {}) {
+  const { excludeKeys = new Set(), excludeSources = [] } = options;
+  const candidates = [];
+  for (const peer of peerManager.allValues()) {
+    if (excludeKeys.has(peer.key)) continue;
+    if (excludeSources.length && excludeSources.includes(peer.source)) continue;
+    candidates.push(peer);
+  }
+  // Shuffle
+  for (let i = candidates.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+  return candidates.slice(0, count);
+}
+
+/**
+ * Send a fluxapprequest v2 message to a specific peer.
+ * @param {Array<string>} hashes - Hashes to request
+ * @param {object} peer - Peer socket to send to
+ */
+async function requestHashesFromPeer(hashes, peer) {
+  const message = {
+    type: 'fluxapprequest',
+    version: 2,
+    hashes,
+  };
+  await fluxCommunicationMessagesSender.sendSignedMessage(message, peer);
+}
+
 async function syncMissingHashes(options = {}) {
-  const { maxConcurrentPeers = 5, onProgress = null, force = false } = options;
+  const { maxConcurrentPeers = 3, onProgress = null, force = false } = options;
 
   if (syncRunning) {
     log.info('syncMissingHashes - Already running, skipping');
@@ -114,77 +189,86 @@ async function syncMissingHashes(options = {}) {
     // eslint-disable-next-line global-require
     const { peerManager } = require('../utils/peerState');
 
-    const missingHashes = await getMissingHashes({ force });
+    let missingHashes = await getMissingHashes({ force });
     log.info(`syncMissingHashes - Found ${missingHashes.length} missing hashes`);
 
     if (missingHashes.length === 0) {
       return { resolved: 0, missing: 0, unreachable: 0 };
     }
 
+    const initialCount = missingHashes.length;
     let resolved = 0;
 
-    if (missingHashes.length > 1000) {
+    // Bulk fetch for large gaps (> 500 exceeds single fluxapprequest v2 cap)
+    if (missingHashes.length > 500) {
       log.info(`syncMissingHashes - ${missingHashes.length} missing, using bulk fetch`);
-      const peersToTry = [];
-      for (let i = 0; i < Math.min(maxConcurrentPeers, 3); i += 1) {
-        const peer = peerManager.getRandomPeer('outbound');
-        if (peer) peersToTry.push(peer.toPeerInfo());
-      }
+      const peers = pickRandomPeers(peerManager, 3, { excludeSources: ['deterministic'] });
 
-      const fetchPromises = peersToTry.map((p) => bulkFetchFromPeer(p.ip, p.port));
+      const fetchPromises = peers.map((p) => bulkFetchFromPeer(p.ip, p.port));
       const results = await Promise.allSettled(fetchPromises);
 
-      let bestResult = null;
+      const messagesByHash = new Map();
       for (const result of results) {
         if (result.status === 'fulfilled' && result.value) {
-          if (!bestResult || result.value.length > bestResult.length) {
-            bestResult = result.value;
+          for (const msg of result.value) {
+            if (msg.hash && !messagesByHash.has(msg.hash)) {
+              messagesByHash.set(msg.hash, msg);
+            }
           }
         }
       }
 
-      if (bestResult) {
-        log.info(`syncMissingHashes - Bulk fetched ${bestResult.length} messages, processing`);
-        const stats = await processMessages(bestResult, onProgress);
+      if (messagesByHash.size > 0) {
+        const merged = [...messagesByHash.values()];
+        log.info(`syncMissingHashes - Bulk fetched ${merged.length} unique messages from ${peers.length} peers, processing`);
+        const stats = await processMessages(merged, onProgress);
         resolved += stats.processed;
         log.info(`syncMissingHashes - Bulk: ${stats.processed} processed, ${stats.skipped} skipped`);
       }
+
+      missingHashes = await getMissingHashes({ force });
     }
 
-    // Request any still-missing hashes from multiple peers
-    const stillMissing = await getMissingHashes({ force });
-    if (stillMissing.length > 0) {
-      log.info(`syncMissingHashes - ${stillMissing.length} still missing, requesting from peers`);
+    // Targeted fetch for <= 500 missing hashes
+    if (missingHashes.length > 0) {
+      log.info(`syncMissingHashes - ${missingHashes.length} missing, requesting from peers`);
+      const triedPeers = new Set();
 
-      const maxRounds = 3;
-      for (let round = 0; round < maxRounds; round += 1) {
-        const currentMissing = await getMissingHashes({ force });
-        if (currentMissing.length === 0) break;
+      for (let round = 0; round < MAX_ROUNDS; round += 1) {
+        if (missingHashes.length === 0) break;
 
-        log.info(`syncMissingHashes - Round ${round + 1}: ${currentMissing.length} missing`);
-        const appsToRequest = currentMissing.map((h) => ({
-          hash: h.hash, txid: h.txid, height: h.height, value: h.value,
-        }));
-
-        const requestPromises = [];
-        for (let i = 0; i < Math.min(maxConcurrentPeers, 5); i += 1) {
-          const incoming = i % 2 === 0;
-          requestPromises.push(
-            messageVerifier.checkAndRequestMultipleApps(appsToRequest, incoming),
-          );
+        const peers = pickRandomPeers(peerManager, PEERS_PER_ROUND, {
+          excludeKeys: triedPeers,
+          excludeSources: ['deterministic'],
+        });
+        if (peers.length === 0) {
+          log.info(`syncMissingHashes - No more untried peers available`);
+          break;
         }
-        await Promise.allSettled(requestPromises);
 
-        const afterRound = await getMissingHashes({ force });
-        const resolvedThisRound = currentMissing.length - afterRound.length;
+        for (const peer of peers) {
+          triedPeers.add(peer.key);
+        }
+
+        const hashes = missingHashes.map((h) => h.hash);
+        log.info(`syncMissingHashes - Round ${round + 1}: requesting ${hashes.length} hashes from ${peers.length} peers`);
+
+        for (const peer of peers) {
+          requestHashesFromPeer(hashes, peer);
+        }
+
+        const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
+        const beforeCount = missingHashes.length;
+        missingHashes = await waitForResolution(beforeCount, maxWait, force);
+        const resolvedThisRound = beforeCount - missingHashes.length;
         resolved += resolvedThisRound;
-        log.info(`syncMissingHashes - Round ${round + 1}: resolved ${resolvedThisRound}`);
 
-        if (resolvedThisRound === 0) break;
-        if (onProgress) onProgress({ resolved, missing: afterRound.length });
+        log.info(`syncMissingHashes - Round ${round + 1}: resolved ${resolvedThisRound}, ${missingHashes.length} remaining`);
+        if (onProgress) onProgress({ resolved, missing: missingHashes.length });
       }
     }
 
+    // Mark old unresolvable hashes
     const finalMissing = await getMissingHashes({ force: false });
     const maxExpireBlocks = config.fluxapps.blocksLasting * 12;
     const db = dbHelper.databaseConnection();
@@ -206,7 +290,7 @@ async function syncMissingHashes(options = {}) {
     }
 
     const remaining = finalMissing.length - unreachable;
-    log.info(`syncMissingHashes - Complete: ${resolved} resolved, ${remaining} missing, ${unreachable} unreachable`);
+    log.info(`syncMissingHashes - Complete: ${resolved}/${initialCount} resolved, ${remaining} missing, ${unreachable} unreachable`);
     return { resolved, missing: remaining, unreachable };
   } catch (error) {
     log.error(error);

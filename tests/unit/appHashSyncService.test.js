@@ -12,6 +12,19 @@ describe('appHashSyncService tests', () => {
   let configStub;
   let messageVerifierStub;
   let messageStoreStub;
+  let fluxCommSenderStub;
+  let peerManagerStub;
+
+  function makePeer(ip, port, source = 'random') {
+    return {
+      key: `${ip}:${port}`,
+      ip,
+      port,
+      source,
+      send: sinon.stub(),
+      toPeerInfo: () => ({ ip, port }),
+    };
+  }
 
   beforeEach(() => {
     configStub = {
@@ -68,10 +81,26 @@ describe('appHashSyncService tests', () => {
       storeAppTemporaryMessage: sinon.stub().resolves(true),
     };
 
+    fluxCommSenderStub = {
+      sendSignedMessage: sinon.stub().resolves(),
+    };
+
     logStub = {
       error: sinon.stub(),
       info: sinon.stub(),
       warn: sinon.stub(),
+    };
+
+    peerManagerStub = {
+      getRandomPeer: sinon.stub().returns(makePeer('192.168.1.1', '16127')),
+      allValues: sinon.stub().returns([
+        makePeer('10.0.0.1', '16127'),
+        makePeer('10.0.0.2', '16127'),
+        makePeer('10.0.0.3', '16127'),
+        makePeer('10.0.0.4', '16127'),
+        makePeer('10.0.0.5', '16127'),
+        makePeer('10.0.0.6', '16127'),
+      ]),
     };
 
     appHashSyncService = proxyquire('../../ZelBack/src/services/appMessaging/appHashSyncService', {
@@ -83,14 +112,9 @@ describe('appHashSyncService tests', () => {
       '../../lib/log': logStub,
       './messageStore': messageStoreStub,
       './messageVerifier': messageVerifierStub,
+      '../fluxCommunicationMessagesSender': fluxCommSenderStub,
       '../invalidMessages': { invalidMessages: [] },
-      '../utils/peerState': {
-        peerManager: {
-          getRandomPeer: () => ({
-            toPeerInfo: () => ({ ip: '192.168.1.1', port: '16127' }),
-          }),
-        },
-      },
+      '../utils/peerState': { peerManager: peerManagerStub },
     });
   });
 
@@ -268,6 +292,225 @@ describe('appHashSyncService tests', () => {
 
       expect(result.missing).to.equal(-1);
       expect(logStub.error.called).to.be.true;
+    });
+
+    it('should send requests to 3 different peers per round', async () => {
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+
+      const missing = [
+        { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
+        { hash: 'h2', txid: 'tx2', height: 101, value: 10, message: false },
+      ];
+
+      // First call returns missing, subsequent calls return empty (simulates resolution)
+      dbHelperStub.findInDatabase.onFirstCall().resolves(missing);
+      dbHelperStub.findInDatabase.resolves([]);
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      await appHashSyncService.syncMissingHashes();
+
+      expect(fluxCommSenderStub.sendSignedMessage.callCount).to.equal(3);
+      const sentMessages = fluxCommSenderStub.sendSignedMessage.args.map((a) => a[0]);
+      sentMessages.forEach((msg) => {
+        expect(msg.type).to.equal('fluxapprequest');
+        expect(msg.version).to.equal(2);
+        expect(msg.hashes).to.deep.equal(['h1', 'h2']);
+      });
+
+      // Verify 3 different peers were used
+      const peerKeys = fluxCommSenderStub.sendSignedMessage.args.map((a) => a[1].key);
+      const uniqueKeys = new Set(peerKeys);
+      expect(uniqueKeys.size).to.equal(3);
+    });
+
+    it('should not reuse peers across rounds', async () => {
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+
+      const missing = [
+        { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
+      ];
+
+      // Return missing for 2 rounds then empty
+      let callCount = 0;
+      dbHelperStub.findInDatabase.callsFake(() => {
+        callCount += 1;
+        // Calls 1-3 return missing (initial + round 1 polls), then empty
+        if (callCount <= 3) return Promise.resolve(missing);
+        return Promise.resolve([]);
+      });
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      await appHashSyncService.syncMissingHashes();
+
+      // All peers used across rounds should be unique
+      const peerKeys = fluxCommSenderStub.sendSignedMessage.args.map((a) => a[1].key);
+      const uniqueKeys = new Set(peerKeys);
+      expect(uniqueKeys.size).to.equal(peerKeys.length);
+    });
+
+    it('should stop when peer pool is exhausted', async () => {
+      const clock = sinon.useFakeTimers();
+      serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
+
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+
+      // Only 2 peers available
+      peerManagerStub.allValues.returns([
+        makePeer('10.0.0.1', '16127'),
+        makePeer('10.0.0.2', '16127'),
+      ]);
+
+      const missing = [
+        { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
+      ];
+
+      dbHelperStub.findInDatabase.resolves(missing);
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      await appHashSyncService.syncMissingHashes();
+
+      clock.restore();
+
+      // Should only send to 2 peers (pool exhausted)
+      expect(fluxCommSenderStub.sendSignedMessage.callCount).to.equal(2);
+      expect(logStub.info.calledWith(sinon.match('No more untried peers'))).to.be.true;
+    });
+
+    it('should continue rounds even when a round resolves nothing', async () => {
+      const clock = sinon.useFakeTimers();
+      serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
+
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+
+      const missing = [
+        { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
+      ];
+
+      dbHelperStub.findInDatabase.resolves(missing);
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      await appHashSyncService.syncMissingHashes();
+
+      clock.restore();
+
+      // 6 peers available, 3 per round = 2 rounds before exhausted
+      expect(fluxCommSenderStub.sendSignedMessage.callCount).to.equal(6);
+    });
+
+    it('should exclude deterministic peers', async () => {
+      const clock = sinon.useFakeTimers();
+      serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
+
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+
+      // All peers are deterministic except one
+      peerManagerStub.allValues.returns([
+        makePeer('10.0.0.1', '16127', 'deterministic'),
+        makePeer('10.0.0.2', '16127', 'deterministic'),
+        makePeer('10.0.0.3', '16127', 'deterministic'),
+        makePeer('10.0.0.4', '16127', 'random'),
+      ]);
+
+      const missing = [
+        { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
+      ];
+
+      dbHelperStub.findInDatabase.resolves(missing);
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      await appHashSyncService.syncMissingHashes();
+
+      clock.restore();
+
+      // Only the random peer should have been used
+      expect(fluxCommSenderStub.sendSignedMessage.callCount).to.equal(1);
+      const peerUsed = fluxCommSenderStub.sendSignedMessage.args[0][1];
+      expect(peerUsed.source).to.equal('random');
+    });
+
+    it('should use proportional timeout based on hash count', async () => {
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+
+      const missing = Array(50).fill(null).map((_, i) => ({
+        hash: `h${i}`, txid: `tx${i}`, height: 100 + i, value: 10, message: false,
+      }));
+
+      // Return missing once then empty (resolved after first poll)
+      dbHelperStub.findInDatabase.onFirstCall().resolves(missing);
+      dbHelperStub.findInDatabase.resolves([]);
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      await appHashSyncService.syncMissingHashes();
+
+      // serviceHelper.delay is called with 1000ms for polling
+      const delayCalls = serviceHelperStub.delay.args.map((a) => a[0]);
+      expect(delayCalls.every((d) => d === 1000)).to.be.true;
+    });
+  });
+
+  describe('waitForResolution', () => {
+    it('should return immediately when all hashes resolve', async () => {
+      const clock = sinon.useFakeTimers();
+      serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
+
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+
+      const missing = [
+        { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
+      ];
+
+      dbHelperStub.findInDatabase.onFirstCall().resolves(missing);
+      dbHelperStub.findInDatabase.resolves([]);
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      const result = await appHashSyncService.syncMissingHashes();
+
+      clock.restore();
+
+      expect(result.resolved).to.equal(1);
+      expect(result.missing).to.equal(0);
+    });
+
+    it('should settle after no changes for settle time', async () => {
+      const clock = sinon.useFakeTimers();
+      serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
+
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+
+      const missing3 = [
+        { hash: 'h1', txid: 'tx1', height: 2555000, value: 10, message: false },
+        { hash: 'h2', txid: 'tx2', height: 2555001, value: 10, message: false },
+        { hash: 'h3', txid: 'tx3', height: 2555002, value: 10, message: false },
+      ];
+      const missing1 = [
+        { hash: 'h3', txid: 'tx3', height: 2555002, value: 10, message: false },
+      ];
+
+      // Initial call: 3 missing. First poll in waitForResolution: drops to 1.
+      // Subsequent polls: stays at 1, settles after 4s.
+      let findCallCount = 0;
+      dbHelperStub.findInDatabase.callsFake(() => {
+        findCallCount += 1;
+        if (findCallCount === 1) return Promise.resolve(missing3);
+        return Promise.resolve(missing1);
+      });
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      const result = await appHashSyncService.syncMissingHashes();
+
+      clock.restore();
+
+      // 2 of 3 resolved in first round, 1 remains (settled after no progress)
+      expect(result.resolved).to.equal(2);
+      expect(result.missing).to.equal(1);
     });
   });
 });
