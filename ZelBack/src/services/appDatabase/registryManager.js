@@ -8,9 +8,9 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxEventBus = require('../utils/fluxEventBus');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
-const { SIGTERM_EXPIRY_MS } = require('../appMessaging/messageStore');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const {
+  SIGTERM_EXPIRY_MS,
   globalAppsInformation,
   localAppsInformation,
   globalAppsMessages,

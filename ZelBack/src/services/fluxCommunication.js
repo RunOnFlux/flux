@@ -13,6 +13,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const { peerManager, PEER_SOURCE } = require('./utils/peerState');
+const { SIGTERM_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const registryManager = require('./appDatabase/registryManager');
@@ -415,7 +416,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
 
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    const newExpireAt = new Date(broadcastedAt + messageStore.SIGTERM_EXPIRY_MS);
+    const newExpireAt = new Date(broadcastedAt + SIGTERM_EXPIRY_MS);
     const update = { $set: { expireAt: newExpireAt } };
     const query = { ip };
     await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);

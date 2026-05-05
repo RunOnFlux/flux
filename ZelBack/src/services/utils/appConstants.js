@@ -65,6 +65,14 @@ const appsMonitoredTemplate = {
   // },
 };
 
+// Expiry / TTL constants (milliseconds)
+const GOSSIP_VALIDITY_MS = 5 * 60 * 1000;
+const RUNNING_EXPIRY_MS = 125 * 60 * 1000;
+const INSTALLING_EXPIRY_MS = 15 * 60 * 1000;
+const INSTALLING_ERRORS_EXPIRY_MS = 24 * 60 * 60 * 1000;
+const SIGTERM_EXPIRY_MS = 420 * 1000;
+const EVICTED_EXPIRY_MS = RUNNING_EXPIRY_MS;
+
 module.exports = {
   // Paths
   fluxDirPath,
@@ -91,4 +99,12 @@ module.exports = {
   appsThatMightBeUsingOldGatewayIpAssignment,
   defaultNodeSpecs,
   appsMonitoredTemplate,
+
+  // Expiry / TTL
+  GOSSIP_VALIDITY_MS,
+  RUNNING_EXPIRY_MS,
+  INSTALLING_EXPIRY_MS,
+  INSTALLING_ERRORS_EXPIRY_MS,
+  SIGTERM_EXPIRY_MS,
+  EVICTED_EXPIRY_MS,
 };
