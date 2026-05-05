@@ -152,7 +152,7 @@ async function processMessages(messages, onProgress) {
       continue;
     }
 
-    // 3. Pre-load previous app specs for update messages in this chunk
+    // 3. Pre-load previous app specs from DB for update messages in this chunk
     const updateNames = new Set();
     for (const msg of newMessages) {
       if (msg.type === 'fluxappupdate' || msg.type === 'zelappupdate') {
@@ -194,6 +194,18 @@ async function processMessages(messages, onProgress) {
         await messageVerifier.verifyAppHash(appMessage);
         await appValidator.verifyAppSpecifications(appSpecFormatted, height);
 
+        const permMsg = {
+          type: appMessage.type,
+          version: messageVersion,
+          appSpecifications: appSpecFormatted,
+          hash: appMessage.hash,
+          timestamp: messageTimestamp,
+          signature: appMessage.signature,
+          txid: serviceHelper.ensureString(appMessage.txid),
+          height,
+          valueSat,
+        };
+
         if (isRegistration) {
           await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, appMessage.hash);
           await messageVerifier.verifyAppMessageSignature(
@@ -220,17 +232,9 @@ async function processMessages(messages, onProgress) {
           }
         }
 
-        permInserts.push({
-          type: appMessage.type,
-          version: messageVersion,
-          appSpecifications: appSpecFormatted,
-          hash: appMessage.hash,
-          timestamp: messageTimestamp,
-          signature: appMessage.signature,
-          txid: serviceHelper.ensureString(appMessage.txid),
-          height,
-          valueSat,
-        });
+        // Verified — add to batch and update map for subsequent messages
+        permInserts.push(permMsg);
+        prevSpecsMap.set(appSpecFormatted.name, permMsg);
 
         hashMarkOps.push({
           updateOne: { filter: { hash: appMessage.hash }, update: { $set: { message: true, messageNotFound: false } } },
