@@ -30,6 +30,7 @@ const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxComm
 const dockerService = require('./ZelBack/src/services/dockerService');
 const dbHelper = require('./ZelBack/src/services/dbHelper');
 const messageStore = require('./ZelBack/src/services/appMessaging/messageStore');
+const { SIGTERM_EXPIRY_MS } = require('./ZelBack/src/services/utils/appConstants');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -403,12 +404,12 @@ async function handleSigterm() {
         // Peers apply the same when receiving the sigterm via gossip.
         try {
           const envelope = { version: signedMessage.version, timestamp: signedMessage.timestamp, pubKey: signedMessage.pubKey, signature: signedMessage.signature };
-          await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { ip, broadcastedAt: sigtermMessage.broadcastedAt, envelope });
+          await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { message: sigtermMessage, envelope });
 
           const db = dbHelper.databaseConnection();
           const database = db.db(config.database.appsglobal.database);
           const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
-          const newExpireAt = new Date(sigtermMessage.broadcastedAt + messageStore.SIGTERM_EXPIRY_MS);
+          const newExpireAt = new Date(sigtermMessage.broadcastedAt + SIGTERM_EXPIRY_MS);
           const update = { $set: { expireAt: newExpireAt } };
           await dbHelper.updateInDatabase(database, globalAppsLocations, { ip }, update);
           log.info('Local sigterm event stored and location records updated to expire in ~7 minutes');
