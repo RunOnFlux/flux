@@ -729,50 +729,17 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8} - priceSpecs ${JSON.stringify(priceSpecifications)} - specs ${JSON.stringify(specifications)}`);
             }
           } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
-          // appSpecifications.name as identifier
             const db = dbHelper.databaseConnection();
             const database = db.db(config.database.appsglobal.database);
-            const projection = {
-              projection: {
-                _id: 0,
+            const messageInfo = await dbHelper.findOneInDatabase(
+              database,
+              globalAppsMessages,
+              {
+                'appSpecifications.name': specifications.name,
+                timestamp: { $lte: tempMessage.timestamp },
               },
-            };
-            // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
-            const appsQuery = {
-              'appSpecifications.name': specifications.name,
-            };
-            const findPermAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-            let latestPermanentRegistrationMessage;
-            findPermAppMessage.forEach((foundMessage) => {
-            // has to be registration message
-              if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-                if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
-                  latestPermanentRegistrationMessage = foundMessage;
-                } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
-                    latestPermanentRegistrationMessage = foundMessage;
-                  }
-                }
-              }
-            });
-            // some early app have zelAppSepcifications
-            const appsQueryB = {
-              'zelAppSpecifications.name': specifications.name,
-            };
-            const findPermAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
-            findPermAppMessageB.forEach((foundMessage) => {
-            // has to be registration message
-              if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-                if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
-                  latestPermanentRegistrationMessage = foundMessage;
-                } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
-                    latestPermanentRegistrationMessage = foundMessage;
-                  }
-                }
-              }
-            });
-            const messageInfo = latestPermanentRegistrationMessage;
+              { projection: { _id: 0 }, sort: { height: -1 } },
+            );
             if (!messageInfo) {
               log.error(`Last permanent message for ${specifications.name} not found`);
               return true;
