@@ -133,7 +133,7 @@ async function handleAppRunningSyncResponse(message) {
     const database = db.db(config.database.appsglobal.database);
     for (const event of otherEvents) {
       if (event.type === 'sigterm') {
-        await messageStore.storeAppStateEvent(event.type, { ip: event.ip, broadcastedAt: event.data.broadcastedAt, envelope: event.envelope });
+        await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
         const newExpireAt = new Date(event.data.broadcastedAt + SIGTERM_EXPIRY_MS);
         await dbHelper.updateInDatabase(database, globalAppsLocations, { ip: event.ip }, { $set: { expireAt: newExpireAt } });
       } else if (event.type === 'appremoved') {
@@ -143,7 +143,7 @@ async function handleAppRunningSyncResponse(message) {
         await messageStore.storeAppStateEvent(event.type, { ip: event.ip });
         await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: event.ip });
       } else if (event.type === 'ipchanged') {
-        await messageStore.storeAppStateEvent(event.type, { oldIP: event.data.oldIP, newIP: event.data.newIP, broadcastedAt: event.data.broadcastedAt, envelope: event.envelope });
+        await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
       }
     }
     if (done) {
@@ -340,9 +340,7 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
 async function handleIPChangedMessage(message, fromIP, port) {
   try {
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
-    await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, {
-      oldIP: message.data.oldIP, newIP: message.data.newIP, broadcastedAt: message.data.broadcastedAt, envelope,
-    });
+    await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, { message: message.data, envelope });
     const rebroadcastToPeers = await messageStore.storeIPChangedMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
@@ -418,7 +416,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
     log.info(`Found ${appsOnNode.length} apps for node ${ip}, updating expiration and rebroadcasting sigterm`);
 
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
-    await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { ip, broadcastedAt, envelope });
+    await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { message: message.data, envelope });
 
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);

@@ -679,9 +679,10 @@ async function handleAppRunningEvent({ signedBroadcast }) {
   }
 }
 
-function handleSigtermEvent({ ip, broadcastedAt, envelope }) {
-  if (!ip || !broadcastedAt) return;
-  const incomingDate = new Date(broadcastedAt);
+function handleSigtermEvent({ message, envelope }) {
+  if (!message || !message.ip || !message.broadcastedAt) return;
+  const { ip } = message;
+  const incomingDate = new Date(message.broadcastedAt);
   const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
 
   const db = dbHelper.databaseConnection();
@@ -694,8 +695,9 @@ function handleSigtermEvent({ ip, broadcastedAt, envelope }) {
         type: APP_STATE_EVENT_TYPES.SIGTERM,
         dedupKey: 'sigterm',
         broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
-        expireAt: { $cond: [isNewer, new Date(broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
+        expireAt: { $cond: [isNewer, new Date(message.broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
         envelope: { $cond: [isNewer, envelope, { $ifNull: ['$envelope', envelope] }] },
+        data: { $cond: [isNewer, message, { $ifNull: ['$data', message] }] },
         receivedAt: new Date(),
       },
     }],
@@ -720,7 +722,7 @@ function handleAppRemovedStateEvent({ message, envelope }) {
         broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
         expireAt: { $cond: [isNewer, new Date(message.broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
         envelope: { $cond: [isNewer, envelope, { $ifNull: ['$envelope', envelope] }] },
-        data: { $cond: [isNewer, { ip: message.ip, appName: message.appName, broadcastedAt: message.broadcastedAt }, { $ifNull: ['$data', { ip: message.ip, appName: message.appName, broadcastedAt: message.broadcastedAt }] }] },
+        data: { $cond: [isNewer, message, { $ifNull: ['$data', message] }] },
         receivedAt: new Date(),
       },
     }],
@@ -741,23 +743,23 @@ function handleEvictedEvent({ ip }) {
   ).catch((err) => log.error(`storeAppStateEvent(evicted): ${err.message}`));
 }
 
-function handleIPChangedEvent({ oldIP, newIP, broadcastedAt, envelope }) {
-  if (!oldIP || !newIP || !broadcastedAt) return;
-  const incomingDate = new Date(broadcastedAt);
+function handleIPChangedEvent({ message, envelope }) {
+  if (!message || !message.oldIP || !message.newIP || !message.broadcastedAt) return;
+  const incomingDate = new Date(message.broadcastedAt);
   const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   return database.collection(globalAppStateEvents).updateOne(
-    { ip: oldIP, type: APP_STATE_EVENT_TYPES.IPCHANGED, dedupKey: 'ipchanged' },
+    { ip: message.oldIP, type: APP_STATE_EVENT_TYPES.IPCHANGED, dedupKey: 'ipchanged' },
     [{
       $set: {
-        ip: oldIP,
+        ip: message.oldIP,
         type: APP_STATE_EVENT_TYPES.IPCHANGED,
         dedupKey: 'ipchanged',
         broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
-        expireAt: { $cond: [isNewer, new Date(broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
-        data: { $cond: [isNewer, { oldIP, newIP, broadcastedAt }, { $ifNull: ['$data', { oldIP, newIP, broadcastedAt }] }] },
+        expireAt: { $cond: [isNewer, new Date(message.broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
+        data: { $cond: [isNewer, message, { $ifNull: ['$data', message] }] },
         envelope: { $cond: [isNewer, envelope ?? null, { $ifNull: ['$envelope', envelope ?? null] }] },
         receivedAt: new Date(),
       },
