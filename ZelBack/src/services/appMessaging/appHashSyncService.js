@@ -6,10 +6,8 @@ const serviceHelper = require('../serviceHelper');
 const messageStore = require('./messageStore');
 const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
-const registryManager = require('../appDatabase/registryManager');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
-const { appPricePerMonth } = require('../utils/appUtilities');
-const { getChainParamsPriceUpdates } = require('../utils/chainUtilities');
+const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { serialiseAndSignFluxBroadcast } = require('../utils/fluxBroadcastHelper');
 const log = require('../../lib/log');
@@ -67,48 +65,6 @@ async function bulkFetchFromPeer(peerIp, peerPort) {
   return response.data.data;
 }
 
-async function validatePrice(appSpecFormatted, height, valueSat, appPrices, prevMsg) {
-  const isRegistration = !prevMsg;
-  const defaultExpire = height >= config.fluxapps.daemonPONFork
-    ? config.fluxapps.blocksLasting * 4
-    : config.fluxapps.blocksLasting;
-  const expireIn = appSpecFormatted.expire || defaultExpire;
-  const intervals = appPrices.filter((interval) => interval.height < height);
-  const priceSpec = intervals[intervals.length - 1];
-
-  if (isRegistration) {
-    let appPrice = await appPricePerMonth(appSpecFormatted, height, appPrices);
-    const multiplier = expireIn / defaultExpire;
-    appPrice *= multiplier;
-    appPrice = Math.ceil(appPrice * 100) / 100;
-    if (priceSpec && appPrice < priceSpec.minPrice) appPrice = priceSpec.minPrice;
-    return valueSat >= appPrice * 1e8;
-  }
-
-  const prevSpecs = prevMsg.appSpecifications || prevMsg.zelAppSpecifications;
-  let appPrice = await appPricePerMonth(appSpecFormatted, height, appPrices);
-  let previousSpecsPrice = await appPricePerMonth(prevSpecs, prevMsg.height || height, appPrices);
-  const defaultExpirePrevious = (prevMsg.height || height) >= config.fluxapps.daemonPONFork
-    ? config.fluxapps.blocksLasting * 4
-    : config.fluxapps.blocksLasting;
-  const previousExpireIn = prevSpecs.expire || defaultExpirePrevious;
-  const multiplierCurrent = expireIn / defaultExpire;
-  appPrice *= multiplierCurrent;
-  appPrice = Math.ceil(appPrice * 100) / 100;
-  const multiplierPrevious = previousExpireIn / defaultExpirePrevious;
-  previousSpecsPrice *= multiplierPrevious;
-  previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
-  const heightDifference = height - (prevMsg.height || 0);
-  const perc = (previousExpireIn - heightDifference) / previousExpireIn;
-  let actualPriceToPay = appPrice * 0.9;
-  if (perc > 0) {
-    actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) * 0.9;
-  }
-  actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
-  if (priceSpec && actualPriceToPay < priceSpec.minPrice) actualPriceToPay = priceSpec.minPrice;
-  return valueSat >= actualPriceToPay * 1e8;
-}
-
 async function processMessages(messages, onProgress) {
   const db = dbHelper.databaseConnection();
   const appsGlobalDb = db.db(config.database.appsglobal.database);
@@ -122,7 +78,6 @@ async function processMessages(messages, onProgress) {
 
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
   const daemonHeight = syncStatus.data.height || 0;
-  const appPrices = await getChainParamsPriceUpdates();
 
   const CHUNK_SIZE = 2000;
   for (let offset = 0; offset < filtered.length; offset += CHUNK_SIZE) {
@@ -192,7 +147,21 @@ async function processMessages(messages, onProgress) {
         const isRegistration = appMessage.type === 'fluxappregister' || appMessage.type === 'zelappregister';
 
         await messageVerifier.verifyAppHash(appMessage);
-        await appValidator.verifyAppSpecifications(appSpecFormatted, height);
+
+        if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+          try {
+            const decrypted = await checkAndDecryptAppSpecs(
+              appSpecFormatted,
+              { daemonHeight: height, owner: appSpecFormatted.owner },
+            );
+            const appSpecDecrypted = specificationFormatter(decrypted);
+            await appValidator.verifyAppSpecifications(appSpecDecrypted, height);
+          } catch (err) {
+            log.warn(`processMessages enterprise decrypt skipped for ${appSpecFormatted.name}: ${err.message}`);
+          }
+        } else {
+          await appValidator.verifyAppSpecifications(appSpecFormatted, height);
+        }
 
         const permMsg = {
           type: appMessage.type,
@@ -207,14 +176,9 @@ async function processMessages(messages, onProgress) {
         };
 
         if (isRegistration) {
-          await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, appMessage.hash);
           await messageVerifier.verifyAppMessageSignature(
             appMessage.type, messageVersion, appSpecFormatted, messageTimestamp, appMessage.signature,
           );
-          if (!(await validatePrice(appSpecFormatted, height, valueSat, appPrices, null))) {
-            failed += 1;
-            continue;
-          }
         } else {
           const prevMsg = prevSpecsMap.get(appSpecFormatted.name);
           if (!prevMsg) {
@@ -226,10 +190,6 @@ async function processMessages(messages, onProgress) {
             appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
             appMessage.signature, prevSpecs.owner, daemonHeight, prevSpecs,
           );
-          if (!(await validatePrice(appSpecFormatted, height, valueSat, appPrices, prevMsg))) {
-            failed += 1;
-            continue;
-          }
         }
 
         // Verified — add to batch and update map for subsequent messages
