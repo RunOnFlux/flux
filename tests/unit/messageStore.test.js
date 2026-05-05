@@ -88,6 +88,12 @@ describe('messageStore tests', () => {
         globalAppsInstallingErrorsBroadcasts: 'appsInstallingErrorsBroadcasts',
         globalAppStateEvents: 'appStateEvents',
         appsHashesCollection: 'appsHashes',
+        GOSSIP_VALIDITY_MS: 5 * 60 * 1000,
+        RUNNING_EXPIRY_MS: 125 * 60 * 1000,
+        INSTALLING_EXPIRY_MS: 15 * 60 * 1000,
+        INSTALLING_ERRORS_EXPIRY_MS: 24 * 60 * 60 * 1000,
+        SIGTERM_EXPIRY_MS: 420 * 1000,
+        EVICTED_EXPIRY_MS: 125 * 60 * 1000,
       },
       '../utils/appSpecHelpers': {
         specificationFormatter: sinon.stub().returnsArg(0),
@@ -673,7 +679,8 @@ describe('messageStore tests', () => {
 
     it('should store sigterm event', async () => {
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, {
-        ip: '1.2.3.4', broadcastedAt: Date.now(), envelope: { version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig' },
+        message: { type: 'fluxnodesigterm', version: 1, ip: '1.2.3.4', broadcastedAt: Date.now() },
+        envelope: { version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig' },
       });
       expect(collectionStub.updateOne.calledOnce).to.be.true;
       const filter = collectionStub.updateOne.firstCall.args[0];
