@@ -46,10 +46,15 @@ describe('appHashSyncService tests', () => {
       },
       fluxapps: {
         blocksLasting: 22000,
+        daemonPONFork: 1670000,
       },
     };
 
-    collectionStub = { bulkWrite: sinon.stub().resolves({ ok: 1 }) };
+    collectionStub = {
+      bulkWrite: sinon.stub().resolves({ ok: 1 }),
+      insertMany: sinon.stub().resolves({ insertedCount: 0 }),
+      find: sinon.stub().returns({ project: sinon.stub().returns({ sort: sinon.stub().returns({ toArray: sinon.stub().resolves([]) }) }) }),
+    };
     const mockDatabase = { collection: sinon.stub().returns(collectionStub) };
     dbHelperStub = {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns(mockDatabase) }),
@@ -67,6 +72,7 @@ describe('appHashSyncService tests', () => {
       axiosGet: sinon.stub(),
       delay: sinon.stub().resolves(),
       ensureNumber: sinon.stub().returnsArg(0),
+      ensureString: sinon.stub().callsFake((v) => String(v)),
     };
 
     verificationHelperStub = {
@@ -78,6 +84,9 @@ describe('appHashSyncService tests', () => {
       appHashHasMessage: sinon.stub().resolves(),
       appHashHasMessageNotFound: sinon.stub().resolves(),
       checkAndRequestMultipleApps: sinon.stub().resolves(),
+      verifyAppHash: sinon.stub().resolves(true),
+      verifyAppMessageSignature: sinon.stub().resolves(true),
+      verifyAppMessageUpdateSignature: sinon.stub().resolves(true),
     };
 
     messageStoreStub = {
@@ -107,7 +116,6 @@ describe('appHashSyncService tests', () => {
     };
 
     appHashSyncService = proxyquire('../../ZelBack/src/services/appMessaging/appHashSyncService', {
-      config: configStub,
       '../dbHelper': dbHelperStub,
       '../messageHelper': messageHelperStub,
       '../serviceHelper': serviceHelperStub,
@@ -115,6 +123,12 @@ describe('appHashSyncService tests', () => {
       '../../lib/log': logStub,
       './messageStore': messageStoreStub,
       './messageVerifier': messageVerifierStub,
+      '../appRequirements/appValidator': { verifyAppSpecifications: sinon.stub().resolves() },
+      '../appDatabase/registryManager': { checkApplicationRegistrationNameConflicts: sinon.stub().resolves() },
+      '../utils/appSpecHelpers': { specificationFormatter: sinon.stub().returnsArg(0) },
+      '../utils/appUtilities': { appPricePerMonth: sinon.stub().returns(0.01) },
+      '../utils/chainUtilities': { getChainParamsPriceUpdates: sinon.stub().resolves([{ height: 0, minPrice: 0.01, cpu: 1, ram: 1, hdd: 1 }]) },
+      '../daemonService/daemonServiceMiscRpcs': { isDaemonSynced: sinon.stub().returns({ data: { height: 2555000 } }) },
       '../utils/fluxBroadcastHelper': fluxBroadcastHelperStub,
       '../invalidMessages': { invalidMessages: [] },
       '../utils/peerState': { peerManager: peerManagerStub },
@@ -299,19 +313,23 @@ describe('appHashSyncService tests', () => {
       // Bulk fetch returns 10 messages (6 already exist, 4 new)
       const bulkFetchResult = Array(10).fill(null).map((_, i) => ({
         type: 'fluxappregister', version: 4, hash: `hash${i}`, timestamp: Date.now(),
-        signature: 'sig', appSpecifications: { name: `app${i}` }, valueSat: 100,
+        signature: 'sig', appSpecifications: { name: `app${i}` }, valueSat: 1e8,
+        txid: `tx${i}`, height: 1000 + i,
       }));
       const existingPermanent = [
         { hash: 'hash0' }, { hash: 'hash1' }, { hash: 'hash2' },
         { hash: 'hash3' }, { hash: 'hash4' }, { hash: 'hash5' },
       ];
 
-      let findCallCount = 0;
+      let getMissingCalls = 0;
       dbHelperStub.findInDatabase.callsFake((db, col, query) => {
-        findCallCount += 1;
-        if (findCallCount === 1) return Promise.resolve(manyMissing); // getMissingHashes (>500 → bulk)
-        if (query && query.hash && query.hash.$in) return Promise.resolve(existingPermanent); // batch existence
-        return Promise.resolve([]); // subsequent getMissingHashes
+        if (query && query.message === false) {
+          getMissingCalls += 1;
+          if (getMissingCalls === 1) return Promise.resolve(manyMissing);
+          return Promise.resolve([]);
+        }
+        if (query && query.hash && query.hash.$in) return Promise.resolve(existingPermanent);
+        return Promise.resolve([]);
       });
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
@@ -330,8 +348,9 @@ describe('appHashSyncService tests', () => {
       bulkOps.forEach((op) => {
         expect(op.updateOne.update.$set.message).to.be.true;
       });
-      // storeAppTemporaryMessage called for the 4 new messages
-      expect(messageStoreStub.storeAppTemporaryMessage.callCount).to.equal(4);
+      // 4 new messages inserted via insertMany (not storeAppTemporaryMessage)
+      expect(collectionStub.insertMany.calledOnce).to.be.true;
+      expect(collectionStub.insertMany.firstCall.args[0].length).to.equal(4);
     });
 
     it('should send requests to 3 different peers per round', async () => {

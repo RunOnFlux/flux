@@ -5,6 +5,12 @@ const verificationHelper = require('../verificationHelper');
 const serviceHelper = require('../serviceHelper');
 const messageStore = require('./messageStore');
 const messageVerifier = require('./messageVerifier');
+const appValidator = require('../appRequirements/appValidator');
+const registryManager = require('../appDatabase/registryManager');
+const { specificationFormatter } = require('../utils/appSpecHelpers');
+const { appPricePerMonth } = require('../utils/appUtilities');
+const { getChainParamsPriceUpdates } = require('../utils/chainUtilities');
+const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { serialiseAndSignFluxBroadcast } = require('../utils/fluxBroadcastHelper');
 const log = require('../../lib/log');
 const { invalidMessages } = require('../invalidMessages');
@@ -61,28 +67,75 @@ async function bulkFetchFromPeer(peerIp, peerPort) {
   return response.data.data;
 }
 
+function validatePrice(appSpecFormatted, height, valueSat, appPrices, prevMsg) {
+  const isRegistration = !prevMsg;
+  const defaultExpire = height >= config.fluxapps.daemonPONFork
+    ? config.fluxapps.blocksLasting * 4
+    : config.fluxapps.blocksLasting;
+  const expireIn = appSpecFormatted.expire || defaultExpire;
+  const intervals = appPrices.filter((interval) => interval.height < height);
+  const priceSpec = intervals[intervals.length - 1];
+
+  if (isRegistration) {
+    let appPrice = appPricePerMonth(appSpecFormatted, height, appPrices);
+    const multiplier = expireIn / defaultExpire;
+    appPrice *= multiplier;
+    appPrice = Math.ceil(appPrice * 100) / 100;
+    if (priceSpec && appPrice < priceSpec.minPrice) appPrice = priceSpec.minPrice;
+    return valueSat >= appPrice * 1e8;
+  }
+
+  const prevSpecs = prevMsg.appSpecifications || prevMsg.zelAppSpecifications;
+  let appPrice = appPricePerMonth(appSpecFormatted, height, appPrices);
+  let previousSpecsPrice = appPricePerMonth(prevSpecs, prevMsg.height || height, appPrices);
+  const defaultExpirePrevious = (prevMsg.height || height) >= config.fluxapps.daemonPONFork
+    ? config.fluxapps.blocksLasting * 4
+    : config.fluxapps.blocksLasting;
+  const previousExpireIn = prevSpecs.expire || defaultExpirePrevious;
+  const multiplierCurrent = expireIn / defaultExpire;
+  appPrice *= multiplierCurrent;
+  appPrice = Math.ceil(appPrice * 100) / 100;
+  const multiplierPrevious = previousExpireIn / defaultExpirePrevious;
+  previousSpecsPrice *= multiplierPrevious;
+  previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
+  const heightDifference = height - (prevMsg.height || 0);
+  const perc = (previousExpireIn - heightDifference) / previousExpireIn;
+  let actualPriceToPay = appPrice * 0.9;
+  if (perc > 0) {
+    actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) * 0.9;
+  }
+  actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
+  if (priceSpec && actualPriceToPay < priceSpec.minPrice) actualPriceToPay = priceSpec.minPrice;
+  return valueSat >= actualPriceToPay * 1e8;
+}
+
 async function processMessages(messages, onProgress) {
   const db = dbHelper.databaseConnection();
   const appsGlobalDb = db.db(config.database.appsglobal.database);
   const daemonDb = db.db(config.database.daemon.database);
   let processed = 0;
   let skipped = 0;
+  let failed = 0;
 
   messages.sort((a, b) => a.height - b.height);
   const filtered = messages.filter((app) => app.valueSat !== null);
+
+  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+  const daemonHeight = syncStatus.data.height || 0;
+  const appPrices = await getChainParamsPriceUpdates();
 
   const CHUNK_SIZE = 2000;
   for (let offset = 0; offset < filtered.length; offset += CHUNK_SIZE) {
     const chunk = filtered.slice(offset, offset + CHUNK_SIZE);
 
-    // Batch existence check
+    // 1. Batch existence check
     const chunkHashes = chunk.map((m) => m.hash);
     const existingDocs = await dbHelper.findInDatabase(
       appsGlobalDb, globalAppsMessages, { hash: { $in: chunkHashes } }, { projection: { _id: 0, hash: 1 } },
     );
     const existingSet = new Set(existingDocs.map((d) => d.hash));
 
-    // Batch mark existing hashes as message:true
+    // 2. Batch mark existing hashes as message:true
     if (existingSet.size > 0) {
       const hashOps = [...existingSet].map((hash) => ({
         updateOne: { filter: { hash }, update: { $set: { message: true, messageNotFound: false } } },
@@ -92,30 +145,116 @@ async function processMessages(messages, onProgress) {
       skipped += existingSet.size;
     }
 
-    // Process new messages sequentially
     const newMessages = chunk.filter((m) => !existingSet.has(m.hash));
-    for (const appMessage of newMessages) {
-      try {
-        const cleanMessage = {
-          type: appMessage.type,
-          version: appMessage.version,
-          appSpecifications: appMessage.appSpecifications,
-          hash: appMessage.hash,
-          timestamp: appMessage.timestamp,
-          signature: appMessage.signature,
-        };
-        if (appMessage.zelAppSpecifications) {
-          cleanMessage.zelAppSpecifications = appMessage.zelAppSpecifications;
+    if (newMessages.length === 0) {
+      log.info(`syncMissingHashes - ${processed} processed, ${skipped} skipped, ${failed} failed of ${filtered.length}`);
+      if (onProgress) onProgress({ processed, skipped, total: filtered.length });
+      continue;
+    }
+
+    // 3. Pre-load previous app specs for update messages in this chunk
+    const updateNames = new Set();
+    for (const msg of newMessages) {
+      if (msg.type === 'fluxappupdate' || msg.type === 'zelappupdate') {
+        const specs = msg.appSpecifications || msg.zelAppSpecifications;
+        if (specs) updateNames.add(specs.name);
+      }
+    }
+    const prevSpecsMap = new Map();
+    if (updateNames.size > 0) {
+      const prevDocs = await appsGlobalDb.collection(globalAppsMessages)
+        .find({ 'appSpecifications.name': { $in: [...updateNames] } })
+        .project({ _id: 0 })
+        .sort({ height: -1 })
+        .toArray();
+      for (const doc of prevDocs) {
+        const name = doc.appSpecifications?.name;
+        if (name && !prevSpecsMap.has(name)) {
+          prevSpecsMap.set(name, doc);
         }
-        await messageStore.storeAppTemporaryMessage(cleanMessage);
-        await messageVerifier.checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.valueSat, 2);
-        processed += 1;
-      } catch (error) {
-        log.error(error);
       }
     }
 
-    log.info(`syncMissingHashes - ${processed} processed, ${skipped} skipped of ${filtered.length}`);
+    // 4. Verify each message and collect for batch insert
+    const permInserts = [];
+    const hashMarkOps = [];
+
+    for (const appMessage of newMessages) {
+      try {
+        const specifications = appMessage.appSpecifications || appMessage.zelAppSpecifications;
+        if (!specifications) continue;
+
+        const appSpecFormatted = specificationFormatter(specifications);
+        const messageVersion = serviceHelper.ensureNumber(appMessage.version);
+        const messageTimestamp = serviceHelper.ensureNumber(appMessage.timestamp);
+        const height = serviceHelper.ensureNumber(appMessage.height);
+        const valueSat = serviceHelper.ensureNumber(appMessage.valueSat);
+        const isRegistration = appMessage.type === 'fluxappregister' || appMessage.type === 'zelappregister';
+
+        await messageVerifier.verifyAppHash(appMessage);
+        await appValidator.verifyAppSpecifications(appSpecFormatted, height);
+
+        if (isRegistration) {
+          await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, appMessage.hash);
+          await messageVerifier.verifyAppMessageSignature(
+            appMessage.type, messageVersion, appSpecFormatted, messageTimestamp, appMessage.signature,
+          );
+          if (!validatePrice(appSpecFormatted, height, valueSat, appPrices, null)) {
+            failed += 1;
+            continue;
+          }
+        } else {
+          const prevMsg = prevSpecsMap.get(appSpecFormatted.name);
+          if (!prevMsg) {
+            failed += 1;
+            continue;
+          }
+          const prevSpecs = prevMsg.appSpecifications || prevMsg.zelAppSpecifications;
+          await messageVerifier.verifyAppMessageUpdateSignature(
+            appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
+            appMessage.signature, prevSpecs.owner, daemonHeight, prevSpecs,
+          );
+          if (!validatePrice(appSpecFormatted, height, valueSat, appPrices, prevMsg)) {
+            failed += 1;
+            continue;
+          }
+        }
+
+        permInserts.push({
+          type: appMessage.type,
+          version: messageVersion,
+          appSpecifications: appSpecFormatted,
+          hash: appMessage.hash,
+          timestamp: messageTimestamp,
+          signature: appMessage.signature,
+          txid: serviceHelper.ensureString(appMessage.txid),
+          height,
+          valueSat,
+        });
+
+        hashMarkOps.push({
+          updateOne: { filter: { hash: appMessage.hash }, update: { $set: { message: true, messageNotFound: false } } },
+        });
+      } catch (error) {
+        failed += 1;
+        if (failed <= 10) log.warn(`processMessages verify failed: ${appMessage.hash} - ${error.message}`);
+      }
+    }
+
+    // 5. Batch insert permanent messages
+    if (permInserts.length > 0) {
+      await appsGlobalDb.collection(globalAppsMessages).insertMany(permInserts, { ordered: false })
+        .catch((err) => log.error(`processMessages insertMany: ${err.message}`));
+      processed += permInserts.length;
+    }
+
+    // 6. Batch mark hashes
+    if (hashMarkOps.length > 0) {
+      await daemonDb.collection(appsHashesCollection).bulkWrite(hashMarkOps, { ordered: false })
+        .catch((err) => log.error(`processMessages hashMark new: ${err.message}`));
+    }
+
+    log.info(`syncMissingHashes - ${processed} processed, ${skipped} skipped, ${failed} failed of ${filtered.length}`);
     if (onProgress) onProgress({ processed, skipped, total: filtered.length });
   }
   return { processed, skipped, total: filtered.length };
