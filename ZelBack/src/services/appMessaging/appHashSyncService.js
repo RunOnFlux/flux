@@ -5,7 +5,7 @@ const verificationHelper = require('../verificationHelper');
 const serviceHelper = require('../serviceHelper');
 const messageStore = require('./messageStore');
 const messageVerifier = require('./messageVerifier');
-const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+const { serialiseAndSignFluxBroadcast } = require('../utils/fluxBroadcastHelper');
 const log = require('../../lib/log');
 const { invalidMessages } = require('../invalidMessages');
 
@@ -173,7 +173,8 @@ async function requestHashesFromPeer(hashes, peer) {
     version: 2,
     hashes,
   };
-  await fluxCommunicationMessagesSender.sendSignedMessage(message, peer);
+  const signed = await serialiseAndSignFluxBroadcast(message);
+  peer.send(signed);
 }
 
 async function syncMissingHashes(options = {}) {

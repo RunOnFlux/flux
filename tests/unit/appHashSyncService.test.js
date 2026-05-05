@@ -12,7 +12,7 @@ describe('appHashSyncService tests', () => {
   let configStub;
   let messageVerifierStub;
   let messageStoreStub;
-  let fluxCommSenderStub;
+  let fluxBroadcastHelperStub;
   let peerManagerStub;
 
   function makePeer(ip, port, source = 'random') {
@@ -81,8 +81,8 @@ describe('appHashSyncService tests', () => {
       storeAppTemporaryMessage: sinon.stub().resolves(true),
     };
 
-    fluxCommSenderStub = {
-      sendSignedMessage: sinon.stub().resolves(),
+    fluxBroadcastHelperStub = {
+      serialiseAndSignFluxBroadcast: sinon.stub().resolves('{"signed":"data"}'),
     };
 
     logStub = {
@@ -112,7 +112,7 @@ describe('appHashSyncService tests', () => {
       '../../lib/log': logStub,
       './messageStore': messageStoreStub,
       './messageVerifier': messageVerifierStub,
-      '../fluxCommunicationMessagesSender': fluxCommSenderStub,
+      '../utils/fluxBroadcastHelper': fluxBroadcastHelperStub,
       '../invalidMessages': { invalidMessages: [] },
       '../utils/peerState': { peerManager: peerManagerStub },
     });
@@ -310,18 +310,19 @@ describe('appHashSyncService tests', () => {
 
       await appHashSyncService.syncMissingHashes();
 
-      expect(fluxCommSenderStub.sendSignedMessage.callCount).to.equal(3);
-      const sentMessages = fluxCommSenderStub.sendSignedMessage.args.map((a) => a[0]);
+      // serialiseAndSignFluxBroadcast called 3 times (once per peer)
+      expect(fluxBroadcastHelperStub.serialiseAndSignFluxBroadcast.callCount).to.equal(3);
+      const sentMessages = fluxBroadcastHelperStub.serialiseAndSignFluxBroadcast.args.map((a) => a[0]);
       sentMessages.forEach((msg) => {
         expect(msg.type).to.equal('fluxapprequest');
         expect(msg.version).to.equal(2);
         expect(msg.hashes).to.deep.equal(['h1', 'h2']);
       });
 
-      // Verify 3 different peers were used
-      const peerKeys = fluxCommSenderStub.sendSignedMessage.args.map((a) => a[1].key);
-      const uniqueKeys = new Set(peerKeys);
-      expect(uniqueKeys.size).to.equal(3);
+      // Verify 3 different peers were used (check peer.send was called)
+      const peers = peerManagerStub.allValues();
+      const calledPeers = peers.filter((p) => p.send.called);
+      expect(calledPeers.length).to.equal(3);
     });
 
     it('should not reuse peers across rounds', async () => {
@@ -344,10 +345,12 @@ describe('appHashSyncService tests', () => {
 
       await appHashSyncService.syncMissingHashes();
 
-      // All peers used across rounds should be unique
-      const peerKeys = fluxCommSenderStub.sendSignedMessage.args.map((a) => a[1].key);
-      const uniqueKeys = new Set(peerKeys);
-      expect(uniqueKeys.size).to.equal(peerKeys.length);
+      // All peers used across rounds should be unique (no peer called twice)
+      const peers = peerManagerStub.allValues();
+      const calledPeers = peers.filter((p) => p.send.called);
+      calledPeers.forEach((p) => {
+        expect(p.send.callCount).to.equal(1);
+      });
     });
 
     it('should stop when peer pool is exhausted', async () => {
@@ -375,7 +378,9 @@ describe('appHashSyncService tests', () => {
       clock.restore();
 
       // Should only send to 2 peers (pool exhausted)
-      expect(fluxCommSenderStub.sendSignedMessage.callCount).to.equal(2);
+      const peers = peerManagerStub.allValues();
+      const calledPeers = peers.filter((p) => p.send.called);
+      expect(calledPeers.length).to.equal(2);
       expect(logStub.info.calledWith(sinon.match('No more untried peers'))).to.be.true;
     });
 
@@ -398,7 +403,9 @@ describe('appHashSyncService tests', () => {
       clock.restore();
 
       // 6 peers available, 3 per round = 2 rounds before exhausted
-      expect(fluxCommSenderStub.sendSignedMessage.callCount).to.equal(6);
+      const peers = peerManagerStub.allValues();
+      const calledPeers = peers.filter((p) => p.send.called);
+      expect(calledPeers.length).to.equal(6);
     });
 
     it('should exclude deterministic peers', async () => {
@@ -428,9 +435,10 @@ describe('appHashSyncService tests', () => {
       clock.restore();
 
       // Only the random peer should have been used
-      expect(fluxCommSenderStub.sendSignedMessage.callCount).to.equal(1);
-      const peerUsed = fluxCommSenderStub.sendSignedMessage.args[0][1];
-      expect(peerUsed.source).to.equal('random');
+      const allPeers = peerManagerStub.allValues();
+      const calledPeers = allPeers.filter((p) => p.send.called);
+      expect(calledPeers.length).to.equal(1);
+      expect(calledPeers[0].source).to.equal('random');
     });
 
     it('should use proportional timeout based on hash count', async () => {

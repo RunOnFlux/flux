@@ -2,55 +2,16 @@
 const config = require('config');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
+const { serialiseAndSignFluxBroadcast, getFluxMessageSignature } = require('./utils/fluxBroadcastHelper');
 
 const myMessageCache = cacheManager.tempMessageCache;
 
 
-/**
- * To get Flux message signature.
- * @param {object} message Message.
- * @param {string} privatekey Private key.
- * @returns {Promise<string>} Signature.
- */
-async function getFluxMessageSignature(message, privatekey) {
-  const privKey = await fluxNetworkHelper.getFluxNodePrivateKey(privatekey);
-  const signature = await verificationHelper.signMessage(message, privKey);
-  return signature;
-}
-
-/**
- * To serialise and sign a Flux broadcast.
- * @param {object} dataToBroadcast Data to broadcast. Contains version, timestamp, pubKey, signature and data.
- * @param {string} privatekey Private key.
- * @returns {string} Data string (serialised data object).
- */
-async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
-  const version = 1;
-  const timestamp = Date.now();
-  const pubKey = await fluxNetworkHelper.getFluxNodePublicKey(privatekey);
-  const message = serviceHelper.ensureString(dataToBroadcast);
-  const messageToSign = version + message + timestamp;
-  const signature = await getFluxMessageSignature(messageToSign, privatekey);
-  // version 1 specifications
-  // message contains version, timestamp, pubKey, signature and data. Data is a stringified json. Signature is signature of version+stringifieddata+timestamp
-  // signed by the priv key corresponding to pubkey attached
-  // data object contains version, timestamp of signing, signature, pubKey, data object. further data object must at least contain its type as string to determine it further.
-  const dataObj = {
-    version,
-    timestamp,
-    pubKey,
-    signature,
-    data: dataToBroadcast,
-  };
-  const dataString = JSON.stringify(dataObj);
-  return dataString;
-}
 
 /**
  * Sign and send a message to a peer.
