@@ -67,7 +67,7 @@ async function bulkFetchFromPeer(peerIp, peerPort) {
   return response.data.data;
 }
 
-function validatePrice(appSpecFormatted, height, valueSat, appPrices, prevMsg) {
+async function validatePrice(appSpecFormatted, height, valueSat, appPrices, prevMsg) {
   const isRegistration = !prevMsg;
   const defaultExpire = height >= config.fluxapps.daemonPONFork
     ? config.fluxapps.blocksLasting * 4
@@ -77,7 +77,7 @@ function validatePrice(appSpecFormatted, height, valueSat, appPrices, prevMsg) {
   const priceSpec = intervals[intervals.length - 1];
 
   if (isRegistration) {
-    let appPrice = appPricePerMonth(appSpecFormatted, height, appPrices);
+    let appPrice = await appPricePerMonth(appSpecFormatted, height, appPrices);
     const multiplier = expireIn / defaultExpire;
     appPrice *= multiplier;
     appPrice = Math.ceil(appPrice * 100) / 100;
@@ -86,8 +86,8 @@ function validatePrice(appSpecFormatted, height, valueSat, appPrices, prevMsg) {
   }
 
   const prevSpecs = prevMsg.appSpecifications || prevMsg.zelAppSpecifications;
-  let appPrice = appPricePerMonth(appSpecFormatted, height, appPrices);
-  let previousSpecsPrice = appPricePerMonth(prevSpecs, prevMsg.height || height, appPrices);
+  let appPrice = await appPricePerMonth(appSpecFormatted, height, appPrices);
+  let previousSpecsPrice = await appPricePerMonth(prevSpecs, prevMsg.height || height, appPrices);
   const defaultExpirePrevious = (prevMsg.height || height) >= config.fluxapps.daemonPONFork
     ? config.fluxapps.blocksLasting * 4
     : config.fluxapps.blocksLasting;
@@ -199,7 +199,7 @@ async function processMessages(messages, onProgress) {
           await messageVerifier.verifyAppMessageSignature(
             appMessage.type, messageVersion, appSpecFormatted, messageTimestamp, appMessage.signature,
           );
-          if (!validatePrice(appSpecFormatted, height, valueSat, appPrices, null)) {
+          if (!(await validatePrice(appSpecFormatted, height, valueSat, appPrices, null))) {
             failed += 1;
             continue;
           }
@@ -214,7 +214,7 @@ async function processMessages(messages, onProgress) {
             appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
             appMessage.signature, prevSpecs.owner, daemonHeight, prevSpecs,
           );
-          if (!validatePrice(appSpecFormatted, height, valueSat, appPrices, prevMsg)) {
+          if (!(await validatePrice(appSpecFormatted, height, valueSat, appPrices, prevMsg))) {
             failed += 1;
             continue;
           }
