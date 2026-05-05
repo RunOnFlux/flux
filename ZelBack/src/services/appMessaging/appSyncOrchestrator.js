@@ -28,6 +28,8 @@ class AppSyncOrchestrator extends EventEmitter {
   #blockEmitter = null;
   #peerManager = null;
   #isEnterprise = null;
+  #networkStateReady = false;
+  #peersReady = false;
   #explorerSynced = false;
   #hashSyncComplete = false;
   #dbRebuilt = false;
@@ -43,24 +45,27 @@ class AppSyncOrchestrator extends EventEmitter {
   #hashSyncAttempts = 0;
   #hashSyncRetryTimer = null;
   #lastHashSyncCheck = 0;
+  #networkStateReadyPromise = null;
 
   constructor(options = {}) {
     super();
     this.#blockEmitter = options.blockEmitter;
     this.#peerManager = options.peerManager;
     this.#isEnterprise = options.isEnterprise || (() => false);
+    this.#networkStateReadyPromise = options.networkStateReady ?? null;
   }
 
   get state() {
     return this.#state;
   }
 
-  start() {
+  async start() {
     log.info(`AppSyncOrchestrator - Starting in state ${this.#state}`);
 
     this.#peerManager.on('peerThresholdReached', (count) => {
       log.info(`AppSyncOrchestrator - Peer threshold reached (${count} peers)`);
-      this.#onPeersReady();
+      this.#peersReady = true;
+      this.#tryStartSync();
     });
 
     this.#peerManager.on('peersBelowThreshold', (count) => {
@@ -72,6 +77,20 @@ class AppSyncOrchestrator extends EventEmitter {
       this.#onBlockReceived(blockHeight);
     };
     this.#blockEmitter.on('blockReceived', this.#blockReceivedHandler);
+
+    if (this.#networkStateReadyPromise) {
+      await this.#networkStateReadyPromise;
+      this.#networkStateReady = true;
+      log.info('AppSyncOrchestrator - Network state ready');
+      this.#tryStartSync();
+    } else {
+      this.#networkStateReady = true;
+    }
+  }
+
+  #tryStartSync() {
+    if (!this.#networkStateReady || !this.#peersReady) return;
+    this.#onPeersReady();
   }
 
   onSyncComplete(syncType) {

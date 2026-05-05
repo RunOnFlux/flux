@@ -292,6 +292,7 @@ async function startFluxFunctions() {
       blockEmitter: explorerService.getBlockEmitter(),
       peerManager,
       isEnterprise: () => enterpriseNetwork.getCachedEnterpriseIdentity(),
+      networkStateReady: networkStateService.waitStarted(),
     });
     appSpawner.initialize({ appInstaller, appUninstaller, orchestrator });
     appInstaller.setOnInstallComplete(() => peerNotification.checkAndNotifyPeersOfRunningApps());
