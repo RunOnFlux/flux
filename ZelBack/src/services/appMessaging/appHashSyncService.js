@@ -63,47 +63,60 @@ async function bulkFetchFromPeer(peerIp, peerPort) {
 
 async function processMessages(messages, onProgress) {
   const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
+  const appsGlobalDb = db.db(config.database.appsglobal.database);
+  const daemonDb = db.db(config.database.daemon.database);
   let processed = 0;
   let skipped = 0;
 
   messages.sort((a, b) => a.height - b.height);
   const filtered = messages.filter((app) => app.valueSat !== null);
 
-  for (const appMessage of filtered) {
-    try {
-      const existingPerm = await dbHelper.findOneInDatabase(
-        database, globalAppsMessages, { hash: appMessage.hash }, { projection: { _id: 0, hash: 1 } },
-      );
-      if (existingPerm) {
-        skipped += 1;
-        await messageVerifier.appHashHasMessage(appMessage.hash);
-        continue;
-      }
+  const CHUNK_SIZE = 2000;
+  for (let offset = 0; offset < filtered.length; offset += CHUNK_SIZE) {
+    const chunk = filtered.slice(offset, offset + CHUNK_SIZE);
 
-      const cleanMessage = {
-        type: appMessage.type,
-        version: appMessage.version,
-        appSpecifications: appMessage.appSpecifications,
-        hash: appMessage.hash,
-        timestamp: appMessage.timestamp,
-        signature: appMessage.signature,
-      };
-      if (appMessage.zelAppSpecifications) {
-        cleanMessage.zelAppSpecifications = appMessage.zelAppSpecifications;
+    // Batch existence check
+    const chunkHashes = chunk.map((m) => m.hash);
+    const existingDocs = await dbHelper.findInDatabase(
+      appsGlobalDb, globalAppsMessages, { hash: { $in: chunkHashes } }, { projection: { _id: 0, hash: 1 } },
+    );
+    const existingSet = new Set(existingDocs.map((d) => d.hash));
+
+    // Batch mark existing hashes as message:true
+    if (existingSet.size > 0) {
+      const hashOps = [...existingSet].map((hash) => ({
+        updateOne: { filter: { hash }, update: { $set: { message: true, messageNotFound: false } } },
+      }));
+      await daemonDb.collection(appsHashesCollection).bulkWrite(hashOps, { ordered: false })
+        .catch((err) => log.error(`processMessages hashMark: ${err.message}`));
+      skipped += existingSet.size;
+    }
+
+    // Process new messages sequentially
+    const newMessages = chunk.filter((m) => !existingSet.has(m.hash));
+    for (const appMessage of newMessages) {
+      try {
+        const cleanMessage = {
+          type: appMessage.type,
+          version: appMessage.version,
+          appSpecifications: appMessage.appSpecifications,
+          hash: appMessage.hash,
+          timestamp: appMessage.timestamp,
+          signature: appMessage.signature,
+        };
+        if (appMessage.zelAppSpecifications) {
+          cleanMessage.zelAppSpecifications = appMessage.zelAppSpecifications;
+        }
+        await messageStore.storeAppTemporaryMessage(cleanMessage);
+        await messageVerifier.checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.valueSat, 2);
+        processed += 1;
+      } catch (error) {
+        log.error(error);
       }
-      await messageStore.storeAppTemporaryMessage(cleanMessage);
-      await messageVerifier.checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.valueSat, 2);
-      processed += 1;
-    } catch (error) {
-      log.error(error);
     }
-    if ((processed + skipped) % 500 === 0) {
-      log.info(`syncMissingHashes - ${processed} processed, ${skipped} skipped of ${filtered.length}`);
-    }
-    if (onProgress && (processed + skipped) % 100 === 0) {
-      onProgress({ processed, skipped, total: filtered.length });
-    }
+
+    log.info(`syncMissingHashes - ${processed} processed, ${skipped} skipped of ${filtered.length}`);
+    if (onProgress) onProgress({ processed, skipped, total: filtered.length });
   }
   return { processed, skipped, total: filtered.length };
 }

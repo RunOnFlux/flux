@@ -14,6 +14,7 @@ describe('appHashSyncService tests', () => {
   let messageStoreStub;
   let fluxBroadcastHelperStub;
   let peerManagerStub;
+  let collectionStub;
 
   function makePeer(ip, port, source = 'random') {
     return {
@@ -48,8 +49,10 @@ describe('appHashSyncService tests', () => {
       },
     };
 
+    collectionStub = { bulkWrite: sinon.stub().resolves({ ok: 1 }) };
+    const mockDatabase = { collection: sinon.stub().returns(collectionStub) };
     dbHelperStub = {
-      databaseConnection: sinon.stub(),
+      databaseConnection: sinon.stub().returns({ db: sinon.stub().returns(mockDatabase) }),
       findInDatabase: sinon.stub(),
       findOneInDatabase: sinon.stub(),
     };
@@ -232,8 +235,6 @@ describe('appHashSyncService tests', () => {
     });
 
     it('should skip when already running', async () => {
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
 
       // Make findInDatabase slow so syncMissingHashes is still running when we call again
       let resolveFirst;
@@ -252,8 +253,6 @@ describe('appHashSyncService tests', () => {
     });
 
     it('should use bulk fetch when many hashes are missing', async () => {
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
 
       const manyMissing = Array(1500).fill(null).map((_, i) => ({
         hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
@@ -284,8 +283,6 @@ describe('appHashSyncService tests', () => {
     });
 
     it('should handle errors without crashing', async () => {
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findInDatabase.rejects(new Error('DB error'));
 
       const result = await appHashSyncService.syncMissingHashes();
@@ -294,9 +291,50 @@ describe('appHashSyncService tests', () => {
       expect(logStub.error.called).to.be.true;
     });
 
+    it('should batch existence checks and skip existing messages via bulk fetch', async () => {
+      const manyMissing = Array(600).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
+      }));
+
+      // Bulk fetch returns 10 messages (6 already exist, 4 new)
+      const bulkFetchResult = Array(10).fill(null).map((_, i) => ({
+        type: 'fluxappregister', version: 4, hash: `hash${i}`, timestamp: Date.now(),
+        signature: 'sig', appSpecifications: { name: `app${i}` }, valueSat: 100,
+      }));
+      const existingPermanent = [
+        { hash: 'hash0' }, { hash: 'hash1' }, { hash: 'hash2' },
+        { hash: 'hash3' }, { hash: 'hash4' }, { hash: 'hash5' },
+      ];
+
+      let findCallCount = 0;
+      dbHelperStub.findInDatabase.callsFake((db, col, query) => {
+        findCallCount += 1;
+        if (findCallCount === 1) return Promise.resolve(manyMissing); // getMissingHashes (>500 → bulk)
+        if (query && query.hash && query.hash.$in) return Promise.resolve(existingPermanent); // batch existence
+        return Promise.resolve([]); // subsequent getMissingHashes
+      });
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      // Bulk fetch: 3 peers × 2 calls each (explorer check + permanent messages)
+      serviceHelperStub.axiosGet.callsFake((url) => {
+        if (url.includes('permanentmessages')) return Promise.resolve({ data: { status: 'success', data: bulkFetchResult } });
+        return Promise.resolve({ data: { status: 'success', data: true } });
+      });
+
+      await appHashSyncService.syncMissingHashes();
+
+      // 6 skipped via batch bulkWrite to mark hashes as message:true
+      expect(collectionStub.bulkWrite.called).to.be.true;
+      const bulkOps = collectionStub.bulkWrite.firstCall.args[0];
+      expect(bulkOps.length).to.equal(6);
+      bulkOps.forEach((op) => {
+        expect(op.updateOne.update.$set.message).to.be.true;
+      });
+      // storeAppTemporaryMessage called for the 4 new messages
+      expect(messageStoreStub.storeAppTemporaryMessage.callCount).to.equal(4);
+    });
+
     it('should send requests to 3 different peers per round', async () => {
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
 
       const missing = [
         { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
@@ -326,8 +364,6 @@ describe('appHashSyncService tests', () => {
     });
 
     it('should not reuse peers across rounds', async () => {
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
 
       const missing = [
         { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
@@ -357,8 +393,6 @@ describe('appHashSyncService tests', () => {
       const clock = sinon.useFakeTimers();
       serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
 
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
 
       // Only 2 peers available
       peerManagerStub.allValues.returns([
@@ -388,8 +422,6 @@ describe('appHashSyncService tests', () => {
       const clock = sinon.useFakeTimers();
       serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
 
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
 
       const missing = [
         { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
@@ -412,8 +444,6 @@ describe('appHashSyncService tests', () => {
       const clock = sinon.useFakeTimers();
       serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
 
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
 
       // All peers are deterministic except one
       peerManagerStub.allValues.returns([
@@ -442,8 +472,6 @@ describe('appHashSyncService tests', () => {
     });
 
     it('should use proportional timeout based on hash count', async () => {
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
 
       const missing = Array(50).fill(null).map((_, i) => ({
         hash: `h${i}`, txid: `tx${i}`, height: 100 + i, value: 10, message: false,
@@ -467,8 +495,6 @@ describe('appHashSyncService tests', () => {
       const clock = sinon.useFakeTimers();
       serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
 
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
 
       const missing = [
         { hash: 'h1', txid: 'tx1', height: 100, value: 10, message: false },
@@ -490,8 +516,6 @@ describe('appHashSyncService tests', () => {
       const clock = sinon.useFakeTimers();
       serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
 
-      const mockDb = { db: sinon.stub().returns('database') };
-      dbHelperStub.databaseConnection.returns(mockDb);
 
       const missing3 = [
         { hash: 'h1', txid: 'tx1', height: 2555000, value: 10, message: false },
