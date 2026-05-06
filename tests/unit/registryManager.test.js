@@ -394,19 +394,28 @@ describe('registryManager tests', () => {
 
   describe('updateAppSpecifications tests', () => {
     it('should update app specifications', async () => {
-      const appSpecs = {
+      const initialSpecs = {
+        name: 'UpdateTestApp',
+        version: 3,
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        height: 100,
+        hash: 'oldhash',
+      };
+      await registryManager.insertAppSpecifications(initialSpecs);
+
+      const updatedSpecs = {
         name: 'UpdateTestApp',
         version: 3,
         owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
         height: 200,
         hash: 'newhash',
       };
-
-      await registryManager.updateAppSpecifications(appSpecs);
+      await registryManager.updateAppSpecifications(updatedSpecs);
 
       const result = await registryManager.getApplicationSpecifications('UpdateTestApp');
       expect(result.name).to.equal('UpdateTestApp');
       expect(result.height).to.equal(200);
+      expect(result.hash).to.equal('newhash');
     });
 
     it('should not update if height is lower than existing', async () => {
@@ -418,7 +427,7 @@ describe('registryManager tests', () => {
         hash: 'hash1',
       };
 
-      await registryManager.updateAppSpecifications(initialSpecs);
+      await registryManager.insertAppSpecifications(initialSpecs);
 
       const lowerHeightSpecs = {
         ...initialSpecs,
@@ -447,7 +456,7 @@ describe('registryManager tests', () => {
         height: 100,
         hash: 'hash1',
       };
-      await registryManager.updateAppSpecifications(v3Spec);
+      await registryManager.insertAppSpecifications(v3Spec);
 
       // Simulate a v4 compose update (no flat fields)
       const v4Spec = {
