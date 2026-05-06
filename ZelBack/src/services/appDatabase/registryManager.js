@@ -1506,38 +1506,33 @@ async function expireGlobalApplications() {
  * To update app specifications.
  * @param {object} appSpecs App specifications.
  */
+async function insertAppSpecifications(appSpecs) {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const query = { name: appSpecs.name };
+    await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, { upsert: true });
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
+  } catch (error) {
+    log.error(`insertAppSpecifications failed for ${appSpecs.name}: ${error.message}`);
+  }
+}
+
 async function updateAppSpecifications(appSpecs) {
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-
     const query = { name: appSpecs.name };
-    const options = {
-      upsert: true,
-    };
-    const projection = {
-      projection: {
-        _id: 0,
-      },
-    };
+    const projection = { projection: { _id: 0 } };
     const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-    if (appInfo) {
-      if (appInfo.height < appSpecs.height) {
-        await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
-        fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
-      }
-    } else {
-      await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
-      fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
-    }
-    const queryDeleteAppErrors = { name: appSpecs.name };
-    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
+    if (!appInfo || appInfo.height >= appSpecs.height) return;
+    await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, { upsert: false });
+    fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
   } catch (error) {
-    // retry
-    log.error(error);
-    await serviceHelper.delay(60 * 1000);
-    updateAppSpecifications(appSpecs);
+    log.error(`updateAppSpecifications failed for ${appSpecs.name}: ${error.message}`);
   }
 }
 
@@ -2039,6 +2034,7 @@ module.exports = {
   getGlobalAppsSpecifications,
   availableApps,
   checkApplicationRegistrationNameConflicts,
+  insertAppSpecifications,
   updateAppSpecifications,
   updateAppSpecsForRescanReindex,
   storeAppSpecificationInPermanentStorage,

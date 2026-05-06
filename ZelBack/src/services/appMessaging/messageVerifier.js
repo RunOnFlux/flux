@@ -12,7 +12,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { updateAppSpecifications } = require('../appDatabase/registryManager');
+const { insertAppSpecifications, updateAppSpecifications } = require('../appDatabase/registryManager');
 const { getPreviousAppSpecifications } = require('../appLifecycle/advancedWorkflows');
 const {
   globalAppsMessages,
@@ -712,7 +712,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               updateForSpecifications.hash = permanentAppMessage.hash;
               updateForSpecifications.height = permanentAppMessage.height;
               // object of appSpecifications extended for hash and height
-              await updateAppSpecifications(updateForSpecifications);
+              await insertAppSpecifications(updateForSpecifications);
               // Process any pending updates that were queued waiting for this registration
               const appName = specifications.name;
               const pendingUpdates = globalState.getPendingUpdates(appName);
@@ -791,8 +791,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               updateForSpecifications.hash = permanentAppMessage.hash;
               updateForSpecifications.height = permanentAppMessage.height;
               // object of appSpecifications extended for hash and height
-              // do not await this
-              updateAppSpecifications(updateForSpecifications);
+              await updateAppSpecifications(updateForSpecifications);
             } else {
               log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
             }
