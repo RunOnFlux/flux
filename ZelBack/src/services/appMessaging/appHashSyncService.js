@@ -463,8 +463,19 @@ async function triggerAppHashesCheckAPI(req, res) {
   }
 }
 
+async function resetMessageNotFoundFlags() {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+  const result = await database.collection(appsHashesCollection).updateMany(
+    { messageNotFound: true },
+    { $set: { messageNotFound: false } },
+  );
+  return result.modifiedCount;
+}
+
 module.exports = {
   syncMissingHashes,
   getMissingHashes,
+  resetMessageNotFoundFlags,
   triggerAppHashesCheckAPI,
 };
