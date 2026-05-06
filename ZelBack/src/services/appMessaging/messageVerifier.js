@@ -322,30 +322,34 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     const messageToVerifyC = type + version + JSON.stringify(appSpecsClone) + timestamp;
     // we can just use the btc / eth verifier as v7 specs came out at 1688749251
     isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appOwner, signature);
+    if (isValidSignature !== true && marketplaceApp) {
+      isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, fluxSupportTeamFluxID, signature);
+    }
   }
 
   // Check if usersToExtend can sign this update (only for expire-only changes)
   // Uses previousAppSpec (from permanent messages) for the expire-only comparison,
   // so this works even when the app has expired from globalAppsInformation (e.g. during resync)
+  // Callers are responsible for decrypting previousAppSpec before passing it in
+  // (getPreviousAppSpecifications and processMessages both do this)
   const usersToExtend = config.fluxapps.usersToExtend || [];
   if (isValidSignature !== true && usersToExtend.length > 0 && previousAppSpec) {
-    // For v8+ enterprise apps, we need to decrypt specs before comparing
+    let canCompareSpecs = true;
     let newSpecToCompare = appSpec;
-    let prevSpecToCompare = previousAppSpec;
-    const specOwner = previousAppSpec.owner || appOwner;
-    if ((appSpec.version >= 8 && appSpec.enterprise) || (previousAppSpec.version >= 8 && previousAppSpec.enterprise)) {
-      if (appSpec.version >= 8 && appSpec.enterprise) {
-        newSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: specOwner });
-      }
-      if (previousAppSpec.version >= 8 && previousAppSpec.enterprise) {
-        prevSpecToCompare = await checkAndDecryptAppSpecs(previousAppSpec, { daemonHeight, owner: specOwner });
+    const prevSpecToCompare = previousAppSpec;
+    if (appSpec.version >= 8 && appSpec.enterprise) {
+      // eslint-disable-next-line global-require
+      const fluxService = require('../fluxService');
+      if (await fluxService.isSystemSecure()) {
+        newSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: previousAppSpec.owner || appOwner });
+      } else {
+        canCompareSpecs = false;
       }
     }
-    // Check if signature matches any of the usersToExtend addresses
     // eslint-disable-next-line no-restricted-syntax
     for (const userToExtend of usersToExtend) {
       const isValidUserToExtendSignature = signatureVerifier.verifySignature(messageToVerify, userToExtend, signature);
-      if (isValidUserToExtendSignature === true && isExpireOnlyUpdate(newSpecToCompare, prevSpecToCompare)) {
+      if (isValidUserToExtendSignature === true && (!canCompareSpecs || isExpireOnlyUpdate(newSpecToCompare, prevSpecToCompare))) {
         log.info(`App ${appSpec.name} expire extension signed by userToExtend address ${userToExtend}`);
         isValidSignature = true;
         break;

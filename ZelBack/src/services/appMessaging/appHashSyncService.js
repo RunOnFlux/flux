@@ -79,6 +79,7 @@ async function processMessages(messages, onProgress) {
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
   const daemonHeight = syncStatus.data.height || 0;
 
+  const prevOwnerMap = new Map();
   const CHUNK_SIZE = 2000;
   for (let offset = 0; offset < filtered.length; offset += CHUNK_SIZE) {
     const chunk = filtered.slice(offset, offset + CHUNK_SIZE);
@@ -186,10 +187,37 @@ async function processMessages(messages, onProgress) {
             continue;
           }
           const prevSpecs = prevMsg.appSpecifications || prevMsg.zelAppSpecifications;
-          await messageVerifier.verifyAppMessageUpdateSignature(
-            appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
-            appMessage.signature, prevSpecs.owner, daemonHeight, prevSpecs,
-          );
+          let prevSpecsForVerification = prevSpecs;
+          if (prevSpecs.version >= 8 && prevSpecs.enterprise) {
+            try {
+              const decrypted = await checkAndDecryptAppSpecs(
+                prevSpecs, { daemonHeight: prevMsg.height, owner: prevSpecs.owner },
+              );
+              prevSpecsForVerification = specificationFormatter(decrypted);
+            } catch (err) {
+              log.warn(`processMessages prevSpec decrypt skipped for ${appSpecFormatted.name}: ${err.message}`);
+            }
+          }
+          try {
+            await messageVerifier.verifyAppMessageUpdateSignature(
+              appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
+              appMessage.signature, prevSpecsForVerification.owner, daemonHeight, prevSpecsForVerification,
+            );
+          } catch (sigError) {
+            const oldOwner = prevOwnerMap.get(appSpecFormatted.name);
+            if (oldOwner && oldOwner !== prevSpecsForVerification.owner) {
+              await messageVerifier.verifyAppMessageUpdateSignature(
+                appMessage.type, messageVersion, appSpecFormatted, messageTimestamp,
+                appMessage.signature, oldOwner, daemonHeight, prevSpecsForVerification,
+              );
+            } else {
+              throw sigError;
+            }
+          }
+          const currentOwner = prevSpecs.owner;
+          if (currentOwner && appSpecFormatted.owner !== currentOwner) {
+            prevOwnerMap.set(appSpecFormatted.name, currentOwner);
+          }
         }
 
         // Verified — add to batch and update map for subsequent messages
