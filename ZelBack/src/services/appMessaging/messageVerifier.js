@@ -9,7 +9,7 @@ const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSen
 const serviceHelper = require('../serviceHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 // Removed messageStore require to avoid circular dependency - will import locally where needed
-const { appPricePerMonth } = require('../utils/appUtilities');
+const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { updateAppSpecifications } = require('../appDatabase/registryManager');
@@ -345,7 +345,8 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
       // eslint-disable-next-line global-require
       const fluxService = require('../fluxService');
       if (await fluxService.isSystemSecure()) {
-        newSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: previousAppSpec.owner || appOwner });
+        const decrypted = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: previousAppSpec.owner || appOwner });
+        newSpecToCompare = specificationFormatter(decrypted);
       } else {
         canCompareSpecs = false;
       }
