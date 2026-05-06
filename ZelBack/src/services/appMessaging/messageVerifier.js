@@ -216,12 +216,16 @@ function isExpireOnlyUpdate(newSpec, existingSpec) {
   const existingCopy = JSON.parse(JSON.stringify(existingSpec));
 
   // Remove expire from both (and height/hash which are added by system)
+  // Remove enterprise — after decryption its content is represented in compose/contacts,
+  // and the encrypted blob differs between updates due to re-encryption
   delete newCopy.expire;
   delete existingCopy.expire;
   delete newCopy.height;
   delete existingCopy.height;
   delete newCopy.hash;
   delete existingCopy.hash;
+  delete newCopy.enterprise;
+  delete existingCopy.enterprise;
 
   // Use deep equality check that ignores property order
   const isEqual = deepEqual(newCopy, existingCopy);
