@@ -288,7 +288,7 @@ async function startFluxFunctions() {
     log.info('Flux Apps installing locations prepared');
 
     // Reset stale messageNotFound flags on version upgrade
-    const { version: fluxVersion } = require('../../package.json');
+    const { version: fluxVersion } = require('../../../package.json');
     const startupCollection = config.database.local.collections.nodeStartupTracker;
     const hashSyncMarker = await dbHelper.findOneInDatabase(database, startupCollection, { _id: 'hashSyncVersion' });
     if (!hashSyncMarker || hashSyncMarker.version !== fluxVersion) {
