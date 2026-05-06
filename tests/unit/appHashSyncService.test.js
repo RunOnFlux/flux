@@ -509,6 +509,247 @@ describe('appHashSyncService tests', () => {
     });
   });
 
+  describe('resetMessageNotFoundFlags', () => {
+    it('should call updateMany on appsHashes collection and return modifiedCount', async () => {
+      const updateManyStub = sinon.stub().resolves({ modifiedCount: 5 });
+      const collectionStubLocal = { updateMany: updateManyStub };
+      const mockDatabase = { collection: sinon.stub().returns(collectionStubLocal) };
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(mockDatabase) });
+
+      const result = await appHashSyncService.resetMessageNotFoundFlags();
+
+      expect(result).to.equal(5);
+      expect(updateManyStub.calledOnce).to.be.true;
+      expect(updateManyStub.firstCall.args[0]).to.deep.equal({ messageNotFound: true });
+      expect(updateManyStub.firstCall.args[1]).to.deep.equal({ $set: { messageNotFound: false } });
+    });
+
+    it('should return 0 when no documents match', async () => {
+      const updateManyStub = sinon.stub().resolves({ modifiedCount: 0 });
+      const collectionStubLocal = { updateMany: updateManyStub };
+      const mockDatabase = { collection: sinon.stub().returns(collectionStubLocal) };
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(mockDatabase) });
+
+      const result = await appHashSyncService.resetMessageNotFoundFlags();
+
+      expect(result).to.equal(0);
+    });
+  });
+
+  describe('processMessages via bulk fetch', () => {
+    let localModule;
+    let localCollectionStub;
+    let localDbHelperStub;
+    let localMessageVerifierStub;
+    let localCheckAndDecryptStub;
+    let localLogStub;
+
+    beforeEach(() => {
+      localCollectionStub = {
+        bulkWrite: sinon.stub().resolves({ ok: 1 }),
+        insertMany: sinon.stub().resolves({ insertedCount: 0 }),
+        find: sinon.stub().returns({
+          project: sinon.stub().returns({
+            sort: sinon.stub().returns({ toArray: sinon.stub().resolves([]) }),
+          }),
+        }),
+        updateMany: sinon.stub().resolves({ modifiedCount: 0 }),
+      };
+      const mockDatabase = { collection: sinon.stub().returns(localCollectionStub) };
+      localDbHelperStub = {
+        databaseConnection: sinon.stub().returns({ db: sinon.stub().returns(mockDatabase) }),
+        findInDatabase: sinon.stub().resolves([]),
+        findOneInDatabase: sinon.stub(),
+      };
+
+      localMessageVerifierStub = {
+        checkAndRequestApp: sinon.stub().resolves(true),
+        appHashHasMessage: sinon.stub().resolves(),
+        appHashHasMessageNotFound: sinon.stub().resolves(),
+        checkAndRequestMultipleApps: sinon.stub().resolves(),
+        verifyAppHash: sinon.stub().resolves(true),
+        verifyAppMessageSignature: sinon.stub().resolves(true),
+        verifyAppMessageUpdateSignature: sinon.stub().resolves(true),
+      };
+
+      localCheckAndDecryptStub = sinon.stub().callsFake((spec) => Promise.resolve(spec));
+
+      localLogStub = {
+        error: sinon.stub(),
+        info: sinon.stub(),
+        warn: sinon.stub(),
+      };
+
+      localModule = proxyquire('../../ZelBack/src/services/appMessaging/appHashSyncService', {
+        '../dbHelper': localDbHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../serviceHelper': serviceHelperStub,
+        '../verificationHelper': verificationHelperStub,
+        '../../lib/log': localLogStub,
+        './messageStore': messageStoreStub,
+        './messageVerifier': localMessageVerifierStub,
+        '../appRequirements/appValidator': { verifyAppSpecifications: sinon.stub().resolves() },
+        '../appDatabase/registryManager': { checkApplicationRegistrationNameConflicts: sinon.stub().resolves() },
+        '../utils/appSpecHelpers': { specificationFormatter: sinon.stub().returnsArg(0) },
+        '../utils/appUtilities': { appPricePerMonth: sinon.stub().returns(0.01) },
+        '../utils/chainUtilities': { getChainParamsPriceUpdates: sinon.stub().resolves([{ height: 0, minPrice: 0.01, cpu: 1, ram: 1, hdd: 1 }]) },
+        '../daemonService/daemonServiceMiscRpcs': { isDaemonSynced: sinon.stub().returns({ data: { height: 2555000 } }) },
+        '../utils/fluxBroadcastHelper': fluxBroadcastHelperStub,
+        '../invalidMessages': { invalidMessages: [] },
+        '../utils/peerState': { peerManager: peerManagerStub },
+        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: localCheckAndDecryptStub },
+      });
+    });
+
+    it('should retry with previous owner when signature verification fails due to ownership change', async () => {
+      // Two update messages for the same app where first changes ownership
+      const bulkMessages = [
+        {
+          type: 'fluxappupdate', version: 4, hash: 'hash1', timestamp: Date.now() - 1000,
+          signature: 'sig1', appSpecifications: { name: 'testapp', version: 4, owner: 'newOwner' },
+          valueSat: 1e8, txid: 'tx1', height: 1000,
+        },
+        {
+          type: 'fluxappupdate', version: 4, hash: 'hash2', timestamp: Date.now(),
+          signature: 'sig2', appSpecifications: { name: 'testapp', version: 4, owner: 'newOwner' },
+          valueSat: 1e8, txid: 'tx2', height: 1001,
+        },
+      ];
+
+      // Generate > 500 missing hashes to trigger bulk fetch path
+      const manyMissing = Array(600).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
+      }));
+
+      // getMissingHashes: first call returns many missing, subsequent calls return empty
+      let getMissingCalls = 0;
+      localDbHelperStub.findInDatabase.callsFake(() => {
+        getMissingCalls += 1;
+        if (getMissingCalls === 1) return Promise.resolve(manyMissing);
+        return Promise.resolve([]);
+      });
+      localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      // Bulk fetch returns our two update messages from all peers
+      serviceHelperStub.axiosGet.callsFake((url) => {
+        if (url.includes('permanentmessages')) {
+          return Promise.resolve({ data: { status: 'success', data: bulkMessages } });
+        }
+        return Promise.resolve({ data: { status: 'success', data: true } });
+      });
+
+      // Previous spec for the app (before first update) — from DB
+      localCollectionStub.find.returns({
+        project: sinon.stub().returns({
+          sort: sinon.stub().returns({
+            toArray: sinon.stub().resolves([
+              {
+                type: 'fluxappregister', hash: 'hash0', height: 999,
+                appSpecifications: { name: 'testapp', version: 4, owner: 'oldOwner' },
+              },
+            ]),
+          }),
+        }),
+      });
+
+      // First verify succeeds (owner matches prevSpec.owner=oldOwner)
+      // Second verify fails with newOwner (from updated prevSpecsMap), retries with oldOwner and succeeds
+      let verifyCallCount = 0;
+      localMessageVerifierStub.verifyAppMessageUpdateSignature.callsFake(
+        async (type, ver, spec, ts, sig, owner) => {
+          verifyCallCount += 1;
+          if (verifyCallCount === 1) return true; // first message: owner=oldOwner matches prevSpec
+          if (owner === 'newOwner') throw new Error('Invalid signature'); // second message first attempt
+          if (owner === 'oldOwner') return true; // second message retry with prevOwnerMap
+          return true;
+        },
+      );
+
+      await localModule.syncMissingHashes();
+
+      // Verify retry happened (3 calls: 1st msg success + 2nd msg fail + 2nd msg retry)
+      expect(verifyCallCount).to.equal(3);
+      // Both messages should be inserted
+      expect(localCollectionStub.insertMany.called).to.be.true;
+      const inserted = localCollectionStub.insertMany.firstCall.args[0];
+      expect(inserted.length).to.equal(2);
+    });
+
+    it('should decrypt prevSpec for enterprise v8 updates before signature verification', async () => {
+      const bulkMessages = [
+        {
+          type: 'fluxappupdate', version: 8, hash: 'hash1', timestamp: Date.now(),
+          signature: 'sig1',
+          appSpecifications: { name: 'enterpriseApp', version: 8, owner: 'owner1', enterprise: 'encBlob' },
+          valueSat: 1e8, txid: 'tx1', height: 2000,
+        },
+      ];
+
+      // Generate > 500 missing hashes to trigger bulk fetch path
+      const manyMissing = Array(600).fill(null).map((_, i) => ({
+        hash: `hash${i}`, txid: `tx${i}`, height: 1000 + i, value: 100, message: false,
+      }));
+
+      let getMissingCalls = 0;
+      localDbHelperStub.findInDatabase.callsFake(() => {
+        getMissingCalls += 1;
+        if (getMissingCalls === 1) return Promise.resolve(manyMissing);
+        return Promise.resolve([]);
+      });
+      localDbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      serviceHelperStub.axiosGet.callsFake((url) => {
+        if (url.includes('permanentmessages')) {
+          return Promise.resolve({ data: { status: 'success', data: bulkMessages } });
+        }
+        return Promise.resolve({ data: { status: 'success', data: true } });
+      });
+
+      // Previous spec is enterprise v8 with encrypted data
+      const prevSpec = {
+        name: 'enterpriseApp', version: 8, owner: 'owner1', enterprise: 'prevEncBlob',
+      };
+      localCollectionStub.find.returns({
+        project: sinon.stub().returns({
+          sort: sinon.stub().returns({
+            toArray: sinon.stub().resolves([
+              {
+                type: 'fluxappregister', hash: 'hash0', height: 1999,
+                appSpecifications: prevSpec,
+              },
+            ]),
+          }),
+        }),
+      });
+
+      const decryptedPrevSpec = {
+        name: 'enterpriseApp', version: 8, owner: 'owner1',
+        compose: [{ name: 'comp1', repotag: 'repo/tag' }],
+      };
+
+      // Track calls: first for current spec, second for prevSpec
+      let decryptCallCount = 0;
+      localCheckAndDecryptStub.callsFake((spec) => {
+        decryptCallCount += 1;
+        if (decryptCallCount === 1) return Promise.resolve(spec);
+        return Promise.resolve(decryptedPrevSpec);
+      });
+
+      localMessageVerifierStub.verifyAppMessageUpdateSignature.resolves(true);
+
+      await localModule.syncMissingHashes();
+
+      // checkAndDecryptAppSpecs should have been called at least twice
+      // (once for current spec validation, once for prevSpec decryption)
+      expect(localCheckAndDecryptStub.callCount).to.be.greaterThanOrEqual(2);
+      // Verify that verifyAppMessageUpdateSignature received decrypted owner
+      const verifyCall = localMessageVerifierStub.verifyAppMessageUpdateSignature.firstCall;
+      expect(verifyCall).to.not.be.null;
+      // The owner param (6th arg) should be from the decrypted prevSpec
+      expect(verifyCall.args[5]).to.equal('owner1');
+    });
+  });
+
   describe('waitForResolution', () => {
     it('should return immediately when all hashes resolve', async () => {
       const clock = sinon.useFakeTimers();

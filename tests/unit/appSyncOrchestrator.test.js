@@ -469,6 +469,89 @@ describe('AppSyncOrchestrator', () => {
     }).timeout(10000);
   });
 
+  describe('invalidateHashSync', () => {
+    it('should reset hashSyncComplete so backgroundHashRecheck no longer short-circuits', async () => {
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      orchestrator.start();
+
+      // Complete initial sync — hashSyncComplete becomes true
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(syncMissingHashesStub.calledOnce).to.be.true;
+
+      // Invalidate hash sync — resets #hashSyncComplete to false
+      orchestrator.invalidateHashSync();
+
+      // Verify the invalidation was logged (proves #hashSyncComplete was true and is now false)
+      expect(logStub.info.calledWith('AppSyncOrchestrator - Hash sync invalidated, will recheck on next block')).to.be.true;
+    });
+
+    it('should not log when hash sync was not yet complete', async () => {
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      orchestrator.start();
+
+      // Don't complete any sync — hashSyncComplete is still false
+      orchestrator.invalidateHashSync();
+
+      // Should not log because hashSyncComplete was already false
+      expect(logStub.info.calledWith('AppSyncOrchestrator - Hash sync invalidated, will recheck on next block')).to.be.false;
+    });
+
+    it('should prevent checkReadiness from completing until recheck runs', async () => {
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, peerManager, isEnterprise: () => true,
+      });
+      orchestrator.start();
+
+      // Complete initial sync and reach READY via block timer
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+      for (let i = 0; i < 130; i += 1) {
+        blockEmitter.emit('blockReceived', 2555000 + i);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+      expect(orchestrator.state).to.equal(STATES.READY);
+
+      // After invalidation, hash sync state is reset but orchestrator stays READY
+      // (invalidateHashSync only resets the flag, doesn't change state)
+      orchestrator.invalidateHashSync();
+      expect(orchestrator.state).to.equal(STATES.READY);
+    });
+  });
+
+  describe('hashesReconstructed event', () => {
+    it('should call invalidateHashSync when blockEmitter emits hashesReconstructed', async () => {
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      orchestrator.start();
+
+      // Complete initial sync
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Emit hashesReconstructed — should internally call invalidateHashSync()
+      blockEmitter.emit('hashesReconstructed');
+
+      expect(logStub.info.calledWith('AppSyncOrchestrator - Hash sync invalidated, will recheck on next block')).to.be.true;
+    });
+
+    it('should register hashesReconstructed listener on start', async () => {
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      expect(blockEmitter.listenerCount('hashesReconstructed')).to.equal(0);
+      orchestrator.start();
+      expect(blockEmitter.listenerCount('hashesReconstructed')).to.equal(1);
+    });
+
+    it('should not log invalidation when hashesReconstructed fires before initial sync', async () => {
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      orchestrator.start();
+
+      // hashesReconstructed before any block — hashSyncComplete is false, so no-op
+      blockEmitter.emit('hashesReconstructed');
+
+      expect(logStub.info.calledWith('AppSyncOrchestrator - Hash sync invalidated, will recheck on next block')).to.be.false;
+    });
+  });
+
   describe('stop', () => {
     it('should remove all listeners and clear intervals', () => {
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
