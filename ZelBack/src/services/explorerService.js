@@ -637,6 +637,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       if (blockDataVerbose.height % (config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier) === 0) {
         try {
           registryManager.reconstructAppMessagesHashCollection();
+          blockEmitter.emit('hashesReconstructed');
           log.info('Validation of App Messages Hash Collection');
         } catch (error) {
           log.error(error);

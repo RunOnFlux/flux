@@ -77,6 +77,7 @@ class AppSyncOrchestrator extends EventEmitter {
       this.#onBlockReceived(blockHeight);
     };
     this.#blockEmitter.on('blockReceived', this.#blockReceivedHandler);
+    this.#blockEmitter.on('hashesReconstructed', () => this.invalidateHashSync());
 
     if (this.#networkStateReadyPromise) {
       await this.#networkStateReadyPromise;
@@ -341,6 +342,13 @@ class AppSyncOrchestrator extends EventEmitter {
     this.#broadcastStarted = true;
     peerNotification.checkAndNotifyPeersOfRunningApps();
     log.info('AppSyncOrchestrator - App running broadcast started');
+  }
+
+  invalidateHashSync() {
+    if (this.#hashSyncComplete) {
+      this.#hashSyncComplete = false;
+      log.info('AppSyncOrchestrator - Hash sync invalidated, will recheck on next block');
+    }
   }
 
   stop() {
