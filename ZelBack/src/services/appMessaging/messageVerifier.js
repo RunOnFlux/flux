@@ -650,8 +650,10 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               // after the last known race at h=1880981). Retry with previous
               // owner to replay history as it was.
               if (height < 2000000) {
+                const db = dbHelper.databaseConnection();
+                const appsDb = db.db(config.database.appsglobal.database);
                 const prevOwnerDoc = await dbHelper.findOneInDatabase(
-                  database, globalAppsMessages,
+                  appsDb, globalAppsMessages,
                   { 'appSpecifications.name': specifications.name, 'appSpecifications.owner': { $ne: previousAppSpecs.owner } },
                   { projection: { _id: 0, 'appSpecifications.owner': 1 }, sort: { height: -1 } },
                 );
