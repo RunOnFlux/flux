@@ -2,9 +2,10 @@
  * Stopped Apps Recovery Service
  *
  * This module handles the recovery of Flux applications that are stopped on boot.
- * It checks for installed apps that have stopped containers and starts them,
- * but only if they do NOT use g: syncthing mode (master/slave mode).
- * Apps using g: syncthing mode are managed by the masterSlaveApps service.
+ * It iterates installed apps with stopped containers and starts every component
+ * that is NOT in g: syncthing mode. Components in g: mode are left stopped so the
+ * masterSlaveApps service can elect a primary. For mixed compose apps (some
+ * components g:, some not), only the non-g components are started here.
  */
 
 const config = require('config');
@@ -43,6 +44,36 @@ function appUsesGSyncthingMode(appSpec) {
   }
 
   return false;
+}
+
+/**
+ * Return the identifiers (component_appName for v>=4, appName for v<=3) of the
+ * components this service should start on boot — i.e. every component that does
+ * NOT use g: syncthing mode. g: components are intentionally left stopped so
+ * masterSlaveApps can elect a primary.
+ * @param {Object} appSpec - App specification
+ * @param {string} appName - Canonical app name (from container parsing); used as
+ *   the fallback when appSpec.name is absent (e.g. legacy specs or test fixtures).
+ * @returns {string[]} Identifiers ready to pass to advancedWorkflows.appDockerStart
+ */
+function getNonGComponentIdentifiers(appSpec, appName) {
+  if (!appSpec) {
+    return [];
+  }
+  const resolvedName = appSpec.name || appName;
+
+  // Compose apps (version >= 4): partition components by containerData.
+  if (appSpec.compose && appSpec.compose.length > 0) {
+    return appSpec.compose
+      .filter((comp) => !(comp.containerData && comp.containerData.includes('g:')))
+      .map((comp) => `${comp.name}_${resolvedName}`);
+  }
+
+  // Legacy single-component apps (version <= 3).
+  if (appSpec.containerData && appSpec.containerData.includes('g:')) {
+    return [];
+  }
+  return [resolvedName];
 }
 
 /**
@@ -165,14 +196,17 @@ function parseContainerName(containerName) {
 }
 
 /**
- * Start stopped apps that don't use g: syncthing mode in ANY component
- * If an app has ANY component using g: syncthing, ALL containers for that app are skipped
+ * Start stopped Flux app containers on boot, partitioned by g: syncthing mode.
+ * - Apps with no g: components: started normally (whole app).
+ * - Apps where every component is g:: skipped entirely (managed by masterSlaveApps).
+ * - Mixed compose apps: only non-g components started; g: components left stopped.
  * @returns {Promise<Object>} Results of the recovery operation
  */
 async function startStoppedAppsOnBoot() {
   const results = {
     appsChecked: 0,
     appsStarted: [],
+    appsPartiallyStarted: [], // mixed compose: non-g components started, g: components left for masterSlaveApps
     appsSkippedGMode: [],
     appsSkippedNoSpec: [],
     appsRemoved: [],
@@ -246,9 +280,18 @@ async function startStoppedAppsOnBoot() {
         continue;
       }
 
-      // Check if ANY component of the app uses g: syncthing mode
-      if (appUsesGSyncthingMode(appSpec)) {
-        log.info(`stoppedAppsRecovery - App ${appName} uses g: syncthing mode, skipping all its containers (managed by masterSlaveApps)`);
+      // Partition the app's components by g: syncthing mode. Non-g components are
+      // started here; g: components are left stopped for masterSlaveApps to elect a
+      // primary. If every component is g:, the app is skipped entirely.
+      const componentsToStart = getNonGComponentIdentifiers(appSpec, appName);
+      const totalComponents = (appSpec.compose && appSpec.compose.length > 0)
+        ? appSpec.compose.length
+        : 1;
+      const isPartial = componentsToStart.length > 0
+        && componentsToStart.length < totalComponents;
+
+      if (componentsToStart.length === 0) {
+        log.info(`stoppedAppsRecovery - App ${appName} uses g: syncthing mode in every component, skipping (managed by masterSlaveApps)`);
         results.appsSkippedGMode.push(appName);
         // eslint-disable-next-line no-continue
         continue;
@@ -278,24 +321,40 @@ async function startStoppedAppsOnBoot() {
         }
       }
 
-      // App has valid location - start it (handles all components)
-      log.info(`stoppedAppsRecovery - App ${appName} has valid location, starting app`);
+      // App has valid location - start the non-g components individually so that any
+      // g: siblings remain stopped (masterSlaveApps will start them only on the primary).
+      if (isPartial) {
+        log.info(`stoppedAppsRecovery - App ${appName} has valid location, starting ${componentsToStart.length}/${totalComponents} non-g components (g: components managed by masterSlaveApps)`);
+      } else {
+        log.info(`stoppedAppsRecovery - App ${appName} has valid location, starting app`);
+      }
 
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        await advancedWorkflows.appDockerStart(appName);
-        results.appsStarted.push(appName);
-        log.info(`stoppedAppsRecovery - Successfully started app ${appName}`);
+      let anyComponentFailed = false;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const identifier of componentsToStart) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await advancedWorkflows.appDockerStart(identifier);
+          log.info(`stoppedAppsRecovery - Successfully started ${identifier}`);
+          // Add small delay between starts to avoid overwhelming the system
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(2000);
+        } catch (startError) {
+          anyComponentFailed = true;
+          log.error(`stoppedAppsRecovery - Failed to start ${identifier}: ${startError.message}`);
+          results.appsFailed.push({
+            app: identifier,
+            error: startError.message,
+          });
+        }
+      }
 
-        // Add small delay between app starts to avoid overwhelming the system
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(2000);
-      } catch (startError) {
-        log.error(`stoppedAppsRecovery - Failed to start app ${appName}: ${startError.message}`);
-        results.appsFailed.push({
-          app: appName,
-          error: startError.message,
-        });
+      if (!anyComponentFailed) {
+        if (isPartial) {
+          results.appsPartiallyStarted.push(appName);
+        } else {
+          results.appsStarted.push(appName);
+        }
       }
     }
 
@@ -303,6 +362,7 @@ async function startStoppedAppsOnBoot() {
       'stoppedAppsRecovery - Recovery complete. '
       + `Apps checked: ${results.appsChecked}, `
       + `Apps started: ${results.appsStarted.length}, `
+      + `Apps partially started (mixed g:): ${results.appsPartiallyStarted.length}, `
       + `Apps removed (expired location): ${results.appsRemoved.length}, `
       + `Apps skipped (g: mode): ${results.appsSkippedGMode.length}, `
       + `Apps skipped (no spec): ${results.appsSkippedNoSpec.length}, `
@@ -319,6 +379,7 @@ module.exports = {
   startStoppedAppsOnBoot,
   getStoppedFluxContainers,
   appUsesGSyncthingMode,
+  getNonGComponentIdentifiers,
   appHasValidLocationOnNode,
   parseContainerName,
 };
