@@ -69,12 +69,12 @@ async function handleAppMessages(message, fromIP, port) {
   }
 }
 
-async function handleTempSyncResponse(message) {
+async function handleTempSyncResponse(message, peerKey) {
   try {
     if (!message.data || message.data.type !== 'fluxapptempsync') return;
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
-    log.info(`handleTempSyncResponse - Received ${messages.length} temp messages (done: ${!!done})`);
+    log.info(`handleTempSyncResponse - Received ${messages.length} temp messages from ${peerKey} (done: ${!!done})`);
     let stored = 0;
     for (const msg of messages) {
       try {
@@ -90,12 +90,12 @@ async function handleTempSyncResponse(message) {
   }
 }
 
-async function handleAppRunningSyncResponse(message) {
+async function handleAppRunningSyncResponse(message, peerKey) {
   try {
     if (!message.data || message.data.type !== 'fluxapprunningsync') return;
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
-    log.info(`handleAppRunningSyncResponse - Received ${messages.length} events (done: ${!!done})`);
+    log.info(`handleAppRunningSyncResponse - Received ${messages.length} events from ${peerKey} (done: ${!!done})`);
     const verifiedAppRunning = [];
     const otherEvents = [];
     for (const event of messages) {
@@ -151,12 +151,12 @@ async function handleAppRunningSyncResponse(message) {
   }
 }
 
-async function handleAppInstallingSyncResponse(message) {
+async function handleAppInstallingSyncResponse(message, peerKey) {
   try {
     if (!message.data || message.data.type !== 'fluxappinstallingsync') return;
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
-    log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts (done: ${!!done})`);
+    log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     const verified = [];
     for (const broadcast of messages) {
       try {
@@ -183,12 +183,12 @@ async function handleAppInstallingSyncResponse(message) {
   }
 }
 
-async function handleAppInstallingErrorsSyncResponse(message) {
+async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
   try {
     if (!message.data || message.data.type !== 'fluxappinstallingerrorssync') return;
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
-    log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts (done: ${!!done})`);
+    log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     const verified = [];
     for (const broadcast of messages) {
       try {
@@ -532,13 +532,13 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
         } else if (msgObj.data.type === 'fluxnodesigterm') {
           setImmediate(() => handleNodeSigtermMessage(msgObj, peerSocket.ip, peerSocket.port));
         } else if (msgObj.data.type === 'fluxapptempsync') {
-          setImmediate(() => handleTempSyncResponse(msgObj));
+          setImmediate(() => handleTempSyncResponse(msgObj, peerSocket.key));
         } else if (msgObj.data.type === 'fluxapprunningsync') {
-          setImmediate(() => handleAppRunningSyncResponse(msgObj));
+          setImmediate(() => handleAppRunningSyncResponse(msgObj, peerSocket.key));
         } else if (msgObj.data.type === 'fluxappinstallingsync') {
-          setImmediate(() => handleAppInstallingSyncResponse(msgObj));
+          setImmediate(() => handleAppInstallingSyncResponse(msgObj, peerSocket.key));
         } else if (msgObj.data.type === 'fluxappinstallingerrorssync') {
-          setImmediate(() => handleAppInstallingErrorsSyncResponse(msgObj));
+          setImmediate(() => handleAppInstallingErrorsSyncResponse(msgObj, peerSocket.key));
         } else {
           log.warn(`Unrecognised message type of ${msgObj.data.type}`);
         }

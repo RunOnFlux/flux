@@ -173,7 +173,8 @@ class AppSyncOrchestrator {
   }
 
   #sendRequests(peers, label, message) {
-    log.info(`AppSyncOrchestrator - Requesting ${label} sync from ${peers.length} peers`);
+    const peerKeys = peers.map((p) => p.key).join(', ');
+    log.info(`AppSyncOrchestrator - Requesting ${label} sync from ${peers.length} peers: ${peerKeys}`);
     for (const peer of peers) {
       try {
         peer.send(message);
