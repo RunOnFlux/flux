@@ -86,7 +86,7 @@ class FluxServer {
     // (app backups, fluxshare) on slow connections. headersTimeout (60s default)
     // still defends against slowloris on the request line/headers, and
     // formidable caps body size at 10GB.
-    server.requestTimeout = 12 * 60 * 60 * 1000;
+    server.requestTimeout = 2 * 60 * 60 * 1000;
 
     this.socketServer = new FluxWebsocketServer({
       routes: socketHandlers,
