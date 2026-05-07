@@ -445,11 +445,16 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
   if (!appSpecs) {
     throw new Error(`Previous specifications for ${specifications.name} update message does not exists! This should not happen.`);
   }
-  const heightForDecrypt = latestPermanentRegistrationMessage.height;
-  const decryptedPrev = await checkAndDecryptAppSpecs(appSpecs, { daemonHeight: heightForDecrypt });
-  const formattedPrev = specificationFormatter(decryptedPrev);
-
-  return formattedPrev;
+  if (appSpecs.version >= 8 && appSpecs.enterprise) {
+    try {
+      const heightForDecrypt = latestPermanentRegistrationMessage.height;
+      const decryptedPrev = await checkAndDecryptAppSpecs(appSpecs, { daemonHeight: heightForDecrypt });
+      return specificationFormatter(decryptedPrev);
+    } catch {
+      return specificationFormatter(appSpecs);
+    }
+  }
+  return specificationFormatter(appSpecs);
 }
 
 // Global state management - using globalState module instead of local variables
