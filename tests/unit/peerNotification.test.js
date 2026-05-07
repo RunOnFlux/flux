@@ -10,6 +10,9 @@ describe('peerNotification tests', () => {
   let appUninstallerStub;
   let appInspectorStub;
   let dbHelperStub;
+  let registryManagerStub;
+  let generalServiceStub;
+  let appTamperingDetectionStub;
 
   beforeEach(() => {
     logStub = {
@@ -44,6 +47,20 @@ describe('peerNotification tests', () => {
       findInDatabase: sinon.stub().resolves([]),
     };
 
+    registryManagerStub = {
+      getApplicationGlobalSpecifications: sinon.stub().resolves(null),
+    };
+
+    generalServiceStub = {
+      isNodeStatusConfirmed: sinon.stub().resolves(true),
+      nodeTier: sinon.stub().resolves('cumulus'),
+    };
+
+    appTamperingDetectionStub = {
+      recordEvent: sinon.stub().resolves(),
+      isNetworkMissingError: sinon.stub().returns(false),
+    };
+
     peerNotification = proxyquire('../../ZelBack/src/services/appMessaging/peerNotification', {
       config: {
         database: {
@@ -63,10 +80,7 @@ describe('peerNotification tests', () => {
         delay: sinon.stub().resolves(),
         ensureString: sinon.stub().returnsArg(0),
       },
-      '../generalService': {
-        isNodeStatusConfirmed: sinon.stub().resolves(true),
-        nodeTier: sinon.stub().resolves('cumulus'),
-      },
+      '../generalService': generalServiceStub,
       '../benchmarkService': {
         getBenchmarks: sinon.stub().resolves({
           status: 'success',
@@ -84,15 +98,14 @@ describe('peerNotification tests', () => {
       './messageStore': {
         storeAppRunningMessage: sinon.stub().resolves(),
       },
-      '../appDatabase/registryManager': {
-        getApplicationGlobalSpecifications: sinon.stub().resolves(null),
-      },
+      '../appDatabase/registryManager': registryManagerStub,
       '../appManagement/appInspector': appInspectorStub,
       '../appLifecycle/appUninstaller': appUninstallerStub,
       '../appLifecycle/appInstaller': appInstallerStub,
       '../appQuery/appQueryService': {
         decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps),
       },
+      '../appTamperingDetectionService': appTamperingDetectionStub,
       '../utils/appConstants': {
         localAppsInformation: 'localAppsInformation',
       },
@@ -170,6 +183,153 @@ describe('peerNotification tests', () => {
 
       expect(appUninstallerStub.removeAppLocally.called).to.be.false;
       expect(logStub.info.calledWithMatch(/created by another process/)).to.be.true;
+    });
+  });
+
+  describe('checkAndNotifyPeersOfRunningApps - per-component g: handling', () => {
+    const mixedSpec = {
+      version: 8,
+      name: 'MixedApp',
+      hash: 'mixhash',
+      compose: [
+        { name: 'web', containerData: '' },
+        { name: 'db', containerData: 'g:/data' },
+      ],
+    };
+
+    const rOnlySpec = {
+      version: 8,
+      name: 'RApp',
+      hash: 'rhash',
+      compose: [
+        { name: 'web', containerData: 'r:/data' },
+      ],
+    };
+
+    function makeGlobalState() {
+      return {
+        backupInProgress: [],
+        restoreInProgress: [],
+        runningAppsCache: { clear: sinon.stub(), add: sinon.stub(), size: 0 },
+      };
+    }
+
+    function makeCacheManager(prepopulate = []) {
+      const stoppedAppsCache = new Map();
+      prepopulate.forEach((k) => stoppedAppsCache.set(k, ''));
+      return { stoppedAppsCache };
+    }
+
+    it('starts a stopped non-g component of a mixed compose app and leaves the g: sibling alone', async () => {
+      // Both components stopped at boot. After the patch, the non-g component must
+      // auto-start while the g: component is left for masterSlaveApps.
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [mixedSpec] });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      registryManagerStub.getApplicationGlobalSpecifications.withArgs('MixedApp').resolves(mixedSpec);
+
+      // Both containers exist (stopped). handleMissingMasterSlaveContainer returns
+      // early for the g: component because the container exists.
+      dockerServiceStub.getDockerContainerOnly.withArgs('web_MixedApp').resolves({ Id: 'web' });
+      dockerServiceStub.getDockerContainerOnly.withArgs('db_MixedApp').resolves({ Id: 'db' });
+      dbHelperStub.findOneInDatabase.resolves(null);
+
+      // Pre-warm the cache for the non-g component so the auto-restart fires immediately
+      const cacheManager = makeCacheManager(['web_MixedApp']);
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps(
+        installedApps,
+        listRunningApps,
+        {},
+        false, false, false, false, false,
+        makeGlobalState,
+        cacheManager,
+      );
+
+      expect(dockerServiceStub.appDockerStart.calledWith('web_MixedApp')).to.equal(true);
+      expect(dockerServiceStub.appDockerStart.calledWith('db_MixedApp')).to.equal(false);
+      expect(appInstallerStub.installApplicationHard.called).to.equal(false);
+    });
+
+    it('routes a stopped g: component through handleMissingMasterSlaveContainer, never appDockerStart', async () => {
+      // On a slave: web is running, db (g:) is stopped.
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [mixedSpec] });
+      const listRunningApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ Names: ['/fluxweb_MixedApp'] }],
+      });
+      registryManagerStub.getApplicationGlobalSpecifications.withArgs('MixedApp').resolves(mixedSpec);
+
+      // db container exists — handleMissingMasterSlaveContainer must short-circuit
+      dockerServiceStub.getDockerContainerOnly.withArgs('db_MixedApp').resolves({ Id: 'db' });
+      dbHelperStub.findOneInDatabase.resolves(null);
+
+      // Pre-warm cache to prove the warmup path was NOT what kept the g: component stopped
+      const cacheManager = makeCacheManager(['db_MixedApp']);
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps(
+        installedApps,
+        listRunningApps,
+        {},
+        false, false, false, false, false,
+        makeGlobalState,
+        cacheManager,
+      );
+
+      expect(dockerServiceStub.appDockerStart.calledWith('db_MixedApp')).to.equal(false);
+      expect(appInstallerStub.installApplicationHard.called).to.equal(false);
+      // It was the masterSlave routing that did the short-circuit (container existence check)
+      expect(dockerServiceStub.getDockerContainerOnly.calledWith('db_MixedApp')).to.equal(true);
+    });
+
+    it('does not inherit the 30-minute install grace on a non-syncthing component of a g: app', async () => {
+      // Web is non-g/non-r. db is g:. Mixed compose. web is stopped; db is running.
+      // runningSince is recent — if the grace was applied (the bug), web would NOT start.
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [mixedSpec] });
+      const listRunningApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ Names: ['/fluxdb_MixedApp'] }],
+      });
+      registryManagerStub.getApplicationGlobalSpecifications.withArgs('MixedApp').resolves(mixedSpec);
+
+      dockerServiceStub.getDockerContainerOnly.withArgs('web_MixedApp').resolves({ Id: 'web' });
+      // Recent runningSince — would trigger the grace if it applied to non-r components
+      dbHelperStub.findOneInDatabase.resolves({ runningSince: new Date().toISOString() });
+
+      const cacheManager = makeCacheManager(['web_MixedApp']);
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps(
+        installedApps,
+        listRunningApps,
+        {},
+        false, false, false, false, false,
+        makeGlobalState,
+        cacheManager,
+      );
+
+      expect(dockerServiceStub.appDockerStart.calledWith('web_MixedApp')).to.equal(true);
+    });
+
+    it('still applies the 30-minute install grace to an r: component', async () => {
+      // r: component, recent runningSince — must NOT auto-start during grace window.
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [rOnlySpec] });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      registryManagerStub.getApplicationGlobalSpecifications.withArgs('RApp').resolves(rOnlySpec);
+
+      dockerServiceStub.getDockerContainerOnly.withArgs('web_RApp').resolves({ Id: 'web' });
+      dbHelperStub.findOneInDatabase.resolves({ runningSince: new Date().toISOString() });
+
+      const cacheManager = makeCacheManager(['web_RApp']);
+
+      await peerNotification.checkAndNotifyPeersOfRunningApps(
+        installedApps,
+        listRunningApps,
+        {},
+        false, false, false, false, false,
+        makeGlobalState,
+        cacheManager,
+      );
+
+      expect(dockerServiceStub.appDockerStart.calledWith('web_RApp')).to.equal(false);
     });
   });
 });

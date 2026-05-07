@@ -334,5 +334,125 @@ describe('stoppedAppsRecovery tests', () => {
       expect(results.appsRemoved).to.deep.equal(['NormalApp']);
       expect(results.appsStarted).to.deep.equal([]);
     });
+
+    it('should partially start mixed compose: non-g components only, g: component left for masterSlaveApps', async () => {
+      // Mixed compose app: web (no g:) + db (g:) — both stopped at boot
+      dockerServiceStub.dockerListContainers.resolves([
+        { Names: ['/fluxweb_MixedApp'], State: 'exited' },
+        { Names: ['/fluxdb_MixedApp'], State: 'exited' },
+      ]);
+      dbHelperStub.findInDatabase.onFirstCall().resolves([{ name: 'MixedApp' }]);
+
+      registryManagerStub.getApplicationGlobalSpecifications.withArgs('MixedApp').resolves({
+        version: 8,
+        name: 'MixedApp',
+        compose: [
+          { name: 'web', containerData: '' },
+          { name: 'db', containerData: 'g:/data' },
+        ],
+      });
+
+      // Valid location
+      const futureExpiry = new Date(Date.now() + (300 * 1000));
+      dbHelperStub.findInDatabase.onSecondCall().resolves([{ expireAt: futureExpiry }]);
+
+      const results = await stoppedAppsRecovery.startStoppedAppsOnBoot();
+
+      expect(results.appsPartiallyStarted).to.deep.equal(['MixedApp']);
+      expect(results.appsStarted).to.deep.equal([]);
+      expect(results.appsSkippedGMode).to.deep.equal([]);
+      // Non-g component started
+      expect(advancedWorkflowsStub.appDockerStart.calledWith('web_MixedApp')).to.equal(true);
+      // g: component NOT started here (left for masterSlaveApps)
+      expect(advancedWorkflowsStub.appDockerStart.calledWith('db_MixedApp')).to.equal(false);
+    });
+
+    it('should skip a compose app where every component is g:', async () => {
+      dockerServiceStub.dockerListContainers.resolves([
+        { Names: ['/fluxa_AllGApp'], State: 'exited' },
+        { Names: ['/fluxb_AllGApp'], State: 'exited' },
+      ]);
+      dbHelperStub.findInDatabase.onFirstCall().resolves([{ name: 'AllGApp' }]);
+
+      registryManagerStub.getApplicationGlobalSpecifications.withArgs('AllGApp').resolves({
+        version: 8,
+        name: 'AllGApp',
+        compose: [
+          { name: 'a', containerData: 'g:/x' },
+          { name: 'b', containerData: 'g:/y' },
+        ],
+      });
+
+      const results = await stoppedAppsRecovery.startStoppedAppsOnBoot();
+
+      expect(results.appsSkippedGMode).to.deep.equal(['AllGApp']);
+      expect(results.appsStarted).to.deep.equal([]);
+      expect(results.appsPartiallyStarted).to.deep.equal([]);
+      expect(advancedWorkflowsStub.appDockerStart.called).to.equal(false);
+    });
+  });
+
+  describe('getNonGComponentIdentifiers', () => {
+    it('should return empty array when appSpec is null', () => {
+      expect(stoppedAppsRecovery.getNonGComponentIdentifiers(null, 'AppA')).to.deep.equal([]);
+    });
+
+    it('should return [appName] for a v<=3 app with no g:', () => {
+      const spec = { version: 3, containerData: '' };
+      expect(stoppedAppsRecovery.getNonGComponentIdentifiers(spec, 'AppA')).to.deep.equal(['AppA']);
+    });
+
+    it('should return [] for a v<=3 app with g:', () => {
+      const spec = { version: 3, containerData: 'g:/data' };
+      expect(stoppedAppsRecovery.getNonGComponentIdentifiers(spec, 'AppA')).to.deep.equal([]);
+    });
+
+    it('should return all component identifiers for a compose app with no g:', () => {
+      const spec = {
+        version: 8,
+        name: 'AppA',
+        compose: [
+          { name: 'web', containerData: '' },
+          { name: 'cache', containerData: 'r:/data' },
+        ],
+      };
+      expect(stoppedAppsRecovery.getNonGComponentIdentifiers(spec, 'AppA'))
+        .to.deep.equal(['web_AppA', 'cache_AppA']);
+    });
+
+    it('should return [] for a compose app where every component is g:', () => {
+      const spec = {
+        version: 8,
+        name: 'AppA',
+        compose: [
+          { name: 'a', containerData: 'g:/x' },
+          { name: 'b', containerData: 'g:/y' },
+        ],
+      };
+      expect(stoppedAppsRecovery.getNonGComponentIdentifiers(spec, 'AppA')).to.deep.equal([]);
+    });
+
+    it('should return only the non-g identifiers for a mixed compose app', () => {
+      const spec = {
+        version: 8,
+        name: 'AppA',
+        compose: [
+          { name: 'web', containerData: '' },
+          { name: 'db', containerData: 'g:/data' },
+          { name: 'worker', containerData: 'r:/q' },
+        ],
+      };
+      expect(stoppedAppsRecovery.getNonGComponentIdentifiers(spec, 'AppA'))
+        .to.deep.equal(['web_AppA', 'worker_AppA']);
+    });
+
+    it('should fall back to the supplied appName when appSpec.name is missing', () => {
+      const spec = {
+        version: 8,
+        compose: [{ name: 'web', containerData: '' }],
+      };
+      expect(stoppedAppsRecovery.getNonGComponentIdentifiers(spec, 'AppA'))
+        .to.deep.equal(['web_AppA']);
+    });
   });
 });
