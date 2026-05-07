@@ -819,9 +819,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               const updateForSpecifications = permanentAppMessage.appSpecifications;
               updateForSpecifications.hash = permanentAppMessage.hash;
               updateForSpecifications.height = permanentAppMessage.height;
-              // object of appSpecifications extended for hash and height
-              // do not await this
-              updateAppSpecifications(updateForSpecifications);
+              // Awaited: updateAppSpecifications does findOne → compare height → replaceOne.
+              // Firing it in parallel lets two updates for the same app both read the
+              // pre-write state, both pass the height guard, and the one whose replaceOne
+              // lands second wins regardless of height — leaving globalAppsInformation
+              // pinned to an older update on nodes that received messages out of order.
+              await updateAppSpecifications(updateForSpecifications);
             } else {
               log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
             }
