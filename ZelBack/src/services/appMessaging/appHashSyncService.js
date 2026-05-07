@@ -413,7 +413,7 @@ async function syncMissingHashes(options = {}) {
 
     // Mark old unresolvable hashes
     const finalMissing = await getMissingHashes({ force: false });
-    const maxExpireBlocks = config.fluxapps.blocksLasting * 12;
+    const maxExpireBlocks = config.fluxapps.blocksLasting * 48; // ~1 year at 30s blocks
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     const scannedHeight = await dbHelper.findOneInDatabase(
