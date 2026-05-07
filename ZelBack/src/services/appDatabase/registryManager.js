@@ -1616,7 +1616,9 @@ async function reconstructAppMessagesHashCollection() {
 
       const permanentMessageFound = permanentMessages.find((message) => message.hash === appHash.hash);
 
-      const update = { $set: { message: !!permanentMessageFound, messageNotFound: false } };
+      const update = permanentMessageFound
+        ? { $set: { message: true, messageNotFound: false }, $unset: { nextRetryHeight: '', syncAttempts: '' } }
+        : { $set: { message: false } };
       // eslint-disable-next-line no-await-in-loop
       await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
     }

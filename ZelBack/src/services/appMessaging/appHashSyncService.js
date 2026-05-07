@@ -13,6 +13,7 @@ const { serialiseAndSignFluxBroadcast } = require('../utils/fluxBroadcastHelper'
 const { peerManager } = require('../utils/peerState');
 const globalState = require('../utils/globalState');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
+const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstants');
 const log = require('../../lib/log');
 const { invalidMessages } = require('../invalidMessages');
 
@@ -42,13 +43,19 @@ async function getMissingHashes(options = {}) {
   const { force = false } = options;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
+  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+  const currentHeight = syncStatus.data.height || 0;
   const query = { message: false };
   if (!force) {
     query.messageNotFound = { $ne: true };
+    query.$or = [
+      { nextRetryHeight: { $exists: false } },
+      { nextRetryHeight: { $lte: currentHeight } },
+    ];
   }
   const projection = {
     projection: {
-      _id: 0, txid: 1, hash: 1, height: 1, value: 1, message: 1, messageNotFound: 1,
+      _id: 0, txid: 1, hash: 1, height: 1, value: 1, message: 1, messageNotFound: 1, syncAttempts: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
@@ -432,29 +439,39 @@ async function syncMissingHashes(options = {}) {
       }
     }
 
-    // Mark old unresolvable hashes
+    // Update backoff for unresolved hashes
     const finalMissing = await getMissingHashes({ force: false });
-    const maxExpireBlocks = config.fluxapps.blocksLasting * 48; // ~1 year at 30s blocks
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const currentHeight = syncStatus.data.height || 0;
     const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.daemon.database);
-    const scannedHeight = await dbHelper.findOneInDatabase(
-      database,
-      config.database.daemon.collections.scannedHeight,
-      { generalScannedHeight: { $gte: 0 } },
-      { projection: { _id: 0, generalScannedHeight: 1 } },
-    );
-    const currentHeight = scannedHeight ? scannedHeight.generalScannedHeight : 0;
+    const daemonDb = db.db(config.database.daemon.database);
 
     let unreachable = 0;
-    for (const hash of finalMissing) {
-      if (currentHeight - hash.height > maxExpireBlocks) {
-        await messageVerifier.appHashHasMessageNotFound(hash.hash);
+    const backoffOps = [];
+    for (const hashDoc of finalMissing) {
+      if (currentHeight - hashDoc.height > HASH_EXPIRY_BLOCKS) {
+        // eslint-disable-next-line no-await-in-loop
+        await messageVerifier.appHashHasMessageNotFound(hashDoc.hash);
         unreachable += 1;
+      } else {
+        const attempts = (hashDoc.syncAttempts ?? 0) + 1;
+        const backoffIdx = Math.min(attempts, HASH_RETRY_BACKOFF.length - 1);
+        const nextRetry = currentHeight + HASH_RETRY_BACKOFF[backoffIdx];
+        backoffOps.push({
+          updateOne: {
+            filter: { hash: hashDoc.hash },
+            update: { $set: { syncAttempts: attempts, nextRetryHeight: nextRetry } },
+          },
+        });
       }
+    }
+    if (backoffOps.length > 0) {
+      await daemonDb.collection(appsHashesCollection).bulkWrite(backoffOps, { ordered: false })
+        .catch((err) => log.error(`syncMissingHashes backoff update: ${err.message}`));
     }
 
     const remaining = finalMissing.length - unreachable;
-    log.info(`syncMissingHashes - Complete: ${resolved}/${initialCount} resolved, ${remaining} missing, ${unreachable} unreachable`);
+    log.info(`syncMissingHashes - Complete: ${resolved}/${initialCount} resolved, ${remaining} missing (${backoffOps.length} backed off), ${unreachable} unreachable`);
     return { resolved, missing: remaining, unreachable };
   } catch (error) {
     log.error(error);
@@ -486,8 +503,8 @@ async function resetMessageNotFoundFlags() {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
   const result = await database.collection(appsHashesCollection).updateMany(
-    { messageNotFound: true },
-    { $set: { messageNotFound: false } },
+    { $or: [{ messageNotFound: true }, { nextRetryHeight: { $exists: true } }] },
+    { $set: { messageNotFound: false }, $unset: { nextRetryHeight: '', syncAttempts: '' } },
   );
   return result.modifiedCount;
 }

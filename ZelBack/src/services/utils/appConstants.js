@@ -73,6 +73,11 @@ const INSTALLING_ERRORS_EXPIRY_MS = 24 * 60 * 60 * 1000;
 const SIGTERM_EXPIRY_MS = 420 * 1000;
 const EVICTED_EXPIRY_MS = RUNNING_EXPIRY_MS;
 
+// Hash sync constants (blocks, at 30s per block)
+const HASH_EXPIRY_BLOCKS = 1051200; // ~1 year — permanently flag unresolvable hashes
+const HASH_RETRY_BACKOFF = [0, 100, 500, 2500, 12500, 50000, 100000]; // ~0, 50min, 4h, 21h, 4d, 17d, 35d
+const HASH_SYNC_RECHECK_BLOCKS = 100; // matches first backoff step (~50 min)
+
 module.exports = {
   // Paths
   fluxDirPath,
@@ -107,4 +112,9 @@ module.exports = {
   INSTALLING_ERRORS_EXPIRY_MS,
   SIGTERM_EXPIRY_MS,
   EVICTED_EXPIRY_MS,
+
+  // Hash sync
+  HASH_EXPIRY_BLOCKS,
+  HASH_RETRY_BACKOFF,
+  HASH_SYNC_RECHECK_BLOCKS,
 };

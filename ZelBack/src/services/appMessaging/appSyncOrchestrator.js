@@ -19,9 +19,9 @@ const STATES = Object.freeze({
 const MIN_SYNC_COMPLETIONS = config.fluxapps.appSyncMinCompletions ?? 3;
 const SYNC_TIMEOUT_MS = 2 * 60 * 1000;
 const MIN_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime ?? 7500;
+const { HASH_SYNC_RECHECK_BLOCKS } = require('../utils/appConstants');
 const HASH_SYNC_MAX_RETRIES = 3;
 const HASH_SYNC_RETRY_MS = 5 * 60 * 1000;
-const HASH_SYNC_RECHECK_MS = 20 * 60 * 1000;
 
 class AppSyncOrchestrator {
   #state = STATES.INITIALIZING;
@@ -50,7 +50,7 @@ class AppSyncOrchestrator {
   #syncTimeout = null;
   #hashSyncAttempts = 0;
   #hashSyncRetryTimer = null;
-  #lastHashSyncCheck = 0;
+  #lastHashSyncCheckBlock = 0;
 
   constructor(options = {}) {
     this.#blockEmitter = options.blockEmitter;
@@ -218,15 +218,15 @@ class AppSyncOrchestrator {
     if (this.#state === STATES.SYNCING || this.#state === STATES.READY) {
       this.#blocksSinceSyncStarted += 1;
       this.#checkReadiness();
-      this.#backgroundHashRecheck();
+      this.#backgroundHashRecheck(blockHeight);
     }
   }
 
-  async #backgroundHashRecheck() {
+  async #backgroundHashRecheck(blockHeight) {
     if (this.#hashSyncComplete) return;
     if (this.#syncInProgress) return;
-    if (Date.now() - this.#lastHashSyncCheck < HASH_SYNC_RECHECK_MS) return;
-    this.#lastHashSyncCheck = Date.now();
+    if (blockHeight - this.#lastHashSyncCheckBlock < HASH_SYNC_RECHECK_BLOCKS) return;
+    this.#lastHashSyncCheckBlock = blockHeight;
 
     try {
       const missing = await appHashSyncService.getMissingHashes();
@@ -265,7 +265,6 @@ class AppSyncOrchestrator {
         log.info('AppSyncOrchestrator - Hash sync complete');
       }
       this.#hashSyncComplete = true;
-      this.#lastHashSyncCheck = Date.now();
       appSyncEvents.emit(EVENTS.HASH_SYNC_COMPLETE);
       await this.#rebuildDb();
       globalState.checkAndSyncAppHashesWasEverExecuted = true;

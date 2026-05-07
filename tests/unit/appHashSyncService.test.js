@@ -520,8 +520,8 @@ describe('appHashSyncService tests', () => {
 
       expect(result).to.equal(5);
       expect(updateManyStub.calledOnce).to.be.true;
-      expect(updateManyStub.firstCall.args[0]).to.deep.equal({ messageNotFound: true });
-      expect(updateManyStub.firstCall.args[1]).to.deep.equal({ $set: { messageNotFound: false } });
+      expect(updateManyStub.firstCall.args[0]).to.deep.equal({ $or: [{ messageNotFound: true }, { nextRetryHeight: { $exists: true } }] });
+      expect(updateManyStub.firstCall.args[1]).to.deep.equal({ $set: { messageNotFound: false }, $unset: { nextRetryHeight: '', syncAttempts: '' } });
     });
 
     it('should return 0 when no documents match', async () => {
@@ -533,6 +533,43 @@ describe('appHashSyncService tests', () => {
       const result = await appHashSyncService.resetMessageNotFoundFlags();
 
       expect(result).to.equal(0);
+    });
+  });
+
+  describe('hash sync backoff', () => {
+    it('should exclude hashes with future nextRetryHeight from getMissingHashes', async () => {
+      const missing = [
+        { hash: 'h1', txid: 'tx1', height: 2555000, value: 10, message: false },
+        { hash: 'h2', txid: 'tx2', height: 2555001, value: 10, message: false, nextRetryHeight: 9999999 },
+        { hash: 'h3', txid: 'tx3', height: 2555002, value: 10, message: false, nextRetryHeight: 1000000 },
+      ];
+      dbHelperStub.findInDatabase.resolves(missing);
+      // getMissingHashes adds $or filter for nextRetryHeight, but since we stub findInDatabase
+      // the filter is applied by the DB. For this test, verify the query includes the filter.
+      const result = await appHashSyncService.getMissingHashes();
+      // All 3 returned because findInDatabase stub ignores the query — but verify the query was correct
+      const query = dbHelperStub.findInDatabase.firstCall.args[2];
+      expect(query.message).to.equal(false);
+      expect(query.messageNotFound).to.deep.equal({ $ne: true });
+      expect(query.$or).to.be.an('array');
+      expect(query.$or).to.have.length(2);
+      expect(query.$or[0]).to.deep.equal({ nextRetryHeight: { $exists: false } });
+      expect(query.$or[1].nextRetryHeight).to.have.property('$lte');
+    });
+
+    it('should not filter by nextRetryHeight when force is true', async () => {
+      dbHelperStub.findInDatabase.resolves([]);
+      await appHashSyncService.getMissingHashes({ force: true });
+      const query = dbHelperStub.findInDatabase.firstCall.args[2];
+      expect(query.$or).to.be.undefined;
+    });
+
+    it('should clamp backoff index to last value for high attempt counts', () => {
+      const { HASH_RETRY_BACKOFF } = require('../../ZelBack/src/services/utils/appConstants');
+      const lastBackoff = HASH_RETRY_BACKOFF[HASH_RETRY_BACKOFF.length - 1];
+      // Attempt 20 should clamp to last backoff value
+      const idx = Math.min(20, HASH_RETRY_BACKOFF.length - 1);
+      expect(HASH_RETRY_BACKOFF[idx]).to.equal(lastBackoff);
     });
   });
 
