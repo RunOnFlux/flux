@@ -171,7 +171,10 @@ async function storeAppTemporaryMessage(message, options = {}) {
       try {
         await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block, previousAppSpecs);
       } catch (sigError) {
-        if (!isAppRequested) throw sigError;
+        // Before height 2000000, owner-change races were accepted by the
+        // network (re-verification not deployed until v8.10.0, well after
+        // the last known race at h=1880981). Only retry on replay (on-chain).
+        if (!isAppRequested || block >= 2000000) throw sigError;
         const prevOwner = await getPreviousOwner(appSpecFormatted.name, owner);
         if (!prevOwner) throw sigError;
         await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, prevOwner, block, previousAppSpecs);

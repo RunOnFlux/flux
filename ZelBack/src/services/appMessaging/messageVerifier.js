@@ -645,8 +645,35 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
                 tempMessage.signature, previousAppSpecs.owner, daemonHeight, previousAppSpecs,
               );
             } catch (error) {
-              log.warn(`Promotion re-verification failed for ${specifications.name} (${hash}): ${error.message}`);
-              return false;
+              // Before height 2000000, owner-change races were accepted by the
+              // network (re-verification was not deployed until v8.10.0, well
+              // after the last known race at h=1880981). Retry with previous
+              // owner to replay history as it was.
+              if (height < 2000000) {
+                const prevOwnerDoc = await dbHelper.findOneInDatabase(
+                  database, globalAppsMessages,
+                  { 'appSpecifications.name': specifications.name, 'appSpecifications.owner': { $ne: previousAppSpecs.owner } },
+                  { projection: { _id: 0, 'appSpecifications.owner': 1 }, sort: { height: -1 } },
+                );
+                const prevOwner = prevOwnerDoc?.appSpecifications?.owner;
+                if (prevOwner) {
+                  try {
+                    await verifyAppMessageUpdateSignature(
+                      tempMessage.type, messageVersion, specifications, messageTimestamp,
+                      tempMessage.signature, prevOwner, daemonHeight, previousAppSpecs,
+                    );
+                  } catch {
+                    log.warn(`Promotion re-verification failed for ${specifications.name} (${hash}): ${error.message}`);
+                    return false;
+                  }
+                } else {
+                  log.warn(`Promotion re-verification failed for ${specifications.name} (${hash}): ${error.message}`);
+                  return false;
+                }
+              } else {
+                log.warn(`Promotion re-verification failed for ${specifications.name} (${hash}): ${error.message}`);
+                return false;
+              }
             }
           }
         }

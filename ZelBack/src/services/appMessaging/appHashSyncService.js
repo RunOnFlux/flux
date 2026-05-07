@@ -217,6 +217,10 @@ async function processMessages(messages, onProgress) {
               appMessage.signature, prevSpecsForVerification.owner, daemonHeight, prevSpecsForVerification,
             );
           } catch (sigError) {
+            // Before height 2000000, owner-change races were accepted by the
+            // network (re-verification not deployed until v8.10.0, well after
+            // the last known race at h=1880981).
+            if (height >= 2000000) throw sigError;
             const oldOwner = prevOwnerMap.get(appSpecFormatted.name);
             if (oldOwner && oldOwner !== prevSpecsForVerification.owner) {
               await messageVerifier.verifyAppMessageUpdateSignature(
