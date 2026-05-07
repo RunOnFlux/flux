@@ -38,6 +38,17 @@ const APP_STATE_EVENT_TYPES = Object.freeze({
   IPCHANGED: 'ipchanged',
 });
 
+async function getPreviousOwner(appName, currentOwner) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const doc = await database.collection(globalAppsMessages)
+    .findOne(
+      { 'appSpecifications.name': appName, 'appSpecifications.owner': { $ne: currentOwner } },
+      { projection: { _id: 0, 'appSpecifications.owner': 1 }, sort: { height: -1 } },
+    );
+  return doc?.appSpecifications?.owner ?? null;
+}
+
 /**
  * Store temporary app message
  * @param {object} message - Message to store
@@ -156,10 +167,15 @@ async function storeAppTemporaryMessage(message, options = {}) {
     if (appRegistration) {
       await messageVerifier.verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
     } else {
-      // previousAppSpecs already fetched above for update validation
       const { owner } = previousAppSpecs;
-      // here signature is checked against PREVIOUS app owner
-      await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block, previousAppSpecs);
+      try {
+        await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block, previousAppSpecs);
+      } catch (sigError) {
+        if (!isAppRequested) throw sigError;
+        const prevOwner = await getPreviousOwner(appSpecFormatted.name, owner);
+        if (!prevOwner) throw sigError;
+        await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, prevOwner, block, previousAppSpecs);
+      }
     }
   }
 
