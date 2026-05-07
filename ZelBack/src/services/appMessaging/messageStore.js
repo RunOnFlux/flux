@@ -785,7 +785,6 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
   const database = db.db(config.database.appsglobal.database);
 
   const ops = [];
-  const v2AppsByIp = new Map();
 
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
@@ -827,22 +826,6 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
       },
     });
 
-    if (data.version === 2 && data.apps && data.apps.length > 0) {
-      const existing = v2AppsByIp.get(data.ip);
-      if (!existing || data.broadcastedAt > existing.broadcastedAt) {
-        v2AppsByIp.set(data.ip, { names: data.apps.map((a) => a.name), broadcastedAt: data.broadcastedAt });
-      }
-    }
-  }
-
-  for (const [ip, { names, broadcastedAt }] of v2AppsByIp) {
-    const cutoff = new Date(broadcastedAt);
-    const validV1Keys = names.map((n) => `v1:${n}`);
-    ops.push({
-      deleteMany: {
-        filter: { ip, type: 'apprunning', dedupKey: { $regex: /^v1:/, $nin: validV1Keys }, broadcastedAt: { $lte: cutoff } },
-      },
-    });
   }
 
   if (ops.length > 0) {
