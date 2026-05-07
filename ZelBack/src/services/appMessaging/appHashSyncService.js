@@ -25,6 +25,17 @@ const PEERS_PER_ROUND = 3;
 
 let syncRunning = false;
 
+function findPrevSpec(specs, height) {
+  let lo = 0;
+  let hi = specs.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (specs[mid].height < height) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo > 0 ? specs[lo - 1] : null;
+}
+
 async function getMissingHashes(options = {}) {
   const { force = false } = options;
   const db = dbHelper.databaseConnection();
@@ -122,13 +133,13 @@ async function processMessages(messages, onProgress) {
       const prevDocs = await appsGlobalDb.collection(globalAppsMessages)
         .find({ 'appSpecifications.name': { $in: [...updateNames] } })
         .project({ _id: 0 })
-        .sort({ height: -1 })
+        .sort({ height: 1 })
         .toArray();
       for (const doc of prevDocs) {
         const name = doc.appSpecifications?.name;
-        if (name && !prevSpecsMap.has(name)) {
-          prevSpecsMap.set(name, doc);
-        }
+        if (!name) continue;
+        if (!prevSpecsMap.has(name)) prevSpecsMap.set(name, []);
+        prevSpecsMap.get(name).push(doc);
       }
     }
 
@@ -182,7 +193,8 @@ async function processMessages(messages, onProgress) {
             appMessage.type, messageVersion, appSpecFormatted, messageTimestamp, appMessage.signature,
           );
         } else {
-          const prevMsg = prevSpecsMap.get(appSpecFormatted.name);
+          const prevSpecsList = prevSpecsMap.get(appSpecFormatted.name);
+          const prevMsg = prevSpecsList ? findPrevSpec(prevSpecsList, height) : null;
           if (!prevMsg) {
             failed += 1;
             continue;
@@ -223,7 +235,8 @@ async function processMessages(messages, onProgress) {
 
         // Verified — add to batch and update map for subsequent messages
         permInserts.push(permMsg);
-        prevSpecsMap.set(appSpecFormatted.name, permMsg);
+        if (!prevSpecsMap.has(appSpecFormatted.name)) prevSpecsMap.set(appSpecFormatted.name, []);
+        prevSpecsMap.get(appSpecFormatted.name).push(permMsg);
 
         hashMarkOps.push({
           updateOne: { filter: { hash: appMessage.hash }, update: { $set: { message: true, messageNotFound: false } } },
