@@ -772,6 +772,48 @@ describe('appHashSyncService tests', () => {
       expect(result.missing).to.equal(0);
     });
 
+    it('should keep waiting while hash responses arrive via event bus', async () => {
+      const { appSyncEvents, EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
+      const clock = sinon.useFakeTimers();
+      serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };
+
+      const missing3 = [
+        { hash: 'h1', txid: 'tx1', height: 2555000, value: 10, message: false },
+        { hash: 'h2', txid: 'tx2', height: 2555001, value: 10, message: false },
+        { hash: 'h3', txid: 'tx3', height: 2555002, value: 10, message: false },
+      ];
+      const missing1 = [
+        { hash: 'h3', txid: 'tx3', height: 2555002, value: 10, message: false },
+      ];
+
+      // Emit HASH_RESPONSE_RECEIVED every 2 seconds to keep settle alive.
+      // After 3 emissions, stop — settle should fire 4s after last emission.
+      let emissions = 0;
+      let findCallCount = 0;
+      dbHelperStub.findInDatabase.callsFake(() => {
+        findCallCount += 1;
+        if (findCallCount === 1) return Promise.resolve(missing3);
+        // Emit response events for first 3 polls to keep settle alive
+        if (emissions < 3) {
+          emissions += 1;
+          appSyncEvents.emit(EVENTS.HASH_RESPONSE_RECEIVED);
+        }
+        // After poll 5, resolve 2 hashes
+        if (findCallCount > 5) return Promise.resolve(missing1);
+        return Promise.resolve(missing3);
+      });
+      dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
+
+      const result = await appHashSyncService.syncMissingHashes();
+
+      clock.restore();
+      appSyncEvents.removeAllListeners(EVENTS.HASH_RESPONSE_RECEIVED);
+
+      // Events kept settle alive long enough for hashes to resolve
+      expect(result.resolved).to.equal(2);
+      expect(result.missing).to.equal(1);
+    });
+
     it('should settle after no changes for settle time', async () => {
       const clock = sinon.useFakeTimers();
       serviceHelperStub.delay = (ms) => { clock.tick(ms); return Promise.resolve(); };

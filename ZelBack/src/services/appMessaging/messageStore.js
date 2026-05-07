@@ -20,6 +20,7 @@ const {
   appsHashesCollection,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 
 const {
   GOSSIP_VALIDITY_MS,
@@ -113,6 +114,9 @@ async function storeAppTemporaryMessage(message, options = {}) {
   if (result && !result.message) {
     isAppRequested = true;
     block = result.height;
+    if (globalState.pendingHashRequests?.has(message.hash)) {
+      appSyncEvents.emit(SYNC_EVENTS.HASH_RESPONSE_RECEIVED);
+    }
   }
 
   // data shall already be verified by the broadcasting node. But verify all again.

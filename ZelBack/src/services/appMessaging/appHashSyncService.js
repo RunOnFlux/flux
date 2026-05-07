@@ -11,6 +11,8 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { serialiseAndSignFluxBroadcast } = require('../utils/fluxBroadcastHelper');
 const { peerManager } = require('../utils/peerState');
+const globalState = require('../utils/globalState');
+const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const log = require('../../lib/log');
 const { invalidMessages } = require('../invalidMessages');
 
@@ -280,22 +282,22 @@ async function processMessages(messages, onProgress) {
  */
 async function waitForResolution(previousCount, maxWaitMs, force) {
   const deadline = Date.now() + maxWaitMs;
-  let lastChangeAt = Date.now();
-  let lastCount = previousCount;
+  let lastActivityAt = Date.now();
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    await serviceHelper.delay(1000);
-    const current = await getMissingHashes({ force });
-    if (current.length === 0) return [];
+  const handler = () => { lastActivityAt = Date.now(); };
+  appSyncEvents.on(EVENTS.HASH_RESPONSE_RECEIVED, handler);
 
-    if (current.length < lastCount) {
-      lastCount = current.length;
-      lastChangeAt = Date.now();
+  try {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      await serviceHelper.delay(1000);
+      const current = await getMissingHashes({ force });
+      if (current.length === 0) return [];
+      if (Date.now() - lastActivityAt >= SETTLE_TIME_MS) return current;
+      if (Date.now() >= deadline) return current;
     }
-
-    if (Date.now() - lastChangeAt >= SETTLE_TIME_MS) return current;
-    if (Date.now() >= deadline) return current;
+  } finally {
+    appSyncEvents.removeListener(EVENTS.HASH_RESPONSE_RECEIVED, handler);
   }
 }
 
@@ -411,6 +413,7 @@ async function syncMissingHashes(options = {}) {
         }
 
         const hashes = missingHashes.map((h) => h.hash);
+        globalState.pendingHashRequests = new Set(hashes);
         log.info(`syncMissingHashes - Round ${round + 1}: requesting ${hashes.length} hashes from ${peers.length} peers`);
 
         for (const peer of peers) {
@@ -420,6 +423,7 @@ async function syncMissingHashes(options = {}) {
         const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
         const beforeCount = missingHashes.length;
         missingHashes = await waitForResolution(beforeCount, maxWait, force);
+        globalState.pendingHashRequests = null;
         const resolvedThisRound = beforeCount - missingHashes.length;
         resolved += resolvedThisRound;
 

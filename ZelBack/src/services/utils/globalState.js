@@ -38,6 +38,7 @@ const runningAppsCache = new Set();
 // Cache references - these will be initialized from cacheManager
 let spawnErrorsLongerAppCache = null;
 let trySpawningGlobalAppCache = null;
+let pendingHashRequests = null;
 
 // Initialize cache references - this must be called after cacheManager is ready
 function initializeCaches(cacheManager) {
@@ -105,6 +106,9 @@ module.exports = {
 
   get spawnErrorsLongerAppCache() { return spawnErrorsLongerAppCache; },
   set spawnErrorsLongerAppCache(value) { spawnErrorsLongerAppCache = value; },
+
+  get pendingHashRequests() { return pendingHashRequests; },
+  set pendingHashRequests(value) { pendingHashRequests = value; },
 
   get trySpawningGlobalAppCache() { return trySpawningGlobalAppCache; },
   set trySpawningGlobalAppCache(value) { trySpawningGlobalAppCache = value; },
