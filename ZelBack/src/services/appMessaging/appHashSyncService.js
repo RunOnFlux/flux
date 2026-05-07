@@ -10,6 +10,7 @@ const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { serialiseAndSignFluxBroadcast } = require('../utils/fluxBroadcastHelper');
+const { peerManager } = require('../utils/peerState');
 const log = require('../../lib/log');
 const { invalidMessages } = require('../invalidMessages');
 
@@ -331,9 +332,6 @@ async function syncMissingHashes(options = {}) {
 
   syncRunning = true;
   try {
-    // eslint-disable-next-line global-require
-    const { peerManager } = require('../utils/peerState');
-
     let missingHashes = await getMissingHashes({ force });
     log.info(`syncMissingHashes - Found ${missingHashes.length} missing hashes`);
 

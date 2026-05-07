@@ -6,8 +6,11 @@ const proxyquire = require('proxyquire').noCallThru();
 describe('AppSyncOrchestrator', () => {
   let AppSyncOrchestrator;
   let STATES;
+  let EVENTS;
+  let appSyncEvents;
   let blockEmitter;
-  let peerManager;
+  let peerEmitter;
+  let getEligibleSyncPeersStub;
   let logStub;
   let syncMissingHashesStub;
   let getMissingHashesStub;
@@ -18,7 +21,7 @@ describe('AppSyncOrchestrator', () => {
   let checkAndNotifyStub;
 
   function makePeer(key) {
-    return { key, send: sinon.stub(), missedPongs: 0 };
+    return { key, send: sinon.stub() };
   }
 
   function makeEligiblePeers(count) {
@@ -29,10 +32,19 @@ describe('AppSyncOrchestrator', () => {
     return peers;
   }
 
+  function makePeerOptions(overrides = {}) {
+    return {
+      getEligibleSyncPeers: getEligibleSyncPeersStub,
+      onPeerEvent: (event, cb) => peerEmitter.on(event, cb),
+      offPeerEvent: (event, cb) => peerEmitter.removeListener(event, cb),
+      ...overrides,
+    };
+  }
+
   beforeEach(() => {
     blockEmitter = new EventEmitter();
-    peerManager = new EventEmitter();
-    peerManager.getEligibleSyncPeers = sinon.stub().returns([]);
+    peerEmitter = new EventEmitter();
+    getEligibleSyncPeersStub = sinon.stub().returns([]);
 
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
     syncMissingHashesStub = sinon.stub().resolves({ resolved: 0, missing: 0, unreachable: 0 });
@@ -44,6 +56,11 @@ describe('AppSyncOrchestrator', () => {
       checkAndSyncAppHashesWasEverExecuted: false,
     };
     checkAndNotifyStub = sinon.stub().resolves();
+
+    const appSyncEventsModule = require('../../ZelBack/src/services/utils/appSyncEvents');
+    appSyncEvents = appSyncEventsModule.appSyncEvents;
+    EVENTS = appSyncEventsModule.EVENTS;
+    appSyncEvents.removeAllListeners();
 
     const mod = proxyquire('../../ZelBack/src/services/appMessaging/appSyncOrchestrator', {
       '../../lib/log': logStub,
@@ -61,6 +78,7 @@ describe('AppSyncOrchestrator', () => {
         encodeRequestAppInstalling: sinon.stub().returns(Buffer.alloc(9, 0x22)),
         encodeRequestAppInstallingErrors: sinon.stub().returns(Buffer.alloc(9, 0x23)),
       },
+      '../utils/appSyncEvents': appSyncEventsModule,
     });
     AppSyncOrchestrator = mod.AppSyncOrchestrator;
     STATES = mod.STATES;
@@ -72,30 +90,28 @@ describe('AppSyncOrchestrator', () => {
 
   describe('state machine', () => {
     it('should start in INITIALIZING state', () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       expect(orchestrator.state).to.equal(STATES.INITIALIZING);
     });
 
     it('should transition to SYNCING on first blockReceived', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setImmediate(r));
       expect(orchestrator.state).to.equal(STATES.SYNCING);
     });
 
-    it('should emit syncStarted on first blockReceived', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+    it('should log sync started on first blockReceived', async () => {
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
-      const spy = sinon.spy();
-      orchestrator.on('syncStarted', spy);
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setImmediate(r));
-      expect(spy.calledOnce).to.be.true;
+      expect(logStub.info.calledWith('AppSyncOrchestrator - Sync started')).to.be.true;
     });
 
     it('should call syncMissingHashes on first blockReceived', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
@@ -103,7 +119,7 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('should call reindexGlobalAppsInformation after sync', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
@@ -111,7 +127,7 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('should call expireGlobalApplications after reindex', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
@@ -119,44 +135,42 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('should set checkAndSyncAppHashesWasEverExecuted after sync', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
       expect(globalStateStub.checkAndSyncAppHashesWasEverExecuted).to.be.true;
     });
 
-    it('should emit dbReady after reindex', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+    it('should log DB ready after reindex', async () => {
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
-      const spy = sinon.spy();
-      orchestrator.on('dbReady', spy);
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
-      expect(spy.calledOnce).to.be.true;
+      expect(logStub.info.calledWith('AppSyncOrchestrator - DB ready')).to.be.true;
     });
   });
 
   describe('peer threshold events', () => {
     it('should call getEligibleSyncPeers on peerThresholdReached', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
-      peerManager.emit('peerThresholdReached', 12);
+      peerEmitter.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
-      expect(peerManager.getEligibleSyncPeers.calledOnce).to.be.true;
+      expect(getEligibleSyncPeersStub.calledOnce).to.be.true;
     });
 
     it('should start apprunning broadcast on peerThresholdReached', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
-      peerManager.emit('peerThresholdReached', 12);
+      peerEmitter.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
       expect(checkAndNotifyStub.calledOnce).to.be.true;
     });
 
     it('should transition to DEGRADED on peersBelowThreshold when READY', async () => {
       const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start();
 
@@ -168,18 +182,18 @@ describe('AppSyncOrchestrator', () => {
       await new Promise((r) => setTimeout(r, 50));
 
       if (orchestrator.state === STATES.READY) {
-        peerManager.emit('peersBelowThreshold', 3);
+        peerEmitter.emit('peersBelowThreshold', 3);
         expect(orchestrator.state).to.equal(STATES.DEGRADED);
       }
     });
 
     it('should emit readinessLost on degradation', async () => {
       const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start();
       const spy = sinon.spy();
-      orchestrator.on('readinessLost', spy);
+      appSyncEvents.on(EVENTS.READINESS_LOST, spy);
 
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
@@ -189,7 +203,7 @@ describe('AppSyncOrchestrator', () => {
       await new Promise((r) => setTimeout(r, 50));
 
       if (orchestrator.state === STATES.READY) {
-        peerManager.emit('peersBelowThreshold', 3);
+        peerEmitter.emit('peersBelowThreshold', 3);
         expect(spy.calledOnce).to.be.true;
       }
     });
@@ -198,11 +212,11 @@ describe('AppSyncOrchestrator', () => {
   describe('sync requests', () => {
     it('should send all 4 request types to eligible peers', async () => {
       const peers = makeEligiblePeers(3);
-      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
-      peerManager.emit('peerThresholdReached', 12);
+      peerEmitter.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
 
       for (const peer of peers) {
@@ -212,11 +226,11 @@ describe('AppSyncOrchestrator', () => {
 
     it('should not send when fewer than 3 eligible peers on first attempt', async () => {
       const peers = makeEligiblePeers(2);
-      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
-      peerManager.emit('peerThresholdReached', 12);
+      peerEmitter.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
 
       for (const peer of peers) {
@@ -226,15 +240,15 @@ describe('AppSyncOrchestrator', () => {
 
     it('should not ask the same peer twice in the same cycle', async () => {
       const peers = makeEligiblePeers(3);
-      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
-      peerManager.emit('peerThresholdReached', 12);
+      peerEmitter.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
 
       // Second threshold event — same peers returned, but already asked
-      peerManager.emit('peerThresholdReached', 15);
+      peerEmitter.emit('peerThresholdReached', 15);
       await new Promise((r) => setTimeout(r, 50));
 
       for (const peer of peers) {
@@ -244,17 +258,17 @@ describe('AppSyncOrchestrator', () => {
 
     it('should reset asked peers on degradation', async () => {
       const peers = makeEligiblePeers(3);
-      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
       const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start();
 
       // Get to READY via block-count fallback
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
-      peerManager.emit('peerThresholdReached', 12);
+      peerEmitter.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
       for (let i = 0; i < 130; i += 1) {
         blockEmitter.emit('blockReceived', 2555000 + i);
@@ -263,9 +277,9 @@ describe('AppSyncOrchestrator', () => {
 
       if (orchestrator.state === STATES.READY) {
         // Degrade and recover — peers should be asked again
-        peerManager.emit('peersBelowThreshold', 3);
+        peerEmitter.emit('peersBelowThreshold', 3);
         const sendCountBefore = peers[0].send.callCount;
-        peerManager.emit('peerThresholdReached', 12);
+        peerEmitter.emit('peerThresholdReached', 12);
         await new Promise((r) => setTimeout(r, 50));
         expect(peers[0].send.callCount).to.be.greaterThan(sendCountBefore);
       }
@@ -275,10 +289,10 @@ describe('AppSyncOrchestrator', () => {
   describe('state sync readiness', () => {
     it('should reach READY when all 3 sync types complete from 3 peers', async () => {
       const peers = makeEligiblePeers(3);
-      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
       const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start();
 
@@ -287,14 +301,14 @@ describe('AppSyncOrchestrator', () => {
       await new Promise((r) => setTimeout(r, 50));
 
       // Send sync requests
-      peerManager.emit('peerThresholdReached', 12);
+      peerEmitter.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
 
       // Complete all syncs from 3 peers
       for (let i = 0; i < 3; i += 1) {
-        orchestrator.onSyncComplete('apprunning');
-        orchestrator.onSyncComplete('appinstalling');
-        orchestrator.onSyncComplete('apperrors');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
       }
       await new Promise((r) => setTimeout(r, 50));
 
@@ -303,25 +317,25 @@ describe('AppSyncOrchestrator', () => {
 
     it('should not reach READY when only 2 peers complete apprunning', async () => {
       const peers = makeEligiblePeers(3);
-      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
       const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start();
 
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
 
-      peerManager.emit('peerThresholdReached', 12);
+      peerEmitter.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
 
       // Only 2 apprunning, but 3 of the others
-      orchestrator.onSyncComplete('apprunning');
-      orchestrator.onSyncComplete('apprunning');
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
+      appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
       for (let i = 0; i < 3; i += 1) {
-        orchestrator.onSyncComplete('appinstalling');
-        orchestrator.onSyncComplete('apperrors');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
       }
       await new Promise((r) => setTimeout(r, 50));
 
@@ -329,10 +343,10 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('should fall back to block count when no sync peers available', async () => {
-      peerManager.getEligibleSyncPeers = sinon.stub().returns([]);
+      getEligibleSyncPeersStub = sinon.stub().returns([]);
 
       const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start();
       blockEmitter.emit('blockReceived', 2555000);
@@ -351,33 +365,33 @@ describe('AppSyncOrchestrator', () => {
 
     it('should reset sync completions on degradation', async () => {
       const peers = makeEligiblePeers(3);
-      peerManager.getEligibleSyncPeers = sinon.stub().returns(peers);
+      getEligibleSyncPeersStub = sinon.stub().returns(peers);
 
       const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start();
 
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
-      peerManager.emit('peerThresholdReached', 12);
+      peerEmitter.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
 
       // Complete all syncs → READY
       for (let i = 0; i < 3; i += 1) {
-        orchestrator.onSyncComplete('apprunning');
-        orchestrator.onSyncComplete('appinstalling');
-        orchestrator.onSyncComplete('apperrors');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
+        appSyncEvents.emit(EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
       }
       await new Promise((r) => setTimeout(r, 50));
       expect(orchestrator.state).to.equal(STATES.READY);
 
       // Degrade
-      peerManager.emit('peersBelowThreshold', 3);
+      peerEmitter.emit('peersBelowThreshold', 3);
       expect(orchestrator.state).to.equal(STATES.DEGRADED);
 
       // Recovery — need fresh syncs, previous completions reset
-      peerManager.emit('peerThresholdReached', 12);
+      peerEmitter.emit('peerThresholdReached', 12);
       await new Promise((r) => setTimeout(r, 50));
       expect(orchestrator.state).to.equal(STATES.RESYNCING);
     });
@@ -388,7 +402,7 @@ describe('AppSyncOrchestrator', () => {
       syncMissingHashesStub.onFirstCall().rejects(new Error('connection failed'));
       syncMissingHashesStub.onSecondCall().resolves({ resolved: 10, missing: 0, unreachable: 0 });
 
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
@@ -402,7 +416,7 @@ describe('AppSyncOrchestrator', () => {
       syncMissingHashesStub.rejects(new Error('persistent failure'));
 
       const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start();
 
@@ -426,7 +440,7 @@ describe('AppSyncOrchestrator', () => {
       syncMissingHashesStub.rejects(new Error('failed'));
 
       const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start();
 
@@ -448,7 +462,7 @@ describe('AppSyncOrchestrator', () => {
       reindexStub.rejects(new Error('reindex failed'));
 
       const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start();
 
@@ -471,7 +485,7 @@ describe('AppSyncOrchestrator', () => {
 
   describe('invalidateHashSync', () => {
     it('should reset hashSyncComplete so backgroundHashRecheck no longer short-circuits', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
 
       // Complete initial sync — hashSyncComplete becomes true
@@ -487,7 +501,7 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('should not log when hash sync was not yet complete', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
 
       // Don't complete any sync — hashSyncComplete is still false
@@ -499,7 +513,7 @@ describe('AppSyncOrchestrator', () => {
 
     it('should prevent checkReadiness from completing until recheck runs', async () => {
       const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, peerManager, isEnterprise: () => true,
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start();
 
@@ -521,7 +535,7 @@ describe('AppSyncOrchestrator', () => {
 
   describe('hashesReconstructed event', () => {
     it('should call invalidateHashSync when blockEmitter emits hashesReconstructed', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
 
       // Complete initial sync
@@ -535,14 +549,14 @@ describe('AppSyncOrchestrator', () => {
     });
 
     it('should register hashesReconstructed listener on start', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       expect(blockEmitter.listenerCount('hashesReconstructed')).to.equal(0);
       orchestrator.start();
       expect(blockEmitter.listenerCount('hashesReconstructed')).to.equal(1);
     });
 
     it('should not log invalidation when hashesReconstructed fires before initial sync', async () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
 
       // hashesReconstructed before any block — hashSyncComplete is false, so no-op
@@ -554,10 +568,12 @@ describe('AppSyncOrchestrator', () => {
 
   describe('stop', () => {
     it('should remove all listeners and clear intervals', () => {
-      const orchestrator = new AppSyncOrchestrator({ blockEmitter, peerManager });
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
       orchestrator.stop();
       expect(blockEmitter.listenerCount('blockReceived')).to.equal(0);
+      expect(peerEmitter.listenerCount('peerThresholdReached')).to.equal(0);
+      expect(peerEmitter.listenerCount('peersBelowThreshold')).to.equal(0);
     });
   });
 });

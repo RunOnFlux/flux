@@ -20,36 +20,26 @@ const systemIntegration = require('../appSystem/systemIntegration');
 const globalState = require('../utils/globalState');
 const enterpriseNetwork = require('../utils/enterpriseNetwork');
 const { FluxCacheManager } = require('../utils/cacheManager');
-// const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
+const { registerAppLocally } = require('./appInstaller');
+const { removeAppLocally } = require('./appUninstaller');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 
-let appInstaller; // Will be initialized to avoid circular dependency
-let appUninstaller; // Will be initialized to avoid circular dependency
 let appsCountAvailableToInstallOnMyNode = 0;
 
 const collisionWaitMs = config.fluxapps.installCollisionWaitMs;
 const spawnReconfirmDelayMs = config.fluxapps.spawnReconfirmDelayMs;
 const nonEnterpriseSpawnDelayMs = config.fluxapps.nonEnterpriseSpawnDelayMs ?? 2 * 60 * 1000;
 
-/**
- * Initialize the module with dependencies
- * @param {object} deps - Dependencies object
- */
-function initialize(deps) {
-  // eslint-disable-next-line prefer-destructuring
-  appInstaller = deps.appInstaller;
-  // eslint-disable-next-line prefer-destructuring
-  appUninstaller = deps.appUninstaller;
-  if (deps.orchestrator) {
-    deps.orchestrator.on('spawnerReady', () => {
-      log.info('AppSyncOrchestrator signals ready, starting spawn loop');
-      globalState.spawnerPaused = false;
-      trySpawningGlobalApplication();
-    });
-    deps.orchestrator.on('readinessLost', () => {
-      log.warn('AppSyncOrchestrator signals readiness lost, spawner will pause on next iteration');
-      globalState.spawnerPaused = true;
-    });
-  }
+function initialize() {
+  appSyncEvents.on(SYNC_EVENTS.SPAWNER_READY, () => {
+    log.info('AppSyncOrchestrator signals ready, starting spawn loop');
+    globalState.spawnerPaused = false;
+    trySpawningGlobalApplication();
+  });
+  appSyncEvents.on(SYNC_EVENTS.READINESS_LOST, () => {
+    log.warn('AppSyncOrchestrator signals readiness lost, spawner will pause on next iteration');
+    globalState.spawnerPaused = true;
+  });
 }
 
 // Note: Docker Hub error classification and caching is now handled by imageManager.js

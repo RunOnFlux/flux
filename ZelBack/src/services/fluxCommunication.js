@@ -17,12 +17,8 @@ const { SIGTERM_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const registryManager = require('./appDatabase/registryManager');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
-
-let onSyncComplete = null;
-function setOnSyncComplete(callback) {
-  onSyncComplete = callback;
-}
 
 const { messageCache, wsPeerCache } = cacheManager;
 
@@ -147,7 +143,7 @@ async function handleAppRunningSyncResponse(message) {
       }
     }
     if (done) {
-      if (onSyncComplete) onSyncComplete('apprunning');
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
       log.info('handleAppRunningSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -179,7 +175,7 @@ async function handleAppInstallingSyncResponse(message) {
       log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
     }
     if (done) {
-      if (onSyncComplete) onSyncComplete('appinstalling');
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
       log.info('handleAppInstallingSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -211,7 +207,7 @@ async function handleAppInstallingErrorsSyncResponse(message) {
       log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
     }
     if (done) {
-      if (onSyncComplete) onSyncComplete('apperrors');
+      appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
       log.info('handleAppInstallingErrorsSyncResponse - Sync complete');
     }
   } catch (error) {
@@ -1379,5 +1375,4 @@ module.exports = {
   getPeerHistory,
   getTopology,
   getNetworkHealth,
-  setOnSyncComplete,
 };

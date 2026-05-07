@@ -1,5 +1,4 @@
 const config = require('config');
-const { EventEmitter } = require('events');
 const log = require('../../lib/log');
 const generalService = require('../generalService');
 const appHashSyncService = require('./appHashSyncService');
@@ -7,6 +6,7 @@ const peerNotification = require('./peerNotification');
 const registryManager = require('../appDatabase/registryManager');
 const globalState = require('../utils/globalState');
 const peerCodec = require('../utils/peerCodec');
+const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 
 const STATES = Object.freeze({
   INITIALIZING: 'INITIALIZING',
@@ -23,12 +23,15 @@ const HASH_SYNC_MAX_RETRIES = 3;
 const HASH_SYNC_RETRY_MS = 5 * 60 * 1000;
 const HASH_SYNC_RECHECK_MS = 20 * 60 * 1000;
 
-class AppSyncOrchestrator extends EventEmitter {
+class AppSyncOrchestrator {
   #state = STATES.INITIALIZING;
   #blockEmitter = null;
-  #peerManager = null;
+  #getEligibleSyncPeers = null;
+  #onPeerEvent = null;
+  #offPeerEvent = null;
   #isEnterprise = null;
-  #networkStateReady = false;
+  #waitForNetworkState = null;
+  #networkReady = false;
   #peersReady = false;
   #explorerSynced = false;
   #hashSyncComplete = false;
@@ -36,6 +39,9 @@ class AppSyncOrchestrator extends EventEmitter {
   #blocksSinceSyncStarted = 0;
   #blockThreshold = 0;
   #blockReceivedHandler = null;
+  #peerThresholdHandler = null;
+  #peersBelowHandler = null;
+  #ephemeralSyncHandler = null;
   #broadcastStarted = null;
   #syncInProgress = false;
   #askedPeers = new Set();
@@ -45,14 +51,14 @@ class AppSyncOrchestrator extends EventEmitter {
   #hashSyncAttempts = 0;
   #hashSyncRetryTimer = null;
   #lastHashSyncCheck = 0;
-  #networkStateReadyPromise = null;
 
   constructor(options = {}) {
-    super();
     this.#blockEmitter = options.blockEmitter;
-    this.#peerManager = options.peerManager;
-    this.#isEnterprise = options.isEnterprise || (() => false);
-    this.#networkStateReadyPromise = options.networkStateReady ?? null;
+    this.#getEligibleSyncPeers = options.getEligibleSyncPeers;
+    this.#onPeerEvent = options.onPeerEvent;
+    this.#offPeerEvent = options.offPeerEvent;
+    this.#isEnterprise = options.isEnterprise ?? (() => false);
+    this.#waitForNetworkState = options.networkStateReady ?? null;
   }
 
   get state() {
@@ -62,16 +68,20 @@ class AppSyncOrchestrator extends EventEmitter {
   async start() {
     log.info(`AppSyncOrchestrator - Starting in state ${this.#state}`);
 
-    this.#peerManager.on('peerThresholdReached', (count) => {
+    this.#peerThresholdHandler = (count) => {
       log.info(`AppSyncOrchestrator - Peer threshold reached (${count} peers)`);
       this.#peersReady = true;
       this.#tryStartSync();
-    });
-
-    this.#peerManager.on('peersBelowThreshold', (count) => {
+    };
+    this.#peersBelowHandler = (count) => {
       log.info(`AppSyncOrchestrator - Peers below threshold (${count} peers)`);
       this.#onPeersDegraded();
-    });
+    };
+    this.#onPeerEvent('peerThresholdReached', this.#peerThresholdHandler);
+    this.#onPeerEvent('peersBelowThreshold', this.#peersBelowHandler);
+
+    this.#ephemeralSyncHandler = (syncType) => this.#onEphemeralSyncComplete(syncType);
+    appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_COMPLETE, this.#ephemeralSyncHandler);
 
     this.#blockReceivedHandler = (blockHeight) => {
       this.#onBlockReceived(blockHeight);
@@ -79,22 +89,22 @@ class AppSyncOrchestrator extends EventEmitter {
     this.#blockEmitter.on('blockReceived', this.#blockReceivedHandler);
     this.#blockEmitter.on('hashesReconstructed', () => this.invalidateHashSync());
 
-    if (this.#networkStateReadyPromise) {
-      await this.#networkStateReadyPromise;
-      this.#networkStateReady = true;
+    if (this.#waitForNetworkState) {
+      await this.#waitForNetworkState();
+      this.#networkReady = true;
       log.info('AppSyncOrchestrator - Network state ready');
       this.#tryStartSync();
     } else {
-      this.#networkStateReady = true;
+      this.#networkReady = true;
     }
   }
 
   #tryStartSync() {
-    if (!this.#networkStateReady || !this.#peersReady) return;
+    if (!this.#networkReady || !this.#peersReady) return;
     this.#onPeersReady();
   }
 
-  onSyncComplete(syncType) {
+  #onEphemeralSyncComplete(syncType) {
     if (this.#stateSyncComplete) return;
     if (this.#syncCompletions[syncType] === undefined) return;
     this.#syncCompletions[syncType] += 1;
@@ -129,7 +139,7 @@ class AppSyncOrchestrator extends EventEmitter {
   }
 
   #requestSyncs() {
-    const eligible = this.#peerManager.getEligibleSyncPeers(MIN_UPTIME_SECONDS);
+    const eligible = this.#getEligibleSyncPeers(MIN_UPTIME_SECONDS);
     const fresh = eligible.filter((p) => !this.#askedPeers.has(p.key));
 
     if (fresh.length < MIN_SYNC_COMPLETIONS && this.#askedPeers.size === 0) {
@@ -180,7 +190,7 @@ class AppSyncOrchestrator extends EventEmitter {
       this.#dbRebuilt = false;
       this.#resetSyncState();
       log.warn('AppSyncOrchestrator - Degraded, pausing spawner');
-      this.emit('readinessLost');
+      appSyncEvents.emit(EVENTS.READINESS_LOST);
     }
   }
 
@@ -237,7 +247,7 @@ class AppSyncOrchestrator extends EventEmitter {
   async #runInitialSync() {
     if (this.#syncInProgress) return;
     log.info('AppSyncOrchestrator - Starting initial hash sync');
-    this.emit('syncStarted');
+    log.info('AppSyncOrchestrator - Sync started');
     await this.#runHashSync();
     this.#checkReadiness();
   }
@@ -247,9 +257,7 @@ class AppSyncOrchestrator extends EventEmitter {
     this.#syncInProgress = true;
     try {
       this.#hashSyncAttempts += 1;
-      const result = await appHashSyncService.syncMissingHashes({
-        onProgress: (progress) => this.emit('syncProgress', progress),
-      });
+      const result = await appHashSyncService.syncMissingHashes();
       if (result.missing > 0) {
         log.warn(`AppSyncOrchestrator - Hash sync has ${result.missing} unresolvable hashes, proceeding`);
       } else {
@@ -257,7 +265,7 @@ class AppSyncOrchestrator extends EventEmitter {
       }
       this.#hashSyncComplete = true;
       this.#lastHashSyncCheck = Date.now();
-      this.emit('syncComplete');
+      appSyncEvents.emit(EVENTS.HASH_SYNC_COMPLETE);
       await this.#rebuildDb();
       globalState.checkAndSyncAppHashesWasEverExecuted = true;
     } catch (error) {
@@ -283,7 +291,7 @@ class AppSyncOrchestrator extends EventEmitter {
       log.info('AppSyncOrchestrator - Running expireGlobalApplications');
       await registryManager.expireGlobalApplications();
       this.#dbRebuilt = true;
-      this.emit('dbReady');
+      log.info('AppSyncOrchestrator - DB ready');
     } catch (error) {
       log.error(`AppSyncOrchestrator - DB rebuild failed: ${error.message}`);
     }
@@ -334,7 +342,7 @@ class AppSyncOrchestrator extends EventEmitter {
 
     this.#state = STATES.READY;
     log.info('AppSyncOrchestrator - All readiness conditions met');
-    this.emit('spawnerReady');
+    appSyncEvents.emit(EVENTS.SPAWNER_READY);
   }
 
   #startAppRunningBroadcast() {
@@ -352,8 +360,17 @@ class AppSyncOrchestrator extends EventEmitter {
   }
 
   stop() {
+    if (this.#ephemeralSyncHandler) {
+      appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_COMPLETE, this.#ephemeralSyncHandler);
+    }
     if (this.#blockReceivedHandler) {
       this.#blockEmitter.removeListener('blockReceived', this.#blockReceivedHandler);
+    }
+    if (this.#peerThresholdHandler) {
+      this.#offPeerEvent('peerThresholdReached', this.#peerThresholdHandler);
+    }
+    if (this.#peersBelowHandler) {
+      this.#offPeerEvent('peersBelowThreshold', this.#peersBelowHandler);
     }
     peerNotification.stopBroadcastInterval();
     this.#broadcastStarted = null;
@@ -365,7 +382,6 @@ class AppSyncOrchestrator extends EventEmitter {
       clearTimeout(this.#hashSyncRetryTimer);
       this.#hashSyncRetryTimer = null;
     }
-    this.removeAllListeners();
   }
 }
 
