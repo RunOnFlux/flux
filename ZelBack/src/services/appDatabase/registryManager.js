@@ -1609,48 +1609,50 @@ async function reconstructAppMessagesHashCollection() {
     const appHashes = await dbHelper.findInDatabase(databaseDaemon, appsHashesCollection, query, projection);
     const permHashSet = new Set(permanentMessages.map((m) => m.hash));
 
-    let changed = 0;
+    const ops = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const appHash of appHashes) {
-      const queryUpdate = {
-        hash: appHash.hash,
-        txid: appHash.txid,
-      };
-
+      const filter = { hash: appHash.hash, txid: appHash.txid };
       const hasPermanent = permHashSet.has(appHash.hash);
       const retryFrom = appHash.retryFromHeight ?? appHash.height;
 
       if (hasPermanent && (!appHash.message || appHash.messageNotFound)) {
-        const update = {
-          $set: {
-            message: true, messageNotFound: false, syncAttempts: 0, nextRetryHeight: retryFrom, retryFromHeight: retryFrom,
+        ops.push({
+          updateOne: {
+            filter,
+            update: {
+              $set: {
+                message: true, messageNotFound: false, syncAttempts: 0, nextRetryHeight: retryFrom, retryFromHeight: retryFrom,
+              },
+            },
           },
-        };
-        // eslint-disable-next-line no-await-in-loop
-        await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, {});
-        changed += 1;
+        });
       } else if (!hasPermanent && appHash.message) {
-        const update = {
-          $set: {
-            message: false, messageNotFound: false, syncAttempts: 0, nextRetryHeight: currentHeight, retryFromHeight: currentHeight,
+        ops.push({
+          updateOne: {
+            filter,
+            update: {
+              $set: {
+                message: false, messageNotFound: false, syncAttempts: 0, nextRetryHeight: currentHeight, retryFromHeight: currentHeight,
+              },
+            },
           },
-        };
-        // eslint-disable-next-line no-await-in-loop
-        await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, {});
-        changed += 1;
-      } else if (appHash.retryFromHeight === undefined) {
-        const update = {
-          $set: {
-            syncAttempts: appHash.syncAttempts ?? 0,
-            nextRetryHeight: appHash.nextRetryHeight ?? appHash.height,
-            retryFromHeight: appHash.height,
-          },
-        };
-        // eslint-disable-next-line no-await-in-loop
-        await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, {});
-        changed += 1;
+        });
       }
     }
+
+    let changed = 0;
+    if (ops.length > 0) {
+      const result = await databaseDaemon.collection(appsHashesCollection).bulkWrite(ops, { ordered: false });
+      changed += result.modifiedCount;
+    }
+
+    // Backfill retry fields on hashes that predate the new schema
+    const backfillResult = await databaseDaemon.collection(appsHashesCollection).updateMany(
+      { retryFromHeight: { $exists: false } },
+      [{ $set: { retryFromHeight: '$height', nextRetryHeight: { $ifNull: ['$nextRetryHeight', '$height'] }, syncAttempts: { $ifNull: ['$syncAttempts', 0] } } }],
+    );
+    changed += backfillResult.modifiedCount;
 
     return { changed };
   } catch (error) {
