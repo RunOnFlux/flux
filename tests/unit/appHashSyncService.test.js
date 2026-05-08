@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const config = require('config');
 
 describe('appHashSyncService tests', () => {
   let appHashSyncService;
@@ -53,7 +54,7 @@ describe('appHashSyncService tests', () => {
     collectionStub = {
       bulkWrite: sinon.stub().resolves({ ok: 1 }),
       insertMany: sinon.stub().resolves({ insertedCount: 0 }),
-      find: sinon.stub().returns({ project: sinon.stub().returns({ sort: sinon.stub().returns({ toArray: sinon.stub().resolves([]) }) }) }),
+      find: sinon.stub().returns({ project: sinon.stub().returns({ sort: sinon.stub().returns({ toArray: sinon.stub().resolves([]) }), toArray: sinon.stub().resolves([]) }) }),
     };
     const mockDatabase = { collection: sinon.stub().returns(collectionStub) };
     dbHelperStub = {
@@ -321,14 +322,19 @@ describe('appHashSyncService tests', () => {
         { hash: 'hash3' }, { hash: 'hash4' }, { hash: 'hash5' },
       ];
 
+      const existingHashSet = new Set(existingPermanent.map((h) => h.hash));
+      const remainingAfterLocal = manyMissing.filter((h) => !existingHashSet.has(h.hash));
       let getMissingCalls = 0;
       dbHelperStub.findInDatabase.callsFake((db, col, query) => {
-        if (query && query.message === false) {
+        if (col === config.database.daemon.collections.appsHashes) {
           getMissingCalls += 1;
           if (getMissingCalls === 1) return Promise.resolve(manyMissing);
+          if (getMissingCalls === 2) return Promise.resolve(remainingAfterLocal);
           return Promise.resolve([]);
         }
-        if (query && query.hash && query.hash.$in) return Promise.resolve(existingPermanent);
+        if (col === config.database.appsglobal.collections.appsMessages && query && query.hash && query.hash.$in) {
+          return Promise.resolve(existingPermanent);
+        }
         return Promise.resolve([]);
       });
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
@@ -341,14 +347,14 @@ describe('appHashSyncService tests', () => {
 
       await appHashSyncService.syncMissingHashes();
 
-      // 6 skipped via batch bulkWrite to mark hashes as message:true
+      // 6 resolved locally via bulkWrite before bulk fetch
       expect(collectionStub.bulkWrite.called).to.be.true;
-      const bulkOps = collectionStub.bulkWrite.firstCall.args[0];
-      expect(bulkOps.length).to.equal(6);
-      bulkOps.forEach((op) => {
+      const localOps = collectionStub.bulkWrite.firstCall.args[0];
+      expect(localOps.length).to.equal(6);
+      localOps.forEach((op) => {
         expect(op.updateOne.update.$set.message).to.be.true;
       });
-      // 4 new messages inserted via insertMany (not storeAppTemporaryMessage)
+      // 4 new messages inserted via insertMany from bulk fetch
       expect(collectionStub.insertMany.calledOnce).to.be.true;
       expect(collectionStub.insertMany.firstCall.args[0].length).to.equal(4);
     });
@@ -669,6 +675,7 @@ describe('appHashSyncService tests', () => {
         find: sinon.stub().returns({
           project: sinon.stub().returns({
             sort: sinon.stub().returns({ toArray: sinon.stub().resolves([]) }),
+            toArray: sinon.stub().resolves([]),
           }),
         }),
         updateMany: sinon.stub().resolves({ modifiedCount: 0 }),
@@ -908,7 +915,8 @@ describe('appHashSyncService tests', () => {
       // After 3 emissions, stop — settle should fire 4s after last emission.
       let emissions = 0;
       let findCallCount = 0;
-      dbHelperStub.findInDatabase.callsFake(() => {
+      dbHelperStub.findInDatabase.callsFake((db, col) => {
+        if (col === config.database.appsglobal.collections.appsMessages) return Promise.resolve([]);
         findCallCount += 1;
         if (findCallCount === 1) return Promise.resolve(missing3);
         // Emit response events for first 3 polls to keep settle alive
@@ -949,7 +957,8 @@ describe('appHashSyncService tests', () => {
       // Initial call: 3 missing. First poll in waitForResolution: drops to 1.
       // Subsequent polls: stays at 1, settles after 4s.
       let findCallCount = 0;
-      dbHelperStub.findInDatabase.callsFake(() => {
+      dbHelperStub.findInDatabase.callsFake((db, col) => {
+        if (col === config.database.appsglobal.collections.appsMessages) return Promise.resolve([]);
         findCallCount += 1;
         if (findCallCount === 1) return Promise.resolve(missing3);
         return Promise.resolve(missing1);

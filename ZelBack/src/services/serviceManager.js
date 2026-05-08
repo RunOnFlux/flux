@@ -17,7 +17,6 @@ const appController = require('./appManagement/appController');
 const dockerOperations = require('./appManagement/dockerOperations');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
-const messageVerifier = require('./appMessaging/messageVerifier');
 const appInspector = require('./appManagement/appInspector');
 const availabilityChecker = require('./appMonitoring/availabilityChecker');
 const nodeStatusMonitor = require('./appMonitoring/nodeStatusMonitor');
@@ -311,7 +310,7 @@ async function startFluxFunctions() {
     log.info('Connections polling prepared');
     fluxNetworkHelper.initClockOffsetCache();
     log.info('Clock offset cache initialized');
-    daemonServiceMiscRpcs.daemonBlockchainInfoService();
+    await daemonServiceMiscRpcs.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
     // Remove existing watchtower container (replaced by native image update service)
     imageUpdateService.removeWatchtowerContainer();
@@ -421,76 +420,8 @@ async function startFluxFunctions() {
         log.error(err);
       }
     }, bootDelay(20 * 60 * 1000));
-    setTimeout(async () => { // wait as of restarts due to ui building
-      try {
-        // todo code shall be removed after some time
-        const databaseApps = db.db(config.database.appsglobal.database);
-        const databaseDaemon = db.db(config.database.daemon.database);
-        const resultApps = await dbHelper.collectionStats(databaseApps, config.database.appsglobal.collections.appsMessages);
-        log.info(`Apps messages count: ${resultApps.count}`);
-        const resultHashes = await dbHelper.collectionStats(databaseDaemon, config.database.daemon.collections.appsHashes);
-        log.info(`Apps hashes count: ${resultHashes.count}`);
-        const query = {};
-        const projection = { projection: { _id: 0 } };
-        const resultAppsA = await dbHelper.findInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, query, projection);
-        // for every hash of app check if it is in the database of hashes
-        const processedHashes = [];
-        const duplicateHashes = [];
-        log.info('Running database consistency check');
-        for (let i = 0; i < resultAppsA.length; i += 1) {
-          const queryHash = { hash: resultAppsA[i].hash };
-          // eslint-disable-next-line no-await-in-loop
-          const resultHash = await dbHelper.findOneInDatabase(databaseDaemon, config.database.daemon.collections.appsHashes, queryHash, projection);
-          if (resultHash && processedHashes.includes(resultAppsA[i].hash)) {
-            log.info(`Duplicate hash in apps: ${resultAppsA[i].hash}`);
-            // remove from app messages
-            // eslint-disable-next-line no-await-in-loop
-            await dbHelper.findOneAndDeleteInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash, projection);
-            duplicateHashes.push(resultAppsA[i].hash);
-          } else {
-            processedHashes.push(resultAppsA[i].hash);
-          }
-        }
-        // log all duplicated hashes
-        log.info('Duplicate hashes:');
-        log.info(JSON.stringify(duplicateHashes));
-        const result = await dbHelper.findInDatabase(databaseDaemon, config.database.daemon.collections.appsHashes, query, projection);
-        if (result && result.length) {
-          log.info('Last known application hash');
-          log.info(result[result.length - 1]);
-        } else {
-          log.info('No known application hash');
-        }
-        // check if valueSat is null, if so run fixExplorer as of typo bug
-        let wrongAppMessage = false;
-        const appMessage = await messageVerifier.checkAppMessageExistence('e7e2e129dd24b8bcc5a93800c425da81f69c3dcdf02d1d5b3ce09ce2e1c94d67');
-        if (appMessage && !appMessage.valueSat) {
-          wrongAppMessage = true;
-          log.info('Fixing explorer due to wrong app message');
-        } else {
-          log.info('App consistency check OK');
-        }
-        // rescan before last known height of hashes
-        // it is important to have count values before consistency check
-        if ((resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100) || wrongAppMessage) {
-          // run fixExplorer at least from height 1670000
-          explorerService.fixExplorer(result[result.length - 1].height - 50 > 1670000 ? 1670000 : result[result.length - 1].height - 50, wrongAppMessage);
-          log.info('Flux Block Processing Service started in fix mode');
-        } else if (resultApps.count > resultHashes.count) {
-          explorerService.fixExplorer(0, true);
-          log.info('Flux Block Processing Service started in fix mode from scratch');
-        } else {
-          // just initiate
-          explorerService.initiateBlockProcessor(true, true);
-          log.info('Flux Block Processing Service started');
-        }
-      } catch (error) {
-        log.error(error);
-        // just initiate
-        explorerService.initiateBlockProcessor(true, true);
-        log.info('Flux Block Processing Service started with exception.');
-      }
-    }, bootDelay(2 * 60 * 1000));
+    explorerService.initiateBlockProcessor(true, true);
+    log.info('Flux Block Processing Service started');
     setTimeout(() => {
       appInspector.checkApplicationsCpuUSage(globalState.appsMonitored, appQueryService.installedApps);
       setInterval(() => {

@@ -426,6 +426,9 @@ async function syncMissingHashes(options = {}) {
 
   syncRunning = true;
   try {
+    const db = dbHelper.databaseConnection();
+    const daemonDb = db.db(config.database.daemon.database);
+
     let missingHashes = await getMissingHashes({ force });
     log.info(`syncMissingHashes - Found ${missingHashes.length} missing hashes`);
 
@@ -433,8 +436,33 @@ async function syncMissingHashes(options = {}) {
       return { resolved: 0, missing: 0, unreachable: 0 };
     }
 
+    // Check local permanent messages before fetching from peers
+    const appsGlobalDb = db.db(config.database.appsglobal.database);
+    const CHUNK_SIZE = 10000;
+    let localResolved = 0;
+    for (let i = 0; i < missingHashes.length; i += CHUNK_SIZE) {
+      const chunk = missingHashes.slice(i, i + CHUNK_SIZE);
+      const hashValues = chunk.map((h) => h.hash);
+      // eslint-disable-next-line no-await-in-loop
+      const found = await dbHelper.findInDatabase(appsGlobalDb, globalAppsMessages, { hash: { $in: hashValues } }, { projection: { _id: 0, hash: 1 } });
+      if (found.length > 0) {
+        const ops = found.map((m) => ({ updateOne: { filter: { hash: m.hash }, update: { $set: { message: true, messageNotFound: false } } } }));
+        // eslint-disable-next-line no-await-in-loop
+        await daemonDb.collection(appsHashesCollection).bulkWrite(ops, { ordered: false });
+        localResolved += found.length;
+      }
+    }
+    if (localResolved > 0) {
+      log.info(`syncMissingHashes - Resolved ${localResolved} hashes from local permanent messages`);
+      missingHashes = await getMissingHashes({ force });
+    }
+
+    if (missingHashes.length === 0) {
+      return { resolved: localResolved, missing: 0, unreachable: 0 };
+    }
+
     const initialCount = missingHashes.length;
-    let resolved = 0;
+    let resolved = localResolved;
 
     // Bulk fetch for large gaps (> 500 exceeds single fluxapprequest v2 cap)
     if (missingHashes.length > 500) {
@@ -523,8 +551,6 @@ async function syncMissingHashes(options = {}) {
     const finalMissing = await getMissingHashes({ force: false });
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const currentHeight = syncStatus.data.height || 0;
-    const db = dbHelper.databaseConnection();
-    const daemonDb = db.db(config.database.daemon.database);
 
     let unreachable = 0;
     let minNextRetry = null;
