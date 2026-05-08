@@ -202,6 +202,7 @@ class AppSyncOrchestrator {
       this.#state = STATES.DEGRADED;
       this.#hashSyncComplete = false;
       this.#dbRebuilt = false;
+      globalState.dbReady = false;
       this.#resetSyncState();
       log.warn('AppSyncOrchestrator - Degraded, pausing spawner');
       appSyncEvents.emit(EVENTS.READINESS_LOST);
@@ -321,7 +322,7 @@ class AppSyncOrchestrator {
       appSyncEvents.emit(EVENTS.HASH_SYNC_COMPLETE);
       await this.#writeVersionMarker();
       await this.#rebuildDb();
-      globalState.checkAndSyncAppHashesWasEverExecuted = true;
+      globalState.dbReady = true;
     } catch (error) {
       log.error(`AppSyncOrchestrator - Hash sync failed (attempt ${this.#hashSyncAttempts}/${HASH_SYNC_MAX_RETRIES}): ${error.message}`);
       if (this.#hashSyncAttempts < HASH_SYNC_MAX_RETRIES) {

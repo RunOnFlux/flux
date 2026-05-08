@@ -78,8 +78,8 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
-    if (!globalState.checkAndSyncAppHashesWasEverExecuted) {
-      log.info('Flux checkAndSyncAppHashesWasEverExecuted not yet executed');
+    if (!globalState.dbReady) {
+      log.info('DB not yet ready, waiting for orchestrator');
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;

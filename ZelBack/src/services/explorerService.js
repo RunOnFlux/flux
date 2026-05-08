@@ -19,6 +19,7 @@ const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const benchmarkService = require('./benchmarkService');
 const fluxNetworkhelper = require('./fluxNetworkHelper');
 const fluxEventBus = require('./utils/fluxEventBus');
+const globalState = require('./utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
@@ -628,31 +629,27 @@ async function processBlock(blockHeight, isInsightExplorer) {
     if (isSynced) {
       blockEmitter.emit('blockReceived', scannedHeight);
 
-      if (blockHeight % (2 * speedMultiplier) === 0) {
-        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+      if (globalState.dbReady && blockDataVerbose.height >= config.fluxapps.epochstart) {
+        if (blockHeight % (2 * speedMultiplier) === 0) {
           await registryManager.expireGlobalApplications();
         }
-      }
-      if (blockHeight % (config.fluxapps.removeFluxAppsPeriod * speedMultiplier) === 0) {
-        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+        if (blockHeight % (config.fluxapps.removeFluxAppsPeriod * speedMultiplier) === 0) {
           advancedWorkflows.checkAndRemoveApplicationInstance();
         }
-      }
-      if (blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0) {
-        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+        if (blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0) {
           advancedWorkflows.reinstallOldApplications();
           updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
         }
-      }
-      if (blockDataVerbose.height % (config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier) === 0) {
-        try {
-          const reconstructResult = await registryManager.reconstructAppMessagesHashCollection();
-          log.info(`Validation of App Messages Hash Collection — ${reconstructResult.changed} corrected`);
-          if (reconstructResult.changed > 0) {
-            blockEmitter.emit('hashesChanged');
+        if (blockDataVerbose.height % (config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier) === 0) {
+          try {
+            const reconstructResult = await registryManager.reconstructAppMessagesHashCollection();
+            log.info(`Validation of App Messages Hash Collection — ${reconstructResult.changed} corrected`);
+            if (reconstructResult.changed > 0) {
+              blockEmitter.emit('hashesChanged');
+            }
+          } catch (error) {
+            log.error(error);
           }
-        } catch (error) {
-          log.error(error);
         }
       }
       if (blockDataVerbose.height % (config.fluxapps.benchUpnpPeriod * speedMultiplier) === 0) {

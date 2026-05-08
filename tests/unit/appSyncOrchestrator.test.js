@@ -56,7 +56,7 @@ describe('AppSyncOrchestrator', () => {
     expireStub = sinon.stub().resolves();
     isNodeStatusConfirmedStub = sinon.stub().resolves(true);
     globalStateStub = {
-      checkAndSyncAppHashesWasEverExecuted: false,
+      dbReady: false,
     };
     checkAndNotifyStub = sinon.stub().resolves();
     resetHashSyncForUpgradeStub = sinon.stub().resolves(0);
@@ -145,12 +145,12 @@ describe('AppSyncOrchestrator', () => {
       expect(expireStub.calledOnce).to.be.true;
     });
 
-    it('should set checkAndSyncAppHashesWasEverExecuted after sync', async () => {
+    it('should set dbReady after sync', async () => {
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
-      expect(globalStateStub.checkAndSyncAppHashesWasEverExecuted).to.be.true;
+      expect(globalStateStub.dbReady).to.be.true;
     });
 
     it('should log DB ready after reindex', async () => {

@@ -30,7 +30,7 @@ describe('appSpawner tests', () => {
 
   function createGlobalStateStub() {
     return {
-      checkAndSyncAppHashesWasEverExecuted: true,
+      dbReady: true,
       fluxNodeWasNotConfirmedOnLastCheck: false,
       fluxNodeWasAlreadyConfirmed: true,
       firstExecutionAfterItsSynced: false,
