@@ -509,19 +509,33 @@ describe('appHashSyncService tests', () => {
     });
   });
 
-  describe('resetMessageNotFoundFlags', () => {
-    it('should call updateMany on appsHashes collection and return modifiedCount', async () => {
-      const updateManyStub = sinon.stub().resolves({ modifiedCount: 5 });
+  describe('resetHashSyncForUpgrade', () => {
+    it('should give fresh start to hashes without retryFromHeight and one retry to hashes with it', async () => {
+      const updateManyStub = sinon.stub()
+        .onFirstCall().resolves({ modifiedCount: 3 })
+        .onSecondCall().resolves({ modifiedCount: 7 });
       const collectionStubLocal = { updateMany: updateManyStub };
       const mockDatabase = { collection: sinon.stub().returns(collectionStubLocal) };
       dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(mockDatabase) });
 
-      const result = await appHashSyncService.resetMessageNotFoundFlags();
+      const result = await appHashSyncService.resetHashSyncForUpgrade();
 
-      expect(result).to.equal(5);
-      expect(updateManyStub.calledOnce).to.be.true;
-      expect(updateManyStub.firstCall.args[0]).to.deep.equal({ $or: [{ messageNotFound: true }, { nextRetryHeight: { $exists: true } }] });
-      expect(updateManyStub.firstCall.args[1]).to.deep.equal({ $set: { messageNotFound: false }, $unset: { nextRetryHeight: '', syncAttempts: '' } });
+      expect(result).to.equal(10);
+      expect(updateManyStub.calledTwice).to.be.true;
+
+      // First call: hashes with retryFromHeight — one retry, keep syncAttempts
+      expect(updateManyStub.firstCall.args[0]).to.deep.equal({ message: false, retryFromHeight: { $exists: true } });
+      expect(updateManyStub.firstCall.args[1].$set.messageNotFound).to.equal(false);
+      expect(updateManyStub.firstCall.args[1].$set.nextRetryHeight).to.be.a('number');
+      expect(updateManyStub.firstCall.args[1].$set).to.not.have.property('syncAttempts');
+      expect(updateManyStub.firstCall.args[1].$set).to.not.have.property('retryFromHeight');
+
+      // Second call: hashes without retryFromHeight — full fresh start
+      expect(updateManyStub.secondCall.args[0]).to.deep.equal({ message: false, retryFromHeight: { $exists: false } });
+      expect(updateManyStub.secondCall.args[1].$set.messageNotFound).to.equal(false);
+      expect(updateManyStub.secondCall.args[1].$set.syncAttempts).to.equal(0);
+      expect(updateManyStub.secondCall.args[1].$set).to.have.property('nextRetryHeight');
+      expect(updateManyStub.secondCall.args[1].$set).to.have.property('retryFromHeight');
     });
 
     it('should return 0 when no documents match', async () => {
@@ -530,7 +544,7 @@ describe('appHashSyncService tests', () => {
       const mockDatabase = { collection: sinon.stub().returns(collectionStubLocal) };
       dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(mockDatabase) });
 
-      const result = await appHashSyncService.resetMessageNotFoundFlags();
+      const result = await appHashSyncService.resetHashSyncForUpgrade();
 
       expect(result).to.equal(0);
     });
@@ -570,6 +584,41 @@ describe('appHashSyncService tests', () => {
       // Attempt 20 should clamp to last backoff value
       const idx = Math.min(20, HASH_RETRY_BACKOFF.length - 1);
       expect(HASH_RETRY_BACKOFF[idx]).to.equal(lastBackoff);
+    });
+
+    it('should use retryFromHeight instead of height for expiry when present', async () => {
+      // Hash mined 2 years ago but retryFromHeight set recently — should NOT expire
+      const ancientHash = {
+        hash: 'ancient', txid: 'tx1', height: 500000, value: 10, message: false,
+        syncAttempts: 0, retryFromHeight: 2554000, nextRetryHeight: 2555000,
+      };
+      // Hash mined 2 years ago, no retryFromHeight — should expire
+      const ancientHashNoRetry = {
+        hash: 'ancient2', txid: 'tx2', height: 500000, value: 10, message: false,
+        syncAttempts: 0, nextRetryHeight: 2555000,
+      };
+
+      const both = [ancientHash, ancientHashNoRetry];
+      dbHelperStub.findInDatabase.resolves(both);
+
+      // Advance Date.now() on each delay call so settle timeout expires immediately
+      let now = Date.now();
+      const originalDateNow = Date.now;
+      serviceHelperStub.delay.callsFake(() => { now += 5000; return Promise.resolve(); });
+      sinon.stub(Date, 'now').callsFake(() => now);
+
+      try {
+        await appHashSyncService.syncMissingHashes();
+      } finally {
+        Date.now.restore();
+      }
+
+      // ancientHashNoRetry: height 500000, currentHeight 2555000, diff 2055000 > HASH_EXPIRY_BLOCKS — expired
+      expect(messageVerifierStub.appHashHasMessageNotFound.calledWith('ancient2')).to.be.true;
+      // ancientHash: retryFromHeight 2554000, currentHeight 2555000, diff 1000 < HASH_EXPIRY_BLOCKS — NOT expired
+      expect(messageVerifierStub.appHashHasMessageNotFound.calledWith('ancient')).to.be.false;
+      // ancientHash should get backoff instead
+      expect(collectionStub.bulkWrite.called).to.be.true;
     });
   });
 

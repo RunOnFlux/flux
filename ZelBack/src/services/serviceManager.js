@@ -289,13 +289,13 @@ async function startFluxFunctions() {
 
     log.info('Flux Apps installing locations prepared');
 
-    // Reset stale messageNotFound flags on version upgrade
+    // Reset hash sync state on version upgrade
     const { version: fluxVersion } = require('../../../package.json');
     const startupCollection = config.database.local.collections.nodeStartupTracker;
     const hashSyncMarker = await dbHelper.findOneInDatabase(database, startupCollection, { _id: 'hashSyncVersion' });
     if (!hashSyncMarker || hashSyncMarker.version !== fluxVersion) {
-      const resetCount = await appHashSyncService.resetMessageNotFoundFlags();
-      log.info(`Version upgrade to ${fluxVersion}, reset ${resetCount} messageNotFound flags`);
+      const resetCount = await appHashSyncService.resetHashSyncForUpgrade();
+      log.info(`Version upgrade to ${fluxVersion}, reset ${resetCount} hash sync entries`);
     }
 
     // Initialize app sync orchestrator and spawner

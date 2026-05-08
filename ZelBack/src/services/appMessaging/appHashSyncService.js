@@ -55,7 +55,7 @@ async function getMissingHashes(options = {}) {
   }
   const projection = {
     projection: {
-      _id: 0, txid: 1, hash: 1, height: 1, value: 1, message: 1, messageNotFound: 1, syncAttempts: 1,
+      _id: 0, txid: 1, hash: 1, height: 1, value: 1, message: 1, messageNotFound: 1, syncAttempts: 1, retryFromHeight: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
@@ -450,7 +450,8 @@ async function syncMissingHashes(options = {}) {
     let minNextRetry = null;
     const backoffOps = [];
     for (const hashDoc of finalMissing) {
-      if (currentHeight - hashDoc.height > HASH_EXPIRY_BLOCKS) {
+      const ageBase = hashDoc.retryFromHeight ?? hashDoc.height;
+      if (currentHeight - ageBase > HASH_EXPIRY_BLOCKS) {
         // eslint-disable-next-line no-await-in-loop
         await messageVerifier.appHashHasMessageNotFound(hashDoc.hash);
         unreachable += 1;
@@ -503,19 +504,30 @@ async function triggerAppHashesCheckAPI(req, res) {
   }
 }
 
-async function resetMessageNotFoundFlags() {
+async function resetHashSyncForUpgrade() {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
-  const result = await database.collection(appsHashesCollection).updateMany(
-    { $or: [{ messageNotFound: true }, { nextRetryHeight: { $exists: true } }] },
-    { $set: { messageNotFound: false }, $unset: { nextRetryHeight: '', syncAttempts: '' } },
+  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+  const currentHeight = syncStatus.data.height || 0;
+
+  // Hashes already seen by the new retry system — one retry with new code
+  const existingResult = await database.collection(appsHashesCollection).updateMany(
+    { message: false, retryFromHeight: { $exists: true } },
+    { $set: { messageNotFound: false, nextRetryHeight: currentHeight } },
   );
-  return result.modifiedCount;
+
+  // Hashes never seen by the new retry system — full fresh start with 1-year window
+  const newResult = await database.collection(appsHashesCollection).updateMany(
+    { message: false, retryFromHeight: { $exists: false } },
+    { $set: { messageNotFound: false, syncAttempts: 0, nextRetryHeight: currentHeight, retryFromHeight: currentHeight } },
+  );
+
+  return existingResult.modifiedCount + newResult.modifiedCount;
 }
 
 module.exports = {
   syncMissingHashes,
   getMissingHashes,
-  resetMessageNotFoundFlags,
+  resetHashSyncForUpgrade,
   triggerAppHashesCheckAPI,
 };
