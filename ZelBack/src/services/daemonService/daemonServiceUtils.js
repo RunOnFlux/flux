@@ -111,6 +111,22 @@ async function executeCall(rpc, params, options = {}) {
 }
 
 /**
+ * Execute a batch of RPC calls directly, bypassing cache and semaphore lock.
+ * @param {Array<{method: string, params: Array}>} calls Array of RPC call specifications.
+ * @returns {object} Message containing array of {id, result, error} objects.
+ */
+async function executeBatchCall(calls) {
+  if (!fluxdClient) await buildFluxdClient();
+
+  try {
+    const data = await fluxdClient.runBatch(calls);
+    return messageHelper.createDataMessage(data);
+  } catch (error) {
+    return messageHelper.createErrorMessage(error.message, error.name, error.code);
+  }
+}
+
+/**
  * Sets standard cache data.
  * Created for testing purposes.
  *
@@ -272,6 +288,7 @@ module.exports = {
   buildFluxdClient,
   createBackupFluxdConfig,
   executeCall,
+  executeBatchCall,
   getConfigValue,
   getFluxdClient,
   getFluxdConfig,

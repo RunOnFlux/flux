@@ -293,6 +293,57 @@ class FluxRpc {
 
     return result;
   }
+
+  async runBatch(calls) {
+    if (!calls.length) return [];
+
+    const payloads = calls.map((call) => {
+      const method = call.method.toLowerCase();
+      if (!this.methods.has(method)) throw new Error(`Invalid Method: ${method}`);
+      return this.#createPayload(method, call.params || []);
+    });
+
+    const { signal } = this.controller;
+
+    const res = await this.#instance.post('/', payloads, { signal }).catch((err) => {
+      const { response: { data } = {} } = err;
+
+      let errorMessage;
+      let errorCode;
+
+      if (typeof data === 'string') {
+        errorCode = 500;
+        errorMessage = data;
+      } else if (data) {
+        errorCode = data.error?.code;
+        errorMessage = data.error?.message;
+      }
+
+      errorCode = errorCode || err.code;
+      errorMessage = errorMessage || err.message;
+
+      const fetchError = new Error(errorMessage);
+      fetchError.code = errorCode;
+
+      throw fetchError;
+    });
+
+    const { status: axiosStatus, data: axiosData } = res;
+
+    if (axiosStatus !== 200) {
+      const resError = new Error(`Invalid response status code: ${axiosStatus}`);
+      resError.code = 'INVALID_STATUS_CODE';
+      throw resError;
+    }
+
+    if (!Array.isArray(axiosData)) {
+      throw new Error('Batch response is not an array');
+    }
+
+    axiosData.sort((a, b) => a.id - b.id);
+
+    return axiosData;
+  }
 }
 
 async function main() {

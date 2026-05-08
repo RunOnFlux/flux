@@ -11,6 +11,7 @@ const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRp
 const daemonServiceAddressRpcs = require('./daemonService/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
+const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const chainUtilities = require('./utils/chainUtilities');
 const messageVerifier = require('./appMessaging/messageVerifier');
 const registryManager = require('./appDatabase/registryManager');
@@ -812,6 +813,160 @@ async function cleanupDuplicateScannedHeight(database) {
  * @param {boolean} reindexOrRescanGlobalApps True if apps collections are to be reindexed.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
+
+function getPriceSpecForHeight(priceSpecs, height) {
+  let lo = 0;
+  let hi = priceSpecs.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (priceSpecs[mid].height < height) lo = mid;
+    else hi = mid - 1;
+  }
+  return priceSpecs[lo];
+}
+
+function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch, softForkBatch) {
+  if (tx.version >= 5 || tx.version <= 0) return;
+  const { height } = tx;
+  if (!height) return;
+
+  let message = '';
+  let appValue = 0;
+  let senderFoundation = false;
+  let receiverFoundation = false;
+
+  for (const vin of (tx.vin || [])) {
+    if (vin.address === config.fluxapps.addressMultisig || vin.address === config.fluxapps.addressMultisigB) {
+      senderFoundation = true;
+      break;
+    }
+  }
+
+  for (const vout of tx.vout) {
+    if (vout.scriptPubKey.addresses) {
+      const addr = vout.scriptPubKey.addresses[0];
+      if (addr === config.fluxapps.address
+        || (addr === config.fluxapps.addressMultisig && height >= config.fluxapps.appSpecsEnforcementHeights[6])
+        || (addr === config.fluxapps.addressMultisigB && height >= config.fluxapps.multisigAddressChange)
+        || (addr === config.fluxapps.addressDevelopment && config.development)) {
+        appValue += vout.valueSat;
+      }
+      if (addr === config.fluxapps.addressMultisig || addr === config.fluxapps.addressMultisigB) {
+        receiverFoundation = true;
+      }
+    }
+    if (vout.scriptPubKey.asm) {
+      message = decodeMessage(vout.scriptPubKey.asm);
+    }
+  }
+
+  if (appValue > 0) {
+    const priceSpec = getPriceSpecForHeight(priceSpecs, height);
+    if (appValue >= (priceSpec.minPrice * 1e8) && message.length === 64
+      && height >= config.fluxapps.epochstart && !seenHashes.has(message)) {
+      seenHashes.add(message);
+      hashBatch.push({
+        txid: tx.txid, height, hash: message, value: appValue,
+        message: false, syncAttempts: 0, nextRetryHeight: height, retryFromHeight: height,
+      });
+    }
+  }
+
+  if (senderFoundation && receiverFoundation && message) {
+    softForkBatch.push({ txid: tx.txid, height, message });
+  }
+}
+
+async function bootstrapAppHashes(currentDaemonHeight) {
+  const appAddresses = [
+    config.fluxapps.address,
+    config.fluxapps.addressMultisig,
+    config.fluxapps.addressMultisigB,
+  ];
+  if (config.development) {
+    appAddresses.push(config.fluxapps.addressDevelopment);
+  }
+
+  log.info(`Bootstrap: Fetching txids for ${appAddresses.length} app addresses from height ${config.fluxapps.epochstart} to ${currentDaemonHeight}`);
+
+  const txidResult = await daemonServiceUtils.executeCall('getaddresstxids', [{
+    addresses: appAddresses,
+    start: config.fluxapps.epochstart,
+    end: currentDaemonHeight,
+  }]);
+  if (txidResult.status !== 'success') {
+    throw new Error(`getaddresstxids failed: ${txidResult.data.message || txidResult.data}`);
+  }
+
+  const allTxids = [...new Set(txidResult.data)];
+  log.info(`Bootstrap: ${allTxids.length} unique txids to process`);
+
+  const priceSpecs = await chainUtilities.getChainParamsPriceUpdates();
+  const seenHashes = new Set();
+  let hashBatch = [];
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+
+  const BATCH_SIZE = 500;
+  const INSERT_THRESHOLD = 5000;
+  let totalHashes = 0;
+  let totalSoftForks = 0;
+
+  for (let i = 0; i < allTxids.length; i += BATCH_SIZE) {
+    const batch = allTxids.slice(i, i + BATCH_SIZE);
+    const calls = batch.map((txid) => ({ method: 'getrawtransaction', params: [txid, 1] }));
+
+    // eslint-disable-next-line no-await-in-loop
+    const batchResult = await daemonServiceUtils.executeBatchCall(calls);
+    if (batchResult.status !== 'success') {
+      throw new Error(`Batch getrawtransaction failed: ${batchResult.data.message || batchResult.data}`);
+    }
+
+    const softForkBatch = [];
+    for (const response of batchResult.data) {
+      if (response.error) {
+        log.warn(`Bootstrap: failed to fetch tx: ${response.error.message || JSON.stringify(response.error)}`);
+        continue;
+      }
+      processBootstrapTx(response.result, priceSpecs, seenHashes, hashBatch, softForkBatch);
+    }
+
+    for (const sf of softForkBatch) {
+      // eslint-disable-next-line no-await-in-loop
+      await processSoftFork(sf.txid, sf.height, sf.message);
+      const splitted = sf.message.split('_');
+      if (splitted[0] === 'p' && splitted[4]) {
+        priceSpecs.push({
+          height: sf.height, cpu: +splitted[1], ram: +splitted[2], hdd: +splitted[3],
+          minPrice: +splitted[4], port: +splitted[5] || 2, scope: +splitted[6] || 6, staticip: +splitted[7] || 3,
+        });
+        priceSpecs.sort((a, b) => a.height - b.height);
+      }
+    }
+    totalSoftForks += softForkBatch.length;
+
+    if (hashBatch.length >= INSERT_THRESHOLD || i + BATCH_SIZE >= allTxids.length) {
+      if (hashBatch.length > 0) {
+        // eslint-disable-next-line no-await-in-loop
+        await insertTransactions(hashBatch, database);
+        totalHashes += hashBatch.length;
+        hashBatch = [];
+      }
+    }
+
+    const processed = Math.min(i + BATCH_SIZE, allTxids.length);
+    if (processed % 5000 < BATCH_SIZE || processed === allTxids.length) {
+      log.info(`Bootstrap: ${processed}/${allTxids.length} txids processed, ${totalHashes + hashBatch.length} hashes, ${totalSoftForks} soft forks`);
+    }
+  }
+
+  const query = { generalScannedHeight: { $gte: 0 } };
+  const update = { $set: { generalScannedHeight: currentDaemonHeight } };
+  await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, { upsert: true });
+
+  log.info(`Bootstrap complete: ${totalHashes} app hashes, ${totalSoftForks} soft fork messages, scanned to height ${currentDaemonHeight}`);
+}
+
 // do a deepRestore of 100 blocks if daemon if enouncters an error (mostly flux daemon was down) or if its initial start of flux
 // use reindexGlobalApps with caution!!!
 async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps) {
@@ -1028,13 +1183,23 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       isInInitiationOfBP = false;
       const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
 
-      if (isInsightExplorer) {
-        // if node is insight explorer based, we are only processing flux app messages
-        if (scannedBlockHeight < config.fluxapps.epochstart - 1) {
+      if (scannedBlockHeight === 0 && isInsightExplorer) {
+        try {
+          log.info('Bootstrap: Using address-index fast path');
+          await bootstrapAppHashes(daemonHeight);
+          log.info('Bootstrap complete, entering steady-state block processing');
+          processBlock(daemonHeight + 1, isInsightExplorer);
+        } catch (error) {
+          log.error('Bootstrap failed, falling back to block-by-block scan');
+          log.error(error);
+          processBlock(config.fluxapps.epochstart, isInsightExplorer);
+        }
+      } else {
+        if (isInsightExplorer && scannedBlockHeight < config.fluxapps.epochstart - 1) {
           scannedBlockHeight = config.fluxapps.epochstart - 1;
         }
+        processBlock(scannedBlockHeight + 1, isInsightExplorer);
       }
-      processBlock(scannedBlockHeight + 1, isInsightExplorer);
     } else if (scannedBlockHeight >= config.daemon.chainValidHeight && lastchainTipCheck !== 0 && lastchainTipCheck + 100 < scannedBlockHeight) {
       log.info(`Explorer - Checking for chain reorganisations - lastchainTipCheck: ${lastchainTipCheck} scannedBlockHeight: ${scannedBlockHeight}`);
 
@@ -1772,7 +1937,10 @@ module.exports = {
   getAddressFusionCoinbase,
   getBlockEmitter,
 
-  // exports for testing puproses
+  // exports for testing purposes
+  bootstrapAppHashes,
+  getPriceSpecForHeight,
+  processBootstrapTx,
   getSenderTransactionFromDaemon,
   getSender,
   processBlockTransactions,
