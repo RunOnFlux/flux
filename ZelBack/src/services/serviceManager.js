@@ -310,7 +310,8 @@ async function startFluxFunctions() {
     log.info('Connections polling prepared');
     fluxNetworkHelper.initClockOffsetCache();
     log.info('Clock offset cache initialized');
-    await daemonServiceMiscRpcs.daemonBlockchainInfoService();
+    await daemonServiceMiscRpcs.waitForDaemonRpc();
+    daemonServiceMiscRpcs.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
     // Remove existing watchtower container (replaced by native image update service)
     imageUpdateService.removeWatchtowerContainer();
