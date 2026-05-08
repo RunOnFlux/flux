@@ -32,6 +32,8 @@ class FluxPeerManager extends EventEmitter {
 
   /** @type {Map<string, FluxPeerSocket>} */
   #peers = new Map();
+  /** @type {Map<string, FluxPeerSocket>} */
+  #ephemeralPeers = new Map();
   /** @type {Set<string>} */
   #inboundKeys = new Set();
   /** @type {Set<string>} */
@@ -264,6 +266,44 @@ class FluxPeerManager extends EventEmitter {
     const ipCount = (this.#uniqueIps.get(ipKey) || 1) - 1;
     if (ipCount <= 0) this.#uniqueIps.delete(ipKey);
     else this.#uniqueIps.set(ipKey, ipCount);
+  }
+
+  /**
+   * Add an ephemeral peer. Used for short-lived connections that request
+   * specific data and disconnect. Not included in broadcasts, peer exchange,
+   * connection limits, or reconnection logic.
+   * @param {WebSocket} ws
+   * @param {string} ip
+   * @param {string} port
+   * @param {object} [options]
+   * @returns {FluxPeerSocket}
+   */
+  addEphemeral(ws, ip, port, options = {}) {
+    const peer = new FluxPeerSocket(ws, ip, String(port), this);
+    peer.source = PEER_SOURCE.EPHEMERAL;
+    if (Array.isArray(options.remoteCapabilities) && options.remoteCapabilities.length) {
+      peer.remoteCapabilities = new Set(options.remoteCapabilities);
+    }
+    if (typeof options.remoteClockOffsetMs === 'number' && !Number.isNaN(options.remoteClockOffsetMs)) {
+      peer.remoteClockOffsetMs = options.remoteClockOffsetMs;
+    }
+    this.#ephemeralPeers.set(peer.key, peer);
+    this.#pendingConnections.delete(peer.key);
+    log.info(`Ephemeral connection to ${peer.key} established`);
+    return peer;
+  }
+
+  /**
+   * Remove an ephemeral peer. No reconnection, no tracking, no threshold events.
+   * @param {string} key
+   * @returns {FluxPeerSocket|null}
+   */
+  removeEphemeral(key) {
+    const peer = this.#ephemeralPeers.get(key);
+    if (!peer) return null;
+    this.#ephemeralPeers.delete(key);
+    log.info(`Ephemeral connection ${key} removed`);
+    return peer;
   }
 
   /**

@@ -2225,4 +2225,75 @@ describe('FluxPeerManager tests', () => {
       manager.remove(peer.key, 1006);
     });
   });
+
+  describe('ephemeral peers', () => {
+    it('should add an ephemeral peer with EPHEMERAL source', () => {
+      const ws = createMockWs('50.0.0.1');
+      const peer = manager.addEphemeral(ws, '50.0.0.1', '16127');
+      expect(peer.source).to.equal(PEER_SOURCE.EPHEMERAL);
+      expect(peer.key).to.equal('50.0.0.1:16127');
+    });
+
+    it('should not include ephemeral peers in allValues', () => {
+      const ws = createMockWs('50.0.0.1');
+      manager.addEphemeral(ws, '50.0.0.1', '16127');
+      const keys = [...manager.allValues()].map((p) => p.key);
+      expect(keys).to.not.include('50.0.0.1:16127');
+    });
+
+    it('should not include ephemeral peers in outbound or inbound iterators', () => {
+      const ws = createMockWs('50.0.0.1');
+      manager.addEphemeral(ws, '50.0.0.1', '16127');
+      const outbound = [...manager.outboundValues()].map((p) => p.key);
+      const inbound = [...manager.inboundValues()].map((p) => p.key);
+      expect(outbound).to.not.include('50.0.0.1:16127');
+      expect(inbound).to.not.include('50.0.0.1:16127');
+    });
+
+    it('should not affect peer count thresholds', () => {
+      const spy = sinon.spy();
+      manager.on('peerThresholdReached', spy);
+      for (let i = 0; i < 15; i += 1) {
+        const ws = createMockWs(`50.0.${i}.1`);
+        manager.addEphemeral(ws, `50.0.${i}.1`, '16127');
+      }
+      expect(spy.called).to.be.false;
+    });
+
+    it('should remove ephemeral peer without triggering reconnection', () => {
+      const ws = createMockWs('50.0.0.1');
+      manager.addEphemeral(ws, '50.0.0.1', '16127');
+      const removed = manager.removeEphemeral('50.0.0.1:16127');
+      expect(removed).to.not.be.null;
+      expect(removed.key).to.equal('50.0.0.1:16127');
+      // Should not be in reconnect queue
+      const candidates = manager.getReconnectCandidates();
+      expect(candidates.map((c) => `${c.ip}:${c.port}`)).to.not.include('50.0.0.1:16127');
+    });
+
+    it('should coexist with a regular peer on the same IP:port', () => {
+      const ws1 = createMockWs('50.0.0.1');
+      const ws2 = createMockWs('50.0.0.1');
+      const regular = manager.add(ws1, '50.0.0.1', '16127', { source: PEER_SOURCE.RANDOM });
+      const ephemeral = manager.addEphemeral(ws2, '50.0.0.1', '16127');
+      expect(regular.key).to.equal(ephemeral.key);
+      // Regular peer in allValues, ephemeral not
+      const keys = [...manager.allValues()].map((p) => p.key);
+      expect(keys).to.include('50.0.0.1:16127');
+      // Remove ephemeral — regular should still exist
+      manager.removeEphemeral('50.0.0.1:16127');
+      expect(manager.has('50.0.0.1:16127')).to.be.true;
+      // Remove regular — should be gone
+      manager.remove('50.0.0.1:16127');
+      expect(manager.has('50.0.0.1:16127')).to.be.false;
+    });
+
+    it('should set remote capabilities on ephemeral peer', () => {
+      const ws = createMockWs('50.0.0.1');
+      const peer = manager.addEphemeral(ws, '50.0.0.1', '16127', {
+        remoteCapabilities: ['transmissionTimestamps', 'appStateSync'],
+      });
+      expect(peer.remoteCapabilities.has('appStateSync')).to.be.true;
+    });
+  });
 });

@@ -43,6 +43,9 @@ const CLOSE_CODES = Object.freeze({
   // Invalid messages
   INVALID_MSG_INBOUND: 4016,
   INVALID_MSG_OUTBOUND: 4017,
+
+  // Ephemeral connection complete
+  EPHEMERAL_DONE: 4018,
 });
 
 const PEER_SOURCE = Object.freeze({
@@ -51,6 +54,7 @@ const PEER_SOURCE = Object.freeze({
   RECONNECT: 'reconnect',
   MANUAL: 'manual',
   INBOUND: 'inbound',
+  EPHEMERAL: 'ephemeral',
 });
 
 const DIRECTION = Object.freeze({
@@ -262,7 +266,11 @@ class FluxPeerSocket {
 
     ws.onclose = (evt) => {
       log.info(`${this.direction === DIRECTION.INBOUND ? 'Incoming' : 'Outgoing'} connection ${this.direction === DIRECTION.INBOUND ? 'from' : 'to'} ${this.key} closed with code ${evt.code}`);
-      manager.remove(this.key, evt.code);
+      if (this.source === PEER_SOURCE.EPHEMERAL) {
+        manager.removeEphemeral(this.key);
+      } else {
+        manager.remove(this.key, evt.code);
+      }
     };
 
     ws.onerror = (evt) => {

@@ -11,6 +11,9 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { serialiseAndSignFluxBroadcast } = require('../utils/fluxBroadcastHelper');
 const { peerManager } = require('../utils/peerState');
+const fluxCommunicationUtils = require('../fluxCommunicationUtils');
+const { openEphemeralConnection } = require('../fluxCommunication');
+const { CLOSE_CODES } = require('../utils/FluxPeerSocket');
 const globalState = require('../utils/globalState');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstants');
@@ -25,6 +28,7 @@ const RESPONSE_TIME_PER_HASH_MS = 150;
 const BUFFER_MS = 5000;
 const MAX_ROUNDS = 4;
 const PEERS_PER_ROUND = 3;
+const EPHEMERAL_PEERS_COUNT = 5;
 
 let syncRunning = false;
 
@@ -348,6 +352,70 @@ async function requestHashesFromPeer(hashes, peer) {
   peer.send(signed);
 }
 
+/**
+ * Pick random IPs from the deterministic node list, excluding connected peers.
+ * @param {number} count
+ * @returns {Promise<string[]>} Array of ip:port strings
+ */
+async function pickEphemeralTargets(count) {
+  const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+  const connectedKeys = new Set();
+  for (const peer of peerManager.allValues()) {
+    connectedKeys.add(peer.key);
+  }
+  const candidates = [];
+  for (const node of nodeList) {
+    if (!node.ip) continue;
+    const key = node.ip.includes(':') ? node.ip : `${node.ip}:16127`;
+    if (!connectedKeys.has(key)) candidates.push(key);
+  }
+  for (let i = candidates.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+  return candidates.slice(0, count);
+}
+
+/**
+ * Open ephemeral connections to random nodes, request hashes, wait for
+ * responses, then close all connections.
+ * @param {string[]} hashes - Hashes to request
+ * @param {boolean} force - Pass to getMissingHashes
+ * @returns {Promise<Array>} Remaining missing hashes
+ */
+async function ephemeralHashRound(hashes, force) {
+  const targets = await pickEphemeralTargets(EPHEMERAL_PEERS_COUNT);
+  if (targets.length === 0) {
+    log.info('syncMissingHashes - No ephemeral targets available');
+    return getMissingHashes({ force });
+  }
+
+  const connections = await Promise.all(targets.map((t) => openEphemeralConnection(t)));
+  const peers = connections.filter(Boolean);
+  if (peers.length === 0) {
+    log.info('syncMissingHashes - All ephemeral connections failed');
+    return getMissingHashes({ force });
+  }
+
+  const peerKeys = peers.map((p) => p.key).join(', ');
+  log.info(`syncMissingHashes - Ephemeral round: requesting ${hashes.length} hashes from ${peers.length} peers: ${peerKeys}`);
+
+  globalState.pendingHashRequests = new Set(hashes);
+  for (const peer of peers) {
+    requestHashesFromPeer(hashes, peer);
+  }
+
+  const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
+  const remaining = await waitForResolution(hashes.length, maxWait, force);
+  globalState.pendingHashRequests = null;
+
+  for (const peer of peers) {
+    try { peer.close(CLOSE_CODES.EPHEMERAL_DONE, 'done'); } catch (_e) { /* noop */ }
+  }
+
+  return remaining;
+}
+
 async function syncMissingHashes(options = {}) {
   const { maxConcurrentPeers = 3, onProgress = null, force = false } = options;
 
@@ -439,6 +507,16 @@ async function syncMissingHashes(options = {}) {
         log.info(`syncMissingHashes - Round ${round + 1}: resolved ${resolvedThisRound}, ${missingHashes.length} remaining`);
         if (onProgress) onProgress({ resolved, missing: missingHashes.length });
       }
+    }
+
+    // Ephemeral round: connect to random nodes outside our peer pool
+    if (missingHashes.length > 0) {
+      const beforeEphemeral = missingHashes.length;
+      const hashes = missingHashes.map((h) => h.hash);
+      missingHashes = await ephemeralHashRound(hashes, force);
+      const resolvedEphemeral = beforeEphemeral - missingHashes.length;
+      resolved += resolvedEphemeral;
+      log.info(`syncMissingHashes - Ephemeral round: resolved ${resolvedEphemeral}, ${missingHashes.length} remaining`);
     }
 
     // Update backoff for unresolved hashes

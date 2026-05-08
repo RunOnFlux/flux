@@ -866,6 +866,79 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
 }
 
 /**
+ * Open an ephemeral connection to a peer. Returns a promise that resolves
+ * with the FluxPeerSocket once connected, or null on failure.
+ * @param {string} connection - IP or IP:port
+ * @returns {Promise<FluxPeerSocket|null>}
+ */
+function openEphemeralConnection(connection) {
+  return new Promise((resolve) => {
+    let ip = connection;
+    let port = config.server.apiport.toString();
+    try {
+      if (connection.includes(':')) {
+        ip = connection.split(':')[0];
+        port = connection.split(':')[1];
+      }
+      const key = `${ip}:${port}`;
+      if (peerManager.isPending(key)) {
+        resolve(null);
+        return;
+      }
+      peerManager.markPending(key);
+      if (!myPort) {
+        peerManager.clearPending(key);
+        resolve(null);
+        return;
+      }
+      const options = {
+        handshakeTimeout: 8000,
+        headers: {
+          'X-Flux-Capabilities': FLUX_CAPABILITIES.join(','),
+          'X-Flux-Version': FLUX_VERSION,
+          'X-Flux-Uptime': String(Math.floor(process.uptime())),
+        },
+      };
+      const offsetMs = fluxNetworkHelper.getLocalClockOffsetMs();
+      if (offsetMs !== null) {
+        options.headers['X-Flux-Clock-Offset'] = String(offsetMs);
+      }
+      const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
+      const websocket = new WebSocket(wsuri, options);
+      const meta = { ip, port };
+
+      websocket.on('upgrade', (response) => {
+        if (response.headers['x-flux-capabilities']) {
+          meta.remoteCapabilities = response.headers['x-flux-capabilities'].split(',').map((s) => s.trim()).filter(Boolean);
+        }
+        const clockHeader = response.headers['x-flux-clock-offset'];
+        if (clockHeader !== undefined) {
+          meta.remoteClockOffsetMs = Number(clockHeader);
+        }
+      });
+
+      websocket.on('error', (error) => {
+        peerManager.clearPending(key);
+        log.warn(`Ephemeral connection to ${key} failed: ${error.message}`);
+        resolve(null);
+      });
+
+      websocket.onopen = () => {
+        const peer = peerManager.addEphemeral(websocket, meta.ip, meta.port, {
+          remoteCapabilities: meta.remoteCapabilities,
+          remoteClockOffsetMs: meta.remoteClockOffsetMs,
+        });
+        resolve(peer);
+      };
+    } catch (error) {
+      peerManager.clearPending(`${ip}:${port}`);
+      log.error(error);
+      resolve(null);
+    }
+  });
+}
+
+/**
  * To add a peer by specifying the IP address. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1375,4 +1448,5 @@ module.exports = {
   getPeerHistory,
   getTopology,
   getNetworkHealth,
+  openEphemeralConnection,
 };
