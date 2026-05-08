@@ -518,7 +518,7 @@ describe('appHashSyncService tests', () => {
       const mockDatabase = { collection: sinon.stub().returns(collectionStubLocal) };
       dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(mockDatabase) });
 
-      const result = await appHashSyncService.resetHashSyncForUpgrade();
+      const result = await appHashSyncService.resetHashSyncForUpgrade(2555000);
 
       expect(result).to.equal(10);
       expect(updateManyStub.calledTwice).to.be.true;
@@ -526,7 +526,7 @@ describe('appHashSyncService tests', () => {
       // First call: hashes with retryFromHeight — one retry, keep syncAttempts
       expect(updateManyStub.firstCall.args[0]).to.deep.equal({ message: false, retryFromHeight: { $exists: true } });
       expect(updateManyStub.firstCall.args[1].$set.messageNotFound).to.equal(false);
-      expect(updateManyStub.firstCall.args[1].$set.nextRetryHeight).to.be.a('number');
+      expect(updateManyStub.firstCall.args[1].$set.nextRetryHeight).to.equal(2555000);
       expect(updateManyStub.firstCall.args[1].$set).to.not.have.property('syncAttempts');
       expect(updateManyStub.firstCall.args[1].$set).to.not.have.property('retryFromHeight');
 
@@ -534,8 +534,8 @@ describe('appHashSyncService tests', () => {
       expect(updateManyStub.secondCall.args[0]).to.deep.equal({ message: false, retryFromHeight: { $exists: false } });
       expect(updateManyStub.secondCall.args[1].$set.messageNotFound).to.equal(false);
       expect(updateManyStub.secondCall.args[1].$set.syncAttempts).to.equal(0);
-      expect(updateManyStub.secondCall.args[1].$set).to.have.property('nextRetryHeight');
-      expect(updateManyStub.secondCall.args[1].$set).to.have.property('retryFromHeight');
+      expect(updateManyStub.secondCall.args[1].$set.nextRetryHeight).to.equal(2555000);
+      expect(updateManyStub.secondCall.args[1].$set.retryFromHeight).to.equal(2555000);
     });
 
     it('should return 0 when no documents match', async () => {
@@ -544,7 +544,7 @@ describe('appHashSyncService tests', () => {
       const mockDatabase = { collection: sinon.stub().returns(collectionStubLocal) };
       dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(mockDatabase) });
 
-      const result = await appHashSyncService.resetHashSyncForUpgrade();
+      const result = await appHashSyncService.resetHashSyncForUpgrade(2555000);
 
       expect(result).to.equal(0);
     });

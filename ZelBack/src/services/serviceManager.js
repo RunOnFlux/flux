@@ -27,7 +27,6 @@ const daemonHealthMonitor = require('./appMonitoring/daemonHealthMonitor');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
-const appHashSyncService = require('./appMessaging/appHashSyncService');
 const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
@@ -35,7 +34,6 @@ const stoppedAppsRecovery = require('./appLifecycle/stoppedAppsRecovery');
 const hardwareValidationService = require('./appLifecycle/hardwareValidationService');
 const globalState = require('./utils/globalState');
 const { peerManager } = require('./utils/peerState');
-const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -289,16 +287,8 @@ async function startFluxFunctions() {
 
     log.info('Flux Apps installing locations prepared');
 
-    // Reset hash sync state on version upgrade
-    const { version: fluxVersion } = require('../../../package.json');
-    const startupCollection = config.database.local.collections.nodeStartupTracker;
-    const hashSyncMarker = await dbHelper.findOneInDatabase(database, startupCollection, { _id: 'hashSyncVersion' });
-    if (!hashSyncMarker || hashSyncMarker.version !== fluxVersion) {
-      const resetCount = await appHashSyncService.resetHashSyncForUpgrade();
-      log.info(`Version upgrade to ${fluxVersion}, reset ${resetCount} hash sync entries`);
-    }
-
     // Initialize app sync orchestrator and spawner
+    const { version: fluxVersion } = require('../../../package.json');
     const orchestrator = new AppSyncOrchestrator({
       blockEmitter: explorerService.getBlockEmitter(),
       getEligibleSyncPeers: (minUptime) => peerManager.getEligibleSyncPeers(minUptime)
@@ -307,18 +297,7 @@ async function startFluxFunctions() {
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
       isEnterprise: () => enterpriseNetwork.getCachedEnterpriseIdentity(),
       networkStateReady: () => networkStateService.waitStarted(),
-    });
-    appSyncEvents.on(SYNC_EVENTS.HASH_SYNC_COMPLETE, async () => {
-      try {
-        await dbHelper.findOneAndUpdateInDatabase(
-          database, startupCollection,
-          { _id: 'hashSyncVersion' },
-          { $set: { version: fluxVersion } },
-          { upsert: true },
-        );
-      } catch (error) {
-        log.error(`Failed to update hashSyncVersion marker: ${error.message}`);
-      }
+      fluxVersion,
     });
     appSpawner.initialize();
     appInstaller.setOnInstallComplete(() => peerNotification.checkAndNotifyPeersOfRunningApps());

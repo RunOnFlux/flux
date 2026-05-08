@@ -503,11 +503,9 @@ async function triggerAppHashesCheckAPI(req, res) {
   }
 }
 
-async function resetHashSyncForUpgrade() {
+async function resetHashSyncForUpgrade(currentHeight) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
-  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-  const currentHeight = syncStatus.data.height || 0;
 
   // Hashes already seen by the new retry system — one retry with new code
   const existingResult = await database.collection(appsHashesCollection).updateMany(

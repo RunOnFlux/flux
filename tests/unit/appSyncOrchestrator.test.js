@@ -19,6 +19,9 @@ describe('AppSyncOrchestrator', () => {
   let isNodeStatusConfirmedStub;
   let globalStateStub;
   let checkAndNotifyStub;
+  let resetHashSyncForUpgradeStub;
+  let dbHelperStub;
+  let findOneAndUpdateStub;
 
   function makePeer(key) {
     return { key, send: sinon.stub() };
@@ -56,6 +59,13 @@ describe('AppSyncOrchestrator', () => {
       checkAndSyncAppHashesWasEverExecuted: false,
     };
     checkAndNotifyStub = sinon.stub().resolves();
+    resetHashSyncForUpgradeStub = sinon.stub().resolves(0);
+    findOneAndUpdateStub = sinon.stub().resolves();
+    dbHelperStub = {
+      databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+      findOneInDatabase: sinon.stub().resolves(null),
+      findOneAndUpdateInDatabase: findOneAndUpdateStub,
+    };
 
     const appSyncEventsModule = require('../../ZelBack/src/services/utils/appSyncEvents');
     appSyncEvents = appSyncEventsModule.appSyncEvents;
@@ -64,8 +74,9 @@ describe('AppSyncOrchestrator', () => {
 
     const mod = proxyquire('../../ZelBack/src/services/appMessaging/appSyncOrchestrator', {
       '../../lib/log': logStub,
+      '../dbHelper': dbHelperStub,
       '../generalService': { isNodeStatusConfirmed: isNodeStatusConfirmedStub },
-      './appHashSyncService': { syncMissingHashes: syncMissingHashesStub, getMissingHashes: getMissingHashesStub },
+      './appHashSyncService': { syncMissingHashes: syncMissingHashesStub, getMissingHashes: getMissingHashesStub, resetHashSyncForUpgrade: resetHashSyncForUpgradeStub },
       './peerNotification': { checkAndNotifyPeersOfRunningApps: checkAndNotifyStub, stopBroadcastInterval: sinon.stub() },
       '../appDatabase/registryManager': {
         reindexGlobalAppsInformation: reindexStub,
@@ -599,6 +610,65 @@ describe('AppSyncOrchestrator', () => {
       blockEmitter.emit('hashesChanged');
 
       expect(logStub.info.calledWith(sinon.match(/Reconstruct audit found changes/))).to.be.false;
+    });
+  });
+
+  describe('version upgrade reset', () => {
+    it('should call resetHashSyncForUpgrade with block height on version change', async () => {
+      dbHelperStub.findOneInDatabase.resolves(null);
+
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), fluxVersion: '8.12.0',
+      });
+      orchestrator.start();
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(resetHashSyncForUpgradeStub.calledOnce).to.be.true;
+      expect(resetHashSyncForUpgradeStub.firstCall.args[0]).to.equal(2555000);
+      expect(logStub.info.calledWith(sinon.match(/Version upgrade to 8\.12\.0/))).to.be.true;
+    });
+
+    it('should skip reset when version matches marker', async () => {
+      dbHelperStub.findOneInDatabase.resolves({ _id: 'hashSyncVersion', version: '8.12.0' });
+
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), fluxVersion: '8.12.0',
+      });
+      orchestrator.start();
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(resetHashSyncForUpgradeStub.called).to.be.false;
+    });
+
+    it('should write version marker after hash sync completes', async () => {
+      dbHelperStub.findOneInDatabase.resolves(null);
+
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), fluxVersion: '8.12.0',
+      });
+      orchestrator.start();
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(findOneAndUpdateStub.calledOnce).to.be.true;
+      const updateArg = findOneAndUpdateStub.firstCall.args[3];
+      expect(updateArg).to.deep.equal({ $set: { version: '8.12.0' } });
+    });
+
+    it('should skip version check when fluxVersion not provided', async () => {
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
+      orchestrator.start();
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(resetHashSyncForUpgradeStub.called).to.be.false;
+      expect(findOneAndUpdateStub.called).to.be.false;
     });
   });
 

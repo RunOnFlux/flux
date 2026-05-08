@@ -1,5 +1,6 @@
 const config = require('config');
 const log = require('../../lib/log');
+const dbHelper = require('../dbHelper');
 const generalService = require('../generalService');
 const appHashSyncService = require('./appHashSyncService');
 const peerNotification = require('./peerNotification');
@@ -7,6 +8,8 @@ const registryManager = require('../appDatabase/registryManager');
 const globalState = require('../utils/globalState');
 const peerCodec = require('../utils/peerCodec');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
+
+const startupCollection = config.database.local.collections.nodeStartupTracker;
 
 const STATES = Object.freeze({
   INITIALIZING: 'INITIALIZING',
@@ -54,6 +57,7 @@ class AppSyncOrchestrator {
   #hashSyncRetryTimer = null;
   #nextHashRetryHeight = 0;
   #lastBlockHeight = 0;
+  #fluxVersion = null;
 
   constructor(options = {}) {
     this.#blockEmitter = options.blockEmitter;
@@ -62,6 +66,7 @@ class AppSyncOrchestrator {
     this.#offPeerEvent = options.offPeerEvent;
     this.#isEnterprise = options.isEnterprise ?? (() => false);
     this.#waitForNetworkState = options.networkStateReady ?? null;
+    this.#fluxVersion = options.fluxVersion ?? null;
   }
 
   get state() {
@@ -262,10 +267,42 @@ class AppSyncOrchestrator {
 
   async #runInitialSync() {
     if (this.#syncInProgress) return;
-    log.info('AppSyncOrchestrator - Starting initial hash sync');
     log.info('AppSyncOrchestrator - Sync started');
+    await this.#checkVersionUpgrade();
+    log.info('AppSyncOrchestrator - Starting initial hash sync');
     await this.#runHashSync();
     this.#checkReadiness();
+  }
+
+  async #checkVersionUpgrade() {
+    if (!this.#fluxVersion) return;
+    try {
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.local.database);
+      const marker = await dbHelper.findOneInDatabase(database, startupCollection, { _id: 'hashSyncVersion' });
+      if (!marker || marker.version !== this.#fluxVersion) {
+        const resetCount = await appHashSyncService.resetHashSyncForUpgrade(this.#lastBlockHeight);
+        log.info(`AppSyncOrchestrator - Version upgrade to ${this.#fluxVersion}, reset ${resetCount} hash sync entries`);
+      }
+    } catch (error) {
+      log.error(`AppSyncOrchestrator - Version upgrade check failed: ${error.message}`);
+    }
+  }
+
+  async #writeVersionMarker() {
+    if (!this.#fluxVersion) return;
+    try {
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.local.database);
+      await dbHelper.findOneAndUpdateInDatabase(
+        database, startupCollection,
+        { _id: 'hashSyncVersion' },
+        { $set: { version: this.#fluxVersion } },
+        { upsert: true },
+      );
+    } catch (error) {
+      log.error(`AppSyncOrchestrator - Failed to update hashSyncVersion marker: ${error.message}`);
+    }
   }
 
   async #runHashSync() {
@@ -282,6 +319,7 @@ class AppSyncOrchestrator {
       this.#hashSyncComplete = true;
       this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
       appSyncEvents.emit(EVENTS.HASH_SYNC_COMPLETE);
+      await this.#writeVersionMarker();
       await this.#rebuildDb();
       globalState.checkAndSyncAppHashesWasEverExecuted = true;
     } catch (error) {
