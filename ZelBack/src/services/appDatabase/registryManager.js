@@ -1605,25 +1605,32 @@ async function reconstructAppMessagesHashCollection() {
 
     const permanentMessages = await dbHelper.findInDatabase(databaseApps, globalAppsMessages, query, projection);
     const appHashes = await dbHelper.findInDatabase(databaseDaemon, appsHashesCollection, query, projection);
+    const permHashSet = new Set(permanentMessages.map((m) => m.hash));
 
+    let changed = 0;
     // eslint-disable-next-line no-restricted-syntax
     for (const appHash of appHashes) {
-      const options = {};
       const queryUpdate = {
         hash: appHash.hash,
         txid: appHash.txid,
       };
 
-      const permanentMessageFound = permanentMessages.find((message) => message.hash === appHash.hash);
+      const hasPermanent = permHashSet.has(appHash.hash);
 
-      const update = permanentMessageFound
-        ? { $set: { message: true, messageNotFound: false }, $unset: { nextRetryHeight: '', syncAttempts: '' } }
-        : { $set: { message: false } };
-      // eslint-disable-next-line no-await-in-loop
-      await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, options);
+      if (hasPermanent && (!appHash.message || appHash.messageNotFound)) {
+        const update = { $set: { message: true, messageNotFound: false }, $unset: { nextRetryHeight: '', syncAttempts: '' } };
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, {});
+        changed += 1;
+      } else if (!hasPermanent && appHash.message) {
+        const update = { $set: { message: false } };
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, {});
+        changed += 1;
+      }
     }
 
-    return 'Reconstruct success';
+    return { changed };
   } catch (error) {
     log.error(error);
     throw error;

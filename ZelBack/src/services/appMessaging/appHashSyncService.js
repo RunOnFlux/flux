@@ -447,6 +447,7 @@ async function syncMissingHashes(options = {}) {
     const daemonDb = db.db(config.database.daemon.database);
 
     let unreachable = 0;
+    let minNextRetry = null;
     const backoffOps = [];
     for (const hashDoc of finalMissing) {
       if (currentHeight - hashDoc.height > HASH_EXPIRY_BLOCKS) {
@@ -457,6 +458,9 @@ async function syncMissingHashes(options = {}) {
         const attempts = (hashDoc.syncAttempts ?? 0) + 1;
         const backoffIdx = Math.min(attempts, HASH_RETRY_BACKOFF.length - 1);
         const nextRetry = currentHeight + HASH_RETRY_BACKOFF[backoffIdx];
+        if (minNextRetry === null || nextRetry < minNextRetry) {
+          minNextRetry = nextRetry;
+        }
         backoffOps.push({
           updateOne: {
             filter: { hash: hashDoc.hash },
@@ -472,7 +476,7 @@ async function syncMissingHashes(options = {}) {
 
     const remaining = finalMissing.length - unreachable;
     log.info(`syncMissingHashes - Complete: ${resolved}/${initialCount} resolved, ${remaining} missing (${backoffOps.length} backed off), ${unreachable} unreachable`);
-    return { resolved, missing: remaining, unreachable };
+    return { resolved, missing: remaining, unreachable, nextRetryHeight: minNextRetry };
   } catch (error) {
     log.error(error);
     return { resolved: 0, missing: -1, unreachable: 0 };

@@ -18,6 +18,7 @@ const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const benchmarkService = require('./benchmarkService');
 const fluxNetworkhelper = require('./fluxNetworkHelper');
 const fluxEventBus = require('./utils/fluxEventBus');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
@@ -347,6 +348,7 @@ async function processInsight(blockDataVerbose, database) {
         if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of X flux had to be paid for us bothering checking
           const appTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+            syncAttempts: 0, nextRetryHeight: blockDataVerbose.height,
           };
           // Unique hash - If we already have a hash of this app in our database, do not insert it!
           try {
@@ -431,13 +433,19 @@ async function insertAndRequestAppHashes(apps, database) {
     await insertTransactions(apps, database);
     setTimeout(async () => {
       const appsToRemove = [];
+      let hasUnresolved = false;
       // eslint-disable-next-line no-restricted-syntax
       for (const app of apps) {
         // eslint-disable-next-line no-await-in-loop
         const messageReceived = await messageVerifier.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
         if (messageReceived) {
           appsToRemove.push(app);
+        } else {
+          hasUnresolved = true;
         }
+      }
+      if (hasUnresolved) {
+        appSyncEvents.emit(SYNC_EVENTS.HASH_UNRESOLVED);
       }
       apps.filter((item) => !appsToRemove.includes(item));
       while (apps.length > 500) {
@@ -515,6 +523,7 @@ async function processStandard(blockDataVerbose, database) {
         if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of 1 flux had to be paid for us bothering checking
           const appTxRecord = {
             txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+            syncAttempts: 0, nextRetryHeight: blockDataVerbose.height,
           };
           // Unique hash - If we already have a hash of this app in our database, do not insert it!
           try {
@@ -636,9 +645,11 @@ async function processBlock(blockHeight, isInsightExplorer) {
       }
       if (blockDataVerbose.height % (config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier) === 0) {
         try {
-          registryManager.reconstructAppMessagesHashCollection();
-          blockEmitter.emit('hashesReconstructed');
-          log.info('Validation of App Messages Hash Collection');
+          const reconstructResult = await registryManager.reconstructAppMessagesHashCollection();
+          log.info(`Validation of App Messages Hash Collection — ${reconstructResult.changed} corrected`);
+          if (reconstructResult.changed > 0) {
+            blockEmitter.emit('hashesChanged');
+          }
         } catch (error) {
           log.error(error);
         }

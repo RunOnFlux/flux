@@ -8,6 +8,7 @@ const EVENTS = Object.freeze({
   READINESS_LOST: 'readinessLost',
   HASH_SYNC_COMPLETE: 'hashSyncComplete',
   HASH_RESPONSE_RECEIVED: 'hashResponseReceived',
+  HASH_UNRESOLVED: 'hashUnresolved',
 });
 
 module.exports = { appSyncEvents, EVENTS };

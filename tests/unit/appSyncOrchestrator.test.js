@@ -47,7 +47,7 @@ describe('AppSyncOrchestrator', () => {
     getEligibleSyncPeersStub = sinon.stub().returns([]);
 
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
-    syncMissingHashesStub = sinon.stub().resolves({ resolved: 0, missing: 0, unreachable: 0 });
+    syncMissingHashesStub = sinon.stub().resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: null });
     getMissingHashesStub = sinon.stub().resolves([]);
     reindexStub = sinon.stub().resolves();
     expireStub = sinon.stub().resolves();
@@ -483,86 +483,122 @@ describe('AppSyncOrchestrator', () => {
     }).timeout(10000);
   });
 
-  describe('invalidateHashSync', () => {
-    it('should reset hashSyncComplete so backgroundHashRecheck no longer short-circuits', async () => {
+  describe('hash retry scheduling', () => {
+    it('should retry hash sync when block reaches nextRetryHeight', async () => {
+      syncMissingHashesStub.onFirstCall().resolves({ resolved: 5, missing: 2, unreachable: 0, nextRetryHeight: 2555200 });
+      syncMissingHashesStub.onSecondCall().resolves({ resolved: 2, missing: 0, unreachable: 0, nextRetryHeight: null });
+
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
 
-      // Complete initial sync — hashSyncComplete becomes true
+      // Initial sync sets nextRetryHeight to 2555200
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
       expect(syncMissingHashesStub.calledOnce).to.be.true;
 
-      // Invalidate hash sync — resets #hashSyncComplete to false
-      orchestrator.invalidateHashSync();
+      // Block before retry height — should not trigger sync
+      blockEmitter.emit('blockReceived', 2555100);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(syncMissingHashesStub.calledOnce).to.be.true;
 
-      // Verify the invalidation was logged (proves #hashSyncComplete was true and is now false)
-      expect(logStub.info.calledWith('AppSyncOrchestrator - Hash sync invalidated, will recheck on next block')).to.be.true;
+      // Block at retry height — should trigger sync
+      blockEmitter.emit('blockReceived', 2555200);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(syncMissingHashesStub.calledTwice).to.be.true;
     });
 
-    it('should not log when hash sync was not yet complete', async () => {
+    it('should use fallback interval when no hashes are backed off', async () => {
+      syncMissingHashesStub.resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: null });
+
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
 
-      // Don't complete any sync — hashSyncComplete is still false
-      orchestrator.invalidateHashSync();
-
-      // Should not log because hashSyncComplete was already false
-      expect(logStub.info.calledWith('AppSyncOrchestrator - Hash sync invalidated, will recheck on next block')).to.be.false;
-    });
-
-    it('should prevent checkReadiness from completing until recheck runs', async () => {
-      const orchestrator = new AppSyncOrchestrator({
-        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
-      });
-      orchestrator.start();
-
-      // Complete initial sync and reach READY via block timer
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
-      for (let i = 0; i < 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
-      }
-      await new Promise((r) => setTimeout(r, 50));
-      expect(orchestrator.state).to.equal(STATES.READY);
+      expect(syncMissingHashesStub.calledOnce).to.be.true;
 
-      // After invalidation, hash sync state is reset but orchestrator stays READY
-      // (invalidateHashSync only resets the flag, doesn't change state)
-      orchestrator.invalidateHashSync();
-      expect(orchestrator.state).to.equal(STATES.READY);
+      // Fallback is 100 blocks — should not trigger before that
+      blockEmitter.emit('blockReceived', 2555050);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(syncMissingHashesStub.calledOnce).to.be.true;
+
+      // At fallback threshold — should trigger
+      blockEmitter.emit('blockReceived', 2555100);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(syncMissingHashesStub.calledTwice).to.be.true;
+    });
+
+    it('should schedule immediate check on HASH_UNRESOLVED event', async () => {
+      syncMissingHashesStub.onFirstCall().resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: 2560000 });
+      syncMissingHashesStub.onSecondCall().resolves({ resolved: 1, missing: 0, unreachable: 0, nextRetryHeight: null });
+
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
+      orchestrator.start();
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(syncMissingHashesStub.calledOnce).to.be.true;
+
+      // New unresolved hash — should schedule immediate check
+      appSyncEvents.emit(EVENTS.HASH_UNRESOLVED);
+
+      // Next block should trigger sync even though nextRetryHeight was 2560000
+      blockEmitter.emit('blockReceived', 2555001);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(syncMissingHashesStub.calledTwice).to.be.true;
+    });
+
+    it('should ignore HASH_UNRESOLVED before initial sync completes', async () => {
+      syncMissingHashesStub.rejects(new Error('not ready'));
+
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
+      orchestrator.start();
+
+      // Emit HASH_UNRESOLVED before any block (hashSyncComplete is false)
+      appSyncEvents.emit(EVENTS.HASH_UNRESOLVED);
+
+      // Should not crash or change state
+      expect(orchestrator.state).to.equal(STATES.INITIALIZING);
     });
   });
 
-  describe('hashesReconstructed event', () => {
-    it('should call invalidateHashSync when blockEmitter emits hashesReconstructed', async () => {
+  describe('hashesChanged event', () => {
+    it('should schedule immediate hash recheck when reconstruct changes hashes', async () => {
+      syncMissingHashesStub.onFirstCall().resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: 2560000 });
+      syncMissingHashesStub.onSecondCall().resolves({ resolved: 1, missing: 0, unreachable: 0, nextRetryHeight: null });
+
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
 
-      // Complete initial sync
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
+      expect(syncMissingHashesStub.calledOnce).to.be.true;
 
-      // Emit hashesReconstructed — should internally call invalidateHashSync()
-      blockEmitter.emit('hashesReconstructed');
+      // Reconstruct found changes
+      blockEmitter.emit('hashesChanged');
 
-      expect(logStub.info.calledWith('AppSyncOrchestrator - Hash sync invalidated, will recheck on next block')).to.be.true;
+      // Next block should trigger sync immediately
+      blockEmitter.emit('blockReceived', 2555001);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(syncMissingHashesStub.calledTwice).to.be.true;
     });
 
-    it('should register hashesReconstructed listener on start', async () => {
+    it('should register hashesChanged listener on start', async () => {
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
-      expect(blockEmitter.listenerCount('hashesReconstructed')).to.equal(0);
+      expect(blockEmitter.listenerCount('hashesChanged')).to.equal(0);
       orchestrator.start();
-      expect(blockEmitter.listenerCount('hashesReconstructed')).to.equal(1);
+      expect(blockEmitter.listenerCount('hashesChanged')).to.equal(1);
     });
 
-    it('should not log invalidation when hashesReconstructed fires before initial sync', async () => {
+    it('should ignore hashesChanged before initial sync completes', async () => {
+      syncMissingHashesStub.rejects(new Error('not ready'));
+
       const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
       orchestrator.start();
 
-      // hashesReconstructed before any block — hashSyncComplete is false, so no-op
-      blockEmitter.emit('hashesReconstructed');
+      blockEmitter.emit('hashesChanged');
 
-      expect(logStub.info.calledWith('AppSyncOrchestrator - Hash sync invalidated, will recheck on next block')).to.be.false;
+      expect(logStub.info.calledWith(sinon.match(/Reconstruct audit found changes/))).to.be.false;
     });
   });
 
@@ -572,6 +608,7 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.start();
       orchestrator.stop();
       expect(blockEmitter.listenerCount('blockReceived')).to.equal(0);
+      expect(blockEmitter.listenerCount('hashesChanged')).to.equal(0);
       expect(peerEmitter.listenerCount('peerThresholdReached')).to.equal(0);
       expect(peerEmitter.listenerCount('peersBelowThreshold')).to.equal(0);
     });

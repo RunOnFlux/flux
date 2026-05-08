@@ -19,9 +19,9 @@ const STATES = Object.freeze({
 const MIN_SYNC_COMPLETIONS = config.fluxapps.appSyncMinCompletions ?? 3;
 const SYNC_TIMEOUT_MS = 2 * 60 * 1000;
 const MIN_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime ?? 7500;
-const { HASH_SYNC_RECHECK_BLOCKS } = require('../utils/appConstants');
 const HASH_SYNC_MAX_RETRIES = 3;
 const HASH_SYNC_RETRY_MS = 5 * 60 * 1000;
+const FALLBACK_RECHECK_BLOCKS = 100;
 
 class AppSyncOrchestrator {
   #state = STATES.INITIALIZING;
@@ -42,6 +42,8 @@ class AppSyncOrchestrator {
   #peerThresholdHandler = null;
   #peersBelowHandler = null;
   #ephemeralSyncHandler = null;
+  #hashUnresolvedHandler = null;
+  #hashesChangedHandler = null;
   #broadcastStarted = null;
   #syncInProgress = false;
   #askedPeers = new Set();
@@ -50,7 +52,8 @@ class AppSyncOrchestrator {
   #syncTimeout = null;
   #hashSyncAttempts = 0;
   #hashSyncRetryTimer = null;
-  #lastHashSyncCheckBlock = 0;
+  #nextHashRetryHeight = 0;
+  #lastBlockHeight = 0;
 
   constructor(options = {}) {
     this.#blockEmitter = options.blockEmitter;
@@ -83,11 +86,16 @@ class AppSyncOrchestrator {
     this.#ephemeralSyncHandler = (syncType) => this.#onEphemeralSyncComplete(syncType);
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_COMPLETE, this.#ephemeralSyncHandler);
 
+    this.#hashUnresolvedHandler = () => this.#onHashUnresolved();
+    appSyncEvents.on(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);
+
     this.#blockReceivedHandler = (blockHeight) => {
       this.#onBlockReceived(blockHeight);
     };
     this.#blockEmitter.on('blockReceived', this.#blockReceivedHandler);
-    this.#blockEmitter.on('hashesReconstructed', () => this.invalidateHashSync());
+
+    this.#hashesChangedHandler = () => this.#onHashesChanged();
+    this.#blockEmitter.on('hashesChanged', this.#hashesChangedHandler);
 
     if (this.#waitForNetworkState) {
       await this.#waitForNetworkState();
@@ -206,6 +214,7 @@ class AppSyncOrchestrator {
   }
 
   #onBlockReceived(blockHeight) {
+    this.#lastBlockHeight = blockHeight;
     if (!this.#explorerSynced) {
       this.#explorerSynced = true;
       log.info(`AppSyncOrchestrator - Explorer synced at block ${blockHeight}`);
@@ -218,30 +227,36 @@ class AppSyncOrchestrator {
     if (this.#state === STATES.SYNCING || this.#state === STATES.READY) {
       this.#blocksSinceSyncStarted += 1;
       this.#checkReadiness();
-      this.#backgroundHashRecheck(blockHeight);
+      this.#checkHashRetry(blockHeight);
     }
   }
 
-  async #backgroundHashRecheck(blockHeight) {
-    if (this.#hashSyncComplete) return;
+  #onHashUnresolved() {
+    if (!this.#hashSyncComplete) return;
+    // New unresolved hash — schedule immediate check on next block
+    this.#nextHashRetryHeight = 0;
+  }
+
+  #onHashesChanged() {
+    if (!this.#hashSyncComplete) return;
+    log.info('AppSyncOrchestrator - Reconstruct audit found changes, scheduling immediate hash recheck');
+    this.#nextHashRetryHeight = 0;
+  }
+
+  async #checkHashRetry(blockHeight) {
+    if (!this.#hashSyncComplete) return;
     if (this.#syncInProgress) return;
-    if (blockHeight - this.#lastHashSyncCheckBlock < HASH_SYNC_RECHECK_BLOCKS) return;
-    this.#lastHashSyncCheckBlock = blockHeight;
+    if (blockHeight < this.#nextHashRetryHeight) return;
 
     try {
-      const missing = await appHashSyncService.getMissingHashes();
-      if (missing.length === 0) {
-        log.info('AppSyncOrchestrator - No missing hashes, marking hash sync complete');
-        this.#hashSyncComplete = true;
-        await this.#rebuildDb();
-        this.#checkReadiness();
-        return;
+      const result = await appHashSyncService.syncMissingHashes();
+      this.#nextHashRetryHeight = result.nextRetryHeight ?? (blockHeight + FALLBACK_RECHECK_BLOCKS);
+      if (result.missing > 0) {
+        log.info(`AppSyncOrchestrator - Hash retry: ${result.resolved} resolved, ${result.missing} remaining, next check at block ${this.#nextHashRetryHeight}`);
       }
-      log.info(`AppSyncOrchestrator - Background recheck: ${missing.length} hashes still missing, retrying`);
-      await this.#runHashSync();
-      this.#checkReadiness();
     } catch (error) {
-      log.error(`AppSyncOrchestrator - Background hash recheck failed: ${error.message}`);
+      log.error(`AppSyncOrchestrator - Hash retry failed: ${error.message}`);
+      this.#nextHashRetryHeight = blockHeight + FALLBACK_RECHECK_BLOCKS;
     }
   }
 
@@ -265,6 +280,7 @@ class AppSyncOrchestrator {
         log.info('AppSyncOrchestrator - Hash sync complete');
       }
       this.#hashSyncComplete = true;
+      this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
       appSyncEvents.emit(EVENTS.HASH_SYNC_COMPLETE);
       await this.#rebuildDb();
       globalState.checkAndSyncAppHashesWasEverExecuted = true;
@@ -352,19 +368,18 @@ class AppSyncOrchestrator {
     log.info('AppSyncOrchestrator - App running broadcast started');
   }
 
-  invalidateHashSync() {
-    if (this.#hashSyncComplete) {
-      this.#hashSyncComplete = false;
-      log.info('AppSyncOrchestrator - Hash sync invalidated, will recheck on next block');
-    }
-  }
-
   stop() {
     if (this.#ephemeralSyncHandler) {
       appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_COMPLETE, this.#ephemeralSyncHandler);
     }
+    if (this.#hashUnresolvedHandler) {
+      appSyncEvents.removeListener(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);
+    }
     if (this.#blockReceivedHandler) {
       this.#blockEmitter.removeListener('blockReceived', this.#blockReceivedHandler);
+    }
+    if (this.#hashesChangedHandler) {
+      this.#blockEmitter.removeListener('hashesChanged', this.#hashesChangedHandler);
     }
     if (this.#peerThresholdHandler) {
       this.#offPeerEvent('peerThresholdReached', this.#peerThresholdHandler);
