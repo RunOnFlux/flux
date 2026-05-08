@@ -507,7 +507,7 @@ async function fileUpload(req, res) {
     const options = {
       multiples: true,
       uploadDir: `${filepath}`,
-      maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
+      maxFileSize: 10 * 1024 * 1024 * 1024, // 10gb
       hashAlgorithm: false,
       keepExtensions: true,
       // eslint-disable-next-line no-unused-vars

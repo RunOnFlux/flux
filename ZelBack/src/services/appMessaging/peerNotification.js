@@ -216,12 +216,35 @@ async function checkAndNotifyPeersOfRunningApps(
           // eslint-disable-next-line no-await-in-loop
           const appDetails = await registryManager.getApplicationGlobalSpecifications(mainAppName);
           const appInstalledMasterSlave = appsInstalled.find((app) => app.name === mainAppName);
-          const appInstalledSyncthing = appInstalledMasterSlave.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
-          const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.find((comp) => comp.containerData.includes('g:'));
+          // App-level: any component using g:/r: marks the whole app as a syncthing app
+          // for broadcast purposes (masterSlaveAppsInstalled is included in installedAndRunning
+          // even when some components are stopped, since stopped slaves are expected).
+          const appInstalledSyncthing = appInstalledMasterSlave.compose
+            ? appInstalledMasterSlave.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'))
+            : (appInstalledMasterSlave.containerData
+              && (appInstalledMasterSlave.containerData.includes('g:') || appInstalledMasterSlave.containerData.includes('r:')));
+
+          // Component-level: classify the specific stopped component so that auto-restart
+          // and grace-period decisions are made per component rather than per app. Without
+          // this, a non-g component of a g: app would never be auto-restarted at runtime.
+          let stoppedCompIsG = false;
+          let stoppedCompIsRorG = false;
+          if (appInstalledMasterSlave.compose && appInstalledMasterSlave.compose.length > 0) {
+            const componentName = stoppedApp.split('_')[0];
+            const stoppedCompSpec = appInstalledMasterSlave.compose.find((c) => c.name === componentName);
+            if (stoppedCompSpec && stoppedCompSpec.containerData) {
+              stoppedCompIsG = stoppedCompSpec.containerData.includes('g:');
+              stoppedCompIsRorG = stoppedCompIsG || stoppedCompSpec.containerData.includes('r:');
+            }
+          } else if (appInstalledMasterSlave.containerData) {
+            stoppedCompIsG = appInstalledMasterSlave.containerData.includes('g:');
+            stoppedCompIsRorG = stoppedCompIsG || appInstalledMasterSlave.containerData.includes('r:');
+          }
+
           if (appInstalledSyncthing) {
             masterSlaveAppsInstalled.push(appInstalledMasterSlave);
           }
-          if (appInstalledMasterSlaveCheck && appDetails) {
+          if (stoppedCompIsG && appDetails) {
             const backupSkip = backupInProgress.some((backupItem) => stoppedApp === backupItem);
             const restoreSkip = restoreInProgress.some((backupItem) => stoppedApp === backupItem);
             if (!backupSkip && !restoreSkip) {
@@ -241,8 +264,10 @@ async function checkAndNotifyPeersOfRunningApps(
               // eslint-disable-next-line no-await-in-loop
               const containerExists = await dockerService.getDockerContainerOnly(stoppedApp);
 
-              // Check if container exists before applying syncthing delay
-              if (containerExists && appInstalledSyncthing) {
+              // 30-minute install grace applies only to syncthing components (r: here, since
+              // g: branched off above). Non-syncthing siblings of a g:/r: app must not inherit
+              // the delay — they should auto-restart immediately like any other component.
+              if (containerExists && stoppedCompIsRorG) {
                 const db = dbHelper.databaseConnection();
                 const database = db.db(config.database.appsglobal.database);
                 const queryFind = { name: mainAppName, ip: myIP };

@@ -82,6 +82,12 @@ class FluxServer {
       this.expressApp,
     );
 
+    // Node's default requestTimeout is 5 min, which kills large file uploads
+    // (app backups, fluxshare) on slow connections. headersTimeout (60s default)
+    // still defends against slowloris on the request line/headers, and
+    // formidable caps body size at 10GB.
+    server.requestTimeout = 2 * 60 * 60 * 1000;
+
     this.socketServer = new FluxWebsocketServer({
       routes: socketHandlers,
       errorHandler: this.errorHandler,
