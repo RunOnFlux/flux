@@ -370,8 +370,9 @@ async function syncMissingHashes(options = {}) {
 
     // Bulk fetch for large gaps (> 500 exceeds single fluxapprequest v2 cap)
     if (missingHashes.length > 500) {
-      log.info(`syncMissingHashes - ${missingHashes.length} missing, using bulk fetch`);
       const peers = pickRandomPeers(peerManager, 3, { excludeSources: ['deterministic'] });
+      const peerKeys = peers.map((p) => p.key).join(', ');
+      log.info(`syncMissingHashes - ${missingHashes.length} missing, using bulk fetch from ${peers.length} peers: ${peerKeys}`);
 
       const fetchPromises = peers.map((p) => bulkFetchFromPeer(p.ip, p.port));
       const results = await Promise.allSettled(fetchPromises);
@@ -421,7 +422,8 @@ async function syncMissingHashes(options = {}) {
 
         const hashes = missingHashes.map((h) => h.hash);
         globalState.pendingHashRequests = new Set(hashes);
-        log.info(`syncMissingHashes - Round ${round + 1}: requesting ${hashes.length} hashes from ${peers.length} peers`);
+        const peerKeys = peers.map((p) => p.key).join(', ');
+        log.info(`syncMissingHashes - Round ${round + 1}: requesting ${hashes.length} hashes from ${peers.length} peers: ${peerKeys}`);
 
         for (const peer of peers) {
           requestHashesFromPeer(hashes, peer);
