@@ -586,39 +586,71 @@ describe('appHashSyncService tests', () => {
       expect(HASH_RETRY_BACKOFF[idx]).to.equal(lastBackoff);
     });
 
-    it('should use retryFromHeight instead of height for expiry when present', async () => {
-      // Hash mined 2 years ago but retryFromHeight set recently — should NOT expire
-      const ancientHash = {
-        hash: 'ancient', txid: 'tx1', height: 500000, value: 10, message: false,
-        syncAttempts: 0, retryFromHeight: 2554000, nextRetryHeight: 2555000,
+    function makeExpiryTestHashes() {
+      return {
+        // Hash mined 2 years ago but retryFromHeight set recently — should NOT expire
+        withRetryFrom: {
+          hash: 'ancient', txid: 'tx1', height: 500000, value: 10, message: false,
+          syncAttempts: 0, retryFromHeight: 2554000, nextRetryHeight: 2555000,
+        },
+        // Hash mined 2 years ago, no retryFromHeight — should expire
+        withoutRetryFrom: {
+          hash: 'ancient2', txid: 'tx2', height: 500000, value: 10, message: false,
+          syncAttempts: 0, nextRetryHeight: 2555000,
+        },
       };
-      // Hash mined 2 years ago, no retryFromHeight — should expire
-      const ancientHashNoRetry = {
-        hash: 'ancient2', txid: 'tx2', height: 500000, value: 10, message: false,
-        syncAttempts: 0, nextRetryHeight: 2555000,
-      };
+    }
 
-      const both = [ancientHash, ancientHashNoRetry];
-      dbHelperStub.findInDatabase.resolves(both);
-
-      // Advance Date.now() on each delay call so settle timeout expires immediately
+    function advanceDateOnDelay() {
       let now = Date.now();
-      const originalDateNow = Date.now;
       serviceHelperStub.delay.callsFake(() => { now += 5000; return Promise.resolve(); });
       sinon.stub(Date, 'now').callsFake(() => now);
+    }
 
+    function assertExpiryBehavior() {
+      // withoutRetryFrom: height 500000, currentHeight 2555000, diff 2055000 > HASH_EXPIRY_BLOCKS — expired
+      expect(messageVerifierStub.appHashHasMessageNotFound.calledWith('ancient2')).to.be.true;
+      // withRetryFrom: retryFromHeight 2554000, currentHeight 2555000, diff 1000 < HASH_EXPIRY_BLOCKS — NOT expired
+      expect(messageVerifierStub.appHashHasMessageNotFound.calledWith('ancient')).to.be.false;
+      // withRetryFrom should get backoff instead
+      expect(collectionStub.bulkWrite.called).to.be.true;
+    }
+
+    it('should use retryFromHeight for expiry via targeted peer path', async () => {
+      const { withRetryFrom, withoutRetryFrom } = makeExpiryTestHashes();
+      const both = [withRetryFrom, withoutRetryFrom];
+      dbHelperStub.findInDatabase.resolves(both);
+
+      advanceDateOnDelay();
       try {
         await appHashSyncService.syncMissingHashes();
       } finally {
         Date.now.restore();
       }
 
-      // ancientHashNoRetry: height 500000, currentHeight 2555000, diff 2055000 > HASH_EXPIRY_BLOCKS — expired
-      expect(messageVerifierStub.appHashHasMessageNotFound.calledWith('ancient2')).to.be.true;
-      // ancientHash: retryFromHeight 2554000, currentHeight 2555000, diff 1000 < HASH_EXPIRY_BLOCKS — NOT expired
-      expect(messageVerifierStub.appHashHasMessageNotFound.calledWith('ancient')).to.be.false;
-      // ancientHash should get backoff instead
-      expect(collectionStub.bulkWrite.called).to.be.true;
+      assertExpiryBehavior();
+    });
+
+    it('should use retryFromHeight for expiry via bulk fetch path', async () => {
+      const { withRetryFrom, withoutRetryFrom } = makeExpiryTestHashes();
+      const padding = Array(500).fill(null).map((_, i) => ({
+        hash: `pad${i}`, txid: `ptx${i}`, height: 500000, value: 10, message: false,
+        syncAttempts: 0, nextRetryHeight: 2555000,
+      }));
+
+      dbHelperStub.findInDatabase.onFirstCall().resolves([withRetryFrom, withoutRetryFrom, ...padding]);
+      dbHelperStub.findInDatabase.resolves([withRetryFrom, withoutRetryFrom]);
+
+      serviceHelperStub.axiosGet.resolves({ data: { status: 'success', data: [] } });
+
+      advanceDateOnDelay();
+      try {
+        await appHashSyncService.syncMissingHashes();
+      } finally {
+        Date.now.restore();
+      }
+
+      assertExpiryBehavior();
     });
   });
 
