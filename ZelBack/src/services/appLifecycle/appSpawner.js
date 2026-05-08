@@ -172,7 +172,7 @@ async function trySpawningGlobalApplication() {
     const numberOfGlobalApps = globalAppNamesLocation.length;
     if (!numberOfGlobalApps) {
       log.info('trySpawningGlobalApplication - No installable application found');
-      await serviceHelper.delay(30 * 60 * 1000);
+      await serviceHelper.delay(delayTime);
       trySpawningGlobalApplication();
       return;
     }
@@ -184,8 +184,8 @@ async function trySpawningGlobalApplication() {
     let appFromAppsToBeCheckedLater = false;
     let appFromAppsSyncthingToBeCheckedLater = false;
     const { appsToBeCheckedLater, appsSyncthingToBeCheckedLater } = globalState;
-    const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
-    const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
+    const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
+    const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck <= Date.now());
     let runningAppList = [];
     let installingAppList = [];
 
@@ -215,7 +215,7 @@ async function trySpawningGlobalApplication() {
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
         && !globalState.spawnErrorsLongerAppCache.has(app.hash)
         && !globalState.trySpawningGlobalAppCache.has(app.hash)
-        && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
+        && !appsToBeCheckedLater.some((appAux) => appAux.appName === app.name));
       // filter apps that are non enterprise or are marked to install on my node
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP) || app.version >= 8);
       // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
@@ -229,7 +229,7 @@ async function trySpawningGlobalApplication() {
 
       if (globalAppNamesLocation.length === 0) {
         log.info('trySpawningGlobalApplication - No app currently to be processed');
-        await serviceHelper.delay(30 * 60 * 1000);
+        await serviceHelper.delay(delayTime);
         trySpawningGlobalApplication();
         return;
       }
