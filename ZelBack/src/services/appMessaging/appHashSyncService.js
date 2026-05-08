@@ -450,8 +450,7 @@ async function syncMissingHashes(options = {}) {
     let minNextRetry = null;
     const backoffOps = [];
     for (const hashDoc of finalMissing) {
-      const ageBase = hashDoc.retryFromHeight ?? hashDoc.height;
-      if (currentHeight - ageBase > HASH_EXPIRY_BLOCKS) {
+      if (currentHeight - hashDoc.retryFromHeight > HASH_EXPIRY_BLOCKS) {
         // eslint-disable-next-line no-await-in-loop
         await messageVerifier.appHashHasMessageNotFound(hashDoc.hash);
         unreachable += 1;

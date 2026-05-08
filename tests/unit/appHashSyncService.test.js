@@ -588,15 +588,15 @@ describe('appHashSyncService tests', () => {
 
     function makeExpiryTestHashes() {
       return {
-        // Hash mined 2 years ago but retryFromHeight set recently — should NOT expire
-        withRetryFrom: {
-          hash: 'ancient', txid: 'tx1', height: 500000, value: 10, message: false,
+        // Hash mined 2 years ago, retryFromHeight set recently (version upgrade) — should NOT expire
+        recentRetry: {
+          hash: 'ancient_recent', txid: 'tx1', height: 500000, value: 10, message: false,
           syncAttempts: 0, retryFromHeight: 2554000, nextRetryHeight: 2555000,
         },
-        // Hash mined 2 years ago, no retryFromHeight — should expire
-        withoutRetryFrom: {
-          hash: 'ancient2', txid: 'tx2', height: 500000, value: 10, message: false,
-          syncAttempts: 0, nextRetryHeight: 2555000,
+        // Hash mined 2 years ago, retryFromHeight also old (exhausted its window) — should expire
+        oldRetry: {
+          hash: 'ancient_old', txid: 'tx2', height: 500000, value: 10, message: false,
+          syncAttempts: 6, retryFromHeight: 500000, nextRetryHeight: 2555000,
         },
       };
     }
@@ -608,17 +608,17 @@ describe('appHashSyncService tests', () => {
     }
 
     function assertExpiryBehavior() {
-      // withoutRetryFrom: height 500000, currentHeight 2555000, diff 2055000 > HASH_EXPIRY_BLOCKS — expired
-      expect(messageVerifierStub.appHashHasMessageNotFound.calledWith('ancient2')).to.be.true;
-      // withRetryFrom: retryFromHeight 2554000, currentHeight 2555000, diff 1000 < HASH_EXPIRY_BLOCKS — NOT expired
-      expect(messageVerifierStub.appHashHasMessageNotFound.calledWith('ancient')).to.be.false;
-      // withRetryFrom should get backoff instead
+      // oldRetry: retryFromHeight 500000, currentHeight 2555000, diff 2055000 > HASH_EXPIRY_BLOCKS — expired
+      expect(messageVerifierStub.appHashHasMessageNotFound.calledWith('ancient_old')).to.be.true;
+      // recentRetry: retryFromHeight 2554000, currentHeight 2555000, diff 1000 < HASH_EXPIRY_BLOCKS — NOT expired
+      expect(messageVerifierStub.appHashHasMessageNotFound.calledWith('ancient_recent')).to.be.false;
+      // recentRetry should get backoff instead
       expect(collectionStub.bulkWrite.called).to.be.true;
     }
 
     it('should use retryFromHeight for expiry via targeted peer path', async () => {
-      const { withRetryFrom, withoutRetryFrom } = makeExpiryTestHashes();
-      const both = [withRetryFrom, withoutRetryFrom];
+      const { recentRetry, oldRetry } = makeExpiryTestHashes();
+      const both = [recentRetry, oldRetry];
       dbHelperStub.findInDatabase.resolves(both);
 
       advanceDateOnDelay();
@@ -632,14 +632,14 @@ describe('appHashSyncService tests', () => {
     });
 
     it('should use retryFromHeight for expiry via bulk fetch path', async () => {
-      const { withRetryFrom, withoutRetryFrom } = makeExpiryTestHashes();
+      const { recentRetry, oldRetry } = makeExpiryTestHashes();
       const padding = Array(500).fill(null).map((_, i) => ({
         hash: `pad${i}`, txid: `ptx${i}`, height: 500000, value: 10, message: false,
-        syncAttempts: 0, nextRetryHeight: 2555000,
+        syncAttempts: 0, retryFromHeight: 500000, nextRetryHeight: 2555000,
       }));
 
-      dbHelperStub.findInDatabase.onFirstCall().resolves([withRetryFrom, withoutRetryFrom, ...padding]);
-      dbHelperStub.findInDatabase.resolves([withRetryFrom, withoutRetryFrom]);
+      dbHelperStub.findInDatabase.onFirstCall().resolves([recentRetry, oldRetry, ...padding]);
+      dbHelperStub.findInDatabase.resolves([recentRetry, oldRetry]);
 
       serviceHelperStub.axiosGet.resolves({ data: { status: 'success', data: [] } });
 

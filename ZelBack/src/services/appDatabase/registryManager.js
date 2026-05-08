@@ -1600,6 +1600,8 @@ async function reconstructAppMessagesHashCollection() {
     const db = dbHelper.databaseConnection();
     const databaseApps = db.db(config.database.appsglobal.database);
     const databaseDaemon = db.db(config.database.daemon.database);
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const currentHeight = syncStatus.data.height || 0;
     const query = {};
     const projection = { projection: { _id: 0 } };
 
@@ -1618,12 +1620,20 @@ async function reconstructAppMessagesHashCollection() {
       const hasPermanent = permHashSet.has(appHash.hash);
 
       if (hasPermanent && (!appHash.message || appHash.messageNotFound)) {
-        const update = { $set: { message: true, messageNotFound: false }, $unset: { nextRetryHeight: '', syncAttempts: '' } };
+        const update = {
+          $set: {
+            message: true, messageNotFound: false, syncAttempts: 0, nextRetryHeight: 0, retryFromHeight: appHash.retryFromHeight ?? appHash.height,
+          },
+        };
         // eslint-disable-next-line no-await-in-loop
         await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, {});
         changed += 1;
       } else if (!hasPermanent && appHash.message) {
-        const update = { $set: { message: false } };
+        const update = {
+          $set: {
+            message: false, messageNotFound: false, syncAttempts: 0, nextRetryHeight: currentHeight, retryFromHeight: currentHeight,
+          },
+        };
         // eslint-disable-next-line no-await-in-loop
         await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, {});
         changed += 1;
