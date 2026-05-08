@@ -1618,11 +1618,12 @@ async function reconstructAppMessagesHashCollection() {
       };
 
       const hasPermanent = permHashSet.has(appHash.hash);
+      const retryFrom = appHash.retryFromHeight ?? appHash.height;
 
       if (hasPermanent && (!appHash.message || appHash.messageNotFound)) {
         const update = {
           $set: {
-            message: true, messageNotFound: false, syncAttempts: 0, nextRetryHeight: 0, retryFromHeight: appHash.retryFromHeight ?? appHash.height,
+            message: true, messageNotFound: false, syncAttempts: 0, nextRetryHeight: retryFrom, retryFromHeight: retryFrom,
           },
         };
         // eslint-disable-next-line no-await-in-loop
@@ -1632,6 +1633,17 @@ async function reconstructAppMessagesHashCollection() {
         const update = {
           $set: {
             message: false, messageNotFound: false, syncAttempts: 0, nextRetryHeight: currentHeight, retryFromHeight: currentHeight,
+          },
+        };
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, queryUpdate, update, {});
+        changed += 1;
+      } else if (appHash.retryFromHeight === undefined) {
+        const update = {
+          $set: {
+            syncAttempts: appHash.syncAttempts ?? 0,
+            nextRetryHeight: appHash.nextRetryHeight ?? appHash.height,
+            retryFromHeight: appHash.height,
           },
         };
         // eslint-disable-next-line no-await-in-loop
