@@ -30,6 +30,7 @@ const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxComm
 const dockerService = require('./ZelBack/src/services/dockerService');
 const dbHelper = require('./ZelBack/src/services/dbHelper');
 const messageStore = require('./ZelBack/src/services/appMessaging/messageStore');
+const { AppSyncOrchestrator } = require('./ZelBack/src/services/appMessaging/appSyncOrchestrator');
 const { SIGTERM_EXPIRY_MS } = require('./ZelBack/src/services/utils/appConstants');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
@@ -427,6 +428,8 @@ async function handleSigterm() {
   } catch (error) {
     log.error(`Error during SIGTERM handling: ${error.message}`);
   }
+
+  await AppSyncOrchestrator.writeShutdownReason('sigterm');
 
   // Gracefully stop all running Flux app containers
   try {

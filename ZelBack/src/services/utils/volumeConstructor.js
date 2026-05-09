@@ -250,25 +250,6 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
 }
 
 /**
- * Get restart policy based on flags and owner
- * @param {string[]} flags - Primary mount flags
- * @param {string} owner - App owner address
- * @returns {string} Docker restart policy
- */
-function getRestartPolicy(flags, owner) {
-  // 'g' flag (primary/standby) requires 'no' restart policy
-  if (flags.includes('g')) {
-    return 'no';
-  }
-  // Owners in restartAlwaysOwners config get 'always' restart policy
-  const restartAlwaysOwners = config.fluxapps.restartAlwaysOwners || [];
-  if (owner && restartAlwaysOwners.includes(owner)) {
-    return 'always';
-  }
-  return 'unless-stopped';
-}
-
-/**
  * Check if any mount has specific flag
  * @param {object} parsedMounts - Parsed mount data
  * @param {string} flag - Flag to check
@@ -336,7 +317,6 @@ function validateMountConfiguration(parsedMounts, fullAppSpecs, appSpecification
 
 module.exports = {
   constructVolumes,
-  getRestartPolicy,
   hasMountFlag,
   getSyncthingMounts,
   validateMountConfiguration,

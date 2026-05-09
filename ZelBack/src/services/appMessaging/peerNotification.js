@@ -10,7 +10,7 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
 const appQueryService = require('../appQuery/appQueryService');
-const stoppedAppsRecovery = require('../appLifecycle/stoppedAppsRecovery');
+const appStartupManager = require('../appLifecycle/appStartupManager');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
@@ -70,7 +70,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       return app.Names[0].slice(5);
     });
 
-    const masterSlaveAppsInstalled = await stoppedAppsRecovery.checkStoppedApps(myIP, appsInstalled, runningAppsNames);
+    const masterSlaveAppsInstalled = await appStartupManager.checkStoppedApps(myIP, appsInstalled, runningAppsNames);
 
     const installedAndRunning = [];
     appsInstalled.forEach((app) => {

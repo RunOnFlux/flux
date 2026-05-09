@@ -1,3 +1,4 @@
+const fs = require('fs').promises;
 const config = require('config');
 const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
@@ -58,6 +59,8 @@ class AppSyncOrchestrator {
   #nextHashRetryHeight = 0;
   #lastBlockHeight = 0;
   #fluxVersion = null;
+  #heartbeatInterval = null;
+  #bootContext = null;
 
   constructor(options = {}) {
     this.#blockEmitter = options.blockEmitter;
@@ -73,8 +76,11 @@ class AppSyncOrchestrator {
     return this.#state;
   }
 
-  async start() {
+  async start(bootContext) {
     log.info(`AppSyncOrchestrator - Starting in state ${this.#state}`);
+
+    this.#bootContext = bootContext;
+    this.#startHeartbeat();
 
     this.#peerThresholdHandler = (count) => {
       log.info(`AppSyncOrchestrator - Peer threshold reached (${count} peers)`);
@@ -343,8 +349,6 @@ class AppSyncOrchestrator {
     try {
       log.info('AppSyncOrchestrator - Rebuilding globalAppsInformation');
       await registryManager.reindexGlobalAppsInformation();
-      log.info('AppSyncOrchestrator - Running expireGlobalApplications');
-      await registryManager.expireGlobalApplications();
       this.#dbRebuilt = true;
       log.info('AppSyncOrchestrator - DB ready');
     } catch (error) {
@@ -407,7 +411,80 @@ class AppSyncOrchestrator {
     log.info('AppSyncOrchestrator - App running broadcast started');
   }
 
+  get bootContext() {
+    return this.#bootContext;
+  }
+
+  set bootContext(ctx) {
+    this.#bootContext = ctx;
+  }
+
+  static async readBootContext() {
+    try {
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.local.database);
+      const heartbeat = await dbHelper.findOneInDatabase(database, startupCollection, { _id: 'heartbeat' });
+      const currentBootId = (await fs.readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim();
+      const machineRebooted = !heartbeat || heartbeat.machineBootId !== currentBootId;
+      const downtimeMs = heartbeat ? Date.now() - heartbeat.lastAlive : Infinity;
+      const cleanShutdown = heartbeat?.shutdownReason === 'sigterm';
+
+      const ctx = {
+        machineRebooted,
+        downtimeMs,
+        cleanShutdown,
+        currentBootId,
+        firstBoot: !heartbeat,
+      };
+
+      log.info(`Boot context: machineRebooted=${machineRebooted} downtime=${Math.round(downtimeMs / 1000)}s cleanShutdown=${cleanShutdown} firstBoot=${!heartbeat}`);
+      return ctx;
+    } catch (error) {
+      log.error(`Failed to read boot context: ${error.message}`);
+      return { machineRebooted: true, downtimeMs: Infinity, cleanShutdown: false, currentBootId: null, firstBoot: true };
+    }
+  }
+
+  #startHeartbeat() {
+    const writeHeartbeat = async () => {
+      try {
+        const db = dbHelper.databaseConnection();
+        const database = db.db(config.database.local.database);
+        const update = { $set: { lastAlive: Date.now() } };
+        if (this.#bootContext?.currentBootId) {
+          update.$set.machineBootId = this.#bootContext.currentBootId;
+        }
+        await dbHelper.findOneAndUpdateInDatabase(database, startupCollection, { _id: 'heartbeat' }, update, { upsert: true });
+      } catch (error) {
+        log.error(`Heartbeat write failed: ${error.message}`);
+      }
+    };
+    writeHeartbeat();
+    this.#heartbeatInterval = setInterval(writeHeartbeat, 30_000);
+  }
+
+  static async writeShutdownReason(reason) {
+    try {
+      const db = dbHelper.databaseConnection();
+      if (!db) return;
+      const database = db.db(config.database.local.database);
+      await dbHelper.findOneAndUpdateInDatabase(
+        database,
+        config.database.local.collections.nodeStartupTracker,
+        { _id: 'heartbeat' },
+        { $set: { shutdownReason: reason } },
+        { upsert: true },
+      );
+    } catch (error) {
+      log.error(`Failed to write shutdown reason: ${error.message}`);
+    }
+  }
+
   stop() {
+    if (this.#heartbeatInterval) {
+      clearInterval(this.#heartbeatInterval);
+      this.#heartbeatInterval = null;
+    }
     if (this.#ephemeralSyncHandler) {
       appSyncEvents.removeListener(EVENTS.EPHEMERAL_SYNC_COMPLETE, this.#ephemeralSyncHandler);
     }

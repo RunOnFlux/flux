@@ -1539,10 +1539,10 @@ async function updateAppSpecifications(appSpecs) {
 /**
  * Rebuild the global apps information collection from messages collection.
  *
- * Thin wrapper around dbHelper.reindexGlobalAppsInformation, which does the
- * heavy lifting in a single mongo aggregation + chunked bulk inserts. The
- * dbHelper version filters expired apps inside the aggregation (full PON fork
- * rate adjustment), so no separate expire pass is needed here.
+ * Wrapper around dbHelper.reindexGlobalAppsInformation. Rebuilds the
+ * globalAppsInformation collection from appsMessages via aggregation,
+ * then removes any locally installed apps that are no longer in the
+ * global spec set (expired).
  *
  * @returns {Promise<boolean>} True on success
  */
@@ -1572,7 +1572,7 @@ async function reindexGlobalAppsInformation() {
       scannedHeightResult.generalScannedHeight,
     );
 
-    await dbHelper.reindexGlobalAppsInformation(
+    const appsToRemove = await dbHelper.reindexGlobalAppsInformation(
       appsGlobalDb,
       appsLocalDb,
       globalAppsMessages,
@@ -1582,6 +1582,20 @@ async function reindexGlobalAppsInformation() {
     );
 
     log.info('Reindexing of global application list finished.');
+
+    if (appsToRemove.length) {
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../appLifecycle/appUninstaller');
+      for (const appName of appsToRemove) {
+        log.warn(`Application ${appName} is expired, removing`);
+        log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (reindex)`);
+        // eslint-disable-next-line no-await-in-loop
+        await appUninstaller.removeAppLocally(appName, null, true, false, true);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(60_000);
+      }
+    }
+
     return true;
   } catch (error) {
     log.error(error);

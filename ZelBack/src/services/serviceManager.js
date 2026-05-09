@@ -29,7 +29,7 @@ const appSpawner = require('./appLifecycle/appSpawner');
 const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
-const stoppedAppsRecovery = require('./appLifecycle/stoppedAppsRecovery');
+const appStartupManager = require('./appLifecycle/appStartupManager');
 const hardwareValidationService = require('./appLifecycle/hardwareValidationService');
 const globalState = require('./utils/globalState');
 const { peerManager } = require('./utils/peerState');
@@ -244,22 +244,6 @@ async function startFluxFunctions() {
     // we can remove this.
     await dbHelper.repairNanInAppsMessagesDb();
 
-    const { appsToRemove } = await dbHelper.validateAppsInformation();
-
-    const appRemover = async () => {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const appName of appsToRemove) {
-        log.warn(`Application ${appName} is expired, removing`);
-        log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (serviceManager)`);
-        // eslint-disable-next-line no-await-in-loop
-        await appUninstaller.removeAppLocally(appName, null, false, true, true);
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((r) => { setTimeout(r, removalSpacingMs); });
-      }
-    };
-
-    if (appsToRemove.length) setImmediate(appRemover);
-
     // Check for apps with incorrect volume mounts (containing /flux/ path)
     log.info('Checking for apps with incorrect volume mounts...');
     setTimeout(() => {
@@ -276,13 +260,20 @@ async function startFluxFunctions() {
       });
     }, bootDelay(50 * 1000)); // Run at 50 seconds - BEFORE stopped apps recovery
 
-    // Start stopped apps on boot (excluding g: syncthing mode apps which are managed by masterSlaveApps)
-    log.info('Scheduling stopped apps recovery check...');
-    setTimeout(() => {
-      stoppedAppsRecovery.startStoppedAppsOnBoot().catch((error) => {
-        log.error(`Stopped apps recovery service error: ${error.message}`);
-      });
-    }, bootDelay(55 * 1000)); // Run after 55 seconds, after hardware validation
+    // Migrate existing containers from 'unless-stopped'/'always' to 'no' restart policy.
+    // Non-destructive — doesn't stop containers, just prevents Docker from auto-starting
+    // them on future daemon restarts. FluxOS manages container startup after dbReady.
+    dockerService.migrateContainerRestartPolicies();
+
+    // Read boot context early — determines startup behavior for container management.
+    const bootContext = await AppSyncOrchestrator.readBootContext();
+
+    // App startup manager owns all boot-time container lifecycle decisions:
+    // FluxOS restart → skip (containers running). Locations expired → remove all.
+    // Machine rebooted → wait for dbReady, then start valid apps. Timeout → remove all.
+    appStartupManager.manageAppsOnBoot(bootContext).catch((error) => {
+      log.error(`App startup manager error: ${error.message}`);
+    });
 
     log.info('Flux Apps installing locations prepared');
 
@@ -384,32 +375,30 @@ async function startFluxFunctions() {
       monitoringOrchestrator.startMonitoringOfApps(null, globalState.appsMonitored, appQueryService.installedApps);
       portManager.restoreAppsPortsSupport();
     }, bootDelay(1 * 60 * 1000));
-    setTimeout(() => {
-      // Check for enterprise apps on non-arcaneOS nodes and remove them
-      advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
-    }, bootDelay(2 * 60 * 1000)); // 2 minutes after startup
     // Resolve this node's enterprise identity once, up front. Self-reschedules
     // every 5 minutes until the pubkey resolves (daemon/benchmark may still be
     // coming up). Once cached, hot paths (spawn loop) read it synchronously
     // via getCachedEnterpriseIdentity() with no network call and no throws.
-    //
-    // After identity is known, run the ownership-split cleanup once at T+5min:
-    // enterprise nodes drop any app whose owner isn't in enterpriseAppOwners;
-    // every other node drops any app whose owner IS in enterpriseAppOwners.
-    // Broadcasts fluxappremoved so peers update appLocations.
-    enterpriseNetwork.scheduleIdentityResolution().then(() => {
-      setTimeout(async () => {
-        try {
-          await enterpriseNetwork.cleanupOwnershipViolations();
-          log.info('Enterprise network cleanup completed');
-        } catch (error) {
-          log.error(`Enterprise network cleanup failed: ${error.message || error}`);
-        }
-      }, 5 * 60 * 1000);
-    });
-    setInterval(() => {
-      portManager.restorePortsSupport(); // restore fluxos and apps ports/upnp
-    }, portRestoreIntervalMs); // every 10 minutes
+    const identityReady = enterpriseNetwork.scheduleIdentityResolution();
+
+    // Services that read from zelappsinformation wait for the orchestrator
+    // to finish rebuilding it rather than guessing a setTimeout delay.
+    async function startDbDependentServices() {
+      await globalState.waitForDbReady();
+      log.info('DB ready - starting db-dependent services');
+      advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
+      await identityReady;
+      try {
+        await enterpriseNetwork.cleanupOwnershipViolations();
+        log.info('Enterprise network cleanup completed');
+      } catch (error) {
+        log.error(`Enterprise network cleanup failed: ${error.message || error}`);
+      }
+      setInterval(() => {
+        portManager.restorePortsSupport();
+      }, portRestoreIntervalMs);
+    }
+    startDbDependentServices();
     log.info('Starting setting Node Geolocation');
     geolocationService.setNodeGeolocation();
     setTimeout(() => {
@@ -468,7 +457,7 @@ async function startFluxFunctions() {
       }, 60 * 1000);
     }, bootDelay(3 * 60 * 1000));
     // Hash sync and spawner startup are now managed by the AppSyncOrchestrator (event-driven)
-    orchestrator.start();
+    orchestrator.start(bootContext);
     log.info('AppSyncOrchestrator started');
     setInterval(() => {
       imageManager.checkApplicationsCompliance(appQueryService.installedApps, appUninstaller.removeAppLocally);

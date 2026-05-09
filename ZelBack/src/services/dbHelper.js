@@ -724,39 +724,21 @@ async function reindexGlobalAppsInformation(
   localAppsInformationCol,
   scannedHeight,
 ) {
-  const dropped = await dropCollection(appsGlobalDb, globalAppsInformationCol)
-    .catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error('reindexGlobalAppsInformation - Unable to drop db. '
-          + `Error: ${error}`);
-        return false;
-      }
-      return true;
-    });
-
-  if (!dropped) return [];
+  try {
+    await appsGlobalDb.collection(globalAppsInformationCol).deleteMany({});
+  } catch (error) {
+    log.error(`reindexGlobalAppsInformation - Unable to clear collection. Error: ${error}`);
+    return [];
+  }
 
   const infoCol = appsGlobalDb.collection(globalAppsInformationCol);
-  await infoCol.createIndex(
-    { name: 1 },
-    { name: 'query for getting zelapp based on zelapp specs name' },
-  );
-  await infoCol.createIndex(
-    { owner: 1 },
-    { name: 'query for getting zelapp based on zelapp specs owner' },
-  );
-  await infoCol.createIndex(
-    { repotag: 1 },
-    { name: 'query for getting zelapp based on image' },
-  );
-  await infoCol.createIndex(
-    { height: 1 },
-    { name: 'query for getting zelapp based on last height update' },
-  );
-  await infoCol.createIndex(
-    { hash: 1 },
-    { name: 'query for getting zelapp based on last hash' },
-  );
+  await infoCol.createIndexes([
+    { key: { name: 1 }, name: 'query for getting zelapp based on zelapp specs name' },
+    { key: { owner: 1 }, name: 'query for getting zelapp based on zelapp specs owner' },
+    { key: { repotag: 1 }, name: 'query for getting zelapp based on image' },
+    { key: { height: 1 }, name: 'query for getting zelapp based on last height update' },
+    { key: { hash: 1 }, name: 'query for getting zelapp based on last hash' },
+  ]);
 
   const pipeline = [
     { $sort: { 'appSpecifications.name': 1, height: -1 } },
@@ -818,10 +800,10 @@ async function reindexGlobalAppsInformation(
  * Verifies the app count based on an aggregation from appsmessages and compares it to the
  * app count in appsinformation. If they differ - the appsinformation collection is dropped and
  * rebuilt from the appsmessages. The entire process takes about 500-700ms.
- * @returns {Promise<{validated: boolean, reindexed: boolean, appsToRemove: Array<string>}>}
+ * @returns {Promise<{validated: boolean, reindexed: boolean}>}
  */
 async function validateAppsInformation() {
-  const response = { validated: false, reindexed: false, appsToRemove: [] };
+  const response = { validated: false, reindexed: false };
 
   const {
     database: {
@@ -879,7 +861,7 @@ async function validateAppsInformation() {
       return response;
     }
 
-    const appsToRemove = await reindexGlobalAppsInformation(
+    await reindexGlobalAppsInformation(
       appsGlobalDb,
       appsLocalDb,
       globalAppsMessagesCol,
@@ -889,7 +871,6 @@ async function validateAppsInformation() {
     );
 
     response.reindexed = true;
-    response.appsToRemove = appsToRemove;
   } catch (err) {
     log.error(`Unable to validate apps information. Error: ${err}`);
   }

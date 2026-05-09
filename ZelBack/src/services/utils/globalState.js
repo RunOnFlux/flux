@@ -1,3 +1,5 @@
+const { appSyncEvents, EVENTS } = require('./appSyncEvents');
+
 // Global state variables for apps service
 // These need to be shared across all modules to maintain the original business logic
 
@@ -70,7 +72,16 @@ module.exports = {
   set masterSlaveAppsRunning(value) { masterSlaveAppsRunning = value; },
 
   get dbReady() { return dbReady; },
-  set dbReady(value) { dbReady = value; },
+  set dbReady(value) {
+    dbReady = value;
+    if (value) appSyncEvents.emit(EVENTS.DB_READY);
+  },
+  waitForDbReady() {
+    if (dbReady) return Promise.resolve();
+    return new Promise((resolve) => {
+      appSyncEvents.once(EVENTS.DB_READY, resolve);
+    });
+  },
 
   get updateSyncthingRunning() { return updateSyncthingRunning; },
   set updateSyncthingRunning(value) { updateSyncthingRunning = value; },
