@@ -5,7 +5,7 @@
  * detection, downtime, shutdown reason) to determine whether to start, remove,
  * or wait before managing containers.
  *
- * Also provides ongoing stopped-app monitoring via checkStoppedApps().
+ * Also provides ongoing stopped-app monitoring via monitorAndRecoverApps().
  */
 
 const config = require('config');
@@ -473,7 +473,7 @@ async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName) {
  * @param {Array} runningAppsNames - Names of running containers
  * @returns {Promise<Array>} masterSlaveAppsInstalled
  */
-async function checkStoppedApps(myIP, appsInstalled, runningAppsNames) {
+async function monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames) {
   const masterSlaveAppsInstalled = [];
   const installedAppComponentNames = [];
   appsInstalled.forEach((app) => {
@@ -670,7 +670,7 @@ module.exports = {
   appUsesGSyncthingMode,
   getNonGComponentIdentifiers,
   appHasValidLocationOnNode,
-  checkStoppedApps,
+  monitorAndRecoverApps,
   parseContainerName,
   handleMissingMasterSlaveContainer,
 };

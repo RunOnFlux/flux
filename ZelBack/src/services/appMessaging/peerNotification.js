@@ -70,7 +70,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       return app.Names[0].slice(5);
     });
 
-    const masterSlaveAppsInstalled = await appStartupManager.checkStoppedApps(myIP, appsInstalled, runningAppsNames);
+    const masterSlaveAppsInstalled = await appStartupManager.monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames);
 
     const installedAndRunning = [];
     appsInstalled.forEach((app) => {

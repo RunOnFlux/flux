@@ -5,7 +5,7 @@ const proxyquire = require('proxyquire').noCallThru();
 describe('peerNotification tests', () => {
   let peerNotification;
   let logStub;
-  let checkStoppedAppsStub;
+  let monitorAndRecoverAppsStub;
 
   beforeEach(() => {
     logStub = {
@@ -14,7 +14,7 @@ describe('peerNotification tests', () => {
       warn: sinon.stub(),
     };
 
-    checkStoppedAppsStub = sinon.stub().resolves([]);
+    monitorAndRecoverAppsStub = sinon.stub().resolves([]);
 
     peerNotification = proxyquire('../../ZelBack/src/services/appMessaging/peerNotification', {
       config: {
@@ -78,7 +78,7 @@ describe('peerNotification tests', () => {
         installApplicationHard: sinon.stub().resolves(),
       },
       '../appLifecycle/appStartupManager': {
-        checkStoppedApps: checkStoppedAppsStub,
+        monitorAndRecoverApps: monitorAndRecoverAppsStub,
       },
       '../appQuery/appQueryService': {
         installedApps: sinon.stub().resolves({
@@ -115,11 +115,11 @@ describe('peerNotification tests', () => {
       expect(peerNotification.checkAndNotifyPeersOfRunningApps).to.be.a('function');
     });
 
-    it('should call checkStoppedApps with correct args', async () => {
+    it('should call monitorAndRecoverApps with correct args', async () => {
       await peerNotification.checkAndNotifyPeersOfRunningApps();
 
-      expect(checkStoppedAppsStub.calledOnce).to.be.true;
-      const [ip, apps, runningNames] = checkStoppedAppsStub.firstCall.args;
+      expect(monitorAndRecoverAppsStub.calledOnce).to.be.true;
+      const [ip, apps, runningNames] = monitorAndRecoverAppsStub.firstCall.args;
       expect(ip).to.equal('192.168.1.1');
       expect(apps).to.have.length(1);
       expect(apps[0].name).to.equal('app1');
