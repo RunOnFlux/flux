@@ -56,7 +56,9 @@ describe('appStartupManager tests', () => {
 
     globalStateStub = {
       dbReady: false,
+      daemonReady: false,
       waitForDbReady: sinon.stub().resolves(),
+      waitForDaemonReady: sinon.stub().resolves(),
       backupInProgress: [],
       restoreInProgress: [],
       appsMonitored: new Map(),
@@ -174,7 +176,7 @@ describe('appStartupManager tests', () => {
     });
   });
 
-  describe('startStoppedAppsOnBoot - location check and removal', () => {
+  describe('reconcileAppsOnBoot - location check and removal', () => {
     const stoppedFluxContainers = [
       { Names: ['/fluxAppA'], State: 'exited' },
       { Names: ['/fluxAppB'], State: 'exited' },
@@ -212,7 +214,7 @@ describe('appStartupManager tests', () => {
       const futureExpiry = new Date(Date.now() + (300 * 1000));
       dbHelperStub.findInDatabase.onSecondCall().resolves([{ expireAt: futureExpiry }]);
 
-      const results = await appStartupManager.startStoppedAppsOnBoot();
+      const results = await appStartupManager.reconcileAppsOnBoot();
 
       expect(results.appsStarted).to.deep.equal(['AppA']);
       expect(results.appsRemoved).to.deep.equal([]);
@@ -229,7 +231,7 @@ describe('appStartupManager tests', () => {
       const pastExpiry = new Date(Date.now() - (60 * 1000));
       dbHelperStub.findInDatabase.onSecondCall().resolves([{ expireAt: pastExpiry }]);
 
-      const results = await appStartupManager.startStoppedAppsOnBoot();
+      const results = await appStartupManager.reconcileAppsOnBoot();
 
       expect(results.appsRemoved).to.deep.equal(['AppA']);
       expect(results.appsStarted).to.deep.equal([]);
@@ -246,7 +248,7 @@ describe('appStartupManager tests', () => {
       // No location records
       dbHelperStub.findInDatabase.onSecondCall().resolves([]);
 
-      const results = await appStartupManager.startStoppedAppsOnBoot();
+      const results = await appStartupManager.reconcileAppsOnBoot();
 
       expect(results.appsRemoved).to.deep.equal(['AppA']);
       expect(results.appsStarted).to.deep.equal([]);
@@ -261,7 +263,7 @@ describe('appStartupManager tests', () => {
       ]);
       dbHelperStub.findInDatabase.onFirstCall().resolves([{ name: 'AppA' }]);
 
-      const results = await appStartupManager.startStoppedAppsOnBoot();
+      const results = await appStartupManager.reconcileAppsOnBoot();
 
       expect(results.appsStarted).to.deep.equal(['AppA']);
       expect(results.appsRemoved).to.deep.equal([]);
@@ -285,7 +287,7 @@ describe('appStartupManager tests', () => {
       const pastExpiry = new Date(Date.now() - (60 * 1000));
       dbHelperStub.findInDatabase.onThirdCall().resolves([{ expireAt: pastExpiry }]);
 
-      const results = await appStartupManager.startStoppedAppsOnBoot();
+      const results = await appStartupManager.reconcileAppsOnBoot();
 
       expect(results.appsStarted).to.deep.equal(['AppA']);
       expect(results.appsRemoved).to.deep.equal(['AppB']);
@@ -302,7 +304,7 @@ describe('appStartupManager tests', () => {
 
       appUninstallerStub.removeAppLocally.rejects(new Error('Remove failed'));
 
-      const results = await appStartupManager.startStoppedAppsOnBoot();
+      const results = await appStartupManager.reconcileAppsOnBoot();
 
       expect(results.appsRemoved).to.deep.equal([]);
       expect(results.appsFailed).to.have.lengthOf(1);
@@ -319,7 +321,7 @@ describe('appStartupManager tests', () => {
       // Location check throws error - appHasValidLocationOnNode returns true (fail-safe)
       dbHelperStub.findInDatabase.onSecondCall().rejects(new Error('DB error'));
 
-      const results = await appStartupManager.startStoppedAppsOnBoot();
+      const results = await appStartupManager.reconcileAppsOnBoot();
 
       expect(results.appsStarted).to.deep.equal(['AppA']);
       expect(results.appsRemoved).to.deep.equal([]);
@@ -349,7 +351,7 @@ describe('appStartupManager tests', () => {
       // NormalApp has expired location
       dbHelperStub.findInDatabase.onSecondCall().resolves([]);
 
-      const results = await appStartupManager.startStoppedAppsOnBoot();
+      const results = await appStartupManager.reconcileAppsOnBoot();
 
       // SyncApp skipped by g: mode check (before location check)
       expect(results.appsSkippedGMode).to.deep.equal(['SyncApp']);
@@ -379,7 +381,7 @@ describe('appStartupManager tests', () => {
       const futureExpiry = new Date(Date.now() + (300 * 1000));
       dbHelperStub.findInDatabase.onSecondCall().resolves([{ expireAt: futureExpiry }]);
 
-      const results = await appStartupManager.startStoppedAppsOnBoot();
+      const results = await appStartupManager.reconcileAppsOnBoot();
 
       expect(results.appsPartiallyStarted).to.deep.equal(['MixedApp']);
       expect(results.appsStarted).to.deep.equal([]);
@@ -406,7 +408,7 @@ describe('appStartupManager tests', () => {
         ],
       });
 
-      const results = await appStartupManager.startStoppedAppsOnBoot();
+      const results = await appStartupManager.reconcileAppsOnBoot();
 
       expect(results.appsSkippedGMode).to.deep.equal(['AllGApp']);
       expect(results.appsStarted).to.deep.equal([]);
@@ -526,7 +528,7 @@ describe('appStartupManager tests', () => {
       const bootContext = {
         machineRebooted: true, downtimeMs: 60000, cleanShutdown: false,
       };
-      // No stopped containers = startStoppedAppsOnBoot does nothing
+      // No stopped containers = reconcileAppsOnBoot does nothing
       dockerServiceStub.dockerListContainers.resolves([]);
       dbHelperStub.findInDatabase.resolves([]);
 
@@ -567,6 +569,20 @@ describe('appStartupManager tests', () => {
 
       expect(appUninstallerStub.removeAppLocally.called).to.be.false;
       expect(globalStateStub.waitForDbReady.calledOnce).to.be.true;
+    });
+
+    it('should not remove apps on first boot (no heartbeat history)', async () => {
+      const bootContext = {
+        machineRebooted: true, downtimeMs: Infinity, cleanShutdown: false, firstBoot: true,
+      };
+      dockerServiceStub.dockerListContainers.resolves([]);
+      dbHelperStub.findInDatabase.resolves([]);
+
+      await appStartupManager.manageAppsOnBoot(bootContext);
+
+      expect(appUninstallerStub.removeAppLocally.called).to.be.false;
+      expect(globalStateStub.waitForDbReady.calledOnce).to.be.true;
+      expect(logStub.info.calledWithMatch(/First boot/)).to.be.true;
     });
   });
 });

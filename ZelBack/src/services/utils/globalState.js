@@ -10,6 +10,8 @@ let hardRedeployInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
 let dbReady = false;
+let daemonReady = false;
+let daemonReadyResolvers = [];
 let updateSyncthingRunning = false;
 let syncthingAppsFirstRun = true;
 const backupInProgress = [];
@@ -70,6 +72,21 @@ module.exports = {
 
   get masterSlaveAppsRunning() { return masterSlaveAppsRunning; },
   set masterSlaveAppsRunning(value) { masterSlaveAppsRunning = value; },
+
+  get daemonReady() { return daemonReady; },
+  set daemonReady(value) {
+    daemonReady = value;
+    if (value) {
+      daemonReadyResolvers.forEach((r) => r());
+      daemonReadyResolvers = [];
+    }
+  },
+  waitForDaemonReady() {
+    if (daemonReady) return Promise.resolve();
+    return new Promise((resolve) => {
+      daemonReadyResolvers.push(resolve);
+    });
+  },
 
   get dbReady() { return dbReady; },
   set dbReady(value) {

@@ -205,13 +205,14 @@ function parseContainerName(containerName) {
 }
 
 /**
- * Start stopped Flux app containers on boot, partitioned by g: syncthing mode.
- * - Apps with no g: components: started normally (whole app).
- * - Apps where every component is g:: skipped entirely (managed by masterSlaveApps).
- * - Mixed compose apps: only non-g components started; g: components left stopped.
- * @returns {Promise<Object>} Results of the recovery operation
+ * Reconcile local app state against the network on boot. For each stopped
+ * container, checks whether this node still has a valid location record.
+ * - Valid location, non-g components: started.
+ * - Valid location, g: components: left stopped (managed by masterSlaveApps).
+ * - Expired/missing location: app removed locally (node was reassigned).
+ * @returns {Promise<Object>} Results of the reconciliation
  */
-async function startStoppedAppsOnBoot() {
+async function reconcileAppsOnBoot() {
   const results = {
     appsChecked: 0,
     appsStarted: [],
@@ -608,39 +609,63 @@ async function manageAppsOnBoot(bootContext) {
     return;
   }
 
-  const locationsExpired = (bootContext.cleanShutdown && bootContext.downtimeMs > SIGTERM_EXPIRY_MS)
-    || bootContext.downtimeMs > RUNNING_EXPIRY_MS;
+  if (bootContext.firstBoot) {
+    log.info('appStartupManager - First boot (no heartbeat history), waiting for sync');
+    // Fall through to the sync-wait path. No fast-path removal — we have no
+    // history to base decisions on. This also handles the migration case where
+    // the heartbeat feature is deployed to a node with existing apps.
+  } else {
+    const locationsExpired = (bootContext.cleanShutdown && bootContext.downtimeMs > SIGTERM_EXPIRY_MS)
+      || bootContext.downtimeMs > RUNNING_EXPIRY_MS;
 
-  if (locationsExpired) {
-    log.info(`appStartupManager - Locations expired (downtime ${Math.round(bootContext.downtimeMs / 1000)}s, cleanShutdown=${bootContext.cleanShutdown}), removing all apps`);
-    await removeAllApps('Locations expired');
-    return;
+    if (locationsExpired) {
+      log.info(`appStartupManager - Locations expired (downtime ${Math.round(bootContext.downtimeMs / 1000)}s, cleanShutdown=${bootContext.cleanShutdown}), removing all apps`);
+      await removeAllApps('Locations expired');
+      return;
+    }
   }
 
-  // Machine rebooted, locations still valid — wait for sync then start apps.
-  const syncReady = globalState.waitForDbReady();
-  const timeout = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('sync_timeout')), SYNC_TIMEOUT_MS);
-  });
+  // Machine rebooted, locations still valid — wait for daemon + sync then reconcile.
+  const DAEMON_TIMEOUT_MS = 5 * 60 * 1000;
   try {
-    await Promise.race([syncReady, timeout]);
-    log.info('appStartupManager - DB ready, starting stopped apps recovery');
-    await startStoppedAppsOnBoot();
+    await Promise.race([
+      globalState.waitForDaemonReady(),
+      new Promise((_, reject) => { setTimeout(() => reject(new Error('daemon_timeout')), DAEMON_TIMEOUT_MS); }),
+    ]);
+  } catch (error) {
+    if (error.message === 'daemon_timeout') {
+      log.error(`appStartupManager - Daemon not ready after ${DAEMON_TIMEOUT_MS / 1000}s, removing all apps`);
+      await removeAllApps('Daemon unavailable');
+      log.info('appStartupManager - All apps removed, waiting for daemon');
+      await globalState.waitForDaemonReady();
+    } else {
+      throw error;
+    }
+  }
+
+  try {
+    await Promise.race([
+      globalState.waitForDbReady(),
+      new Promise((_, reject) => { setTimeout(() => reject(new Error('sync_timeout')), SYNC_TIMEOUT_MS); }),
+    ]);
   } catch (error) {
     if (error.message === 'sync_timeout') {
       log.error(`appStartupManager - DB not ready after ${SYNC_TIMEOUT_MS / 1000}s, removing all apps`);
       await removeAllApps('Sync timeout');
       log.info('appStartupManager - All apps removed, waiting for sync to complete');
-      await syncReady;
+      await globalState.waitForDbReady();
     } else {
       throw error;
     }
   }
+
+  log.info('appStartupManager - Daemon and DB ready, reconciling apps');
+  await reconcileAppsOnBoot();
 }
 
 module.exports = {
   manageAppsOnBoot,
-  startStoppedAppsOnBoot,
+  reconcileAppsOnBoot,
   getStoppedFluxContainers,
   appUsesGSyncthingMode,
   getNonGComponentIdentifiers,
