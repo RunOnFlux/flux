@@ -152,4 +152,38 @@ describe('globalState tests', () => {
       expect(resolved).to.equal(true);
     });
   });
+
+  describe('waitForDaemonReady', () => {
+    it('should resolve immediately when daemonReady is already true', async () => {
+      globalState.daemonReady = true;
+      await globalState.waitForDaemonReady();
+    });
+
+    it('should wait until daemonReady is set to true', async () => {
+      let resolved = false;
+      const promise = globalState.waitForDaemonReady().then(() => { resolved = true; });
+      await new Promise((r) => setImmediate(r));
+      expect(resolved).to.equal(false);
+      globalState.daemonReady = true;
+      await promise;
+      expect(resolved).to.equal(true);
+    });
+  });
+
+  describe('waitForBootComplete', () => {
+    it('should resolve immediately when bootComplete is already true', async () => {
+      globalState.bootComplete = true;
+      await globalState.waitForBootComplete();
+    });
+
+    it('should wait until bootComplete is set to true', async () => {
+      let resolved = false;
+      const promise = globalState.waitForBootComplete().then(() => { resolved = true; });
+      await new Promise((r) => setImmediate(r));
+      expect(resolved).to.equal(false);
+      globalState.bootComplete = true;
+      await promise;
+      expect(resolved).to.equal(true);
+    });
+  });
 });

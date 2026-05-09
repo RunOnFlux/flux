@@ -57,8 +57,10 @@ describe('appStartupManager tests', () => {
     globalStateStub = {
       dbReady: false,
       daemonReady: false,
+      bootComplete: false,
       waitForDbReady: sinon.stub().resolves(),
       waitForDaemonReady: sinon.stub().resolves(),
+      waitForBootComplete: sinon.stub().resolves(),
       backupInProgress: [],
       restoreInProgress: [],
       appsMonitored: new Map(),
@@ -583,6 +585,38 @@ describe('appStartupManager tests', () => {
       expect(appUninstallerStub.removeAppLocally.called).to.be.false;
       expect(globalStateStub.waitForDbReady.calledOnce).to.be.true;
       expect(logStub.info.calledWithMatch(/First boot/)).to.be.true;
+    });
+
+    it('should set bootComplete on every exit path', async () => {
+      // FluxOS restart path
+      globalStateStub.bootComplete = false;
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: false });
+      expect(globalStateStub.bootComplete).to.be.true;
+
+      // Expired locations path
+      globalStateStub.bootComplete = false;
+      appQueryServiceStub.installedApps.resolves({ status: 'success', data: [] });
+      await appStartupManager.manageAppsOnBoot({
+        machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false,
+      });
+      expect(globalStateStub.bootComplete).to.be.true;
+    });
+  });
+
+  describe('monitorAndRecoverApps', () => {
+    it('should wait for bootComplete before proceeding', async () => {
+      let monitorResolved = false;
+      globalStateStub.waitForBootComplete = sinon.stub().returns(
+        new Promise((resolve) => { setTimeout(resolve, 50); }),
+      );
+
+      const promise = appStartupManager.monitorAndRecoverApps('10.0.0.1', [], [])
+        .then(() => { monitorResolved = true; });
+      await new Promise((r) => setImmediate(r));
+      expect(monitorResolved).to.be.false;
+      await promise;
+      expect(monitorResolved).to.be.true;
+      expect(globalStateStub.waitForBootComplete.calledOnce).to.be.true;
     });
   });
 });

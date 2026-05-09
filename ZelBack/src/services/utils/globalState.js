@@ -12,6 +12,8 @@ let masterSlaveAppsRunning = false;
 let dbReady = false;
 let daemonReady = false;
 let daemonReadyResolvers = [];
+let bootComplete = false;
+let bootCompleteResolvers = [];
 let updateSyncthingRunning = false;
 let syncthingAppsFirstRun = true;
 const backupInProgress = [];
@@ -85,6 +87,21 @@ module.exports = {
     if (daemonReady) return Promise.resolve();
     return new Promise((resolve) => {
       daemonReadyResolvers.push(resolve);
+    });
+  },
+
+  get bootComplete() { return bootComplete; },
+  set bootComplete(value) {
+    bootComplete = value;
+    if (value) {
+      bootCompleteResolvers.forEach((r) => r());
+      bootCompleteResolvers = [];
+    }
+  },
+  waitForBootComplete() {
+    if (bootComplete) return Promise.resolve();
+    return new Promise((resolve) => {
+      bootCompleteResolvers.push(resolve);
     });
   },
 

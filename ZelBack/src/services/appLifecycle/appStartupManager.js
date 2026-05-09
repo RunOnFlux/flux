@@ -474,6 +474,7 @@ async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName) {
  * @returns {Promise<Array>} masterSlaveAppsInstalled
  */
 async function monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames) {
+  await globalState.waitForBootComplete();
   const masterSlaveAppsInstalled = [];
   const installedAppComponentNames = [];
   appsInstalled.forEach((app) => {
@@ -604,63 +605,65 @@ async function removeAllApps(reason) {
 }
 
 async function manageAppsOnBoot(bootContext) {
-  if (!bootContext.machineRebooted) {
-    log.info('appStartupManager - FluxOS-only restart, containers already running');
-    return;
-  }
-
-  if (bootContext.firstBoot) {
-    log.info('appStartupManager - First boot (no heartbeat history), waiting for sync');
-    // Fall through to the sync-wait path. No fast-path removal — we have no
-    // history to base decisions on. This also handles the migration case where
-    // the heartbeat feature is deployed to a node with existing apps.
-  } else {
-    const locationsExpired = (bootContext.cleanShutdown && bootContext.downtimeMs > SIGTERM_EXPIRY_MS)
-      || bootContext.downtimeMs > RUNNING_EXPIRY_MS;
-
-    if (locationsExpired) {
-      log.info(`appStartupManager - Locations expired (downtime ${Math.round(bootContext.downtimeMs / 1000)}s, cleanShutdown=${bootContext.cleanShutdown}), removing all apps`);
-      await removeAllApps('Locations expired');
+  try {
+    if (!bootContext.machineRebooted) {
+      log.info('appStartupManager - FluxOS-only restart, containers already running');
       return;
     }
-  }
 
-  // Machine rebooted, locations still valid — wait for daemon + sync then reconcile.
-  const DAEMON_TIMEOUT_MS = 5 * 60 * 1000;
-  try {
-    await Promise.race([
-      globalState.waitForDaemonReady(),
-      new Promise((_, reject) => { setTimeout(() => reject(new Error('daemon_timeout')), DAEMON_TIMEOUT_MS); }),
-    ]);
-  } catch (error) {
-    if (error.message === 'daemon_timeout') {
-      log.error(`appStartupManager - Daemon not ready after ${DAEMON_TIMEOUT_MS / 1000}s, removing all apps`);
-      await removeAllApps('Daemon unavailable');
-      log.info('appStartupManager - All apps removed, waiting for daemon');
-      await globalState.waitForDaemonReady();
+    if (bootContext.firstBoot) {
+      log.info('appStartupManager - First boot (no heartbeat history), waiting for sync');
     } else {
-      throw error;
-    }
-  }
+      const locationsExpired = (bootContext.cleanShutdown && bootContext.downtimeMs > SIGTERM_EXPIRY_MS)
+        || bootContext.downtimeMs > RUNNING_EXPIRY_MS;
 
-  try {
-    await Promise.race([
-      globalState.waitForDbReady(),
-      new Promise((_, reject) => { setTimeout(() => reject(new Error('sync_timeout')), SYNC_TIMEOUT_MS); }),
-    ]);
-  } catch (error) {
-    if (error.message === 'sync_timeout') {
-      log.error(`appStartupManager - DB not ready after ${SYNC_TIMEOUT_MS / 1000}s, removing all apps`);
-      await removeAllApps('Sync timeout');
-      log.info('appStartupManager - All apps removed, waiting for sync to complete');
-      await globalState.waitForDbReady();
-    } else {
-      throw error;
+      if (locationsExpired) {
+        log.info(`appStartupManager - Locations expired (downtime ${Math.round(bootContext.downtimeMs / 1000)}s, cleanShutdown=${bootContext.cleanShutdown}), removing all apps`);
+        await removeAllApps('Locations expired');
+        return;
+      }
     }
-  }
 
-  log.info('appStartupManager - Daemon and DB ready, reconciling apps');
-  await reconcileAppsOnBoot();
+    // Machine rebooted, locations still valid — wait for daemon + sync then reconcile.
+    const DAEMON_TIMEOUT_MS = 5 * 60 * 1000;
+    try {
+      await Promise.race([
+        globalState.waitForDaemonReady(),
+        new Promise((_, reject) => { setTimeout(() => reject(new Error('daemon_timeout')), DAEMON_TIMEOUT_MS); }),
+      ]);
+    } catch (error) {
+      if (error.message === 'daemon_timeout') {
+        log.error(`appStartupManager - Daemon not ready after ${DAEMON_TIMEOUT_MS / 1000}s, removing all apps`);
+        await removeAllApps('Daemon unavailable');
+        log.info('appStartupManager - All apps removed, waiting for daemon');
+        await globalState.waitForDaemonReady();
+      } else {
+        throw error;
+      }
+    }
+
+    try {
+      await Promise.race([
+        globalState.waitForDbReady(),
+        new Promise((_, reject) => { setTimeout(() => reject(new Error('sync_timeout')), SYNC_TIMEOUT_MS); }),
+      ]);
+    } catch (error) {
+      if (error.message === 'sync_timeout') {
+        log.error(`appStartupManager - DB not ready after ${SYNC_TIMEOUT_MS / 1000}s, removing all apps`);
+        await removeAllApps('Sync timeout');
+        log.info('appStartupManager - All apps removed, waiting for sync to complete');
+        await globalState.waitForDbReady();
+      } else {
+        throw error;
+      }
+    }
+
+    log.info('appStartupManager - Daemon and DB ready, reconciling apps');
+    await reconcileAppsOnBoot();
+  } finally {
+    globalState.bootComplete = true;
+    log.info('appStartupManager - Boot complete');
+  }
 }
 
 module.exports = {
