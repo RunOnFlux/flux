@@ -56,12 +56,12 @@ async function checkAndNotifyPeersOfRunningApps() {
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
+    let appsInstalled = installedAppsRes.data;
+    appsInstalled = await decryptEnterpriseApps(appsInstalled, { formatSpecs: false });
     const runningAppsRes = await appQueryService.listRunningApps();
     if (runningAppsRes.status !== 'success') {
       throw new Error('Unable to check running Apps');
     }
-    let appsInstalled = installedAppsRes.data;
-    appsInstalled = await decryptEnterpriseApps(appsInstalled, { formatSpecs: false });
     const runningApps = runningAppsRes.data;
     const runningAppsNames = runningApps.map((app) => {
       if (app.Names[0].startsWith('/zel')) {
@@ -70,7 +70,8 @@ async function checkAndNotifyPeersOfRunningApps() {
       return app.Names[0].slice(5);
     });
 
-    const masterSlaveAppsInstalled = await appStartupManager.monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames);
+    const { masterSlaveAppsInstalled, startedApps } = await appStartupManager.monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames);
+    runningAppsNames.push(...startedApps);
 
     const installedAndRunning = [];
     appsInstalled.forEach((app) => {

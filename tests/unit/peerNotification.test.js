@@ -14,7 +14,7 @@ describe('peerNotification tests', () => {
       warn: sinon.stub(),
     };
 
-    monitorAndRecoverAppsStub = sinon.stub().resolves([]);
+    monitorAndRecoverAppsStub = sinon.stub().resolves({ masterSlaveAppsInstalled: [], startedApps: [] });
 
     peerNotification = proxyquire('../../ZelBack/src/services/appMessaging/peerNotification', {
       config: {

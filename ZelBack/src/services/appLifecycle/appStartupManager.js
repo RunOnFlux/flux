@@ -476,6 +476,7 @@ async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName) {
 async function monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames) {
   await globalState.waitForBootComplete();
   const masterSlaveAppsInstalled = [];
+  const startedApps = [];
   const installedAppComponentNames = [];
   appsInstalled.forEach((app) => {
     if (app.version >= 4) {
@@ -551,6 +552,7 @@ async function monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames) {
               await recreateMissingContainers(stoppedApp);
               log.info(`Successfully recreated ${stoppedApp}`);
               appInspector.startAppMonitoring(stoppedApp, globalState.appsMonitored);
+              startedApps.push(stoppedApp);
             } catch (recreateErr) {
               log.error(`Failed to recreate containers for ${stoppedApp}: ${recreateErr.message}`);
               log.warn(`REMOVAL REASON: Container recreation failure - ${mainAppName} failed to recreate with error: ${recreateErr.message} (appStartupManager)`);
@@ -572,6 +574,7 @@ async function monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames) {
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerStart(stoppedApp);
               appInspector.startAppMonitoring(stoppedApp, globalState.appsMonitored);
+              startedApps.push(stoppedApp);
             }
           }
         } else {
@@ -589,7 +592,7 @@ async function monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames) {
       }
     }
   }
-  return masterSlaveAppsInstalled;
+  return { masterSlaveAppsInstalled, startedApps };
 }
 
 async function removeAllApps(reason) {
