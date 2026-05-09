@@ -685,5 +685,127 @@ describe('AppSyncOrchestrator', () => {
       expect(peerEmitter.listenerCount('peerThresholdReached')).to.equal(0);
       expect(peerEmitter.listenerCount('peersBelowThreshold')).to.equal(0);
     });
+
+    it('should clear heartbeat interval on stop', () => {
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
+      orchestrator.start(defaultBootContext);
+      orchestrator.stop();
+      // No error thrown, interval cleaned up
+    });
+  });
+
+  describe('readBootContext', () => {
+    it('should detect machine reboot when boot_id differs', async () => {
+      dbHelperStub.findOneInDatabase.resolves({
+        lastAlive: Date.now() - 60000,
+        machineBootId: 'old-boot-id',
+        shutdownReason: 'sigterm',
+      });
+
+      const ctx = await AppSyncOrchestrator.readBootContext();
+
+      expect(ctx.machineRebooted).to.be.true;
+      expect(ctx.cleanShutdown).to.be.true;
+      expect(ctx.firstBoot).to.be.false;
+      expect(ctx.currentBootId).to.equal('test-boot-id-12345');
+    });
+
+    it('should detect FluxOS-only restart when boot_id matches', async () => {
+      dbHelperStub.findOneInDatabase.resolves({
+        lastAlive: Date.now() - 5000,
+        machineBootId: 'test-boot-id-12345',
+        shutdownReason: 'sigterm',
+      });
+
+      const ctx = await AppSyncOrchestrator.readBootContext();
+
+      expect(ctx.machineRebooted).to.be.false;
+      expect(ctx.cleanShutdown).to.be.true;
+    });
+
+    it('should detect first boot when no heartbeat exists', async () => {
+      dbHelperStub.findOneInDatabase.resolves(null);
+
+      const ctx = await AppSyncOrchestrator.readBootContext();
+
+      expect(ctx.firstBoot).to.be.true;
+      expect(ctx.machineRebooted).to.be.true;
+      expect(ctx.downtimeMs).to.equal(Infinity);
+    });
+
+    it('should detect unclean shutdown when shutdownReason is absent', async () => {
+      dbHelperStub.findOneInDatabase.resolves({
+        lastAlive: Date.now() - 120000,
+        machineBootId: 'old-boot-id',
+      });
+
+      const ctx = await AppSyncOrchestrator.readBootContext();
+
+      expect(ctx.cleanShutdown).to.be.false;
+      expect(ctx.machineRebooted).to.be.true;
+    });
+
+    it('should compute downtime from lastAlive', async () => {
+      const fiveMinAgo = Date.now() - 300000;
+      dbHelperStub.findOneInDatabase.resolves({
+        lastAlive: fiveMinAgo,
+        machineBootId: 'old-boot-id',
+      });
+
+      const ctx = await AppSyncOrchestrator.readBootContext();
+
+      expect(ctx.downtimeMs).to.be.within(299000, 301000);
+    });
+
+    it('should return safe defaults on error', async () => {
+      dbHelperStub.findOneInDatabase.rejects(new Error('DB down'));
+
+      const ctx = await AppSyncOrchestrator.readBootContext();
+
+      expect(ctx.machineRebooted).to.be.true;
+      expect(ctx.downtimeMs).to.equal(Infinity);
+      expect(ctx.cleanShutdown).to.be.false;
+      expect(ctx.firstBoot).to.be.true;
+    });
+  });
+
+  describe('writeShutdownReason', () => {
+    it('should write shutdown reason to heartbeat doc', async () => {
+      await AppSyncOrchestrator.writeShutdownReason('sigterm');
+
+      const call = findOneAndUpdateStub.getCalls().find(
+        (c) => c.args[2]?._id === 'heartbeat',
+      );
+      expect(call).to.not.be.undefined;
+      expect(call.args[3]).to.deep.equal({ $set: { shutdownReason: 'sigterm' } });
+    });
+
+    it('should not throw on error', async () => {
+      findOneAndUpdateStub.rejects(new Error('DB down'));
+      await AppSyncOrchestrator.writeShutdownReason('sigterm');
+      expect(logStub.error.calledWithMatch(/Failed to write shutdown reason/)).to.be.true;
+    });
+  });
+
+  describe('heartbeat', () => {
+    it('should write heartbeat immediately on start', async () => {
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
+      await orchestrator.start(defaultBootContext);
+
+      const heartbeatCall = findOneAndUpdateStub.getCalls().find(
+        (c) => c.args[2]?._id === 'heartbeat' && c.args[3]?.$set?.lastAlive,
+      );
+      expect(heartbeatCall).to.not.be.undefined;
+      expect(heartbeatCall.args[3].$set.machineBootId).to.equal('test-boot-id-12345');
+      orchestrator.stop();
+    });
+
+    it('should store boot context and expose via getter', async () => {
+      const orchestrator = new AppSyncOrchestrator({ blockEmitter, ...makePeerOptions() });
+      await orchestrator.start(defaultBootContext);
+
+      expect(orchestrator.bootContext).to.deep.equal(defaultBootContext);
+      orchestrator.stop();
+    });
   });
 });
