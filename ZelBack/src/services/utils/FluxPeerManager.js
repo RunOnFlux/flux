@@ -66,6 +66,8 @@ class FluxPeerManager extends EventEmitter {
   #pendingAdds = { outbound: new Set(), inbound: new Set() };
   /** @type {Set<string>} peers removed since last peerUpdate broadcast */
   #pendingRemoves = new Set();
+
+  #syncRequestedPeers = new Set();
   /** @type {ReturnType<typeof setTimeout>|null} debounce timer */
   #peerUpdateTimer = null;
   /** @type {Array<object>} Circular buffer of peer lifecycle events */
@@ -199,6 +201,7 @@ class FluxPeerManager extends EventEmitter {
     const peer = this.#peers.get(key);
     if (!peer) return null;
 
+    this.#syncRequestedPeers.delete(key);
     this.#removeTracking(peer);
 
     // Clean up peer exchange topology and notify others
@@ -428,6 +431,14 @@ class FluxPeerManager extends EventEmitter {
     }
     return count ? eligible.slice(0, count) : eligible;
   }
+
+  markSyncRequested(key) { this.#syncRequestedPeers.add(key); }
+
+  isSyncRequested(key) { return this.#syncRequestedPeers.has(key); }
+
+  completeSyncRequest(key) { this.#syncRequestedPeers.delete(key); }
+
+  clearSyncRequested() { this.#syncRequestedPeers.clear(); }
 
   // --- Liveness ---
 

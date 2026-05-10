@@ -27,7 +27,6 @@ const {
   RUNNING_EXPIRY_MS,
   INSTALLING_EXPIRY_MS,
   INSTALLING_ERRORS_EXPIRY_MS,
-  SIGTERM_EXPIRY_MS,
   EVICTED_EXPIRY_MS,
 } = require('../utils/appConstants');
 
@@ -38,6 +37,17 @@ const APP_STATE_EVENT_TYPES = Object.freeze({
   EVICTED: 'evicted',
   IPCHANGED: 'ipchanged',
 });
+
+function buildConditionalUpsert(broadcastedAt, conditionalFields, options = {}) {
+  const alwaysSetFields = options.alwaysSetFields ?? {};
+  const incomingDate = new Date(broadcastedAt);
+  const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
+  const set = Object.fromEntries(
+    Object.entries(conditionalFields).map(([k, v]) => [k, { $cond: [isNewer, v, { $ifNull: [`$${k}`, v] }] }]),
+  );
+  Object.assign(set, alwaysSetFields);
+  return [{ $set: set }];
+}
 
 async function getPreviousOwner(appName, currentOwner) {
   const db = dbHelper.databaseConnection();
@@ -295,6 +305,9 @@ async function storeAppRunningMessage(message) {
     if (!message.apps || !Array.isArray(message.apps)) {
       return new Error('Invalid Flux App Running message for storing');
     }
+    if (message.apps.length > config.fluxapps.maxAppsPerNode) {
+      return new Error('Invalid Flux App Running message: apps array exceeds maxAppsPerNode');
+    }
     for (let i = 0; i < message.apps.length; i += 1) {
       const app = message.apps[i];
       appsMessages.push(app);
@@ -314,42 +327,36 @@ async function storeAppRunningMessage(message) {
   const expireAt = new Date(message.broadcastedAt + RUNNING_EXPIRY_MS);
 
   let anyStored = false;
+  const incomingDate = new Date(message.broadcastedAt);
+  const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
+
   for (let i = 0; i < appsMessages.length; i += 1) {
     const app = appsMessages[i];
-    const newAppRunningMessage = {
+    const runningSince = new Date(message.runningSince ?? app.runningSince ?? message.broadcastedAt);
+    const incoming = {
       name: app.name,
-      hash: app.hash, // hash of application specifics that are running
+      hash: app.hash,
       ip: message.ip,
-      broadcastedAt: new Date(message.broadcastedAt),
+      broadcastedAt: incomingDate,
       expireAt,
       osUptime: message.osUptime,
       staticIp: message.staticIp,
+      runningSince,
     };
+    const conditionalSet = Object.fromEntries(
+      Object.entries(incoming).map(([k, v]) => [k, { $cond: [isNewer, v, { $ifNull: [`$${k}`, v] }] }]),
+    );
 
-    // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-    const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-    const projection = { _id: 0, runningSince: 1, broadcastedAt: 1 };
     // eslint-disable-next-line no-await-in-loop
-    const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-    if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
-      // eslint-disable-next-line no-continue
-      continue;
+    const result = await dbHelper.updateOneInDatabase(
+      database, globalAppsLocations,
+      { name: app.name, ip: message.ip },
+      [{ $set: conditionalSet }],
+      { upsert: true },
+    );
+    if (result.modifiedCount > 0 || result.upsertedCount > 0) {
+      anyStored = true;
     }
-    if (message.runningSince) {
-      newAppRunningMessage.runningSince = new Date(message.runningSince);
-    } else if (app.runningSince) {
-      newAppRunningMessage.runningSince = new Date(app.runningSince);
-    } else if (result && result.runningSince) {
-      newAppRunningMessage.runningSince = result.runningSince;
-    }
-    const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-    const update = { $set: newAppRunningMessage };
-    const options = {
-      upsert: true,
-    };
-    // eslint-disable-next-line no-await-in-loop
-    await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
-    anyStored = true;
   }
 
   if (message.version === 2 && appsMessages.length === 0) {
@@ -677,24 +684,16 @@ async function handleAppRunningEvent({ signedBroadcast }) {
     }
 
     const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
-    const incomingDate = new Date(data.broadcastedAt);
-    const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
     const envelope = { version: signedBroadcast.version, timestamp: signedBroadcast.timestamp, pubKey: signedBroadcast.pubKey, signature: signedBroadcast.signature };
 
     await database.collection(globalAppStateEvents).updateOne(
       { ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING, dedupKey },
-      [{
-        $set: {
-          ip: data.ip,
-          type: APP_STATE_EVENT_TYPES.APPRUNNING,
-          dedupKey,
-          broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
-          expireAt: { $cond: [isNewer, new Date(data.broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
-          data: { $cond: [isNewer, data, { $ifNull: ['$data', data] }] },
-          envelope: { $cond: [isNewer, envelope, { $ifNull: ['$envelope', envelope] }] },
-          receivedAt: new Date(),
-        },
-      }],
+      buildConditionalUpsert(data.broadcastedAt, {
+        ip: data.ip, type: APP_STATE_EVENT_TYPES.APPRUNNING, dedupKey,
+        broadcastedAt: new Date(data.broadcastedAt),
+        expireAt: new Date(data.broadcastedAt + RUNNING_EXPIRY_MS),
+        data, envelope,
+      }, { alwaysSetFields: { receivedAt: new Date() } }),
       { upsert: true },
     );
   } catch (err) {
@@ -702,93 +701,81 @@ async function handleAppRunningEvent({ signedBroadcast }) {
   }
 }
 
-function handleSigtermEvent({ message, envelope }) {
+async function handleSigtermEvent({ message, envelope }) {
   if (!message || !message.ip || !message.broadcastedAt) return;
-  const { ip } = message;
-  const incomingDate = new Date(message.broadcastedAt);
-  const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  return database.collection(globalAppStateEvents).updateOne(
-    { ip, type: APP_STATE_EVENT_TYPES.SIGTERM, dedupKey: 'sigterm' },
-    [{
-      $set: {
-        ip,
-        type: APP_STATE_EVENT_TYPES.SIGTERM,
-        dedupKey: 'sigterm',
-        broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
-        expireAt: { $cond: [isNewer, new Date(message.broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
-        envelope: { $cond: [isNewer, envelope, { $ifNull: ['$envelope', envelope] }] },
-        data: { $cond: [isNewer, message, { $ifNull: ['$data', message] }] },
-        receivedAt: new Date(),
-      },
-    }],
-    { upsert: true },
-  ).catch((err) => log.error(`storeAppStateEvent(sigterm): ${err.message}`));
+  try {
+    const { ip } = message;
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    await database.collection(globalAppStateEvents).updateOne(
+      { ip, type: APP_STATE_EVENT_TYPES.SIGTERM, dedupKey: 'sigterm' },
+      buildConditionalUpsert(message.broadcastedAt, {
+        ip, type: APP_STATE_EVENT_TYPES.SIGTERM, dedupKey: 'sigterm',
+        broadcastedAt: new Date(message.broadcastedAt),
+        expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
+        envelope, data: message,
+      }, { alwaysSetFields: { receivedAt: new Date() } }),
+      { upsert: true },
+    );
+  } catch (err) {
+    log.error(`storeAppStateEvent(sigterm): ${err.message}`);
+  }
 }
 
-function handleAppRemovedStateEvent({ message, envelope }) {
+async function handleAppRemovedStateEvent({ message, envelope }) {
   if (!message || !message.ip || !message.appName || !message.broadcastedAt) return;
-  const incomingDate = new Date(message.broadcastedAt);
-  const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  return database.collection(globalAppStateEvents).updateOne(
-    { ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey: `appremoved:${message.appName}` },
-    [{
-      $set: {
-        ip: message.ip,
-        type: APP_STATE_EVENT_TYPES.APPREMOVED,
-        dedupKey: `appremoved:${message.appName}`,
-        broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
-        expireAt: { $cond: [isNewer, new Date(message.broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
-        envelope: { $cond: [isNewer, envelope, { $ifNull: ['$envelope', envelope] }] },
-        data: { $cond: [isNewer, message, { $ifNull: ['$data', message] }] },
-        receivedAt: new Date(),
-      },
-    }],
-    { upsert: true },
-  ).catch((err) => log.error(`storeAppStateEvent(appremoved): ${err.message}`));
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    await database.collection(globalAppStateEvents).updateOne(
+      { ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey: `appremoved:${message.appName}` },
+      buildConditionalUpsert(message.broadcastedAt, {
+        ip: message.ip, type: APP_STATE_EVENT_TYPES.APPREMOVED, dedupKey: `appremoved:${message.appName}`,
+        broadcastedAt: new Date(message.broadcastedAt),
+        expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
+        envelope, data: message,
+      }, { alwaysSetFields: { receivedAt: new Date() } }),
+      { upsert: true },
+    );
+  } catch (err) {
+    log.error(`storeAppStateEvent(appremoved): ${err.message}`);
+  }
 }
 
-function handleEvictedEvent({ ip }) {
+async function handleEvictedEvent({ ip }) {
   if (!ip) return;
-  const now = new Date();
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  return database.collection(globalAppStateEvents).updateOne(
-    { ip, type: APP_STATE_EVENT_TYPES.EVICTED, dedupKey: 'evicted' },
-    { $set: { ip, type: APP_STATE_EVENT_TYPES.EVICTED, dedupKey: 'evicted', createdAt: now, expireAt: new Date(now.getTime() + EVICTED_EXPIRY_MS), receivedAt: now } },
-    { upsert: true },
-  ).catch((err) => log.error(`storeAppStateEvent(evicted): ${err.message}`));
+  try {
+    const now = new Date();
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    await database.collection(globalAppStateEvents).updateOne(
+      { ip, type: APP_STATE_EVENT_TYPES.EVICTED, dedupKey: 'evicted' },
+      { $set: { ip, type: APP_STATE_EVENT_TYPES.EVICTED, dedupKey: 'evicted', createdAt: now, expireAt: new Date(now.getTime() + EVICTED_EXPIRY_MS), receivedAt: now } },
+      { upsert: true },
+    );
+  } catch (err) {
+    log.error(`storeAppStateEvent(evicted): ${err.message}`);
+  }
 }
 
-function handleIPChangedEvent({ message, envelope }) {
+async function handleIPChangedEvent({ message, envelope }) {
   if (!message || !message.oldIP || !message.newIP || !message.broadcastedAt) return;
-  const incomingDate = new Date(message.broadcastedAt);
-  const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  return database.collection(globalAppStateEvents).updateOne(
-    { ip: message.oldIP, type: APP_STATE_EVENT_TYPES.IPCHANGED, dedupKey: 'ipchanged' },
-    [{
-      $set: {
-        ip: message.oldIP,
-        type: APP_STATE_EVENT_TYPES.IPCHANGED,
-        dedupKey: 'ipchanged',
-        broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
-        expireAt: { $cond: [isNewer, new Date(message.broadcastedAt + RUNNING_EXPIRY_MS), '$expireAt'] },
-        data: { $cond: [isNewer, message, { $ifNull: ['$data', message] }] },
-        envelope: { $cond: [isNewer, envelope ?? null, { $ifNull: ['$envelope', envelope ?? null] }] },
-        receivedAt: new Date(),
-      },
-    }],
-    { upsert: true },
-  ).catch((err) => log.error(`storeAppStateEvent(ipchanged): ${err.message}`));
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    await database.collection(globalAppStateEvents).updateOne(
+      { ip: message.oldIP, type: APP_STATE_EVENT_TYPES.IPCHANGED, dedupKey: 'ipchanged' },
+      buildConditionalUpsert(message.broadcastedAt, {
+        ip: message.oldIP, type: APP_STATE_EVENT_TYPES.IPCHANGED, dedupKey: 'ipchanged',
+        broadcastedAt: new Date(message.broadcastedAt),
+        expireAt: new Date(message.broadcastedAt + RUNNING_EXPIRY_MS),
+        data: message, envelope: envelope ?? null,
+      }, { alwaysSetFields: { receivedAt: new Date() } }),
+      { upsert: true },
+    );
+  } catch (err) {
+    log.error(`storeAppStateEvent(ipchanged): ${err.message}`);
+  }
 }
 
 function storeAppStateEvent(type, payload) {
@@ -816,35 +803,17 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
     if (validTill < Date.now()) continue;
 
     const dedupKey = data.apps ? 'v2' : `v1:${data.name}`;
-    const incomingDate = new Date(data.broadcastedAt);
-    const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
+    const envelope = { version: broadcast.version, timestamp: broadcast.timestamp, pubKey: broadcast.pubKey, signature: broadcast.signature };
 
     ops.push({
       updateOne: {
         filter: { ip: data.ip, type: 'apprunning', dedupKey },
-        update: [{
-          $set: {
-            ip: data.ip,
-            type: 'apprunning',
-            dedupKey,
-            broadcastedAt: { $cond: [isNewer, incomingDate, '$broadcastedAt'] },
-            expireAt: { $cond: [isNewer, new Date(validTill), '$expireAt'] },
-            data: { $cond: [isNewer, data, { $ifNull: ['$data', data] }] },
-            envelope: {
-              $cond: [isNewer, {
-                version: broadcast.version,
-                timestamp: broadcast.timestamp,
-                pubKey: broadcast.pubKey,
-                signature: broadcast.signature,
-              }, { $ifNull: ['$envelope', {
-                version: broadcast.version,
-                timestamp: broadcast.timestamp,
-                pubKey: broadcast.pubKey,
-                signature: broadcast.signature,
-              }] }],
-            },
-          },
-        }],
+        update: buildConditionalUpsert(data.broadcastedAt, {
+          ip: data.ip, type: 'apprunning', dedupKey,
+          broadcastedAt: new Date(data.broadcastedAt),
+          expireAt: new Date(validTill),
+          data, envelope,
+        }),
         upsert: true,
       },
     });

@@ -93,6 +93,7 @@ async function handleTempSyncResponse(message, peerKey) {
 async function handleAppRunningSyncResponse(message, peerKey) {
   try {
     if (!message.data || message.data.type !== 'fluxapprunningsync') return;
+    if (!peerManager.isSyncRequested(peerKey)) return;
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppRunningSyncResponse - Received ${messages.length} events from ${peerKey} (done: ${!!done})`);
@@ -109,6 +110,19 @@ async function handleAppRunningSyncResponse(message, peerKey) {
             log.warn(`handleAppRunningSyncResponse - Event from ${event.ip} failed verification: ${result}`);
           }
         } else if (event.type === 'evicted') {
+          // Evicted events lack per-event signatures because they are generated
+          // locally by nodeStatusMonitor, which makes non-deterministic HTTP
+          // probe decisions about whether a remote node is alive. The
+          // isSyncRequested check above ensures only solicited responses are
+          // processed, but a compromised confirmed peer we sync from could still
+          // include fake evictions. Impact is limited: only affects this node's
+          // view and self-heals on the next apprunning broadcast (≤60 min).
+          //
+          // The root cause is nodeStatusMonitor itself — it will be replaced by
+          // a peer quorum approach where eviction is determined by consensus of
+          // signed "peer unreachable" events (3 missed pongs on the WebSocket
+          // layer). Once that lands, evicted events will carry verifiable
+          // signatures and this path will verify them like all other event types.
           otherEvents.push(event);
         } else if (event.envelope) {
           const broadcast = { ...event.envelope, data: event.data };
@@ -131,7 +145,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
       if (event.type === 'sigterm') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
         const newExpireAt = new Date(event.data.broadcastedAt + SIGTERM_EXPIRY_MS);
-        await dbHelper.updateInDatabase(database, globalAppsLocations, { ip: event.ip }, { $set: { expireAt: newExpireAt } });
+        await dbHelper.updateInDatabase(database, globalAppsLocations, { ip: event.data.ip }, { $set: { expireAt: newExpireAt } });
       } else if (event.type === 'appremoved') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
         await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, { ip: event.data.ip, name: event.data.appName }, {});
@@ -143,6 +157,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
       }
     }
     if (done) {
+      peerManager.completeSyncRequest(peerKey);
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
       log.info('handleAppRunningSyncResponse - Sync complete');
     }

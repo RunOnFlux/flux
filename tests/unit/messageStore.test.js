@@ -54,6 +54,9 @@ describe('messageStore tests', () => {
           },
         },
       },
+      fluxapps: {
+        maxAppsPerNode: 200,
+      },
     };
 
     // Proxy require
@@ -361,8 +364,7 @@ describe('messageStore tests', () => {
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.findOneInDatabase.resolves(null);
-      dbHelperStub.updateOneInDatabase.resolves();
+      dbHelperStub.updateOneInDatabase.resolves({ modifiedCount: 0, upsertedCount: 1 });
       dbHelperStub.removeDocumentsFromCollection.resolves();
 
       const result = await messageStore.storeAppRunningMessage(message);
@@ -385,8 +387,7 @@ describe('messageStore tests', () => {
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.findOneInDatabase.resolves(null);
-      dbHelperStub.updateOneInDatabase.resolves();
+      dbHelperStub.updateOneInDatabase.resolves({ modifiedCount: 0, upsertedCount: 1 });
       dbHelperStub.removeDocumentsFromCollection.resolves();
 
       const result = await messageStore.storeAppRunningMessage(message);

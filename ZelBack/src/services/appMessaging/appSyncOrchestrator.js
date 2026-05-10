@@ -33,6 +33,8 @@ class AppSyncOrchestrator {
   #getEligibleSyncPeers = null;
   #onPeerEvent = null;
   #offPeerEvent = null;
+  #markSyncRequested = null;
+  #clearSyncRequested = null;
   #isEnterprise = null;
   #waitForNetworkState = null;
   #networkReady = false;
@@ -67,6 +69,8 @@ class AppSyncOrchestrator {
     this.#getEligibleSyncPeers = options.getEligibleSyncPeers;
     this.#onPeerEvent = options.onPeerEvent;
     this.#offPeerEvent = options.offPeerEvent;
+    this.#markSyncRequested = options.markSyncRequested ?? (() => {});
+    this.#clearSyncRequested = options.clearSyncRequested ?? (() => {});
     this.#isEnterprise = options.isEnterprise ?? (() => false);
     this.#waitForNetworkState = options.networkStateReady ?? null;
     this.#fluxVersion = options.fluxVersion ?? null;
@@ -174,6 +178,7 @@ class AppSyncOrchestrator {
     const peersToAsk = fresh.slice(0, MIN_SYNC_COMPLETIONS);
     for (const peer of peersToAsk) {
       this.#askedPeers.add(peer.key);
+      this.#markSyncRequested(peer.key);
     }
 
     this.#sendRequests(peersToAsk, 'temp messages', peerCodec.encodeRequestTempMessages());
@@ -184,6 +189,7 @@ class AppSyncOrchestrator {
     if (!this.#syncTimeout && !this.#stateSyncComplete) {
       this.#syncTimeout = setTimeout(() => {
         this.#syncTimeout = null;
+        this.#clearSyncRequested();
         if (!this.#stateSyncComplete) {
           log.warn(`AppSyncOrchestrator - Sync timeout, completions: apprunning=${this.#syncCompletions.apprunning} appinstalling=${this.#syncCompletions.appinstalling} apperrors=${this.#syncCompletions.apperrors}`);
         }
@@ -217,6 +223,7 @@ class AppSyncOrchestrator {
 
   #resetSyncState() {
     this.#askedPeers.clear();
+    this.#clearSyncRequested();
     this.#syncCompletions = { apprunning: 0, appinstalling: 0, apperrors: 0 };
     this.#stateSyncComplete = false;
     if (this.#syncTimeout) {

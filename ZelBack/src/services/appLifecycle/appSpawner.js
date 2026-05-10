@@ -129,6 +129,17 @@ async function trySpawningGlobalApplication() {
       throw new Error('Unable to detect Flux IP address');
     }
 
+    const runningApps = await appQueryService.listRunningApps();
+    if (runningApps.status !== 'success') {
+      throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
+    }
+    if (runningApps.data.length >= config.fluxapps.maxAppsPerNode) {
+      log.info(`trySpawningGlobalApplication - Node at max apps capacity (${runningApps.data.length}/${config.fluxapps.maxAppsPerNode})`);
+      await serviceHelper.delay(delayTime);
+      trySpawningGlobalApplication();
+      return;
+    }
+
     // get all the applications list names missing instances
     // eslint-disable-next-line global-require
     const { globalAppsInformation } = require('../utils/appConstants');
@@ -260,11 +271,6 @@ async function trySpawningGlobalApplication() {
       appsCountAvailableToInstallOnMyNode = Math.max(0, appsCountAvailableToInstallOnMyNode - 1);
     } else {
       const myNodeLocation = await systemIntegration.nodeFullGeolocation();
-
-      const runningApps = await appQueryService.listRunningApps();
-      if (runningApps.status !== 'success') {
-        throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
-      }
 
       // filter apps that failed to install before
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
