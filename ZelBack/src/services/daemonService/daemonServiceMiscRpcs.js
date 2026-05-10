@@ -103,8 +103,8 @@ async function fluxDaemonBlockchainInfo() {
 /**
  * To call the flux daemon blockchain info function at set intervals.
  */
-function daemonBlockchainInfoService() {
-  fluxDaemonBlockchainInfo();
+async function daemonBlockchainInfoService() {
+  await fluxDaemonBlockchainInfo();
   setInterval(() => {
     fluxDaemonBlockchainInfo();
   }, config.fluxapps.daemonInfoIntervalMs ?? 30000);
