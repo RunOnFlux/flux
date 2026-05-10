@@ -105,9 +105,13 @@ async function fluxDaemonBlockchainInfo() {
  */
 async function daemonBlockchainInfoService() {
   await fluxDaemonBlockchainInfo();
-  setInterval(() => {
-    fluxDaemonBlockchainInfo();
-  }, config.fluxapps.daemonInfoIntervalMs ?? 30000);
+  function scheduleNext() {
+    setTimeout(async () => {
+      await fluxDaemonBlockchainInfo();
+      scheduleNext();
+    }, config.fluxapps.daemonInfoIntervalMs ?? 30000);
+  }
+  scheduleNext();
 }
 
 const RPC_IN_WARMUP = -28;
