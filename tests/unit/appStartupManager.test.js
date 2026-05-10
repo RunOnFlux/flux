@@ -4,10 +4,10 @@ const proxyquire = require('proxyquire').noCallThru();
 
 describe('appStartupManager tests', () => {
   let appStartupManager;
+  let appUtilities;
   let logStub;
   let dbHelperStub;
   let dockerServiceStub;
-  let serviceHelperStub;
   let fluxNetworkHelperStub;
   let registryManagerStub;
   let advancedWorkflowsStub;
@@ -29,10 +29,6 @@ describe('appStartupManager tests', () => {
 
     dockerServiceStub = {
       dockerListContainers: sinon.stub(),
-    };
-
-    serviceHelperStub = {
-      delay: sinon.stub().resolves(),
     };
 
     fluxNetworkHelperStub = {
@@ -71,23 +67,24 @@ describe('appStartupManager tests', () => {
       decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps),
     };
 
+    appUtilities = proxyquire('../../ZelBack/src/services/utils/appUtilities', {
+      '../dbHelper': dbHelperStub,
+      '../../lib/log': logStub,
+    });
+
     appStartupManager = proxyquire('../../ZelBack/src/services/appLifecycle/appStartupManager', {
       '../../lib/log': logStub,
       '../dbHelper': dbHelperStub,
       '../dockerService': dockerServiceStub,
-      '../serviceHelper': serviceHelperStub,
+      '../serviceHelper': { delay: sinon.stub().resolves() },
       '../fluxNetworkHelper': fluxNetworkHelperStub,
       '../appDatabase/registryManager': registryManagerStub,
       './advancedWorkflows': advancedWorkflowsStub,
       './appUninstaller': appUninstallerStub,
       '../utils/globalState': globalStateStub,
-      '../utils/cacheManager': { default: { stoppedAppsCache: new Map() } },
       '../appQuery/appQueryService': appQueryServiceStub,
       '../utils/appConstants': { localAppsInformation: 'localAppsInformation', SIGTERM_EXPIRY_MS: 420000, RUNNING_EXPIRY_MS: 7500000 },
-      '../appManagement/appInspector': { startAppMonitoring: sinon.stub(), stopAppMonitoring: sinon.stub() },
-      './appInstaller': { installApplicationHard: sinon.stub().resolves() },
-      '../appTamperingDetectionService': { recordEvent: sinon.stub().resolves(), isNetworkMissingError: sinon.stub().returns(false) },
-      '../generalService': { isNodeStatusConfirmed: sinon.stub().resolves(true), nodeTier: sinon.stub().resolves('cumulus') },
+      '../utils/appUtilities': appUtilities,
     });
   });
 
@@ -100,7 +97,7 @@ describe('appStartupManager tests', () => {
       const expireAt = new Date(Date.now() + (60 * 1000)); // 1 minute from now
       dbHelperStub.findInDatabase.resolves([{ expireAt }]);
 
-      const result = await appStartupManager.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
+      const result = await appUtilities.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
 
       expect(result).to.equal(true);
     });
@@ -108,7 +105,7 @@ describe('appStartupManager tests', () => {
     it('should return false when no location records exist', async () => {
       dbHelperStub.findInDatabase.resolves([]);
 
-      const result = await appStartupManager.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
+      const result = await appUtilities.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
 
       expect(result).to.equal(false);
     });
@@ -116,7 +113,7 @@ describe('appStartupManager tests', () => {
     it('should return false when records is null', async () => {
       dbHelperStub.findInDatabase.resolves(null);
 
-      const result = await appStartupManager.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
+      const result = await appUtilities.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
 
       expect(result).to.equal(false);
     });
@@ -125,7 +122,7 @@ describe('appStartupManager tests', () => {
       const expireAt = new Date(Date.now() - (60 * 1000)); // 1 minute ago
       dbHelperStub.findInDatabase.resolves([{ expireAt }]);
 
-      const result = await appStartupManager.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
+      const result = await appUtilities.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
 
       expect(result).to.equal(false);
     });
@@ -138,7 +135,7 @@ describe('appStartupManager tests', () => {
         { expireAt: validRecord },
       ]);
 
-      const result = await appStartupManager.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
+      const result = await appUtilities.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
 
       expect(result).to.equal(true);
     });
@@ -146,7 +143,7 @@ describe('appStartupManager tests', () => {
     it('should return true on database error (fail-safe)', async () => {
       dbHelperStub.findInDatabase.rejects(new Error('DB connection lost'));
 
-      const result = await appStartupManager.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
+      const result = await appUtilities.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
 
       expect(result).to.equal(true);
     });
@@ -154,7 +151,7 @@ describe('appStartupManager tests', () => {
     it('should query with correct app name and IP', async () => {
       dbHelperStub.findInDatabase.resolves([]);
 
-      await appStartupManager.appHasValidLocationOnNode('testApp', '192.168.1.1:16127');
+      await appUtilities.appHasValidLocationOnNode('testApp', '192.168.1.1:16127');
 
       const query = dbHelperStub.findInDatabase.firstCall.args[2];
       expect(query).to.deep.equal({ name: 'testApp', ip: '192.168.1.1:16127' });
@@ -163,7 +160,7 @@ describe('appStartupManager tests', () => {
     it('should project only the expireAt field', async () => {
       dbHelperStub.findInDatabase.resolves([]);
 
-      await appStartupManager.appHasValidLocationOnNode('testApp', '10.0.0.1:16127');
+      await appUtilities.appHasValidLocationOnNode('testApp', '10.0.0.1:16127');
 
       const projection = dbHelperStub.findInDatabase.firstCall.args[3];
       expect(projection).to.deep.equal({ _id: 0, expireAt: 1 });
@@ -172,7 +169,7 @@ describe('appStartupManager tests', () => {
     it('should return false when expireAt field is missing from record', async () => {
       dbHelperStub.findInDatabase.resolves([{ broadcastedAt: new Date() }]);
 
-      const result = await appStartupManager.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
+      const result = await appUtilities.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
 
       expect(result).to.equal(false);
     });
@@ -421,17 +418,17 @@ describe('appStartupManager tests', () => {
 
   describe('getNonGComponentIdentifiers', () => {
     it('should return empty array when appSpec is null', () => {
-      expect(appStartupManager.getNonGComponentIdentifiers(null, 'AppA')).to.deep.equal([]);
+      expect(appUtilities.getNonGComponentIdentifiers(null, 'AppA')).to.deep.equal([]);
     });
 
     it('should return [appName] for a v<=3 app with no g:', () => {
       const spec = { version: 3, containerData: '' };
-      expect(appStartupManager.getNonGComponentIdentifiers(spec, 'AppA')).to.deep.equal(['AppA']);
+      expect(appUtilities.getNonGComponentIdentifiers(spec, 'AppA')).to.deep.equal(['AppA']);
     });
 
     it('should return [] for a v<=3 app with g:', () => {
       const spec = { version: 3, containerData: 'g:/data' };
-      expect(appStartupManager.getNonGComponentIdentifiers(spec, 'AppA')).to.deep.equal([]);
+      expect(appUtilities.getNonGComponentIdentifiers(spec, 'AppA')).to.deep.equal([]);
     });
 
     it('should return all component identifiers for a compose app with no g:', () => {
@@ -443,7 +440,7 @@ describe('appStartupManager tests', () => {
           { name: 'cache', containerData: 'r:/data' },
         ],
       };
-      expect(appStartupManager.getNonGComponentIdentifiers(spec, 'AppA'))
+      expect(appUtilities.getNonGComponentIdentifiers(spec, 'AppA'))
         .to.deep.equal(['web_AppA', 'cache_AppA']);
     });
 
@@ -456,7 +453,7 @@ describe('appStartupManager tests', () => {
           { name: 'b', containerData: 'g:/y' },
         ],
       };
-      expect(appStartupManager.getNonGComponentIdentifiers(spec, 'AppA')).to.deep.equal([]);
+      expect(appUtilities.getNonGComponentIdentifiers(spec, 'AppA')).to.deep.equal([]);
     });
 
     it('should return only the non-g identifiers for a mixed compose app', () => {
@@ -469,7 +466,7 @@ describe('appStartupManager tests', () => {
           { name: 'worker', containerData: 'r:/q' },
         ],
       };
-      expect(appStartupManager.getNonGComponentIdentifiers(spec, 'AppA'))
+      expect(appUtilities.getNonGComponentIdentifiers(spec, 'AppA'))
         .to.deep.equal(['web_AppA', 'worker_AppA']);
     });
 
@@ -478,7 +475,7 @@ describe('appStartupManager tests', () => {
         version: 8,
         compose: [{ name: 'web', containerData: '' }],
       };
-      expect(appStartupManager.getNonGComponentIdentifiers(spec, 'AppA'))
+      expect(appUtilities.getNonGComponentIdentifiers(spec, 'AppA'))
         .to.deep.equal(['web_AppA']);
     });
   });
@@ -603,20 +600,5 @@ describe('appStartupManager tests', () => {
     });
   });
 
-  describe('monitorAndRecoverApps', () => {
-    it('should wait for bootComplete before proceeding', async () => {
-      let monitorResolved = false;
-      globalStateStub.waitForBootComplete = sinon.stub().returns(
-        new Promise((resolve) => { setTimeout(resolve, 50); }),
-      );
-
-      const promise = appStartupManager.monitorAndRecoverApps('10.0.0.1', [], [])
-        .then(() => { monitorResolved = true; });
-      await new Promise((r) => setImmediate(r));
-      expect(monitorResolved).to.be.false;
-      await promise;
-      expect(monitorResolved).to.be.true;
-      expect(globalStateStub.waitForBootComplete.calledOnce).to.be.true;
-    });
-  });
 });
+

@@ -1,4 +1,4 @@
-const { appSyncEvents, EVENTS } = require('./appSyncEvents');
+const { AsyncGate } = require('./asyncGate');
 
 // Global state variables for apps service
 // These need to be shared across all modules to maintain the original business logic
@@ -9,11 +9,9 @@ let softRedeployInProgress = false;
 let hardRedeployInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
-let dbReady = false;
-let daemonReady = false;
-let daemonReadyResolvers = [];
-let bootComplete = false;
-let bootCompleteResolvers = [];
+const daemonReadyGate = new AsyncGate();
+const bootCompleteGate = new AsyncGate();
+const dbReadyGate = new AsyncGate();
 let updateSyncthingRunning = false;
 let syncthingAppsFirstRun = true;
 const backupInProgress = [];
@@ -72,50 +70,24 @@ module.exports = {
   get reinstallationOfOldAppsInProgress() { return reinstallationOfOldAppsInProgress; },
   set reinstallationOfOldAppsInProgress(value) { reinstallationOfOldAppsInProgress = value; },
 
+  isOperationInProgress() {
+    return removalInProgress || installationInProgress || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
+  },
+
   get masterSlaveAppsRunning() { return masterSlaveAppsRunning; },
   set masterSlaveAppsRunning(value) { masterSlaveAppsRunning = value; },
 
-  get daemonReady() { return daemonReady; },
-  set daemonReady(value) {
-    daemonReady = value;
-    if (value) {
-      daemonReadyResolvers.forEach((r) => r());
-      daemonReadyResolvers = [];
-    }
-  },
-  waitForDaemonReady() {
-    if (daemonReady) return Promise.resolve();
-    return new Promise((resolve) => {
-      daemonReadyResolvers.push(resolve);
-    });
-  },
+  get daemonReady() { return daemonReadyGate.ready; },
+  set daemonReady(value) { if (value) daemonReadyGate.open(); else daemonReadyGate.close(); },
+  waitForDaemonReady() { return daemonReadyGate.wait(); },
 
-  get bootComplete() { return bootComplete; },
-  set bootComplete(value) {
-    bootComplete = value;
-    if (value) {
-      bootCompleteResolvers.forEach((r) => r());
-      bootCompleteResolvers = [];
-    }
-  },
-  waitForBootComplete() {
-    if (bootComplete) return Promise.resolve();
-    return new Promise((resolve) => {
-      bootCompleteResolvers.push(resolve);
-    });
-  },
+  get bootComplete() { return bootCompleteGate.ready; },
+  set bootComplete(value) { if (value) bootCompleteGate.open(); else bootCompleteGate.close(); },
+  waitForBootComplete() { return bootCompleteGate.wait(); },
 
-  get dbReady() { return dbReady; },
-  set dbReady(value) {
-    dbReady = value;
-    if (value) appSyncEvents.emit(EVENTS.DB_READY);
-  },
-  waitForDbReady() {
-    if (dbReady) return Promise.resolve();
-    return new Promise((resolve) => {
-      appSyncEvents.once(EVENTS.DB_READY, resolve);
-    });
-  },
+  get dbReady() { return dbReadyGate.ready; },
+  set dbReady(value) { if (value) dbReadyGate.open(); else dbReadyGate.close(); },
+  waitForDbReady() { return dbReadyGate.wait(); },
 
   get updateSyncthingRunning() { return updateSyncthingRunning; },
   set updateSyncthingRunning(value) { updateSyncthingRunning = value; },

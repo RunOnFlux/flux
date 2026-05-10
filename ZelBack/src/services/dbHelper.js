@@ -7,6 +7,8 @@ const log = require('../lib/log');
 const mongodb = require('mongodb');
 const config = require('config');
 
+const serviceHelper = require('./serviceHelper');
+
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
@@ -47,6 +49,34 @@ async function connectMongoDb(url) {
 async function initiateDB() {
   if (!openDBConnection) openDBConnection = await connectMongoDb();
   return true;
+}
+
+/**
+ * Waits for MongoDB to become available, retrying indefinitely.
+ * Logs on first attempt, then every ~60 seconds.
+ * @returns {Promise<void>}
+ */
+async function waitForMongo() {
+  const RETRY_DELAY_MS = 5000;
+  const LOG_INTERVAL_MS = 60000;
+  let lastLogAt = 0;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      await initiateDB();
+      log.info('MongoDB connected');
+      return;
+    } catch (error) {
+      const now = Date.now();
+      if (!lastLogAt || now - lastLogAt >= LOG_INTERVAL_MS) {
+        log.info(`Waiting for MongoDB... (${error.message})`);
+        lastLogAt = now;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(RETRY_DELAY_MS);
+    }
+  }
 }
 
 /**
@@ -942,4 +972,5 @@ module.exports = {
   updateInDatabase,
   updateOneInDatabase,
   validateAppsInformation,
+  waitForMongo,
 };

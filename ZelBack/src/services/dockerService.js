@@ -1489,6 +1489,29 @@ async function dockerGetEvents() {
   return events;
 }
 
+async function waitForDocker() {
+  const RETRY_DELAY_MS = 5000;
+  const LOG_INTERVAL_MS = 60000;
+  let lastLogAt = 0;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      await docker.ping();
+      log.info('Docker daemon connected');
+      return;
+    } catch (error) {
+      const now = Date.now();
+      if (!lastLogAt || now - lastLogAt >= LOG_INTERVAL_MS) {
+        log.info(`Waiting for Docker daemon... (${error.message})`);
+        lastLogAt = now;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(RETRY_DELAY_MS);
+    }
+  }
+}
+
 /**
  * Returns docker usage information
  *
@@ -1557,13 +1580,17 @@ async function migrateContainerRestartPolicies() {
     const fluxContainers = containers.filter((c) => c.Names[0].startsWith('/flux') || c.Names[0].startsWith('/zel'));
     let migrated = 0;
     for (const c of fluxContainers) {
-      const container = docker.getContainer(c.Id);
-      // eslint-disable-next-line no-await-in-loop
-      const info = await container.inspect();
-      if (info.HostConfig.RestartPolicy.Name !== 'no') {
+      try {
+        const container = docker.getContainer(c.Id);
         // eslint-disable-next-line no-await-in-loop
-        await container.update({ RestartPolicy: { Name: 'no' } });
-        migrated += 1;
+        const info = await container.inspect();
+        if (info.HostConfig.RestartPolicy.Name !== 'no') {
+          // eslint-disable-next-line no-await-in-loop
+          await container.update({ RestartPolicy: { Name: 'no' } });
+          migrated += 1;
+        }
+      } catch (err) {
+        log.warn(`Failed to migrate restart policy for ${c.Names[0]}: ${err.message}`);
       }
     }
     if (migrated > 0) {
@@ -1623,4 +1650,5 @@ module.exports = {
   removeFluxAppDockerNetwork,
   forceRemoveFluxAppDockerNetwork,
   getAppNameByContainerIp,
+  waitForDocker,
 };

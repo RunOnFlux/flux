@@ -77,7 +77,7 @@ describe('peerNotification tests', () => {
       '../appLifecycle/appInstaller': {
         installApplicationHard: sinon.stub().resolves(),
       },
-      '../appLifecycle/appStartupManager': {
+      '../appMonitoring/containerHealthMonitor': {
         monitorAndRecoverApps: monitorAndRecoverAppsStub,
       },
       '../appQuery/appQueryService': {

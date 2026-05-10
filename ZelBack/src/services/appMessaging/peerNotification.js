@@ -10,12 +10,13 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
 const appQueryService = require('../appQuery/appQueryService');
-const appStartupManager = require('../appLifecycle/appStartupManager');
+const containerHealthMonitor = require('../appMonitoring/containerHealthMonitor');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 let checkAndNotifyPeersOfRunningAppsFirstRun = true;
 let broadcastInterval = null;
+let broadcastInProgress = false;
 
 function resetBroadcastInterval() {
   if (broadcastInterval) clearInterval(broadcastInterval);
@@ -32,6 +33,11 @@ function stopBroadcastInterval() {
 }
 
 async function checkAndNotifyPeersOfRunningApps() {
+  if (broadcastInProgress) {
+    log.info('Broadcast cycle already in progress, skipping');
+    return;
+  }
+  broadcastInProgress = true;
   try {
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {
@@ -70,7 +76,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       return app.Names[0].slice(5);
     });
 
-    const { masterSlaveAppsInstalled, startedApps } = await appStartupManager.monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames);
+    const { masterSlaveAppsInstalled, startedApps } = await containerHealthMonitor.monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames);
     runningAppsNames.push(...startedApps);
 
     const installedAndRunning = [];
@@ -142,6 +148,7 @@ async function checkAndNotifyPeersOfRunningApps() {
   } catch (error) {
     log.error(error);
   } finally {
+    broadcastInProgress = false;
     resetBroadcastInterval();
   }
 }

@@ -119,6 +119,9 @@ const RPC_IN_WARMUP = -28;
  */
 async function waitForDaemonRpc() {
   const POLL_INTERVAL_MS = 5000;
+  const LOG_INTERVAL_MS = 60000;
+  let lastLogAt = 0;
+
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const result = await daemonServiceBlockchainRpcs.getBlockCount();
@@ -126,10 +129,13 @@ async function waitForDaemonRpc() {
       log.info(`Daemon RPC available at block height ${result.data}`);
       return result.data;
     }
-    if (result.data?.code === RPC_IN_WARMUP) {
-      log.info(`Waiting for daemon RPC... (${result.data.message})`);
-    } else {
-      log.info('Waiting for daemon RPC... (daemon not reachable)');
+    const now = Date.now();
+    if (!lastLogAt || now - lastLogAt >= LOG_INTERVAL_MS) {
+      const reason = result.data?.code === RPC_IN_WARMUP
+        ? result.data.message
+        : 'daemon not reachable';
+      log.info(`Waiting for daemon RPC... (${reason})`);
+      lastLogAt = now;
     }
     // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(POLL_INTERVAL_MS);

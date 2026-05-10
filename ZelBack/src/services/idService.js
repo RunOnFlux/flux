@@ -14,6 +14,19 @@ const appInspector = require('./appManagement/appInspector');
 const signatureVerifier = require('./signatureVerifier');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
+
+async function deleteLoginPhrase(phrase) {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.local.database);
+    const collection = config.database.local.collections.activeLoginPhrases;
+    const query = { loginPhrase: phrase };
+    const projection = {};
+    await dbHelper.findOneAndDeleteInDatabase(database, collection, query, projection);
+  } catch (error) {
+    log.error(error);
+  }
+}
 const ethRegex = /^0x[a-fA-F0-9]{40}$/;
 
 let syncthingWorking = false;
@@ -324,7 +337,7 @@ async function verifyLogin(req, res) {
             };
             const resMessage = messageHelper.createDataMessage(resData);
             res.json(resMessage);
-            serviceHelper.deleteLoginPhrase(message); // delete so it cannot be used again
+            deleteLoginPhrase(message);
             setTimeout(async () => {
               // after 1 minute remove signature from database
               const updatedDocument = {

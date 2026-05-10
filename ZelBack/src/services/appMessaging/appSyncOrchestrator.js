@@ -325,7 +325,6 @@ class AppSyncOrchestrator {
       }
       this.#hashSyncComplete = true;
       this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
-      appSyncEvents.emit(EVENTS.HASH_SYNC_COMPLETE);
       await this.#writeVersionMarker();
       await this.#rebuildDb();
       globalState.dbReady = true;

@@ -6,10 +6,8 @@ const EVENTS = Object.freeze({
   EPHEMERAL_SYNC_COMPLETE: 'ephemeralSyncComplete',
   SPAWNER_READY: 'spawnerReady',
   READINESS_LOST: 'readinessLost',
-  HASH_SYNC_COMPLETE: 'hashSyncComplete',
   HASH_RESPONSE_RECEIVED: 'hashResponseReceived',
   HASH_UNRESOLVED: 'hashUnresolved',
-  DB_READY: 'dbReady',
 });
 
 module.exports = { appSyncEvents, EVENTS };

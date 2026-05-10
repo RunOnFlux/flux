@@ -52,6 +52,7 @@ const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const imageUpdateService = require('./imageUpdateService');
+const { version: fluxVersion } = require('../../../package.json');
 // const throughputLogger = require('./utils/throughputLogger');
 
 // Initialize globalState caches with cacheManager
@@ -120,6 +121,10 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
+    // Hard dependencies — nothing starts until these are confirmed.
+    await dbHelper.waitForMongo();
+    await dockerService.waitForDocker();
+
     // Check and update CloudUI if needed (for legacy nodes without watchdog)
     log.info('Checking CloudUI installation...');
     await cloudUIUpdateService.checkAndUpdateCloudUI();
@@ -140,16 +145,12 @@ async function startFluxFunctions() {
     await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
     await fluxNetworkHelper.allowOnlyDockerNetworksToFluxNodeService();
     fluxNodeService.start();
-    await daemonServiceUtils.buildFluxdClient();
     log.info('Checking docker log for corruption...');
     await dockerService.dockerLogsFix();
     await systemService.mongodGpgKeyVeryfity();
     await systemService.mongoDBConfig();
     systemService.monitorSystem();
     log.info('System service initiated');
-    log.info('Initiating MongoDB connection');
-    await dbHelper.initiateDB(); // either true or throws error
-    log.info('DB connected');
     log.info('Preparing local database...');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
@@ -275,10 +276,14 @@ async function startFluxFunctions() {
       log.error(`App startup manager error: ${error.message}`);
     });
 
-    log.info('Flux Apps installing locations prepared');
+    // Wait for daemon RPC — manageAppsOnBoot (above) is fire-and-forget and gates
+    // on waitForDaemonReady() internally with a 5-min timeout. It must be running
+    // before daemonReady is set so its timeout/removal logic can trigger.
+    await daemonServiceUtils.buildFluxdClient();
+    await daemonServiceMiscRpcs.waitForDaemonRpc();
+    globalState.daemonReady = true;
 
     // Initialize app sync orchestrator and spawner
-    const { version: fluxVersion } = require('../../../package.json');
     const orchestrator = new AppSyncOrchestrator({
       blockEmitter: explorerService.getBlockEmitter(),
       getEligibleSyncPeers: (minUptime) => peerManager.getEligibleSyncPeers(minUptime)
@@ -301,8 +306,6 @@ async function startFluxFunctions() {
     log.info('Connections polling prepared');
     fluxNetworkHelper.initClockOffsetCache();
     log.info('Clock offset cache initialized');
-    await daemonServiceMiscRpcs.waitForDaemonRpc();
-    globalState.daemonReady = true;
     daemonServiceMiscRpcs.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
     // Remove existing watchtower container (replaced by native image update service)
