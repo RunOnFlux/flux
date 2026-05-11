@@ -16,6 +16,7 @@ const { peerManager, PEER_SOURCE } = require('./utils/peerState');
 const { SIGTERM_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
+const nodeConfirmationService = require('./nodeConfirmationService');
 const registryManager = require('./appDatabase/registryManager');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -1144,6 +1145,10 @@ async function fluxDiscovery() {
       throw new Error('Daemon not yet synced. Flux discovery is awaiting.');
     }
 
+    if (!nodeConfirmationService.isConfirmed()) {
+      throw new Error('Node not confirmed. Flux discovery is awaiting.');
+    }
+
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
 
     if (!myIP) {
@@ -1297,6 +1302,17 @@ async function fluxDiscovery() {
       fluxDiscovery();
     }, config.fluxapps.discoveryFailRetryMs ?? 120000);
   }
+}
+
+function initializeDiscovery() {
+  nodeConfirmationService.onConfirmationChange((confirmed) => {
+    if (confirmed) {
+      peerManager.allowConnections();
+    } else {
+      log.info('fluxDiscovery - Confirmation lost, disconnecting all peers');
+      peerManager.disconnectAll();
+    }
+  });
 }
 
 /**
@@ -1489,7 +1505,7 @@ module.exports = {
   connectedPeersInfo,
   keepConnectionsAlive,
   fluxDiscovery,
-  startDiscovery,
+  initializeDiscovery,
   startDiscoveryApi,
   handleAppMessages,
   addPeer,

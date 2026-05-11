@@ -107,6 +107,7 @@ class FluxPeerManager extends EventEmitter {
      * @type {number}
      */
     this.numberOfFluxNodes = 0;
+    this.acceptingConnections = false;
   }
 
   // --- Core CRUD ---
@@ -269,6 +270,20 @@ class FluxPeerManager extends EventEmitter {
     const ipCount = (this.#uniqueIps.get(ipKey) || 1) - 1;
     if (ipCount <= 0) this.#uniqueIps.delete(ipKey);
     else this.#uniqueIps.set(ipKey, ipCount);
+  }
+
+  disconnectAll() {
+    this.acceptingConnections = false;
+    const count = this.#peers.size;
+    for (const peer of this.#peers.values()) {
+      try { peer.close(CLOSE_CODES.NODE_UNCONFIRMED, 'node unconfirmed'); } catch (_e) { /* noop */ }
+    }
+    log.info(`Disconnected all ${count} peers, no longer accepting connections`);
+  }
+
+  allowConnections() {
+    this.acceptingConnections = true;
+    log.info('Now accepting peer connections');
   }
 
   /**
@@ -769,6 +784,10 @@ class FluxPeerManager extends EventEmitter {
    * @param {object} [request] - HTTP upgrade request (carries headers for metadata extraction)
    */
   validateAndAddInbound(ws, optionalPort, request) {
+    if (!this.acceptingConnections) {
+      ws.close(CLOSE_CODES.NODE_UNCONFIRMED, 'node not confirmed');
+      return;
+    }
     try {
       let port;
       let req;

@@ -46,6 +46,9 @@ const CLOSE_CODES = Object.freeze({
 
   // Ephemeral connection complete
   EPHEMERAL_DONE: 4018,
+
+  // Node lost confirmation — disconnecting all peers
+  NODE_UNCONFIRMED: 4019,
 });
 
 const PEER_SOURCE = Object.freeze({
