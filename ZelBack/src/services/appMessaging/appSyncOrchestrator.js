@@ -287,6 +287,7 @@ class AppSyncOrchestrator {
 
   async #checkHashRetry(blockHeight) {
     if (!this.#hashSyncComplete) return;
+    if (!this.#canSendMessages) return;
     if (this.#syncInProgress) return;
     if (blockHeight < this.#nextHashRetryHeight) return;
 
@@ -304,6 +305,10 @@ class AppSyncOrchestrator {
 
   async #runInitialSync() {
     if (this.#syncInProgress) return;
+    if (!this.#canSendMessages) {
+      log.info('AppSyncOrchestrator - Sync deferred, waiting for message capability');
+      return;
+    }
     log.info('AppSyncOrchestrator - Sync started');
     await this.#checkVersionUpgrade();
     log.info('AppSyncOrchestrator - Starting initial hash sync');
@@ -434,7 +439,11 @@ class AppSyncOrchestrator {
     if (prev === capable) return;
     if (capable) {
       log.info('AppSyncOrchestrator - Message capability gained');
-      this.#checkReadiness();
+      if (this.#explorerSynced && !this.#hashSyncComplete) {
+        this.#runInitialSync();
+      } else {
+        this.#checkReadiness();
+      }
     } else {
       log.info('AppSyncOrchestrator - Message capability lost');
       if (this.#state === STATES.READY) {
