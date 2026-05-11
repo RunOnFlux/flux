@@ -631,7 +631,7 @@ describe('appHashSyncService tests', () => {
 
       advanceDateOnDelay();
       try {
-        await appHashSyncService.syncMissingHashes();
+        await appHashSyncService.syncMissingHashes({ currentHeight: 2555000 });
       } finally {
         Date.now.restore();
       }
@@ -653,7 +653,7 @@ describe('appHashSyncService tests', () => {
 
       advanceDateOnDelay();
       try {
-        await appHashSyncService.syncMissingHashes();
+        await appHashSyncService.syncMissingHashes({ currentHeight: 2555000 });
       } finally {
         Date.now.restore();
       }

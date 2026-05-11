@@ -44,11 +44,9 @@ function findPrevSpec(specs, height) {
 }
 
 async function getMissingHashes(options = {}) {
-  const { force = false } = options;
+  const { force = false, currentHeight = 0 } = options;
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.daemon.database);
-  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-  const currentHeight = syncStatus.data.height || 0;
   const query = { message: false };
   if (!force) {
     query.messageNotFound = { $ne: true };
@@ -291,7 +289,7 @@ async function processMessages(messages, onProgress) {
  * @param {boolean} force - Pass to getMissingHashes
  * @returns {Promise<Array>} Remaining missing hashes
  */
-async function waitForResolution(previousCount, maxWaitMs, force) {
+async function waitForResolution(previousCount, maxWaitMs, force, currentHeight) {
   const deadline = Date.now() + maxWaitMs;
   let lastActivityAt = Date.now();
 
@@ -302,7 +300,7 @@ async function waitForResolution(previousCount, maxWaitMs, force) {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       await serviceHelper.delay(1000);
-      const current = await getMissingHashes({ force });
+      const current = await getMissingHashes({ force, currentHeight });
       if (current.length === 0) return [];
       if (Date.now() - lastActivityAt >= SETTLE_TIME_MS) return current;
       if (Date.now() >= deadline) return current;
@@ -383,11 +381,11 @@ async function pickEphemeralTargets(count) {
  * @param {boolean} force - Pass to getMissingHashes
  * @returns {Promise<Array>} Remaining missing hashes
  */
-async function ephemeralHashRound(hashes, force) {
+async function ephemeralHashRound(hashes, force, currentHeight) {
   const targets = await pickEphemeralTargets(EPHEMERAL_PEERS_COUNT);
   if (targets.length === 0) {
     log.info('syncMissingHashes - No ephemeral targets available');
-    return getMissingHashes({ force });
+    return getMissingHashes({ force, currentHeight });
   }
 
   log.info(`syncMissingHashes - Ephemeral round: attempting ${targets.length} connections: ${targets.join(', ')}`);
@@ -395,7 +393,7 @@ async function ephemeralHashRound(hashes, force) {
   const peers = connections.filter(Boolean);
   if (peers.length === 0) {
     log.info(`syncMissingHashes - All ${targets.length} ephemeral connections failed`);
-    return getMissingHashes({ force });
+    return getMissingHashes({ force, currentHeight });
   }
 
   const peerKeys = peers.map((p) => p.key).join(', ');
@@ -407,7 +405,7 @@ async function ephemeralHashRound(hashes, force) {
   }
 
   const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
-  const remaining = await waitForResolution(hashes.length, maxWait, force);
+  const remaining = await waitForResolution(hashes.length, maxWait, force, currentHeight);
   globalState.pendingHashRequests = null;
 
   for (const peer of peers) {
@@ -418,7 +416,7 @@ async function ephemeralHashRound(hashes, force) {
 }
 
 async function syncMissingHashes(options = {}) {
-  const { maxConcurrentPeers = 3, onProgress = null, force = false } = options;
+  const { maxConcurrentPeers = 3, onProgress = null, force = false, currentHeight = 0 } = options;
 
   if (syncRunning) {
     log.info('syncMissingHashes - Already running, skipping');
@@ -430,7 +428,7 @@ async function syncMissingHashes(options = {}) {
     const db = dbHelper.databaseConnection();
     const daemonDb = db.db(config.database.daemon.database);
 
-    let missingHashes = await getMissingHashes({ force });
+    let missingHashes = await getMissingHashes({ force, currentHeight });
     log.info(`syncMissingHashes - Found ${missingHashes.length} missing hashes`);
 
     if (missingHashes.length === 0) {
@@ -455,7 +453,7 @@ async function syncMissingHashes(options = {}) {
     }
     if (localResolved > 0) {
       log.info(`syncMissingHashes - Resolved ${localResolved} hashes from local permanent messages`);
-      missingHashes = await getMissingHashes({ force });
+      missingHashes = await getMissingHashes({ force, currentHeight });
     }
 
     if (missingHashes.length === 0) {
@@ -493,7 +491,7 @@ async function syncMissingHashes(options = {}) {
         log.info(`syncMissingHashes - Bulk: ${stats.processed} processed, ${stats.skipped} skipped`);
       }
 
-      missingHashes = await getMissingHashes({ force });
+      missingHashes = await getMissingHashes({ force, currentHeight });
     }
 
     // Targeted fetch for <= 500 missing hashes
@@ -528,7 +526,7 @@ async function syncMissingHashes(options = {}) {
 
         const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
         const beforeCount = missingHashes.length;
-        missingHashes = await waitForResolution(beforeCount, maxWait, force);
+        missingHashes = await waitForResolution(beforeCount, maxWait, force, currentHeight);
         globalState.pendingHashRequests = null;
         const resolvedThisRound = beforeCount - missingHashes.length;
         resolved += resolvedThisRound;
@@ -542,16 +540,14 @@ async function syncMissingHashes(options = {}) {
     if (missingHashes.length > 0) {
       const beforeEphemeral = missingHashes.length;
       const hashes = missingHashes.map((h) => h.hash);
-      missingHashes = await ephemeralHashRound(hashes, force);
+      missingHashes = await ephemeralHashRound(hashes, force, currentHeight);
       const resolvedEphemeral = beforeEphemeral - missingHashes.length;
       resolved += resolvedEphemeral;
       log.info(`syncMissingHashes - Ephemeral round: resolved ${resolvedEphemeral}, ${missingHashes.length} remaining`);
     }
 
     // Update backoff for unresolved hashes
-    const finalMissing = await getMissingHashes({ force: false });
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    const currentHeight = syncStatus.data.height || 0;
+    const finalMissing = await getMissingHashes({ force: false, currentHeight });
 
     let unreachable = 0;
     let minNextRetry = null;

@@ -292,14 +292,14 @@ class AppSyncOrchestrator {
     if (blockHeight < this.#nextHashRetryHeight) return;
 
     try {
-      const result = await appHashSyncService.syncMissingHashes();
-      this.#nextHashRetryHeight = result.nextRetryHeight ?? (blockHeight + FALLBACK_RECHECK_BLOCKS);
+      const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight });
+      this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
       if (result.missing > 0) {
         log.info(`AppSyncOrchestrator - Hash retry: ${result.resolved} resolved, ${result.missing} remaining, next check at block ${this.#nextHashRetryHeight}`);
       }
     } catch (error) {
       log.error(`AppSyncOrchestrator - Hash retry failed: ${error.message}`);
-      this.#nextHashRetryHeight = blockHeight + FALLBACK_RECHECK_BLOCKS;
+      this.#nextHashRetryHeight = this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS;
     }
   }
 
@@ -352,7 +352,7 @@ class AppSyncOrchestrator {
     this.#syncInProgress = true;
     try {
       this.#hashSyncAttempts += 1;
-      const result = await appHashSyncService.syncMissingHashes();
+      const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight });
       if (result.missing > 0) {
         log.warn(`AppSyncOrchestrator - Hash sync has ${result.missing} unresolvable hashes, proceeding`);
       } else {
