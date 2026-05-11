@@ -3,7 +3,7 @@ let userconfig = require('../../config/userconfig');
 
 const isDevelopment = userconfig.initial.development || false;
 
-const dbPrefix = process.env.FLUX_DB_PREFIX || '';
+const dbPrefix = '';
 
 module.exports = {
   development: isDevelopment,
@@ -14,8 +14,8 @@ module.exports = {
     fluxNodeServiceAddress: '169.254.43.43',
   },
   database: {
-    url: process.env.FLUX_DB_HOST || '127.0.0.1',
-    port: Number(process.env.FLUX_DB_PORT) || 27017,
+    url: '127.0.0.1',
+    port: 27017,
     local: {
       database: `${dbPrefix}zelfluxlocal`,
       collections: {
@@ -73,13 +73,20 @@ module.exports = {
       },
     },
   },
+  logConsole: false,
+  upnp: {
+    gatewayUrl: '',
+    nodeIp: '',
+  },
   benchmark: {
+    host: '127.0.0.1',
     port: 16225,
     rpcport: 16224,
     porttestnet: 26225,
     rpcporttestnet: 26224,
   },
   daemon: {
+    host: '127.0.0.1',
     chainValidHeight: 1062000,
     port: 16125,
     rpcport: 16124,
@@ -212,11 +219,11 @@ module.exports = {
     minimumInstancesV8: 1,
     minimumInstancesV8Block: 2176519, // block height where v8+ apps can have 1 instance - expected around December 19th 2025
     maximumInstances: 100,
-    minOutgoing: Number(process.env.FLUX_MIN_OUTGOING) || 8,
-    minUniqueIpsOutgoing: Number(process.env.FLUX_MIN_UNIQUE_OUTGOING) || 7,
-    minIncoming: Number(process.env.FLUX_MIN_INCOMING) || 4,
-    minUniqueIpsIncoming: Number(process.env.FLUX_MIN_UNIQUE_INCOMING) || 3,
-    minHashSyncPeers: Number(process.env.FLUX_MIN_HASH_SYNC_PEERS) || 12,
+    minOutgoing: 8,
+    minUniqueIpsOutgoing: 7,
+    minIncoming: 4,
+    minUniqueIpsIncoming: 3,
+    minHashSyncPeers: 12,
     minUpTime: 1800, // 30 mins
     installation: {
       probability: 100, // 1%
@@ -254,6 +261,22 @@ module.exports = {
     applyMinimumPriceOn3Instances: 1691000, // after this block we use the min. usd price on prices per 3 instances.
     applyMinimumForExtraInstances: 1890000,
     latestAppSpecification: 8,
+    bootDelayMultiplier: 1,
+    spawnDelayMs: 0,
+    removalSpacingMs: 60000,
+    locationTtlS: 7500,
+    installingTtlS: 900,
+    installErrorTtlS: 3600,
+    tempMsgTtlS: 3600,
+    hashSyncIntervalMs: 1800000,
+    peerNotifyIntervalMs: 3600000,
+    cpuCheckIntervalMs: 900000,
+    portRestoreIntervalMs: 600000,
+    imageComplianceIntervalMs: 3600000,
+    forceRemovalIntervalMs: 7200000,
+    installCollisionWaitMs: 90000,
+    spawnReconfirmDelayMs: 7500000,
+    globalCmdDelayMs: 500,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -287,8 +310,8 @@ module.exports = {
     },
   },
   syncthing: { // operates on apiPort + 2
-    ip: process.env.FLUX_SYNCTHING_HOST || '127.0.0.1',
-    port: Number(process.env.FLUX_SYNCTHING_PORT) || 8384,
+    ip: '127.0.0.1',
+    port: 8384,
   },
   enterpriseAppOwners: [ // list of whitelisted app owner addresses allowed to deploy apps with datacenter=true
     '15ULw4JU6wqGESRYU3z3MjFETqLN3sA9Gn',

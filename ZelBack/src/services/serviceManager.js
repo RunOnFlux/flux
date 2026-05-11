@@ -61,20 +61,20 @@ const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
 const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
 
-const bootDelayMultiplier = Number(process.env.FLUX_BOOT_DELAY_MULTIPLIER) || 1;
+const bootDelayMultiplier = config.fluxapps.bootDelayMultiplier;
 function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
 
-const portRestoreIntervalMs = Number(process.env.FLUX_PORT_RESTORE_INTERVAL_MS) || 10 * 60 * 1000;
-const cpuCheckIntervalMs = Number(process.env.FLUX_CPU_CHECK_INTERVAL_MS) || 15 * 60 * 1000;
-const imageComplianceIntervalMs = Number(process.env.FLUX_IMAGE_COMPLIANCE_INTERVAL_MS) || 60 * 60 * 1000;
-const forceRemovalIntervalMs = Number(process.env.FLUX_FORCE_REMOVAL_INTERVAL_MS) || 2 * 60 * 60 * 1000;
-const hashSyncIntervalMs = Number(process.env.FLUX_HASH_SYNC_INTERVAL_MS) || 30 * 60 * 1000;
-const peerNotifyIntervalMs = Number(process.env.FLUX_PEER_NOTIFY_INTERVAL_MS) || 60 * 60 * 1000;
-const locationTtlS = Number(process.env.FLUX_LOCATION_TTL_S) || 7500;
-const installingTtlS = Number(process.env.FLUX_INSTALLING_TTL_S) || 900;
-const installErrorTtlS = Number(process.env.FLUX_INSTALL_ERROR_TTL_S) || 3600;
-const tempMsgTtlS = Number(process.env.FLUX_TEMP_MSG_TTL_S) || 3600;
-const removalSpacingMs = Number(process.env.FLUX_REMOVAL_SPACING_MS) || 60_000;
+const portRestoreIntervalMs = config.fluxapps.portRestoreIntervalMs;
+const cpuCheckIntervalMs = config.fluxapps.cpuCheckIntervalMs;
+const imageComplianceIntervalMs = config.fluxapps.imageComplianceIntervalMs;
+const forceRemovalIntervalMs = config.fluxapps.forceRemovalIntervalMs;
+const hashSyncIntervalMs = config.fluxapps.hashSyncIntervalMs;
+const peerNotifyIntervalMs = config.fluxapps.peerNotifyIntervalMs;
+const locationTtlS = config.fluxapps.locationTtlS;
+const installingTtlS = config.fluxapps.installingTtlS;
+const installErrorTtlS = config.fluxapps.installErrorTtlS;
+const tempMsgTtlS = config.fluxapps.tempMsgTtlS;
+const removalSpacingMs = config.fluxapps.removalSpacingMs;
 
 // State objects for monitoring services
 const dosState = {
@@ -546,7 +546,7 @@ async function startFluxFunctions() {
       }, hashSyncIntervalMs);
       appHashSyncService.continuousFluxAppHashesCheck();
     }, bootDelay((Math.floor(Math.random() * (30 - 15 + 1)) + 15) * 60 * 1000)); // start between 15m and 30m after fluxOs start
-    const spawnDelayMs = Number(process.env.FLUX_SPAWN_DELAY_MS) || 0;
+    const spawnDelayMs = config.fluxapps.spawnDelayMs;
     if (spawnDelayMs > 0) {
       setTimeout(() => {
         log.info('Starting to spawn applications (configured delay)');

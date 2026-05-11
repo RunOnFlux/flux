@@ -11,7 +11,7 @@ const levels = {
 };
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
-const forceConsole = Boolean(process.env.FLUX_LOG_CONSOLE);
+const forceConsole = Boolean(config.logConsole);
 
 const logLevel = config && config.logLevel ? config.logLevel : levels.debug;
 

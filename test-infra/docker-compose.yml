@@ -105,8 +105,9 @@ services:
       - docker-01-data:/var/lib/docker
       - appdata-01:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-01"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-01.conf"
@@ -114,40 +115,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node01_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.1.0"
       FLUX_ADMIN_ZELID: "14dQFmgDLVEVG7vNH8ibWuUEkuvxuogg13"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -168,8 +139,9 @@ services:
       - docker-02-data:/var/lib/docker
       - appdata-02:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-02"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-02.conf"
@@ -177,40 +149,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node02_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.2.0"
       FLUX_ADMIN_ZELID: "1HeAi8u8gAr89ekYsemWqwwg9wp3zXohkq"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -231,8 +173,9 @@ services:
       - docker-03-data:/var/lib/docker
       - appdata-03:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-03"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-03.conf"
@@ -240,40 +183,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node03_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.3.0"
       FLUX_ADMIN_ZELID: "1NeQjrGRuAhAQYgugBPBEMB3BW2tnqLE2G"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -294,8 +207,9 @@ services:
       - docker-04-data:/var/lib/docker
       - appdata-04:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-04"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-04.conf"
@@ -303,40 +217,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node04_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.4.0"
       FLUX_ADMIN_ZELID: "17bNDmy6nN2jMz4v6BWZxCpLAkVze6zrUH"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -357,8 +241,9 @@ services:
       - docker-05-data:/var/lib/docker
       - appdata-05:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-05"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-05.conf"
@@ -366,40 +251,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node05_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.5.0"
       FLUX_ADMIN_ZELID: "1AFfatFHuMpgmuRkfW4vLiqDQQPksLeFBu"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -420,8 +275,9 @@ services:
       - docker-06-data:/var/lib/docker
       - appdata-06:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-06"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-06.conf"
@@ -429,40 +285,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node06_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.6.0"
       FLUX_ADMIN_ZELID: "1AjGYYAdkLZLJQHC8A4PNQcTds6SNaowaK"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -483,8 +309,9 @@ services:
       - docker-07-data:/var/lib/docker
       - appdata-07:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-07"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-07.conf"
@@ -492,40 +319,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node07_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.7.0"
       FLUX_ADMIN_ZELID: "1L5TLXRGRcyPtopXYYHtpxe9CHAaeh3rYw"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -546,8 +343,9 @@ services:
       - docker-08-data:/var/lib/docker
       - appdata-08:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-08"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-08.conf"
@@ -555,40 +353,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node08_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.8.0"
       FLUX_ADMIN_ZELID: "12TrNc2yK8MAy9gBv3Qw6qjFqDZSZQZq6h"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -609,8 +377,9 @@ services:
       - docker-09-data:/var/lib/docker
       - appdata-09:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-09"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-09.conf"
@@ -618,40 +387,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node09_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.9.0"
       FLUX_ADMIN_ZELID: "15uqimLo5QqMV2uEoUEFMKD8FnpVrBpgYb"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -672,8 +411,9 @@ services:
       - docker-10-data:/var/lib/docker
       - appdata-10:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-10"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-10.conf"
@@ -681,40 +421,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node10_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.10.0"
       FLUX_ADMIN_ZELID: "1GxtCJwXU4pQiTfqbPxUPdQbogTvrtf4p"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -735,8 +445,9 @@ services:
       - docker-11-data:/var/lib/docker
       - appdata-11:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-11"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-11.conf"
@@ -744,40 +455,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node11_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.11.0"
       FLUX_ADMIN_ZELID: "1DsGyjKcvSS2HPbwcA3FJtmxnzTuppG9LN"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -798,8 +479,9 @@ services:
       - docker-12-data:/var/lib/docker
       - appdata-12:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-12"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-12.conf"
@@ -807,40 +489,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node12_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.12.0"
       FLUX_ADMIN_ZELID: "1G27Ms8zJqqtfJbec8poTwWLwNuRHp7ZpL"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -861,8 +513,9 @@ services:
       - docker-13-data:/var/lib/docker
       - appdata-13:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-13"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-13.conf"
@@ -870,40 +523,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node13_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.13.0"
       FLUX_ADMIN_ZELID: "1B4KkvzmF47CmAmZmksGLoaXWaswF9TApp"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -924,8 +547,9 @@ services:
       - docker-14-data:/var/lib/docker
       - appdata-14:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-14"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-14.conf"
@@ -933,40 +557,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node14_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.14.0"
       FLUX_ADMIN_ZELID: "1LC59SMrRCefaAa8GRSG7A91XgXJykQg6E"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -987,8 +581,9 @@ services:
       - docker-15-data:/var/lib/docker
       - appdata-15:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-15"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-15.conf"
@@ -996,40 +591,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node15_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.15.0"
       FLUX_ADMIN_ZELID: "19ndcTikMqWatuCBbiD4jJ5JeBRJkxmTak"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -1050,8 +615,9 @@ services:
       - docker-16-data:/var/lib/docker
       - appdata-16:/mnt/appdata
     environment:
+      # Config
+      NODE_CONFIG_DIR: "/flux/test-infra/config/node-16"
       # Arcane OS
-      FLUX_LOG_CONSOLE: "1"
       FLUXOS_PATH: "/flux"
       FLUXD_PATH: "/dat/var/lib/fluxd"
       FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-16.conf"
@@ -1059,40 +625,10 @@ services:
       FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"
       FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"
       FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"
-      # Database
-      FLUX_DB_PREFIX: "node16_"
-      FLUX_DB_HOST: "198.18.0.2"
-      FLUX_DB_PORT: "27017"
-      # Services
-      FLUX_DAEMON_HOST: "198.18.0.3"
-      FLUX_BENCH_HOST: "198.18.0.3"
-      FLUX_SYNCTHING_HOST: "198.18.0.4"
       # Node identity
       FLUX_NODE_IP: "198.18.16.0"
       FLUX_ADMIN_ZELID: "1EpVCybiP1dbPEgu82bcotZ6NKN28U4iXU"
       FLUX_API_PORT: "16127"
-      # Peer thresholds
-      FLUX_MIN_OUTGOING: "4"
-      FLUX_MIN_INCOMING: "2"
-      FLUX_MIN_UNIQUE_OUTGOING: "3"
-      FLUX_MIN_UNIQUE_INCOMING: "2"
-      FLUX_MIN_HASH_SYNC_PEERS: "4"
-      # Timing compression
-      FLUX_BOOT_DELAY_MULTIPLIER: "0.1"
-      FLUX_SPAWN_DELAY_MS: "10000"
-      FLUX_INSTALL_COLLISION_WAIT_MS: "5000"
-      FLUX_SPAWN_RECONFIRM_DELAY_MS: "30000"
-      FLUX_SPAWN_NO_APPS_DELAY_MS: "15000"
-      FLUX_LOCATION_TTL_S: "300"
-      FLUX_INSTALLING_TTL_S: "60"
-      FLUX_TEMP_MSG_TTL_S: "300"
-      FLUX_HASH_SYNC_INTERVAL_MS: "30000"
-      FLUX_PEER_NOTIFY_INTERVAL_MS: "30000"
-      FLUX_CPU_CHECK_INTERVAL_MS: "30000"
-      FLUX_PORT_RESTORE_INTERVAL_MS: "30000"
-      FLUX_IMAGE_COMPLIANCE_INTERVAL_MS: "60000"
-      FLUX_FORCE_REMOVAL_INTERVAL_MS: "120000"
-      FLUX_REMOVAL_SPACING_MS: "1000"
     depends_on:
       mongodb:
         condition: service_healthy

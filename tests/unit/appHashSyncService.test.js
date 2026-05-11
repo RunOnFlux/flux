@@ -46,6 +46,7 @@ describe('appHashSyncService tests', () => {
       fluxapps: {
         blocksLasting: 22000,
         latestAppSpecification: 1,
+        minHashSyncPeers: 12,
       },
     };
 

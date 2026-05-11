@@ -54,7 +54,7 @@ async function buildFluxdClient() {
 
   const rpcPort = fluxdConfig.rpcport || config.daemon[portId];
 
-  const rpcHost = process.env.FLUX_DAEMON_HOST || '127.0.0.1';
+  const rpcHost = config.daemon.host;
   const client = new fluxRpc.FluxRpc(`http://${rpcHost}:${rpcPort}`, {
     auth: { username, password }, timeout: 40_000,
   });

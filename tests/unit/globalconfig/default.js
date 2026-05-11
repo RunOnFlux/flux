@@ -65,13 +65,20 @@ module.exports = {
       },
     },
   },
+  logConsole: false,
+  upnp: {
+    gatewayUrl: '',
+    nodeIp: '',
+  },
   benchmark: {
+    host: '127.0.0.1',
     port: 16225,
     rpcport: 16224,
     porttestnet: 26225,
     rpcporttestnet: 26224,
   },
   daemon: {
+    host: '127.0.0.1',
     chainValidHeight: 1062000,
     port: 16125,
     rpcport: 16124,
@@ -241,6 +248,23 @@ module.exports = {
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
     applyMinimumPriceOn3Instances: 1691000, // after this block we use the min. usd price on prices per 3 instances.
     applyMinimumForExtraInstances: 1890000,
+    minHashSyncPeers: 12,
+    bootDelayMultiplier: 1,
+    spawnDelayMs: 0,
+    removalSpacingMs: 60000,
+    locationTtlS: 7500,
+    installingTtlS: 900,
+    installErrorTtlS: 3600,
+    tempMsgTtlS: 3600,
+    hashSyncIntervalMs: 1800000,
+    peerNotifyIntervalMs: 3600000,
+    cpuCheckIntervalMs: 900000,
+    portRestoreIntervalMs: 600000,
+    imageComplianceIntervalMs: 3600000,
+    forceRemovalIntervalMs: 7200000,
+    installCollisionWaitMs: 90000,
+    spawnReconfirmDelayMs: 7500000,
+    globalCmdDelayMs: 500,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

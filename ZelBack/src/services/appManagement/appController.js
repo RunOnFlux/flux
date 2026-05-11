@@ -1,3 +1,4 @@
+const config = require('config');
 const axios = require('axios');
 const serviceHelper = require('../serviceHelper');
 // Removed verificationHelper to avoid circular dependency - will use dynamic require where needed
@@ -8,7 +9,7 @@ const appInspector = require('./appInspector');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const log = require('../../lib/log');
 
-const globalCmdDelayMs = Number(process.env.FLUX_GLOBAL_CMD_DELAY_MS) || 500;
+const globalCmdDelayMs = config.fluxapps.globalCmdDelayMs;
 
 /**
  * Get application locations from the global database

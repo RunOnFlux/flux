@@ -25,8 +25,8 @@ let appInstaller; // Will be initialized to avoid circular dependency
 let appUninstaller; // Will be initialized to avoid circular dependency
 let appsCountAvailableToInstallOnMyNode = 0;
 
-const collisionWaitMs = Number(process.env.FLUX_INSTALL_COLLISION_WAIT_MS) || 90 * 1000;
-const spawnReconfirmDelayMs = Number(process.env.FLUX_SPAWN_RECONFIRM_DELAY_MS) || 125 * 60 * 1000;
+const collisionWaitMs = config.fluxapps.installCollisionWaitMs;
+const spawnReconfirmDelayMs = config.fluxapps.spawnReconfirmDelayMs;
 
 /**
  * Initialize the module with dependencies

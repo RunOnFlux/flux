@@ -38,7 +38,7 @@ async function buildBenchdClient() {
   const portId = isTestnet ? 'rpcporttestnet' : 'rpcport';
   const rpcPort = config.benchmark[portId];
 
-  const rpcHost = process.env.FLUX_BENCH_HOST || '127.0.0.1';
+  const rpcHost = config.benchmark.host;
   const client = new fluxRpc.FluxRpc(`http://${rpcHost}:${rpcPort}`, {
     auth: { username, password }, timeout: 10_000, mode: 'fluxbenchd',
   });
