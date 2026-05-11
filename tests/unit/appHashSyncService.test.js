@@ -133,6 +133,7 @@ describe('appHashSyncService tests', () => {
       '../utils/fluxBroadcastHelper': fluxBroadcastHelperStub,
       '../invalidMessages': { invalidMessages: [] },
       '../utils/peerState': { peerManager: peerManagerStub },
+      '../nodeConfirmationService': { canSendMessages: sinon.stub().returns(true) },
     });
   });
 
@@ -213,6 +214,7 @@ describe('appHashSyncService tests', () => {
         '../utils/peerState': {
           peerManager: { getRandomPeer: () => null },
         },
+        '../nodeConfirmationService': { canSendMessages: sinon.stub().returns(true) },
       });
 
       const mockDb = { db: sinon.stub().returns('database') };
@@ -723,6 +725,7 @@ describe('appHashSyncService tests', () => {
         '../invalidMessages': { invalidMessages: [] },
         '../utils/peerState': { peerManager: peerManagerStub },
         '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: localCheckAndDecryptStub },
+        '../nodeConfirmationService': { canSendMessages: sinon.stub().returns(true) },
       });
     });
 

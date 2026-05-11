@@ -16,6 +16,7 @@ const registryManager = require('../appDatabase/registryManager');
 const advancedWorkflows = require('./advancedWorkflows');
 const appUninstaller = require('./appUninstaller');
 const globalState = require('../utils/globalState');
+const nodeConfirmationService = require('../nodeConfirmationService');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const { localAppsInformation, SIGTERM_EXPIRY_MS, RUNNING_EXPIRY_MS } = require('../utils/appConstants');
 const { appUsesGSyncthingMode, getNonGComponentIdentifiers, parseContainerName, appHasValidLocationOnNode } = require('../utils/appUtilities');
@@ -319,7 +320,28 @@ async function manageAppsOnBoot(bootContext) {
       }
     }
 
-    log.info('appStartupManager - Daemon and DB ready, reconciling apps');
+    const CONFIRM_TIMEOUT_MS = 5 * 60 * 1000;
+    try {
+      await Promise.race([
+        nodeConfirmationService.waitForConfirmed(),
+        new Promise((_, reject) => { setTimeout(() => reject(new Error('confirm_timeout')), CONFIRM_TIMEOUT_MS); }),
+      ]);
+    } catch (error) {
+      if (error.message === 'confirm_timeout') {
+        log.error(`appStartupManager - Node not confirmed after ${CONFIRM_TIMEOUT_MS / 1000}s, removing all apps`);
+        await removeAllApps('Node not confirmed');
+        return;
+      }
+      throw error;
+    }
+
+    if (fluxNetworkHelper.isNodeDos()) {
+      log.error('appStartupManager - Node is in DOS state, removing all apps');
+      await removeAllApps('Node DOS');
+      return;
+    }
+
+    log.info('appStartupManager - Daemon, DB, and node confirmed, reconciling apps');
     await reconcileAppsOnBoot();
   } finally {
     globalState.bootComplete = true;

@@ -50,6 +50,7 @@ const volumeValidationService = require('./volumeValidationService');
 const watchdogService = require('./watchdogService');
 const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
+const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const imageUpdateService = require('./imageUpdateService');
 const { version: fluxVersion } = require('../../../package.json');
@@ -285,6 +286,8 @@ async function startFluxFunctions() {
     await daemonServiceMiscRpcs.daemonBlockchainInfoService();
     globalState.daemonReady = true;
 
+    await nodeConfirmationService.start();
+
     // Initialize app sync orchestrator and spawner
     const orchestrator = new AppSyncOrchestrator({
       blockEmitter: explorerService.getBlockEmitter(),
@@ -298,6 +301,8 @@ async function startFluxFunctions() {
       networkStateReady: () => networkStateService.waitStarted(),
       fluxVersion,
     });
+    nodeConfirmationService.onMessageCapabilityChange((capable) => orchestrator.onMessageCapabilityChange(capable));
+    peerNotification.initialize();
     appSpawner.initialize();
     appInstaller.setOnInstallComplete(() => peerNotification.checkAndNotifyPeersOfRunningApps());
     log.info('App Spawner initialized');
@@ -434,6 +439,7 @@ async function startFluxFunctions() {
         fluxNetworkHelper.isArcane,
       );
     }, bootDelay(3 * 60 * 1000));
+    nodeStatusMonitor.initialize(appQueryService.installedApps, appUninstaller.removeAppLocally);
     setTimeout(() => {
       nodeStatusMonitor.monitorNodeStatus(appQueryService.installedApps, appUninstaller.removeAppLocally);
     }, bootDelay(1.5 * 60 * 1000));

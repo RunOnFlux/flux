@@ -1036,33 +1036,34 @@ class FluxPeerManager extends EventEmitter {
           break;
         }
         case peerCodec.MSG_TYPE.REQUEST_TEMP_MESSAGES: {
-          if (this.hashHandlers && this.hashHandlers.handleTempMessagesRequest) {
-            const sinceTimestamp = buf.length >= 9 ? peerCodec.decodeSyncTimestamp(buf) : 0;
-            this.hashHandlers.handleTempMessagesRequest(peer, sinceTimestamp);
+          const decoded = peerCodec.decodeSignedSyncRequest(buf);
+          if (!decoded) break;
+          if (this.hashHandlers?.handleTempMessagesRequest) {
+            this.hashHandlers.handleTempMessagesRequest(peer, decoded);
           }
           break;
         }
         case peerCodec.MSG_TYPE.REQUEST_APP_RUNNING: {
-          if (buf.length < 9) break;
-          const sinceTimestamp = peerCodec.decodeSyncTimestamp(buf);
-          if (this.hashHandlers && this.hashHandlers.handleAppRunningRequest) {
-            this.hashHandlers.handleAppRunningRequest(peer, sinceTimestamp);
+          const decoded = peerCodec.decodeSignedSyncRequest(buf);
+          if (!decoded) break;
+          if (this.hashHandlers?.handleAppRunningRequest) {
+            this.hashHandlers.handleAppRunningRequest(peer, decoded);
           }
           break;
         }
         case peerCodec.MSG_TYPE.REQUEST_APP_INSTALLING: {
-          if (buf.length < 9) break;
-          const sinceTimestamp = peerCodec.decodeSyncTimestamp(buf);
-          if (this.hashHandlers && this.hashHandlers.handleAppInstallingRequest) {
-            this.hashHandlers.handleAppInstallingRequest(peer, sinceTimestamp);
+          const decoded = peerCodec.decodeSignedSyncRequest(buf);
+          if (!decoded) break;
+          if (this.hashHandlers?.handleAppInstallingRequest) {
+            this.hashHandlers.handleAppInstallingRequest(peer, decoded);
           }
           break;
         }
         case peerCodec.MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS: {
-          if (buf.length < 9) break;
-          const sinceTimestamp = peerCodec.decodeSyncTimestamp(buf);
-          if (this.hashHandlers && this.hashHandlers.handleAppInstallingErrorsRequest) {
-            this.hashHandlers.handleAppInstallingErrorsRequest(peer, sinceTimestamp);
+          const decoded = peerCodec.decodeSignedSyncRequest(buf);
+          if (!decoded) break;
+          if (this.hashHandlers?.handleAppInstallingErrorsRequest) {
+            this.hashHandlers.handleAppInstallingErrorsRequest(peer, decoded);
           }
           break;
         }

@@ -33,6 +33,7 @@ describe('appStartupManager tests', () => {
 
     fluxNetworkHelperStub = {
       getMyFluxIPandPort: sinon.stub(),
+      isNodeDos: sinon.stub().returns(false),
     };
 
     registryManagerStub = {
@@ -85,6 +86,9 @@ describe('appStartupManager tests', () => {
       '../appQuery/appQueryService': appQueryServiceStub,
       '../utils/appConstants': { localAppsInformation: 'localAppsInformation', SIGTERM_EXPIRY_MS: 420000, RUNNING_EXPIRY_MS: 7500000 },
       '../utils/appUtilities': appUtilities,
+      '../nodeConfirmationService': {
+        waitForConfirmed: sinon.stub().resolves(),
+      },
     });
   });
 
@@ -534,7 +538,7 @@ describe('appStartupManager tests', () => {
       await appStartupManager.manageAppsOnBoot(bootContext);
 
       expect(globalStateStub.waitForDbReady.calledOnce).to.be.true;
-      expect(logStub.info.calledWithMatch(/DB ready/)).to.be.true;
+      expect(logStub.info.calledWithMatch(/node confirmed, reconciling/)).to.be.true;
     });
 
     it('should remove all apps on sync timeout', async () => {

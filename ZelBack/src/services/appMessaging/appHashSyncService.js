@@ -15,6 +15,7 @@ const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const { openEphemeralConnection } = require('../fluxCommunication');
 const { CLOSE_CODES } = require('../utils/FluxPeerSocket');
 const globalState = require('../utils/globalState');
+const nodeConfirmationService = require('../nodeConfirmationService');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstants');
 const log = require('../../lib/log');
@@ -390,10 +391,11 @@ async function ephemeralHashRound(hashes, force) {
     return getMissingHashes({ force });
   }
 
+  log.info(`syncMissingHashes - Ephemeral round: attempting ${targets.length} connections: ${targets.join(', ')}`);
   const connections = await Promise.all(targets.map((t) => openEphemeralConnection(t)));
   const peers = connections.filter(Boolean);
   if (peers.length === 0) {
-    log.info('syncMissingHashes - All ephemeral connections failed');
+    log.info(`syncMissingHashes - All ${targets.length} ephemeral connections failed`);
     return getMissingHashes({ force });
   }
 
@@ -495,56 +497,61 @@ async function syncMissingHashes(options = {}) {
       missingHashes = await getMissingHashes({ force });
     }
 
-    // Targeted fetch for <= 500 missing hashes
-    if (missingHashes.length > 0) {
-      log.info(`syncMissingHashes - ${missingHashes.length} missing, requesting from peers`);
-      const triedPeers = new Set();
+    // Per-hash rounds and ephemeral connections require signed messages — skip if not confirmed
+    if (missingHashes.length > 0 && !nodeConfirmationService.canSendMessages()) {
+      log.info(`syncMissingHashes - ${missingHashes.length} missing but node cannot send messages, skipping per-hash and ephemeral rounds`);
+    } else {
+      // Targeted fetch for <= 500 missing hashes
+      if (missingHashes.length > 0) {
+        log.info(`syncMissingHashes - ${missingHashes.length} missing, requesting from peers`);
+        const triedPeers = new Set();
 
-      for (let round = 0; round < MAX_ROUNDS; round += 1) {
-        if (missingHashes.length === 0) break;
+        for (let round = 0; round < MAX_ROUNDS; round += 1) {
+          if (missingHashes.length === 0) break;
 
-        const peers = pickRandomPeers(peerManager, PEERS_PER_ROUND, {
-          excludeKeys: triedPeers,
-          excludeSources: ['deterministic'],
-        });
-        if (peers.length === 0) {
-          log.info(`syncMissingHashes - No more untried peers available`);
-          break;
+          const peers = pickRandomPeers(peerManager, PEERS_PER_ROUND, {
+            excludeKeys: triedPeers,
+            excludeSources: ['deterministic'],
+          });
+          if (peers.length === 0) {
+            log.info(`syncMissingHashes - No more untried peers available`);
+            break;
+          }
+
+          for (const peer of peers) {
+            triedPeers.add(peer.key);
+          }
+
+          const hashes = missingHashes.map((h) => h.hash);
+          globalState.pendingHashRequests = new Set(hashes);
+          const peerKeys = peers.map((p) => p.key).join(', ');
+          log.info(`syncMissingHashes - Round ${round + 1}: requesting ${hashes.length} hashes from ${peers.length} peers: ${peerKeys}`);
+
+          for (const peer of peers) {
+            requestHashesFromPeer(hashes, peer);
+          }
+
+          const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
+          const beforeCount = missingHashes.length;
+          missingHashes = await waitForResolution(beforeCount, maxWait, force);
+          globalState.pendingHashRequests = null;
+          const resolvedThisRound = beforeCount - missingHashes.length;
+          resolved += resolvedThisRound;
+
+          log.info(`syncMissingHashes - Round ${round + 1}: resolved ${resolvedThisRound}, ${missingHashes.length} remaining`);
+          if (onProgress) onProgress({ resolved, missing: missingHashes.length });
         }
-
-        for (const peer of peers) {
-          triedPeers.add(peer.key);
-        }
-
-        const hashes = missingHashes.map((h) => h.hash);
-        globalState.pendingHashRequests = new Set(hashes);
-        const peerKeys = peers.map((p) => p.key).join(', ');
-        log.info(`syncMissingHashes - Round ${round + 1}: requesting ${hashes.length} hashes from ${peers.length} peers: ${peerKeys}`);
-
-        for (const peer of peers) {
-          requestHashesFromPeer(hashes, peer);
-        }
-
-        const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
-        const beforeCount = missingHashes.length;
-        missingHashes = await waitForResolution(beforeCount, maxWait, force);
-        globalState.pendingHashRequests = null;
-        const resolvedThisRound = beforeCount - missingHashes.length;
-        resolved += resolvedThisRound;
-
-        log.info(`syncMissingHashes - Round ${round + 1}: resolved ${resolvedThisRound}, ${missingHashes.length} remaining`);
-        if (onProgress) onProgress({ resolved, missing: missingHashes.length });
       }
-    }
 
-    // Ephemeral round: connect to random nodes outside our peer pool
-    if (missingHashes.length > 0) {
-      const beforeEphemeral = missingHashes.length;
-      const hashes = missingHashes.map((h) => h.hash);
-      missingHashes = await ephemeralHashRound(hashes, force);
-      const resolvedEphemeral = beforeEphemeral - missingHashes.length;
-      resolved += resolvedEphemeral;
-      log.info(`syncMissingHashes - Ephemeral round: resolved ${resolvedEphemeral}, ${missingHashes.length} remaining`);
+      // Ephemeral round: connect to random nodes outside our peer pool
+      if (missingHashes.length > 0) {
+        const beforeEphemeral = missingHashes.length;
+        const hashes = missingHashes.map((h) => h.hash);
+        missingHashes = await ephemeralHashRound(hashes, force);
+        const resolvedEphemeral = beforeEphemeral - missingHashes.length;
+        resolved += resolvedEphemeral;
+        log.info(`syncMissingHashes - Ephemeral round: resolved ${resolvedEphemeral}, ${missingHashes.length} remaining`);
+      }
     }
 
     // Update backoff for unresolved hashes

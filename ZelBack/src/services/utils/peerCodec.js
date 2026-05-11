@@ -197,33 +197,56 @@ function decodePeerUpdate(buf) {
 }
 
 // --- Sync Requests ---
+// Signed format: [type:1][sinceTs:8][requestTs:8][pubkeyLen:1][pubkey:var][sigLen:1][signature:var]
 
-function encodeRequestTempMessages(sinceTimestamp = 0) {
-  const buf = Buffer.allocUnsafe(9);
-  buf[0] = MSG_TYPE.REQUEST_TEMP_MESSAGES;
-  buf.writeBigUInt64BE(BigInt(sinceTimestamp), 1);
+function encodeSignedSyncRequest(type, sinceTimestamp, requestTimestamp, pubkey, signature) {
+  const pubkeyBuf = Buffer.from(pubkey, 'hex');
+  const sigBuf = Buffer.from(signature, 'base64');
+  const buf = Buffer.allocUnsafe(1 + 8 + 8 + 1 + pubkeyBuf.length + 1 + sigBuf.length);
+  let offset = 0;
+  buf[offset] = type; offset += 1;
+  buf.writeBigUInt64BE(BigInt(sinceTimestamp), offset); offset += 8;
+  buf.writeBigUInt64BE(BigInt(requestTimestamp), offset); offset += 8;
+  buf[offset] = pubkeyBuf.length; offset += 1;
+  pubkeyBuf.copy(buf, offset); offset += pubkeyBuf.length;
+  buf[offset] = sigBuf.length; offset += 1;
+  sigBuf.copy(buf, offset);
   return buf;
 }
 
-function encodeRequestAppRunning(sinceTimestamp = 0) {
-  const buf = Buffer.allocUnsafe(9);
-  buf[0] = MSG_TYPE.REQUEST_APP_RUNNING;
-  buf.writeBigUInt64BE(BigInt(sinceTimestamp), 1);
-  return buf;
+function decodeSignedSyncRequest(buf) {
+  if (buf.length < 19) return null;
+  const type = buf[0];
+  let offset = 1;
+  const sinceTimestamp = Number(buf.readBigUInt64BE(offset)); offset += 8;
+  const requestTimestamp = Number(buf.readBigUInt64BE(offset)); offset += 8;
+  const pubkeyLen = buf[offset]; offset += 1;
+  if (buf.length < offset + pubkeyLen + 1) return null;
+  const pubkey = buf.slice(offset, offset + pubkeyLen).toString('hex'); offset += pubkeyLen;
+  const sigLen = buf[offset]; offset += 1;
+  if (buf.length < offset + sigLen) return null;
+  const signature = buf.slice(offset, offset + sigLen).toString('base64');
+  return { type, sinceTimestamp, requestTimestamp, pubkey, signature };
 }
 
-function encodeRequestAppInstalling(sinceTimestamp = 0) {
-  const buf = Buffer.allocUnsafe(9);
-  buf[0] = MSG_TYPE.REQUEST_APP_INSTALLING;
-  buf.writeBigUInt64BE(BigInt(sinceTimestamp), 1);
-  return buf;
+function buildSyncSignatureMessage(type, sinceTimestamp, requestTimestamp) {
+  return `${type}${sinceTimestamp}${requestTimestamp}`;
 }
 
-function encodeRequestAppInstallingErrors(sinceTimestamp = 0) {
-  const buf = Buffer.allocUnsafe(9);
-  buf[0] = MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS;
-  buf.writeBigUInt64BE(BigInt(sinceTimestamp), 1);
-  return buf;
+function encodeRequestTempMessages(sinceTimestamp, requestTimestamp, pubkey, signature) {
+  return encodeSignedSyncRequest(MSG_TYPE.REQUEST_TEMP_MESSAGES, sinceTimestamp, requestTimestamp, pubkey, signature);
+}
+
+function encodeRequestAppRunning(sinceTimestamp, requestTimestamp, pubkey, signature) {
+  return encodeSignedSyncRequest(MSG_TYPE.REQUEST_APP_RUNNING, sinceTimestamp, requestTimestamp, pubkey, signature);
+}
+
+function encodeRequestAppInstalling(sinceTimestamp, requestTimestamp, pubkey, signature) {
+  return encodeSignedSyncRequest(MSG_TYPE.REQUEST_APP_INSTALLING, sinceTimestamp, requestTimestamp, pubkey, signature);
+}
+
+function encodeRequestAppInstallingErrors(sinceTimestamp, requestTimestamp, pubkey, signature) {
+  return encodeSignedSyncRequest(MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS, sinceTimestamp, requestTimestamp, pubkey, signature);
 }
 
 function decodeSyncTimestamp(buf) {
@@ -246,6 +269,9 @@ module.exports = {
   decodePeerExchange,
   encodePeerUpdate,
   decodePeerUpdate,
+  encodeSignedSyncRequest,
+  decodeSignedSyncRequest,
+  buildSyncSignatureMessage,
   encodeRequestTempMessages,
   encodeRequestAppRunning,
   encodeRequestAppInstalling,

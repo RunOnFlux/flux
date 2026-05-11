@@ -650,6 +650,15 @@ function getDosStateValue() {
   return dosState;
 }
 
+// Future: refactor all 21 direct `dosState += N` / `dosState = N` mutations
+// to go through addDosState()/setDosStateValue() with event emission on
+// threshold crossing. This would eliminate polling and give immediate
+// response to DOS state changes.
+function isNodeDos() {
+  const effectiveState = stickyDosMessage ? stickyDosState : dosState;
+  return effectiveState >= 100;
+}
+
 /**
  * To get Flux IP adress and port.
  * @returns {Promise<string>} IP address and port.
@@ -2246,6 +2255,7 @@ module.exports = {
   setDosMessage,
   setDosStateValue,
   getDosStateValue,
+  isNodeDos,
   setStickyDosMessage,
   getStickyDosMessage,
   clearStickyDosMessage,

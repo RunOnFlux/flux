@@ -31,7 +31,7 @@ const { messageCache, wsPeerCache } = cacheManager;
 const testListCache = new LRUCache(LRUTest); */
 
 const { FluxPeerManager, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require('./utils/FluxPeerManager');
-const { NAK_REASON } = require('./utils/peerCodec');
+const { NAK_REASON, buildSyncSignatureMessage } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
 
 const DISCOVERY = {
@@ -594,6 +594,27 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
 
 // Register the message dispatcher on the peerManager singleton
 peerManager.messageDispatcher = dispatchFluxMessage;
+async function verifySyncRequest(peer, decoded) {
+  const { requestTimestamp, pubkey, signature, sinceTimestamp } = decoded;
+  const now = Date.now();
+  if (Math.abs(now - requestTimestamp) > 120_000) {
+    log.warn(`Sync request from ${peer.key} rejected: timestamp too far (${now - requestTimestamp}ms)`);
+    return false;
+  }
+  const nodes = await networkStateService.getFluxnodesByPubkey(pubkey);
+  if (!nodes) {
+    log.warn(`Sync request from ${peer.key} rejected: pubkey not in node list`);
+    return false;
+  }
+  const msg = buildSyncSignatureMessage(decoded.type, sinceTimestamp, requestTimestamp);
+  const verified = verificationHelper.verifyMessage(msg, pubkey, signature);
+  if (!verified) {
+    log.warn(`Sync request from ${peer.key} rejected: bad signature`);
+    return false;
+  }
+  return true;
+}
+
 peerManager.hashHandlers = {
   handleHashPresent: (peer, hexHash) => {
     const counter = peer.msgMap.get('newHash');
@@ -605,33 +626,45 @@ peerManager.hashHandlers = {
     peer.msgMap.set('requestHash', counter + 1);
     setImmediate(() => handleRequestMessageHash(hexHash, peer.ip, peer.port));
   },
-  handleTempMessagesRequest: (peer, sinceTimestamp) => {
+  handleTempMessagesRequest: (peer, decoded) => {
     const now = Date.now();
     const last = peer.lastTempSyncResponse || 0;
     if (now - last < 5 * 60 * 1000) return;
     peer.lastTempSyncResponse = now;
-    setImmediate(() => fluxCommunicationMessagesSender.respondWithTempMessages(peer, sinceTimestamp));
+    setImmediate(async () => {
+      if (!await verifySyncRequest(peer, decoded)) return;
+      fluxCommunicationMessagesSender.respondWithTempMessages(peer, decoded.sinceTimestamp);
+    });
   },
-  handleAppRunningRequest: (peer, sinceTimestamp) => {
+  handleAppRunningRequest: (peer, decoded) => {
     const now = Date.now();
     const last = peer.lastAppRunningSyncResponse || 0;
     if (now - last < 5 * 60 * 1000) return;
     peer.lastAppRunningSyncResponse = now;
-    setImmediate(() => fluxCommunicationMessagesSender.respondWithAppRunningMessages(peer, sinceTimestamp));
+    setImmediate(async () => {
+      if (!await verifySyncRequest(peer, decoded)) return;
+      fluxCommunicationMessagesSender.respondWithAppRunningMessages(peer, decoded.sinceTimestamp);
+    });
   },
-  handleAppInstallingRequest: (peer, sinceTimestamp) => {
+  handleAppInstallingRequest: (peer, decoded) => {
     const now = Date.now();
     const last = peer.lastAppInstallingSyncResponse || 0;
     if (now - last < 5 * 60 * 1000) return;
     peer.lastAppInstallingSyncResponse = now;
-    setImmediate(() => fluxCommunicationMessagesSender.respondWithAppInstallingMessages(peer, sinceTimestamp));
+    setImmediate(async () => {
+      if (!await verifySyncRequest(peer, decoded)) return;
+      fluxCommunicationMessagesSender.respondWithAppInstallingMessages(peer, decoded.sinceTimestamp);
+    });
   },
-  handleAppInstallingErrorsRequest: (peer, sinceTimestamp) => {
+  handleAppInstallingErrorsRequest: (peer, decoded) => {
     const now = Date.now();
     const last = peer.lastAppInstallingErrorsSyncResponse || 0;
     if (now - last < 5 * 60 * 1000) return;
     peer.lastAppInstallingErrorsSyncResponse = now;
-    setImmediate(() => fluxCommunicationMessagesSender.respondWithAppInstallingErrorsMessages(peer, sinceTimestamp));
+    setImmediate(async () => {
+      if (!await verifySyncRequest(peer, decoded)) return;
+      fluxCommunicationMessagesSender.respondWithAppInstallingErrorsMessages(peer, decoded.sinceTimestamp);
+    });
   },
 };
 
@@ -897,12 +930,14 @@ function openEphemeralConnection(connection) {
       }
       const key = `${ip}:${port}`;
       if (peerManager.isPending(key)) {
+        log.info(`Ephemeral connection to ${key} skipped: pending`);
         resolve(null);
         return;
       }
       peerManager.markPending(key);
       if (!myPort) {
         peerManager.clearPending(key);
+        log.warn(`Ephemeral connection to ${key} skipped: myPort not set`);
         resolve(null);
         return;
       }
@@ -921,6 +956,7 @@ function openEphemeralConnection(connection) {
       const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
       const websocket = new WebSocket(wsuri, options);
       const meta = { ip, port };
+      let settled = false;
 
       websocket.on('upgrade', (response) => {
         if (response.headers['x-flux-capabilities']) {
@@ -933,12 +969,24 @@ function openEphemeralConnection(connection) {
       });
 
       websocket.on('error', (error) => {
+        if (settled) return;
+        settled = true;
         peerManager.clearPending(key);
         log.warn(`Ephemeral connection to ${key} failed: ${error.message}`);
         resolve(null);
       });
 
+      websocket.on('close', (code, reason) => {
+        if (settled) return;
+        settled = true;
+        peerManager.clearPending(key);
+        log.warn(`Ephemeral connection to ${key} closed before open: ${code} ${reason}`);
+        resolve(null);
+      });
+
       websocket.onopen = () => {
+        if (settled) return;
+        settled = true;
         const peer = peerManager.addEphemeral(websocket, meta.ip, meta.port, {
           remoteCapabilities: meta.remoteCapabilities,
           remoteClockOffsetMs: meta.remoteClockOffsetMs,
@@ -1100,12 +1148,6 @@ async function fluxDiscovery() {
 
     if (!myIP) {
       throw new Error('Flux IP not detected. Flux discovery is awaiting.');
-    }
-
-    const fluxNode = await fluxCommunicationUtils.getFluxnodeFromFluxList(myIP);
-
-    if (!fluxNode) {
-      throw new Error('Node not confirmed. Flux discovery is awaiting.');
     }
 
     const sortedNodeList = await fluxCommunicationUtils.deterministicFluxList({

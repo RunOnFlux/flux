@@ -15,12 +15,14 @@ describe('AppSyncOrchestrator', () => {
   let syncMissingHashesStub;
   let getMissingHashesStub;
   let reindexStub;
-  let isNodeStatusConfirmedStub;
   let globalStateStub;
   let checkAndNotifyStub;
   let resetHashSyncForUpgradeStub;
   let dbHelperStub;
   let findOneAndUpdateStub;
+  let getFluxNodePublicKeyStub;
+  let getFluxNodePrivateKeyStub;
+  let signMessageStub;
 
   function makePeer(key) {
     return { key, send: sinon.stub() };
@@ -60,7 +62,6 @@ describe('AppSyncOrchestrator', () => {
     syncMissingHashesStub = sinon.stub().resolves({ resolved: 0, missing: 0, unreachable: 0, nextRetryHeight: null });
     getMissingHashesStub = sinon.stub().resolves([]);
     reindexStub = sinon.stub().resolves();
-    isNodeStatusConfirmedStub = sinon.stub().resolves(true);
     globalStateStub = {
       dbReady: false,
     };
@@ -72,6 +73,9 @@ describe('AppSyncOrchestrator', () => {
       findOneInDatabase: sinon.stub().resolves(null),
       findOneAndUpdateInDatabase: findOneAndUpdateStub,
     };
+    getFluxNodePublicKeyStub = sinon.stub().resolves('04testpubkey1234567890');
+    getFluxNodePrivateKeyStub = sinon.stub().resolves('L1testprivkey');
+    signMessageStub = sinon.stub().returns('fakesig==');
 
     const appSyncEventsModule = require('../../ZelBack/src/services/utils/appSyncEvents');
     appSyncEvents = appSyncEventsModule.appSyncEvents;
@@ -82,7 +86,6 @@ describe('AppSyncOrchestrator', () => {
       'fs': { promises: { readFile: sinon.stub().resolves('test-boot-id-12345\n') } },
       '../../lib/log': logStub,
       '../dbHelper': dbHelperStub,
-      '../generalService': { isNodeStatusConfirmed: isNodeStatusConfirmedStub },
       './appHashSyncService': { syncMissingHashes: syncMissingHashesStub, getMissingHashes: getMissingHashesStub, resetHashSyncForUpgrade: resetHashSyncForUpgradeStub },
       './peerNotification': { checkAndNotifyPeersOfRunningApps: checkAndNotifyStub, stopBroadcastInterval: sinon.stub() },
       '../appDatabase/registryManager': {
@@ -90,10 +93,19 @@ describe('AppSyncOrchestrator', () => {
       },
       '../utils/globalState': globalStateStub,
       '../utils/peerCodec': {
+        MSG_TYPE: { REQUEST_TEMP_MESSAGES: 0x20, REQUEST_APP_RUNNING: 0x21, REQUEST_APP_INSTALLING: 0x22, REQUEST_APP_INSTALLING_ERRORS: 0x23 },
+        buildSyncSignatureMessage: sinon.stub().returns('testmsg'),
         encodeRequestTempMessages: sinon.stub().returns(Buffer.alloc(9, 0x20)),
         encodeRequestAppRunning: sinon.stub().returns(Buffer.alloc(9, 0x21)),
         encodeRequestAppInstalling: sinon.stub().returns(Buffer.alloc(9, 0x22)),
         encodeRequestAppInstallingErrors: sinon.stub().returns(Buffer.alloc(9, 0x23)),
+      },
+      '../fluxNetworkHelper': {
+        getFluxNodePublicKey: getFluxNodePublicKeyStub,
+        getFluxNodePrivateKey: getFluxNodePrivateKeyStub,
+      },
+      '../verificationHelper': {
+        signMessage: signMessageStub,
       },
       '../utils/appSyncEvents': appSyncEventsModule,
     });
@@ -182,6 +194,7 @@ describe('AppSyncOrchestrator', () => {
         blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start(defaultBootContext);
+      orchestrator.onMessageCapabilityChange(true);
 
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
@@ -201,6 +214,7 @@ describe('AppSyncOrchestrator', () => {
         blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start(defaultBootContext);
+      orchestrator.onMessageCapabilityChange(true);
       const spy = sinon.spy();
       appSyncEvents.on(EVENTS.READINESS_LOST, spy);
 
@@ -273,6 +287,7 @@ describe('AppSyncOrchestrator', () => {
         blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start(defaultBootContext);
+      orchestrator.onMessageCapabilityChange(true);
 
       // Get to READY via block-count fallback
       blockEmitter.emit('blockReceived', 2555000);
@@ -304,6 +319,7 @@ describe('AppSyncOrchestrator', () => {
         blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start(defaultBootContext);
+      orchestrator.onMessageCapabilityChange(true);
 
       // Start hash sync
       blockEmitter.emit('blockReceived', 2555000);
@@ -358,6 +374,7 @@ describe('AppSyncOrchestrator', () => {
         blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start(defaultBootContext);
+      orchestrator.onMessageCapabilityChange(true);
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
 
@@ -380,6 +397,7 @@ describe('AppSyncOrchestrator', () => {
         blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start(defaultBootContext);
+      orchestrator.onMessageCapabilityChange(true);
 
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
@@ -428,6 +446,7 @@ describe('AppSyncOrchestrator', () => {
         blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start(defaultBootContext);
+      orchestrator.onMessageCapabilityChange(true);
 
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
@@ -452,6 +471,7 @@ describe('AppSyncOrchestrator', () => {
         blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
       });
       orchestrator.start(defaultBootContext);
+      orchestrator.onMessageCapabilityChange(true);
 
       blockEmitter.emit('blockReceived', 2555000);
       await new Promise((r) => setTimeout(r, 50));
@@ -806,6 +826,126 @@ describe('AppSyncOrchestrator', () => {
 
       expect(orchestrator.bootContext).to.deep.equal(defaultBootContext);
       orchestrator.stop();
+    });
+  });
+
+  describe('message capability changes', () => {
+    it('should not reach READY without message capability', async () => {
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
+      });
+      orchestrator.start(defaultBootContext);
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+      for (let i = 0; i < 130; i += 1) {
+        blockEmitter.emit('blockReceived', 2555000 + i);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(orchestrator.state).to.equal(STATES.SYNCING);
+    });
+
+    it('should reach READY when capability gained after other conditions met', async () => {
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
+      });
+      orchestrator.start(defaultBootContext);
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+      for (let i = 0; i < 130; i += 1) {
+        blockEmitter.emit('blockReceived', 2555000 + i);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+      expect(orchestrator.state).to.equal(STATES.SYNCING);
+
+      orchestrator.onMessageCapabilityChange(true);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(orchestrator.state).to.equal(STATES.READY);
+    });
+
+    it('should emit READINESS_LOST when capability lost while READY', async () => {
+      const spy = sinon.spy();
+      appSyncEvents.on(EVENTS.READINESS_LOST, spy);
+
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
+      });
+      orchestrator.start(defaultBootContext);
+      orchestrator.onMessageCapabilityChange(true);
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+      for (let i = 0; i < 130; i += 1) {
+        blockEmitter.emit('blockReceived', 2555000 + i);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+      expect(orchestrator.state).to.equal(STATES.READY);
+
+      orchestrator.onMessageCapabilityChange(false);
+      expect(orchestrator.state).to.equal(STATES.SYNCING);
+      expect(spy.calledOnce).to.be.true;
+    });
+
+    it('should emit SPAWNER_READY when capability regained', async () => {
+      const readySpy = sinon.spy();
+      const lostSpy = sinon.spy();
+      appSyncEvents.on(EVENTS.SPAWNER_READY, readySpy);
+      appSyncEvents.on(EVENTS.READINESS_LOST, lostSpy);
+
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
+      });
+      orchestrator.start(defaultBootContext);
+      orchestrator.onMessageCapabilityChange(true);
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+      for (let i = 0; i < 130; i += 1) {
+        blockEmitter.emit('blockReceived', 2555000 + i);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+      expect(orchestrator.state).to.equal(STATES.READY);
+      expect(readySpy.calledOnce).to.be.true;
+
+      orchestrator.onMessageCapabilityChange(false);
+      expect(lostSpy.calledOnce).to.be.true;
+
+      orchestrator.onMessageCapabilityChange(true);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(orchestrator.state).to.equal(STATES.READY);
+      expect(readySpy.calledTwice).to.be.true;
+    });
+
+    it('should be a no-op when same value set twice', async () => {
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
+      });
+      orchestrator.start(defaultBootContext);
+      orchestrator.onMessageCapabilityChange(false);
+      orchestrator.onMessageCapabilityChange(false);
+
+      expect(logStub.info.calledWith('AppSyncOrchestrator - Message capability lost')).to.be.false;
+    });
+
+    it('should not produce log spam from block events when not confirmed', async () => {
+      const orchestrator = new AppSyncOrchestrator({
+        blockEmitter, ...makePeerOptions(), isEnterprise: () => true,
+      });
+      orchestrator.start(defaultBootContext);
+
+      blockEmitter.emit('blockReceived', 2555000);
+      await new Promise((r) => setTimeout(r, 50));
+      for (let i = 0; i < 130; i += 1) {
+        blockEmitter.emit('blockReceived', 2555000 + i);
+      }
+      await new Promise((r) => setTimeout(r, 50));
+
+      const notConfirmedLogs = logStub.info.getCalls().filter(
+        (c) => typeof c.args[0] === 'string' && c.args[0].includes('not confirmed'),
+      );
+      expect(notConfirmedLogs).to.have.lengthOf(0);
     });
   });
 });

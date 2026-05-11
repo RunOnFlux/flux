@@ -3,12 +3,14 @@ const axios = require('axios');
 const config = require('config');
 const dbHelper = require('../dbHelper');
 const serviceHelper = require('../serviceHelper');
-const generalService = require('../generalService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const messageStore = require('../appMessaging/messageStore');
+const nodeConfirmationService = require('../nodeConfirmationService');
 const log = require('../../lib/log');
 const fluxEventBus = require('../utils/fluxEventBus');
+
+let removalInProgress = false;
 
 // Database collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -20,52 +22,60 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
  * @returns {Promise<void>}
  */
 // eslint-disable-next-line consistent-return
+async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason) {
+  if (removalInProgress) return;
+  removalInProgress = true;
+  try {
+    const installedAppsRes = await installedAppsFn();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('monitorNodeStatus - Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    const canBroadcast = nodeConfirmationService.canSendMessages();
+    for (const installedApp of appsInstalled) {
+      log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed: ${reason}`);
+      log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
+      // eslint-disable-next-line no-await-in-loop
+      await removeAppLocallyFn(installedApp.name, null, true, false, canBroadcast);
+      log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(60 * 1000);
+    }
+  } finally {
+    removalInProgress = false;
+  }
+}
+
+function initialize(installedAppsFn, removeAppLocallyFn) {
+  nodeConfirmationService.onConfirmationChange((confirmed) => {
+    if (!confirmed) {
+      log.info('monitorNodeStatus - Confirmation lost, triggering immediate app removal');
+      removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'node lost confirmation');
+    }
+  });
+  nodeConfirmationService.onDaemonStale(() => {
+    log.info('monitorNodeStatus - Daemon stale, triggering app removal');
+    removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'daemon unreachable');
+  });
+}
+
 async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
   try {
-    let isNodeConfirmed = false;
-    if (fluxNetworkHelper.getDosStateValue() >= 100) {
-      const installedAppsRes = await installedAppsFn();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('monitorNodeStatus - Failed to get installed Apps');
-      }
-      isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
-      const appsInstalled = installedAppsRes.data;
-      // eslint-disable-next-line no-restricted-syntax
-      for (const installedApp of appsInstalled) {
-        log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed from node as the node have DOS state over 100`);
-        log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
-        // eslint-disable-next-line no-await-in-loop
-        await removeAppLocallyFn(installedApp.name, null, true, false, isNodeConfirmed);
-        log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
-      }
-      await serviceHelper.delay(10 * 60 * 1000); // 10m delay before next check
+    if (fluxNetworkHelper.isNodeDos()) {
+      await removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'DOS state >= 100');
+      await serviceHelper.delay(10 * 60 * 1000);
       return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
     }
-    let error = false;
-    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => { error = true; });
-    fluxEventBus.publish('node:statusChecked', { confirmed: error ? null : !!isNodeConfirmed });
-    if (!isNodeConfirmed && !error) {
-      log.info('monitorNodeStatus - Node is not Confirmed');
-      const installedAppsRes = await installedAppsFn();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('monitorNodeStatus - Failed to get installed Apps');
-      }
-      const appsInstalled = installedAppsRes.data;
-      // eslint-disable-next-line no-restricted-syntax
-      for (const installedApp of appsInstalled) {
-        log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network`);
-        log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
-        // eslint-disable-next-line no-await-in-loop
-        await removeAppLocallyFn(installedApp.name, null, true, false, false);
-        log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
-      }
-      await serviceHelper.delay(config.fluxapps.nodeMonitorIntervalMs ?? 1200000);
+    if (nodeConfirmationService.isDaemonStale()) {
+      await removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'daemon unreachable (backstop)');
+      await serviceHelper.delay(20 * 60 * 1000);
       return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
-    } if (isNodeConfirmed) {
+    }
+    if (!nodeConfirmationService.isConfirmed()) {
+      await removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'node not confirmed');
+      await serviceHelper.delay(20 * 60 * 1000);
+      return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
+    } if (nodeConfirmationService.isConfirmed()) {
       log.info('monitorNodeStatus - Node is Confirmed');
       // lets remove from locations when nodes are no longer confirmed
       const db = dbHelper.databaseConnection();
@@ -139,5 +149,6 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
 }
 
 module.exports = {
+  initialize,
   monitorNodeStatus,
 };

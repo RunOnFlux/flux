@@ -85,6 +85,13 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
+    if (fluxNetworkHelper.isNodeDos()) {
+      log.info('Node is in DOS state. Global applications will not be installed');
+      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
+    }
+
     let isNodeConfirmed = false;
     isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {

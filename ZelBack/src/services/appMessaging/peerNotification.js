@@ -1,7 +1,7 @@
 const os = require('os');
 const config = require('config');
 const dbHelper = require('../dbHelper');
-const generalService = require('../generalService');
+const nodeConfirmationService = require('../nodeConfirmationService');
 const benchmarkService = require('../benchmarkService');
 const geolocationService = require('../geolocationService');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
@@ -32,6 +32,15 @@ function stopBroadcastInterval() {
   }
 }
 
+function initialize() {
+  nodeConfirmationService.onMessageCapabilityChange((capable) => {
+    if (capable && broadcastInterval) {
+      log.info('peerNotification - Message capability regained, triggering immediate broadcast');
+      checkAndNotifyPeersOfRunningApps();
+    }
+  });
+}
+
 async function checkAndNotifyPeersOfRunningApps() {
   if (broadcastInProgress) {
     log.info('Broadcast cycle already in progress, skipping');
@@ -39,9 +48,8 @@ async function checkAndNotifyPeersOfRunningApps() {
   }
   broadcastInProgress = true;
   try {
-    const isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
-    if (!isNodeConfirmed) {
-      log.info('checkAndNotifyPeersOfRunningApps - FluxNode is not Confirmed');
+    if (!nodeConfirmationService.canSendMessages()) {
+      log.info('checkAndNotifyPeersOfRunningApps - Node cannot send messages, skipping broadcast');
       return;
     }
 
@@ -154,6 +162,7 @@ async function checkAndNotifyPeersOfRunningApps() {
 }
 
 module.exports = {
+  initialize,
   checkAndNotifyPeersOfRunningApps,
   stopBroadcastInterval,
 };

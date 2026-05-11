@@ -2,12 +2,13 @@ const fs = require('fs').promises;
 const config = require('config');
 const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
-const generalService = require('../generalService');
 const appHashSyncService = require('./appHashSyncService');
 const peerNotification = require('./peerNotification');
 const registryManager = require('../appDatabase/registryManager');
 const globalState = require('../utils/globalState');
 const peerCodec = require('../utils/peerCodec');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
+const verificationHelper = require('../verificationHelper');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 
 const startupCollection = config.database.local.collections.nodeStartupTracker;
@@ -63,6 +64,7 @@ class AppSyncOrchestrator {
   #fluxVersion = null;
   #heartbeatInterval = null;
   #bootContext = null;
+  #canSendMessages = false;
 
   constructor(options = {}) {
     this.#blockEmitter = options.blockEmitter;
@@ -161,7 +163,7 @@ class AppSyncOrchestrator {
     }
   }
 
-  #requestSyncs() {
+  async #requestSyncs() {
     const eligible = this.#getEligibleSyncPeers(MIN_UPTIME_SECONDS);
     const fresh = eligible.filter((p) => !this.#askedPeers.has(p.key));
 
@@ -181,10 +183,31 @@ class AppSyncOrchestrator {
       this.#markSyncRequested(peer.key);
     }
 
-    this.#sendRequests(peersToAsk, 'temp messages', peerCodec.encodeRequestTempMessages());
-    this.#sendRequests(peersToAsk, 'apprunning', peerCodec.encodeRequestAppRunning(0));
-    this.#sendRequests(peersToAsk, 'appinstalling', peerCodec.encodeRequestAppInstalling(0));
-    this.#sendRequests(peersToAsk, 'apperrors', peerCodec.encodeRequestAppInstallingErrors(0));
+    let pubkey;
+    let requestTs;
+    let signMsg;
+    try {
+      pubkey = await fluxNetworkHelper.getFluxNodePublicKey();
+      const privkey = await fluxNetworkHelper.getFluxNodePrivateKey();
+      requestTs = Date.now();
+      signMsg = (type, sinceTs) => {
+        const msg = peerCodec.buildSyncSignatureMessage(type, sinceTs, requestTs);
+        return verificationHelper.signMessage(msg, privkey);
+      };
+    } catch (error) {
+      log.error(`AppSyncOrchestrator - Failed to sign sync requests: ${error.message}`);
+      return;
+    }
+
+    const tempSig = signMsg(peerCodec.MSG_TYPE.REQUEST_TEMP_MESSAGES, 0);
+    const runningSig = signMsg(peerCodec.MSG_TYPE.REQUEST_APP_RUNNING, 0);
+    const installingSig = signMsg(peerCodec.MSG_TYPE.REQUEST_APP_INSTALLING, 0);
+    const errorsSig = signMsg(peerCodec.MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS, 0);
+
+    this.#sendRequests(peersToAsk, 'temp messages', peerCodec.encodeRequestTempMessages(0, requestTs, pubkey, tempSig));
+    this.#sendRequests(peersToAsk, 'apprunning', peerCodec.encodeRequestAppRunning(0, requestTs, pubkey, runningSig));
+    this.#sendRequests(peersToAsk, 'appinstalling', peerCodec.encodeRequestAppInstalling(0, requestTs, pubkey, installingSig));
+    this.#sendRequests(peersToAsk, 'apperrors', peerCodec.encodeRequestAppInstallingErrors(0, requestTs, pubkey, errorsSig));
 
     if (!this.#syncTimeout && !this.#stateSyncComplete) {
       this.#syncTimeout = setTimeout(() => {
@@ -398,16 +421,28 @@ class AppSyncOrchestrator {
 
     if (!this.#isStateSyncReady()) return;
 
-    const isConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
-    if (!isConfirmed) {
-      log.info('AppSyncOrchestrator - Node not confirmed, waiting');
-      setTimeout(() => this.#checkReadiness(), 60 * 1000);
-      return;
-    }
+    if (!this.#canSendMessages) return;
 
     this.#state = STATES.READY;
     log.info('AppSyncOrchestrator - All readiness conditions met');
     appSyncEvents.emit(EVENTS.SPAWNER_READY);
+  }
+
+  onMessageCapabilityChange(capable) {
+    const prev = this.#canSendMessages;
+    this.#canSendMessages = capable;
+    if (prev === capable) return;
+    if (capable) {
+      log.info('AppSyncOrchestrator - Message capability gained');
+      this.#checkReadiness();
+    } else {
+      log.info('AppSyncOrchestrator - Message capability lost');
+      if (this.#state === STATES.READY) {
+        this.#state = STATES.SYNCING;
+        log.warn('AppSyncOrchestrator - Readiness lost (message capability), pausing spawner');
+        appSyncEvents.emit(EVENTS.READINESS_LOST);
+      }
+    }
   }
 
   #startAppRunningBroadcast() {

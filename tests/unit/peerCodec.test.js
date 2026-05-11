@@ -19,6 +19,8 @@ const {
   encodeRequestAppRunning,
   encodeRequestAppInstalling,
   encodeRequestAppInstallingErrors,
+  decodeSignedSyncRequest,
+  buildSyncSignatureMessage,
   decodeSyncTimestamp,
 } = require('../../ZelBack/src/services/utils/peerCodec');
 
@@ -244,37 +246,48 @@ describe('peerCodec', () => {
   });
 
   describe('sync messages', () => {
-    it('should encode REQUEST_TEMP_MESSAGES with timestamp', () => {
-      const buf = encodeRequestTempMessages(1777626000000);
-      expect(buf.length).to.equal(9);
+    const testPubkey = '04abc123def456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890ab';
+    const testSig = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+    const testRequestTs = 1777626100000;
+
+    it('should encode and decode REQUEST_TEMP_MESSAGES', () => {
+      const buf = encodeRequestTempMessages(1777626000000, testRequestTs, testPubkey, testSig);
       expect(buf[0]).to.equal(MSG_TYPE.REQUEST_TEMP_MESSAGES);
-      expect(decodeSyncTimestamp(buf)).to.equal(1777626000000);
+      const decoded = decodeSignedSyncRequest(buf);
+      expect(decoded.type).to.equal(MSG_TYPE.REQUEST_TEMP_MESSAGES);
+      expect(decoded.sinceTimestamp).to.equal(1777626000000);
+      expect(decoded.requestTimestamp).to.equal(testRequestTs);
+      expect(decoded.pubkey).to.equal(testPubkey);
+      expect(decoded.signature).to.equal(testSig);
     });
 
-    it('should encode REQUEST_APP_RUNNING with timestamp', () => {
-      const buf = encodeRequestAppRunning(1777626000000);
-      expect(buf.length).to.equal(9);
+    it('should encode and decode REQUEST_APP_RUNNING', () => {
+      const buf = encodeRequestAppRunning(1777626000000, testRequestTs, testPubkey, testSig);
       expect(buf[0]).to.equal(MSG_TYPE.REQUEST_APP_RUNNING);
-      expect(decodeSyncTimestamp(buf)).to.equal(1777626000000);
+      const decoded = decodeSignedSyncRequest(buf);
+      expect(decoded.type).to.equal(MSG_TYPE.REQUEST_APP_RUNNING);
+      expect(decoded.sinceTimestamp).to.equal(1777626000000);
     });
 
-    it('should encode REQUEST_APP_INSTALLING with timestamp', () => {
-      const buf = encodeRequestAppInstalling(1777626000000);
-      expect(buf.length).to.equal(9);
+    it('should encode and decode REQUEST_APP_INSTALLING', () => {
+      const buf = encodeRequestAppInstalling(1777626000000, testRequestTs, testPubkey, testSig);
       expect(buf[0]).to.equal(MSG_TYPE.REQUEST_APP_INSTALLING);
-      expect(decodeSyncTimestamp(buf)).to.equal(1777626000000);
+      const decoded = decodeSignedSyncRequest(buf);
+      expect(decoded.type).to.equal(MSG_TYPE.REQUEST_APP_INSTALLING);
+      expect(decoded.sinceTimestamp).to.equal(1777626000000);
     });
 
-    it('should encode REQUEST_APP_INSTALLING_ERRORS with timestamp', () => {
-      const buf = encodeRequestAppInstallingErrors(1777626000000);
-      expect(buf.length).to.equal(9);
+    it('should encode and decode REQUEST_APP_INSTALLING_ERRORS', () => {
+      const buf = encodeRequestAppInstallingErrors(1777626000000, testRequestTs, testPubkey, testSig);
       expect(buf[0]).to.equal(MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS);
-      expect(decodeSyncTimestamp(buf)).to.equal(1777626000000);
+      const decoded = decodeSignedSyncRequest(buf);
+      expect(decoded.type).to.equal(MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS);
+      expect(decoded.sinceTimestamp).to.equal(1777626000000);
     });
 
-    it('should default to timestamp 0', () => {
-      const buf = encodeRequestTempMessages();
-      expect(decodeSyncTimestamp(buf)).to.equal(0);
+    it('should return null for too-short buffer', () => {
+      const buf = Buffer.from([0x20, 0x00]);
+      expect(decodeSignedSyncRequest(buf)).to.equal(null);
     });
 
     it('should handle short buffer in decodeSyncTimestamp', () => {
@@ -284,8 +297,15 @@ describe('peerCodec', () => {
 
     it('should roundtrip large timestamps', () => {
       const ts = Date.now();
-      const buf = encodeRequestAppRunning(ts);
-      expect(decodeSyncTimestamp(buf)).to.equal(ts);
+      const buf = encodeRequestAppRunning(ts, testRequestTs, testPubkey, testSig);
+      const decoded = decodeSignedSyncRequest(buf);
+      expect(decoded.sinceTimestamp).to.equal(ts);
+      expect(decoded.requestTimestamp).to.equal(testRequestTs);
+    });
+
+    it('should build signature message consistently', () => {
+      const msg = buildSyncSignatureMessage(0x21, 1000, 2000);
+      expect(msg).to.equal('3310002000');
     });
   });
 });
