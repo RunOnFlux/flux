@@ -89,6 +89,7 @@ describe('appStartupManager tests', () => {
       '../nodeConfirmationService': {
         isConfirmed: sinon.stub().returns(true),
         waitForConfirmed: sinon.stub().resolves(),
+        waitForConfirmationStatus: sinon.stub().resolves(),
       },
     });
   });

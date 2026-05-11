@@ -302,6 +302,7 @@ async function manageAppsOnBoot(bootContext) {
       throw error;
     }
 
+    await nodeConfirmationService.waitForConfirmationStatus();
     if (!nodeConfirmationService.isConfirmed()) {
       log.info('appStartupManager - Node not confirmed, removing all apps');
       await removeAllApps('Node not confirmed');

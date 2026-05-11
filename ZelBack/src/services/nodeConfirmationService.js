@@ -20,6 +20,7 @@ let started = false;
 let lastSuccessfulPoll = null;
 
 const confirmedGate = new AsyncGate();
+const confirmationStatusGate = new AsyncGate();
 const confirmationListeners = [];
 const daemonStaleListeners = [];
 const messageCapabilityListeners = [];
@@ -38,6 +39,10 @@ function isDaemonStale() {
 
 function waitForConfirmed() {
   return confirmedGate.wait();
+}
+
+function waitForConfirmationStatus() {
+  return confirmationStatusGate.wait();
 }
 
 function onConfirmationChange(callback) {
@@ -161,6 +166,7 @@ async function start() {
   if (started) return;
   started = true;
   await poll();
+  confirmationStatusGate.open();
   scheduleNext();
   log.info(`nodeConfirmationService - Started (confirmed=${daemonConfirmed}, messageCapable=${messageCapable})`);
 }
@@ -170,6 +176,7 @@ module.exports = {
   isDaemonStale,
   canSendMessages,
   waitForConfirmed,
+  waitForConfirmationStatus,
   onConfirmationChange,
   onDaemonStale,
   onMessageCapabilityChange,
