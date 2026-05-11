@@ -170,18 +170,18 @@ describe('globalState tests', () => {
     });
   });
 
-  describe('waitForBootComplete', () => {
-    it('should resolve immediately when bootComplete is already true', async () => {
-      globalState.bootComplete = true;
-      await globalState.waitForBootComplete();
+  describe('waitForBootContainerStateSettled', () => {
+    it('should resolve immediately when bootContainerStateSettled is already true', async () => {
+      globalState.bootContainerStateSettled = true;
+      await globalState.waitForBootContainerStateSettled();
     });
 
-    it('should wait until bootComplete is set to true', async () => {
+    it('should wait until bootContainerStateSettled is set to true', async () => {
       let resolved = false;
-      const promise = globalState.waitForBootComplete().then(() => { resolved = true; });
+      const promise = globalState.waitForBootContainerStateSettled().then(() => { resolved = true; });
       await new Promise((r) => setImmediate(r));
       expect(resolved).to.equal(false);
-      globalState.bootComplete = true;
+      globalState.bootContainerStateSettled = true;
       await promise;
       expect(resolved).to.equal(true);
     });

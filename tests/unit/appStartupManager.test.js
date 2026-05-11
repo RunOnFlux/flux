@@ -54,10 +54,10 @@ describe('appStartupManager tests', () => {
     globalStateStub = {
       dbReady: false,
       daemonReady: false,
-      bootComplete: false,
+      bootContainerStateSettled: false,
       waitForDbReady: sinon.stub().resolves(),
       waitForDaemonReady: sinon.stub().resolves(),
-      waitForBootComplete: sinon.stub().resolves(),
+      waitForBootContainerStateSettled: sinon.stub().resolves(),
       backupInProgress: [],
       restoreInProgress: [],
       appsMonitored: new Map(),
@@ -87,6 +87,7 @@ describe('appStartupManager tests', () => {
       '../utils/appConstants': { localAppsInformation: 'localAppsInformation', SIGTERM_EXPIRY_MS: 420000, RUNNING_EXPIRY_MS: 7500000 },
       '../utils/appUtilities': appUtilities,
       '../nodeConfirmationService': {
+        isConfirmed: sinon.stub().returns(true),
         waitForConfirmed: sinon.stub().resolves(),
       },
     });
@@ -588,19 +589,19 @@ describe('appStartupManager tests', () => {
       expect(logStub.info.calledWithMatch(/First boot/)).to.be.true;
     });
 
-    it('should set bootComplete on every exit path', async () => {
+    it('should set bootContainerStateSettled on every exit path', async () => {
       // FluxOS restart path
-      globalStateStub.bootComplete = false;
+      globalStateStub.bootContainerStateSettled = false;
       await appStartupManager.manageAppsOnBoot({ machineRebooted: false });
-      expect(globalStateStub.bootComplete).to.be.true;
+      expect(globalStateStub.bootContainerStateSettled).to.be.true;
 
       // Expired locations path
-      globalStateStub.bootComplete = false;
+      globalStateStub.bootContainerStateSettled = false;
       appQueryServiceStub.installedApps.resolves({ status: 'success', data: [] });
       await appStartupManager.manageAppsOnBoot({
         machineRebooted: true, downtimeMs: 8000000, cleanShutdown: false,
       });
-      expect(globalStateStub.bootComplete).to.be.true;
+      expect(globalStateStub.bootContainerStateSettled).to.be.true;
     });
   });
 

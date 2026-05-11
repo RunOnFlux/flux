@@ -297,11 +297,21 @@ async function manageAppsOnBoot(bootContext) {
       if (error.message === 'daemon_timeout') {
         log.error(`appStartupManager - Daemon not ready after ${DAEMON_TIMEOUT_MS / 1000}s, removing all apps`);
         await removeAllApps('Daemon unavailable');
-        log.info('appStartupManager - All apps removed, waiting for daemon');
-        await globalState.waitForDaemonReady();
-      } else {
-        throw error;
+        return;
       }
+      throw error;
+    }
+
+    if (!nodeConfirmationService.isConfirmed()) {
+      log.info('appStartupManager - Node not confirmed, removing all apps');
+      await removeAllApps('Node not confirmed');
+      return;
+    }
+
+    if (fluxNetworkHelper.isNodeDos()) {
+      log.error('appStartupManager - Node is in DOS state, removing all apps');
+      await removeAllApps('Node DOS');
+      return;
     }
 
     try {
@@ -313,39 +323,16 @@ async function manageAppsOnBoot(bootContext) {
       if (error.message === 'sync_timeout') {
         log.error(`appStartupManager - DB not ready after ${SYNC_TIMEOUT_MS / 1000}s, removing all apps`);
         await removeAllApps('Sync timeout');
-        log.info('appStartupManager - All apps removed, waiting for sync to complete');
-        await globalState.waitForDbReady();
-      } else {
-        throw error;
-      }
-    }
-
-    const CONFIRM_TIMEOUT_MS = 5 * 60 * 1000;
-    try {
-      await Promise.race([
-        nodeConfirmationService.waitForConfirmed(),
-        new Promise((_, reject) => { setTimeout(() => reject(new Error('confirm_timeout')), CONFIRM_TIMEOUT_MS); }),
-      ]);
-    } catch (error) {
-      if (error.message === 'confirm_timeout') {
-        log.error(`appStartupManager - Node not confirmed after ${CONFIRM_TIMEOUT_MS / 1000}s, removing all apps`);
-        await removeAllApps('Node not confirmed');
         return;
       }
       throw error;
     }
 
-    if (fluxNetworkHelper.isNodeDos()) {
-      log.error('appStartupManager - Node is in DOS state, removing all apps');
-      await removeAllApps('Node DOS');
-      return;
-    }
-
     log.info('appStartupManager - Daemon, DB, and node confirmed, reconciling apps');
     await reconcileAppsOnBoot();
   } finally {
-    globalState.bootComplete = true;
-    log.info('appStartupManager - Boot complete');
+    globalState.bootContainerStateSettled = true;
+    log.info('appStartupManager - Boot container state settled');
   }
 }
 

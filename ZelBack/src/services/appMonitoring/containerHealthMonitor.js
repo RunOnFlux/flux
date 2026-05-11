@@ -94,7 +94,7 @@ async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName) {
 }
 
 async function monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames) {
-  await globalState.waitForBootComplete();
+  await globalState.waitForBootContainerStateSettled();
   const masterSlaveAppsInstalled = [];
   const startedApps = [];
   const installedAppComponentNames = [];
