@@ -27,7 +27,6 @@ class StaticIpContainer extends GenericContainer {
   }
 
   async beforeContainerCreated() {
-    await super.beforeContainerCreated();
     if (this.#staticIp && this.#networkName) {
       this.createOpts.NetworkingConfig = {
         EndpointsConfig: {
