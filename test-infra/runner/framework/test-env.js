@@ -5,6 +5,28 @@ import { fileURLToPath } from 'node:url';
 import { nodeClient } from './node-client.js';
 import { MongoClient } from 'mongodb';
 
+class NodeLogConsumer {
+  #lines = [];
+
+  accept(line) {
+    this.#lines.push(line.content.toString('utf-8').trimEnd());
+  }
+
+  hasLine(pattern) {
+    const regex = pattern instanceof RegExp ? pattern : new RegExp(pattern);
+    return this.#lines.some((line) => regex.test(line));
+  }
+
+  countPattern(pattern) {
+    const regex = pattern instanceof RegExp ? pattern : new RegExp(pattern, 'g');
+    return this.#lines.filter((line) => regex.test(line)).length;
+  }
+
+  getLines() {
+    return [...this.#lines];
+  }
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, '..', '..', 'fixtures');
 const manifest = JSON.parse(readFileSync(join(fixturesDir, 'node-manifest.json'), 'utf-8'));
@@ -174,9 +196,11 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
     const nodeIp = `198.18.${i + 1}.0`;
     const nodeManifest = manifest.nodes[i];
 
+    const logConsumer = new NodeLogConsumer();
     const fluxNode = await new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
+      .withLogConsumer(logConsumer)
       .withEnvironment({
         NODE_CONFIG_DIR: `/flux/test-infra/config/node-${num}`,
         FLUXOS_PATH: '/flux',
@@ -195,7 +219,7 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
       .start();
 
     started.push(fluxNode);
-    fluxNodes.push({ container: fluxNode, ip: nodeIp, num: i + 1 });
+    fluxNodes.push({ container: fluxNode, ip: nodeIp, num: i + 1, logConsumer });
   }
   containers.fluxNodes = fluxNodes;
 
@@ -207,6 +231,18 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
     clients,
     daemonControl: `http://${DAEMON_IP}:18232`,
     mongoUrl: `mongodb://${MONGO_IP}:27017`,
+
+    nodeHasLog(index, pattern) {
+      return fluxNodes[index].logConsumer.hasLine(pattern);
+    },
+
+    nodeLogCount(index, pattern) {
+      return fluxNodes[index].logConsumer.countPattern(pattern);
+    },
+
+    nodeLogLines(index) {
+      return fluxNodes[index].logConsumer.getLines();
+    },
 
     async teardown() {
       for (const n of fluxNodes) {

@@ -3,7 +3,6 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import * as daemon from '../framework/daemon-control.js';
 import { waitForApi } from '../framework/wait.js';
-import { hasLogLine } from '../framework/log-reader.js';
 
 describe('Confirmation state: confirmed boot', function () {
   let env;
@@ -26,13 +25,11 @@ describe('Confirmation state: confirmed boot', function () {
   });
 
   it('should log node is confirmed', async function () {
-    const found = await hasLogLine(1, 'monitorNodeStatus - Node is Confirmed');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'monitorNodeStatus - Node is Confirmed')).to.equal(true);
   });
 
   it('should start peer discovery', async function () {
-    const found = await hasLogLine(1, 'Flux Discovery started');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'Flux Discovery started')).to.equal(true);
   });
 });
 
@@ -43,7 +40,6 @@ describe('Confirmation state: unconfirmed boot', function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1, tickerAutostart: true });
     await daemon.setNodeStatus('198.18.1.0', 'EXPIRED');
-    // Restart the node so it boots into unconfirmed state
     const container = env.containers.fluxNodes[0].container;
     await container.restart();
     await waitForApi(env.clients[0]);
@@ -62,8 +58,7 @@ describe('Confirmation state: unconfirmed boot', function () {
   });
 
   it('should log discovery awaiting', async function () {
-    const found = await hasLogLine(1, 'discovery is awaiting');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'discovery is awaiting')).to.equal(true);
   });
 
   it('should not connect any peers', async function () {
@@ -97,7 +92,6 @@ describe('Confirmation state: runtime loss', function () {
   it('should detect confirmation loss on next monitor cycle', async function () {
     await daemon.setNodeStatus('198.18.1.0', 'EXPIRED');
     await new Promise((r) => setTimeout(r, 15000));
-    const found = await hasLogLine(1, 'not.*[Cc]onfirmed|discovery is awaiting');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'not.*[Cc]onfirmed|discovery is awaiting')).to.equal(true);
   });
 });

@@ -3,7 +3,6 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { waitForApi } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
-import { hasLogLine, countPattern } from '../framework/log-reader.js';
 
 let env;
 
@@ -27,35 +26,29 @@ describe('Boot: prerequisites', function () {
   });
 
   it('should prepare local database collections', async function () {
-    const found = await hasLogLine(1, 'Local database prepared');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'Local database prepared')).to.equal(true);
   });
 
   it('should prepare temporary database', async function () {
-    const found = await hasLogLine(1, 'Temporary database prepared');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'Temporary database prepared')).to.equal(true);
   });
 
   it('should prepare global app collections', async function () {
-    const found = await hasLogLine(1, 'Flux Apps locations prepared');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'Flux Apps locations prepared')).to.equal(true);
   });
 
   it('should wait for daemon RPC before proceeding', async function () {
-    const found = await hasLogLine(1, 'Daemon Sync status');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'Daemon Sync status')).to.equal(true);
   });
 
   it('should report daemon as synced', async function () {
-    const node = env.clients[0];
-    const res = await node.getBlockchainInfo();
+    const res = await env.clients[0].getBlockchainInfo();
     expect(res.status).to.equal('success');
     expect(res.data.blocks).to.be.greaterThan(0);
   });
 
   it('should detect node IP correctly', async function () {
-    const found = await hasLogLine(1, 'Gathered IP 198.18.1.0');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'Gathered IP 198.18.1.0')).to.equal(true);
   });
 
   it('should load geolocation from database', async function () {
@@ -66,22 +59,19 @@ describe('Boot: prerequisites', function () {
   });
 
   it('should start Docker daemon inside container', async function () {
-    const found = await hasLogLine(1, 'dockerd is ready');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'dockerd is ready')).to.equal(true);
   });
 
   it('should initialize app spawner', async function () {
-    const found = await hasLogLine(1, 'App Spawner initialized');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'App Spawner initialized')).to.equal(true);
   });
 
   it('should start Flux Discovery', async function () {
-    const found = await hasLogLine(1, 'Flux Discovery started');
-    expect(found).to.equal(true);
+    expect(env.nodeHasLog(0, 'Flux Discovery started')).to.equal(true);
   });
 
   it('should not log any config-related errors', async function () {
-    const configErrors = await countPattern(1, 'Cannot parse config|Cannot find module.*config');
-    expect(configErrors).to.equal(0);
+    const count = env.nodeLogCount(0, 'Cannot parse config|Cannot find module.*config');
+    expect(count).to.equal(0);
   });
 });

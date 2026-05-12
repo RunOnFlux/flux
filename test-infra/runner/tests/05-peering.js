@@ -2,7 +2,6 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { waitForApi, waitForPeers } from '../framework/wait.js';
-import { hasLogLine } from '../framework/log-reader.js';
 
 let env;
 
@@ -23,13 +22,11 @@ describe('Peering', function () {
 
   describe('discovery', function () {
     it('should wait for daemon sync before discovering', async function () {
-      const found = await hasLogLine(1, 'Daemon Sync status');
-      expect(found).to.equal(true);
+      expect(env.nodeHasLog(0, 'Daemon Sync status')).to.equal(true);
     });
 
     it('should find own IP in deterministic node list', async function () {
-      const found = await hasLogLine(1, 'My node was found on index');
-      expect(found).to.equal(true);
+      expect(env.nodeHasLog(0, 'My node was found on index')).to.equal(true);
     });
 
     it('should have outgoing peers', async function () {

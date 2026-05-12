@@ -5,7 +5,6 @@ import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { waitForApi, waitForExplorerSynced, waitFor } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
-import { hasLogLine } from '../framework/log-reader.js';
 
 let env;
 
@@ -28,10 +27,9 @@ describe('App spawning', function () {
     it('should log spawner checking for installable apps', async function () {
       this.timeout(120000);
       await waitFor(async () => {
-        return hasLogLine(1, 'trySpawningGlobalApplication');
+        return env.nodeHasLog(0, 'trySpawningGlobalApplication');
       }, { timeout: 110000, interval: 10000, label: 'spawner log entry' });
-      const found = await hasLogLine(1, 'trySpawningGlobalApplication');
-      expect(found).to.equal(true);
+      expect(env.nodeHasLog(0, 'trySpawningGlobalApplication')).to.equal(true);
     });
   });
 
@@ -57,8 +55,7 @@ describe('App spawning', function () {
 
   describe('running broadcast', function () {
     it('should broadcast running apps message', async function () {
-      const found = await hasLogLine(1, 'Running Apps.*broadcasted');
-      expect(found).to.equal(true);
+      expect(env.nodeHasLog(0, 'Running Apps.*broadcasted')).to.equal(true);
     });
   });
 });
