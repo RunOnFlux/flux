@@ -99,6 +99,20 @@ async function seedMongo(mongoIp, nodeCount) {
 export async function createTestEnv({ nodes = 1, tickerAutostart = false } = {}) {
   const networkName = await createNetwork();
   const containers = {};
+  const started = [];
+
+  try {
+    return await _buildEnv(networkName, containers, started, nodes, tickerAutostart);
+  } catch (err) {
+    for (const c of started.reverse()) {
+      await c.stop().catch(() => {});
+    }
+    await removeNetwork(networkName);
+    throw err;
+  }
+}
+
+async function _buildEnv(networkName, containers, started, nodes, tickerAutostart) {
 
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
@@ -111,6 +125,7 @@ export async function createTestEnv({ nodes = 1, tickerAutostart = false } = {})
       retries: 10,
     })
     .start();
+  started.push(mongo);
   containers.mongo = mongo;
 
   await seedMongo(MONGO_IP, nodes);
@@ -136,6 +151,7 @@ export async function createTestEnv({ nodes = 1, tickerAutostart = false } = {})
       retries: 10,
     })
     .start();
+  started.push(daemonStub);
   containers.daemonStub = daemonStub;
 
   const syncthingStub = await new StaticIpContainer('flux-e2e-syncthing-stub')
@@ -149,6 +165,7 @@ export async function createTestEnv({ nodes = 1, tickerAutostart = false } = {})
       retries: 10,
     })
     .start();
+  started.push(syncthingStub);
   containers.syncthingStub = syncthingStub;
 
   const fluxNodes = [];
@@ -177,6 +194,7 @@ export async function createTestEnv({ nodes = 1, tickerAutostart = false } = {})
       })
       .start();
 
+    started.push(fluxNode);
     fluxNodes.push({ container: fluxNode, ip: nodeIp, num: i + 1 });
   }
   containers.fluxNodes = fluxNodes;
