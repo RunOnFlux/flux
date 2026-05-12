@@ -63,6 +63,7 @@ w('    environment:');
 w('      FLUXD_PORT: "16124"');
 w('      BENCHD_PORT: "16224"');
 w('      CONTROL_PORT: "18232"');
+w('      TICKER_AUTOSTART: "false"');
 w('    volumes:');
 w('      - ./fixtures:/fixtures');
 w('    healthcheck:');

@@ -330,7 +330,9 @@ benchd.listen(BENCHD_PORT, () => console.log(`Fluxbenchd stub listening on port 
 
 // -- Block ticker --
 const BLOCK_INTERVAL_MS = Number(process.env.BLOCK_INTERVAL_MS) || 5000;
+const TICKER_AUTOSTART = process.env.TICKER_AUTOSTART !== 'false';
 const pendingAppTxQueue = [];
+let tickerHandle = null;
 
 function tickBlock() {
   currentHeight += 1;
@@ -357,8 +359,26 @@ function tickBlock() {
   }
 }
 
-setInterval(tickBlock, BLOCK_INTERVAL_MS);
-console.log(`Block ticker running every ${BLOCK_INTERVAL_MS}ms`);
+function startTicker() {
+  if (tickerHandle) return false;
+  tickerHandle = setInterval(tickBlock, BLOCK_INTERVAL_MS);
+  console.log(`Block ticker started (${BLOCK_INTERVAL_MS}ms interval)`);
+  return true;
+}
+
+function stopTicker() {
+  if (!tickerHandle) return false;
+  clearInterval(tickerHandle);
+  tickerHandle = null;
+  console.log('Block ticker stopped');
+  return true;
+}
+
+if (TICKER_AUTOSTART) {
+  startTicker();
+} else {
+  console.log('Block ticker paused (TICKER_AUTOSTART=false). POST /ticker/start to begin.');
+}
 
 // -- Test harness control API --
 const control = express();
@@ -371,7 +391,18 @@ control.get('/state', (req, res) => {
     pendingBlocks: pendingBlocks.length,
     pendingAppTxQueue: pendingAppTxQueue.length,
     blockIntervalMs: BLOCK_INTERVAL_MS,
+    tickerRunning: tickerHandle !== null,
   });
+});
+
+control.post('/ticker/start', (req, res) => {
+  const started = startTicker();
+  res.json({ tickerRunning: true, started });
+});
+
+control.post('/ticker/stop', (req, res) => {
+  const stopped = stopTicker();
+  res.json({ tickerRunning: false, stopped });
 });
 
 function buildAppRegistrationTx(appHash, height) {

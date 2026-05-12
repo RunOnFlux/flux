@@ -71,6 +71,7 @@ services:
       FLUXD_PORT: "16124"
       BENCHD_PORT: "16224"
       CONTROL_PORT: "18232"
+      TICKER_AUTOSTART: "false"
     volumes:
       - ./fixtures:/fixtures
     healthcheck:
