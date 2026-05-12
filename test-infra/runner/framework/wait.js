@@ -36,3 +36,9 @@ export async function waitForApi(node, timeout = 60000) {
     }
   }, { timeout, interval: 1000, label: `${node.ip} API ready` });
 }
+
+export async function waitForBoot(env, index, timeout = 60000) {
+  return waitFor(() => {
+    return env.nodeHasLog(index, 'Flux Discovery started');
+  }, { timeout, interval: 1000, label: `node ${index} boot complete` });
+}

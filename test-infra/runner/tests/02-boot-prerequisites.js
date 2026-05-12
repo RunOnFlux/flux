@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { waitForApi } from '../framework/wait.js';
+import { waitForApi, waitForBoot } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 
 let env;
@@ -11,6 +11,7 @@ describe('Boot: prerequisites', function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1, tickerAutostart: true });
     await waitForApi(env.clients[0]);
+    await waitForBoot(env, 0);
   });
 
   after(async function () {
@@ -73,13 +74,5 @@ describe('Boot: prerequisites', function () {
   it('should not log any config-related errors', async function () {
     const count = env.nodeLogCount(0, 'Cannot parse config|Cannot find module.*config');
     expect(count).to.equal(0);
-  });
-
-  it('[debug] should have captured log lines', async function () {
-    const lines = env.nodeLogLines(0);
-    console.log(`Total captured lines: ${lines.length}`);
-    console.log('First 10 lines:', lines.slice(0, 10));
-    console.log('Lines containing "prepared":', lines.filter(l => l.includes('prepared')));
-    expect(lines.length).to.be.greaterThan(0);
   });
 });

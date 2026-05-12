@@ -1,3 +1,6 @@
+// Node.js v17+ resolves localhost to ::1 (IPv6) but Docker binds ports to 0.0.0.0 (IPv4).
+// Without this, testcontainers can't connect to the Ryuk reaper and cleanup never runs.
+// See: https://github.com/testcontainers/testcontainers-node/issues/772
 process.env.TESTCONTAINERS_HOST_OVERRIDE ??= '127.0.0.1';
 
 import { GenericContainer, Network, Wait, getContainerRuntimeClient } from 'testcontainers';
@@ -18,6 +21,9 @@ function createLogCollector() {
         if (trimmed) lines.push(trimmed);
       }
     });
+    stream.on('end', () => lines.push('[LOG_STREAM_ENDED]'));
+    stream.on('error', (err) => lines.push(`[LOG_STREAM_ERROR: ${err.message}]`));
+    stream.on('close', () => lines.push('[LOG_STREAM_CLOSED]'));
   }
 
   consumer.hasLine = (pattern) => {
