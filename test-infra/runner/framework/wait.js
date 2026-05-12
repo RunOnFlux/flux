@@ -14,10 +14,15 @@ export async function waitForPeers(node, minCount, timeout = 60000) {
   }, { timeout, label: `${node.ip} to have ${minCount}+ peers` });
 }
 
-export async function waitForExplorerSynced(node, timeout = 120000) {
+export async function waitForExplorerSynced(node, timeout = 50000) {
+  const { getState } = await import('./daemon-control.js');
   return waitFor(async () => {
-    const res = await node.isExplorerSynced();
-    return res.status === 'success' && res.data === true;
+    const [explorer, daemon] = await Promise.all([
+      node.getExplorerHeight(),
+      getState(),
+    ]);
+    const explorerHeight = explorer?.data?.generalScannedHeight ?? 0;
+    return explorerHeight > 0 && daemon.currentHeight - explorerHeight <= 2;
   }, { timeout, label: `${node.ip} explorer synced` });
 }
 
