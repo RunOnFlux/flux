@@ -1,5 +1,5 @@
 {
-  "timeout": 120000,
-  "slow": 10000,
+  "timeout": 60000,
+  "slow": 5000,
   "spec": "tests/**/*.js"
 }
