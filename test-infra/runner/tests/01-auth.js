@@ -112,14 +112,14 @@ describe('Privilege enforcement', function () {
     });
   });
 
-  describe('admin endpoints (adminandfluxteam)', function () {
+  describe('admin endpoints', function () {
     it('node admin can access admin endpoints', async function () {
-      const res = await node.get(`/flux/adjustcruxid/test123?zelidauth=${encodeURIComponent(nodeAdminAuth.zelidauth)}`);
-      expect(res.status).to.not.equal('error');
+      const res = await node.get(`/flux/adjustkadena/testaccount/5?zelidauth=${encodeURIComponent(nodeAdminAuth.zelidauth)}`);
+      expect(res.status).to.equal('success');
     });
 
     it('regular user cannot access admin endpoints', async function () {
-      const res = await node.get(`/flux/adjustcruxid/test123?zelidauth=${encodeURIComponent(userAuth.zelidauth)}`);
+      const res = await node.get(`/flux/adjustkadena/testaccount/5?zelidauth=${encodeURIComponent(userAuth.zelidauth)}`);
       expect(res.status).to.equal('error');
     });
   });

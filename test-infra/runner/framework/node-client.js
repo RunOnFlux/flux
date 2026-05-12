@@ -8,9 +8,10 @@ export function nodeClient(nodeNum) {
   }
 
   async function post(path, body, headers = {}) {
+    const contentType = headers['Content-Type'] ?? 'application/json';
     const res = await fetch(`${url}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...headers },
+      headers: { 'Content-Type': contentType, ...headers },
       body: JSON.stringify(body),
     });
     return res.json();
@@ -39,7 +40,7 @@ export function nodeClient(nodeNum) {
     getInstalledApps: () => get('/apps/installedapps'),
     getRunningApps: () => get('/apps/runningapps'),
     getLoginPhrase: () => get('/id/loginphrase'),
-    verifyLogin: (body) => post('/id/verifylogin', body),
+    verifyLogin: (body) => post('/id/verifylogin', body, { 'Content-Type': 'text/plain' }),
   };
 }
 
