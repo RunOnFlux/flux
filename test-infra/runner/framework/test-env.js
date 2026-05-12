@@ -1,3 +1,5 @@
+process.env.TESTCONTAINERS_HOST_OVERRIDE ??= '127.0.0.1';
+
 import { GenericContainer, Network, Wait, getContainerRuntimeClient } from 'testcontainers';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
