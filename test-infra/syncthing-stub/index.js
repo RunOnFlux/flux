@@ -27,7 +27,7 @@ devices.set(DEVICE_ID, {
 
 app.get('/meta.js', (req, res) => {
   res.type('application/javascript');
-  res.send(`var metadata = {"deviceID":"${DEVICE_ID}"};`);
+  res.send(`var metadata = {"deviceID":"${DEVICE_ID}"};\n`);
 });
 
 app.get('/rest/noauth/health', (req, res) => {
