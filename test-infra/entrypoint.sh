@@ -36,6 +36,7 @@ if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
 fi
 
 # Start dockerd (FluxOS expects Docker on the local socket)
+rm -f /var/run/docker.pid
 dockerd &
 DOCKERD_PID=$!
 
