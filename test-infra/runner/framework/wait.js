@@ -21,8 +21,12 @@ export async function waitForExplorerSynced(node, timeout = 120000) {
   }, { timeout, label: `${node.ip} explorer synced` });
 }
 
-export async function waitForApi(node, timeout = 120000) {
+export async function waitForApi(node, timeout = 60000) {
+  const { isContainerRunning } = await import('./container.js');
+  const nodeNum = node.num;
   return waitFor(async () => {
+    const running = await isContainerRunning(nodeNum);
+    if (!running) throw new Error(`Container for node ${nodeNum} is not running`);
     try {
       const res = await node.getVersion();
       return res.status === 'success';

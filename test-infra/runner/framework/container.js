@@ -9,10 +9,24 @@ function containerName(nodeNum) {
 
 export async function restartContainer(nodeNum) {
   const num = String(nodeNum).padStart(2, '0');
+  const name = containerName(nodeNum);
   await execFileAsync('docker', [
     'compose', '-f', '/home/fluxadm/flux-e2e/test-infra/docker-compose.yml',
     'up', '-d', '--force-recreate', `fluxos-${num}`,
   ], { timeout: 120000 });
+  const start = Date.now();
+  while (Date.now() - start < 30000) {
+    const running = await isContainerRunning(nodeNum);
+    if (!running) {
+      const { stdout } = await execFileAsync('docker', ['inspect', '--format', '{{.State.ExitCode}}', name]);
+      if (stdout.trim() !== '0') {
+        throw new Error(`Container ${name} exited with code ${stdout.trim()}`);
+      }
+    }
+    if (running) return;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error(`Container ${name} not running after 30s`);
 }
 
 export async function stopContainer(nodeNum) {
