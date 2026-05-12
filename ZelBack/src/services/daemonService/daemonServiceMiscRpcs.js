@@ -1,3 +1,4 @@
+const config = require('config');
 const messageHelper = require('../messageHelper');
 const daemonServiceUtils = require('./daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
@@ -103,7 +104,7 @@ function daemonBlockchainInfoService() {
   fluxDaemonBlockchainInfo();
   setInterval(() => {
     fluxDaemonBlockchainInfo();
-  }, 30 * 1000);
+  }, config.fluxapps.daemonInfoIntervalMs ?? 30000);
 }
 
 function getIsDaemonInsightExplorer() {

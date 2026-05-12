@@ -281,6 +281,7 @@ module.exports = {
     discoveryFailRetryMs: 120000,
     nodeMonitorIntervalMs: 1200000,
     spawnDelayMultiplier: 1,
+    daemonInfoIntervalMs: 30000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
