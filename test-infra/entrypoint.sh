@@ -11,6 +11,13 @@ mkdir -p /dat/var/lib/fluxd \
 
 cp /flux/test-infra/fixtures/syncthing-config.xml /dat/usr/lib/syncthing/config.xml 2>/dev/null || true
 
+# Overlay test config into ZelBack/config/ so app.js loads it naturally.
+# app.js hardcodes NODE_CONFIG_DIR to ZelBack/config/ (cannot be overridden
+# from env — fluxbenchd hashes that directory for tamper detection).
+if [ -n "$NODE_CONFIG_DIR" ] && [ -d "$NODE_CONFIG_DIR" ]; then
+  cp "$NODE_CONFIG_DIR"/* /flux/ZelBack/config/
+fi
+
 # Syncthing listens on apiport+2 in production. The availability checker
 # tests this port. Forward it to the syncthing stub's API port.
 SYNCTHING_LISTEN_PORT=$((${FLUX_API_PORT:-16127} + 2))
