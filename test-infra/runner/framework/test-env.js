@@ -77,10 +77,13 @@ class StaticIpContainer extends GenericContainer {
 
 async function createNetwork() {
   const client = await getContainerRuntimeClient();
+  const { getReaper } = await import('testcontainers');
+  const reaper = await getReaper(client);
   const networkName = `flux-test-${Date.now()}`;
   await client.container.dockerode.createNetwork({
     Name: networkName,
     Driver: 'bridge',
+    Labels: { 'org.testcontainers.session-id': reaper.sessionId },
     IPAM: {
       Driver: 'default',
       Config: [{ Subnet: SUBNET, Gateway: GATEWAY }],
