@@ -270,6 +270,8 @@ module.exports = {
     nodeMonitorIntervalMs: 1200000,
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,
+    explorerSyncRetryMs: 120000,
+    explorerDeepRestoreBlocks: 100,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

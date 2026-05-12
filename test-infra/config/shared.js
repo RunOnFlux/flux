@@ -32,6 +32,8 @@ module.exports = {
     nodeMonitorIntervalMs: 10000,
     spawnDelayMultiplier: 0.01,
     daemonInfoIntervalMs: 5000,
+    explorerSyncRetryMs: 5000,
+    explorerDeepRestoreBlocks: 0,
     installation: { probability: 100, delay: 5 },
     removal: { probability: 25, delay: 5 },
     redeploy: { probability: 2, delay: 5, composedDelay: 2 },

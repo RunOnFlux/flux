@@ -842,7 +842,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     if (!syncStatus.data.synced) {
       setTimeout(() => {
         initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRescanGlobalApps);
-      }, 2 * 60 * 1000);
+      }, config.fluxapps.explorerSyncRetryMs ?? 120000);
       return;
     }
     if (isInInitiationOfBP) {
@@ -975,7 +975,8 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           // adjust for initial reorg
           if (deepRestore === true) {
             log.info('Deep restoring of database...');
-            scannedBlockHeight = Math.max(scannedBlockHeight - 100, 0);
+            const deepRestoreBlocks = config.fluxapps.explorerDeepRestoreBlocks ?? 100;
+            scannedBlockHeight = Math.max(scannedBlockHeight - deepRestoreBlocks, 0);
             await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
             const queryHeight = { generalScannedHeight: { $gte: 0 } };
             const update = { $set: { generalScannedHeight: scannedBlockHeight } };
