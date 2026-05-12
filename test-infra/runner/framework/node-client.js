@@ -7,6 +7,11 @@ export function nodeClient(nodeNum) {
     return res.json();
   }
 
+  async function getAuthed(path, zelidauth) {
+    const res = await fetch(`${url}${path}`, { headers: { zelidauth } });
+    return res.json();
+  }
+
   async function post(path, body, headers = {}) {
     const contentType = headers['Content-Type'] ?? 'application/json';
     const res = await fetch(`${url}${path}`, {
@@ -22,6 +27,7 @@ export function nodeClient(nodeNum) {
     url,
     num: nodeNum,
     get,
+    getAuthed,
     post,
     getVersion: () => get('/flux/version'),
     getPeers: () => get('/flux/connectedpeers'),
