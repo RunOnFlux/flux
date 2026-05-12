@@ -1,0 +1,137 @@
+import { MongoClient } from 'mongodb';
+
+const MONGO_URL = process.env.MONGO_URL || 'mongodb://198.18.0.2:27017';
+
+let sharedClient = null;
+
+async function getClient() {
+  if (!sharedClient) {
+    sharedClient = new MongoClient(MONGO_URL);
+    await sharedClient.connect();
+  }
+  return sharedClient;
+}
+
+export async function closeDb() {
+  if (sharedClient) {
+    await sharedClient.close();
+    sharedClient = null;
+  }
+}
+
+export function dbClient(nodeNum) {
+  const prefix = `node${String(nodeNum).padStart(2, '0')}_`;
+
+  const dbNames = {
+    local: `${prefix}zelfluxlocal`,
+    explorer: `${prefix}zelcashdata`,
+    appsLocal: `${prefix}localzelapps`,
+    appsGlobal: `${prefix}globalzelapps`,
+    chainparams: `${prefix}chainparams`,
+  };
+
+  async function db(name) {
+    const client = await getClient();
+    return client.db(dbNames[name]);
+  }
+
+  return {
+    prefix,
+    dbNames,
+
+    async hashCounts() {
+      const explorerDb = await db('explorer');
+      const col = explorerDb.collection('zelappshashes');
+      const [total, resolved, missing, notFound] = await Promise.all([
+        col.countDocuments({}),
+        col.countDocuments({ message: true }),
+        col.countDocuments({ message: false, messageNotFound: { $ne: true } }),
+        col.countDocuments({ messageNotFound: true }),
+      ]);
+      return { total, resolved, missing, notFound };
+    },
+
+    async explorerHeight() {
+      const explorerDb = await db('explorer');
+      const doc = await explorerDb.collection('scannedheight').findOne({});
+      return doc?.generalScannedHeight ?? 0;
+    },
+
+    async permanentMessageCount() {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsmessages').countDocuments({});
+    },
+
+    async appSpecCount() {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappsinformation').countDocuments({});
+    },
+
+    async tempMessageCount() {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappstemporarymessages').countDocuments({});
+    },
+
+    async locationCount() {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappslocation').countDocuments({});
+    },
+
+    async installingCount() {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('appsinstallinglocations').countDocuments({});
+    },
+
+    async installingErrorCount() {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('appsInstallingErrorsLocations').countDocuments({});
+    },
+
+    async localAppCount() {
+      const localDb = await db('appsLocal');
+      return localDb.collection('zelappsinformation').countDocuments({});
+    },
+
+    async eventCounts() {
+      const globalDb = await db('appsGlobal');
+      const col = globalDb.collection('appstateevents');
+      const hasCollection = await globalDb.listCollections({ name: 'appstateevents' }).hasNext();
+      if (!hasCollection) return { total: 0 };
+      const total = await col.countDocuments({});
+      return { total };
+    },
+
+    async geolocation() {
+      const localDb = await db('local');
+      return localDb.collection('geolocation').findOne({ _id: 'nodeGeolocation' });
+    },
+
+    async clearExplorer() {
+      const explorerDb = await db('explorer');
+      const collections = await explorerDb.listCollections().toArray();
+      for (const col of collections) {
+        if (col.name !== 'scannedheight') {
+          await explorerDb.collection(col.name).deleteMany({});
+        }
+      }
+    },
+
+    async clearAppsGlobal() {
+      const globalDb = await db('appsGlobal');
+      const collections = await globalDb.listCollections().toArray();
+      for (const col of collections) {
+        await globalDb.collection(col.name).deleteMany({});
+      }
+    },
+
+    async clearAll() {
+      await this.clearExplorer();
+      await this.clearAppsGlobal();
+      const localDb = await db('appsLocal');
+      const localCols = await localDb.listCollections().toArray();
+      for (const col of localCols) {
+        await localDb.collection(col.name).deleteMany({});
+      }
+    },
+  };
+}
