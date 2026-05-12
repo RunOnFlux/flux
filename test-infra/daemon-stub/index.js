@@ -11,14 +11,19 @@ const CONTROL_PORT = Number(process.env.CONTROL_PORT) || 18232;
 
 let currentHeight = Number(process.env.INITIAL_HEIGHT) || 2100000;
 let deterministicNodeList = [];
+let originalNodeList = [];
 let pendingBlocks = [];
+
+const nodeStatusOverrides = new Map();
+const rpcFailures = new Map();
 
 const fixturesDir = process.env.FIXTURES_DIR || path.join(__dirname, '..', 'fixtures');
 
 try {
   const listPath = path.join(fixturesDir, 'deterministic-list.json');
   if (fs.existsSync(listPath)) {
-    deterministicNodeList = JSON.parse(fs.readFileSync(listPath, 'utf-8'));
+    originalNodeList = JSON.parse(fs.readFileSync(listPath, 'utf-8'));
+    deterministicNodeList = [...originalNodeList];
   }
 } catch (e) {
   console.error('Failed to load deterministic list:', e.message);
@@ -132,8 +137,10 @@ const rpcHandlers = {
 
   getzelnodestatus: (params, sourceIp) => {
     const node = nodeBySourceIp(sourceIp);
+    const clean = sourceIp.replace('::ffff:', '');
+    const override = nodeStatusOverrides.get(clean);
     return {
-      status: 'CONFIRMED',
+      status: override?.status ?? 'CONFIRMED',
       collateral: node ? node.collateral : 'COutPoint(0000000000000000000000000000000000000000000000000000000000000000, 0)',
       txhash: node ? node.txhash : '0000000000000000000000000000000000000000000000000000000000000000',
       outidx: node ? node.outidx : '0',
@@ -294,9 +301,14 @@ const benchHandlers = {
 function handleRpc(handlers, req, res) {
   const { method, params, id } = req.body;
   const sourceIp = req.ip;
+  const cleanIp = sourceIp.replace('::ffff:', '');
 
   if (!method) {
     return res.status(400).json({ result: null, error: { code: -32600, message: 'Missing method' }, id });
+  }
+
+  if (rpcFailures.has(cleanIp)) {
+    return res.json({ result: null, error: { code: -28, message: 'Loading block index...' }, id });
   }
 
   const lowerMethod = method.toLowerCase();
@@ -392,6 +404,8 @@ control.get('/state', (req, res) => {
     pendingAppTxQueue: pendingAppTxQueue.length,
     blockIntervalMs: BLOCK_INTERVAL_MS,
     tickerRunning: tickerHandle !== null,
+    statusOverrides: nodeStatusOverrides.size,
+    rpcFailures: rpcFailures.size,
   });
 });
 
@@ -482,6 +496,96 @@ control.post('/add-block-fixture', (req, res) => {
 control.delete('/pending-blocks', (req, res) => {
   pendingBlocks = [];
   res.json({ cleared: true });
+});
+
+// -- Per-node status overrides --
+
+control.post('/node-status/:ip', (req, res) => {
+  const { status } = req.body;
+  if (!status) return res.status(400).json({ error: 'status required' });
+  nodeStatusOverrides.set(req.params.ip, { status });
+  return res.json({ ip: req.params.ip, status });
+});
+
+control.delete('/node-status/:ip', (req, res) => {
+  nodeStatusOverrides.delete(req.params.ip);
+  res.json({ ip: req.params.ip, cleared: true });
+});
+
+control.post('/node-status/all', (req, res) => {
+  const { status } = req.body;
+  if (!status) return res.status(400).json({ error: 'status required' });
+  for (const node of deterministicNodeList) {
+    nodeStatusOverrides.set(node.ip.split(':')[0], { status });
+  }
+  res.json({ status, count: deterministicNodeList.length });
+});
+
+control.delete('/node-status/all', (req, res) => {
+  nodeStatusOverrides.clear();
+  res.json({ cleared: true });
+});
+
+control.get('/node-status', (req, res) => {
+  res.json(Object.fromEntries(nodeStatusOverrides));
+});
+
+// -- Deterministic list manipulation --
+
+control.post('/node-list/remove/:ip', (req, res) => {
+  const ip = req.params.ip;
+  const before = deterministicNodeList.length;
+  deterministicNodeList = deterministicNodeList.filter((n) => n.ip.split(':')[0] !== ip);
+  res.json({ ip, removed: deterministicNodeList.length < before, nodeCount: deterministicNodeList.length });
+});
+
+control.post('/node-list/restore/:ip', (req, res) => {
+  const ip = req.params.ip;
+  const original = originalNodeList.find((n) => n.ip.split(':')[0] === ip);
+  if (!original) return res.status(404).json({ error: `${ip} not in original list` });
+  const exists = deterministicNodeList.some((n) => n.ip.split(':')[0] === ip);
+  if (!exists) deterministicNodeList.push(original);
+  return res.json({ ip, restored: !exists, nodeCount: deterministicNodeList.length });
+});
+
+control.post('/node-list/reset', (req, res) => {
+  deterministicNodeList = [...originalNodeList];
+  res.json({ nodeCount: deterministicNodeList.length });
+});
+
+// -- RPC failure simulation --
+
+control.post('/rpc-fail/:ip', (req, res) => {
+  rpcFailures.set(req.params.ip, true);
+  res.json({ ip: req.params.ip, rpcFailing: true });
+});
+
+control.delete('/rpc-fail/:ip', (req, res) => {
+  rpcFailures.delete(req.params.ip);
+  res.json({ ip: req.params.ip, rpcFailing: false });
+});
+
+control.post('/rpc-fail/all', (req, res) => {
+  for (const node of deterministicNodeList) {
+    rpcFailures.set(node.ip.split(':')[0], true);
+  }
+  res.json({ rpcFailing: true, count: deterministicNodeList.length });
+});
+
+control.delete('/rpc-fail/all', (req, res) => {
+  rpcFailures.clear();
+  res.json({ rpcFailing: false, cleared: true });
+});
+
+// -- Reset all overrides --
+
+control.post('/reset', (req, res) => {
+  nodeStatusOverrides.clear();
+  rpcFailures.clear();
+  deterministicNodeList = [...originalNodeList];
+  pendingBlocks = [];
+  pendingAppTxQueue.length = 0;
+  res.json({ reset: true, nodeCount: deterministicNodeList.length });
 });
 
 control.listen(CONTROL_PORT, () => console.log(`Control API listening on port ${CONTROL_PORT}`));

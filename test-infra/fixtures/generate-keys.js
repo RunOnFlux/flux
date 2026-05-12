@@ -79,7 +79,11 @@ for (let i = 0; i < NODE_COUNT; i++) {
 }
 
 const appOwner = generateKeypair('app-owner');
+const fluxTeam = generateKeypair('flux-team');
+const user = generateKeypair('user');
 writeFileSync(join(keysDir, 'app-owner.json'), JSON.stringify(appOwner, null, 2) + '\n');
+writeFileSync(join(keysDir, 'flux-team.json'), JSON.stringify(fluxTeam, null, 2) + '\n');
+writeFileSync(join(keysDir, 'user.json'), JSON.stringify(user, null, 2) + '\n');
 
 const deterministicList = nodes.map((n) => ({
   collateral: `COutPoint(${n.txhash}, ${n.outidx})`,
@@ -117,7 +121,12 @@ const nodeManifest = nodes.map((n) => ({
 
 writeFileSync(
   join(__dirname, 'node-manifest.json'),
-  JSON.stringify({ nodes: nodeManifest, appOwner: { zelid: appOwner.zelid } }, null, 2) + '\n',
+  JSON.stringify({
+    nodes: nodeManifest,
+    appOwner: { zelid: appOwner.zelid },
+    fluxTeam: { zelid: fluxTeam.zelid },
+    user: { zelid: user.zelid },
+  }, null, 2) + '\n',
 );
 
 // Per-node flux.conf files

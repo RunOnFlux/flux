@@ -1,5 +1,6 @@
 module.exports = {
   logConsole: true,
+  fluxTeamFluxID: '19J4Ef396goaQhrqgNLTFvtCXYqjFAx2Js',
   daemon: { host: '198.18.0.3' },
   benchmark: { host: '198.18.0.3' },
   upnp: { gatewayUrl: '', nodeIp: '' },

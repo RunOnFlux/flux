@@ -322,6 +322,9 @@ module.exports = (app) => {
   app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getDOSState(req, res);
   });
+  app.post('/flux/dosstate', (req, res) => {
+    fluxNetworkHelper.setDOSStateApi(req, res);
+  });
   // New peer endpoints
   app.get('/flux/peers/:filter?', cache('30 seconds'), (req, res) => {
     fluxCommunication.getPeers(req, res);
