@@ -53,9 +53,11 @@ describe('Ticker and block control', function () {
   });
 
   it('should set height directly', async function () {
-    await daemon.setHeight(5000000);
+    const before = await daemon.getState();
+    const target = before.currentHeight + 100;
+    await daemon.setHeight(target);
     const state = await daemon.getState();
-    expect(state.currentHeight).to.equal(5000000);
+    expect(state.currentHeight).to.equal(target);
   });
 
   it('should reset height and overrides on full reset', async function () {
