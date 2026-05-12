@@ -593,9 +593,7 @@ control.post('/reset', (req, res) => {
   deterministicNodeList = [...originalNodeList];
   pendingBlocks = [];
   pendingAppTxQueue.length = 0;
-  currentHeight = Number(process.env.INITIAL_HEIGHT) || 2100000;
-  stopTicker();
-  res.json({ reset: true, nodeCount: deterministicNodeList.length, currentHeight });
+  res.json({ reset: true, nodeCount: deterministicNodeList.length });
 });
 
 control.listen(CONTROL_PORT, () => console.log(`Control API listening on port ${CONTROL_PORT}`));

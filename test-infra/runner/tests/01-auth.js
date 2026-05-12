@@ -1,15 +1,24 @@
-import { describe, it, before } from 'mocha';
+import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { authenticate, signBtcMessage } from '../auth.js';
-import { nodeClient } from '../framework/node-client.js';
 import { nodeKey, appOwnerKey, fluxTeamKey, userKey } from '../framework/keys.js';
+import { createTestEnv } from '../framework/test-env.js';
 import { waitForApi } from '../framework/wait.js';
 
-const node = nodeClient(1);
+let env;
+let node;
 
 describe('Authentication', function () {
   before(async function () {
+    this.timeout(120000);
+    env = await createTestEnv({ nodes: 1 });
+    node = env.clients[0];
     await waitForApi(node);
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
   });
 
   it('should authenticate as node admin', async function () {
@@ -75,11 +84,21 @@ describe('Privilege enforcement', function () {
   let userAuth;
 
   before(async function () {
-    await waitForApi(node);
+    this.timeout(120000);
+    if (!env) {
+      env = await createTestEnv({ nodes: 1 });
+      node = env.clients[0];
+      await waitForApi(node);
+    }
     fluxTeamAuth = await authenticate(node.url, fluxTeamKey());
     nodeAdminAuth = await authenticate(node.url, nodeKey(1));
     appOwnerAuth = await authenticate(node.url, appOwnerKey());
     userAuth = await authenticate(node.url, userKey());
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
   });
 
   describe('POST /flux/dosstate (fluxteam only)', function () {
