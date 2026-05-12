@@ -5,26 +5,32 @@ import { fileURLToPath } from 'node:url';
 import { nodeClient } from './node-client.js';
 import { MongoClient } from 'mongodb';
 
-class NodeLogConsumer {
-  #lines = [];
+function createLogCollector() {
+  const lines = [];
 
-  accept(line) {
-    this.#lines.push(line.content.toString('utf-8').trimEnd());
+  function consumer(stream) {
+    stream.on('data', (data) => {
+      const text = typeof data === 'string' ? data : data.toString('utf-8');
+      for (const line of text.split('\n')) {
+        const trimmed = line.trimEnd();
+        if (trimmed) lines.push(trimmed);
+      }
+    });
   }
 
-  hasLine(pattern) {
+  consumer.hasLine = (pattern) => {
     const regex = pattern instanceof RegExp ? pattern : new RegExp(pattern);
-    return this.#lines.some((line) => regex.test(line));
-  }
+    return lines.some((line) => regex.test(line));
+  };
 
-  countPattern(pattern) {
+  consumer.countPattern = (pattern) => {
     const regex = pattern instanceof RegExp ? pattern : new RegExp(pattern, 'g');
-    return this.#lines.filter((line) => regex.test(line)).length;
-  }
+    return lines.filter((line) => regex.test(line)).length;
+  };
 
-  getLines() {
-    return [...this.#lines];
-  }
+  consumer.getLines = () => [...lines];
+
+  return consumer;
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -196,11 +202,11 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
     const nodeIp = `198.18.${i + 1}.0`;
     const nodeManifest = manifest.nodes[i];
 
-    const logConsumer = new NodeLogConsumer();
+    const logCollector = createLogCollector();
     const fluxNode = await new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
-      .withLogConsumer(logConsumer)
+      .withLogConsumer(logCollector)
       .withEnvironment({
         NODE_CONFIG_DIR: `/flux/test-infra/config/node-${num}`,
         FLUXOS_PATH: '/flux',
@@ -219,7 +225,7 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
       .start();
 
     started.push(fluxNode);
-    fluxNodes.push({ container: fluxNode, ip: nodeIp, num: i + 1, logConsumer });
+    fluxNodes.push({ container: fluxNode, ip: nodeIp, num: i + 1, logCollector });
   }
   containers.fluxNodes = fluxNodes;
 
@@ -233,15 +239,15 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
     mongoUrl: `mongodb://${MONGO_IP}:27017`,
 
     nodeHasLog(index, pattern) {
-      return fluxNodes[index].logConsumer.hasLine(pattern);
+      return fluxNodes[index].logCollector.hasLine(pattern);
     },
 
     nodeLogCount(index, pattern) {
-      return fluxNodes[index].logConsumer.countPattern(pattern);
+      return fluxNodes[index].logCollector.countPattern(pattern);
     },
 
     nodeLogLines(index) {
-      return fluxNodes[index].logConsumer.getLines();
+      return fluxNodes[index].logCollector.getLines();
     },
 
     async teardown() {
