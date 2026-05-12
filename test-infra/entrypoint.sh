@@ -16,6 +16,7 @@ cp /flux/test-infra/fixtures/syncthing-config.xml /dat/usr/lib/syncthing/config.
 # from env — fluxbenchd hashes that directory for tamper detection).
 if [ -n "$NODE_CONFIG_DIR" ] && [ -d "$NODE_CONFIG_DIR" ]; then
   cp "$NODE_CONFIG_DIR"/* /flux/ZelBack/config/
+  cp "$(dirname "$NODE_CONFIG_DIR")/shared.js" /flux/ZelBack/ 2>/dev/null || true
 fi
 
 # Syncthing listens on apiport+2 in production. The availability checker
