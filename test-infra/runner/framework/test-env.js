@@ -2,6 +2,7 @@
 // Without this, testcontainers can't connect to the Ryuk reaper and cleanup never runs.
 // See: https://github.com/testcontainers/testcontainers-node/issues/772
 process.env.TESTCONTAINERS_HOST_OVERRIDE ??= '127.0.0.1';
+process.env.TESTCONTAINERS_RYUK_RECONNECTION_TIMEOUT ??= '5s';
 
 import { GenericContainer, Network, Wait, getContainerRuntimeClient } from 'testcontainers';
 import { readFileSync } from 'node:fs';
