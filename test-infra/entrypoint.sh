@@ -15,7 +15,7 @@ cp /flux/test-infra/fixtures/syncthing-config.xml /dat/usr/lib/syncthing/config.
 # app.js hardcodes NODE_CONFIG_DIR to ZelBack/config/ (cannot be overridden
 # from env — fluxbenchd hashes that directory for tamper detection).
 if [ -n "$NODE_CONFIG_DIR" ] && [ -d "$NODE_CONFIG_DIR" ]; then
-  cp "$NODE_CONFIG_DIR"/* /flux/ZelBack/config/
+  cp "$NODE_CONFIG_DIR"/default.js /flux/ZelBack/config/local.js
   cp "$(dirname "$NODE_CONFIG_DIR")/shared.js" /flux/ZelBack/ 2>/dev/null || true
 fi
 
