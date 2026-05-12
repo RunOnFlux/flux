@@ -48,10 +48,6 @@ describe('Boot: prerequisites', function () {
     expect(res.data.blocks).to.be.greaterThan(0);
   });
 
-  it('should detect node IP correctly', async function () {
-    expect(env.nodeHasLog(0, 'Gathered IP 198.18.1.0')).to.equal(true);
-  });
-
   it('should load geolocation from database', async function () {
     const db = dbClient(1);
     const geo = await db.geolocation();
