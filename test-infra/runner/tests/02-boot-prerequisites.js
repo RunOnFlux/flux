@@ -74,4 +74,12 @@ describe('Boot: prerequisites', function () {
     const count = env.nodeLogCount(0, 'Cannot parse config|Cannot find module.*config');
     expect(count).to.equal(0);
   });
+
+  it('[debug] should have captured log lines', async function () {
+    const lines = env.nodeLogLines(0);
+    console.log(`Total captured lines: ${lines.length}`);
+    console.log('First 10 lines:', lines.slice(0, 10));
+    console.log('Lines containing "prepared":', lines.filter(l => l.includes('prepared')));
+    expect(lines.length).to.be.greaterThan(0);
+  });
 });
