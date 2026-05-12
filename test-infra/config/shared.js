@@ -30,5 +30,9 @@ module.exports = {
     discoveryRetryMs: 5000,
     discoveryFailRetryMs: 5000,
     nodeMonitorIntervalMs: 10000,
+    spawnDelayMultiplier: 0.01,
+    installation: { probability: 100, delay: 5 },
+    removal: { probability: 25, delay: 5 },
+    redeploy: { probability: 2, delay: 5, composedDelay: 2 },
   },
 };

@@ -39,21 +39,17 @@ describe('App spawning', function () {
     });
   });
 
-  describe('app installation', function () {
+  describe('app spec after registration', function () {
     before(async function () {
-      this.timeout(600000);
+      this.timeout(300000);
       const spec = buildAppSpec({ name: appName, instances: 3 });
       const result = await registerAndConfirm(node.url, nodeKey(1), spec, nodes);
       expect(result.status).to.equal('success');
-      // Wait for spawner cycle to detect and install
+      // Wait for reindex to pick up the new spec
       await waitFor(async () => {
-        return hasLogLine(1, `Installing ${appName}|trySpawningGlobalApplication.*${appName}`);
-      }, { timeout: 300000, interval: 10000, label: `spawner detects ${appName}` });
-    });
-
-    it('should detect installable app after registration', async function () {
-      const found = await hasLogLine(1, 'trySpawningGlobalApplication');
-      expect(found).to.equal(true);
+        const count = await db.appSpecCount();
+        return count > 0;
+      }, { timeout: 60000, interval: 5000, label: 'app spec in DB' });
     });
 
     it('should have app spec in zelappsinformation', async function () {

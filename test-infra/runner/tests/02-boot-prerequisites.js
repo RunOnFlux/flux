@@ -52,7 +52,7 @@ describe('Boot: prerequisites', function () {
   });
 
   it('should detect node IP correctly', async function () {
-    const found = await hasLogLine(1, 'Gathered IP 198\\.18\\.1\\.0');
+    const found = await hasLogLine(1, 'Gathered IP 198.18.1.0');
     expect(found).to.equal(true);
   });
 

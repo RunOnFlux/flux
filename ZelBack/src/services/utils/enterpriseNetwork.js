@@ -107,13 +107,14 @@ function filterAppsByOwnership(apps, isEnterprise) {
  * one candidate exists, otherwise the legacy 5m/30m defaults).
  */
 function getSpawnDelays(isEnterprise, appsAvailable) {
+  const multiplier = config.fluxapps.spawnDelayMultiplier ?? 1;
   if (isEnterprise) {
-    return { shortDelayTime: 30 * 1000, delayTime: 60 * 1000 };
+    return { shortDelayTime: 30 * 1000 * multiplier, delayTime: 60 * 1000 * multiplier };
   }
   if (appsAvailable > 1) {
-    return { shortDelayTime: 60 * 1000, delayTime: 60 * 1000 };
+    return { shortDelayTime: 60 * 1000 * multiplier, delayTime: 60 * 1000 * multiplier };
   }
-  return { shortDelayTime: 5 * 60 * 1000, delayTime: 30 * 60 * 1000 };
+  return { shortDelayTime: 5 * 60 * 1000 * multiplier, delayTime: 30 * 60 * 1000 * multiplier };
 }
 
 /**

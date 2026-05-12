@@ -43,12 +43,12 @@ describe('Boot: confirmation state', function () {
   describe('node not confirmed at boot', function () {
     before(async function () {
       this.timeout(300000);
+      // Set EXPIRED before restarting so node boots into unconfirmed state
       await daemon.setNodeStatus(node.ip, 'EXPIRED');
-      await db.dropAndReseed(node.ip, 2100000);
       await restartContainer(1);
       await waitForApi(node);
-      // Wait for at least one discovery cycle (120s retry on failure)
-      await new Promise((r) => setTimeout(r, 10000));
+      // Wait for discovery to attempt and fail (5s retry in test config)
+      await new Promise((r) => setTimeout(r, 15000));
     });
 
     after(async function () {
@@ -57,9 +57,9 @@ describe('Boot: confirmation state', function () {
     });
 
     it('should detect non-CONFIRMED status from daemon', async function () {
-      // Direct RPC check bypasses FluxOS cache
-      const { stdout } = await import('../framework/container.js').then((c) =>
-        c.execInContainer(1, 'curl -s -X POST http://198.18.0.3:16124/ -H "Content-Type: application/json" -d \'{"method":"getzelnodestatus","params":[],"id":1}\''),
+      const { execInContainer } = await import('../framework/container.js');
+      const { stdout } = await execInContainer(1,
+        'curl -s -X POST http://198.18.0.3:16124/ -H "Content-Type: application/json" -d \'{"method":"getzelnodestatus","params":[],"id":1}\'',
       );
       const rpc = JSON.parse(stdout);
       expect(rpc.result.status).to.equal('EXPIRED');
@@ -71,7 +71,7 @@ describe('Boot: confirmation state', function () {
     });
 
     it('should log discovery awaiting message', async function () {
-      const found = await hasLogLine(1, 'Node not confirmed.*discovery is awaiting|discovery is awaiting');
+      const found = await hasLogLine(1, 'discovery is awaiting');
       expect(found).to.equal(true);
     });
   });
@@ -95,19 +95,20 @@ describe('Boot: confirmation state', function () {
   describe('transition: confirmed to expired while running', function () {
     before(async function () {
       this.timeout(300000);
-      // Ensure we have peers first
+      await daemon.clearNodeStatus(node.ip);
       await waitForPeers(node, 1, 300000);
-      // Now expire the node
       await daemon.setNodeStatus(node.ip, 'EXPIRED');
-      // Wait for monitorNodeStatus cycle to detect (runs every 20 min in prod, 30s in test)
-      await new Promise((r) => setTimeout(r, 60000));
+      // Wait for monitorNodeStatus to detect (10s interval in test config)
+      // and fluxDiscovery to check and disconnect
+      await waitFor(async () => {
+        const res = await node.getPeers();
+        return res.data.length === 0;
+      }, { timeout: 120000, interval: 5000, label: 'peers dropped after EXPIRED' });
     });
 
     after(async function () {
       this.timeout(300000);
       await daemon.clearNodeStatus(node.ip);
-      // Give discovery time to reconnect for subsequent tests
-      await new Promise((r) => setTimeout(r, 10000));
     });
 
     it('should drop peers after confirmation loss', async function () {
