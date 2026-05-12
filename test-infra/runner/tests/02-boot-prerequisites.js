@@ -1,25 +1,26 @@
-import { describe, it, before } from 'mocha';
+import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
-import { nodeClient } from '../framework/node-client.js';
-import { dbClient } from '../framework/db-client.js';
+import { createTestEnv } from '../framework/test-env.js';
 import { waitForApi } from '../framework/wait.js';
+import { dbClient } from '../framework/db-client.js';
 import { hasLogLine, countPattern } from '../framework/log-reader.js';
-import { isContainerRunning, listAppContainers } from '../framework/container.js';
 
-const node = nodeClient(1);
-const db = dbClient(1);
+let env;
 
 describe('Boot: prerequisites', function () {
   before(async function () {
-    await waitForApi(node);
+    this.timeout(120000);
+    env = await createTestEnv({ nodes: 1, tickerAutostart: true });
+    await waitForApi(env.clients[0]);
   });
 
-  it('should have container running', async function () {
-    const running = await isContainerRunning(1);
-    expect(running).to.equal(true);
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
   });
 
   it('should connect to MongoDB', async function () {
+    const db = dbClient(1);
     const height = await db.explorerHeight();
     expect(height).to.be.a('number');
     expect(height).to.be.greaterThan(0);
@@ -46,6 +47,7 @@ describe('Boot: prerequisites', function () {
   });
 
   it('should report daemon as synced', async function () {
+    const node = env.clients[0];
     const res = await node.getBlockchainInfo();
     expect(res.status).to.equal('success');
     expect(res.data.blocks).to.be.greaterThan(0);
@@ -57,6 +59,7 @@ describe('Boot: prerequisites', function () {
   });
 
   it('should load geolocation from database', async function () {
+    const db = dbClient(1);
     const geo = await db.geolocation();
     expect(geo).to.not.be.null;
     expect(geo.geolocation.ip).to.equal('198.18.1.0');

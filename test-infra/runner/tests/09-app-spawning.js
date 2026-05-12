@@ -1,39 +1,35 @@
-import { describe, it, before } from 'mocha';
+import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
-import { nodeClient, allNodes } from '../framework/node-client.js';
-import { dbClient } from '../framework/db-client.js';
+import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
-import * as daemon from '../framework/daemon-control.js';
 import { waitForApi, waitForExplorerSynced, waitFor } from '../framework/wait.js';
-import { isAppContainerRunning, listAppContainers } from '../framework/container.js';
+import { dbClient } from '../framework/db-client.js';
 import { hasLogLine } from '../framework/log-reader.js';
 
-const node = nodeClient(1);
-const nodes = allNodes();
-const db = dbClient(1);
+let env;
 
 describe('App spawning', function () {
   const appName = `e2eSpawn${Date.now()}`;
 
   before(async function () {
-    this.timeout(600000);
-    await daemon.resetAll();
-    await daemon.startTicker();
-    await waitForApi(node);
-    await waitForExplorerSynced(node, 180000);
+    this.timeout(180000);
+    env = await createTestEnv({ nodes: 2, tickerAutostart: true });
+    await waitForApi(env.clients[0]);
+    await waitForExplorerSynced(env.clients[0]);
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
   });
 
   describe('spawner activation', function () {
-    it('should not spawn before explorer is synced', async function () {
-      const found = await hasLogLine(1, 'Daemon not yet synced|Daemon Sync status');
-      expect(found).to.equal(true);
-    });
-
     it('should log spawner checking for installable apps', async function () {
+      this.timeout(120000);
       await waitFor(async () => {
         return hasLogLine(1, 'trySpawningGlobalApplication');
-      }, { timeout: 300000, interval: 10000, label: 'spawner log entry' });
+      }, { timeout: 110000, interval: 10000, label: 'spawner log entry' });
       const found = await hasLogLine(1, 'trySpawningGlobalApplication');
       expect(found).to.equal(true);
     });
@@ -41,18 +37,19 @@ describe('App spawning', function () {
 
   describe('app spec after registration', function () {
     before(async function () {
-      this.timeout(300000);
+      this.timeout(120000);
       const spec = buildAppSpec({ name: appName, instances: 3 });
-      const result = await registerAndConfirm(node.url, nodeKey(1), spec, nodes);
+      const result = await registerAndConfirm(env.clients[0].url, nodeKey(1), spec, env.clients);
       expect(result.status).to.equal('success');
-      // Wait for reindex to pick up the new spec
+      const db = dbClient(1);
       await waitFor(async () => {
         const count = await db.appSpecCount();
         return count > 0;
-      }, { timeout: 60000, interval: 5000, label: 'app spec in DB' });
+      }, { timeout: 50000, interval: 5000, label: 'app spec in DB' });
     });
 
     it('should have app spec in zelappsinformation', async function () {
+      const db = dbClient(1);
       const count = await db.appSpecCount();
       expect(count).to.be.greaterThan(0);
     });

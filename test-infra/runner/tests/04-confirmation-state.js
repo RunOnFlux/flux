@@ -1,93 +1,103 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
-import { nodeClient } from '../framework/node-client.js';
+import { createTestEnv } from '../framework/test-env.js';
 import * as daemon from '../framework/daemon-control.js';
-import { waitForApi, waitForPeers } from '../framework/wait.js';
-import { restartContainer, execInContainer } from '../framework/container.js';
+import { waitForApi } from '../framework/wait.js';
 import { hasLogLine } from '../framework/log-reader.js';
 
-const node = nodeClient(1);
+describe('Confirmation state: confirmed boot', function () {
+  let env;
 
-describe('Boot: confirmation state', function () {
   before(async function () {
-    await daemon.resetAll();
-    await daemon.startTicker();
-    await waitForApi(node);
+    this.timeout(120000);
+    env = await createTestEnv({ nodes: 1, tickerAutostart: true });
+    await waitForApi(env.clients[0]);
   });
 
-  afterEach(async function () {
-    await daemon.clearNodeStatus(node.ip);
-    await waitForApi(node);
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
   });
 
-  describe('node confirmed (default state)', function () {
-    it('should detect status CONFIRMED from daemon', async function () {
-      const { stdout } = await execInContainer(1,
-        'curl -s -X POST http://198.18.0.3:16124/ -H "Content-Type: application/json" -d \'{"method":"getzelnodestatus","params":[],"id":1}\'',
-      );
-      const rpc = JSON.parse(stdout);
-      expect(rpc.result.status).to.equal('CONFIRMED');
-    });
-
-    it('should connect peers when confirmed', async function () {
-      await waitForPeers(node, 1);
-      const res = await node.getPeers();
-      expect(res.data.length).to.be.greaterThan(0);
-    });
+  it('should detect status CONFIRMED from daemon', async function () {
+    const res = await env.clients[0].getNodeStatus();
+    expect(res.status).to.equal('success');
+    expect(res.data.status).to.equal('CONFIRMED');
   });
 
-  describe('boot into unconfirmed state', function () {
-    before(async function () {
-      await daemon.setNodeStatus(node.ip, 'EXPIRED');
-      await restartContainer(1);
-      await waitForApi(node);
-    });
-
-    after(async function () {
-      await daemon.clearNodeStatus(node.ip);
-      await restartContainer(1);
-      await waitForApi(node);
-    });
-
-    it('should return EXPIRED from daemon RPC', async function () {
-      const { stdout } = await execInContainer(1,
-        'curl -s -X POST http://198.18.0.3:16124/ -H "Content-Type: application/json" -d \'{"method":"getzelnodestatus","params":[],"id":1}\'',
-      );
-      const rpc = JSON.parse(stdout);
-      expect(rpc.result.status).to.equal('EXPIRED');
-    });
-
-    it('should log discovery awaiting', async function () {
-      const found = await hasLogLine(1, 'discovery is awaiting');
-      expect(found).to.equal(true);
-    });
+  it('should log node is confirmed', async function () {
+    const found = await hasLogLine(1, 'monitorNodeStatus - Node is Confirmed');
+    expect(found).to.equal(true);
   });
 
-  describe('confirmation loss at runtime (development baseline)', function () {
-    before(async function () {
-      await daemon.clearNodeStatus(node.ip);
-      await waitForPeers(node, 1);
-    });
+  it('should start peer discovery', async function () {
+    const found = await hasLogLine(1, 'Flux Discovery started');
+    expect(found).to.equal(true);
+  });
+});
 
-    after(async function () {
-      await daemon.clearNodeStatus(node.ip);
-    });
+describe('Confirmation state: unconfirmed boot', function () {
+  let env;
 
-    it('should return EXPIRED from daemon after override set', async function () {
-      await daemon.setNodeStatus(node.ip, 'EXPIRED');
-      const { stdout } = await execInContainer(1,
-        'curl -s -X POST http://198.18.0.3:16124/ -H "Content-Type: application/json" -d \'{"method":"getzelnodestatus","params":[],"id":1}\'',
-      );
-      const rpc = JSON.parse(stdout);
-      expect(rpc.result.status).to.equal('EXPIRED');
-    });
+  before(async function () {
+    this.timeout(120000);
+    env = await createTestEnv({ nodes: 1, tickerAutostart: true });
+    await daemon.setNodeStatus('198.18.1.0', 'EXPIRED');
+    // Restart the node so it boots into unconfirmed state
+    const container = env.containers.fluxNodes[0].container;
+    await container.restart();
+    await waitForApi(env.clients[0]);
+    await new Promise((r) => setTimeout(r, 10000));
+  });
 
-    it('should log node not confirmed on next monitor cycle', async function () {
-      await daemon.setNodeStatus(node.ip, 'EXPIRED');
-      // monitorNodeStatus runs every 10s in test config
-      await new Promise((r) => setTimeout(r, 15000));
-      const found = await hasLogLine(1, 'not.*[Cc]onfirmed|discovery is awaiting');
-      expect(found).to.equal(true);
-    });
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('should detect EXPIRED status from daemon', async function () {
+    const res = await env.clients[0].getNodeStatus();
+    expect(res.status).to.equal('success');
+    expect(res.data.status).to.equal('EXPIRED');
+  });
+
+  it('should log discovery awaiting', async function () {
+    const found = await hasLogLine(1, 'discovery is awaiting');
+    expect(found).to.equal(true);
+  });
+
+  it('should not connect any peers', async function () {
+    const res = await env.clients[0].getPeers();
+    expect(res.data).to.have.length(0);
+  });
+});
+
+describe('Confirmation state: runtime loss', function () {
+  let env;
+
+  before(async function () {
+    this.timeout(120000);
+    env = await createTestEnv({ nodes: 1, tickerAutostart: true });
+    await waitForApi(env.clients[0]);
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await daemon.clearNodeStatus('198.18.1.0');
+    await env?.teardown();
+  });
+
+  it('should return EXPIRED from daemon after override set', async function () {
+    await daemon.setNodeStatus('198.18.1.0', 'EXPIRED');
+    const res = await env.clients[0].getNodeStatus();
+    expect(res.status).to.equal('success');
+    expect(res.data.status).to.equal('EXPIRED');
+  });
+
+  it('should detect confirmation loss on next monitor cycle', async function () {
+    await daemon.setNodeStatus('198.18.1.0', 'EXPIRED');
+    await new Promise((r) => setTimeout(r, 15000));
+    const found = await hasLogLine(1, 'not.*[Cc]onfirmed|discovery is awaiting');
+    expect(found).to.equal(true);
   });
 });
