@@ -8,7 +8,11 @@ function containerName(nodeNum) {
 }
 
 export async function restartContainer(nodeNum) {
-  await execFileAsync('docker', ['restart', containerName(nodeNum)], { timeout: 60000 });
+  const num = String(nodeNum).padStart(2, '0');
+  await execFileAsync('docker', [
+    'compose', '-f', '/home/fluxadm/flux-e2e/test-infra/docker-compose.yml',
+    'up', '-d', '--force-recreate', `fluxos-${num}`,
+  ], { timeout: 120000 });
 }
 
 export async function stopContainer(nodeNum) {
