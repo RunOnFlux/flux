@@ -22,7 +22,9 @@ export async function waitForExplorerSynced(node, timeout = 50000) {
       getState(),
     ]);
     const explorerHeight = explorer?.data?.generalScannedHeight ?? 0;
-    return explorerHeight > 0 && daemon.currentHeight - explorerHeight <= 2;
+    return explorerHeight > 0
+      && daemon.currentHeight > 2100000
+      && daemon.currentHeight - explorerHeight <= 2;
   }, { timeout, label: `${node.ip} explorer synced` });
 }
 

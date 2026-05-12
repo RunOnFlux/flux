@@ -24,7 +24,7 @@ describe('Boot: explorer sync', function () {
     it('should have explorer height above seeded value', async function () {
       const db = dbClient(1);
       const height = await db.explorerHeight();
-      expect(height).to.be.greaterThanOrEqual(2100000);
+      expect(height).to.be.greaterThan(2100000);
     });
 
     it('should have explorer tracking daemon height', async function () {
