@@ -19,10 +19,13 @@ const rpcFailures = new Map();
 
 const fixturesDir = process.env.FIXTURES_DIR || path.join(__dirname, '..', 'fixtures');
 
+const NODE_COUNT = Number(process.env.NODE_COUNT) || 16;
+
 try {
   const listPath = path.join(fixturesDir, 'deterministic-list.json');
   if (fs.existsSync(listPath)) {
-    originalNodeList = JSON.parse(fs.readFileSync(listPath, 'utf-8'));
+    const fullList = JSON.parse(fs.readFileSync(listPath, 'utf-8'));
+    originalNodeList = fullList.slice(0, NODE_COUNT);
     deterministicNodeList = [...originalNodeList];
   }
 } catch (e) {

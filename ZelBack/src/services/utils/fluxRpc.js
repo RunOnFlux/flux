@@ -283,7 +283,13 @@ class FluxRpc {
       throw resError;
     }
 
-    const { result } = axiosData;
+    const { result, error } = axiosData;
+
+    if (error) {
+      const rpcError = new Error(error.message);
+      rpcError.code = error.code;
+      throw rpcError;
+    }
 
     return result;
   }

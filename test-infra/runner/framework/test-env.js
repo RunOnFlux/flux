@@ -8,7 +8,9 @@ import { GenericContainer, Network, Wait, getContainerRuntimeClient } from 'test
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import http from 'node:http';
 import { nodeClient } from './node-client.js';
+import { closeDb } from './db-client.js';
 import { MongoClient } from 'mongodb';
 
 function createLogCollector() {
@@ -136,13 +138,13 @@ async function seedMongo(mongoIp, nodeCount) {
   }
 }
 
-export async function createTestEnv({ nodes = 1, tickerAutostart = false } = {}) {
+export async function createTestEnv({ nodes = 1, tickerAutostart = false, nodeStatusOverrides = {} } = {}) {
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, tickerAutostart);
+    return await _buildEnv(networkName, containers, started, nodes, tickerAutostart, nodeStatusOverrides);
   } catch (err) {
     for (const c of started.reverse()) {
       await c.stop().catch(() => {});
@@ -152,7 +154,7 @@ export async function createTestEnv({ nodes = 1, tickerAutostart = false } = {})
   }
 }
 
-async function _buildEnv(networkName, containers, started, nodes, tickerAutostart) {
+async function _buildEnv(networkName, containers, started, nodes, tickerAutostart, nodeStatusOverrides) {
 
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
@@ -177,6 +179,7 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
       BENCHD_PORT: '16224',
       CONTROL_PORT: '18232',
       TICKER_AUTOSTART: tickerAutostart ? 'true' : 'false',
+      NODE_COUNT: String(nodes),
     })
     .withBindMounts([{
       source: fixturesDir,
@@ -193,6 +196,14 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
     .start();
   started.push(daemonStub);
   containers.daemonStub = daemonStub;
+
+  for (const [ip, status] of Object.entries(nodeStatusOverrides)) {
+    await fetch(`http://${DAEMON_IP}:18232/node-status/${ip}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+  }
 
   const syncthingStub = await new StaticIpContainer('flux-e2e-syncthing-stub')
     .withStaticIp(networkName, SYNCTHING_IP)
@@ -269,7 +280,9 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
       await syncthingStub.stop().catch(() => {});
       await daemonStub.stop().catch(() => {});
       await mongo.stop().catch(() => {});
+      await closeDb();
       await removeNetwork(networkName);
+      http.globalAgent.destroy();
     },
   };
 }

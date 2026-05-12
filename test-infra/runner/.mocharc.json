@@ -1,7 +1,4 @@
 {
   "timeout": 60000,
-  "slow": 5000,
-  "spec": "tests/**/*.js",
-  "require": "./framework/hooks.js",
-  "exit": true
+  "slow": 5000
 }

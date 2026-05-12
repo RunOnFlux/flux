@@ -11,7 +11,14 @@ export async function waitForPeers(node, minCount, timeout = 60000) {
   return waitFor(async () => {
     const res = await node.getPeers();
     return res.status === 'success' && res.data.length >= minCount;
-  }, { timeout, label: `${node.ip} to have ${minCount}+ peers` });
+  }, { timeout, label: `${node.ip} to have ${minCount}+ outbound peers` });
+}
+
+export async function waitForIncomingPeers(node, minCount, timeout = 60000) {
+  return waitFor(async () => {
+    const res = await node.getIncomingPeers();
+    return res.status === 'success' && res.data.length >= minCount;
+  }, { timeout, label: `${node.ip} to have ${minCount}+ inbound peers` });
 }
 
 export async function waitForExplorerSynced(node, timeout = 50000) {

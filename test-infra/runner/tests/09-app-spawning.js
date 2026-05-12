@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { startTicker } from '../framework/daemon-control.js';
-import { waitForApi, waitForBoot, waitForExplorerSynced, waitFor } from '../framework/wait.js';
+import { waitForApi, waitForBoot, waitForExplorerSynced, waitFor, waitForPeers, waitForIncomingPeers } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 
 let env;
@@ -13,11 +13,15 @@ describe('App spawning', function () {
   const appName = `e2eSpawn${Date.now()}`;
 
   before(async function () {
-    this.timeout(180000);
-    env = await createTestEnv({ nodes: 2, tickerAutostart: false });
-    await waitForApi(env.clients[0]);
+    this.timeout(300000);
+    env = await createTestEnv({ nodes: 8, tickerAutostart: false });
+    for (const client of env.clients) {
+      await waitForApi(client);
+    }
     await waitForBoot(env, 0);
     await waitForExplorerSynced(env.clients[0]);
+    await waitForPeers(env.clients[0], 4, 120000);
+    await waitForIncomingPeers(env.clients[0], 2, 120000);
     await startTicker();
   });
 

@@ -272,6 +272,17 @@ module.exports = {
     daemonInfoIntervalMs: 30000,
     explorerSyncRetryMs: 120000,
     explorerDeepRestoreBlocks: 100,
+    daemonCacheTtlMs: 20000,
+    apiCache5s: '5 seconds',
+    apiCache10s: '10 seconds',
+    apiCache15s: '15 seconds',
+    apiCache30s: '30 seconds',
+    apiCache60s: '60 seconds',
+    apiCache2m: '2 minutes',
+    apiCache5m: '5 minutes',
+    apiCache30m: '30 minutes',
+    apiCache1h: '1 hour',
+    apiCache1d: '1 day',
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

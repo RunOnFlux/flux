@@ -31,6 +31,7 @@ export function nodeClient(nodeNum) {
     post,
     getVersion: () => get('/flux/version'),
     getPeers: () => get('/flux/connectedpeers'),
+    getIncomingPeers: () => get('/flux/incomingconnections'),
     getNodeStatus: () => get('/daemon/getzelnodestatus'),
     getBlockchainInfo: () => get('/daemon/getblockchaininfo'),
     getExplorerHeight: () => get('/explorer/scannedheight'),

@@ -1,6 +1,7 @@
 /* eslint max-classes-per-file: ["error", 2] */
 
 const TTLCache = require('@isaacs/ttlcache');
+const config = require('config');
 const log = require('../../lib/log');
 const { FluxController } = require('./fluxController');
 
@@ -167,7 +168,7 @@ class FluxCacheManager {
     // daemonServiceUtils
     daemonGenericCache: {
       max: 50,
-      ttl: 20 * FluxCacheManager.oneSecond,
+      ttl: config.fluxapps.daemonCacheTtlMs,
     },
     daemonTxCache: {
       max: 300,

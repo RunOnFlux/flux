@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
-import { waitForApi } from '../framework/wait.js';
+import { waitForApi, waitForBoot, waitFor } from '../framework/wait.js';
 
 describe('Confirmation state: confirmed boot', function () {
   let env;
@@ -11,6 +11,7 @@ describe('Confirmation state: confirmed boot', function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1, tickerAutostart: false });
     await waitForApi(env.clients[0]);
+    await waitForBoot(env, 0);
   });
 
   after(async function () {
@@ -38,12 +39,15 @@ describe('Confirmation state: unconfirmed boot', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
-    await setNodeStatus('198.18.1.0', 'EXPIRED');
-    const container = env.containers.fluxNodes[0].container;
-    await container.restart();
+    env = await createTestEnv({
+      nodes: 1,
+      tickerAutostart: false,
+      nodeStatusOverrides: { '198.18.1.0': 'EXPIRED' },
+    });
     await waitForApi(env.clients[0]);
-    await new Promise((r) => setTimeout(r, 10000));
+    await waitFor(() => env.nodeHasLog(0, 'discovery is awaiting'), {
+      timeout: 60000, interval: 1000, label: 'unconfirmed boot log',
+    });
   });
 
   after(async function () {
