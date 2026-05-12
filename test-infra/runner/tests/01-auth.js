@@ -85,11 +85,9 @@ describe('Privilege enforcement', function () {
 
   before(async function () {
     this.timeout(120000);
-    if (!env) {
-      env = await createTestEnv({ nodes: 1 });
-      node = env.clients[0];
-      await waitForApi(node);
-    }
+    env = await createTestEnv({ nodes: 1 });
+    node = env.clients[0];
+    await waitForApi(node);
     fluxTeamAuth = await authenticate(node.url, fluxTeamKey());
     nodeAdminAuth = await authenticate(node.url, nodeKey(1));
     appOwnerAuth = await authenticate(node.url, appOwnerKey());
