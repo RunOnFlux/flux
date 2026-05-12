@@ -13,6 +13,7 @@ const db2 = dbClient(2);
 describe('Hash sync', function () {
   before(async function () {
     this.timeout(300000);
+    await daemon.resetAll();
     await daemon.startTicker();
     await waitForApi(node1);
     await waitForApi(node2);

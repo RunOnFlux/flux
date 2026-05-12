@@ -963,12 +963,12 @@ async function fluxDiscovery() {
     }
     setTimeout(() => {
       fluxDiscovery();
-    }, 60 * 1000);
+    }, config.fluxapps.discoveryRetryMs ?? 60000);
   } catch (error) {
     log.warn(error.message || error);
     setTimeout(() => {
       fluxDiscovery();
-    }, 120 * 1000);
+    }, config.fluxapps.discoveryFailRetryMs ?? 120000);
   }
 }
 

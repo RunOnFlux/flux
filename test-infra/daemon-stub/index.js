@@ -447,26 +447,34 @@ function buildAppRegistrationTx(appHash, height) {
 control.post('/advance-block', (req, res) => {
   const { block, appHash } = req.body;
   currentHeight += 1;
+  const txs = [];
+  if (appHash) {
+    txs.push(buildAppRegistrationTx(appHash, currentHeight));
+  }
+  while (pendingAppTxQueue.length > 0) {
+    txs.push(buildAppRegistrationTx(pendingAppTxQueue.shift(), currentHeight));
+  }
   if (block) {
     block.height = block.height || currentHeight;
     block.hash = block.hash || `000000000000stub${currentHeight}`;
     block.confirmations = 1;
+    block.tx = [...(block.tx || []), ...txs];
     pendingBlocks.push(block);
-  } else if (appHash) {
-    const newBlock = {
+  } else if (txs.length > 0) {
+    pendingBlocks.push({
       hash: `000000000000stub${currentHeight}`,
       confirmations: 1,
       size: 1000,
       height: currentHeight,
       version: 4,
       merkleroot: '0000000000000000000000000000000000000000000000000000000000000000',
-      tx: [buildAppRegistrationTx(appHash, currentHeight)],
+      tx: txs,
       time: Math.floor(Date.now() / 1000),
       nonce: 0,
       difficulty: 1000,
       previousblockhash: `000000000000stub${currentHeight - 1}`,
-    };
-    pendingBlocks.push(newBlock);
+    });
+    console.log(`Block ${currentHeight}: ${txs.length} app tx(s) (manual advance)`);
   }
   res.json({ currentHeight });
 });

@@ -18,6 +18,7 @@ describe('App spawning', function () {
 
   before(async function () {
     this.timeout(600000);
+    await daemon.resetAll();
     await daemon.startTicker();
     await waitForApi(node);
     await waitForExplorerSynced(node, 180000);

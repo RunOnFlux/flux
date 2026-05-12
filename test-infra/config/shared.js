@@ -27,5 +27,8 @@ module.exports = {
     installCollisionWaitMs: 5000,
     spawnReconfirmDelayMs: 30000,
     globalCmdDelayMs: 100,
+    discoveryRetryMs: 5000,
+    discoveryFailRetryMs: 5000,
+    nodeMonitorIntervalMs: 10000,
   },
 };

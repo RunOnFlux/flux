@@ -60,7 +60,7 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
       }
-      await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
+      await serviceHelper.delay(config.fluxapps.nodeMonitorIntervalMs ?? 1200000);
       return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
     } if (isNodeConfirmed) {
       log.info('monitorNodeStatus - Node is Confirmed');
@@ -124,7 +124,7 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
         }
       }
     }
-    await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
+    await serviceHelper.delay(config.fluxapps.nodeMonitorIntervalMs ?? 1200000);
     monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
   } catch (error) {
     log.error(error);

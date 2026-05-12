@@ -15,6 +15,7 @@ const db = dbClient(1);
 describe('App registration', function () {
   before(async function () {
     this.timeout(300000);
+    await daemon.resetAll();
     await daemon.startTicker();
     await waitForApi(node);
     await waitForExplorerSynced(node, 180000);

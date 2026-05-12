@@ -277,6 +277,9 @@ module.exports = {
     installCollisionWaitMs: 90000,
     spawnReconfirmDelayMs: 7500000,
     globalCmdDelayMs: 500,
+    discoveryRetryMs: 60000,
+    discoveryFailRetryMs: 120000,
+    nodeMonitorIntervalMs: 1200000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

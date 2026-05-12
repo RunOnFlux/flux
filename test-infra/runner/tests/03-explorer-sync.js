@@ -12,8 +12,10 @@ const db2 = dbClient(2);
 
 describe('Boot: explorer sync', function () {
   before(async function () {
-    await waitForApi(node);
+    this.timeout(300000);
+    await daemon.resetAll();
     await daemon.startTicker();
+    await waitForApi(node);
     await waitForExplorerSynced(node, 180000);
   });
 

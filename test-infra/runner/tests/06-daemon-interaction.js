@@ -23,7 +23,9 @@ async function directBenchRpc(nodeNum, method, params = []) {
 
 describe('Daemon interaction', function () {
   before(async function () {
+    this.timeout(300000);
     await daemon.resetAll();
+    await daemon.startTicker();
     await waitForApi(node);
   });
 

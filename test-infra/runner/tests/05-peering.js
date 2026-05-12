@@ -11,7 +11,7 @@ const nodes = allNodes();
 describe('Peering', function () {
   before(async function () {
     this.timeout(300000);
-    await daemon.clearAllNodeStatus();
+    await daemon.resetAll();
     await daemon.startTicker();
     await waitForApi(node);
   });
