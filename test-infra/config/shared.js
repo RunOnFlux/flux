@@ -11,7 +11,7 @@ module.exports = {
     minUniqueIpsOutgoing: 3,
     minUniqueIpsIncoming: 2,
     minHashSyncPeers: 4,
-    bootDelayMultiplier: 0.1,
+    bootDelayMultiplier: 0.01,
     spawnDelayMs: 10000,
     removalSpacingMs: 1000,
     locationTtlS: 300,

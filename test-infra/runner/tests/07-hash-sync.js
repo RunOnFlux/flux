@@ -9,7 +9,7 @@ let env;
 describe('Hash sync', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 2, tickerAutostart: true });
+    env = await createTestEnv({ nodes: 2, tickerAutostart: false });
     await waitForApi(env.clients[0]);
     await waitForApi(env.clients[1]);
     await waitForExplorerSynced(env.clients[0]);

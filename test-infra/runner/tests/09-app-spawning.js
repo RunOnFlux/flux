@@ -3,7 +3,8 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
-import { waitForApi, waitForExplorerSynced, waitFor } from '../framework/wait.js';
+import { startTicker } from '../framework/daemon-control.js';
+import { waitForApi, waitForBoot, waitForExplorerSynced, waitFor } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 
 let env;
@@ -13,9 +14,11 @@ describe('App spawning', function () {
 
   before(async function () {
     this.timeout(180000);
-    env = await createTestEnv({ nodes: 2, tickerAutostart: true });
+    env = await createTestEnv({ nodes: 2, tickerAutostart: false });
     await waitForApi(env.clients[0]);
+    await waitForBoot(env, 0);
     await waitForExplorerSynced(env.clients[0]);
+    await startTicker();
   });
 
   after(async function () {

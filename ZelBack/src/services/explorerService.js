@@ -973,9 +973,9 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       if (scannedBlockHeight !== 0 && restoreDatabase === true) {
         try {
           // adjust for initial reorg
-          if (deepRestore === true) {
+          const deepRestoreBlocks = config.fluxapps.explorerDeepRestoreBlocks ?? 100;
+          if (deepRestore === true && deepRestoreBlocks > 0) {
             log.info('Deep restoring of database...');
-            const deepRestoreBlocks = config.fluxapps.explorerDeepRestoreBlocks ?? 100;
             scannedBlockHeight = Math.max(scannedBlockHeight - deepRestoreBlocks, 0);
             await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
             const queryHeight = { generalScannedHeight: { $gte: 0 } };
@@ -985,7 +985,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
             };
             await dbHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
             log.info('Database restored OK');
-          } else {
+          } else if (!deepRestore) {
             log.info('Restoring database...');
             await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
             log.info('Database restored OK');

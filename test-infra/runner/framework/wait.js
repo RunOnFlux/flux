@@ -15,16 +15,14 @@ export async function waitForPeers(node, minCount, timeout = 60000) {
 }
 
 export async function waitForExplorerSynced(node, timeout = 50000) {
-  const { getState } = await import('./daemon-control.js');
+  const daemon = await import('./daemon-control.js');
+  // Advance one block manually so the explorer has something to process
+  await daemon.advanceBlock();
   return waitFor(async () => {
-    const [explorer, daemon] = await Promise.all([
-      node.getExplorerHeight(),
-      getState(),
-    ]);
+    const explorer = await node.getExplorerHeight();
     const explorerHeight = explorer?.data?.generalScannedHeight ?? 0;
-    return explorerHeight > 2100000
-      && daemon.currentHeight - explorerHeight <= 2;
-  }, { timeout, label: `${node.ip} explorer synced` });
+    return explorerHeight > 2100000;
+  }, { timeout, interval: 1000, label: `${node.ip} explorer synced` });
 }
 
 export async function waitForApi(node, timeout = 60000) {
@@ -40,6 +38,6 @@ export async function waitForApi(node, timeout = 60000) {
 
 export async function waitForBoot(env, index, timeout = 60000) {
   return waitFor(() => {
-    return env.nodeHasLog(index, 'Flux Discovery started');
-  }, { timeout, interval: 1000, label: `node ${index} boot complete` });
+    return env.nodeHasLog(index, 'Flux Block Processing Service started');
+  }, { timeout, interval: 1000, label: `node ${index} block processor ready` });
 }

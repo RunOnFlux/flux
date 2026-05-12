@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
-import * as daemon from '../framework/daemon-control.js';
+import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
 import { waitForApi, waitFor } from '../framework/wait.js';
 
 describe('App removal: confirmation loss', function () {
@@ -11,19 +11,19 @@ describe('App removal: confirmation loss', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: true });
+    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
     await waitForApi(env.clients[0]);
   });
 
   after(async function () {
     this.timeout(30000);
-    await daemon.clearNodeStatus('198.18.1.0');
+    await clearNodeStatus('198.18.1.0');
     await env?.teardown();
   });
 
   it('should detect confirmation loss via monitorNodeStatus', async function () {
     this.timeout(60000);
-    await daemon.setNodeStatus('198.18.1.0', 'EXPIRED');
+    await setNodeStatus('198.18.1.0', 'EXPIRED');
     await waitFor(async () => {
       const res = await env.clients[0].getInstalledApps();
       return res.status === 'success';
@@ -39,7 +39,7 @@ describe('App removal: DOS state', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: true });
+    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
     await waitForApi(env.clients[0]);
     fluxTeamAuth = await authenticate(env.clients[0].url, fluxTeamKey());
   });

@@ -1,7 +1,11 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import * as daemon from '../framework/daemon-control.js';
+import {
+  getState, startTicker, stopTicker, advanceBlock, setHeight,
+  queueAppTx, setNodeStatus, clearNodeStatus, getNodeStatusOverrides,
+  enableRpcFailure, disableRpcFailure, removeFromNodeList, restoreToNodeList,
+} from '../framework/daemon-control.js';
 
 let env;
 
@@ -17,85 +21,85 @@ describe('Ticker and block control', function () {
   });
 
   it('should report ticker state', async function () {
-    const state = await daemon.getState();
+    const state = await getState();
     expect(state).to.have.property('tickerRunning');
     expect(state).to.have.property('currentHeight');
   });
 
   it('should start with ticker stopped (default)', async function () {
-    const state = await daemon.getState();
+    const state = await getState();
     expect(state.tickerRunning).to.equal(false);
   });
 
   it('should advance height when ticker started', async function () {
-    const before = await daemon.getState();
-    await daemon.startTicker();
+    const before = await getState();
+    await startTicker();
     await new Promise((r) => setTimeout(r, 6000));
-    const after = await daemon.getState();
+    const after = await getState();
     expect(after.currentHeight).to.be.greaterThan(before.currentHeight);
-    await daemon.stopTicker();
+    await stopTicker();
   });
 
   it('should not advance height when ticker stopped', async function () {
-    await daemon.stopTicker();
-    const before = await daemon.getState();
+    await stopTicker();
+    const before = await getState();
     await new Promise((r) => setTimeout(r, 6000));
-    const after = await daemon.getState();
+    const after = await getState();
     expect(after.currentHeight).to.equal(before.currentHeight);
   });
 
   it('should advance exactly one block per manual advance', async function () {
-    await daemon.stopTicker();
-    const before = await daemon.getState();
-    await daemon.advanceBlock();
-    const after = await daemon.getState();
+    await stopTicker();
+    const before = await getState();
+    await advanceBlock();
+    const after = await getState();
     expect(after.currentHeight).to.equal(before.currentHeight + 1);
   });
 
   it('should include queued app tx in next block', async function () {
-    await daemon.stopTicker();
+    await stopTicker();
     const fakeHash = 'a'.repeat(64);
-    await daemon.queueAppTx(fakeHash);
-    const stateBefore = await daemon.getState();
+    await queueAppTx(fakeHash);
+    const stateBefore = await getState();
     expect(stateBefore.pendingAppTxQueue).to.equal(1);
-    await daemon.advanceBlock();
-    const stateAfter = await daemon.getState();
+    await advanceBlock();
+    const stateAfter = await getState();
     expect(stateAfter.pendingAppTxQueue).to.equal(0);
     expect(stateAfter.pendingBlocks).to.be.greaterThan(stateBefore.pendingBlocks);
   });
 
   it('should set height directly', async function () {
-    await daemon.stopTicker();
-    const before = await daemon.getState();
+    await stopTicker();
+    const before = await getState();
     const target = before.currentHeight + 10;
-    await daemon.setHeight(target);
-    const state = await daemon.getState();
+    await setHeight(target);
+    const state = await getState();
     expect(state.currentHeight).to.equal(target);
   });
 
   it('should set and clear node status overrides', async function () {
-    await daemon.setNodeStatus('198.18.1.0', 'EXPIRED');
-    const overrides = await daemon.getNodeStatusOverrides();
+    await setNodeStatus('198.18.1.0', 'EXPIRED');
+    const overrides = await getNodeStatusOverrides();
     expect(overrides['198.18.1.0'].status).to.equal('EXPIRED');
-    await daemon.clearNodeStatus('198.18.1.0');
+    await clearNodeStatus('198.18.1.0');
   });
 
   it('should set and clear RPC failures', async function () {
-    await daemon.enableRpcFailure('198.18.2.0');
-    let state = await daemon.getState();
+    await enableRpcFailure('198.18.2.0');
+    let state = await getState();
     expect(state.rpcFailures).to.equal(1);
-    await daemon.disableRpcFailure('198.18.2.0');
-    state = await daemon.getState();
+    await disableRpcFailure('198.18.2.0');
+    state = await getState();
     expect(state.rpcFailures).to.equal(0);
   });
 
   it('should remove and restore nodes in deterministic list', async function () {
-    const before = await daemon.getState();
-    await daemon.removeFromNodeList('198.18.3.0');
-    let state = await daemon.getState();
+    const before = await getState();
+    await removeFromNodeList('198.18.3.0');
+    let state = await getState();
     expect(state.nodeCount).to.equal(before.nodeCount - 1);
-    await daemon.restoreToNodeList('198.18.3.0');
-    state = await daemon.getState();
+    await restoreToNodeList('198.18.3.0');
+    state = await getState();
     expect(state.nodeCount).to.equal(before.nodeCount);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import * as daemon from '../framework/daemon-control.js';
+import { setNodeStatus, clearNodeStatus, removeFromNodeList, restoreToNodeList, resetNodeList, enableRpcFailure, disableRpcFailure } from '../framework/daemon-control.js';
 import { waitForApi } from '../framework/wait.js';
 
 let env;
@@ -27,7 +27,7 @@ async function directBenchRpc(method, params = []) {
 describe('Daemon interaction', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: true });
+    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
     await waitForApi(env.clients[0]);
   });
 
@@ -86,18 +86,18 @@ describe('Daemon interaction', function () {
 
   describe('per-node status override', function () {
     afterEach(async function () {
-      await daemon.clearNodeStatus('198.18.1.0');
+      await clearNodeStatus('198.18.1.0');
     });
 
     it('should return EXPIRED when override is set', async function () {
-      await daemon.setNodeStatus('198.18.1.0', 'EXPIRED');
+      await setNodeStatus('198.18.1.0', 'EXPIRED');
       const rpc = await directRpc('getzelnodestatus');
       expect(rpc.result.status).to.equal('EXPIRED');
     });
 
     it('should return CONFIRMED when override is cleared', async function () {
-      await daemon.setNodeStatus('198.18.1.0', 'EXPIRED');
-      await daemon.clearNodeStatus('198.18.1.0');
+      await setNodeStatus('198.18.1.0', 'EXPIRED');
+      await clearNodeStatus('198.18.1.0');
       const rpc = await directRpc('getzelnodestatus');
       expect(rpc.result.status).to.equal('CONFIRMED');
     });
@@ -105,11 +105,11 @@ describe('Daemon interaction', function () {
 
   describe('deterministic list manipulation', function () {
     afterEach(async function () {
-      await daemon.resetNodeList();
+      await resetNodeList();
     });
 
     it('should reflect node removal from list', async function () {
-      await daemon.removeFromNodeList('198.18.3.0');
+      await removeFromNodeList('198.18.3.0');
       const rpc = await directRpc('viewdeterministiczelnodelist');
       const ips = rpc.result.map((n) => n.ip);
       expect(ips).to.not.include('198.18.3.0');
@@ -117,8 +117,8 @@ describe('Daemon interaction', function () {
     });
 
     it('should reflect node restoration to list', async function () {
-      await daemon.removeFromNodeList('198.18.3.0');
-      await daemon.restoreToNodeList('198.18.3.0');
+      await removeFromNodeList('198.18.3.0');
+      await restoreToNodeList('198.18.3.0');
       const rpc = await directRpc('viewdeterministiczelnodelist');
       const ips = rpc.result.map((n) => n.ip);
       expect(ips).to.include('198.18.3.0');
@@ -128,11 +128,11 @@ describe('Daemon interaction', function () {
 
   describe('RPC failure simulation', function () {
     afterEach(async function () {
-      await daemon.disableRpcFailure('198.18.1.0');
+      await disableRpcFailure('198.18.1.0');
     });
 
     it('should return error when RPC failure enabled', async function () {
-      await daemon.enableRpcFailure('198.18.1.0');
+      await enableRpcFailure('198.18.1.0');
       const rpc = await directRpc('getblockchaininfo');
       expect(rpc.result).to.be.null;
       expect(rpc.error).to.not.be.null;
@@ -140,8 +140,8 @@ describe('Daemon interaction', function () {
     });
 
     it('should recover when RPC failure disabled', async function () {
-      await daemon.enableRpcFailure('198.18.1.0');
-      await daemon.disableRpcFailure('198.18.1.0');
+      await enableRpcFailure('198.18.1.0');
+      await disableRpcFailure('198.18.1.0');
       const rpc = await directRpc('getblockchaininfo');
       expect(rpc.error).to.be.null;
       expect(rpc.result.blocks).to.be.greaterThan(0);

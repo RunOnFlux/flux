@@ -9,7 +9,7 @@ let env;
 describe('Boot: prerequisites', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: true });
+    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
     await waitForApi(env.clients[0]);
     await waitForBoot(env, 0);
   });

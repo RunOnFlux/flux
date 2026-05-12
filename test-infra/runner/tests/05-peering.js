@@ -8,7 +8,7 @@ let env;
 describe('Peering', function () {
   before(async function () {
     this.timeout(180000);
-    env = await createTestEnv({ nodes: 4, tickerAutostart: true });
+    env = await createTestEnv({ nodes: 4, tickerAutostart: false });
     for (const client of env.clients) {
       await waitForApi(client);
     }
