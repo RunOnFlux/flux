@@ -5,10 +5,12 @@
   "type": "module",
   "description": "E2E test runner and helpers for FluxOS test network",
   "scripts": {
-    "test": "node test-network.js"
+    "test": "mocha --timeout 120000 --slow 10000 tests/**/*.js"
   },
   "dependencies": {
+    "@noble/hashes": "^1.7.2",
     "@noble/secp256k1": "^2.2.3",
-    "@noble/hashes": "^1.7.2"
+    "chai": "^6.2.2",
+    "mocha": "^11.7.5"
   }
 }
