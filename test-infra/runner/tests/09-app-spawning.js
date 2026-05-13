@@ -55,35 +55,42 @@ describe('App spawning', function () {
   });
 
   describe('spawner decision', function () {
-    it('should reach the install decision for the registered app', async function () {
+    it('should reach the install decision on at least one node', async function () {
       this.timeout(180000);
       const decided = await waitFor(async () => {
-        return env.nodeHasLog(0, 'successfully installed')
-          || env.nodeHasLog(0, 'Error.*registerAppLocally')
-          || env.nodeHasLog(0, 'already installed')
-          || env.nodeHasLog(0, 'already spawned or being installed')
-          || env.nodeHasLog(0, 'Unable to communicate with Flux Services')
-          || env.nodeHasLog(0, `${appName}.*selected`)
-          || env.nodeHasLog(0, 'Found.*apps.*missing instances');
+        for (let i = 0; i < env.clients.length; i++) {
+          if (env.nodeHasLog(i, `${appName}.*selected`)
+            || env.nodeHasLog(i, 'Found.*apps.*missing instances')) return true;
+        }
+        return false;
       }, { timeout: 170000, interval: 10000, label: 'spawner install decision' });
       expect(decided).to.equal(true);
     });
 
-    it('should install the registered app', async function () {
+    it('should install the registered app on at least one node', async function () {
       this.timeout(180000);
       try {
-        await waitForAppInstalled(env.clients[0], appName, 170000);
+        await Promise.any(env.clients.map((c) => waitForAppInstalled(c, appName, 170000)));
       } catch (err) {
-        const lines = env.nodeLogLines(0).filter((l) =>
-          /spawn|install|selected|missing|image|compliance|docker|pull|error|e2eSpawn/i.test(l));
-        console.log('=== Spawner logs from node 0 ===');
-        lines.forEach((l) => console.log(l));
+        for (let i = 0; i < env.clients.length; i++) {
+          const lines = env.nodeLogLines(i).filter((l) =>
+            /spawn|install|selected|missing|image|compliance|docker|pull|error|e2eSpawn/i.test(l));
+          if (lines.length) {
+            console.log(`=== Spawner logs from node ${i} ===`);
+            lines.forEach((l) => console.log(l));
+          }
+        }
         throw err;
       }
-      const res = await env.clients[0].getInstalledApps();
-      expect(res.status).to.equal('success');
-      const found = res.data.find((a) => a.name === appName);
-      expect(found).to.not.be.undefined;
+      let installedOn = null;
+      for (const client of env.clients) {
+        const res = await client.getInstalledApps();
+        if (res.status === 'success') {
+          const found = res.data.find((a) => a.name === appName);
+          if (found) { installedOn = client.ip; break; }
+        }
+      }
+      expect(installedOn, 'app not installed on any node').to.not.be.null;
     });
   });
 });

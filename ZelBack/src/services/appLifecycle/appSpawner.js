@@ -496,7 +496,7 @@ async function trySpawningGlobalApplication() {
           hash: appHash,
           required: minInstances,
         };
-        log.info(`trySpawningGlobalApplication - App ${appToRun} specs not enterprise, will check in around 2m if instances are still missing`);
+        log.info(`trySpawningGlobalApplication - App ${appToRun} specs not enterprise, will check in around ${Math.round(nonEnterpriseSpawnDelayMs / 1000)}s if instances are still missing`);
         globalState.appsToBeCheckedLater.push(appToCheck);
         globalState.trySpawningGlobalAppCache.delete(appHash);
         delay = true;
