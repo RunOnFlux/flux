@@ -27,6 +27,7 @@ module.exports = {
     forceRemovalIntervalMs: 120000,
     installCollisionWaitMs: 5000,
     spawnReconfirmDelayMs: 30000,
+    nonEnterpriseSpawnDelayMs: 5000,
     globalCmdDelayMs: 100,
     discoveryAutostart: false,
     discoveryRetryMs: 5000,

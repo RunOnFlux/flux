@@ -27,6 +27,7 @@ let appsCountAvailableToInstallOnMyNode = 0;
 
 const collisionWaitMs = config.fluxapps.installCollisionWaitMs;
 const spawnReconfirmDelayMs = config.fluxapps.spawnReconfirmDelayMs;
+const nonEnterpriseSpawnDelayMs = config.fluxapps.nonEnterpriseSpawnDelayMs ?? 2 * 60 * 1000;
 
 /**
  * Initialize the module with dependencies
@@ -490,7 +491,7 @@ async function trySpawningGlobalApplication() {
       const isArcane = Boolean(process.env.FLUXOS_PATH);
       if (!appToRunAux.enterprise && isArcane) {
         const appToCheck = {
-          timeToCheck: Date.now() + 2 * 60 * 1000,
+          timeToCheck: Date.now() + nonEnterpriseSpawnDelayMs,
           appName: appToRun,
           hash: appHash,
           required: minInstances,
