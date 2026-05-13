@@ -5,6 +5,11 @@ const path = require('path');
 const app = express();
 app.use(express.json());
 
+if (process.env.FLUX_TEST_HARNESS !== 'true') {
+  console.error('FLUX_TEST_HARNESS=true is required. This stub must only run inside the test harness.');
+  process.exit(1);
+}
+
 const FLUXD_PORT = Number(process.env.FLUXD_PORT) || 16124;
 const BENCHD_PORT = Number(process.env.BENCHD_PORT) || 16224;
 const CONTROL_PORT = Number(process.env.CONTROL_PORT) || 18232;
@@ -16,6 +21,8 @@ let pendingBlocks = [];
 
 const nodeStatusOverrides = new Map();
 const rpcFailures = new Map();
+const requestJournal = [];
+const MAX_JOURNAL_SIZE = 10000;
 
 const fixturesDir = process.env.FIXTURES_DIR || path.join(__dirname, '..', 'fixtures');
 
@@ -310,6 +317,9 @@ function handleRpc(handlers, req, res) {
     return res.status(400).json({ result: null, error: { code: -32600, message: 'Missing method' }, id });
   }
 
+  requestJournal.push({ method, sourceIp: cleanIp, timestamp: Date.now() });
+  if (requestJournal.length > MAX_JOURNAL_SIZE) requestJournal.shift();
+
   if (rpcFailures.has(cleanIp)) {
     return res.json({ result: null, error: { code: -28, message: 'Loading block index...' }, id });
   }
@@ -596,7 +606,23 @@ control.post('/reset', (req, res) => {
   deterministicNodeList = [...originalNodeList];
   pendingBlocks = [];
   pendingAppTxQueue.length = 0;
+  requestJournal.length = 0;
   res.json({ reset: true, nodeCount: deterministicNodeList.length });
+});
+
+// -- Request journal --
+
+control.get('/journal', (req, res) => {
+  const { method, sourceIp, limit = 100 } = req.query;
+  let entries = requestJournal;
+  if (method) entries = entries.filter((e) => e.method.toLowerCase() === method.toLowerCase());
+  if (sourceIp) entries = entries.filter((e) => e.sourceIp === sourceIp);
+  res.json({ total: entries.length, entries: entries.slice(-Number(limit)) });
+});
+
+control.delete('/journal', (req, res) => {
+  requestJournal.length = 0;
+  res.json({ cleared: true });
 });
 
 control.listen(CONTROL_PORT, () => console.log(`Control API listening on port ${CONTROL_PORT}`));

@@ -27,7 +27,7 @@ const CLOSE_CODE_NAMES = Object.freeze(
 );
 
 class FluxPeerManager {
-  static CONNECTION_BACKOFF_MS = [2 * 60000, 5 * 60000, 10 * 60000, 15 * 60000];
+  static CONNECTION_BACKOFF_MS = config.fluxapps.connectionBackoffMs ?? [2 * 60000, 5 * 60000, 10 * 60000, 15 * 60000];
 
   /** @type {Map<string, FluxPeerSocket>} */
   #peers = new Map();

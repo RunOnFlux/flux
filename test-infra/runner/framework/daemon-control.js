@@ -101,6 +101,19 @@ export async function disableAllRpcFailure() {
   return del('/rpc-fail/all');
 }
 
+// -- Request journal --
+
+export async function getJournal({ method, sourceIp } = {}) {
+  const params = new URLSearchParams();
+  if (method) params.set('method', method);
+  if (sourceIp) params.set('sourceIp', sourceIp);
+  return get(`/journal?${params}`);
+}
+
+export async function clearJournal() {
+  return del('/journal');
+}
+
 // -- Reset --
 
 export async function resetAll() {

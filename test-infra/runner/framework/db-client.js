@@ -184,6 +184,29 @@ export function dbClient(nodeNum) {
       });
     },
 
+    async markHashUnresolved(hash) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappshashes').updateOne(
+        { hash },
+        { $set: { message: false, messageNotFound: false } },
+      );
+    },
+
+    async deletePermanentMessage(hash) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappsmessages').deleteOne({ hash });
+    },
+
+    async deleteAppHash(hash) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappshashes').deleteOne({ hash });
+    },
+
+    async deleteAppSpec(name) {
+      const explorerDb = await db('explorer');
+      await explorerDb.collection('zelappsinformation').deleteOne({ name });
+    },
+
     async dropAndReseed(ip, height) {
       const client = await getClient();
       for (const name of Object.values(dbNames)) {

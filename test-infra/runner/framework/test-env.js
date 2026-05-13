@@ -138,13 +138,13 @@ async function seedMongo(mongoIp, nodeCount) {
   }
 }
 
-export async function createTestEnv({ nodes = 1, tickerAutostart = false, nodeStatusOverrides = {} } = {}) {
+export async function createTestEnv({ nodes = 1, deferredNodes = 0, tickerAutostart = false, nodeStatusOverrides = {} } = {}) {
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, tickerAutostart, nodeStatusOverrides);
+    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, nodeStatusOverrides);
   } catch (err) {
     for (const c of started.reverse()) {
       await c.stop().catch(() => {});
@@ -154,7 +154,7 @@ export async function createTestEnv({ nodes = 1, tickerAutostart = false, nodeSt
   }
 }
 
-async function _buildEnv(networkName, containers, started, nodes, tickerAutostart, nodeStatusOverrides) {
+async function _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, nodeStatusOverrides) {
 
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
@@ -175,6 +175,7 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
   const daemonStub = await new StaticIpContainer('flux-e2e-daemon-stub')
     .withStaticIp(networkName, DAEMON_IP)
     .withEnvironment({
+      FLUX_TEST_HARNESS: 'true',
       FLUXD_PORT: '16124',
       BENCHD_PORT: '16224',
       CONTROL_PORT: '18232',
@@ -219,14 +220,17 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
   started.push(syncthingStub);
   containers.syncthingStub = syncthingStub;
 
-  const fluxNodes = [];
+  const deferredBuilders = new Map();
+  const firstDeferred = nodes - deferredNodes;
+  const nodeConfigs = [];
+
   for (let i = 0; i < nodes; i++) {
     const num = String(i + 1).padStart(2, '0');
     const nodeIp = `198.18.${i + 1}.0`;
     const nodeManifest = manifest.nodes[i];
 
     const logCollector = createLogCollector();
-    const fluxNode = await new StaticIpContainer('flux-e2e-fluxos-01')
+    const builder = new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
       .withLogConsumer(logCollector)
@@ -244,18 +248,34 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
         FLUX_API_PORT: '16127',
         FLUX_SYNCTHING_HOST: SYNCTHING_IP,
         FLUX_SYNCTHING_PORT: '8384',
-      })
-      .start();
+      });
 
-    started.push(fluxNode);
-    fluxNodes.push({ container: fluxNode, ip: nodeIp, num: i + 1, logCollector });
+    nodeConfigs.push({ index: i, builder, ip: nodeIp, num: i + 1, logCollector });
   }
+
+  const startPromises = nodeConfigs
+    .filter((n) => n.index < firstDeferred)
+    .map(async (n) => {
+      const container = await n.builder.start();
+      started.push(container);
+      return { ...n, container };
+    });
+
+  const startedNodes = await Promise.all(startPromises);
+  const startedByIndex = new Map(startedNodes.map((n) => [n.index, n]));
+
+  const fluxNodes = nodeConfigs.map((n) => {
+    const s = startedByIndex.get(n.index);
+    if (s) return { container: s.container, ip: n.ip, num: n.num, logCollector: n.logCollector };
+    deferredBuilders.set(n.index, n.builder);
+    return { container: null, ip: n.ip, num: n.num, logCollector: n.logCollector };
+  });
   containers.fluxNodes = fluxNodes;
 
-  const clients = fluxNodes.map((n) => nodeClient(n.num));
+  const clients = fluxNodes.map((n) => (n.container ? nodeClient(n.num) : null));
 
   for (const client of clients) {
-    await client.connectEventStream();
+    if (client) await client.connectEventStream();
   }
 
   return {
@@ -264,6 +284,39 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
     clients,
     daemonControl: `http://${DAEMON_IP}:18232`,
     mongoUrl: `mongodb://${MONGO_IP}:27017`,
+
+    async startNode(index) {
+      const builder = deferredBuilders.get(index);
+      if (!builder) throw new Error(`No deferred builder for node index ${index}`);
+      const container = await builder.start();
+      started.push(container);
+      fluxNodes[index].container = container;
+      const client = nodeClient(fluxNodes[index].num);
+      await client.connectEventStream();
+      clients[index] = client;
+      deferredBuilders.delete(index);
+      return client;
+    },
+
+    async disconnectNode(index) {
+      const rtClient = await getContainerRuntimeClient();
+      const network = rtClient.container.dockerode.getNetwork(networkName);
+      const containerId = fluxNodes[index].container.getId();
+      await network.disconnect({ Container: containerId });
+      if (clients[index]) clients[index].disconnectEventStream();
+    },
+
+    async reconnectNode(index) {
+      const rtClient = await getContainerRuntimeClient();
+      const network = rtClient.container.dockerode.getNetwork(networkName);
+      const containerId = fluxNodes[index].container.getId();
+      const nodeIp = fluxNodes[index].ip;
+      await network.connect({
+        Container: containerId,
+        EndpointConfig: { IPAMConfig: { IPv4Address: nodeIp } },
+      });
+      if (clients[index]) await clients[index].connectEventStream();
+    },
 
     nodeHasLog(index, pattern) {
       return fluxNodes[index].logCollector.hasLine(pattern);
@@ -279,10 +332,10 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
 
     async teardown() {
       for (const client of clients) {
-        client.disconnectEventStream();
+        if (client) client.disconnectEventStream();
       }
       for (const n of fluxNodes) {
-        await n.container.stop().catch(() => {});
+        if (n.container) await n.container.stop().catch(() => {});
       }
       await syncthingStub.stop().catch(() => {});
       await daemonStub.stop().catch(() => {});

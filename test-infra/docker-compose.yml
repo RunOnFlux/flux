@@ -68,6 +68,7 @@ services:
       flux-test-net:
         ipv4_address: 198.18.0.3
     environment:
+      FLUX_TEST_HARNESS: "true"
       FLUXD_PORT: "16124"
       BENCHD_PORT: "16224"
       CONTROL_PORT: "18232"

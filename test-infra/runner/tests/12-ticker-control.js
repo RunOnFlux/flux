@@ -1,10 +1,11 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before, after, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
   getState, startTicker, stopTicker, advanceBlock, setHeight,
   queueAppTx, setNodeStatus, clearNodeStatus, getNodeStatusOverrides,
   enableRpcFailure, disableRpcFailure, removeFromNodeList, restoreToNodeList,
+  resetAll,
 } from '../framework/daemon-control.js';
 
 let env;
@@ -13,6 +14,11 @@ describe('Ticker and block control', function () {
   before(async function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 0 });
+  });
+
+  afterEach(async function () {
+    await stopTicker();
+    await resetAll();
   });
 
   after(async function () {

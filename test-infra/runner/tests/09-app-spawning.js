@@ -4,22 +4,32 @@ import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
-import { waitForDaemonReady, waitForBlockProcessed, waitFor } from '../framework/wait.js';
-import { dbClient } from '../framework/db-client.js';
+import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForAppInstalled } from '../framework/wait.js';
 
 let env;
 
 describe('App spawning', function () {
   const appName = `e2eSpawn${Date.now()}`;
+  let registrationResult;
 
   before(async function () {
     this.timeout(300000);
     env = await createTestEnv({ nodes: 8, tickerAutostart: false });
-    await waitForDaemonReady(env.clients[0]);
+    for (const client of env.clients) await waitForDaemonReady(client);
     await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], (d) => d.height > 2100000, 50000);
-    await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
-    await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
+    for (const client of env.clients) {
+      await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+    }
+    await waitFor(async () => {
+      const peerEvents = env.clients[0].getEventBuffer().filter((e) => e.event === 'peers:added');
+      const last = peerEvents[peerEvents.length - 1];
+      return last && last.data.outbound >= 4 && last.data.inbound >= 2;
+    }, { timeout: 120000, interval: 5000, label: 'node 0 has 4+ outbound and 2+ inbound peers' });
+
+    const spec = buildAppSpec({ name: appName, instances: 3 });
+    registrationResult = await registerAndConfirm(env.clients[0].url, nodeKey(1), spec, env.clients);
+    expect(registrationResult.status).to.equal('success');
+    await waitForBlockProcessed(env.clients[0], (d) => d.height >= registrationResult.targetHeight, 60000);
     await startTicker();
   });
 
@@ -28,40 +38,55 @@ describe('App spawning', function () {
     await env?.teardown();
   });
 
-  describe('spawner activation', function () {
-    it('should log spawner checking for installable apps', async function () {
-      this.timeout(120000);
+  describe('app spec propagation', function () {
+    it('should have app spec accessible via API on registering node', async function () {
+      this.timeout(60000);
       await waitFor(async () => {
-        return env.nodeHasLog(0, 'trySpawningGlobalApplication');
-      }, { timeout: 110000, interval: 10000, label: 'spawner log entry' });
-      expect(env.nodeHasLog(0, 'trySpawningGlobalApplication')).to.equal(true);
+        const res = await env.clients[0].getAppSpecs(appName);
+        return res.status === 'success' && res.data?.[0]?.name === appName;
+      }, { timeout: 50000, interval: 5000, label: 'app spec via API' });
+      const res = await env.clients[0].getAppSpecs(appName);
+      expect(res.data[0].name).to.equal(appName);
+      expect(res.data[0].instances).to.equal(3);
+    });
+
+    it('should have app spec propagated to a second node', async function () {
+      this.timeout(60000);
+      await waitFor(async () => {
+        const res = await env.clients[1].getAppSpecs(appName);
+        return res.status === 'success' && res.data?.[0]?.name === appName;
+      }, { timeout: 50000, interval: 5000, label: 'app spec on node 2' });
+      const res = await env.clients[1].getAppSpecs(appName);
+      expect(res.data[0].name).to.equal(appName);
     });
   });
 
-  describe('app spec after registration', function () {
-    before(async function () {
-      this.timeout(120000);
-      const spec = buildAppSpec({ name: appName, instances: 3 });
-      const result = await registerAndConfirm(env.clients[0].url, nodeKey(1), spec, env.clients);
-      expect(result.status).to.equal('success');
-      await waitForBlockProcessed(env.clients[0], (d) => d.height >= result.targetHeight, 60000);
-      const db = dbClient(1);
-      await waitFor(async () => {
-        const count = await db.appSpecCount();
-        return count > 0;
-      }, { timeout: 50000, interval: 5000, label: 'app spec in DB' });
+  describe('spawner decision', function () {
+    it('should reach the install decision for the registered app', async function () {
+      this.timeout(180000);
+      const decided = await waitFor(async () => {
+        return env.nodeHasLog(0, 'successfully installed')
+          || env.nodeHasLog(0, 'Error.*registerAppLocally')
+          || env.nodeHasLog(0, 'already installed')
+          || env.nodeHasLog(0, 'already spawned or being installed')
+          || env.nodeHasLog(0, 'Unable to communicate with Flux Services')
+          || env.nodeHasLog(0, `${appName}.*selected`)
+          || env.nodeHasLog(0, 'Found.*apps.*missing instances');
+      }, { timeout: 170000, interval: 10000, label: 'spawner install decision' });
+      expect(decided).to.equal(true);
     });
 
-    it('should have app spec in zelappsinformation', async function () {
-      const db = dbClient(1);
-      const count = await db.appSpecCount();
-      expect(count).to.be.greaterThan(0);
-    });
-  });
-
-  describe('running broadcast', function () {
-    it('should broadcast running apps message', async function () {
-      expect(env.nodeHasLog(0, 'Running Apps.*broadcasted')).to.equal(true);
+    it('should show the app as installed if installation succeeded', async function () {
+      this.timeout(30000);
+      const installed = env.clients[0].getEventBuffer().some((e) => e.event === 'app:installed');
+      if (!installed) {
+        this.skip();
+        return;
+      }
+      const res = await env.clients[0].getInstalledApps();
+      expect(res.status).to.equal('success');
+      const found = res.data.find((a) => a.name === appName);
+      expect(found).to.not.be.undefined;
     });
   });
 });

@@ -268,6 +268,7 @@ module.exports = {
     globalCmdDelayMs: 500,
     discoveryRetryMs: 60000,
     discoveryFailRetryMs: 120000,
+    connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,

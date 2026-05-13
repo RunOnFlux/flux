@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'mocha';
+import { describe, it, before, after, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey, fluxTeamKey, appOwnerKey, userKey } from '../framework/keys.js';
@@ -14,50 +14,58 @@ describe('DOS state management', function () {
     env = await createTestEnv({ nodes: 1 });
     await waitForDaemonReady(env.clients[0]);
     fluxTeamAuth = await authenticate(env.clients[0].url, fluxTeamKey());
+    const baseline = await env.clients[0].getLoginPhrase();
+    expect(baseline.status).to.equal('success');
+  });
+
+  afterEach(async function () {
+    await env.clients[0].setDOSState(0, null, fluxTeamAuth.zelidauth);
   });
 
   after(async function () {
     this.timeout(30000);
-    await env.clients[0].setDOSState(0, null, fluxTeamAuth.zelidauth);
     await env?.teardown();
   });
 
-  it('should start with dosState 0', async function () {
-    await env.clients[0].setDOSState(0, null, fluxTeamAuth.zelidauth);
-    const event = await waitForDosChanged(env.clients[0], (d) => d.dosState === 0, 10000);
-    expect(event.data.dosState).to.equal(0);
-  });
-
-  it('should accept value set via fluxteam endpoint', async function () {
-    const res = await env.clients[0].setDOSState(50, null, fluxTeamAuth.zelidauth);
+  it('should reflect set values via getDOSState API', async function () {
+    await env.clients[0].setDOSState(42, 'test message', fluxTeamAuth.zelidauth);
+    await waitForDosChanged(env.clients[0], (d) => d.dosState === 42, 10000);
+    const res = await env.clients[0].getDOSState();
     expect(res.status).to.equal('success');
-    const event = await waitForDosChanged(env.clients[0], (d) => d.dosState === 50, 10000);
-    expect(event.data.dosState).to.equal(50);
+    expect(res.data.dosState).to.equal(42);
+    expect(res.data.dosMessage).to.equal('test message');
   });
 
-  it('should reflect exact numeric value set', async function () {
-    await env.clients[0].setDOSState(42, null, fluxTeamAuth.zelidauth);
-    const event = await waitForDosChanged(env.clients[0], (d) => d.dosState === 42, 10000);
-    expect(event.data.dosState).to.equal(42);
+  it('should allow loginPhrase at dosState 10 (boundary: > 10 not >= 10)', async function () {
+    await env.clients[0].setDOSState(10, null, fluxTeamAuth.zelidauth);
+    await waitForDosChanged(env.clients[0], (d) => d.dosState === 10, 10000);
+    const res = await env.clients[0].getLoginPhrase();
+    expect(res.status).to.equal('success');
   });
 
-  it('should accept dosMessage alongside dosState', async function () {
-    await env.clients[0].setDOSState(100, 'integration test DOS', fluxTeamAuth.zelidauth);
-    const event = await waitForDosChanged(env.clients[0], (d) => d.dosState === 100, 10000);
-    expect(event.data.dosState).to.equal(100);
-    expect(event.data.dosMessage).to.equal('integration test DOS');
+  it('should block loginPhrase at dosState 11 (boundary)', async function () {
+    await env.clients[0].setDOSState(11, null, fluxTeamAuth.zelidauth);
+    await waitForDosChanged(env.clients[0], (d) => d.dosState === 11, 10000);
+    const res = await env.clients[0].getLoginPhrase();
+    expect(res.status).to.equal('error');
   });
 
-  it('should clear dosState back to 0', async function () {
+  it('should block loginPhrase when dosMessage is non-null at dosState 0', async function () {
+    await env.clients[0].setDOSState(0, 'message-only', fluxTeamAuth.zelidauth);
+    await waitForDosChanged(env.clients[0], (d) => d.dosMessage === 'message-only', 10000);
+    const res = await env.clients[0].getLoginPhrase();
+    expect(res.status).to.equal('error');
+  });
+
+  it('should restore loginPhrase when DOS fully cleared', async function () {
+    await env.clients[0].setDOSState(50, 'blocking', fluxTeamAuth.zelidauth);
+    await waitForDosChanged(env.clients[0], (d) => d.dosState === 50, 10000);
+    expect((await env.clients[0].getLoginPhrase()).status).to.equal('error');
+
     await env.clients[0].setDOSState(0, null, fluxTeamAuth.zelidauth);
-    const event = await waitForDosChanged(env.clients[0], (d) => d.dosState === 0, 10000);
-    expect(event.data.dosState).to.equal(0);
-  });
-
-  it('should clear dosMessage to null', async function () {
-    await env.clients[0].setDOSState(0, null, fluxTeamAuth.zelidauth);
-    const event = await waitForDosChanged(env.clients[0], (d) => d.dosMessage === null, 10000);
-    expect(event.data.dosMessage).to.be.null;
+    await waitForDosChanged(env.clients[0], (d) => d.dosState === 0, 10000);
+    const res = await env.clients[0].getLoginPhrase();
+    expect(res.status).to.equal('success');
   });
 
   it('should reject set from node admin', async function () {
@@ -77,15 +85,5 @@ describe('DOS state management', function () {
     const userAuth = await authenticate(env.clients[0].url, userKey());
     const res = await env.clients[0].setDOSState(100, 'denied', userAuth.zelidauth);
     expect(res.status).to.equal('error');
-  });
-
-  it('should accept threshold values (99 vs 100)', async function () {
-    await env.clients[0].setDOSState(99, 'below threshold', fluxTeamAuth.zelidauth);
-    const event99 = await waitForDosChanged(env.clients[0], (d) => d.dosState === 99, 10000);
-    expect(event99.data.dosState).to.equal(99);
-
-    await env.clients[0].setDOSState(100, 'at threshold', fluxTeamAuth.zelidauth);
-    const event100 = await waitForDosChanged(env.clients[0], (d) => d.dosState === 100, 10000);
-    expect(event100.data.dosState).to.equal(100);
   });
 });

@@ -1545,6 +1545,9 @@ function getDOSState(req, res) {
 }
 
 async function setDOSStateApi(req, res) {
+  if (!config.has('testEventStream') || config.get('testEventStream') !== true) {
+    return res.status(404).json({ status: 'error', data: { message: 'Not available' } });
+  }
   const authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
   if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
