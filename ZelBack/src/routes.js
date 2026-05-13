@@ -82,10 +82,10 @@ module.exports = (app) => {
     daemonServiceControlRpcs.getInfo(req, res);
   });
   app.get('/daemon/getfluxnodestatus', cache('60 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
+    daemonServiceNodeRpcs.getFluxNodeStatusApi(req, res);
   });
   app.get('/daemon/getzelnodestatus', cache('60 seconds'), (req, res) => { // DEPRECATED
-    daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
+    daemonServiceNodeRpcs.getFluxNodeStatusApi(req, res);
   });
   app.get('/daemon/listfluxnodes/:filter?', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.listFluxNodes(req, res);
