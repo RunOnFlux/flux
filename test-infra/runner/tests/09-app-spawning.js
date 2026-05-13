@@ -68,12 +68,16 @@ describe('App spawning', function () {
       expect(decided).to.equal(true);
     });
 
-    it('should show the app as installed if installation succeeded', async function () {
-      this.timeout(30000);
-      const installed = env.clients[0].getEventBuffer().some((e) => e.event === 'app:installed');
-      if (!installed) {
-        this.skip();
-        return;
+    it('should install the registered app', async function () {
+      this.timeout(180000);
+      try {
+        await waitForAppInstalled(env.clients[0], appName, 170000);
+      } catch (err) {
+        const lines = env.nodeLogLines(0).filter((l) =>
+          /spawn|install|selected|missing|image|compliance|docker|pull|error|e2eSpawn/i.test(l));
+        console.log('=== Spawner logs from node 0 ===');
+        lines.forEach((l) => console.log(l));
+        throw err;
       }
       const res = await env.clients[0].getInstalledApps();
       expect(res.status).to.equal('success');
