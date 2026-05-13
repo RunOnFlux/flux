@@ -20,17 +20,15 @@ describe('App spawning', function () {
     for (const client of env.clients) {
       await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
     }
-    await waitFor(async () => {
-      const peerEvents = env.clients[0].getEventBuffer().filter((e) => e.event === 'peers:added');
-      const last = peerEvents[peerEvents.length - 1];
-      return last && last.data.outbound >= 4 && last.data.inbound >= 2;
-    }, { timeout: 120000, interval: 5000, label: 'node 0 has 4+ outbound and 2+ inbound peers' });
+    await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
+    await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
+
+    await startTicker();
 
     const spec = buildAppSpec({ name: appName, instances: 3 });
     registrationResult = await registerAndConfirm(env.clients[0].url, nodeKey(1), spec, env.clients);
     expect(registrationResult.status).to.equal('success');
     await waitForBlockProcessed(env.clients[0], (d) => d.height >= registrationResult.targetHeight, 60000);
-    await startTicker();
   });
 
   after(async function () {
