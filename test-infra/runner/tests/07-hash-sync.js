@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
-import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForPeers } from '../framework/wait.js';
+import { waitForDaemonReady, waitForBlockProcessed, waitFor } from '../framework/wait.js';
 import { advanceBlock, startTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 
@@ -16,7 +16,8 @@ async function bootAndPeer(env) {
     if (client) await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
   }
   await env.startDiscovery();
-  await waitForPeers(env.clients[0], { outbound: 4, inbound: 2 });
+  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
+  await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
   await startTicker();
 }
 
@@ -43,7 +44,7 @@ describe('Hash sync: late-joining node', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 8, deferredNodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ nodes: 10, deferredNodes: 1, tickerAutostart: false });
     await bootAndPeer(env);
 
     ({ appHash } = await registerApp(env));
@@ -90,7 +91,7 @@ describe('Hash sync: network partition', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 8, tickerAutostart: false });
+    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
 
     await env.disconnectNode(7);
@@ -138,7 +139,7 @@ describe('Hash sync: stale state recovery', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 8, tickerAutostart: false });
+    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     ({ appHash } = await registerApp(env));
 
