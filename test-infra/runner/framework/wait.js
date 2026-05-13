@@ -32,3 +32,7 @@ export async function waitForAppInstalled(node, appName, timeout = 60000) {
 export async function waitForAppRemoved(node, appName, timeout = 60000) {
   return node.waitForEvent('app:removed', (data) => data.name === appName, timeout);
 }
+
+export async function waitForNodeStatus(node, predicate, timeout = 30000) {
+  return node.waitForEvent('node:statusChecked', predicate, timeout);
+}

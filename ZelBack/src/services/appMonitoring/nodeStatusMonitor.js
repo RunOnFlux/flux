@@ -7,6 +7,7 @@ const generalService = require('../generalService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const log = require('../../lib/log');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 // Database collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -43,6 +44,7 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
     }
     let error = false;
     isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => { error = true; });
+    fluxEventBus.publish('node:statusChecked', { confirmed: error ? null : !!isNodeConfirmed });
     if (!isNodeConfirmed && !error) {
       log.info('monitorNodeStatus - Node is not Confirmed');
       const installedAppsRes = await installedAppsFn();

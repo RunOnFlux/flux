@@ -50,7 +50,7 @@ export function nodeClient(nodeNum) {
       for (const name of [
         'daemon:polled', 'block:processed',
         'peers:added', 'peers:removed',
-        'dos:changed',
+        'dos:changed', 'node:statusChecked',
         'app:installed', 'app:removed',
         'confirmation:changed', 'boot:settled',
       ]) {

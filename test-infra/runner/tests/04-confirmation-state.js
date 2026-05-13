@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
-import { waitForDaemonReady, waitFor } from '../framework/wait.js';
+import { waitForDaemonReady, waitForNodeStatus, waitFor } from '../framework/wait.js';
 
 describe('Confirmation state: confirmed boot', function () {
   let env;
@@ -18,14 +18,10 @@ describe('Confirmation state: confirmed boot', function () {
     await env?.teardown();
   });
 
-  it('should detect status CONFIRMED from daemon', async function () {
-    const res = await env.clients[0].getNodeStatus();
-    expect(res.status).to.equal('success');
-    expect(res.data.status).to.equal('CONFIRMED');
-  });
-
-  it('should log node is confirmed', async function () {
-    expect(env.nodeHasLog(0, 'monitorNodeStatus - Node is Confirmed')).to.equal(true);
+  it('should report confirmed on first monitor cycle', async function () {
+    this.timeout(30000);
+    const event = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 20000);
+    expect(event.data.confirmed).to.equal(true);
   });
 
   it('should start peer discovery', async function () {
@@ -53,10 +49,10 @@ describe('Confirmation state: unconfirmed boot', function () {
     await env?.teardown();
   });
 
-  it('should detect EXPIRED status from daemon', async function () {
-    const res = await env.clients[0].getNodeStatus();
-    expect(res.status).to.equal('success');
-    expect(res.data.status).to.equal('EXPIRED');
+  it('should report not confirmed on first monitor cycle', async function () {
+    this.timeout(30000);
+    const event = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
+    expect(event.data.confirmed).to.equal(false);
   });
 
   it('should log discovery awaiting', async function () {
@@ -76,6 +72,7 @@ describe('Confirmation state: runtime loss', function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
+    await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 30000);
   });
 
   after(async function () {
@@ -84,20 +81,14 @@ describe('Confirmation state: runtime loss', function () {
     await env?.teardown();
   });
 
-  it('should return EXPIRED from daemon after override set', async function () {
-    await setNodeStatus('198.18.1.0', 'EXPIRED');
-    await env.clients[0].waitForEvent('daemon:polled', (d) => d.height > 0, 15000);
-    const res = await env.clients[0].getNodeStatus();
-    expect(res.status).to.equal('success');
-    expect(res.data.status).to.equal('EXPIRED');
-  });
-
-  it('should detect confirmation loss on next monitor cycle', async function () {
+  it('should detect confirmation loss after status override', async function () {
     this.timeout(30000);
     await setNodeStatus('198.18.1.0', 'EXPIRED');
-    await waitFor(() => env.nodeHasLog(0, 'not.*[Cc]onfirmed|discovery is awaiting'), {
-      timeout: 20000, interval: 1000, label: 'confirmation loss detected',
-    });
-    expect(env.nodeHasLog(0, 'not.*[Cc]onfirmed|discovery is awaiting')).to.equal(true);
+    const event = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
+    expect(event.data.confirmed).to.equal(false);
+  });
+
+  it('should log confirmation loss', async function () {
+    expect(env.nodeHasLog(0, 'monitorNodeStatus - Node is not Confirmed')).to.equal(true);
   });
 });
