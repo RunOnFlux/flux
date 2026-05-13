@@ -41,15 +41,15 @@ describe('App spawning', function () {
     it('should have app spec accessible via API on registering node', async function () {
       const res = await env.clients[0].getAppSpecs(appName);
       expect(res.status).to.equal('success');
-      expect(res.data[0].name).to.equal(appName);
-      expect(res.data[0].instances).to.equal(3);
+      expect(res.data.name).to.equal(appName);
+      expect(res.data.instances).to.equal(3);
     });
 
     it('should have app spec propagated to a second node', async function () {
       await waitForAppSpecStored(env.clients[1], appName);
       const res = await env.clients[1].getAppSpecs(appName);
       expect(res.status).to.equal('success');
-      expect(res.data[0].name).to.equal(appName);
+      expect(res.data.name).to.equal(appName);
     });
   });
 
