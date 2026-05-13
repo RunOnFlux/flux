@@ -28,6 +28,7 @@ export function nodeClient(nodeNum) {
   let eventSource = null;
   const eventBuffer = [];
   const emitter = new EventEmitter();
+  emitter.on('error', () => {});
 
   function connectEventStream(timeout = 60000) {
     return new Promise((resolve, reject) => {
