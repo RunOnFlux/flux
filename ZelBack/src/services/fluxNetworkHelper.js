@@ -1558,8 +1558,8 @@ async function setDOSStateApi(req, res) {
   if (Number.isNaN(newDosState)) {
     return res.json(messageHelper.createErrorMessage('dosState must be a number'));
   }
-  setDosStateValue(newDosState);
   setDosMessage(body.dosMessage ?? null);
+  setDosStateValue(newDosState);
   return res.json(messageHelper.createSuccessMessage({ dosState, dosMessage }));
 }
 
