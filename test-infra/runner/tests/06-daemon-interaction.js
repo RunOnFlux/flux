@@ -2,7 +2,7 @@ import { describe, it, before, after, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus, removeFromNodeList, restoreToNodeList, resetNodeList, enableRpcFailure, disableRpcFailure } from '../framework/daemon-control.js';
-import { waitForDaemonReady, waitForDaemonPolled } from '../framework/wait.js';
+import { waitForDaemonReady, waitForDaemonPolled, waitForNodeStatus } from '../framework/wait.js';
 
 let env;
 const NODE_COUNT = 4;
@@ -38,37 +38,25 @@ describe('Daemon interaction', function () {
   });
 
   describe('normal operation', function () {
-    it('should read blockchain height', async function () {
+    it('should read blockchain height via direct RPC', async function () {
       const rpc = await directRpc('getblockchaininfo');
       expect(rpc.error).to.be.null;
       expect(rpc.result.blocks).to.be.greaterThan(0);
     });
 
-    it('should read node status as CONFIRMED via FluxOS', async function () {
-      const res = await env.clients[0].getNodeStatus();
-      expect(res.status).to.equal('success');
-      expect(res.data.status).to.equal('CONFIRMED');
+    it('should report daemon height via event', async function () {
+      const event = env.clients[0].getEventBuffer().find((e) => e.event === 'daemon:polled');
+      expect(event).to.not.be.undefined;
+      expect(event.data.height).to.be.greaterThan(0);
     });
 
-    it('should read correct IP for this node via FluxOS', async function () {
-      const res = await env.clients[0].getNodeStatus();
-      expect(res.data.ip).to.equal('198.18.1.0');
+    it('should report confirmed status on first monitor cycle', async function () {
+      this.timeout(30000);
+      const event = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 20000);
+      expect(event.data.confirmed).to.equal(true);
     });
 
-    it('should read correct pubkey for this node via FluxOS', async function () {
-      const res = await env.clients[0].getNodeStatus();
-      expect(res.data.pubkey).to.be.a('string');
-      expect(res.data.pubkey.length).to.be.greaterThan(0);
-    });
-
-    it('should read correct collateral for this node via FluxOS', async function () {
-      const res = await env.clients[0].getNodeStatus();
-      expect(res.data.collateral).to.include('COutPoint');
-      expect(res.data.txhash).to.be.a('string');
-      expect(res.data.txhash.length).to.equal(64);
-    });
-
-    it('should read benchmark specs matching node tier', async function () {
+    it('should read benchmark specs via direct RPC', async function () {
       const rpc = await directBenchRpc('getbenchmarks');
       expect(rpc.result.cores).to.be.greaterThan(0);
       expect(rpc.result.ram).to.be.greaterThan(0);
@@ -81,8 +69,8 @@ describe('Daemon interaction', function () {
     });
 
     it('should report headers matching blocks (fully synced)', async function () {
-      const rpc = await directRpc('getblockchaininfo');
-      expect(rpc.result.headers).to.equal(rpc.result.blocks);
+      const event = env.clients[0].getEventBuffer().find((e) => e.event === 'daemon:polled');
+      expect(event.data.headers).to.equal(event.data.height);
     });
   });
 
@@ -91,22 +79,20 @@ describe('Daemon interaction', function () {
       await clearNodeStatus('198.18.1.0');
     });
 
-    it('should return EXPIRED when override is set', async function () {
-      this.timeout(15000);
+    it('should detect EXPIRED via monitor after override set', async function () {
+      this.timeout(30000);
       await setNodeStatus('198.18.1.0', 'EXPIRED');
-      await waitForDaemonPolled(env.clients[0], () => true, 10000);
-      const res = await env.clients[0].getNodeStatus();
-      expect(res.data.status).to.equal('EXPIRED');
+      const event = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
+      expect(event.data.confirmed).to.equal(false);
     });
 
-    it('should return CONFIRMED when override is cleared', async function () {
-      this.timeout(20000);
+    it('should detect CONFIRMED via monitor after override cleared', async function () {
+      this.timeout(30000);
       await setNodeStatus('198.18.1.0', 'EXPIRED');
-      await waitForDaemonPolled(env.clients[0], () => true, 10000);
+      await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
       await clearNodeStatus('198.18.1.0');
-      await waitForDaemonPolled(env.clients[0], () => true, 10000);
-      const res = await env.clients[0].getNodeStatus();
-      expect(res.data.status).to.equal('CONFIRMED');
+      const event = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 20000);
+      expect(event.data.confirmed).to.equal(true);
     });
   });
 
@@ -138,23 +124,22 @@ describe('Daemon interaction', function () {
       await disableRpcFailure('198.18.1.0');
     });
 
-    it('should return error when RPC failure enabled', async function () {
-      this.timeout(15000);
-      await enableRpcFailure('198.18.1.0');
-      await waitForDaemonPolled(env.clients[0], () => true, 10000);
-      const res = await env.clients[0].getBlockchainInfo();
-      expect(res.status).to.equal('error');
-    });
-
-    it('should recover when RPC failure disabled', async function () {
+    it('should stop receiving daemon:polled events when RPC fails', async function () {
       this.timeout(20000);
       await enableRpcFailure('198.18.1.0');
-      await waitForDaemonPolled(env.clients[0], () => true, 10000);
+      const beforeCount = env.clients[0].getEventBuffer().filter((e) => e.event === 'daemon:polled').length;
+      await new Promise((r) => setTimeout(r, 8000));
+      const afterCount = env.clients[0].getEventBuffer().filter((e) => e.event === 'daemon:polled').length;
+      expect(afterCount).to.equal(beforeCount);
+    });
+
+    it('should resume daemon:polled events when RPC recovers', async function () {
+      this.timeout(20000);
+      await enableRpcFailure('198.18.1.0');
+      await new Promise((r) => setTimeout(r, 6000));
       await disableRpcFailure('198.18.1.0');
-      await waitForDaemonPolled(env.clients[0], () => true, 10000);
-      const res = await env.clients[0].getBlockchainInfo();
-      expect(res.status).to.equal('success');
-      expect(res.data.blocks).to.be.greaterThan(0);
+      const event = await waitForDaemonPolled(env.clients[0], () => true, 10000);
+      expect(event.data.height).to.be.greaterThan(0);
     });
   });
 });

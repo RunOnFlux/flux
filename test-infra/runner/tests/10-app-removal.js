@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
-import { waitForDaemonReady, waitFor, waitForDosChanged } from '../framework/wait.js';
+import { waitForDaemonReady, waitForNodeStatus, waitForDosChanged } from '../framework/wait.js';
 
 describe('App removal: confirmation loss', function () {
   let env;
@@ -13,6 +13,7 @@ describe('App removal: confirmation loss', function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
+    await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 30000);
   });
 
   after(async function () {
@@ -21,13 +22,11 @@ describe('App removal: confirmation loss', function () {
     await env?.teardown();
   });
 
-  it('should detect confirmation loss via monitorNodeStatus', async function () {
-    this.timeout(60000);
+  it('should detect confirmation loss via monitor event', async function () {
+    this.timeout(30000);
     await setNodeStatus('198.18.1.0', 'EXPIRED');
-    await waitFor(() => env.nodeHasLog(0, 'not.*[Cc]onfirmed'), {
-      timeout: 30000, interval: 1000, label: 'monitorNodeStatus detects EXPIRED',
-    });
-    expect(env.nodeHasLog(0, 'not.*[Cc]onfirmed')).to.equal(true);
+    const event = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
+    expect(event.data.confirmed).to.equal(false);
   });
 });
 
