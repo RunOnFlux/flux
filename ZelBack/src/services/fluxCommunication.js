@@ -584,6 +584,7 @@ async function removeIncomingPeer(req, res) {
  * @param {string} connection IP address (and port if applicable).
  */
 let myPort = null;
+let discoveryRunning = false;
 
 /** @type {WeakMap<WebSocket, {ip: string, port: string, source: string}>} */
 const wsMetadata = new WeakMap();
@@ -798,6 +799,26 @@ async function addOutgoingPeer(req, res) {
       error.code,
     );
     return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+function startDiscovery() {
+  if (discoveryRunning) return;
+  discoveryRunning = true;
+  fluxDiscovery();
+}
+
+async function startDiscoveryApi(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
+    if (authorized !== true) {
+      return res.json(messageHelper.errUnauthorizedMessage());
+    }
+    startDiscovery();
+    return res.json(messageHelper.createSuccessMessage('Discovery started'));
+  } catch (error) {
+    log.error(error);
+    return res.json(messageHelper.createErrorMessage(error.message || error));
   }
 }
 
@@ -1162,6 +1183,8 @@ module.exports = {
   connectedPeersInfo,
   keepConnectionsAlive,
   fluxDiscovery,
+  startDiscovery,
+  startDiscoveryApi,
   handleAppMessages,
   addPeer,
   logSocketsEvery,

@@ -40,3 +40,13 @@ export async function waitForNodeStatus(node, predicate, timeout = 30000) {
 export async function waitForAppSpecStored(node, appName, timeout = 120000) {
   return node.waitForEvent('app:specStored', (data) => data.name === appName, timeout);
 }
+
+export async function waitForPeers(node, { outbound = 0, inbound = 0, timeout = 120000 } = {}) {
+  return waitFor(async () => {
+    const res = await node.getPeerDetails();
+    if (res.status !== 'success' || !Array.isArray(res.data)) return false;
+    const out = res.data.filter((p) => p.direction === 'outbound').length;
+    const inc = res.data.filter((p) => p.direction === 'inbound').length;
+    return out >= outbound && inc >= inbound;
+  }, { timeout, interval: 2000, label: `peers outbound>=${outbound} inbound>=${inbound}` });
+}

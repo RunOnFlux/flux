@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
-import { waitForDaemonReady, waitForBlockProcessed, waitFor } from '../framework/wait.js';
+import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForPeers } from '../framework/wait.js';
 import { advanceBlock, startTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 
@@ -15,8 +15,8 @@ async function bootAndPeer(env) {
   for (const client of env.clients) {
     if (client) await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
   }
-  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
-  await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
+  await env.startDiscovery();
+  await waitForPeers(env.clients[0], { outbound: 4, inbound: 2 });
   await startTicker();
 }
 
@@ -56,6 +56,7 @@ describe('Hash sync: late-joining node', function () {
     await env.startNode(7);
     await waitForDaemonReady(env.clients[7]);
     await waitForBlockProcessed(env.clients[7], (d) => d.height > 2100000, 60000);
+    await env.startDiscovery();
   });
 
   after(async function () {

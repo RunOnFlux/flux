@@ -12,6 +12,8 @@ import http from 'node:http';
 import { nodeClient } from './node-client.js';
 import { closeDb } from './db-client.js';
 import { MongoClient } from 'mongodb';
+import { authenticate } from '../auth.js';
+import { fluxTeamKey } from './keys.js';
 
 function createLogCollector() {
   const lines = [];
@@ -316,6 +318,15 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
         EndpointConfig: { IPAMConfig: { IPv4Address: nodeIp } },
       });
       if (clients[index]) await clients[index].connectEventStream();
+    },
+
+    async startDiscovery() {
+      const teamKey = fluxTeamKey();
+      await Promise.all(clients.map(async (client) => {
+        if (!client) return;
+        const auth = await authenticate(client.url, teamKey);
+        await client.getAuthed('/flux/startdiscovery', auth.zelidauth);
+      }));
     },
 
     nodeHasLog(index, pattern) {

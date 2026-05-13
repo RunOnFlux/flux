@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
-import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForAppInstalled, waitForAppSpecStored } from '../framework/wait.js';
+import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForAppInstalled, waitForAppSpecStored, waitForPeers } from '../framework/wait.js';
 
 let env;
 
@@ -20,8 +20,8 @@ describe('App spawning', function () {
     for (const client of env.clients) {
       await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
     }
-    await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
-    await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
+    await env.startDiscovery();
+    await waitForPeers(env.clients[0], { outbound: 4, inbound: 2 });
 
     await startTicker();
 

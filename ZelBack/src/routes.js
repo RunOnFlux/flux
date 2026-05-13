@@ -1124,6 +1124,9 @@ module.exports = (app) => {
   app.get('/flux/removeincomingpeer/:ip?', (req, res) => {
     fluxCommunication.removeIncomingPeer(req, res);
   });
+  app.get('/flux/startdiscovery', (req, res) => {
+    fluxCommunication.startDiscoveryApi(req, res);
+  });
   app.get('/flux/allowport/:port?', (req, res) => {
     fluxNetworkHelper.allowPortApi(req, res);
   });

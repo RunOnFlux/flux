@@ -116,6 +116,7 @@ export function nodeClient(nodeNum) {
     getEventBuffer: () => [...eventBuffer],
     getVersion: () => get('/flux/version'),
     getPeers: () => get('/flux/connectedpeers'),
+    getPeerDetails: () => get('/flux/peers'),
     getIncomingPeers: () => get('/flux/incomingconnections'),
     getNodeStatus: () => get('/daemon/getzelnodestatus'),
     getBlockchainInfo: () => get('/daemon/getblockchaininfo'),

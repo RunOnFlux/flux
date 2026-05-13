@@ -5,7 +5,7 @@ import { nodeKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { buildAppSpec, registerApp, registerAndConfirm, checkPermanentSpec } from '../framework/app-helper.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
-import { waitForDaemonReady, waitFor, waitForBlockProcessed } from '../framework/wait.js';
+import { waitForDaemonReady, waitFor, waitForBlockProcessed, waitForPeers } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 
 let env;
@@ -17,8 +17,8 @@ describe('App registration', function () {
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await advanceBlock();
     await waitForBlockProcessed(env.clients[0], (d) => d.height > 2100000, 50000);
-    await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
-    await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
+    await env.startDiscovery();
+    await waitForPeers(env.clients[0], { outbound: 4, inbound: 2 });
     await startTicker();
   });
 

@@ -266,6 +266,7 @@ module.exports = {
     installCollisionWaitMs: 90000,
     spawnReconfirmDelayMs: 7500000,
     globalCmdDelayMs: 500,
+    discoveryAutostart: true,
     discoveryRetryMs: 60000,
     discoveryFailRetryMs: 120000,
     connectionBackoffMs: [120000, 300000, 600000, 900000],

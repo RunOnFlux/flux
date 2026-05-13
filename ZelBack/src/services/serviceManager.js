@@ -304,7 +304,9 @@ async function startFluxFunctions() {
       log.error(`appTamperingBlocklist start error: ${err.message}`);
     });
     log.info('Flux checks operational');
-    fluxCommunication.fluxDiscovery();
+    if (config.fluxapps.discoveryAutostart !== false) {
+      fluxCommunication.startDiscovery();
+    }
     log.info('Flux Discovery started');
     // Cleanup and fix crontab mount entries (add wait logic, remove stale entries, ensure mounts are active)
     log.info('crontab and mounts cleanup...');
