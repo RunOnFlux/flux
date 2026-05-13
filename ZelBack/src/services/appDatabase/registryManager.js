@@ -5,6 +5,7 @@ const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
+const fluxEventBus = require('../utils/fluxEventBus');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
@@ -882,6 +883,7 @@ async function storeAppSpecificationInPermanentStorage(appSpec) {
 
     await dbHelper.insertOneToDatabase(database, globalAppsInformation, appSpec);
 
+    fluxEventBus.publish('app:specStored', { name: appSpec.name, hash: appSpec.hash });
     log.info(`App specification stored permanently for ${appSpec.name}`);
     return { status: 'success', message: 'App specification stored' };
   } catch (error) {

@@ -52,6 +52,7 @@ export function nodeClient(nodeNum) {
         'peers:added', 'peers:removed',
         'dos:changed', 'node:statusChecked',
         'app:installed', 'app:removed',
+        'app:specStored',
         'confirmation:changed', 'boot:settled',
       ]) {
         eventSource.addEventListener(name, (e) => {

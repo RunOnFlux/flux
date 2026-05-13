@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
-import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForAppInstalled } from '../framework/wait.js';
+import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForAppInstalled, waitForAppSpecStored } from '../framework/wait.js';
 
 let env;
 
@@ -29,6 +29,7 @@ describe('App spawning', function () {
     registrationResult = await registerAndConfirm(env.clients[0].url, nodeKey(1), spec, env.clients);
     expect(registrationResult.status).to.equal('success');
     await waitForBlockProcessed(env.clients[0], (d) => d.height >= registrationResult.targetHeight, 60000);
+    await waitForAppSpecStored(env.clients[0], appName);
   });
 
   after(async function () {
@@ -38,23 +39,16 @@ describe('App spawning', function () {
 
   describe('app spec propagation', function () {
     it('should have app spec accessible via API on registering node', async function () {
-      this.timeout(120000);
-      await waitFor(async () => {
-        const res = await env.clients[0].getAppSpecs(appName);
-        return res.status === 'success' && res.data?.[0]?.name === appName;
-      }, { timeout: 110000, interval: 5000, label: 'app spec via API' });
       const res = await env.clients[0].getAppSpecs(appName);
+      expect(res.status).to.equal('success');
       expect(res.data[0].name).to.equal(appName);
       expect(res.data[0].instances).to.equal(3);
     });
 
     it('should have app spec propagated to a second node', async function () {
-      this.timeout(120000);
-      await waitFor(async () => {
-        const res = await env.clients[1].getAppSpecs(appName);
-        return res.status === 'success' && res.data?.[0]?.name === appName;
-      }, { timeout: 110000, interval: 5000, label: 'app spec on node 2' });
+      await waitForAppSpecStored(env.clients[1], appName);
       const res = await env.clients[1].getAppSpecs(appName);
+      expect(res.status).to.equal('success');
       expect(res.data[0].name).to.equal(appName);
     });
   });
