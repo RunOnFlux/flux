@@ -4,6 +4,7 @@ const daemonServiceUtils = require('./daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
 const log = require('../../lib/log');
 const configManager = require('../utils/configManager');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 /**
  * Get the default daemon header based on testnet configuration
@@ -91,6 +92,7 @@ async function fluxDaemonBlockchainInfo() {
       currentDaemonHeader = daemonBlockChainInfo.data.headers;
     }
     lastSuccessfulRpcCall = Date.now();
+    fluxEventBus.publish('daemon:polled', { height: currentDaemonHeight, headers: currentDaemonHeader });
     return log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
   } catch (error) {
     return log.warn(error);

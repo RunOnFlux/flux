@@ -1,9 +1,9 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { waitForApi, waitForBoot, waitForExplorerSynced } from '../framework/wait.js';
+import { waitForDaemonReady, waitForBlockProcessed } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
-import { getState } from '../framework/daemon-control.js';
+import { advanceBlock, getState } from '../framework/daemon-control.js';
 
 let env;
 
@@ -11,9 +11,9 @@ describe('Boot: explorer sync', function () {
   before(async function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 2 });
-    await waitForApi(env.clients[0]);
-    await waitForBoot(env, 0);
-    await waitForExplorerSynced(env.clients[0]);
+    await waitForDaemonReady(env.clients[0]);
+    await advanceBlock();
+    await waitForBlockProcessed(env.clients[0], (d) => d.height > 2100000, 50000);
   });
 
   after(async function () {
@@ -45,9 +45,9 @@ describe('Boot: explorer sync', function () {
   describe('cross-node explorer consistency', function () {
     before(async function () {
       this.timeout(120000);
-      await waitForApi(env.clients[1]);
-      await waitForBoot(env, 1);
-      await waitForExplorerSynced(env.clients[1]);
+      await waitForDaemonReady(env.clients[1]);
+      await advanceBlock();
+      await waitForBlockProcessed(env.clients[1], (d) => d.height > 2100000, 50000);
     });
 
     it('should have similar explorer height on node 1 and node 2', async function () {

@@ -8,6 +8,7 @@ const dbPrefix = '';
 module.exports = {
   development: isDevelopment,
   loglevel: 'debug', // severity ordering specified by RFC5424
+  testEventStream: false,
   server: {
     allowedPorts: [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
@@ -284,17 +285,6 @@ module.exports = {
     daemonInfoIntervalMs: 30000,
     explorerSyncRetryMs: 120000,
     explorerDeepRestoreBlocks: 100,
-    daemonCacheTtlMs: 20000,
-    apiCache5s: '5 seconds',
-    apiCache10s: '10 seconds',
-    apiCache15s: '15 seconds',
-    apiCache30s: '30 seconds',
-    apiCache60s: '60 seconds',
-    apiCache2m: '2 minutes',
-    apiCache5m: '5 minutes',
-    apiCache30m: '30 minutes',
-    apiCache1h: '1 hour',
-    apiCache1d: '1 day',
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

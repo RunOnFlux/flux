@@ -17,6 +17,7 @@ const registryManager = require('./appDatabase/registryManager');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const benchmarkService = require('./benchmarkService');
 const fluxNetworkhelper = require('./fluxNetworkHelper');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
@@ -669,11 +670,13 @@ async function processBlock(blockHeight, isInsightExplorer) {
       }
       await insertAndRequestAppHashes(appsTransactions, database, true);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+      fluxEventBus.publish('block:processed', { height: scannedHeight });
     } else if (blockDataVerbose.height % 500 === 0) {
       log.info(`Processing Explorer Number of Transactions: ${appsTransactions.length}.`);
       await registryManager.expireGlobalApplications(); // in case node was shutdown for a while and it is started
       await insertTransactions(appsTransactions, database);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+      fluxEventBus.publish('block:processed', { height: scannedHeight });
     }
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {

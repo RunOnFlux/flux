@@ -35,6 +35,7 @@ const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require(
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
 const hwRequirements = require('../appRequirements/hwRequirements');
 const config = require('config');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
@@ -658,7 +659,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       await storeAppRunningMessage(newAppRunningMessage);
       // broadcast messages about running apps to all peers
       await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessage);
-      // broadcast messages about running apps to all peers
+      fluxEventBus.publish('app:installed', { name: appSpecifications.name, hash: appSpecifications.hash });
     }
 
     // all done message

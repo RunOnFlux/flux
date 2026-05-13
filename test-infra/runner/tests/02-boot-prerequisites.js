@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { waitForApi, waitForBoot } from '../framework/wait.js';
+import { waitForDaemonReady } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 
 let env;
@@ -10,8 +10,7 @@ describe('Boot: prerequisites', function () {
   before(async function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1, tickerAutostart: false });
-    await waitForApi(env.clients[0]);
-    await waitForBoot(env, 0);
+    await waitForDaemonReady(env.clients[0]);
   });
 
   after(async function () {

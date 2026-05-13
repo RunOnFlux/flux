@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
-import { waitForApi, waitFor } from '../framework/wait.js';
+import { waitForDaemonReady, waitFor, waitForDosChanged } from '../framework/wait.js';
 
 describe('App removal: confirmation loss', function () {
   let env;
@@ -12,7 +12,7 @@ describe('App removal: confirmation loss', function () {
   before(async function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1, tickerAutostart: false });
-    await waitForApi(env.clients[0]);
+    await waitForDaemonReady(env.clients[0]);
   });
 
   after(async function () {
@@ -24,12 +24,10 @@ describe('App removal: confirmation loss', function () {
   it('should detect confirmation loss via monitorNodeStatus', async function () {
     this.timeout(60000);
     await setNodeStatus('198.18.1.0', 'EXPIRED');
-    await waitFor(async () => {
-      const res = await env.clients[0].getInstalledApps();
-      return res.status === 'success';
-    }, { timeout: 50000, interval: 5000, label: 'monitorNodeStatus detection' });
-    const res = await env.clients[0].getNodeStatus();
-    expect(res.status).to.equal('success');
+    await waitFor(() => env.nodeHasLog(0, 'not.*[Cc]onfirmed'), {
+      timeout: 30000, interval: 1000, label: 'monitorNodeStatus detects EXPIRED',
+    });
+    expect(env.nodeHasLog(0, 'not.*[Cc]onfirmed')).to.equal(true);
   });
 });
 
@@ -40,7 +38,7 @@ describe('App removal: DOS state', function () {
   before(async function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1, tickerAutostart: false });
-    await waitForApi(env.clients[0]);
+    await waitForDaemonReady(env.clients[0]);
     fluxTeamAuth = await authenticate(env.clients[0].url, fluxTeamKey());
   });
 
@@ -50,17 +48,19 @@ describe('App removal: DOS state', function () {
     await env?.teardown();
   });
 
-  it('should not spawn apps when dosState >= 100', async function () {
-    const res = await env.clients[0].setDOSState(100, 'test DOS block', fluxTeamAuth.zelidauth);
-    expect(res.status).to.equal('success');
-    const state = await env.clients[0].getDOSState();
-    expect(state.data.dosState).to.equal(100);
+  it('should set dosState to 100 and confirm via event', async function () {
+    this.timeout(15000);
+    await env.clients[0].setDOSState(100, 'test DOS block', fluxTeamAuth.zelidauth);
+    const event = await waitForDosChanged(env.clients[0], (d) => d.dosState === 100, 10000);
+    expect(event.data.dosState).to.equal(100);
+    expect(event.data.dosMessage).to.equal('test DOS block');
   });
 
   it('should resume normal state when DOS cleared', async function () {
+    this.timeout(15000);
     await env.clients[0].setDOSState(0, null, fluxTeamAuth.zelidauth);
-    const state = await env.clients[0].getDOSState();
-    expect(state.data.dosState).to.equal(0);
-    expect(state.data.dosMessage).to.be.null;
+    const event = await waitForDosChanged(env.clients[0], (d) => d.dosState === 0, 10000);
+    expect(event.data.dosState).to.equal(0);
+    expect(event.data.dosMessage).to.be.null;
   });
 });

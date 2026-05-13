@@ -1,3 +1,12 @@
+const fs = require('fs');
+const path = require('path');
+
+// Ensure log files exist so the log module doesn't throw ENOENT during tests
+for (const name of ['error.log', 'debug.log', 'warn.log']) {
+  const p = path.join(process.cwd(), name);
+  if (!fs.existsSync(p)) fs.writeFileSync(p, '');
+}
+
 globalThis.userconfig = {
   initial: {
     ipaddress: '127.0.0.1',

@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
-import { waitForApi, waitForBoot, waitFor } from '../framework/wait.js';
+import { waitForDaemonReady, waitFor } from '../framework/wait.js';
 
 describe('Confirmation state: confirmed boot', function () {
   let env;
@@ -10,8 +10,7 @@ describe('Confirmation state: confirmed boot', function () {
   before(async function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1, tickerAutostart: false });
-    await waitForApi(env.clients[0]);
-    await waitForBoot(env, 0);
+    await waitForDaemonReady(env.clients[0]);
   });
 
   after(async function () {
@@ -44,7 +43,6 @@ describe('Confirmation state: unconfirmed boot', function () {
       tickerAutostart: false,
       nodeStatusOverrides: { '198.18.1.0': 'EXPIRED' },
     });
-    await waitForApi(env.clients[0]);
     await waitFor(() => env.nodeHasLog(0, 'discovery is awaiting'), {
       timeout: 60000, interval: 1000, label: 'unconfirmed boot log',
     });
@@ -77,7 +75,7 @@ describe('Confirmation state: runtime loss', function () {
   before(async function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1, tickerAutostart: false });
-    await waitForApi(env.clients[0]);
+    await waitForDaemonReady(env.clients[0]);
   });
 
   after(async function () {
@@ -88,14 +86,18 @@ describe('Confirmation state: runtime loss', function () {
 
   it('should return EXPIRED from daemon after override set', async function () {
     await setNodeStatus('198.18.1.0', 'EXPIRED');
+    await env.clients[0].waitForEvent('daemon:polled', (d) => d.height > 0, 15000);
     const res = await env.clients[0].getNodeStatus();
     expect(res.status).to.equal('success');
     expect(res.data.status).to.equal('EXPIRED');
   });
 
   it('should detect confirmation loss on next monitor cycle', async function () {
+    this.timeout(30000);
     await setNodeStatus('198.18.1.0', 'EXPIRED');
-    await new Promise((r) => setTimeout(r, 15000));
+    await waitFor(() => env.nodeHasLog(0, 'not.*[Cc]onfirmed|discovery is awaiting'), {
+      timeout: 20000, interval: 1000, label: 'confirmation loss detected',
+    });
     expect(env.nodeHasLog(0, 'not.*[Cc]onfirmed|discovery is awaiting')).to.equal(true);
   });
 });

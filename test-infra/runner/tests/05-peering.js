@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { waitForApi, waitForBoot, waitForPeers } from '../framework/wait.js';
+import { waitForDaemonReady } from '../framework/wait.js';
 
 let env;
 
@@ -9,12 +9,9 @@ describe('Peering', function () {
   before(async function () {
     this.timeout(180000);
     env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     for (const client of env.clients) {
-      await waitForApi(client);
-    }
-    await Promise.all(env.clients.map((_, i) => waitForBoot(env, i)));
-    for (const client of env.clients) {
-      await waitForPeers(client, 1, 120000);
+      await client.waitForEvent('peers:added', (d) => d.outbound >= 1, 120000);
     }
   });
 

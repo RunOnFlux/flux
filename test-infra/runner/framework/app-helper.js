@@ -72,7 +72,7 @@ export async function registerApp(nodeUrl, adminKeypair, spec, type = 'fluxappre
 
 export async function registerAndConfirm(nodeUrl, adminKeypair, spec, nodes, {
   type = 'fluxappregister',
-  propagationWaitMs = 15000,
+  propagationTimeoutMs = 30000,
   explorerTimeoutMs = 120000,
 } = {}) {
   const regResult = await registerApp(nodeUrl, adminKeypair, spec, type);
@@ -80,17 +80,17 @@ export async function registerAndConfirm(nodeUrl, adminKeypair, spec, nodes, {
 
   const appHash = regResult.data;
 
-  if (propagationWaitMs > 0) {
-    await new Promise((r) => setTimeout(r, propagationWaitMs));
-  }
-
   let tempCount = 0;
-  for (const node of nodes) {
-    try {
-      const res = await node.getTempMessages(appHash);
-      if (res.status === 'success' && res.data?.length > 0) tempCount++;
-    } catch { /* */ }
-  }
+  await waitFor(async () => {
+    tempCount = 0;
+    for (const node of nodes) {
+      try {
+        const res = await node.getTempMessages(appHash);
+        if (res.status === 'success' && res.data?.length > 0) tempCount++;
+      } catch { /* */ }
+    }
+    return tempCount === nodes.length;
+  }, { timeout: propagationTimeoutMs, interval: 2000, label: `temp message propagation to ${nodes.length} nodes` });
 
   const queueResult = await daemon.queueAppTx(appHash);
   const targetHeight = queueResult.nextBlockHeight + 2;

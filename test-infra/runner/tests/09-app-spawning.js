@@ -3,8 +3,8 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
-import { startTicker } from '../framework/daemon-control.js';
-import { waitForApi, waitForBoot, waitForExplorerSynced, waitFor, waitForPeers, waitForIncomingPeers } from '../framework/wait.js';
+import { startTicker, advanceBlock } from '../framework/daemon-control.js';
+import { waitForDaemonReady, waitForBlockProcessed, waitFor } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 
 let env;
@@ -15,13 +15,11 @@ describe('App spawning', function () {
   before(async function () {
     this.timeout(300000);
     env = await createTestEnv({ nodes: 8, tickerAutostart: false });
-    for (const client of env.clients) {
-      await waitForApi(client);
-    }
-    await waitForBoot(env, 0);
-    await waitForExplorerSynced(env.clients[0]);
-    await waitForPeers(env.clients[0], 4, 120000);
-    await waitForIncomingPeers(env.clients[0], 2, 120000);
+    await waitForDaemonReady(env.clients[0]);
+    await advanceBlock();
+    await waitForBlockProcessed(env.clients[0], (d) => d.height > 2100000, 50000);
+    await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
+    await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
     await startTicker();
   });
 
@@ -46,6 +44,7 @@ describe('App spawning', function () {
       const spec = buildAppSpec({ name: appName, instances: 3 });
       const result = await registerAndConfirm(env.clients[0].url, nodeKey(1), spec, env.clients);
       expect(result.status).to.equal('success');
+      await waitForBlockProcessed(env.clients[0], (d) => d.height >= result.targetHeight, 60000);
       const db = dbClient(1);
       await waitFor(async () => {
         const count = await db.appSpecCount();

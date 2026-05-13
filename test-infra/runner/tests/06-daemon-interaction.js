@@ -2,7 +2,7 @@ import { describe, it, before, after, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus, removeFromNodeList, restoreToNodeList, resetNodeList, enableRpcFailure, disableRpcFailure } from '../framework/daemon-control.js';
-import { waitForApi, waitForBoot, waitFor } from '../framework/wait.js';
+import { waitForDaemonReady, waitForDaemonPolled } from '../framework/wait.js';
 
 let env;
 const NODE_COUNT = 4;
@@ -29,8 +29,7 @@ describe('Daemon interaction', function () {
   before(async function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: NODE_COUNT, tickerAutostart: false });
-    await waitForApi(env.clients[0]);
-    await waitForBoot(env, 0);
+    await waitForDaemonReady(env.clients[0]);
   });
 
   after(async function () {
@@ -93,26 +92,21 @@ describe('Daemon interaction', function () {
     });
 
     it('should return EXPIRED when override is set', async function () {
-      this.timeout(10000);
+      this.timeout(15000);
       await setNodeStatus('198.18.1.0', 'EXPIRED');
-      await waitFor(async () => {
-        const res = await env.clients[0].getNodeStatus();
-        return res.data.status === 'EXPIRED';
-      }, { timeout: 8000, label: 'status EXPIRED' });
+      await waitForDaemonPolled(env.clients[0], () => true, 10000);
+      const res = await env.clients[0].getNodeStatus();
+      expect(res.data.status).to.equal('EXPIRED');
     });
 
     it('should return CONFIRMED when override is cleared', async function () {
-      this.timeout(10000);
+      this.timeout(20000);
       await setNodeStatus('198.18.1.0', 'EXPIRED');
-      await waitFor(async () => {
-        const res = await env.clients[0].getNodeStatus();
-        return res.data.status === 'EXPIRED';
-      }, { timeout: 8000, label: 'status EXPIRED' });
+      await waitForDaemonPolled(env.clients[0], () => true, 10000);
       await clearNodeStatus('198.18.1.0');
-      await waitFor(async () => {
-        const res = await env.clients[0].getNodeStatus();
-        return res.data.status === 'CONFIRMED';
-      }, { timeout: 8000, label: 'status CONFIRMED' });
+      await waitForDaemonPolled(env.clients[0], () => true, 10000);
+      const res = await env.clients[0].getNodeStatus();
+      expect(res.data.status).to.equal('CONFIRMED');
     });
   });
 
@@ -145,19 +139,19 @@ describe('Daemon interaction', function () {
     });
 
     it('should return error when RPC failure enabled', async function () {
-      this.timeout(10000);
+      this.timeout(15000);
       await enableRpcFailure('198.18.1.0');
-      await new Promise((r) => setTimeout(r, 2000));
+      await waitForDaemonPolled(env.clients[0], () => true, 10000);
       const res = await env.clients[0].getBlockchainInfo();
       expect(res.status).to.equal('error');
     });
 
     it('should recover when RPC failure disabled', async function () {
-      this.timeout(10000);
+      this.timeout(20000);
       await enableRpcFailure('198.18.1.0');
-      await new Promise((r) => setTimeout(r, 2000));
+      await waitForDaemonPolled(env.clients[0], () => true, 10000);
       await disableRpcFailure('198.18.1.0');
-      await new Promise((r) => setTimeout(r, 2000));
+      await waitForDaemonPolled(env.clients[0], () => true, 10000);
       const res = await env.clients[0].getBlockchainInfo();
       expect(res.status).to.equal('success');
       expect(res.data.blocks).to.be.greaterThan(0);

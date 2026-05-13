@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { authenticate, signBtcMessage } from '../auth.js';
 import { nodeKey, appOwnerKey, fluxTeamKey, userKey } from '../framework/keys.js';
 import { createTestEnv } from '../framework/test-env.js';
-import { waitForApi } from '../framework/wait.js';
+import { waitForDaemonReady } from '../framework/wait.js';
 
 let env;
 let node;
@@ -13,7 +13,7 @@ describe('Authentication', function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1 });
     node = env.clients[0];
-    await waitForApi(node);
+    await waitForDaemonReady(node);
   });
 
   after(async function () {
@@ -87,7 +87,7 @@ describe('Privilege enforcement', function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 1 });
     node = env.clients[0];
-    await waitForApi(node);
+    await waitForDaemonReady(node);
     fluxTeamAuth = await authenticate(node.url, fluxTeamKey());
     nodeAdminAuth = await authenticate(node.url, nodeKey(1));
     appOwnerAuth = await authenticate(node.url, appOwnerKey());

@@ -3,6 +3,7 @@ const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const { FluxPeerSocket, CLOSE_CODES, PEER_SOURCE, DIRECTION, FLUX_VERSION } = require('./FluxPeerSocket');
 const peerCodec = require('./peerCodec');
+const fluxEventBus = require('./fluxEventBus');
 
 const UNSTABLE_DISCONNECT_THRESHOLD = 5;
 const UNSTABLE_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -162,6 +163,7 @@ class FluxPeerManager {
     this.#pendingRemoves.delete(peer.key);
     this.#schedulePeerUpdate();
     if (this.networkHealthMonitor) this.networkHealthMonitor.recordConnect();
+    fluxEventBus.publish('peers:added', { ip, port: String(port), direction, outbound: this.#outboundKeys.size, inbound: this.#inboundKeys.size, total: this.#peers.size });
     return peer;
   }
 
@@ -214,6 +216,7 @@ class FluxPeerManager {
     });
 
     log.info(`Connection ${key} removed from peerManager (${peer.direction}, code: ${closeCode})`);
+    fluxEventBus.publish('peers:removed', { ip: peer.ip, port: peer.port, direction: peer.direction, closeCode: closeCode || null, outbound: this.#outboundKeys.size, inbound: this.#inboundKeys.size, total: this.#peers.size });
     return peer;
   }
 

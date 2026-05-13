@@ -23,6 +23,7 @@ const { peerManager } = require('./utils/peerState');
 const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -636,6 +637,7 @@ function setStickyDosStateValue(value) {
  */
 function setDosStateValue(value) {
   dosState = value;
+  fluxEventBus.publish('dos:changed', { dosState, dosMessage });
 }
 
 /**

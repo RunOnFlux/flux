@@ -1,7 +1,8 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { waitForApi, waitForExplorerSynced } from '../framework/wait.js';
+import { waitForDaemonReady, waitForBlockProcessed } from '../framework/wait.js';
+import { advanceBlock } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 
 let env;
@@ -10,10 +11,11 @@ describe('Hash sync', function () {
   before(async function () {
     this.timeout(120000);
     env = await createTestEnv({ nodes: 2, tickerAutostart: false });
-    await waitForApi(env.clients[0]);
-    await waitForApi(env.clients[1]);
-    await waitForExplorerSynced(env.clients[0]);
-    await waitForExplorerSynced(env.clients[1]);
+    await waitForDaemonReady(env.clients[0]);
+    await waitForDaemonReady(env.clients[1]);
+    await advanceBlock();
+    await waitForBlockProcessed(env.clients[0], (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(env.clients[1], (d) => d.height > 2100000, 50000);
   });
 
   after(async function () {

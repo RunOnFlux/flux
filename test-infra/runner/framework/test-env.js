@@ -254,6 +254,10 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
 
   const clients = fluxNodes.map((n) => nodeClient(n.num));
 
+  for (const client of clients) {
+    await client.connectEventStream();
+  }
+
   return {
     networkName,
     containers,
@@ -274,6 +278,9 @@ async function _buildEnv(networkName, containers, started, nodes, tickerAutostar
     },
 
     async teardown() {
+      for (const client of clients) {
+        client.disconnectEventStream();
+      }
       for (const n of fluxNodes) {
         await n.container.stop().catch(() => {});
       }

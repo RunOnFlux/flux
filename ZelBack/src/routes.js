@@ -1,5 +1,4 @@
 const apicache = require('apicache');
-const config = require('config');
 
 const daemonServiceAddressRpcs = require('./services/daemonService/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./services/daemonService/daemonServiceTransactionRpcs');
@@ -52,6 +51,7 @@ const backupRestoreService = require('./services/backupRestoreService');
 const IOUtils = require('./services/IOUtils');
 const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
+const fluxEventBus = require('./services/utils/fluxEventBus');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -73,152 +73,141 @@ function requireHttps(req, res, next) {
 
 const cache = apicache.middleware;
 
-const cache5s = config.fluxapps.apiCache5s;
-const cache10s = config.fluxapps.apiCache10s;
-const cache15s = config.fluxapps.apiCache15s;
-const cache30s = config.fluxapps.apiCache30s;
-const cache60s = config.fluxapps.apiCache60s;
-const cache2m = config.fluxapps.apiCache2m;
-const cache5m = config.fluxapps.apiCache5m;
-const cache30m = config.fluxapps.apiCache30m;
-const cache1h = config.fluxapps.apiCache1h;
-const cache1d = config.fluxapps.apiCache1d;
-
 module.exports = (app) => {
   // GET PUBLIC methods
-  app.get('/daemon/help/:command?', cache(cache1h), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
+  app.get('/daemon/help/:command?', cache('1 hour'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
     daemonServiceControlRpcs.help(req, res);
   });
-  app.get('/daemon/getinfo', cache(cache30s), (req, res) => {
+  app.get('/daemon/getinfo', cache('30 seconds'), (req, res) => {
     daemonServiceControlRpcs.getInfo(req, res);
   });
-  app.get('/daemon/getfluxnodestatus', cache(cache60s), (req, res) => {
+  app.get('/daemon/getfluxnodestatus', cache('60 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
   });
-  app.get('/daemon/getzelnodestatus', cache(cache60s), (req, res) => { // DEPRECATED
+  app.get('/daemon/getzelnodestatus', cache('60 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
   });
-  app.get('/daemon/listfluxnodes/:filter?', cache(cache30s), (req, res) => {
+  app.get('/daemon/listfluxnodes/:filter?', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
-  app.get('/daemon/listzelnodes/:filter?', cache(cache30s), (req, res) => { // DEPRECATED
+  app.get('/daemon/listzelnodes/:filter?', cache('30 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
-  app.get('/daemon/viewdeterministicfluxnodelist/:filter?', cache(cache30s), (req, res) => {
+  app.get('/daemon/viewdeterministicfluxnodelist/:filter?', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
-  app.get('/daemon/viewdeterministiczelnodelist/:filter?', cache(cache30s), (req, res) => { // DEPRECATED
+  app.get('/daemon/viewdeterministiczelnodelist/:filter?', cache('30 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
-  app.get('/daemon/getfluxnodecount', cache(cache30s), (req, res) => {
+  app.get('/daemon/getfluxnodecount', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getFluxNodeCount(req, res);
   });
-  app.get('/daemon/getzelnodecount', cache(cache30s), (req, res) => { // DEPRECATED
+  app.get('/daemon/getzelnodecount', cache('30 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.getFluxNodeCount(req, res);
   });
-  app.get('/daemon/getdoslist', cache(cache30s), (req, res) => {
+  app.get('/daemon/getdoslist', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getDOSList(req, res);
   });
-  app.get('/daemon/getstartlist', cache(cache30s), (req, res) => {
+  app.get('/daemon/getstartlist', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getStartList(req, res);
   });
-  app.get('/daemon/fluxnodecurrentwinner', cache(cache30s), (req, res) => {
+  app.get('/daemon/fluxnodecurrentwinner', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.fluxNodeCurrentWinner(req, res);
   });
-  app.get('/daemon/getbestblockhash', cache(cache30s), (req, res) => {
+  app.get('/daemon/getbestblockhash', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBestBlockHash(req, res);
   });
-  app.get('/daemon/getblock/:hashheight?/:verbosity?', cache(cache30s), (req, res) => {
+  app.get('/daemon/getblock/:hashheight?/:verbosity?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlock(req, res);
   });
-  app.get('/daemon/getblockchaininfo', cache(cache30s), (req, res) => {
+  app.get('/daemon/getblockchaininfo', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlockchainInfo(req, res);
   });
-  app.get('/daemon/getblockcount', cache(cache30s), (req, res) => {
+  app.get('/daemon/getblockcount', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlockCount(req, res);
   });
-  app.get('/daemon/getblockdeltas/:hash?', cache(cache30s), (req, res) => {
+  app.get('/daemon/getblockdeltas/:hash?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlockDeltas(req, res);
   });
-  app.get('/daemon/getblockhashes/:high?/:low?/:noorphans?/:logicaltimes?', cache(cache30s), (req, res) => {
+  app.get('/daemon/getblockhashes/:high?/:low?/:noorphans?/:logicaltimes?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlockHashes(req, res);
   });
-  app.get('/daemon/getblockhash/:index?', cache(cache30s), (req, res) => {
+  app.get('/daemon/getblockhash/:index?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlockHash(req, res);
   });
-  app.get('/daemon/getblockheader/:hash?/:verbose?', cache(cache30s), (req, res) => {
+  app.get('/daemon/getblockheader/:hash?/:verbose?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlockHeader(req, res);
   });
-  app.get('/daemon/getchaintips', cache(cache30s), (req, res) => {
+  app.get('/daemon/getchaintips', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getChainTips(req, res);
   });
-  app.get('/daemon/getdifficulty', cache(cache30s), (req, res) => {
+  app.get('/daemon/getdifficulty', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getDifficulty(req, res);
   });
-  app.get('/daemon/getmempoolinfo', cache(cache30s), (req, res) => {
+  app.get('/daemon/getmempoolinfo', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getMempoolInfo(req, res);
   });
-  app.get('/daemon/getrawmempool/:verbose?', cache(cache30s), (req, res) => {
+  app.get('/daemon/getrawmempool/:verbose?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getRawMemPool(req, res);
   });
-  app.get('/daemon/gettxout/:txid?/:n?/:includemempool?', cache(cache30s), (req, res) => {
+  app.get('/daemon/gettxout/:txid?/:n?/:includemempool?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getTxOut(req, res);
   });
-  app.get('/daemon/gettxoutproof/:txids?/:blockhash?', cache(cache30s), (req, res) => { // comma separated list of txids. For example: /gettxoutproof/abc,efg,asd/blockhash
+  app.get('/daemon/gettxoutproof/:txids?/:blockhash?', cache('30 seconds'), (req, res) => { // comma separated list of txids. For example: /gettxoutproof/abc,efg,asd/blockhash
     daemonServiceBlockchainRpcs.getTxOutProof(req, res);
   });
-  app.get('/daemon/gettxoutsetinfo', cache(cache30s), (req, res) => {
+  app.get('/daemon/gettxoutsetinfo', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getTxOutSetInfo(req, res);
   });
-  app.get('/daemon/verifytxoutproof/:proof?', cache(cache30s), (req, res) => {
+  app.get('/daemon/verifytxoutproof/:proof?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.verifyTxOutProof(req, res);
   });
-  app.get('/daemon/getspentinfo/:txid?/:index?', cache(cache30s), (req, res) => {
+  app.get('/daemon/getspentinfo/:txid?/:index?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getSpentInfo(req, res);
   });
-  app.get('/daemon/getblocksubsidy/:height?', cache(cache30s), (req, res) => {
+  app.get('/daemon/getblocksubsidy/:height?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getBlockSubsidy(req, res);
   });
-  app.get('/daemon/getblocktemplate/:jsonrequestobject?', cache(cache30s), (req, res) => {
+  app.get('/daemon/getblocktemplate/:jsonrequestobject?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getBlockTemplate(req, res);
   });
-  app.get('/daemon/getlocalsolps', cache(cache30s), (req, res) => {
+  app.get('/daemon/getlocalsolps', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getLocalSolPs(req, res);
   });
-  app.get('/daemon/getmininginfo', cache(cache30s), (req, res) => {
+  app.get('/daemon/getmininginfo', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getMiningInfo(req, res);
   });
-  app.get('/daemon/getnetworkhashps/:blocks?/:height?', cache(cache30s), (req, res) => {
+  app.get('/daemon/getnetworkhashps/:blocks?/:height?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getNetworkHashPs(req, res);
   });
-  app.get('/daemon/getnetworksolps/:blocks?/:height?', cache(cache30s), (req, res) => {
+  app.get('/daemon/getnetworksolps/:blocks?/:height?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getNetworkSolPs(req, res);
   });
-  app.get('/daemon/getconnectioncount', cache(cache30s), (req, res) => {
+  app.get('/daemon/getconnectioncount', cache('30 seconds'), (req, res) => {
     daemonServiceNetworkRpcs.getConnectionCount(req, res);
   });
-  app.get('/daemon/getdeprecationinfo', cache(cache30s), (req, res) => {
+  app.get('/daemon/getdeprecationinfo', cache('30 seconds'), (req, res) => {
     daemonServiceNetworkRpcs.getDeprecationInfo(req, res);
   });
-  app.get('/daemon/getnettotals', cache(cache30s), (req, res) => {
+  app.get('/daemon/getnettotals', cache('30 seconds'), (req, res) => {
     daemonServiceNetworkRpcs.getNetTotals(req, res);
   });
-  app.get('/daemon/getnetworkinfo', cache(cache30s), (req, res) => {
+  app.get('/daemon/getnetworkinfo', cache('30 seconds'), (req, res) => {
     daemonServiceNetworkRpcs.getNetworkInfo(req, res);
   });
-  app.get('/daemon/getpeerinfo', cache(cache30s), (req, res) => {
+  app.get('/daemon/getpeerinfo', cache('30 seconds'), (req, res) => {
     daemonServiceNetworkRpcs.getPeerInfo(req, res);
   });
-  app.get('/daemon/listbanned', cache(cache30s), (req, res) => {
+  app.get('/daemon/listbanned', cache('30 seconds'), (req, res) => {
     daemonServiceNetworkRpcs.listBanned(req, res);
   });
   app.get('/daemon/createrawtransaction/:transactions?/:addresses?/:locktime?/:expiryheight?', (req, res) => {
     daemonServiceTransactionRpcs.createRawTransaction(req, res);
   });
-  app.get('/daemon/decoderawtransaction/:hexstring?', cache(cache30s), (req, res) => {
+  app.get('/daemon/decoderawtransaction/:hexstring?', cache('30 seconds'), (req, res) => {
     daemonServiceTransactionRpcs.decodeRawTransaction(req, res);
   });
-  app.get('/daemon/decodescript/:hex?', cache(cache30s), (req, res) => {
+  app.get('/daemon/decodescript/:hex?', cache('30 seconds'), (req, res) => {
     daemonServiceTransactionRpcs.decodeScript(req, res);
   });
   app.get('/daemon/fundrawtransaction/:hexstring?', (req, res) => {
@@ -233,28 +222,28 @@ module.exports = (app) => {
   app.get('/daemon/createmultisig/:n?/:keys?', (req, res) => {
     daemonServiceUtilityRpcs.createMultiSig(req, res);
   });
-  app.get('/daemon/estimatefee/:nblocks?', cache(cache30s), (req, res) => {
+  app.get('/daemon/estimatefee/:nblocks?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.estimateFee(req, res);
   });
-  app.get('/daemon/estimatepriority/:nblocks?', cache(cache30s), (req, res) => {
+  app.get('/daemon/estimatepriority/:nblocks?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.estimatePriority(req, res);
   });
-  app.get('/daemon/validateaddress/:fluxaddress?', cache(cache30s), (req, res) => {
+  app.get('/daemon/validateaddress/:fluxaddress?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.validateAddress(req, res);
   });
-  app.get('/daemon/verifymessage/:fluxaddress?/:signature?/:message?', cache(cache30s), (req, res) => {
+  app.get('/daemon/verifymessage/:fluxaddress?/:signature?/:message?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.verifyMessage(req, res);
   });
-  app.get('/daemon/gettransaction/:txid?/:includewatchonly?', cache(cache30s), (req, res) => {
+  app.get('/daemon/gettransaction/:txid?/:includewatchonly?', cache('30 seconds'), (req, res) => {
     daemonServiceWalletRpcs.getTransaction(req, res);
   });
-  app.get('/daemon/zvalidateaddress/:zaddr?', cache(cache30s), (req, res) => {
+  app.get('/daemon/zvalidateaddress/:zaddr?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.zValidateAddress(req, res);
   });
-  app.get('/daemon/getbenchmarks', cache(cache30s), (req, res) => {
+  app.get('/daemon/getbenchmarks', cache('30 seconds'), (req, res) => {
     daemonServiceBenchmarkRpcs.getBenchmarks(req, res);
   });
-  app.get('/daemon/getbenchstatus', cache(cache30s), (req, res) => {
+  app.get('/daemon/getbenchstatus', cache('30 seconds'), (req, res) => {
     daemonServiceBenchmarkRpcs.getBenchStatus(req, res);
   });
 
@@ -271,102 +260,102 @@ module.exports = (app) => {
     idService.emergencyPhrase(req, res);
   });
 
-  app.get('/flux/nodetier', cache(cache30s), (req, res) => {
+  app.get('/flux/nodetier', cache('30 seconds'), (req, res) => {
     fluxService.getNodeTier(req, res);
   });
-  app.get('/flux/info', cache(cache60s), (req, res) => {
+  app.get('/flux/info', cache('60 seconds'), (req, res) => {
     fluxService.getFluxInfo(req, res);
   });
   app.get('/flux/timezone', (req, res) => {
     fluxService.getFluxTimezone(req, res);
   });
-  app.get('/flux/version', cache(cache30s), (req, res) => {
+  app.get('/flux/version', cache('30 seconds'), (req, res) => {
     fluxService.getFluxVersion(req, res);
   });
-  app.get('/flux/nodejsversions', cache(cache30s), (req, res) => {
+  app.get('/flux/nodejsversions', cache('30 seconds'), (req, res) => {
     fluxService.getNodeJsVersions(req, res);
   });
-  app.get('/flux/ip', cache(cache30s), (req, res) => {
+  app.get('/flux/ip', cache('30 seconds'), (req, res) => {
     fluxService.getFluxIP(req, res);
   });
-  app.get('/flux/staticip', cache(cache30s), (req, res) => {
+  app.get('/flux/staticip', cache('30 seconds'), (req, res) => {
     fluxService.isStaticIPapi(req, res);
   });
-  app.get('/flux/geolocation', cache(cache30s), (req, res) => {
+  app.get('/flux/geolocation', cache('30 seconds'), (req, res) => {
     fluxService.getFluxGeolocation(req, res);
   });
-  app.get('/flux/zelid', cache(cache30s), (req, res) => { // DEPERCATED
+  app.get('/flux/zelid', cache('30 seconds'), (req, res) => { // DEPERCATED
     fluxService.getFluxZelID(req, res);
   });
-  app.get('/flux/id', cache(cache30s), (req, res) => {
+  app.get('/flux/id', cache('30 seconds'), (req, res) => {
     fluxService.getFluxZelID(req, res);
   });
-  app.get('/flux/fluxids', cache(cache30s), (req, res) => {
+  app.get('/flux/fluxids', cache('30 seconds'), (req, res) => {
     fluxService.getFluxIds(req, res);
   });
-  app.get('/flux/pgp', cache(cache30s), (req, res) => {
+  app.get('/flux/pgp', cache('30 seconds'), (req, res) => {
     fluxService.getFluxPGPidentity(req, res);
   });
-  app.get('/flux/kadena', cache(cache30s), (req, res) => {
+  app.get('/flux/kadena', cache('30 seconds'), (req, res) => {
     fluxService.getFluxKadena(req, res);
   });
-  app.get('/flux/routerip', cache(cache1d), (req, res) => {
+  app.get('/flux/routerip', cache('1 day'), (req, res) => {
     fluxService.getRouterIP(req, res);
   });
-  app.get('/flux/blockedports', cache(cache1d), (req, res) => {
+  app.get('/flux/blockedports', cache('1 day'), (req, res) => {
     fluxService.getBlockedPorts(req, res);
   });
-  app.get('/flux/apiport', cache(cache1d), (req, res) => {
+  app.get('/flux/apiport', cache('1 day'), (req, res) => {
     fluxService.getAPIPort(req, res);
   });
-  app.get('/flux/blockedrepositories', cache(cache1d), (req, res) => {
+  app.get('/flux/blockedrepositories', cache('1 day'), (req, res) => {
     fluxService.getBlockedRepositories(req, res);
   });
-  app.get('/flux/enterpriseappowners', cache(cache1h), (req, res) => {
+  app.get('/flux/enterpriseappowners', cache('1 hour'), (req, res) => {
     fluxService.getEnterpriseAppOwners(req, res);
   });
-  app.get('/flux/marketplaceurl', cache(cache1d), (req, res) => {
+  app.get('/flux/marketplaceurl', cache('1 day'), (req, res) => {
     fluxService.getMarketplaceURL(req, res);
   });
-  app.get('/flux/restart', cache(cache30s), (req, res) => {
+  app.get('/flux/restart', cache('30 seconds'), (req, res) => {
     fluxService.restartFluxOS(req, res);
   });
-  app.get('/flux/dosstate', cache(cache30s), (req, res) => {
+  app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getDOSState(req, res);
   });
   app.post('/flux/dosstate', (req, res) => {
     fluxNetworkHelper.setDOSStateApi(req, res);
   });
   // New peer endpoints
-  app.get('/flux/peers/:filter?', cache(cache30s), (req, res) => {
+  app.get('/flux/peers/:filter?', cache('30 seconds'), (req, res) => {
     fluxCommunication.getPeers(req, res);
   });
-  app.get('/flux/unstablenodes', cache(cache30s), (req, res) => {
+  app.get('/flux/unstablenodes', cache('30 seconds'), (req, res) => {
     fluxCommunication.getUnstableNodes(req, res);
   });
-  app.get('/flux/peerhistory', cache(cache5s), (req, res) => {
+  app.get('/flux/peerhistory', cache('5 seconds'), (req, res) => {
     fluxCommunication.getPeerHistory(req, res);
   });
-  app.get('/flux/topology', cache(cache5s), (req, res) => {
+  app.get('/flux/topology', cache('5 seconds'), (req, res) => {
     fluxCommunication.getTopology(req, res);
   });
-  app.get('/flux/networkhealth', cache(cache5s), (req, res) => {
+  app.get('/flux/networkhealth', cache('5 seconds'), (req, res) => {
     fluxCommunication.getNetworkHealth(req, res);
   });
   // Deprecated peer endpoints — kept for backward compatibility
-  app.get('/flux/connectedpeers', cache(cache30s), (req, res) => {
+  app.get('/flux/connectedpeers', cache('30 seconds'), (req, res) => {
     fluxCommunication.connectedPeers(req, res);
   });
-  app.get('/flux/connectedpeersinfo', cache(cache30s), (req, res) => {
+  app.get('/flux/connectedpeersinfo', cache('30 seconds'), (req, res) => {
     fluxCommunication.connectedPeersInfo(req, res);
   });
-  app.get('/flux/incomingconnections', cache(cache30s), (req, res) => {
+  app.get('/flux/incomingconnections', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getIncomingConnections(req, res);
   });
-  app.get('/flux/incomingconnectionsinfo', cache(cache30s), (req, res) => {
+  app.get('/flux/incomingconnectionsinfo', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getIncomingConnectionsInfo(req, res);
   });
-  app.get('/flux/checkfluxavailability/:ip?/:port?', cache(cache30s), (req, res) => {
+  app.get('/flux/checkfluxavailability/:ip?/:port?', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.checkFluxAvailability(req, res);
   });
   app.post('/flux/checkappavailability', (req, res) => {
@@ -380,76 +369,76 @@ module.exports = (app) => {
   app.get('/arcane/authchallenge', requireHttps, arcaneAuthService.authChallengeHandler);
 
   // Apps routes - now directly calling modular services
-  app.get('/apps/listrunningapps', cache(cache15s), (req, res) => {
+  app.get('/apps/listrunningapps', cache('15 seconds'), (req, res) => {
     appQueryService.listRunningApps(req, res);
   });
-  app.get('/apps/listallapps', cache(cache30s), (req, res) => {
+  app.get('/apps/listallapps', cache('30 seconds'), (req, res) => {
     appQueryService.listAllApps(req, res);
   });
-  app.get('/apps/listappsimages', cache(cache30s), (req, res) => {
+  app.get('/apps/listappsimages', cache('30 seconds'), (req, res) => {
     appInspector.listAppsImages(req, res);
   });
-  app.get('/apps/installedapps/:appname?', cache(cache30s), (req, res) => {
+  app.get('/apps/installedapps/:appname?', cache('30 seconds'), (req, res) => {
     appQueryService.installedApps(req, res);
   });
-  app.get('/apps/availableapps', cache(cache30s), (req, res) => {
+  app.get('/apps/availableapps', cache('30 seconds'), (req, res) => {
     registryManager.availableApps(req, res);
   });
-  app.get('/apps/fluxusage', cache(cache30s), (req, res) => {
+  app.get('/apps/fluxusage', cache('30 seconds'), (req, res) => {
     resourceQueryService.fluxUsage(req, res);
   });
-  app.get('/apps/appsresources', cache(cache30s), (req, res) => {
+  app.get('/apps/appsresources', cache('30 seconds'), (req, res) => {
     resourceQueryService.appsResources(req, res);
   });
-  app.get('/apps/registrationinformation', cache(cache30s), (req, res) => {
+  app.get('/apps/registrationinformation', cache('30 seconds'), (req, res) => {
     registryManager.registrationInformation(req, res);
   });
-  app.get('/apps/temporarymessages/:hash?', cache(cache5s), (req, res) => {
+  app.get('/apps/temporarymessages/:hash?', cache('5 seconds'), (req, res) => {
     messageVerifier.getAppsTemporaryMessages(req, res);
   });
-  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache(cache2m), (req, res) => {
+  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), (req, res) => {
     messageVerifier.getAppsPermanentMessages(req, res);
   });
-  app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', cache(cache30s), (req, res) => {
+  app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
     registryManager.getGlobalAppsSpecifications(req, res);
   });
-  app.get('/apps/latestspecificationversion', cache(cache5m), (req, res) => {
+  app.get('/apps/latestspecificationversion', cache('5 minutes'), (req, res) => {
     appQueryService.getlatestApplicationSpecificationAPI(req, res);
   });
-  app.get('/apps/updatetolatestspecs/:appname', cache(cache30s), (req, res) => {
+  app.get('/apps/updatetolatestspecs/:appname', cache('30 seconds'), (req, res) => {
     registryManager.updateApplicationSpecificationAPI(req, res);
   });
   app.get('/apps/appspecifications/:appname/:decrypt?', (req, res) => {
     registryManager.getApplicationSpecificationAPI(req, res);
   });
-  app.get('/apps/appowner/:appname?', cache(cache30s), (req, res) => {
+  app.get('/apps/appowner/:appname?', cache('30 seconds'), (req, res) => {
     registryManager.getApplicationOwnerAPI(req, res);
   });
-  app.get('/apps/apporiginalowner/:appname?', cache(cache30s), (req, res) => {
+  app.get('/apps/apporiginalowner/:appname?', cache('30 seconds'), (req, res) => {
     appQueryService.getApplicationOriginalOwner(req, res);
   });
-  app.get('/apps/messagescount/:appowner?', cache(cache30s), (req, res) => {
+  app.get('/apps/messagescount/:appowner?', cache('30 seconds'), (req, res) => {
     appQueryService.getAppsMessagesCount(req, res);
   });
-  app.get('/apps/hashes', cache(cache30s), (req, res) => {
+  app.get('/apps/hashes', cache('30 seconds'), (req, res) => {
     registryManager.getAppHashes(req, res);
   });
-  app.get('/apps/location/:appname?', cache(cache30s), (req, res) => {
+  app.get('/apps/location/:appname?', cache('30 seconds'), (req, res) => {
     registryManager.getAppsLocation(req, res);
   });
-  app.get('/apps/locations', cache(cache30s), (req, res) => {
+  app.get('/apps/locations', cache('30 seconds'), (req, res) => {
     registryManager.getAppsLocations(req, res);
   });
-  app.get('/apps/installinglocation/:appname?', cache(cache30s), (req, res) => {
+  app.get('/apps/installinglocation/:appname?', cache('30 seconds'), (req, res) => {
     registryManager.getAppInstallingLocation(req, res);
   });
-  app.get('/apps/installinglocations', cache(cache30s), (req, res) => {
+  app.get('/apps/installinglocations', cache('30 seconds'), (req, res) => {
     appQueryService.getAppsInstallingLocations(req, res);
   });
-  app.get('/apps/installingerrorslocation/:appname?', cache(cache30s), (req, res) => {
+  app.get('/apps/installingerrorslocation/:appname?', cache('30 seconds'), (req, res) => {
     registryManager.getAppInstallingErrorsLocation(req, res);
   });
-  app.get('/apps/installingerrorslocations', cache(cache30s), (req, res) => {
+  app.get('/apps/installingerrorslocations', cache('30 seconds'), (req, res) => {
     registryManager.getAppsInstallingErrorsLocations(req, res);
   });
   app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app
@@ -458,7 +447,7 @@ module.exports = (app) => {
   app.post('/apps/calculatefiatandfluxprice', (req, res) => { // returns price in usd and flux for both new registration of app and update of app
     appSpecHelpers.getAppFiatAndFluxPrice(req, res);
   });
-  app.get('/apps/whitelistedrepositories', cache(cache30s), (req, res) => {
+  app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
     generalService.whitelistedRepositories(req, res);
   });
   app.post('/apps/verifyappregistrationspecifications', (req, res) => { // returns formatted app specifications
@@ -467,16 +456,16 @@ module.exports = (app) => {
   app.post('/apps/verifyappupdatespecifications', (req, res) => { // returns formatted app specifications
     appValidator.verifyAppUpdateApi(req, res);
   });
-  app.get('/apps/deploymentinformation', cache(cache30s), (req, res) => {
+  app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
     deploymentInfoService.deploymentInformation(req, res);
   });
-  app.get('/apps/enterprisenodes', cache(cache30s), (req, res) => {
+  app.get('/apps/enterprisenodes', cache('30 seconds'), (req, res) => {
     enterpriseNodesService.getEnterpriseNodesAPI(req, res);
   });
-  app.get('/apps/getappspecsusdprice', cache(cache30m), (req, res) => {
+  app.get('/apps/getappspecsusdprice', cache('30 minutes'), (req, res) => {
     deploymentInfoService.getAppSpecsUSDPrice(req, res);
   });
-  app.get('/apps/tamperingevents/:appname?', cache(cache30s), (req, res) => {
+  app.get('/apps/tamperingevents/:appname?', cache('30 seconds'), (req, res) => {
     appTamperingDetectionService.getEvents(req, res);
   });
 
@@ -490,234 +479,234 @@ module.exports = (app) => {
   //   explorerService.getAllAddresses(req, res);
   // });
 
-  app.get('/explorer/utxo/:address?', cache(cache30s), (req, res) => {
+  app.get('/explorer/utxo/:address?', cache('30 seconds'), (req, res) => {
     explorerService.getAddressUtxos(req, res);
   });
-  app.get('/explorer/transactions/:address?', cache(cache30s), (req, res) => {
+  app.get('/explorer/transactions/:address?', cache('30 seconds'), (req, res) => {
     explorerService.getAddressTransactions(req, res);
   });
-  app.get('/explorer/balance/:address?', cache(cache30s), (req, res) => {
+  app.get('/explorer/balance/:address?', cache('30 seconds'), (req, res) => {
     explorerService.getAddressBalance(req, res);
   });
-  app.get('/explorer/scannedheight', cache(cache30s), (req, res) => {
+  app.get('/explorer/scannedheight', cache('30 seconds'), (req, res) => {
     explorerService.getScannedHeight(req, res);
   });
-  // app.get('/explorer/fusion/coinbase/all', cache(cache30s), (req, res) => {
+  // app.get('/explorer/fusion/coinbase/all', cache('30 seconds'), (req, res) => {
   //   explorerService.getAllFusionCoinbase(req, res);
   // });
-  app.get('/explorer/fusion/coinbase/:address?', cache(cache30s), (req, res) => { // deprecated
+  app.get('/explorer/fusion/coinbase/:address?', cache('30 seconds'), (req, res) => { // deprecated
     explorerService.getAddressFusionCoinbase(req, res);
   });
 
   // GET PROTECTED API - User level
-  app.get('/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', cache(cache30s), (req, res) => {
+  app.get('/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.prioritiseTransaction(req, res);
   });
-  app.get('/daemon/submitblock/:hexdata?/:jsonparametersobject?', cache(cache30s), (req, res) => {
+  app.get('/daemon/submitblock/:hexdata?/:jsonparametersobject?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.submitBlock(req, res);
   });
 
-  app.get('/id/loggedsessions', cache(cache30s), (req, res) => {
+  app.get('/id/loggedsessions', cache('30 seconds'), (req, res) => {
     idService.loggedSessions(req, res);
   });
-  app.get('/id/logoutcurrentsession', cache(cache30s), (req, res) => {
+  app.get('/id/logoutcurrentsession', cache('30 seconds'), (req, res) => {
     idService.logoutCurrentSession(req, res);
   });
-  app.get('/id/logoutallsessions', cache(cache30s), (req, res) => {
+  app.get('/id/logoutallsessions', cache('30 seconds'), (req, res) => {
     idService.logoutAllSessions(req, res);
   });
-  app.get('/zelid/loggedsessions', cache(cache30s), (req, res) => { // DEPRECATED
+  app.get('/zelid/loggedsessions', cache('30 seconds'), (req, res) => { // DEPRECATED
     idService.loggedSessions(req, res);
   });
-  app.get('/zelid/logoutcurrentsession', cache(cache30s), (req, res) => { // DEPRECATED
+  app.get('/zelid/logoutcurrentsession', cache('30 seconds'), (req, res) => { // DEPRECATED
     idService.logoutCurrentSession(req, res);
   });
-  app.get('/zelid/logoutallsessions', cache(cache30s), (req, res) => { // DEPRECATED
+  app.get('/zelid/logoutallsessions', cache('30 seconds'), (req, res) => { // DEPRECATED
     idService.logoutAllSessions(req, res);
   });
 
-  app.get('/benchmark/getstatus', cache(cache30s), (req, res) => {
+  app.get('/benchmark/getstatus', cache('30 seconds'), (req, res) => {
     benchmarkService.getStatus(req, res);
   });
-  app.get('/benchmark/help/:command?', cache(cache1h), (req, res) => {
+  app.get('/benchmark/help/:command?', cache('1 hour'), (req, res) => {
     benchmarkService.help(req, res);
   });
-  app.get('/benchmark/getbenchmarks', cache(cache30s), (req, res) => {
+  app.get('/benchmark/getbenchmarks', cache('30 seconds'), (req, res) => {
     benchmarkService.getBenchmarks(req, res);
   });
-  app.get('/benchmark/getstoredbenchmark', cache(cache1h), (req, res) => {
+  app.get('/benchmark/getstoredbenchmark', cache('1 hour'), (req, res) => {
     benchmarkService.getStoredBenchmark(req, res);
   });
-  app.get('/benchmark/getinfo', cache(cache30s), (req, res) => {
+  app.get('/benchmark/getinfo', cache('30 seconds'), (req, res) => {
     benchmarkService.getInfo(req, res);
   });
 
-  app.get('/syncthing/meta', cache(cache30s), (req, res) => {
+  app.get('/syncthing/meta', cache('30 seconds'), (req, res) => {
     syncthingService.getMeta(req, res);
   });
-  app.get('/syncthing/deviceid', cache(cache30s), (req, res) => {
+  app.get('/syncthing/deviceid', cache('30 seconds'), (req, res) => {
     syncthingService.getDeviceIdApi(req, res);
   });
-  app.get('/syncthing/health', cache(cache30s), (req, res) => {
+  app.get('/syncthing/health', cache('30 seconds'), (req, res) => {
     syncthingService.getHealth(req, res);
   });
-  app.get('/syncthing/system/browse/:current?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/browse/:current?', cache('30 seconds'), (req, res) => {
     syncthingService.systemBrowse(req, res);
   });
-  app.get('/syncthing/system/connections', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/connections', cache('30 seconds'), (req, res) => {
     syncthingService.systemConnections(req, res);
   });
-  app.get('/syncthing/system/debug/:enable?/:disable?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/debug/:enable?/:disable?', cache('30 seconds'), (req, res) => {
     syncthingService.systemDebug(req, res);
   });
-  app.get('/syncthing/system/discovery/:device?/:addr?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/discovery/:device?/:addr?', cache('30 seconds'), (req, res) => {
     syncthingService.systemDiscovery(req, res);
   });
-  app.get('/syncthing/system/error/clear', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/error/clear', cache('30 seconds'), (req, res) => {
     syncthingService.systemErrorClear(req, res);
   });
-  app.get('/syncthing/system/error/:message?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/error/:message?', cache('30 seconds'), (req, res) => {
     syncthingService.systemError(req, res);
   });
-  app.get('/syncthing/system/log/:since?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/log/:since?', cache('30 seconds'), (req, res) => {
     syncthingService.systemLog(req, res);
   });
-  app.get('/syncthing/system/logtxt/:since?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/logtxt/:since?', cache('30 seconds'), (req, res) => {
     syncthingService.systemLogTxt(req, res);
   });
-  app.get('/syncthing/system/paths', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/paths', cache('30 seconds'), (req, res) => {
     syncthingService.systemPaths(req, res);
   });
-  app.get('/syncthing/system/pause/:device?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/pause/:device?', cache('30 seconds'), (req, res) => {
     syncthingService.systemPause(req, res);
   });
-  app.get('/syncthing/system/ping', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/ping', cache('30 seconds'), (req, res) => {
     syncthingService.systemPing(req, res);
   });
-  app.get('/syncthing/system/reset/:folder?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/reset/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.systemReset(req, res);
   });
-  app.get('/syncthing/system/restart', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/restart', cache('30 seconds'), (req, res) => {
     syncthingService.systemRestart(req, res);
   });
-  app.get('/syncthing/system/resume/:device?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/resume/:device?', cache('30 seconds'), (req, res) => {
     syncthingService.systemResume(req, res);
   });
-  app.get('/syncthing/system/shutdown', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/shutdown', cache('30 seconds'), (req, res) => {
     syncthingService.systemShutdown(req, res);
   });
-  app.get('/syncthing/system/status', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/status', cache('30 seconds'), (req, res) => {
     syncthingService.systemStatus(req, res);
   });
-  app.get('/syncthing/system/upgrade', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/upgrade', cache('30 seconds'), (req, res) => {
     syncthingService.systemUpgrade(req, res);
   });
-  app.get('/syncthing/system/version', cache(cache30s), (req, res) => {
+  app.get('/syncthing/system/version', cache('30 seconds'), (req, res) => {
     syncthingService.systemVersion(req, res);
   });
-  app.get('/syncthing/config', cache(cache30s), (req, res) => {
+  app.get('/syncthing/config', cache('30 seconds'), (req, res) => {
     syncthingService.getConfig(req, res);
   });
-  app.get('/syncthing/config/restart-required', cache(cache30s), (req, res) => {
+  app.get('/syncthing/config/restart-required', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigRestartRequired(req, res);
   });
-  app.get('/syncthing/config/folders/:id?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/config/folders/:id?', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigFolders(req, res);
   });
-  app.get('/syncthing/config/devices/:id?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/config/devices/:id?', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigDevices(req, res);
   });
-  app.get('/syncthing/config/defaults/folder', cache(cache30s), (req, res) => {
+  app.get('/syncthing/config/defaults/folder', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigDefaultsFolder(req, res);
   });
-  app.get('/syncthing/config/defaults/device', cache(cache30s), (req, res) => {
+  app.get('/syncthing/config/defaults/device', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigDefaultsDevice(req, res);
   });
-  app.get('/syncthing/config/defaults/ignores', cache(cache30s), (req, res) => {
+  app.get('/syncthing/config/defaults/ignores', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigDefaultsIgnores(req, res);
   });
-  app.get('/syncthing/config/options', cache(cache30s), (req, res) => {
+  app.get('/syncthing/config/options', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigOptions(req, res);
   });
-  app.get('/syncthing/config/ldap', cache(cache30s), (req, res) => {
+  app.get('/syncthing/config/ldap', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigLdap(req, res);
   });
-  app.get('/syncthing/config/gui', cache(cache30s), (req, res) => {
+  app.get('/syncthing/config/gui', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigGui(req, res);
   });
-  app.get('/syncthing/stats/device', cache(cache30s), (req, res) => {
+  app.get('/syncthing/stats/device', cache('30 seconds'), (req, res) => {
     syncthingService.statsDevice(req, res);
   });
-  app.get('/syncthing/stats/folder', cache(cache30s), (req, res) => {
+  app.get('/syncthing/stats/folder', cache('30 seconds'), (req, res) => {
     syncthingService.statsFolder(req, res);
   });
-  app.get('/syncthing/cluster/pending/devices', cache(cache30s), (req, res) => {
+  app.get('/syncthing/cluster/pending/devices', cache('30 seconds'), (req, res) => {
     syncthingService.getClusterPendigDevices(req, res);
   });
-  app.get('/syncthing/cluster/pending/folders', cache(cache30s), (req, res) => {
+  app.get('/syncthing/cluster/pending/folders', cache('30 seconds'), (req, res) => {
     syncthingService.getClusterPendigFolders(req, res);
   });
-  app.get('/syncthing/folder/errors/:folder?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/folder/errors/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getFolderErrors(req, res);
   });
-  app.get('/syncthing/folder/versions/:folder?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/folder/versions/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getFolderVersions(req, res);
   });
-  app.get('/syncthing/db/browse/:folder?/:levels?/:prefix?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/db/browse/:folder?/:levels?/:prefix?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbBrowse(req, res);
   });
-  app.get('/syncthing/db/completion/:folder?/:device?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/db/completion/:folder?/:device?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbCompletion(req, res);
   });
-  app.get('/syncthing/db/file/:folder?/:file?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/db/file/:folder?/:file?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbFile(req, res);
   });
-  app.get('/syncthing/db/ignores/:folder?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/db/ignores/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbIgnores(req, res);
   });
-  app.get('/syncthing/db/localchanged/:folder?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/db/localchanged/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbLocalchanged(req, res);
   });
-  app.get('/syncthing/db/need/:folder?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/db/need/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbNeed(req, res);
   });
-  app.get('/syncthing/db/remoteneed/:folder?/:device?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/db/remoteneed/:folder?/:device?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbRemoteNeed(req, res);
   });
-  app.get('/syncthing/db/status/:folder?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/db/status/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbStatus(req, res);
   });
-  app.get('/syncthing/events/disk', cache(cache30s), (req, res) => {
+  app.get('/syncthing/events/disk', cache('30 seconds'), (req, res) => {
     syncthingService.getEventsDisk(req, res);
   });
-  app.get('/syncthing/events/:events?/:since?/:limit?/:timeout?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/events/:events?/:since?/:limit?/:timeout?', cache('30 seconds'), (req, res) => {
     syncthingService.getEvents(req, res);
   });
-  app.get('/syncthing/svc/random/string/:length?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/svc/random/string/:length?', cache('30 seconds'), (req, res) => {
     syncthingService.getSvcRandomString(req, res);
   });
-  app.get('/syncthing/svc/report', cache(cache30s), (req, res) => {
+  app.get('/syncthing/svc/report', cache('30 seconds'), (req, res) => {
     syncthingService.getSvcReport(req, res);
   });
-  app.get('/syncthing/svc/:deviceid?', cache(cache30s), (req, res) => {
+  app.get('/syncthing/svc/:deviceid?', cache('30 seconds'), (req, res) => {
     syncthingService.getSvcDeviceID(req, res);
   });
-  app.get('/syncthing/debug/peercompletion', cache(cache30s), (req, res) => {
+  app.get('/syncthing/debug/peercompletion', cache('30 seconds'), (req, res) => {
     syncthingService.debugPeerCompletion(req, res);
   });
-  app.get('/syncthing/debug/httpmetrics', cache(cache30s), (req, res) => {
+  app.get('/syncthing/debug/httpmetrics', cache('30 seconds'), (req, res) => {
     syncthingService.debugHttpmetrics(req, res);
   });
-  app.get('/syncthing/debug/cpuprof', cache(cache30s), (req, res) => {
+  app.get('/syncthing/debug/cpuprof', cache('30 seconds'), (req, res) => {
     syncthingService.debugCpuprof(req, res);
   });
-  app.get('/syncthing/debug/heapprof', cache(cache30s), (req, res) => {
+  app.get('/syncthing/debug/heapprof', cache('30 seconds'), (req, res) => {
     syncthingService.debugHeapprof(req, res);
   });
-  app.get('/syncthing/debug/support', cache(cache30s), (req, res) => {
+  app.get('/syncthing/debug/support', cache('30 seconds'), (req, res) => {
     syncthingService.debugSupport(req, res);
   });
-  app.get('/syncthing/debug/file', cache(cache30s), (req, res) => {
+  app.get('/syncthing/debug/file', cache('30 seconds'), (req, res) => {
     syncthingService.debugFile(req, res);
   });
   // BACKUP & RESTORE
@@ -1141,13 +1130,13 @@ module.exports = (app) => {
   app.get('/flux/checkcommunication', (req, res) => {
     fluxNetworkHelper.isCommunicationEstablished(req, res);
   });
-  app.get('/flux/uptime', cache(cache30s), (req, res) => {
+  app.get('/flux/uptime', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.fluxUptime(req, res);
   });
-  app.get('/flux/systemuptime', cache(cache30s), (req, res) => {
+  app.get('/flux/systemuptime', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.fluxSystemUptime(req, res);
   });
-  app.get('/flux/clockdrift', cache(cache30s), (req, res) => {
+  app.get('/flux/clockdrift', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.clockDrift(req, res);
   });
   app.get('/flux/backendfolder', isLocal, (req, res) => {
@@ -1168,7 +1157,7 @@ module.exports = (app) => {
   app.get('/flux/getgateway', (req, res) => {
     upnpService.getGatewayApi(req, res);
   });
-  app.get('/flux/isarcaneos', cache(cache1d), (req, res) => {
+  app.get('/flux/isarcaneos', cache('1 day'), (req, res) => {
     fluxService.isArcaneOs(req, res);
   });
 
@@ -1280,16 +1269,16 @@ module.exports = (app) => {
     monitoringOrchestrator.stopAppMonitoringAPI(req, res);
   });
 
-  app.get('/syncthing/metrics', cache(cache10s), (req, res) => {
+  app.get('/syncthing/metrics', cache('10 seconds'), (req, res) => {
     syncthingService.getSyncthingMetrics(req, res);
   });
-  app.get('/syncthing/metrics/health', cache(cache10s), (req, res) => {
+  app.get('/syncthing/metrics/health', cache('10 seconds'), (req, res) => {
     syncthingService.getSyncthingHealthSummary(req, res);
   });
-  app.get('/syncthing/metrics/history/:limit?', cache(cache10s), (req, res) => {
+  app.get('/syncthing/metrics/history/:limit?', cache('10 seconds'), (req, res) => {
     syncthingService.getSyncthingMetricsHistory(req, res);
   });
-  app.get('/syncthing/peer/diagnostics', cache(cache10s), (req, res) => {
+  app.get('/syncthing/peer/diagnostics', cache('10 seconds'), (req, res) => {
     syncthingService.getPeerSyncDiagnosticsApi(req, res);
   });
 
@@ -1562,7 +1551,11 @@ module.exports = (app) => {
   app.get('/apps/downloadfolder/:appname?/:component?/:folder?', (req, res) => {
     fileSystemManager.downloadAppsFolder(req, res);
   });
-  app.get('/explorer/issynced', cache(cache30s), (req, res) => {
+  app.get('/explorer/issynced', cache('30 seconds'), (req, res) => {
     explorerService.isExplorerSynced(req, res);
+  });
+
+  app.get('/flux/eventstream', (req, res) => {
+    fluxEventBus.sseHandler(req, res);
   });
 };

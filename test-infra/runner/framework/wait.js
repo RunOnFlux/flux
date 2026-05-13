@@ -7,44 +7,28 @@ export async function waitFor(condition, { timeout = 60000, interval = 2000, lab
   throw new Error(`Timeout after ${timeout}ms waiting for: ${label || 'condition'}`);
 }
 
-export async function waitForPeers(node, minCount, timeout = 60000) {
-  return waitFor(async () => {
-    const res = await node.getPeers();
-    return res.status === 'success' && res.data.length >= minCount;
-  }, { timeout, label: `${node.ip} to have ${minCount}+ outbound peers` });
+// Event-based wait helpers (use SSE event stream)
+
+export async function waitForDaemonPolled(node, predicate = () => true, timeout = 30000) {
+  return node.waitForEvent('daemon:polled', predicate, timeout);
 }
 
-export async function waitForIncomingPeers(node, minCount, timeout = 60000) {
-  return waitFor(async () => {
-    const res = await node.getIncomingPeers();
-    return res.status === 'success' && res.data.length >= minCount;
-  }, { timeout, label: `${node.ip} to have ${minCount}+ inbound peers` });
+export async function waitForDaemonReady(node, timeout = 60000) {
+  return node.waitForEvent('daemon:polled', () => true, timeout);
 }
 
-export async function waitForExplorerSynced(node, timeout = 50000) {
-  const daemon = await import('./daemon-control.js');
-  // Advance one block manually so the explorer has something to process
-  await daemon.advanceBlock();
-  return waitFor(async () => {
-    const explorer = await node.getExplorerHeight();
-    const explorerHeight = explorer?.data?.generalScannedHeight ?? 0;
-    return explorerHeight > 2100000;
-  }, { timeout, interval: 1000, label: `${node.ip} explorer synced` });
+export async function waitForBlockProcessed(node, predicate = () => true, timeout = 30000) {
+  return node.waitForEvent('block:processed', predicate, timeout);
 }
 
-export async function waitForApi(node, timeout = 60000) {
-  return waitFor(async () => {
-    try {
-      const res = await node.getVersion();
-      return res.status === 'success';
-    } catch {
-      return false;
-    }
-  }, { timeout, interval: 1000, label: `${node.ip} API ready` });
+export async function waitForDosChanged(node, predicate = () => true, timeout = 30000) {
+  return node.waitForEvent('dos:changed', predicate, timeout);
 }
 
-export async function waitForBoot(env, index, timeout = 60000) {
-  return waitFor(() => {
-    return env.nodeHasLog(index, 'Flux Block Processing Service started');
-  }, { timeout, interval: 1000, label: `node ${index} block processor ready` });
+export async function waitForAppInstalled(node, appName, timeout = 60000) {
+  return node.waitForEvent('app:installed', (data) => data.name === appName, timeout);
+}
+
+export async function waitForAppRemoved(node, appName, timeout = 60000) {
+  return node.waitForEvent('app:removed', (data) => data.name === appName, timeout);
 }

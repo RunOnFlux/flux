@@ -1,3 +1,6 @@
+import { EventEmitter } from 'node:events';
+import { EventSource } from 'eventsource';
+
 export function nodeClient(nodeNum) {
   const ip = `198.18.${nodeNum}.0`;
   const url = `http://${ip}:16127`;
@@ -22,6 +25,82 @@ export function nodeClient(nodeNum) {
     return res.json();
   }
 
+  let eventSource = null;
+  const eventBuffer = [];
+  const emitter = new EventEmitter();
+
+  function connectEventStream(timeout = 60000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`SSE connect timeout after ${timeout}ms for ${ip}`));
+      }, timeout);
+
+      eventSource = new EventSource(`${url}/flux/eventstream`);
+
+      eventSource.onopen = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+
+      eventSource.onerror = (err) => {
+        emitter.emit('error', err);
+      };
+
+      for (const name of [
+        'daemon:polled', 'block:processed',
+        'peers:added', 'peers:removed',
+        'dos:changed',
+        'app:installed', 'app:removed',
+        'confirmation:changed', 'boot:settled',
+      ]) {
+        eventSource.addEventListener(name, (e) => {
+          const entry = {
+            event: e.type,
+            data: JSON.parse(e.data),
+            id: parseInt(e.lastEventId, 10) || 0,
+          };
+          eventBuffer.push(entry);
+          emitter.emit(e.type, entry);
+        });
+      }
+    });
+  }
+
+  function disconnectEventStream() {
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+    eventBuffer.length = 0;
+    emitter.removeAllListeners();
+  }
+
+  function waitForEvent(name, predicate = () => true, timeout = 30000) {
+    const found = eventBuffer.find((e) => e.event === name && predicate(e.data));
+    if (found) return Promise.resolve(found);
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Timeout after ${timeout}ms waiting for event: ${name}`));
+      }, timeout);
+
+      function handler(entry) {
+        if (predicate(entry.data)) {
+          cleanup();
+          resolve(entry);
+        }
+      }
+
+      function cleanup() {
+        clearTimeout(timer);
+        emitter.removeListener(name, handler);
+      }
+
+      emitter.on(name, handler);
+    });
+  }
+
   return {
     ip,
     url,
@@ -29,6 +108,10 @@ export function nodeClient(nodeNum) {
     get,
     getAuthed,
     post,
+    connectEventStream,
+    disconnectEventStream,
+    waitForEvent,
+    getEventBuffer: () => [...eventBuffer],
     getVersion: () => get('/flux/version'),
     getPeers: () => get('/flux/connectedpeers'),
     getIncomingPeers: () => get('/flux/incomingconnections'),

@@ -168,7 +168,7 @@ class FluxCacheManager {
     // daemonServiceUtils
     daemonGenericCache: {
       max: 50,
-      ttl: config.fluxapps.daemonCacheTtlMs,
+      ttl: 20 * FluxCacheManager.oneSecond,
     },
     daemonTxCache: {
       max: 300,

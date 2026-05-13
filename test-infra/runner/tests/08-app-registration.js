@@ -4,8 +4,8 @@ import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { buildAppSpec, registerApp, registerAndConfirm, checkPermanentSpec } from '../framework/app-helper.js';
-import { startTicker } from '../framework/daemon-control.js';
-import { waitForApi, waitForBoot, waitForExplorerSynced, waitFor, waitForPeers, waitForIncomingPeers } from '../framework/wait.js';
+import { startTicker, advanceBlock } from '../framework/daemon-control.js';
+import { waitForDaemonReady, waitFor, waitForBlockProcessed } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 
 let env;
@@ -14,13 +14,11 @@ describe('App registration', function () {
   before(async function () {
     this.timeout(300000);
     env = await createTestEnv({ nodes: 8, tickerAutostart: false });
-    for (const client of env.clients) {
-      await waitForApi(client);
-    }
-    await Promise.all(Array.from({ length: 8 }, (_, i) => waitForBoot(env, i)));
-    await waitForExplorerSynced(env.clients[0]);
-    await waitForPeers(env.clients[0], 4, 120000);
-    await waitForIncomingPeers(env.clients[0], 2, 120000);
+    await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
+    await advanceBlock();
+    await waitForBlockProcessed(env.clients[0], (d) => d.height > 2100000, 50000);
+    await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
+    await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
     await startTicker();
   });
 
@@ -75,7 +73,16 @@ describe('App registration', function () {
       const result = await registerApp(env.clients[0].url, nodeKey(1), spec);
       expect(result.status).to.equal('success');
       appHash = result.data;
-      await new Promise((r) => setTimeout(r, 15000));
+      await waitFor(async () => {
+        let count = 0;
+        for (const client of env.clients) {
+          try {
+            const res = await client.getTempMessages(appHash);
+            if (res.status === 'success' && res.data?.length > 0) count++;
+          } catch { /* */ }
+        }
+        return count === env.clients.length;
+      }, { timeout: 30000, interval: 2000, label: 'temp message propagation to all nodes' });
     });
 
     it('should store temp message on receiving node', async function () {
@@ -106,7 +113,7 @@ describe('App registration', function () {
       const result = await registerAndConfirm(env.clients[0].url, nodeKey(1), spec, env.clients);
       expect(result.status).to.equal('success');
       appHash = result.appHash;
-      await new Promise((r) => setTimeout(r, 30000));
+      await waitForBlockProcessed(env.clients[0], (d) => d.height >= result.targetHeight, 60000);
     });
 
     it('should add hash to zelappshashes after block processed', async function () {
