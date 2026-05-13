@@ -54,9 +54,9 @@ describe('Hash sync: late-joining node', function () {
       return counts.resolved > 0;
     }, { timeout: 60000, interval: 5000, label: 'node 1 has resolved hash' });
 
-    await env.startNode(7);
-    await waitForDaemonReady(env.clients[7]);
-    await waitForBlockProcessed(env.clients[7], (d) => d.height > 2100000, 60000);
+    await env.startNode(9);
+    await waitForDaemonReady(env.clients[9]);
+    await waitForBlockProcessed(env.clients[9], (d) => d.height > 2100000, 60000);
     await env.startDiscovery();
   });
 
@@ -67,21 +67,21 @@ describe('Hash sync: late-joining node', function () {
 
   it('should resolve hash by fetching permanent message from peers', async function () {
     this.timeout(120000);
-    await waitForHashResolved(8, 0);
-    const counts = await dbClient(8).hashCounts();
+    await waitForHashResolved(10, 0);
+    const counts = await dbClient(10).hashCounts();
     expect(counts.resolved).to.be.greaterThan(0);
   });
 
   it('should create permanent message from resolved hash', async function () {
-    const count = await dbClient(8).permanentMessageCount();
+    const count = await dbClient(10).permanentMessageCount();
     expect(count).to.be.greaterThan(0);
   });
 
   it('should create app spec from permanent message', async function () {
     this.timeout(60000);
-    await waitFor(async () => (await dbClient(8).appSpecCount()) > 0,
-      { timeout: 50000, interval: 5000, label: 'app spec on node 8' });
-    expect(await dbClient(8).appSpecCount()).to.be.greaterThan(0);
+    await waitFor(async () => (await dbClient(10).appSpecCount()) > 0,
+      { timeout: 50000, interval: 5000, label: 'app spec on node 10' });
+    expect(await dbClient(10).appSpecCount()).to.be.greaterThan(0);
   });
 });
 
