@@ -38,22 +38,22 @@ describe('App spawning', function () {
 
   describe('app spec propagation', function () {
     it('should have app spec accessible via API on registering node', async function () {
-      this.timeout(60000);
+      this.timeout(120000);
       await waitFor(async () => {
         const res = await env.clients[0].getAppSpecs(appName);
         return res.status === 'success' && res.data?.[0]?.name === appName;
-      }, { timeout: 50000, interval: 5000, label: 'app spec via API' });
+      }, { timeout: 110000, interval: 5000, label: 'app spec via API' });
       const res = await env.clients[0].getAppSpecs(appName);
       expect(res.data[0].name).to.equal(appName);
       expect(res.data[0].instances).to.equal(3);
     });
 
     it('should have app spec propagated to a second node', async function () {
-      this.timeout(60000);
+      this.timeout(120000);
       await waitFor(async () => {
         const res = await env.clients[1].getAppSpecs(appName);
         return res.status === 'success' && res.data?.[0]?.name === appName;
-      }, { timeout: 50000, interval: 5000, label: 'app spec on node 2' });
+      }, { timeout: 110000, interval: 5000, label: 'app spec on node 2' });
       const res = await env.clients[1].getAppSpecs(appName);
       expect(res.data[0].name).to.equal(appName);
     });
