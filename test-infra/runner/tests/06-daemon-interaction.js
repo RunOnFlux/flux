@@ -127,8 +127,11 @@ describe('Daemon interaction', function () {
     it('should stop receiving daemon:polled events when RPC fails', async function () {
       this.timeout(20000);
       await enableRpcFailure('198.18.1.0');
+      // wait for any in-flight poll to complete
+      await new Promise((r) => setTimeout(r, 6000));
       const beforeCount = env.clients[0].getEventBuffer().filter((e) => e.event === 'daemon:polled').length;
-      await new Promise((r) => setTimeout(r, 8000));
+      // now wait another full poll interval — no new events should arrive
+      await new Promise((r) => setTimeout(r, 6000));
       const afterCount = env.clients[0].getEventBuffer().filter((e) => e.event === 'daemon:polled').length;
       expect(afterCount).to.equal(beforeCount);
     });
