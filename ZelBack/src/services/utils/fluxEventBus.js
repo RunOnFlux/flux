@@ -4,6 +4,15 @@ const log = require('../../lib/log');
 
 const RING_BUFFER_SIZE = 1024;
 
+// Express compression middleware buffers res.write() calls to build
+// compressible chunks. SSE writes are too small to trigger a flush on
+// their own, so events never reach the client. Calling res.flush()
+// after each write forces the compression buffer to drain immediately.
+function sseWrite(res, data) {
+  res.write(data);
+  if (res.flush) res.flush();
+}
+
 class FluxEventBus extends EventEmitter {
   #buffer;
   #writeIndex;
@@ -63,21 +72,22 @@ class FluxEventBus extends EventEmitter {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
+    res.flushHeaders();
 
     const lastId = parseInt(req.headers['last-event-id'], 10) || 0;
     const missed = this.since(lastId);
     for (const entry of missed) {
-      res.write(`event: ${entry.event}\ndata: ${JSON.stringify(entry.data)}\nid: ${entry.id}\n\n`);
+      sseWrite(res, `event: ${entry.event}\ndata: ${JSON.stringify(entry.data)}\nid: ${entry.id}\n\n`);
     }
 
     const onEvent = (entry) => {
-      res.write(`event: ${entry.event}\ndata: ${JSON.stringify(entry.data)}\nid: ${entry.id}\n\n`);
+      sseWrite(res, `event: ${entry.event}\ndata: ${JSON.stringify(entry.data)}\nid: ${entry.id}\n\n`);
     };
 
     this.on('event', onEvent);
 
     const keepalive = setInterval(() => {
-      res.write(': keepalive\n\n');
+      sseWrite(res, ': keepalive\n\n');
     }, 15000);
 
     req.on('close', () => {
