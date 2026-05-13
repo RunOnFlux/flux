@@ -860,13 +860,12 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
   const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (appInfo) {
     if (appInfo.height < appSpecs.height) {
-      // replaceOne instead of $set to avoid accumulating ghost fields
-      // from prior spec versions (e.g. flat fields from v1-v3 lingering
-      // after upgrade to v4+ compose format)
       await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
+      fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
     }
   } else {
     await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
+    fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
   }
   return true;
 }
@@ -1224,13 +1223,12 @@ async function updateAppSpecifications(appSpecs) {
     const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
     if (appInfo) {
       if (appInfo.height < appSpecs.height) {
-        // replaceOne instead of $set to avoid accumulating ghost fields
-        // from prior spec versions (e.g. flat fields from v1-v3 lingering
-        // after upgrade to v4+ compose format)
         await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
+        fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
       }
     } else {
       await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
+      fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
     }
     const queryDeleteAppErrors = { name: appSpecs.name };
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
