@@ -306,8 +306,8 @@ async function startFluxFunctions() {
     log.info('Flux checks operational');
     if (config.fluxapps.discoveryAutostart !== false) {
       fluxCommunication.startDiscovery();
+      log.info('Flux Discovery started');
     }
-    log.info('Flux Discovery started');
     // Cleanup and fix crontab mount entries (add wait logic, remove stale entries, ensure mounts are active)
     log.info('crontab and mounts cleanup...');
     await crontabAndMountsCleanup.cleanupCrontabAndMounts().catch((error) => {
