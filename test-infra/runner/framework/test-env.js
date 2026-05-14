@@ -60,16 +60,10 @@ const INITIAL_HEIGHT = 2100000;
 class StaticIpContainer extends GenericContainer {
   #staticIp;
   #networkName;
-  #volume;
 
   withStaticIp(networkName, ip) {
     this.#staticIp = ip;
     this.#networkName = networkName;
-    return this;
-  }
-
-  withVolume(name, target) {
-    this.#volume = { name, target };
     return this;
   }
 
@@ -82,11 +76,6 @@ class StaticIpContainer extends GenericContainer {
           },
         },
       };
-    }
-    if (this.#volume) {
-      this.createOpts.HostConfig ??= {};
-      this.createOpts.HostConfig.Binds ??= [];
-      this.createOpts.HostConfig.Binds.push(`${this.#volume.name}:${this.#volume.target}`);
     }
   }
 }
@@ -259,7 +248,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     const builder = new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
-      .withVolume(volumeNames[i], '/mnt/appdata')
+      .withBindMounts([{ source: volumeNames[i], target: '/mnt/appdata' }])
       .withLogConsumer(logCollector)
       .withEnvironment({
         NODE_CONFIG_DIR: `/flux/test-infra/config/node-${num}`,
