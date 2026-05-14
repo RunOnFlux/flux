@@ -8,7 +8,7 @@ describe('containerHealthMonitor tests', () => {
 
   beforeEach(() => {
     globalStateStub = {
-      waitForBootComplete: sinon.stub().resolves(),
+      waitForBootContainerStateSettled: sinon.stub().resolves(),
       isOperationInProgress: sinon.stub().returns(false),
       backupInProgress: [],
       restoreInProgress: [],
@@ -39,7 +39,7 @@ describe('containerHealthMonitor tests', () => {
   describe('monitorAndRecoverApps', () => {
     it('should wait for bootComplete before proceeding', async () => {
       let monitorResolved = false;
-      globalStateStub.waitForBootComplete = sinon.stub().returns(
+      globalStateStub.waitForBootContainerStateSettled = sinon.stub().returns(
         new Promise((resolve) => { setTimeout(resolve, 50); }),
       );
 
@@ -49,7 +49,7 @@ describe('containerHealthMonitor tests', () => {
       expect(monitorResolved).to.be.false;
       await promise;
       expect(monitorResolved).to.be.true;
-      expect(globalStateStub.waitForBootComplete.calledOnce).to.be.true;
+      expect(globalStateStub.waitForBootContainerStateSettled.calledOnce).to.be.true;
     });
   });
 });

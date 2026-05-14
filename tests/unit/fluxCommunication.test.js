@@ -12,6 +12,7 @@ const { requireMongo } = require('./dbTestHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const nodeConfirmationService = require('../../ZelBack/src/services/nodeConfirmationService');
 const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
@@ -1355,6 +1356,7 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should return warning if ip cannot be detected', async () => {
+      sinon.stub(nodeConfirmationService, 'isConfirmed').returns(true);
       sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns(null);
       daemonServiceStub.returns({
         data: {
@@ -1367,10 +1369,8 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledOnceWithExactly(logSpy, 'Flux IP not detected. Flux discovery is awaiting.');
     });
 
-    it('should return warning if ip is not on the flux node list', async () => {
-      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('127.1.1.1');
-      sinon.stub(fluxCommunicationUtils, 'getFluxnodeFromFluxList').returns(null);
-
+    it('should return warning if node is not confirmed', async () => {
+      sinon.stub(nodeConfirmationService, 'isConfirmed').returns(false);
       daemonServiceStub.returns({
         data: {
           synced: true,
@@ -1396,6 +1396,7 @@ describe('fluxCommunication tests', () => {
         '44.192.51.11',
       ];
 
+      sinon.stub(nodeConfirmationService, 'isConfirmed').returns(true);
       sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11');
       fluxNetworkHelper.setMyFluxIp('44.192.51.11');
       sinon.stub(fluxCommunicationUtils, 'getFluxnodeFromFluxList').returns('44.192.51.11');

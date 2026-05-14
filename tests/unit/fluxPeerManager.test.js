@@ -471,6 +471,7 @@ describe('FluxPeerManager tests', () => {
   beforeEach(() => {
     manager = new FluxPeerManager();
     manager.messageDispatcher = sinon.stub();
+    manager.allowConnections();
   });
 
   afterEach(() => {

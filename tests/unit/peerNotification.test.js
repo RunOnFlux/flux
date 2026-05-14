@@ -98,6 +98,10 @@ describe('peerNotification tests', () => {
       '../utils/appConstants': {
         localAppsInformation: 'localAppsInformation',
       },
+      '../nodeConfirmationService': {
+        canSendMessages: sinon.stub().returns(true),
+        onMessageCapabilityChange: sinon.stub(),
+      },
       '../utils/globalState': {
         backupInProgress: [],
         restoreInProgress: [],
