@@ -20,8 +20,8 @@ const systemIntegration = require('../appSystem/systemIntegration');
 const globalState = require('../utils/globalState');
 const enterpriseNetwork = require('../utils/enterpriseNetwork');
 const { FluxCacheManager } = require('../utils/cacheManager');
-const { registerAppLocally } = require('./appInstaller');
-const { removeAppLocally } = require('./appUninstaller');
+const appInstaller = require('./appInstaller');
+const appUninstaller = require('./appUninstaller');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 
 let appsCountAvailableToInstallOnMyNode = 0;
