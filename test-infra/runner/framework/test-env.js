@@ -60,10 +60,16 @@ const INITIAL_HEIGHT = 2100000;
 class StaticIpContainer extends GenericContainer {
   #staticIp;
   #networkName;
+  #volume;
 
   withStaticIp(networkName, ip) {
     this.#staticIp = ip;
     this.#networkName = networkName;
+    return this;
+  }
+
+  withVolume(name, target) {
+    this.#volume = { name, target };
     return this;
   }
 
@@ -76,6 +82,11 @@ class StaticIpContainer extends GenericContainer {
           },
         },
       };
+    }
+    if (this.#volume) {
+      this.createOpts.HostConfig ??= {};
+      this.createOpts.HostConfig.Binds ??= [];
+      this.createOpts.HostConfig.Binds.push(`${this.#volume.name}:${this.#volume.target}`);
     }
   }
 }
@@ -222,6 +233,19 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   started.push(syncthingStub);
   containers.syncthingStub = syncthingStub;
 
+  const rtClient = await getContainerRuntimeClient();
+  const { getReaper: getReaperFn } = await import('testcontainers');
+  const reaper = await getReaperFn(rtClient);
+  const volumeNames = [];
+  for (let i = 0; i < nodes; i++) {
+    const volName = `${networkName}-node${i}`;
+    await rtClient.container.dockerode.createVolume({
+      Name: volName,
+      Labels: { 'org.testcontainers.session-id': reaper.sessionId },
+    });
+    volumeNames.push(volName);
+  }
+
   const deferredBuilders = new Map();
   const firstDeferred = nodes - deferredNodes;
   const nodeConfigs = [];
@@ -235,6 +259,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     const builder = new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
+      .withVolume(volumeNames[i], '/mnt/appdata')
       .withLogConsumer(logCollector)
       .withEnvironment({
         NODE_CONFIG_DIR: `/flux/test-infra/config/node-${num}`,
@@ -352,6 +377,10 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       await daemonStub.stop().catch(() => {});
       await mongo.stop().catch(() => {});
       await closeDb();
+      const cleanupClient = await getContainerRuntimeClient();
+      for (const volName of volumeNames) {
+        await cleanupClient.container.dockerode.getVolume(volName).remove().catch(() => {});
+      }
       await removeNetwork(networkName);
       http.globalAgent.destroy();
     },
