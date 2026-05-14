@@ -1512,6 +1512,7 @@ async function insertAppSpecifications(appSpecs) {
     const database = db.db(config.database.appsglobal.database);
     const query = { name: appSpecs.name };
     await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, { upsert: true });
+    fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
   } catch (error) {
