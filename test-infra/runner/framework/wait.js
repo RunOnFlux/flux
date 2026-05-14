@@ -34,9 +34,29 @@ export async function waitForAppRemoved(node, appName, timeout = 60000) {
 }
 
 export async function waitForNodeStatus(node, predicate, timeout = 30000) {
-  return node.waitForEvent('node:statusChecked', predicate, timeout);
+  return node.waitForEvent('confirmation:changed', predicate, timeout);
 }
 
 export async function waitForAppSpecStored(node, appName, timeout = 120000) {
   return node.waitForEvent('app:specStored', (data) => data.name === appName, timeout);
+}
+
+export async function waitForDaemonUnreachable(node, timeout = 30000) {
+  return node.waitForEvent('daemon:unreachable', () => true, timeout);
+}
+
+export async function waitForDaemonRecovered(node, timeout = 30000) {
+  return node.waitForEvent('daemon:recovered', () => true, timeout);
+}
+
+export async function waitForOrchestratorState(node, state, timeout = 60000) {
+  return node.waitForEvent('orchestrator:stateChanged', (d) => d.to === state, timeout);
+}
+
+export async function waitForPeerThreshold(node, timeout = 120000) {
+  return node.waitForEvent('peers:thresholdReached', () => true, timeout);
+}
+
+export async function waitForBootSettled(node, timeout = 120000) {
+  return node.waitForEvent('boot:settled', () => true, timeout);
 }

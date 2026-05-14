@@ -48,12 +48,21 @@ export function nodeClient(nodeNum) {
       };
 
       for (const name of [
-        'daemon:polled', 'block:processed',
-        'peers:added', 'peers:removed',
-        'dos:changed', 'node:statusChecked',
-        'app:installed', 'app:removed',
+        'block:processed',
+        'boot:settled',
+        'confirmation:changed',
+        'daemon:polled',
+        'daemon:recovered',
+        'daemon:unreachable',
+        'dos:changed',
+        'orchestrator:stateChanged',
+        'app:installed',
+        'app:removed',
         'app:specStored',
-        'confirmation:changed', 'boot:settled',
+        'peers:added',
+        'peers:belowThreshold',
+        'peers:removed',
+        'peers:thresholdReached',
       ]) {
         eventSource.addEventListener(name, (e) => {
           const entry = {

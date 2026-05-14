@@ -3,13 +3,14 @@ const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnode
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const networkStateService = require('./networkStateService');
 const { AsyncGate } = require('./utils/asyncGate');
+const fluxEventBus = require('./utils/fluxEventBus');
 const log = require('../lib/log');
 
 const DAEMON_STALE_MS = config.fluxapps.confirmationDaemonStaleMs;
 const DAEMON_EXPIRED_MS = config.fluxapps.confirmationDaemonExpiredMs;
 
 let ourPubkey = null;
-let daemonConfirmed = false;
+let daemonConfirmed = null;
 let daemonStale = false;
 let messageCapable = false;
 let started = false;
@@ -88,6 +89,7 @@ async function poll() {
       daemonConfirmed = false;
       confirmedGate.close();
       log.warn('nodeConfirmationService - Daemon unreachable for full expiration window, confirmation lost');
+      fluxEventBus.publish('confirmation:changed', { confirmed: false });
       for (const cb of confirmationListeners) {
         try { cb(false); } catch (e) { log.error(e); }
       }
@@ -103,6 +105,7 @@ async function poll() {
     if (prevDaemonConfirmed !== daemonConfirmed) {
       const direction = daemonConfirmed ? 'gained' : 'lost';
       log.info(`nodeConfirmationService - Confirmation ${direction}`);
+      fluxEventBus.publish('confirmation:changed', { confirmed: daemonConfirmed });
       for (const cb of confirmationListeners) {
         try { cb(daemonConfirmed); } catch (e) { log.error(e); }
       }

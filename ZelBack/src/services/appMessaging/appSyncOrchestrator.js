@@ -10,6 +10,7 @@ const peerCodec = require('../utils/peerCodec');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const verificationHelper = require('../verificationHelper');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 const startupCollection = config.database.local.collections.nodeStartupTracker;
 
@@ -82,6 +83,13 @@ class AppSyncOrchestrator {
     return this.#state;
   }
 
+  #setState(newState) {
+    const prevState = this.#state;
+    if (prevState === newState) return;
+    this.#state = newState;
+    fluxEventBus.publish('orchestrator:stateChanged', { from: prevState, to: newState });
+  }
+
   async start(bootContext) {
     log.info(`AppSyncOrchestrator - Starting in state ${this.#state}`);
 
@@ -149,7 +157,7 @@ class AppSyncOrchestrator {
 
   async #onPeersReady() {
     if (this.#state === STATES.DEGRADED) {
-      this.#state = STATES.RESYNCING;
+      this.#setState(STATES.RESYNCING);
       log.info('AppSyncOrchestrator - Peers recovered, resyncing');
     }
 
@@ -234,7 +242,7 @@ class AppSyncOrchestrator {
 
   #onPeersDegraded() {
     if (this.#state === STATES.READY) {
-      this.#state = STATES.DEGRADED;
+      this.#setState(STATES.DEGRADED);
       this.#hashSyncComplete = false;
       this.#dbRebuilt = false;
       globalState.dbReady = false;
@@ -261,7 +269,7 @@ class AppSyncOrchestrator {
       this.#explorerSynced = true;
       log.info(`AppSyncOrchestrator - Explorer synced at block ${blockHeight}`);
       if (this.#state === STATES.INITIALIZING) {
-        this.#state = STATES.SYNCING;
+        this.#setState(STATES.SYNCING);
         this.#ensureBlockThreshold();
         this.#runInitialSync();
       }
@@ -428,7 +436,7 @@ class AppSyncOrchestrator {
 
     if (!this.#canSendMessages) return;
 
-    this.#state = STATES.READY;
+    this.#setState(STATES.READY);
     log.info('AppSyncOrchestrator - All readiness conditions met');
     appSyncEvents.emit(EVENTS.SPAWNER_READY);
   }
@@ -447,7 +455,7 @@ class AppSyncOrchestrator {
     } else {
       log.info('AppSyncOrchestrator - Message capability lost');
       if (this.#state === STATES.READY) {
-        this.#state = STATES.SYNCING;
+        this.#setState(STATES.SYNCING);
         log.warn('AppSyncOrchestrator - Readiness lost (message capability), pausing spawner');
         appSyncEvents.emit(EVENTS.READINESS_LOST);
       }

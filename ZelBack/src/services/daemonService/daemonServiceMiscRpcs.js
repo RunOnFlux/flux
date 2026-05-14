@@ -86,7 +86,8 @@ async function fluxDaemonBlockchainInfo() {
   try {
     const daemonBlockChainInfo = await daemonServiceBlockchainRpcs.getBlockchainInfo();
     if (daemonBlockChainInfo.status !== 'success') {
-      return log.error(daemonBlockChainInfo.data.message || daemonBlockChainInfo.data);
+      log.error(daemonBlockChainInfo.data.message || daemonBlockChainInfo.data);
+      return false;
     }
     currentDaemonHeight = daemonBlockChainInfo.data.blocks;
     if (daemonBlockChainInfo.data.headers >= currentDaemonHeader) {
@@ -94,9 +95,11 @@ async function fluxDaemonBlockchainInfo() {
     }
     lastSuccessfulRpcCall = Date.now();
     fluxEventBus.publish('daemon:polled', { height: currentDaemonHeight, headers: currentDaemonHeader });
-    return log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
+    log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
+    return true;
   } catch (error) {
-    return log.warn(error);
+    log.warn(error);
+    return false;
   }
 }
 
@@ -104,10 +107,18 @@ async function fluxDaemonBlockchainInfo() {
  * To call the flux daemon blockchain info function at set intervals.
  */
 async function daemonBlockchainInfoService() {
-  await fluxDaemonBlockchainInfo();
+  let reachable = null;
+  async function pollAndEmit() {
+    const succeeded = await fluxDaemonBlockchainInfo();
+    if (reachable !== succeeded) {
+      reachable = succeeded;
+      fluxEventBus.publish(succeeded ? 'daemon:recovered' : 'daemon:unreachable', {});
+    }
+  }
+  await pollAndEmit();
   function scheduleNext() {
     setTimeout(async () => {
-      await fluxDaemonBlockchainInfo();
+      await pollAndEmit();
       scheduleNext();
     }, config.fluxapps.daemonInfoIntervalMs ?? 30000);
   }

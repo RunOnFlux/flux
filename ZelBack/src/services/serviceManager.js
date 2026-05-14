@@ -286,8 +286,6 @@ async function startFluxFunctions() {
     await daemonServiceMiscRpcs.daemonBlockchainInfoService();
     globalState.daemonReady = true;
 
-    await nodeConfirmationService.start();
-
     // Initialize app sync orchestrator and spawner
     const orchestrator = new AppSyncOrchestrator({
       blockEmitter: explorerService.getBlockEmitter(),
@@ -328,6 +326,7 @@ async function startFluxFunctions() {
     });
     log.info('Flux checks operational');
     fluxCommunication.initializeDiscovery();
+    await nodeConfirmationService.start();
     if (config.fluxapps.discoveryAutostart !== false) {
       fluxCommunication.fluxDiscovery();
       log.info('Flux Discovery started');

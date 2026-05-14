@@ -188,6 +188,7 @@ class FluxPeerManager extends EventEmitter {
     if (!this.#aboveThreshold && this.#peers.size >= this.#syncPeerThreshold) {
       this.#aboveThreshold = true;
       this.emit('peerThresholdReached', this.#peers.size);
+      fluxEventBus.publish('peers:thresholdReached', { count: this.#peers.size, threshold: this.#syncPeerThreshold });
     }
     return peer;
   }
@@ -246,6 +247,7 @@ class FluxPeerManager extends EventEmitter {
     if (this.#aboveThreshold && this.#peers.size < this.#syncDegradedThreshold) {
       this.#aboveThreshold = false;
       this.emit('peersBelowThreshold', this.#peers.size);
+      fluxEventBus.publish('peers:belowThreshold', { count: this.#peers.size, threshold: this.#syncDegradedThreshold });
     }
     return peer;
   }

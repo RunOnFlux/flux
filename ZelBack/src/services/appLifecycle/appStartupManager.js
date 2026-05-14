@@ -16,6 +16,7 @@ const registryManager = require('../appDatabase/registryManager');
 const advancedWorkflows = require('./advancedWorkflows');
 const appUninstaller = require('./appUninstaller');
 const globalState = require('../utils/globalState');
+const fluxEventBus = require('../utils/fluxEventBus');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const { localAppsInformation, SIGTERM_EXPIRY_MS, RUNNING_EXPIRY_MS } = require('../utils/appConstants');
@@ -333,6 +334,7 @@ async function manageAppsOnBoot(bootContext) {
     await reconcileAppsOnBoot();
   } finally {
     globalState.bootContainerStateSettled = true;
+    fluxEventBus.publish('boot:settled', {});
     log.info('appStartupManager - Boot container state settled');
   }
 }

@@ -2,7 +2,7 @@ import { describe, it, before, after, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus, removeFromNodeList, restoreToNodeList, resetNodeList, enableRpcFailure, disableRpcFailure } from '../framework/daemon-control.js';
-import { waitForDaemonReady, waitForDaemonPolled, waitForNodeStatus } from '../framework/wait.js';
+import { waitForDaemonReady, waitForDaemonPolled, waitForNodeStatus, waitForDaemonUnreachable, waitForDaemonRecovered } from '../framework/wait.js';
 
 let env;
 const NODE_COUNT = 4;
@@ -124,25 +124,19 @@ describe('Daemon interaction', function () {
       await disableRpcFailure('198.18.1.0');
     });
 
-    it('should stop receiving daemon:polled events when RPC fails', async function () {
+    it('should emit daemon:unreachable when RPC fails', async function () {
       this.timeout(20000);
       await enableRpcFailure('198.18.1.0');
-      // wait for two poll intervals so any in-flight poll completes and the next one fails
-      await new Promise((r) => setTimeout(r, 12000));
-      const snapshot = env.clients[0].getEventBuffer().filter((e) => e.event === 'daemon:polled').length;
-      // one more interval — count should not increase
-      await new Promise((r) => setTimeout(r, 6000));
-      const after = env.clients[0].getEventBuffer().filter((e) => e.event === 'daemon:polled').length;
-      expect(after).to.equal(snapshot);
+      await waitForDaemonUnreachable(env.clients[0], 15000);
     });
 
-    it('should resume daemon:polled events when RPC recovers', async function () {
+    it('should emit daemon:recovered when RPC resumes', async function () {
       this.timeout(20000);
       await enableRpcFailure('198.18.1.0');
-      await new Promise((r) => setTimeout(r, 6000));
+      await waitForDaemonUnreachable(env.clients[0], 15000);
       await disableRpcFailure('198.18.1.0');
-      const event = await waitForDaemonPolled(env.clients[0], () => true, 10000);
-      expect(event.data.height).to.be.greaterThan(0);
+      const event = await waitForDaemonRecovered(env.clients[0], 10000);
+      expect(event.data).to.exist;
     });
   });
 });
