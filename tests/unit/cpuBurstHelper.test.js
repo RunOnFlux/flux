@@ -140,10 +140,9 @@ describe('cpuBurstHelper tests', () => {
 
   describe('isCpuBurstSupported', () => {
     it('should return false when burst config is disabled', async () => {
-      sinon.stub(config, 'cpuBurst').value({ enabled: false, periodUs: 100000 });
-      cpuBurstHelper.resetBurstSupportCache();
-
-      const helper = proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {});
+      const helper = proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {
+        config: { cpuBurst: { enabled: false, periodUs: 100000 } },
+      });
       helper.resetBurstSupportCache();
       const result = await helper.isCpuBurstSupported();
       expect(result).to.be.false;

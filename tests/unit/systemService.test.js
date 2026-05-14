@@ -191,9 +191,7 @@ describe('system Services tests', () => {
 
     it('should fallback to local syncthing version if there is an axios error', async () => {
       const statsEndpoint = 'https://stats.runonflux.io/getmodulesminimumversions';
-      const localVersion = '1.25.2';
-
-      config.minimumSyncthingAllowedVersion = localVersion;
+      const localVersion = config.minimumSyncthingAllowedVersion;
 
       const axiosStub = sinon.stub(axios, 'get').rejects(new Error('Simulated Axios error'));
 
@@ -210,9 +208,7 @@ describe('system Services tests', () => {
 
     it('should fallback to local syncthing version if there is a fluxstats error', async () => {
       const statsEndpoint = 'https://stats.runonflux.io/getmodulesminimumversions';
-      const localVersion = '1.25.2';
-
-      config.minimumSyncthingAllowedVersion = localVersion;
+      const localVersion = config.minimumSyncthingAllowedVersion;
 
       const axiosStub = sinon.stub(axios, 'get').resolves({ data: { status: 'error', data: { code: 123, error: 'Test error', message: 'Broken' } } });
 
@@ -229,9 +225,7 @@ describe('system Services tests', () => {
 
     it('should fallback to local syncthing version if fluxstats syncthing response is empty', async () => {
       const statsEndpoint = 'https://stats.runonflux.io/getmodulesminimumversions';
-      const localVersion = '1.25.2';
-
-      config.minimumSyncthingAllowedVersion = localVersion;
+      const localVersion = config.minimumSyncthingAllowedVersion;
 
       const axiosStub = sinon.stub(axios, 'get').resolves({ data: { status: 'success', data: { syncthing: null } } });
 
