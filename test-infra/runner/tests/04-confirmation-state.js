@@ -39,9 +39,7 @@ describe('Confirmation state: unconfirmed boot', function () {
       tickerAutostart: false,
       nodeStatusOverrides: { '198.18.1.0': 'EXPIRED' },
     });
-    await waitFor(() => env.nodeHasLog(0, 'discovery is awaiting'), {
-      timeout: 60000, interval: 1000, label: 'unconfirmed boot log',
-    });
+    await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 60000);
   });
 
   after(async function () {
@@ -55,8 +53,8 @@ describe('Confirmation state: unconfirmed boot', function () {
     expect(event.data.confirmed).to.equal(false);
   });
 
-  it('should log discovery awaiting', async function () {
-    expect(env.nodeHasLog(0, 'discovery is awaiting')).to.equal(true);
+  it('should not start peer discovery', async function () {
+    expect(env.nodeHasLog(0, 'Flux Discovery started')).to.equal(false);
   });
 
   it('should not connect any peers', async function () {
