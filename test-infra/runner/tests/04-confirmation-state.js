@@ -9,7 +9,7 @@ describe('Confirmation state: confirmed boot', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ nodes: 1, tickerAutostart: false, discoveryAutostart: true });
     await waitForDaemonReady(env.clients[0]);
   });
 

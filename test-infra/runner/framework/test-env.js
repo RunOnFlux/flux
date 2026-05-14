@@ -140,13 +140,13 @@ async function seedMongo(mongoIp, nodeCount) {
   }
 }
 
-export async function createTestEnv({ nodes = 1, deferredNodes = 0, tickerAutostart = false, nodeStatusOverrides = {} } = {}) {
+export async function createTestEnv({ nodes = 1, deferredNodes = 0, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {} } = {}) {
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, nodeStatusOverrides);
+    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides);
   } catch (err) {
     for (const c of started.reverse()) {
       await c.stop().catch(() => {});
@@ -156,7 +156,7 @@ export async function createTestEnv({ nodes = 1, deferredNodes = 0, tickerAutost
   }
 }
 
-async function _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, nodeStatusOverrides) {
+async function _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides) {
 
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
@@ -264,6 +264,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
         FLUX_API_PORT: '16127',
         FLUX_SYNCTHING_HOST: SYNCTHING_IP,
         FLUX_SYNCTHING_PORT: '8384',
+        ...(discoveryAutostart ? { FLUX_DISCOVERY_AUTOSTART: 'true' } : {}),
       });
 
     nodeConfigs.push({ index: i, builder, ip: nodeIp, num: i + 1, logCollector });

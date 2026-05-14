@@ -19,6 +19,10 @@ if [ -n "$NODE_CONFIG_DIR" ] && [ -d "$NODE_CONFIG_DIR" ]; then
   cp "$(dirname "$NODE_CONFIG_DIR")/shared.js" /flux/ZelBack/ 2>/dev/null || true
 fi
 
+if [ "$FLUX_DISCOVERY_AUTOSTART" = "true" ]; then
+  sed -i 's/discoveryAutostart: false/discoveryAutostart: true/' /flux/ZelBack/shared.js
+fi
+
 # Syncthing listens on apiport+2 in production. The availability checker
 # tests this port. Forward it to the syncthing stub's API port.
 SYNCTHING_LISTEN_PORT=$((${FLUX_API_PORT:-16127} + 2))
