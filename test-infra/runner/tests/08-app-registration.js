@@ -5,7 +5,7 @@ import { nodeKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { buildAppSpec, registerApp, registerAndConfirm, checkPermanentSpec } from '../framework/app-helper.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
-import { waitForDaemonReady, waitFor, waitForBlockProcessed } from '../framework/wait.js';
+import { waitForDaemonReady, waitFor, waitForBlockProcessed, waitForNodeStatus } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 
 let env;
@@ -15,6 +15,7 @@ describe('App registration', function () {
     this.timeout(300000);
     env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
+    await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await advanceBlock();
     await waitForBlockProcessed(env.clients[0], (d) => d.height > 2100000, 50000);
     await env.startDiscovery();

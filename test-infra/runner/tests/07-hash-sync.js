@@ -3,13 +3,16 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
-import { waitForDaemonReady, waitForBlockProcessed, waitFor } from '../framework/wait.js';
+import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForNodeStatus } from '../framework/wait.js';
 import { advanceBlock, startTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 
 async function bootAndPeer(env) {
   for (const client of env.clients) {
     if (client) await waitForDaemonReady(client);
+  }
+  for (const client of env.clients) {
+    if (client) await waitForNodeStatus(client, (d) => d.confirmed === true, 30000);
   }
   await advanceBlock();
   for (const client of env.clients) {
@@ -56,6 +59,7 @@ describe('Hash sync: late-joining node', function () {
 
     await env.startNode(env.lastNodeIndex);
     await waitForDaemonReady(env.clients[env.lastNodeIndex]);
+    await waitForNodeStatus(env.clients[env.lastNodeIndex], (d) => d.confirmed === true, 30000);
     await waitForBlockProcessed(env.clients[env.lastNodeIndex], (d) => d.height > 2100000, 60000);
     await env.startDiscovery();
   });

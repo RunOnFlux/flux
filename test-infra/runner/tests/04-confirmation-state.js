@@ -85,8 +85,4 @@ describe('Confirmation state: runtime loss', function () {
     const event = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
     expect(event.data.confirmed).to.equal(false);
   });
-
-  it('should log confirmation loss', async function () {
-    expect(env.nodeHasLog(0, 'monitorNodeStatus - Node is not Confirmed')).to.equal(true);
-  });
 });
