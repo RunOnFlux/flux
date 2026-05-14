@@ -37,7 +37,7 @@ fi
 
 # Start dockerd (FluxOS expects Docker on the local socket)
 rm -f /var/run/docker.pid
-dockerd &
+dockerd --data-root /mnt/appdata/docker &
 DOCKERD_PID=$!
 
 TIMEOUT=30
