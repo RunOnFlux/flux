@@ -22,7 +22,7 @@ function resetBroadcastInterval() {
   if (broadcastInterval) clearInterval(broadcastInterval);
   broadcastInterval = setInterval(() => {
     checkAndNotifyPeersOfRunningApps();
-  }, 60 * 60 * 1000);
+  }, config.fluxapps.peerNotifyIntervalMs ?? 3600000);
 }
 
 function stopBroadcastInterval() {

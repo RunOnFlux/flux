@@ -23,12 +23,12 @@ const { invalidMessages } = require('../invalidMessages');
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
 
-const SETTLE_TIME_MS = 4000;
-const RESPONSE_TIME_PER_HASH_MS = 150;
-const BUFFER_MS = 5000;
-const MAX_ROUNDS = 4;
-const PEERS_PER_ROUND = 3;
-const EPHEMERAL_PEERS_COUNT = 5;
+const SETTLE_TIME_MS = config.fluxapps.hashSyncSettleMs ?? 4000;
+const RESPONSE_TIME_PER_HASH_MS = config.fluxapps.hashSyncResponseTimePerHashMs ?? 150;
+const BUFFER_MS = config.fluxapps.hashSyncBufferMs ?? 5000;
+const MAX_ROUNDS = config.fluxapps.hashSyncMaxRounds ?? 4;
+const PEERS_PER_ROUND = config.fluxapps.hashSyncPeersPerRound ?? 3;
+const EPHEMERAL_PEERS_COUNT = config.fluxapps.hashSyncEphemeralPeers ?? 5;
 
 let syncRunning = false;
 

@@ -28,6 +28,9 @@ describe('peerNotification tests', () => {
             collections: { appsLocations: 'appsLocations' },
           },
         },
+        fluxapps: {
+          peerNotifyIntervalMs: 3600000,
+        },
       },
       '../dbHelper': {
         databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),

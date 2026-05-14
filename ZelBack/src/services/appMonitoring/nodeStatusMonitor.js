@@ -39,7 +39,7 @@ async function removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, reason)
       await removeAppLocallyFn(installedApp.name, null, true, false, canBroadcast);
       log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(60 * 1000);
+      await serviceHelper.delay(config.fluxapps.nodeMonitorRemovalDelayMs ?? 60000);
     }
   } finally {
     removalInProgress = false;
@@ -63,17 +63,17 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
   try {
     if (fluxNetworkHelper.isNodeDos()) {
       await removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'DOS state >= 100');
-      await serviceHelper.delay(10 * 60 * 1000);
+      await serviceHelper.delay(config.fluxapps.nodeMonitorDosRecoveryDelayMs ?? 600000);
       return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
     }
     if (nodeConfirmationService.isDaemonStale()) {
       await removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'daemon unreachable (backstop)');
-      await serviceHelper.delay(20 * 60 * 1000);
+      await serviceHelper.delay(config.fluxapps.nodeMonitorConfirmationLossDelayMs ?? 1200000);
       return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
     }
     if (!nodeConfirmationService.isConfirmed()) {
       await removeAllAppsLocally(installedAppsFn, removeAppLocallyFn, 'node not confirmed');
-      await serviceHelper.delay(20 * 60 * 1000);
+      await serviceHelper.delay(config.fluxapps.nodeMonitorConfirmationLossDelayMs ?? 1200000);
       return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
     } if (nodeConfirmationService.isConfirmed()) {
       log.info('monitorNodeStatus - Node is Confirmed');
@@ -118,7 +118,7 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
         const { CancelToken } = axios;
         const source = CancelToken.source();
         let isResolved = false;
-        const timeout = 10 * 1000; // 10 seconds
+        const timeout = config.fluxapps.nodeMonitorCheckTimeoutMs ?? 10000;
         setTimeout(() => {
           if (!isResolved) {
             source.cancel('Operation canceled by the user.');
@@ -143,7 +143,7 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
     monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
   } catch (error) {
     log.error(error);
-    await serviceHelper.delay(2 * 60 * 1000); // 2m delay before next check
+    await serviceHelper.delay(config.fluxapps.nodeMonitorErrorRecoveryDelayMs ?? 120000);
     monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
   }
 }

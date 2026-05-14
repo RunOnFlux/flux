@@ -22,11 +22,11 @@ const STATES = Object.freeze({
 });
 
 const MIN_SYNC_COMPLETIONS = config.fluxapps.appSyncMinCompletions ?? 3;
-const SYNC_TIMEOUT_MS = 2 * 60 * 1000;
+const SYNC_TIMEOUT_MS = config.fluxapps.syncTimeoutMs ?? 120000;
 const MIN_UPTIME_SECONDS = config.fluxapps.appSyncMinPeerUptime ?? 7500;
-const HASH_SYNC_MAX_RETRIES = 3;
-const HASH_SYNC_RETRY_MS = 5 * 60 * 1000;
-const FALLBACK_RECHECK_BLOCKS = 100;
+const HASH_SYNC_MAX_RETRIES = config.fluxapps.hashSyncMaxRetries ?? 3;
+const HASH_SYNC_RETRY_MS = config.fluxapps.hashSyncRetryMs ?? 300000;
+const FALLBACK_RECHECK_BLOCKS = config.fluxapps.hashSyncFallbackRecheckBlocks ?? 100;
 
 class AppSyncOrchestrator {
   #state = STATES.INITIALIZING;
@@ -510,7 +510,7 @@ class AppSyncOrchestrator {
       }
     };
     writeHeartbeat();
-    this.#heartbeatInterval = setInterval(writeHeartbeat, 30_000);
+    this.#heartbeatInterval = setInterval(writeHeartbeat, config.fluxapps.heartbeatIntervalMs ?? 30000);
   }
 
   static async writeShutdownReason(reason) {

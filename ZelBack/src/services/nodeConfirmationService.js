@@ -1,16 +1,12 @@
+const config = require('config');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const networkStateService = require('./networkStateService');
 const { AsyncGate } = require('./utils/asyncGate');
 const log = require('../lib/log');
 
-// 125 minutes — matches apprunning broadcast TTL. If we can't verify our
-// status for a full broadcast cycle, remove apps but keep broadcasting
-// (peers may still accept our messages).
-const DAEMON_STALE_MS = 125 * 60 * 1000;
-// 320 minutes — full confirmation expiration window (640 blocks × 30s).
-// At this point the node has definitively expired on-chain.
-const DAEMON_EXPIRED_MS = 320 * 60 * 1000;
+const DAEMON_STALE_MS = config.fluxapps.confirmationDaemonStaleMs;
+const DAEMON_EXPIRED_MS = config.fluxapps.confirmationDaemonExpiredMs;
 
 let ourPubkey = null;
 let daemonConfirmed = false;
@@ -159,7 +155,7 @@ function scheduleNext() {
   setTimeout(async () => {
     await poll();
     scheduleNext();
-  }, 30 * 1000);
+  }, config.fluxapps.confirmationPollIntervalMs);
 }
 
 async function start() {

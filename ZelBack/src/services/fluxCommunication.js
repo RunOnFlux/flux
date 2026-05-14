@@ -41,7 +41,7 @@ const DISCOVERY = {
   maxInbound: 12,
   minUniqueInboundIps: 5,
   maxIterations: 100,
-  connectionDelayMs: 500,
+  connectionDelayMs: config.fluxapps.discoveryConnectionDelayMs ?? 500,
 };
 
 /**
@@ -630,7 +630,7 @@ peerManager.hashHandlers = {
   handleTempMessagesRequest: (peer, decoded) => {
     const now = Date.now();
     const last = peer.lastTempSyncResponse || 0;
-    if (now - last < 5 * 60 * 1000) return;
+    if (now - last < (config.fluxapps.syncResponseThrottleMs ?? 300000)) return;
     peer.lastTempSyncResponse = now;
     setImmediate(async () => {
       if (!await verifySyncRequest(peer, decoded)) return;
@@ -640,7 +640,7 @@ peerManager.hashHandlers = {
   handleAppRunningRequest: (peer, decoded) => {
     const now = Date.now();
     const last = peer.lastAppRunningSyncResponse || 0;
-    if (now - last < 5 * 60 * 1000) return;
+    if (now - last < (config.fluxapps.syncResponseThrottleMs ?? 300000)) return;
     peer.lastAppRunningSyncResponse = now;
     setImmediate(async () => {
       if (!await verifySyncRequest(peer, decoded)) return;
@@ -650,7 +650,7 @@ peerManager.hashHandlers = {
   handleAppInstallingRequest: (peer, decoded) => {
     const now = Date.now();
     const last = peer.lastAppInstallingSyncResponse || 0;
-    if (now - last < 5 * 60 * 1000) return;
+    if (now - last < (config.fluxapps.syncResponseThrottleMs ?? 300000)) return;
     peer.lastAppInstallingSyncResponse = now;
     setImmediate(async () => {
       if (!await verifySyncRequest(peer, decoded)) return;
@@ -660,7 +660,7 @@ peerManager.hashHandlers = {
   handleAppInstallingErrorsRequest: (peer, decoded) => {
     const now = Date.now();
     const last = peer.lastAppInstallingErrorsSyncResponse || 0;
-    if (now - last < 5 * 60 * 1000) return;
+    if (now - last < (config.fluxapps.syncResponseThrottleMs ?? 300000)) return;
     peer.lastAppInstallingErrorsSyncResponse = now;
     setImmediate(async () => {
       if (!await verifySyncRequest(peer, decoded)) return;
@@ -867,7 +867,7 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
       myPort = myIP.split(':')[1] || '16127';
     }
     const options = {
-      handshakeTimeout: 10000,
+      handshakeTimeout: config.fluxapps.wsHandshakeTimeoutMs ?? 10000,
       perMessageDeflate: {
         zlibDeflateOptions: {
         // See zlib defaults.
@@ -943,7 +943,7 @@ function openEphemeralConnection(connection) {
         return;
       }
       const options = {
-        handshakeTimeout: 8000,
+        handshakeTimeout: config.fluxapps.wsHandshakeTimeoutMs ?? 10000,
         headers: {
           'X-Flux-Capabilities': FLUX_CAPABILITIES.join(','),
           'X-Flux-Version': FLUX_VERSION,
