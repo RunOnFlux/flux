@@ -54,9 +54,9 @@ describe('Hash sync: late-joining node', function () {
       return counts.resolved > 0;
     }, { timeout: 60000, interval: 5000, label: 'node 1 has resolved hash' });
 
-    await env.startNode(9);
-    await waitForDaemonReady(env.clients[9]);
-    await waitForBlockProcessed(env.clients[9], (d) => d.height > 2100000, 60000);
+    await env.startNode(env.lastNodeIndex);
+    await waitForDaemonReady(env.clients[env.lastNodeIndex]);
+    await waitForBlockProcessed(env.clients[env.lastNodeIndex], (d) => d.height > 2100000, 60000);
     await env.startDiscovery();
   });
 
@@ -67,21 +67,21 @@ describe('Hash sync: late-joining node', function () {
 
   it('should resolve hash by fetching permanent message from peers', async function () {
     this.timeout(120000);
-    await waitForHashResolved(10, 0);
-    const counts = await dbClient(10).hashCounts();
+    await waitForHashResolved(env.nodeCount, 0);
+    const counts = await dbClient(env.nodeCount).hashCounts();
     expect(counts.resolved).to.be.greaterThan(0);
   });
 
   it('should create permanent message from resolved hash', async function () {
-    const count = await dbClient(10).permanentMessageCount();
+    const count = await dbClient(env.nodeCount).permanentMessageCount();
     expect(count).to.be.greaterThan(0);
   });
 
   it('should create app spec from permanent message', async function () {
     this.timeout(60000);
-    await waitFor(async () => (await dbClient(10).appSpecCount()) > 0,
-      { timeout: 50000, interval: 5000, label: 'app spec on node 10' });
-    expect(await dbClient(10).appSpecCount()).to.be.greaterThan(0);
+    await waitFor(async () => (await dbClient(env.nodeCount).appSpecCount()) > 0,
+      { timeout: 50000, interval: 5000, label: `app spec on node ${env.nodeCount}` });
+    expect(await dbClient(env.nodeCount).appSpecCount()).to.be.greaterThan(0);
   });
 });
 
@@ -94,18 +94,18 @@ describe('Hash sync: network partition', function () {
     env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
 
-    await env.disconnectNode(7);
+    await env.disconnectNode(env.lastNodeIndex);
 
-    ({ appHash } = await registerApp(env, { excludeNodes: [7] }));
+    ({ appHash } = await registerApp(env, { excludeNodes: [env.lastNodeIndex] }));
 
     await waitFor(async () => {
       const counts = await dbClient(1).hashCounts();
       return counts.resolved > 0;
     }, { timeout: 60000, interval: 5000, label: 'node 1 has resolved hash' });
 
-    await env.reconnectNode(7);
-    await waitForDaemonReady(env.clients[7]);
-    await waitForBlockProcessed(env.clients[7], () => true, 60000);
+    await env.reconnectNode(env.lastNodeIndex);
+    await waitForDaemonReady(env.clients[env.lastNodeIndex]);
+    await waitForBlockProcessed(env.clients[env.lastNodeIndex], () => true, 60000);
   });
 
   after(async function () {
@@ -115,21 +115,21 @@ describe('Hash sync: network partition', function () {
 
   it('should resolve hash after reconnecting to network', async function () {
     this.timeout(120000);
-    await waitForHashResolved(8, 0);
-    const counts = await dbClient(8).hashCounts();
+    await waitForHashResolved(env.nodeCount, 0);
+    const counts = await dbClient(env.nodeCount).hashCounts();
     expect(counts.resolved).to.be.greaterThan(0);
   });
 
   it('should create permanent message from resolved hash', async function () {
-    const count = await dbClient(8).permanentMessageCount();
+    const count = await dbClient(env.nodeCount).permanentMessageCount();
     expect(count).to.be.greaterThan(0);
   });
 
   it('should create app spec from permanent message', async function () {
     this.timeout(60000);
-    await waitFor(async () => (await dbClient(8).appSpecCount()) > 0,
-      { timeout: 50000, interval: 5000, label: 'app spec on node 8' });
-    expect(await dbClient(8).appSpecCount()).to.be.greaterThan(0);
+    await waitFor(async () => (await dbClient(env.nodeCount).appSpecCount()) > 0,
+      { timeout: 50000, interval: 5000, label: `app spec on node ${env.nodeCount}` });
+    expect(await dbClient(env.nodeCount).appSpecCount()).to.be.greaterThan(0);
   });
 });
 
@@ -143,14 +143,14 @@ describe('Hash sync: stale state recovery', function () {
     await bootAndPeer(env);
     ({ appHash } = await registerApp(env));
 
-    const db8 = dbClient(8);
+    const db = dbClient(env.nodeCount);
     await waitFor(async () => {
-      const counts = await db8.hashCounts();
+      const counts = await db.hashCounts();
       return counts.resolved > 0;
-    }, { timeout: 60000, interval: 5000, label: 'node 8 has resolved hash' });
+    }, { timeout: 60000, interval: 5000, label: `node ${env.nodeCount} has resolved hash` });
 
-    await db8.markHashUnresolved(appHash);
-    await db8.deletePermanentMessage(appHash);
+    await db.markHashUnresolved(appHash);
+    await db.deletePermanentMessage(appHash);
   });
 
   after(async function () {
@@ -160,13 +160,13 @@ describe('Hash sync: stale state recovery', function () {
 
   it('should re-resolve hash by fetching message from peers', async function () {
     this.timeout(120000);
-    await waitForHashResolved(8, 0);
-    const counts = await dbClient(8).hashCounts();
+    await waitForHashResolved(env.nodeCount, 0);
+    const counts = await dbClient(env.nodeCount).hashCounts();
     expect(counts.resolved).to.be.greaterThan(0);
   });
 
   it('should re-create permanent message', async function () {
-    const count = await dbClient(8).permanentMessageCount();
+    const count = await dbClient(env.nodeCount).permanentMessageCount();
     expect(count).to.be.greaterThan(0);
   });
 });

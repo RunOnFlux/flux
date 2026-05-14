@@ -298,6 +298,8 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     networkName,
     containers,
     clients,
+    get nodeCount() { return clients.length; },
+    get lastNodeIndex() { return clients.length - 1; },
     daemonControl: `http://${DAEMON_IP}:18232`,
     mongoUrl: `mongodb://${MONGO_IP}:27017`,
 
