@@ -158,13 +158,13 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running') {
   }
 }
 
-export async function createTestEnv({ nodes = 1, deferredNodes = 0, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, bootContext = 'running' } = {}) {
+export async function createTestEnv({ nodes = 1, deferredNodes = 0, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, bootContext);
+    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
   } catch (err) {
     for (const c of started.reverse()) {
       await c.stop().catch(() => {});
@@ -174,7 +174,7 @@ export async function createTestEnv({ nodes = 1, deferredNodes = 0, tickerAutost
   }
 }
 
-async function _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, bootContext) {
+async function _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
 
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
@@ -224,6 +224,10 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
+  }
+
+  for (const ip of rpcFailures) {
+    await fetch(`http://${DAEMON_IP}:18232/rpc-fail/${ip}`, { method: 'POST' });
   }
 
   const syncthingStub = await new StaticIpContainer('flux-e2e-syncthing-stub')

@@ -5,7 +5,7 @@ import {
   waitForDaemonReady, waitForBootSettled, waitFor,
 } from '../framework/wait.js';
 import {
-  enableRpcFailure, disableAllRpcFailure, clearAllNodeStatus,
+  clearAllNodeStatus,
 } from '../framework/daemon-control.js';
 
 // Suite 1: FluxOS-only restart (bootContext='running')
@@ -106,13 +106,11 @@ describe('Boot manager: daemon timeout', function () {
 
   before(async function () {
     this.timeout(120000);
-    await enableRpcFailure('198.18.1.0');
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
+    env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'rebooted', rpcFailures: ['198.18.1.0'] });
   });
 
   after(async function () {
     this.timeout(30000);
-    await disableAllRpcFailure();
     await env?.teardown();
   });
 
