@@ -153,28 +153,17 @@ describe('Compound failures: RESYNCING + block timer', function () {
     await env?.teardown();
   });
 
-  it('should demonstrate block timer cannot fire during RESYNCING', async function () {
+  it('should not reach READY during RESYNCING when canSendMessages is false', async function () {
     this.timeout(120000);
-    // Advance 300 blocks — well past the 250-block threshold
+    // RPC is still failing from previous test — canSendMessages is false.
+    // Even though blocks are counted during RESYNCING (block timer fires),
+    // checkReadiness gates on canSendMessages and blocks the READY transition.
     await advanceBlocks(300);
-    // If blocks were counted during RESYNCING, the block timer would fire
-    // and the orchestrator would reach READY. onBlocksProcessed only counts
-    // SYNCING and READY, so RESYNCING blocks are ignored.
     await new Promise((r) => setTimeout(r, 10000));
 
     const stateEvents = env.clients[0].getEventBuffer()
       .filter((e) => e.event === 'orchestrator:stateChanged');
-    const reachedReady = stateEvents.some((e) => e.data.from === 'RESYNCING' && e.data.to === 'READY');
-
-    if (reachedReady) {
-      // If this passes, it means hash sync succeeded during RESYNCING
-      // (not the block timer). That's the normal recovery path.
-      // The block timer deadlock only manifests when hash sync ALSO fails.
-      expect(true).to.equal(true);
-    } else {
-      const lastState = stateEvents[stateEvents.length - 1];
-      expect(lastState.data.to).to.equal('RESYNCING',
-        'blocks during RESYNCING not counted, block timer cannot fire as fallback');
-    }
+    const reachedReady = stateEvents.find((e) => e.data.from === 'RESYNCING' && e.data.to === 'READY');
+    expect(reachedReady, 'should not reach READY while canSendMessages is false').to.be.undefined;
   });
 });

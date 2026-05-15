@@ -40,36 +40,30 @@ describe('Hash sync: retry timer during DEGRADED', function () {
     await env?.teardown();
   });
 
-  it('should fire hash sync retry during DEGRADED state', async function () {
+  it('should cancel hash sync retry timer when entering DEGRADED', async function () {
     this.timeout(120000);
     const db = dbClient(1);
-    // Seed an unresolvable hash to trigger retry scheduling
+    const heightBefore = await db.explorerHeight();
     const fakeHash = 'deadbeef'.repeat(8);
-    await db.seedAppHash(fakeHash, 2100010, false);
+    await advanceBlock(fakeHash);
+    await waitForBlockProcessed(env.clients[0], (d) => d.height > heightBefore, 20000);
 
-    // Advance blocks to trigger hash retry check
-    await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], () => true, 10000);
-
-    // Wait for the retry to be scheduled (hashSyncRetryMs = 10000 in test config)
-    await new Promise((r) => setTimeout(r, 2000));
-
-    // Now disconnect all peers to enter DEGRADED
+    // Disconnect all peers to enter DEGRADED — resetSyncState should cancel the retry timer
     for (let i = 1; i < env.clients.length; i++) {
       await env.disconnectNode(i);
     }
     await waitForOrchestratorState(env.clients[0], 'DEGRADED', 30000);
 
-    // hashSyncRetryTimer is not cancelled in resetSyncState().
-    // Wait for the retry timer to fire (10s in test config).
+    // Count hash sync log entries at the point of DEGRADED
+    const countAtDegraded = env.nodeLogCount(0, 'syncMissingHashes');
+
+    // Wait longer than hashSyncRetryMs (10s in test config)
     await new Promise((r) => setTimeout(r, 15000));
 
-    // Check if hash sync ran during DEGRADED (it shouldn't, but the timer fires)
-    const hasRetryLog = env.nodeHasLog(0, 'Hash sync') || env.nodeHasLog(0, 'hash sync');
-    // The retry will fire but checkReadiness guards on state !== SYNCING/RESYNCING
-    // so it won't transition to READY. However, it may set globalState.dbReady = true.
-    expect(hasRetryLog).to.equal(true,
-      'hashSyncRetryTimer fires during DEGRADED — timer not cancelled in resetSyncState()');
+    // No new hash sync should have fired during DEGRADED
+    const countAfterWait = env.nodeLogCount(0, 'syncMissingHashes');
+    expect(countAfterWait).to.equal(countAtDegraded,
+      'hash sync retry should not fire during DEGRADED');
   });
 });
 
@@ -138,5 +132,6 @@ describe('Hash sync: retry triggers', function () {
       () => env.nodeHasLog(0, 'Hash retry'),
       { timeout: 30000, interval: 2000, label: 'hash retry log' },
     );
+    expect(env.nodeHasLog(0, 'Hash retry')).to.equal(true);
   });
 });

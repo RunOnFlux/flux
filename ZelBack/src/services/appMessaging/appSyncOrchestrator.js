@@ -263,6 +263,10 @@ class AppSyncOrchestrator {
       clearTimeout(this.#syncTimeout);
       this.#syncTimeout = null;
     }
+    if (this.#hashSyncRetryTimer) {
+      clearTimeout(this.#hashSyncRetryTimer);
+      this.#hashSyncRetryTimer = null;
+    }
   }
 
   #onBlocksProcessed(blockHeight) {
