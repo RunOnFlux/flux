@@ -88,6 +88,12 @@ class AppSyncOrchestrator {
     if (prevState === newState) return;
     this.#state = newState;
     fluxEventBus.publish('orchestrator:stateChanged', { from: prevState, to: newState });
+    if (prevState === STATES.READY && newState !== STATES.READY) {
+      appSyncEvents.emit(EVENTS.READINESS_LOST);
+    }
+    if (newState === STATES.READY && prevState !== STATES.READY) {
+      appSyncEvents.emit(EVENTS.SPAWNER_READY);
+    }
   }
 
   async start(bootContext) {
@@ -250,7 +256,6 @@ class AppSyncOrchestrator {
       globalState.dbReady = false;
       this.#resetSyncState();
       log.warn('AppSyncOrchestrator - Degraded, pausing spawner');
-      appSyncEvents.emit(EVENTS.READINESS_LOST);
     }
   }
 
@@ -445,7 +450,6 @@ class AppSyncOrchestrator {
 
     this.#setState(STATES.READY);
     log.info('AppSyncOrchestrator - All readiness conditions met');
-    appSyncEvents.emit(EVENTS.SPAWNER_READY);
   }
 
   onMessageCapabilityChange(capable) {
@@ -464,7 +468,6 @@ class AppSyncOrchestrator {
       if (this.#state === STATES.READY) {
         this.#setState(STATES.SYNCING);
         log.warn('AppSyncOrchestrator - Readiness lost (message capability), pausing spawner');
-        appSyncEvents.emit(EVENTS.READINESS_LOST);
       }
     }
   }
