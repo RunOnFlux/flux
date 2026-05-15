@@ -22,7 +22,7 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const { localAppsInformation, SIGTERM_EXPIRY_MS, RUNNING_EXPIRY_MS } = require('../utils/appConstants');
 const { appUsesGSyncthingMode, getNonGComponentIdentifiers, parseContainerName, appHasValidLocationOnNode } = require('../utils/appUtilities');
 
-const SYNC_TIMEOUT_MS = config.fluxapps.bootSyncTimeoutMs ?? 300000;
+const SYNC_TIMEOUT_MS = config.system.bootSyncTimeoutMs ?? 300000;
 
 /**
  * Get all installed apps from local database
@@ -288,7 +288,7 @@ async function manageAppsOnBoot(bootContext) {
     }
 
     // Machine rebooted, locations still valid — wait for daemon + sync then reconcile.
-    const DAEMON_TIMEOUT_MS = config.fluxapps.bootDaemonTimeoutMs ?? 300000;
+    const DAEMON_TIMEOUT_MS = config.system.bootDaemonTimeoutMs ?? 300000;
     try {
       await Promise.race([
         globalState.waitForDaemonReady(),

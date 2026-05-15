@@ -6,8 +6,8 @@ const { AsyncGate } = require('./utils/asyncGate');
 const fluxEventBus = require('./utils/fluxEventBus');
 const log = require('../lib/log');
 
-const DAEMON_STALE_MS = config.fluxapps.confirmationDaemonStaleMs;
-const DAEMON_EXPIRED_MS = config.fluxapps.confirmationDaemonExpiredMs;
+const DAEMON_STALE_MS = config.confirmation.daemonStaleMs;
+const DAEMON_EXPIRED_MS = config.confirmation.daemonExpiredMs;
 
 let ourPubkey = null;
 let daemonConfirmed = null;
@@ -158,7 +158,7 @@ function scheduleNext() {
   setTimeout(async () => {
     await poll();
     scheduleNext();
-  }, config.fluxapps.confirmationPollIntervalMs);
+  }, config.confirmation.pollIntervalMs);
 }
 
 async function start() {

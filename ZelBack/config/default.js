@@ -9,6 +9,21 @@ module.exports = {
   development: isDevelopment,
   loglevel: 'debug', // severity ordering specified by RFC5424
   testEventStream: false,
+  system: {
+    bootIdPath: '/proc/sys/kernel/random/boot_id',
+    heartbeatIntervalMs: 30000,
+    bootSyncTimeoutMs: 300000,
+    bootDaemonTimeoutMs: 300000,
+  },
+  peers: {
+    wsPingIntervalMs: 15000,
+    wsMaxMissedPongs: 3,
+  },
+  confirmation: {
+    pollIntervalMs: 30000,
+    daemonStaleMs: 7500000,
+    daemonExpiredMs: 19200000,
+  },
   server: {
     allowedPorts: [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
@@ -234,8 +249,6 @@ module.exports = {
     appSyncDegradedThreshold: 4, // below this, pause spawner — gossip unreliable
     appSyncMinPeerUptime: 60, // seconds a peer must have been running before we sync from it
     appSyncMinCompletions: 1, // sync responses needed per type before spawner can start
-    wsPingIntervalMs: 15000, // WebSocket ping interval
-    wsMaxMissedPongs: 3, // pongs missed before closing connection
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds
@@ -304,9 +317,6 @@ module.exports = {
     daemonInfoIntervalMs: 30000,
     explorerSyncRetryMs: 120000,
     explorerDeepRestoreBlocks: 100,
-    confirmationPollIntervalMs: 30000,
-    confirmationDaemonStaleMs: 7500000,
-    confirmationDaemonExpiredMs: 19200000,
     syncTimeoutMs: 120000,
     hashSyncMaxRetries: 3,
     hashSyncRetryMs: 300000,
@@ -317,9 +327,6 @@ module.exports = {
     hashSyncPeersPerRound: 3,
     hashSyncEphemeralPeers: 5,
     hashSyncFallbackRecheckBlocks: 100,
-    heartbeatIntervalMs: 30000,
-    bootSyncTimeoutMs: 300000,
-    bootDaemonTimeoutMs: 300000,
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
   },

@@ -704,7 +704,7 @@ function keepConnectionsAlive() {
   peerManager.networkHealthMonitor = networkHealthMonitor;
   setInterval(() => {
     peerManager.pingAll();
-  }, config.fluxapps.wsPingIntervalMs ?? 15000);
+  }, config.peers.wsPingIntervalMs ?? 15000);
 }
 
 /**

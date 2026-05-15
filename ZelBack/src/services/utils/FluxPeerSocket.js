@@ -84,7 +84,7 @@ class FluxPeerSocket {
     this.lastPingTime = null;
     this.lastPongTime = null;
     this.missedPongs = 0;
-    this.maxMissedPongs = config.fluxapps.wsMaxMissedPongs ?? 3;
+    this.maxMissedPongs = config.peers.wsMaxMissedPongs ?? 3;
     this.connectedAt = Date.now();
     this.nakCount = 0;
     this.nakWindowStart = Date.now();

@@ -489,7 +489,8 @@ class AppSyncOrchestrator {
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.local.database);
       const heartbeat = await dbHelper.findOneInDatabase(database, startupCollection, { _id: 'heartbeat' });
-      const currentBootId = (await fs.readFile('/proc/sys/kernel/random/boot_id', 'utf8')).trim();
+      const bootIdPath = config.system.bootIdPath ?? '/proc/sys/kernel/random/boot_id';
+      const currentBootId = (await fs.readFile(bootIdPath, 'utf8')).trim();
       const machineRebooted = !heartbeat || heartbeat.machineBootId !== currentBootId;
       const downtimeMs = heartbeat ? Date.now() - heartbeat.lastAlive : Infinity;
       const cleanShutdown = heartbeat?.shutdownReason === 'sigterm';
@@ -525,7 +526,7 @@ class AppSyncOrchestrator {
       }
     };
     writeHeartbeat();
-    this.#heartbeatInterval = setInterval(writeHeartbeat, config.fluxapps.heartbeatIntervalMs ?? 30000);
+    this.#heartbeatInterval = setInterval(writeHeartbeat, config.system.heartbeatIntervalMs ?? 30000);
   }
 
   static async writeShutdownReason(reason) {

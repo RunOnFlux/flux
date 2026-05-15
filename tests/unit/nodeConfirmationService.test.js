@@ -58,8 +58,8 @@ describe('nodeConfirmationService', () => {
   }
 
   describe('isConfirmed', () => {
-    it('should return false before start', () => {
-      expect(service.isConfirmed()).to.be.false;
+    it('should return null before start', () => {
+      expect(service.isConfirmed()).to.be.null;
     });
 
     it('should return true when daemon reports CONFIRMED', async () => {
@@ -94,10 +94,10 @@ describe('nodeConfirmationService', () => {
       expect(service.isConfirmed()).to.be.true;
     });
 
-    it('should remain false on first poll when RPC fails', async () => {
+    it('should remain null on first poll when RPC fails', async () => {
       getFluxNodeStatusStub.rejects(new Error('connection refused'));
       await service.start();
-      expect(service.isConfirmed()).to.be.false;
+      expect(service.isConfirmed()).to.be.null;
     });
   });
 
