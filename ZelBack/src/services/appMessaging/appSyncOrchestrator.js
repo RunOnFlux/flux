@@ -115,9 +115,9 @@ class AppSyncOrchestrator {
     appSyncEvents.on(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);
 
     this.#blockReceivedHandler = (blockHeight) => {
-      this.#onBlockReceived(blockHeight);
+      this.#onBlocksProcessed(blockHeight);
     };
-    this.#blockEmitter.on('blockReceived', this.#blockReceivedHandler);
+    this.#blockEmitter.on('blocksProcessed', this.#blockReceivedHandler);
 
     this.#hashesChangedHandler = () => this.#onHashesChanged();
     this.#blockEmitter.on('hashesChanged', this.#hashesChangedHandler);
@@ -265,7 +265,8 @@ class AppSyncOrchestrator {
     }
   }
 
-  #onBlockReceived(blockHeight) {
+  #onBlocksProcessed(blockHeight) {
+    const count = this.#lastBlockHeight > 0 ? blockHeight - this.#lastBlockHeight : 1;
     this.#lastBlockHeight = blockHeight;
     if (!this.#explorerSynced) {
       this.#explorerSynced = true;
@@ -277,7 +278,7 @@ class AppSyncOrchestrator {
       }
     }
     if (this.#state === STATES.SYNCING || this.#state === STATES.READY) {
-      this.#blocksSinceSyncStarted += 1;
+      this.#blocksSinceSyncStarted += count;
       this.#checkReadiness();
       this.#checkHashRetry(blockHeight);
     }
@@ -552,7 +553,7 @@ class AppSyncOrchestrator {
       appSyncEvents.removeListener(EVENTS.HASH_UNRESOLVED, this.#hashUnresolvedHandler);
     }
     if (this.#blockReceivedHandler) {
-      this.#blockEmitter.removeListener('blockReceived', this.#blockReceivedHandler);
+      this.#blockEmitter.removeListener('blocksProcessed', this.#blockReceivedHandler);
     }
     if (this.#hashesChangedHandler) {
       this.#blockEmitter.removeListener('hashesChanged', this.#hashesChangedHandler);

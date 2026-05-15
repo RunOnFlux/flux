@@ -627,7 +627,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
     // this should run only when node is synced
     isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
-      blockEmitter.emit('blockReceived', scannedHeight);
+      blockEmitter.emit('blocksProcessed', scannedHeight);
 
       if (globalState.dbReady && blockDataVerbose.height >= config.fluxapps.epochstart) {
         if (blockHeight % (2 * speedMultiplier) === 0) {
@@ -687,6 +687,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await insertTransactions(appsTransactions, database);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
       fluxEventBus.publish('block:processed', { height: scannedHeight });
+      blockEmitter.emit('syncProgress', scannedHeight);
     }
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {

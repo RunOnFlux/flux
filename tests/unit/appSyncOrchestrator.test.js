@@ -135,7 +135,7 @@ describe('AppSyncOrchestrator', () => {
     it('should transition to SYNCING on first blockReceived', async () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       expect(orchestrator.state).to.equal(STATES.SYNCING);
     });
@@ -144,7 +144,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       expect(logStub.info.calledWith('AppSyncOrchestrator - Sync started')).to.be.true;
     });
@@ -153,7 +153,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       expect(syncMissingHashesStub.calledOnce).to.be.true;
     });
@@ -162,7 +162,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       expect(reindexStub.calledOnce).to.be.true;
     });
@@ -171,7 +171,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       expect(globalStateStub.dbReady).to.be.true;
     });
@@ -180,7 +180,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       expect(logStub.info.calledWith('AppSyncOrchestrator - DB ready')).to.be.true;
     });
@@ -208,10 +208,10 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.start(defaultBootContext);
 
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       for (let i = 0; i < 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
 
@@ -228,10 +228,10 @@ describe('AppSyncOrchestrator', () => {
       const spy = sinon.spy();
       appSyncEvents.on(EVENTS.READINESS_LOST, spy);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       for (let i = 0; i < 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
 
@@ -298,12 +298,12 @@ describe('AppSyncOrchestrator', () => {
 
 
       // Get to READY via block-count fallback
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       peerEmitter.emit('peerThresholdReached', 12);
       await clock.tickAsync(0);
       for (let i = 0; i < 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
 
@@ -328,7 +328,7 @@ describe('AppSyncOrchestrator', () => {
 
 
       // Start hash sync
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
       // Send sync requests
@@ -353,7 +353,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator({ isEnterprise: () => true });
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
       peerEmitter.emit('peerThresholdReached', 12);
@@ -377,7 +377,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator({ isEnterprise: () => true });
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
       // After sync but before enough blocks, should still be SYNCING
@@ -385,7 +385,7 @@ describe('AppSyncOrchestrator', () => {
 
       // After enough blocks (enterprise = 124), should reach READY
       for (let i = 0; i < 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
       expect(orchestrator.state).to.equal(STATES.READY);
@@ -399,7 +399,7 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.start(defaultBootContext);
 
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       peerEmitter.emit('peerThresholdReached', 12);
       await clock.tickAsync(0);
@@ -431,7 +431,7 @@ describe('AppSyncOrchestrator', () => {
 
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
       expect(syncMissingHashesStub.calledOnce).to.be.true;
@@ -446,7 +446,7 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.start(defaultBootContext);
 
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
       // All 3 retries happen via timers — we can't wait for real timers in tests
@@ -455,7 +455,7 @@ describe('AppSyncOrchestrator', () => {
 
       // Emit enough blocks to trigger block timer (enterprise = 124 blocks)
       for (let i = 0; i < 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555001 + i);
+        blockEmitter.emit('blocksProcessed', 2555001 + i);
       }
       await clock.tickAsync(0);
 
@@ -469,12 +469,12 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.start(defaultBootContext);
 
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
       // Emit enough blocks for enterprise threshold
       for (let i = 1; i <= 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
 
@@ -489,7 +489,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator({ isEnterprise: () => true });
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
       // Hash sync succeeded but DB rebuild failed
@@ -497,7 +497,7 @@ describe('AppSyncOrchestrator', () => {
 
       // Block timer should still allow readiness (will retry DB rebuild)
       for (let i = 1; i <= 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
 
@@ -515,17 +515,17 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.start(defaultBootContext);
 
       // Initial sync sets nextRetryHeight to 2555200
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       expect(syncMissingHashesStub.calledOnce).to.be.true;
 
       // Block before retry height — should not trigger sync
-      blockEmitter.emit('blockReceived', 2555100);
+      blockEmitter.emit('blocksProcessed', 2555100);
       await clock.tickAsync(0);
       expect(syncMissingHashesStub.calledOnce).to.be.true;
 
       // Block at retry height — should trigger sync
-      blockEmitter.emit('blockReceived', 2555200);
+      blockEmitter.emit('blocksProcessed', 2555200);
       await clock.tickAsync(0);
       expect(syncMissingHashesStub.calledTwice).to.be.true;
     });
@@ -536,17 +536,17 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       expect(syncMissingHashesStub.calledOnce).to.be.true;
 
       // Fallback is 100 blocks — should not trigger before that
-      blockEmitter.emit('blockReceived', 2555050);
+      blockEmitter.emit('blocksProcessed', 2555050);
       await clock.tickAsync(0);
       expect(syncMissingHashesStub.calledOnce).to.be.true;
 
       // At fallback threshold — should trigger
-      blockEmitter.emit('blockReceived', 2555100);
+      blockEmitter.emit('blocksProcessed', 2555100);
       await clock.tickAsync(0);
       expect(syncMissingHashesStub.calledTwice).to.be.true;
     });
@@ -558,7 +558,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       expect(syncMissingHashesStub.calledOnce).to.be.true;
 
@@ -566,7 +566,7 @@ describe('AppSyncOrchestrator', () => {
       appSyncEvents.emit(EVENTS.HASH_UNRESOLVED);
 
       // Next block should trigger sync even though nextRetryHeight was 2560000
-      blockEmitter.emit('blockReceived', 2555001);
+      blockEmitter.emit('blocksProcessed', 2555001);
       await clock.tickAsync(0);
       expect(syncMissingHashesStub.calledTwice).to.be.true;
     });
@@ -593,7 +593,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       expect(syncMissingHashesStub.calledOnce).to.be.true;
 
@@ -601,7 +601,7 @@ describe('AppSyncOrchestrator', () => {
       blockEmitter.emit('hashesChanged');
 
       // Next block should trigger sync immediately
-      blockEmitter.emit('blockReceived', 2555001);
+      blockEmitter.emit('blocksProcessed', 2555001);
       await clock.tickAsync(0);
       expect(syncMissingHashesStub.calledTwice).to.be.true;
     });
@@ -632,7 +632,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator({ fluxVersion: '8.12.0' });
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
       expect(resetHashSyncForUpgradeStub.calledOnce).to.be.true;
@@ -646,7 +646,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator({ fluxVersion: '8.12.0' });
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
       expect(resetHashSyncForUpgradeStub.called).to.be.false;
@@ -658,7 +658,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator({ fluxVersion: '8.12.0' });
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
       const versionCall = findOneAndUpdateStub.getCalls().find(
@@ -672,7 +672,7 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator();
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
 
       expect(resetHashSyncForUpgradeStub.called).to.be.false;
@@ -826,10 +826,10 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeUncapableOrchestrator({ isEnterprise: () => true });
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       for (let i = 0; i < 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
 
@@ -841,10 +841,10 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.start(defaultBootContext);
 
       // Explorer syncs but hash sync deferred (no capability)
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       for (let i = 0; i < 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
       expect(orchestrator.state).to.equal(STATES.SYNCING);
@@ -862,10 +862,10 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeOrchestrator({ isEnterprise: () => true });
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       for (let i = 0; i < 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
       expect(orchestrator.state).to.equal(STATES.READY);
@@ -885,10 +885,10 @@ describe('AppSyncOrchestrator', () => {
       orchestrator.start(defaultBootContext);
 
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       for (let i = 0; i < 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
       expect(orchestrator.state).to.equal(STATES.READY);
@@ -916,10 +916,10 @@ describe('AppSyncOrchestrator', () => {
       const orchestrator = makeUncapableOrchestrator({ isEnterprise: () => true });
       orchestrator.start(defaultBootContext);
 
-      blockEmitter.emit('blockReceived', 2555000);
+      blockEmitter.emit('blocksProcessed', 2555000);
       await clock.tickAsync(0);
       for (let i = 0; i < 130; i += 1) {
-        blockEmitter.emit('blockReceived', 2555000 + i);
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
       }
       await clock.tickAsync(0);
 
