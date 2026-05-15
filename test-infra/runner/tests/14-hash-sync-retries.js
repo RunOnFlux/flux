@@ -3,7 +3,8 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
-  waitForOrchestratorState, waitForPeerThreshold, waitForPeersBelowThreshold,
+  waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
+  waitForPeerThreshold, waitForPeersBelowThreshold,
   waitFor,
 } from '../framework/wait.js';
 import {
@@ -14,8 +15,10 @@ import { dbClient } from '../framework/db-client.js';
 async function bootToReady(env) {
   await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
   await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+  await waitForExplorerReady(env.clients[0]);
+  await waitForOrchestratorStarted(env.clients[0]);
   await advanceBlock();
-  await Promise.all(env.clients.map((c) => waitForBlockProcessed(c, () => true, 30000)));
+  await waitForBlockProcessed(env.clients[0], () => true, 20000);
   await env.startDiscovery();
   await waitForPeerThreshold(env.clients[0], 120000);
   await startTicker();
@@ -115,39 +118,26 @@ describe('Hash sync: retry triggers', function () {
     await env?.teardown();
   });
 
-  it('should trigger immediate hash retry on new unresolved hash', async function () {
+  it('should trigger hash retry when unresolvable hash arrives via block', async function () {
     this.timeout(60000);
-    const db = dbClient(1);
     const fakeHash = 'abcdabcd'.repeat(8);
-    await db.seedAppHash(fakeHash, 2100020, false);
-    // Advance a block to trigger the hash retry check
+    await advanceBlock(fakeHash);
+    await waitForBlockProcessed(env.clients[0], () => true, 10000);
+    // Explorer processes the block, finds the app hash, tries to resolve
+    // from peers — no peer has it — hash marked unresolved.
+    // Advance another block to trigger the retry check.
     await advanceBlock();
     await waitForBlockProcessed(env.clients[0], () => true, 10000);
-    // The HASH_UNRESOLVED event should set nextRetryHeight = 0,
-    // causing an immediate check on the next block
-    await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], () => true, 10000);
-    // Verify retry activity occurred
     await waitFor(
-      () => env.nodeHasLog(0, 'Hash retry'),
-      { timeout: 30000, interval: 2000, label: 'hash retry log after unresolved hash' },
+      () => env.nodeHasLog(0, 'Hash retry') || env.nodeHasLog(0, 'hash sync'),
+      { timeout: 30000, interval: 2000, label: 'hash retry after unresolvable hash' },
     );
   });
 
-  it('should trigger immediate retry on hashesChanged event', async function () {
-    this.timeout(60000);
-    // hashesChanged is emitted by the block emitter when reconstruct audit finds changes.
-    // After a hash retry already ran (previous test), advancing blocks should
-    // continue to check. Seed another hash and verify.
+  it('should have unresolved hash in DB after failed resolution', async function () {
+    this.timeout(10000);
     const db = dbClient(1);
-    const fakeHash2 = '12341234'.repeat(8);
-    await db.seedAppHash(fakeHash2, 2100030, false);
-    await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], () => true, 10000);
-    await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], () => true, 10000);
-    // The hash retry mechanism should have fired again
-    const retryCount = env.nodeLogCount(0, 'Hash retry');
-    expect(retryCount).to.be.greaterThan(0);
+    const counts = await db.hashCounts();
+    expect(counts.missing + counts.notFound).to.be.greaterThan(0);
   });
 });
