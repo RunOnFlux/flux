@@ -136,8 +136,8 @@ class FluxPeerSocket {
     this.lastPingTime = Date.now();
     this.missedPongs += 1;
     if (this.missedPongs >= this.maxMissedPongs) {
-      log.info(`Peer ${this.key} missed ${this.missedPongs} pongs, closing`);
-      this.close(CLOSE_CODES.DEAD_CONNECTION, 'dead connection');
+      log.info(`Peer ${this.key} missed ${this.missedPongs} pongs, terminating`);
+      this.ws.terminate();
     }
   }
 
