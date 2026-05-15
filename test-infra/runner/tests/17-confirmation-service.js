@@ -79,48 +79,42 @@ describe('Confirmation service: RPC failure windows', function () {
     await env?.teardown();
   });
 
-  it('should preserve confirmation within stale window (< 120s)', async function () {
-    this.timeout(30000);
+  it('should preserve confirmation within stale window', async function () {
+    this.timeout(15000);
     await enableRpcFailure(env.clients[0].ip);
-    // Wait less than confirmationDaemonStaleMs (120s in test config)
-    await new Promise((r) => setTimeout(r, 10000));
-    // Confirmation should still be preserved (previous value kept)
+    await new Promise((r) => setTimeout(r, 5000));
     const events = env.clients[0].getEventBuffer()
       .filter((e) => e.event === 'confirmation:changed' && e.data.confirmed === false);
     expect(events.length, 'confirmation should be preserved within stale window').to.equal(0);
   });
 
-  it('should detect daemon stale beyond stale window (> 120s)', async function () {
-    this.timeout(180000);
+  it('should detect daemon stale beyond stale window', async function () {
+    this.timeout(30000);
     await enableRpcFailure(env.clients[0].ip);
-    // Wait past confirmationDaemonStaleMs (120s in test config)
     await waitFor(
       () => env.nodeHasLog(0, 'Daemon unreachable for') && env.nodeHasLog(0, 'stale'),
-      { timeout: 150000, interval: 5000, label: 'daemon stale detection' },
+      { timeout: 20000, interval: 2000, label: 'daemon stale detection' },
     );
   });
 
-  it('should lose confirmation beyond expired window (> 300s)', async function () {
-    this.timeout(360000);
+  it('should lose confirmation beyond expired window', async function () {
+    this.timeout(45000);
     await enableRpcFailure(env.clients[0].ip);
-    // Wait past confirmationDaemonExpiredMs (300s in test config)
     const event = await waitForNodeStatus(
       env.clients[0],
       (d) => d.confirmed === false,
-      330000,
+      35000,
     );
     expect(event.data.confirmed).to.equal(false);
   });
 
   it('should recover confirmation when RPC becomes available', async function () {
-    this.timeout(60000);
-    // After the previous test, RPC was failing and confirmation was lost.
-    // Disabling RPC failure should allow the next poll to restore confirmation.
+    this.timeout(30000);
     await disableAllRpcFailure();
     const event = await waitForNodeStatus(
       env.clients[0],
       (d) => d.confirmed === true,
-      30000,
+      20000,
     );
     expect(event.data.confirmed).to.equal(true);
   });

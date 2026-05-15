@@ -18,8 +18,8 @@ module.exports = {
   },
   confirmation: {
     pollIntervalMs: 5000,
-    daemonStaleMs: 120000,
-    daemonExpiredMs: 300000,
+    daemonStaleMs: 10000,
+    daemonExpiredMs: 20000,
   },
   fluxapps: {
     minOutgoing: 4,
