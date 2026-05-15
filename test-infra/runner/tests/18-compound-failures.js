@@ -129,7 +129,7 @@ describe('Compound failures: rapid peer oscillation', function () {
   });
 });
 
-describe('Compound failures: BUG #1 — RESYNCING + block timer deadlock', function () {
+describe('Compound failures: RESYNCING + block timer', function () {
   let env;
 
   before(async function () {
@@ -158,7 +158,7 @@ describe('Compound failures: BUG #1 — RESYNCING + block timer deadlock', funct
     // Advance 300 blocks — well past the 250-block threshold
     await advanceBlocks(300);
     // If blocks were counted during RESYNCING, the block timer would fire
-    // and the orchestrator would reach READY. But line 277 only counts
+    // and the orchestrator would reach READY. onBlocksProcessed only counts
     // SYNCING and READY, so RESYNCING blocks are ignored.
     await new Promise((r) => setTimeout(r, 10000));
 
@@ -172,10 +172,9 @@ describe('Compound failures: BUG #1 — RESYNCING + block timer deadlock', funct
       // The block timer deadlock only manifests when hash sync ALSO fails.
       expect(true).to.equal(true);
     } else {
-      // Still in RESYNCING despite 300 blocks — confirms BUG #1
       const lastState = stateEvents[stateEvents.length - 1];
       expect(lastState.data.to).to.equal('RESYNCING',
-        'BUG #1 confirmed: blocks during RESYNCING not counted, block timer cannot fire as fallback');
+        'blocks during RESYNCING not counted, block timer cannot fire as fallback');
     }
   });
 });

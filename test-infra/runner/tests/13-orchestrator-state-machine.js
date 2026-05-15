@@ -162,7 +162,7 @@ describe('Orchestrator: READY to DEGRADED', function () {
   });
 });
 
-describe('Orchestrator: BUG #2 — peer drop during SYNCING', function () {
+describe('Orchestrator: peer drop during SYNCING', function () {
   let env;
 
   before(async function () {
@@ -195,7 +195,7 @@ describe('Orchestrator: BUG #2 — peer drop during SYNCING', function () {
     const stateEvents = env.clients[0].getEventBuffer()
       .filter((e) => e.event === 'orchestrator:stateChanged');
     const degraded = stateEvents.find((e) => e.data.to === 'DEGRADED');
-    expect(degraded, 'BUG #2: orchestrator should transition to DEGRADED from SYNCING but does not').to.be.undefined;
+    expect(degraded, 'orchestrator should not transition to DEGRADED from SYNCING').to.be.undefined;
   });
 });
 
@@ -243,7 +243,7 @@ describe('Orchestrator: DEGRADED recovery cycle', function () {
   });
 });
 
-describe('Orchestrator: BUG #1 — blocks not counted during RESYNCING', function () {
+describe('Orchestrator: block timer during RESYNCING', function () {
   let env;
 
   before(async function () {
@@ -281,11 +281,10 @@ describe('Orchestrator: BUG #1 — blocks not counted during RESYNCING', functio
     const stateEvents = env.clients[0].getEventBuffer()
       .filter((e) => e.event === 'orchestrator:stateChanged');
     const lastState = stateEvents[stateEvents.length - 1];
-    // BUG #1: blocks during RESYNCING are NOT counted at line 277,
+    // blocks during RESYNCING are not counted by onBlocksProcessed,
     // so the block timer cannot fire as a fallback during RESYNCING.
-    // If hash sync also fails, the orchestrator is stuck.
     expect(lastState.data.to).to.equal('RESYNCING',
-      'BUG #1: blocks during RESYNCING are not counted toward block timer — orchestrator stuck if hash sync fails');
+      'blocks during RESYNCING are not counted toward block timer');
   });
 });
 
@@ -329,7 +328,7 @@ describe('Orchestrator: message capability loss', function () {
     });
   });
 
-  describe('BUG #4: loss during SYNCING is silent', function () {
+  describe('loss during SYNCING', function () {
     let env;
 
     before(async function () {
@@ -359,8 +358,8 @@ describe('Orchestrator: message capability loss', function () {
       const toDegraded = stateEvents.find((e) => e.data.to === 'DEGRADED');
       const pauseEvents = env.clients[0].getEventBuffer()
         .filter((e) => e.event === 'spawner:paused');
-      expect(toDegraded, 'BUG #4: message capability loss during SYNCING does not trigger DEGRADED').to.be.undefined;
-      expect(pauseEvents.length, 'BUG #4: no spawner:paused event emitted during SYNCING').to.equal(0);
+      expect(toDegraded, 'message capability loss during SYNCING should not trigger DEGRADED').to.be.undefined;
+      expect(pauseEvents.length, 'no spawner:paused event should be emitted during SYNCING').to.equal(0);
     });
   });
 });

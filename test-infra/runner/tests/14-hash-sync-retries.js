@@ -23,7 +23,7 @@ async function bootToReady(env) {
   await stopTicker();
 }
 
-describe('Hash sync: BUG #3 — retry timer fires during DEGRADED', function () {
+describe('Hash sync: retry timer during DEGRADED', function () {
   let env;
 
   before(async function () {
@@ -57,9 +57,8 @@ describe('Hash sync: BUG #3 — retry timer fires during DEGRADED', function () 
     }
     await waitForOrchestratorState(env.clients[0], 'DEGRADED', 30000);
 
-    // BUG #3: hashSyncRetryTimer is NOT cancelled in resetSyncState().
+    // hashSyncRetryTimer is not cancelled in resetSyncState().
     // Wait for the retry timer to fire (10s in test config).
-    // If the bug exists, we'll see hash sync activity during DEGRADED.
     await new Promise((r) => setTimeout(r, 15000));
 
     // Check if hash sync ran during DEGRADED (it shouldn't, but the timer fires)
@@ -67,7 +66,7 @@ describe('Hash sync: BUG #3 — retry timer fires during DEGRADED', function () 
     // The retry will fire but checkReadiness guards on state !== SYNCING/RESYNCING
     // so it won't transition to READY. However, it may set globalState.dbReady = true.
     expect(hasRetryLog).to.equal(true,
-      'BUG #3: hashSyncRetryTimer fires during DEGRADED — timer not cancelled in resetSyncState()');
+      'hashSyncRetryTimer fires during DEGRADED — timer not cancelled in resetSyncState()');
   });
 });
 
