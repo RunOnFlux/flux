@@ -1031,49 +1031,47 @@ async function checkAndHandleReorgs(database, scannedBlockHeight) {
   return height;
 }
 
-function pollForNewBlocks() {
+async function pollForNewBlocks() {
   if (!blockProccessingCanContinue) return;
-  pollTimeout = setTimeout(async () => {
-    pollTimeout = null;
-    try {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        pollForNewBlocks();
-        return;
-      }
-
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.daemon.database);
-      const scannedBlockHeight = await getScannedBlockHeightFromDb(database);
-
-      const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
-      if (daemonBlockCount.status !== 'success') {
-        throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
-      }
-      const daemonHeight = daemonBlockCount.data;
-
-      if (daemonHeight > scannedBlockHeight) {
-        const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
-        processBlock(scannedBlockHeight + 1, isInsightExplorer);
-        return;
-      }
-
-      const restoredHeight = await checkAndHandleReorgs(database, scannedBlockHeight);
-      if (restoredHeight < scannedBlockHeight) {
-        const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
-        processBlock(restoredHeight + 1, isInsightExplorer);
-        return;
-      }
-
-      pollForNewBlocks();
-    } catch (error) {
-      log.error(`Explorer poll error: ${error.message}`);
-      pollForNewBlocks();
+  try {
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      pollTimeout = setTimeout(pollForNewBlocks, 5000);
+      return;
     }
-  }, 5 * 1000);
+
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.daemon.database);
+    const scannedBlockHeight = await getScannedBlockHeightFromDb(database);
+
+    const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
+    if (daemonBlockCount.status !== 'success') {
+      throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
+    }
+    const daemonHeight = daemonBlockCount.data;
+
+    if (daemonHeight > scannedBlockHeight) {
+      const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
+      processBlock(scannedBlockHeight + 1, isInsightExplorer);
+      return;
+    }
+
+    const restoredHeight = await checkAndHandleReorgs(database, scannedBlockHeight);
+    if (restoredHeight < scannedBlockHeight) {
+      const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
+      processBlock(restoredHeight + 1, isInsightExplorer);
+      return;
+    }
+
+    pollTimeout = setTimeout(pollForNewBlocks, 5000);
+  } catch (error) {
+    log.error(`Explorer poll error: ${error.message}`);
+    pollTimeout = setTimeout(pollForNewBlocks, 5000);
+  }
 }
 
 async function recoverAndRestart(restoreDatabase, deepRestore) {
+  if (!blockProccessingCanContinue) return;
   try {
     await waitForDaemonSync();
 

@@ -1755,43 +1755,28 @@ describe('explorerService tests', () => {
 
     it('should return right away if isInInitiationOfBP is true', async () => {
       explorerService.setIsInInitiationOfBP(true);
-      const res = generateResponse();
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
 
-      const result = await explorerService.initiateBlockProcessor(req, res);
+      const result = await explorerService.initiateBlockProcessor(true, true);
 
       expect(result).to.be.undefined;
-      sinon.assert.calledOnce(findInDatabaseStub);
+      sinon.assert.notCalled(findInDatabaseStub);
     });
 
-    it('should return error if daemon service getBlockCountStub does not return success message', async () => {
+    it('should throw and log error if getBlockCount does not return success', async () => {
+      sinon.stub(dbHelper, 'countInDatabase').resolves(1);
+      explorerService.setBlockProccessingCanContinue(false);
       getBlockCountStub.returns({
         status: 'error',
         data: {
           message: 'message',
         },
       });
-      const res = generateResponse();
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
 
-      await explorerService.initiateBlockProcessor(req, res);
+      await explorerService.initiateBlockProcessor(false, false);
+      await serviceHelper.delay(200);
 
       sinon.assert.calledOnce(logErrorSpy);
-      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
+      sinon.assert.calledWithMatch(findInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
     });
 
     it('should run the block processor, all params false', async () => {

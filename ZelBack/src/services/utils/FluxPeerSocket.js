@@ -137,7 +137,7 @@ class FluxPeerSocket {
     this.missedPongs += 1;
     if (this.missedPongs >= this.maxMissedPongs) {
       log.info(`Peer ${this.key} missed ${this.missedPongs} pongs, terminating`);
-      this.ws.terminate();
+      this.terminate();
     }
   }
 
@@ -197,6 +197,10 @@ class FluxPeerSocket {
     } catch (e) {
       log.error(e);
     }
+  }
+
+  terminate() {
+    this.ws.terminate();
   }
 
   /**
