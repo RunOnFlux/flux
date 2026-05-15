@@ -207,6 +207,18 @@ export function dbClient(nodeNum) {
       await explorerDb.collection('zelappsinformation').deleteOne({ name });
     },
 
+    async writeHeartbeat({ lastAlive, shutdownReason, machineBootId }) {
+      const localDb = await db('local');
+      const update = { lastAlive };
+      if (shutdownReason !== undefined) update.shutdownReason = shutdownReason;
+      if (machineBootId !== undefined) update.machineBootId = machineBootId;
+      await localDb.collection('nodestartuptracker').updateOne(
+        { _id: 'heartbeat' },
+        { $set: update },
+        { upsert: true },
+      );
+    },
+
     async dropAndReseed(ip, height) {
       const client = await getClient();
       for (const name of Object.values(dbNames)) {

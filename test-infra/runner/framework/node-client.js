@@ -63,6 +63,9 @@ export function nodeClient(nodeNum) {
         'peers:belowThreshold',
         'peers:removed',
         'peers:thresholdReached',
+        'spawner:blocked',
+        'spawner:paused',
+        'spawner:resumed',
       ]) {
         eventSource.addEventListener(name, (e) => {
           const entry = {

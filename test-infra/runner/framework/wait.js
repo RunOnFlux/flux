@@ -60,3 +60,19 @@ export async function waitForPeerThreshold(node, timeout = 120000) {
 export async function waitForBootSettled(node, timeout = 120000) {
   return node.waitForEvent('boot:settled', () => true, timeout);
 }
+
+export async function waitForPeersBelowThreshold(node, timeout = 30000) {
+  return node.waitForEvent('peers:belowThreshold', () => true, timeout);
+}
+
+export async function waitForSpawnerPaused(node, timeout = 30000) {
+  return node.waitForEvent('spawner:paused', () => true, timeout);
+}
+
+export async function waitForSpawnerResumed(node, timeout = 60000) {
+  return node.waitForEvent('spawner:resumed', () => true, timeout);
+}
+
+export async function waitForSpawnerBlocked(node, reason, timeout = 30000) {
+  return node.waitForEvent('spawner:blocked', (d) => d.reason === reason, timeout);
+}

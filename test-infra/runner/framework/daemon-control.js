@@ -39,6 +39,13 @@ export async function advanceBlock(appHash) {
   return post('/advance-block', appHash ? { appHash } : {});
 }
 
+export async function advanceBlocks(count) {
+  for (let i = 0; i < count; i++) {
+    // eslint-disable-next-line no-await-in-loop
+    await advanceBlock();
+  }
+}
+
 export async function setHeight(height) {
   return post('/set-height', { height });
 }

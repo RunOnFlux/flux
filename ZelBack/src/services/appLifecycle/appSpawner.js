@@ -23,6 +23,7 @@ const { FluxCacheManager } = require('../utils/cacheManager');
 const appInstaller = require('./appInstaller');
 const appUninstaller = require('./appUninstaller');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 let appsCountAvailableToInstallOnMyNode = 0;
 
@@ -34,11 +35,13 @@ function initialize() {
   appSyncEvents.on(SYNC_EVENTS.SPAWNER_READY, () => {
     log.info('AppSyncOrchestrator signals ready, starting spawn loop');
     globalState.spawnerPaused = false;
+    fluxEventBus.publish('spawner:resumed', {});
     trySpawningGlobalApplication();
   });
   appSyncEvents.on(SYNC_EVENTS.READINESS_LOST, () => {
     log.warn('AppSyncOrchestrator signals readiness lost, spawner will pause on next iteration');
     globalState.spawnerPaused = true;
+    fluxEventBus.publish('spawner:paused', {});
   });
 }
 
@@ -55,11 +58,13 @@ function initialize() {
 async function trySpawningGlobalApplication() {
   if (globalState.spawnerPaused) {
     log.info('Spawner paused by orchestrator, waiting for readiness');
+    fluxEventBus.publish('spawner:blocked', { reason: 'paused' });
     return;
   }
   const isEnterprise = enterpriseNetwork.getCachedEnterpriseIdentity();
   if (isEnterprise === null) {
     log.info('Flux enterprise identity not yet resolved');
+    fluxEventBus.publish('spawner:blocked', { reason: 'enterprise_unresolved' });
     await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
     trySpawningGlobalApplication();
     return;
@@ -73,6 +78,7 @@ async function trySpawningGlobalApplication() {
     const synced = await generalService.checkSynced();
     if (synced !== true) {
       log.info('Flux not yet synced');
+      fluxEventBus.publish('spawner:blocked', { reason: 'not_synced' });
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
@@ -80,6 +86,7 @@ async function trySpawningGlobalApplication() {
 
     if (!globalState.dbReady) {
       log.info('DB not yet ready, waiting for orchestrator');
+      fluxEventBus.publish('spawner:blocked', { reason: 'db_not_ready' });
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
@@ -87,6 +94,7 @@ async function trySpawningGlobalApplication() {
 
     if (fluxNetworkHelper.isNodeDos()) {
       log.info('Node is in DOS state. Global applications will not be installed');
+      fluxEventBus.publish('spawner:blocked', { reason: 'dos' });
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
@@ -96,6 +104,7 @@ async function trySpawningGlobalApplication() {
     isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Global applications will not be installed');
+      fluxEventBus.publish('spawner:blocked', { reason: 'not_confirmed' });
       globalState.fluxNodeWasNotConfirmedOnLastCheck = true;
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
