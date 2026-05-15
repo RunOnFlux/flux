@@ -277,7 +277,7 @@ class AppSyncOrchestrator {
         this.#runInitialSync();
       }
     }
-    if (this.#state === STATES.SYNCING || this.#state === STATES.READY) {
+    if (this.#state === STATES.SYNCING || this.#state === STATES.READY || this.#state === STATES.RESYNCING) {
       this.#blocksSinceSyncStarted += count;
       this.#checkReadiness();
       this.#checkHashRetry(blockHeight);

@@ -268,21 +268,10 @@ describe('Orchestrator: block timer during RESYNCING', function () {
     await env?.teardown();
   });
 
-  it('should not count blocks toward block timer during RESYNCING', async function () {
+  it('should reach READY via block timer during RESYNCING', async function () {
     this.timeout(120000);
-    // Advance many blocks — if they were counted, block timer (250) would fire
     await advanceBlocks(300);
-    // Give the orchestrator time to process
-    await new Promise((r) => setTimeout(r, 10000));
-    // Check if we're still in RESYNCING (blocks weren't counted)
-    // or if we jumped to READY (blocks were counted — bug would be fixed)
-    const stateEvents = env.clients[0].getEventBuffer()
-      .filter((e) => e.event === 'orchestrator:stateChanged');
-    const lastState = stateEvents[stateEvents.length - 1];
-    // blocks during RESYNCING are not counted by onBlocksProcessed,
-    // so the block timer cannot fire as a fallback during RESYNCING.
-    expect(lastState.data.to).to.equal('RESYNCING',
-      'blocks during RESYNCING are not counted toward block timer');
+    await waitForOrchestratorState(env.clients[0], 'READY', 30000);
   });
 });
 
