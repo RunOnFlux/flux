@@ -118,26 +118,25 @@ describe('Hash sync: retry triggers', function () {
     await env?.teardown();
   });
 
-  it('should trigger hash retry when unresolvable hash arrives via block', async function () {
-    this.timeout(60000);
+  it('should create unresolved hash from block with fake app tx', async function () {
+    this.timeout(30000);
+    const db = dbClient(1);
+    const heightBefore = await db.explorerHeight();
     const fakeHash = 'abcdabcd'.repeat(8);
     await advanceBlock(fakeHash);
-    await waitForBlockProcessed(env.clients[0], () => true, 10000);
-    // Explorer processes the block, finds the app hash, tries to resolve
-    // from peers — no peer has it — hash marked unresolved.
-    // Advance another block to trigger the retry check.
-    await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], () => true, 10000);
-    await waitFor(
-      () => env.nodeHasLog(0, 'Hash retry') || env.nodeHasLog(0, 'hash sync'),
-      { timeout: 30000, interval: 2000, label: 'hash retry after unresolvable hash' },
-    );
+    await waitForBlockProcessed(env.clients[0], (d) => d.height > heightBefore, 20000);
+    const counts = await db.hashCounts();
+    expect(counts.missing).to.equal(1);
   });
 
-  it('should have unresolved hash in DB after failed resolution', async function () {
-    this.timeout(10000);
-    const db = dbClient(1);
-    const counts = await db.hashCounts();
-    expect(counts.missing + counts.notFound).to.be.greaterThan(0);
+  it('should trigger hash retry after enough blocks pass', async function () {
+    this.timeout(60000);
+    // nextHashRetryHeight is currentHeight + hashSyncFallbackRecheckBlocks (10 in test config)
+    // Advance past it so checkHashRetry fires
+    await advanceBlocks(12);
+    await waitFor(
+      () => env.nodeHasLog(0, 'Hash retry'),
+      { timeout: 30000, interval: 2000, label: 'hash retry log' },
+    );
   });
 });
