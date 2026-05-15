@@ -1159,6 +1159,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         }
       }
       isInInitiationOfBP = false;
+      fluxEventBus.publish('explorer:ready', { height: scannedBlockHeight });
       const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
 
       if (scannedBlockHeight === 0 && isInsightExplorer) {

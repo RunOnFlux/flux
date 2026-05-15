@@ -49,6 +49,10 @@ export async function waitForDaemonRecovered(node, timeout = 30000) {
   return node.waitForEvent('daemon:recovered', () => true, timeout);
 }
 
+export async function waitForExplorerReady(node, timeout = 120000) {
+  return node.waitForEvent('explorer:ready', () => true, timeout);
+}
+
 export async function waitForOrchestratorStarted(node, timeout = 120000) {
   return node.waitForEvent('orchestrator:started', () => true, timeout);
 }

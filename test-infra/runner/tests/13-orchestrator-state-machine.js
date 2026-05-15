@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
-  waitForOrchestratorStarted, waitForOrchestratorState,
+  waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
   waitForPeerThreshold, waitForPeersBelowThreshold,
   waitForSpawnerResumed, waitForSpawnerPaused, waitFor,
 } from '../framework/wait.js';
@@ -15,9 +15,10 @@ import {
 async function bootNodes(env, { discover = false } = {}) {
   await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
   await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+  await waitForExplorerReady(env.clients[0]);
   await waitForOrchestratorStarted(env.clients[0]);
   await advanceBlock();
-  await Promise.all(env.clients.map((c) => waitForBlockProcessed(c, () => true, 30000)));
+  await waitForBlockProcessed(env.clients[0], () => true, 20000);
   if (discover) {
     await env.startDiscovery();
     await waitForPeerThreshold(env.clients[0], 120000);
@@ -34,6 +35,7 @@ describe('Orchestrator: INITIALIZING to SYNCING', function () {
     env = await createTestEnv({ nodes: 3, deferredNodes: 1, tickerAutostart: false });
     await Promise.all(env.clients.filter(Boolean).map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.filter(Boolean).map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+    await waitForExplorerReady(env.clients[0]);
     await waitForOrchestratorStarted(env.clients[0]);
   });
 
@@ -51,6 +53,7 @@ describe('Orchestrator: INITIALIZING to SYNCING', function () {
   it('should stay INITIALIZING without blocks on deferred node', async function () {
     this.timeout(30000);
     await env.startNode(env.lastNodeIndex);
+    await waitForExplorerReady(env.clients[env.lastNodeIndex]);
     await waitForOrchestratorStarted(env.clients[env.lastNodeIndex]);
     const events = env.clients[env.lastNodeIndex].getEventBuffer()
       .filter((e) => e.event === 'orchestrator:stateChanged');
@@ -107,6 +110,7 @@ describe('Orchestrator: SYNCING to READY', function () {
       env = await createTestEnv({ nodes: 2, tickerAutostart: false });
       await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
       await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+      await waitForExplorerReady(env.clients[0]);
       await waitForOrchestratorStarted(env.clients[0]);
       await advanceBlock();
       await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
@@ -166,6 +170,7 @@ describe('Orchestrator: BUG #2 — peer drop during SYNCING', function () {
     env = await createTestEnv({ nodes: 5, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+    await waitForExplorerReady(env.clients[0]);
     await waitForOrchestratorStarted(env.clients[0]);
     await advanceBlock();
     await waitForBlockProcessed(env.clients[0], () => true, 20000);
@@ -332,6 +337,7 @@ describe('Orchestrator: message capability loss', function () {
       env = await createTestEnv({ nodes: 5, tickerAutostart: false });
       await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
       await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+      await waitForExplorerReady(env.clients[0]);
       await waitForOrchestratorStarted(env.clients[0]);
       await advanceBlock();
       await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
