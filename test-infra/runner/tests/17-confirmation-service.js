@@ -2,12 +2,11 @@ import { describe, it, before, after, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
-  waitForDaemonReady, waitForNodeStatus,
-  waitForDaemonUnreachable, waitForDaemonRecovered,
-  waitFor,
+  waitForDaemonReady, waitForNodeStatus, waitForMessageCapabilityChanged,
+  waitForDaemonUnreachable, waitForDaemonRecovered, waitFor,
 } from '../framework/wait.js';
 import {
-  setNodeStatus, clearAllNodeStatus, clearNodeStatus,
+  advanceBlock, setNodeStatus, clearAllNodeStatus, clearNodeStatus,
   enableRpcFailure, disableRpcFailure, disableAllRpcFailure,
   removeFromNodeList, restoreToNodeList, resetNodeList,
 } from '../framework/daemon-control.js';
@@ -50,16 +49,11 @@ describe('Confirmation service: node list removal → message capability lost', 
   });
 
   it('should lose message capability when removed from deterministic list', async function () {
-    this.timeout(60000);
-    // Remove node 0 from the deterministic list
+    this.timeout(30000);
     await removeFromNodeList(env.clients[0].ip);
-    // The confirmation poll (5s interval in test config) should detect
-    // that the node's pubkey is no longer in the list, setting messageCapable = false.
-    // This triggers onMessageCapabilityChange(false) in the orchestrator.
-    // Wait for the orchestrator to react (if it was in READY, it goes to SYNCING)
-    await new Promise((r) => setTimeout(r, 15000));
-    // Check logs for message capability loss
-    expect(env.nodeHasLog(0, 'Message capability lost') || env.nodeHasLog(0, 'message capability')).to.equal(true);
+    await advanceBlock();
+    const event = await waitForMessageCapabilityChanged(env.clients[0], false, 20000);
+    expect(event.data.capable).to.equal(false);
   });
 });
 

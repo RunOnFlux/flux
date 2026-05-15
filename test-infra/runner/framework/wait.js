@@ -53,6 +53,10 @@ export async function waitForExplorerReady(node, timeout = 120000) {
   return node.waitForEvent('explorer:ready', () => true, timeout);
 }
 
+export async function waitForMessageCapabilityChanged(node, capable, timeout = 30000) {
+  return node.waitForEvent('messageCapability:changed', (d) => d.capable === capable, timeout);
+}
+
 export async function waitForOrchestratorStarted(node, timeout = 120000) {
   return node.waitForEvent('orchestrator:started', () => true, timeout);
 }

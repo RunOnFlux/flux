@@ -148,6 +148,7 @@ async function poll() {
   if (prevMessageCapable !== messageCapable) {
     const direction = messageCapable ? 'gained' : 'lost';
     log.info(`nodeConfirmationService - Message capability ${direction} (confirmed=${daemonConfirmed}, messageCapable=${messageCapable})`);
+    fluxEventBus.publish('messageCapability:changed', { capable: messageCapable });
     for (const cb of messageCapabilityListeners) {
       try { cb(messageCapable); } catch (e) { log.error(e); }
     }

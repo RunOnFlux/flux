@@ -56,6 +56,7 @@ export function nodeClient(nodeNum) {
         'daemon:unreachable',
         'dos:changed',
         'explorer:ready',
+        'messageCapability:changed',
         'orchestrator:started',
         'orchestrator:stateChanged',
         'app:installed',
