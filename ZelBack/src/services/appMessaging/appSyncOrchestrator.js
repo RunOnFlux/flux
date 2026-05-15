@@ -243,7 +243,7 @@ class AppSyncOrchestrator {
   }
 
   #onPeersDegraded() {
-    if (this.#state === STATES.READY) {
+    if (this.#state === STATES.READY || this.#state === STATES.SYNCING) {
       this.#setState(STATES.DEGRADED);
       this.#hashSyncComplete = false;
       this.#dbRebuilt = false;

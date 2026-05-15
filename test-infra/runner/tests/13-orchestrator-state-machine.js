@@ -188,17 +188,12 @@ describe('Orchestrator: peer drop during SYNCING', function () {
     await env?.teardown();
   });
 
-  it('should stay SYNCING when peers drop (no DEGRADED transition)', async function () {
+  it('should transition to DEGRADED when peers drop during SYNCING', async function () {
     this.timeout(30000);
     for (let i = 1; i < env.clients.length; i++) {
       await env.disconnectNode(i);
     }
-    await waitForPeersBelowThreshold(env.clients[0], 10000);
-    // Verify orchestrator stayed in SYNCING — no DEGRADED transition
-    const stateEvents = env.clients[0].getEventBuffer()
-      .filter((e) => e.event === 'orchestrator:stateChanged');
-    const degraded = stateEvents.find((e) => e.data.to === 'DEGRADED');
-    expect(degraded, 'orchestrator should not transition to DEGRADED from SYNCING').to.be.undefined;
+    await waitForOrchestratorState(env.clients[0], 'DEGRADED', 10000);
   });
 });
 
