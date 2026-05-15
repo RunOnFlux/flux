@@ -1,3 +1,4 @@
+const config = require('config');
 const WebSocket = require('ws');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
@@ -83,6 +84,7 @@ class FluxPeerSocket {
     this.lastPingTime = null;
     this.lastPongTime = null;
     this.missedPongs = 0;
+    this.maxMissedPongs = config.fluxapps.wsMaxMissedPongs ?? 3;
     this.connectedAt = Date.now();
     this.nakCount = 0;
     this.nakWindowStart = Date.now();
@@ -123,7 +125,7 @@ class FluxPeerSocket {
   }
 
   get isAlive() {
-    return this.missedPongs < 3 && this.ws.readyState === WebSocket.OPEN;
+    return this.missedPongs < this.maxMissedPongs && this.ws.readyState === WebSocket.OPEN;
   }
 
   get reconnects() {
@@ -133,7 +135,7 @@ class FluxPeerSocket {
   onPingSent() {
     this.lastPingTime = Date.now();
     this.missedPongs += 1;
-    if (this.missedPongs >= 3) {
+    if (this.missedPongs >= this.maxMissedPongs) {
       log.info(`Peer ${this.key} missed ${this.missedPongs} pongs, closing`);
       this.close(CLOSE_CODES.DEAD_CONNECTION, 'dead connection');
     }

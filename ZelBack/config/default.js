@@ -234,6 +234,8 @@ module.exports = {
     appSyncDegradedThreshold: 4, // below this, pause spawner — gossip unreliable
     appSyncMinPeerUptime: 60, // seconds a peer must have been running before we sync from it
     appSyncMinCompletions: 1, // sync responses needed per type before spawner can start
+    wsPingIntervalMs: 15000, // WebSocket ping interval
+    wsMaxMissedPongs: 3, // pongs missed before closing connection
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds

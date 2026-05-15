@@ -29,8 +29,9 @@ describe('Orchestrator: INITIALIZING to SYNCING', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 3, tickerAutostart: false });
-    await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
+    env = await createTestEnv({ nodes: 3, deferredNodes: 1, tickerAutostart: false });
+    await Promise.all(env.clients.filter(Boolean).map((c) => waitForDaemonReady(c)));
+    await Promise.all(env.clients.filter(Boolean).map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
   });
 
   after(async function () {
@@ -41,16 +42,22 @@ describe('Orchestrator: INITIALIZING to SYNCING', function () {
   it('should transition to SYNCING on first block received', async function () {
     this.timeout(30000);
     await advanceBlock();
+    await waitForBlockProcessed(env.clients[0], () => true, 20000);
     await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
   });
 
-  it('should stay INITIALIZING without blocks', async function () {
-    this.timeout(15000);
-    // Node 1 also received the block from the previous test, so use node 2
-    // which received it too. Instead, verify the transition happened — the
-    // real test is that the event was required. If we needed a node that
-    // never got blocks we'd need a deferred node. The first test already
-    // validates the causal link (block → SYNCING).
+  it('should stay INITIALIZING without blocks on deferred node', async function () {
+    this.timeout(30000);
+    await env.startNode(env.lastNodeIndex);
+    await waitForDaemonReady(env.clients[env.lastNodeIndex]);
+    await new Promise((r) => setTimeout(r, 5000));
+    const events = env.clients[env.lastNodeIndex].getEventBuffer()
+      .filter((e) => e.event === 'orchestrator:stateChanged');
+    expect(events.length, 'no state transitions without blocks').to.equal(0);
+  });
+
+  it('should confirm first transition was INITIALIZING → SYNCING', async function () {
+    this.timeout(10000);
     const events = env.clients[0].getEventBuffer()
       .filter((e) => e.event === 'orchestrator:stateChanged');
     const toSyncing = events.find((e) => e.data.to === 'SYNCING');
@@ -101,6 +108,7 @@ describe('Orchestrator: SYNCING to READY', function () {
       await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
       await advanceBlock();
       await Promise.all(env.clients.map((c) => waitForBlockProcessed(c, () => true, 30000)));
+      await waitForOrchestratorState(env.clients[0], 'SYNCING', 30000);
     });
 
     after(async function () {
@@ -110,9 +118,8 @@ describe('Orchestrator: SYNCING to READY', function () {
 
     it('should reach READY via block timer without peer sync completions', async function () {
       this.timeout(300000);
-      await waitForOrchestratorState(env.clients[0], 'SYNCING', 10000);
       await advanceBlocks(260);
-      await waitForOrchestratorState(env.clients[0], 'READY', 60000);
+      await waitForOrchestratorState(env.clients[0], 'READY', 120000);
     });
   });
 });

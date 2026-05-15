@@ -67,6 +67,8 @@ module.exports = {
     discoveryAutostart: false,
     discoveryRetryMs: 5000,
     discoveryFailRetryMs: 5000,
+    wsPingIntervalMs: 2000,
+    wsMaxMissedPongs: 2,
     connectionBackoffMs: [2000, 5000, 10000, 15000],
     nodeMonitorIntervalMs: 10000,
     spawnDelayMultiplier: 0.01,

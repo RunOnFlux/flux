@@ -222,6 +222,8 @@ module.exports = {
     appSyncDegradedThreshold: 4,
     appSyncMinPeerUptime: 60,
     appSyncMinCompletions: 3,
+    wsPingIntervalMs: 15000,
+    wsMaxMissedPongs: 3,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds
