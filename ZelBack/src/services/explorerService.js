@@ -1040,15 +1040,10 @@ async function pollForNewBlocks() {
       return;
     }
 
+    const daemonHeight = syncStatus.data.height;
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
     const scannedBlockHeight = await getScannedBlockHeightFromDb(database);
-
-    const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
-    if (daemonBlockCount.status !== 'success') {
-      throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
-    }
-    const daemonHeight = daemonBlockCount.data;
 
     if (daemonHeight > scannedBlockHeight) {
       const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
