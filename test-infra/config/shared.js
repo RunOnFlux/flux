@@ -7,6 +7,7 @@ module.exports = {
   upnp: { gatewayUrl: '', nodeIp: '' },
   syncthing: { ip: '198.18.0.4', port: 8384 },
   system: {
+    bootIdPath: '/tmp/flux-boot-id',
     heartbeatIntervalMs: 10000,
     bootSyncTimeoutMs: 30000,
     bootDaemonTimeoutMs: 30000,

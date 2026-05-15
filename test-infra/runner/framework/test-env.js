@@ -103,7 +103,11 @@ async function removeNetwork(networkName) {
   await network.remove().catch(() => {});
 }
 
-async function seedMongo(mongoIp, nodeCount) {
+function getBootId(nodeNum) {
+  return `test-boot-id-node-${String(nodeNum).padStart(2, '0')}`;
+}
+
+async function seedMongo(mongoIp, nodeCount, bootContext = 'running') {
   const client = new MongoClient(`mongodb://${mongoIp}:27017`);
   try {
     await client.connect();
@@ -134,19 +138,33 @@ async function seedMongo(mongoIp, nodeCount) {
         },
         { upsert: true },
       );
+      if (bootContext === 'running') {
+        await localDb.collection('nodestartuptracker').updateOne(
+          { _id: 'heartbeat' },
+          { $set: { lastAlive: Date.now(), machineBootId: getBootId(i), shutdownReason: null } },
+          { upsert: true },
+        );
+      } else if (bootContext === 'rebooted') {
+        await localDb.collection('nodestartuptracker').updateOne(
+          { _id: 'heartbeat' },
+          { $set: { lastAlive: Date.now(), machineBootId: 'old-boot-id', shutdownReason: 'sigterm' } },
+          { upsert: true },
+        );
+      }
+      // bootContext === 'firstBoot': no heartbeat seeded
     }
   } finally {
     await client.close();
   }
 }
 
-export async function createTestEnv({ nodes = 1, deferredNodes = 0, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {} } = {}) {
+export async function createTestEnv({ nodes = 1, deferredNodes = 0, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, bootContext = 'running' } = {}) {
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides);
+    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, bootContext);
   } catch (err) {
     for (const c of started.reverse()) {
       await c.stop().catch(() => {});
@@ -156,7 +174,7 @@ export async function createTestEnv({ nodes = 1, deferredNodes = 0, tickerAutost
   }
 }
 
-async function _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides) {
+async function _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, bootContext) {
 
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
@@ -172,7 +190,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   started.push(mongo);
   containers.mongo = mongo;
 
-  await seedMongo(MONGO_IP, nodes);
+  await seedMongo(MONGO_IP, nodes, bootContext);
 
   const daemonStub = await new StaticIpContainer('flux-e2e-daemon-stub')
     .withStaticIp(networkName, DAEMON_IP)
@@ -264,6 +282,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
         FLUX_API_PORT: '16127',
         FLUX_SYNCTHING_HOST: SYNCTHING_IP,
         FLUX_SYNCTHING_PORT: '8384',
+        FLUX_BOOT_ID: getBootId(i + 1),
         ...(discoveryAutostart ? { FLUX_DISCOVERY_AUTOSTART: 'true' } : {}),
       });
 

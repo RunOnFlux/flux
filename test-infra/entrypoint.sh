@@ -60,4 +60,12 @@ until docker info > /dev/null 2>&1; do
 done
 echo "dockerd is ready (took ${ELAPSED}s)"
 
+# Write boot_id for test harness control.
+# FLUX_BOOT_ID is set per-container by the test harness.
+# The harness seeds a heartbeat with matching or different value to
+# control machineRebooted detection in readBootContext().
+if [ -n "$FLUX_BOOT_ID" ]; then
+  echo "$FLUX_BOOT_ID" > /tmp/flux-boot-id
+fi
+
 exec "$@"
