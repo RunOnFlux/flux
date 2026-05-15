@@ -150,6 +150,16 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running') {
           { $set: { lastAlive: Date.now(), machineBootId: 'old-boot-id', shutdownReason: 'sigterm' } },
           { upsert: true },
         );
+      } else if (typeof bootContext === 'object') {
+        await localDb.collection('nodestartuptracker').updateOne(
+          { _id: 'heartbeat' },
+          { $set: {
+            lastAlive: bootContext.lastAlive ?? Date.now(),
+            machineBootId: bootContext.machineBootId ?? 'old-boot-id',
+            shutdownReason: bootContext.shutdownReason ?? null,
+          } },
+          { upsert: true },
+        );
       }
       // bootContext === 'firstBoot': no heartbeat seeded
     }
