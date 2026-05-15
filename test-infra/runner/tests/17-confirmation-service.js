@@ -40,6 +40,8 @@ describe('Confirmation service: node list removal → message capability lost', 
     env = await createTestEnv({ nodes: 3, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+    await advanceBlock();
+    await waitForMessageCapabilityChanged(env.clients[0], true, 30000);
   });
 
   after(async function () {
