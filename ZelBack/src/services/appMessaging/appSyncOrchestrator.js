@@ -122,6 +122,8 @@ class AppSyncOrchestrator {
     this.#hashesChangedHandler = () => this.#onHashesChanged();
     this.#blockEmitter.on('hashesChanged', this.#hashesChangedHandler);
 
+    fluxEventBus.publish('orchestrator:started', { state: this.#state });
+
     if (this.#waitForNetworkState) {
       await this.#waitForNetworkState();
       this.#networkReady = true;

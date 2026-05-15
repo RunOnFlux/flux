@@ -3,7 +3,8 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
-  waitForOrchestratorState, waitForPeerThreshold, waitForPeersBelowThreshold,
+  waitForOrchestratorStarted, waitForOrchestratorState,
+  waitForPeerThreshold, waitForPeersBelowThreshold,
   waitForSpawnerResumed, waitForSpawnerPaused, waitFor,
 } from '../framework/wait.js';
 import {
@@ -14,6 +15,7 @@ import {
 async function bootNodes(env, { discover = false } = {}) {
   await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
   await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+  await waitForOrchestratorStarted(env.clients[0]);
   await advanceBlock();
   await Promise.all(env.clients.map((c) => waitForBlockProcessed(c, () => true, 30000)));
   if (discover) {
@@ -32,6 +34,7 @@ describe('Orchestrator: INITIALIZING to SYNCING', function () {
     env = await createTestEnv({ nodes: 3, deferredNodes: 1, tickerAutostart: false });
     await Promise.all(env.clients.filter(Boolean).map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.filter(Boolean).map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+    await waitForOrchestratorStarted(env.clients[0]);
   });
 
   after(async function () {
@@ -42,15 +45,13 @@ describe('Orchestrator: INITIALIZING to SYNCING', function () {
   it('should transition to SYNCING on first block received', async function () {
     this.timeout(30000);
     await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], () => true, 20000);
     await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
   });
 
   it('should stay INITIALIZING without blocks on deferred node', async function () {
     this.timeout(30000);
     await env.startNode(env.lastNodeIndex);
-    await waitForDaemonReady(env.clients[env.lastNodeIndex]);
-    await new Promise((r) => setTimeout(r, 5000));
+    await waitForOrchestratorStarted(env.clients[env.lastNodeIndex]);
     const events = env.clients[env.lastNodeIndex].getEventBuffer()
       .filter((e) => e.event === 'orchestrator:stateChanged');
     expect(events.length, 'no state transitions without blocks').to.equal(0);
@@ -106,9 +107,9 @@ describe('Orchestrator: SYNCING to READY', function () {
       env = await createTestEnv({ nodes: 2, tickerAutostart: false });
       await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
       await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+      await waitForOrchestratorStarted(env.clients[0]);
       await advanceBlock();
-      await Promise.all(env.clients.map((c) => waitForBlockProcessed(c, () => true, 30000)));
-      await waitForOrchestratorState(env.clients[0], 'SYNCING', 30000);
+      await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
     });
 
     after(async function () {
@@ -165,12 +166,12 @@ describe('Orchestrator: BUG #2 — peer drop during SYNCING', function () {
     env = await createTestEnv({ nodes: 5, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+    await waitForOrchestratorStarted(env.clients[0]);
     await advanceBlock();
-    await Promise.all(env.clients.map((c) => waitForBlockProcessed(c, () => true, 30000)));
+    await waitForBlockProcessed(env.clients[0], () => true, 20000);
     await env.startDiscovery();
     await waitForPeerThreshold(env.clients[0], 120000);
-    // Now in SYNCING with peers above threshold
-    await waitForOrchestratorState(env.clients[0], 'SYNCING', 10000);
+    await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
   });
 
   after(async function () {
@@ -331,9 +332,9 @@ describe('Orchestrator: message capability loss', function () {
       env = await createTestEnv({ nodes: 5, tickerAutostart: false });
       await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
       await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+      await waitForOrchestratorStarted(env.clients[0]);
       await advanceBlock();
-      await Promise.all(env.clients.map((c) => waitForBlockProcessed(c, () => true, 30000)));
-      await waitForOrchestratorState(env.clients[0], 'SYNCING', 10000);
+      await waitForOrchestratorState(env.clients[0], 'SYNCING', 20000);
     });
 
     after(async function () {

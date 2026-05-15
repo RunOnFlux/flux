@@ -55,6 +55,7 @@ export function nodeClient(nodeNum) {
         'daemon:recovered',
         'daemon:unreachable',
         'dos:changed',
+        'orchestrator:started',
         'orchestrator:stateChanged',
         'app:installed',
         'app:removed',
