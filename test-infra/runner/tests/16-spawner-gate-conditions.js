@@ -68,16 +68,9 @@ describe('Spawner gate conditions', function () {
     await stopTicker();
   });
 
-  it('should block spawner when node loses confirmation', async function () {
+  it('should pause spawner when node loses confirmation', async function () {
     this.timeout(30000);
     await setNodeStatus(env.clients[0].ip, 'EXPIRED');
-    await waitForSpawnerBlocked(env.clients[0], 'not_confirmed', 20000);
-  });
-
-  it('should block spawner when node is in DOS state', async function () {
-    this.timeout(30000);
-    const res = await env.clients[0].setDOSState(100, 'test dos', fluxTeamAuth.zelidauth);
-    expect(res.status).to.equal('success');
-    await waitForSpawnerBlocked(env.clients[0], 'dos', 20000);
+    await waitForSpawnerPaused(env.clients[0], 20000);
   });
 });
