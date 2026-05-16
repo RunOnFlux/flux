@@ -273,22 +273,17 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   const registryTlsDir = join(fixturesDir, 'registry-tls');
   const registry = await new StaticIpContainer('registry:2')
     .withStaticIp(networkName, REGISTRY_IP)
-    .withBindMounts([
-      { source: registryTlsDir, target: '/certs', mode: 'ro' },
-      { source: join(registryTlsDir, 'ca.pem'), target: '/usr/local/share/ca-certificates/test-ca.crt', mode: 'ro' },
-    ])
+    .withBindMounts([{
+      source: registryTlsDir,
+      target: '/certs',
+      mode: 'ro',
+    }])
     .withEnvironment({
       REGISTRY_HTTP_ADDR: '0.0.0.0:5000',
       REGISTRY_HTTP_TLS_CERTIFICATE: '/certs/server-cert.pem',
       REGISTRY_HTTP_TLS_KEY: '/certs/server-key.pem',
     })
-    .withWaitStrategy(Wait.forHealthCheck())
-    .withHealthCheck({
-      test: ['CMD', 'wget', '--ca-certificate=/certs/ca.pem', '-q', '-O', '/dev/null', 'https://localhost:5000/v2/'],
-      interval: 3000,
-      timeout: 5000,
-      retries: 10,
-    })
+    .withWaitStrategy(Wait.forLogMessage(/listening on/))
     .start();
   started.push(registry);
   containers.registry = registry;
