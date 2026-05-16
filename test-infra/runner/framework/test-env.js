@@ -314,7 +314,6 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     const bindMounts = [
       { source: volumeNames[i], target: '/mnt/appdata' },
       { source: join(fixturesDir, 'registry-tls', 'ca.pem'), target: '/usr/local/share/ca-certificates/test-registry.crt', mode: 'ro' },
-      { source: join(fixturesDir, 'registry-tls', 'ca.pem'), target: `/etc/docker/certs.d/${REGISTRY_IP}:5000/ca.crt`, mode: 'ro' },
     ];
     const builder = new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()
