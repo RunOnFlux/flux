@@ -48,7 +48,7 @@ async function bootAndPeer(env) {
 
 describe('Non-enterprise image update redeploy', function () {
   let env;
-  const appName = `e2eImgUpd${Date.now()}`;
+  const appName = `e2eimgupd${Date.now()}`;
   let installedNodeIndex;
 
   before(async function () {
@@ -147,7 +147,7 @@ describe('Non-enterprise image update redeploy', function () {
 
 describe('Enterprise image update redeploy', function () {
   let env;
-  const appName = `e2eEntUpd${Date.now()}`;
+  const appName = `e2eentupd${Date.now()}`;
   let installedNodeIndex;
 
   before(async function () {
