@@ -39,9 +39,8 @@ if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
       > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || :
 fi
 
-# Trust test registry CA if present
+# Trust test registry CA for dockerd (Node.js uses NODE_EXTRA_CA_CERTS directly)
 if [ -f /usr/local/share/ca-certificates/test-registry.crt ]; then
-  update-ca-certificates 2>/dev/null || true
   mkdir -p "/etc/docker/certs.d/198.18.0.5:5000"
   cp /usr/local/share/ca-certificates/test-registry.crt "/etc/docker/certs.d/198.18.0.5:5000/ca.crt"
 fi

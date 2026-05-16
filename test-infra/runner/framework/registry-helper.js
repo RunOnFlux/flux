@@ -18,29 +18,43 @@ const registryClient = axios.create({
   maxContentLength: Infinity,
 });
 
-function buildLayerTar(filename, content) {
-  const data = Buffer.from(content);
+// Minimal static x86_64 ELF binary that calls sys_pause in a loop (129 bytes).
+// Assembled from: _start: mov eax,34; syscall; jmp _start
+// No libc, no dynamic linker, no filesystem dependencies.
+const PAUSE_BINARY = Buffer.from(
+  '7f454c46020101000000000000000000'
+  + '02003e00010000007800400000000000'
+  + '40000000000000000000000000000000'
+  + '00000000400038000100000000000000'
+  + '01000000050000000000000000000000'
+  + '00004000000000000000400000000000'
+  + '81000000000000008100000000000000'
+  + '0010000000000000b8220000000f05ebf7',
+  'hex',
+);
+
+function tarEntry(name, data, mode = '0100755') {
   const header = Buffer.alloc(512);
-
-  const nameBytes = Buffer.from(filename);
-  nameBytes.copy(header, 0);
-
-  header.write('0100644\0', 100, 'ascii');
+  Buffer.from(name).copy(header, 0);
+  header.write(`${mode}\0`, 100, 'ascii');
   header.write('0000000\0', 108, 'ascii');
   header.write('0000000\0', 116, 'ascii');
   header.write(data.length.toString(8).padStart(11, '0') + '\0', 124, 'ascii');
   header.write('0000000\0', 136, 'ascii');
   header.write('        ', 148, 'ascii');
   header[156] = 48; // '0' = regular file
-
   let checksum = 0;
   for (let i = 0; i < 512; i++) checksum += header[i];
   header.write(checksum.toString(8).padStart(6, '0') + '\0 ', 148, 'ascii');
-
   const padLen = (512 - (data.length % 512)) % 512;
-  const padding = Buffer.alloc(padLen);
+  return Buffer.concat([header, data, Buffer.alloc(padLen)]);
+}
+
+function buildLayerTar(markerContent) {
+  const pauseEntry = tarEntry('bin/pause', PAUSE_BINARY);
+  const markerEntry = tarEntry('marker', Buffer.from(markerContent), '0100644');
   const eof = Buffer.alloc(1024);
-  return zlib.gzipSync(Buffer.concat([header, data, padding, eof]));
+  return zlib.gzipSync(Buffer.concat([pauseEntry, markerEntry, eof]));
 }
 
 function sha256(buf) {
@@ -72,7 +86,7 @@ async function uploadBlob(repo, data) {
 }
 
 export async function pushImage(repo, tag, markerContent = 'v1') {
-  const gzippedLayer = buildLayerTar('marker', markerContent);
+  const gzippedLayer = buildLayerTar(markerContent);
   const layerDigest = await uploadBlob(repo, gzippedLayer);
 
   const uncompressedLayer = zlib.gunzipSync(gzippedLayer);
@@ -81,6 +95,7 @@ export async function pushImage(repo, tag, markerContent = 'v1') {
   const configObj = {
     architecture: 'amd64',
     os: 'linux',
+    config: { Entrypoint: ['/bin/pause'] },
     rootfs: { type: 'layers', diff_ids: [diffId] },
   };
   const configBuf = Buffer.from(JSON.stringify(configObj));
