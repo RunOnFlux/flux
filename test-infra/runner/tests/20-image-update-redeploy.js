@@ -40,10 +40,9 @@ async function bootAndPeer(env) {
   for (const client of env.clients) {
     await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
   }
-  await waitForExplorerReady(env.clients[0]);
-  await waitForOrchestratorStarted(env.clients[0]);
   await env.startDiscovery();
-  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 2, 120000);
+  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
+  await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
   await startTicker();
 }
 
@@ -55,7 +54,7 @@ describe('Non-enterprise image update redeploy', function () {
   before(async function () {
     this.timeout(300000);
 
-    env = await createTestEnv({ nodes: 3, tickerAutostart: false });
+    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
 
     await pushImage(appName, 'v1');
@@ -154,7 +153,7 @@ describe('Enterprise image update redeploy', function () {
   before(async function () {
     this.timeout(300000);
 
-    env = await createTestEnv({ nodes: 3, tickerAutostart: false });
+    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
 
     await pushImage(appName, 'v1');
