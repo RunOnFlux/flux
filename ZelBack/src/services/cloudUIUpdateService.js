@@ -1,3 +1,4 @@
+const config = require('config');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
@@ -5,7 +6,7 @@ const axios = require('axios');
 const log = require('../lib/log');
 
 const REPO = 'RunOnFlux/fluxos-frontend';
-const RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+const RELEASE_API = `${config.github.apiBaseUrl}/repos/${REPO}/releases/latest`;
 const PROJECT_ROOT = path.join(__dirname, '..', '..', '..');
 const CLOUDUI_DIR = path.join(PROJECT_ROOT, 'CloudUI');
 const VERSION_FILE = path.join(CLOUDUI_DIR, 'version');

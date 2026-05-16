@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { authenticate, signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
+import { buildEnterpriseBlob } from './enterprise-helper.js';
 import * as daemon from './daemon-control.js';
 import { waitFor } from './wait.js';
 
@@ -39,12 +40,20 @@ const defaultSpec = {
   enterprise: '',
 };
 
-export function buildAppSpec(overrides = {}) {
+export function buildAppSpec({ enterprise = false, ...overrides } = {}) {
   const ownerKey = appOwnerKey();
   const spec = { ...defaultSpec, owner: ownerKey.zelid, ...overrides };
+
   if (overrides.compose) {
     spec.compose = overrides.compose;
   }
+
+  if (enterprise) {
+    spec.enterprise = buildEnterpriseBlob(spec.compose, spec.contacts);
+    spec.compose = [];
+    spec.contacts = [];
+  }
+
   return spec;
 }
 

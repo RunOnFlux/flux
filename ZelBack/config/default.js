@@ -329,6 +329,12 @@ module.exports = {
     hashSyncFallbackRecheckBlocks: 100,
     syncResponseThrottleMs: 300000,
     wsHandshakeTimeoutMs: 10000,
+    imageUpdateCheckIntervalMs: 21600000,
+    imageUpdateInitialDelayMinMs: 600000,
+    imageUpdateInitialDelayMaxMs: 1800000,
+    imageUpdateDelayBetweenAppsMs: 5000,
+    imageUpdateDelayAfterRedeployMs: 120000,
+    imageUpdateDelayBetweenComponentsMs: 1000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -411,6 +417,10 @@ module.exports = {
     // Tokens will be refreshed when they expire within this time window
     // Default: 15 minutes (15 * 60 * 1000 = 900000ms)
     tokenRefreshBufferMs: 15 * 60 * 1000,
+  },
+  github: {
+    rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
+    apiBaseUrl: 'https://api.github.com',
   },
   analytics: {
     url: 'https://cloudaudit.runonflux.io', // analytics server URL (e.g. 'https://analytics.runonflux.io'). Empty = disabled.

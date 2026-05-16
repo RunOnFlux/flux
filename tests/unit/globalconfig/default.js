@@ -317,6 +317,12 @@ module.exports = {
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
     nodeMonitorCheckTimeoutMs: 10000,
+    imageUpdateCheckIntervalMs: 21600000,
+    imageUpdateInitialDelayMinMs: 600000,
+    imageUpdateInitialDelayMaxMs: 1800000,
+    imageUpdateDelayBetweenAppsMs: 5000,
+    imageUpdateDelayAfterRedeployMs: 120000,
+    imageUpdateDelayBetweenComponentsMs: 1000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -367,4 +373,8 @@ module.exports = {
   enterpriseNodesPublicKeys: [
     '027595b0b8257d7b901fc024d7c5b66a7af68b64240dea0359dec3ffb1f2a33a8d',
   ],
+  github: {
+    rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
+    apiBaseUrl: 'https://api.github.com',
+  },
 };

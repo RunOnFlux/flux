@@ -304,6 +304,11 @@ const benchHandlers = {
     rpcport: BENCHD_PORT,
   }),
 
+  decryptrsamessage: () => JSON.stringify({
+    status: 'ok',
+    message: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+  }),
+
   help: () => 'Flux benchmark stub',
   stop: () => 'Flux benchmark stopping (stub)',
 };

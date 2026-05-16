@@ -39,6 +39,11 @@ if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
       > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || :
 fi
 
+# Trust test registry CA if present (for system tools like curl)
+if [ -f /usr/local/share/ca-certificates/test-registry.crt ]; then
+  update-ca-certificates 2>/dev/null || true
+fi
+
 # Start dockerd (FluxOS expects Docker on the local socket)
 rm -f /var/run/docker.pid
 dockerd --data-root /mnt/appdata/docker &

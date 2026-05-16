@@ -21,6 +21,10 @@ module.exports = {
     daemonStaleMs: 10000,
     daemonExpiredMs: 20000,
   },
+  github: {
+    rawBaseUrl: 'http://198.18.0.6:3000',
+    apiBaseUrl: 'http://198.18.0.6:3000',
+  },
   fluxapps: {
     minOutgoing: 4,
     minIncoming: 2,
@@ -82,6 +86,12 @@ module.exports = {
     daemonInfoIntervalMs: 5000,
     explorerSyncRetryMs: 5000,
     explorerDeepRestoreBlocks: 0,
+    imageUpdateCheckIntervalMs: 30000,
+    imageUpdateInitialDelayMinMs: 1000,
+    imageUpdateInitialDelayMaxMs: 2000,
+    imageUpdateDelayBetweenAppsMs: 100,
+    imageUpdateDelayAfterRedeployMs: 1000,
+    imageUpdateDelayBetweenComponentsMs: 100,
     installation: { probability: 100, delay: 5 },
     removal: { probability: 25, delay: 5 },
     redeploy: { probability: 2, delay: 5, composedDelay: 2 },

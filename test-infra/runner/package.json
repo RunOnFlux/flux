@@ -10,6 +10,7 @@
   "dependencies": {
     "@noble/hashes": "^1.7.2",
     "@noble/secp256k1": "^2.2.3",
+    "axios": "^1.7.9",
     "chai": "^6.2.2",
     "eventsource": "^4.1.0",
     "mocha": "^11.7.5",

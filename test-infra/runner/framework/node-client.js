@@ -62,6 +62,8 @@ export function nodeClient(nodeNum) {
         'app:installed',
         'app:removed',
         'app:specStored',
+        'imageUpdate:checked',
+        'imageUpdate:redeployTriggered',
         'peers:added',
         'peers:belowThreshold',
         'peers:removed',

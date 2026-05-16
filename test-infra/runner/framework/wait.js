@@ -88,3 +88,11 @@ export async function waitForSpawnerResumed(node, timeout = 60000) {
 export async function waitForSpawnerBlocked(node, reason, timeout = 30000) {
   return node.waitForEvent('spawner:blocked', (d) => d.reason === reason, timeout);
 }
+
+export async function waitForImageUpdateChecked(node, timeout = 60000) {
+  return node.waitForEvent('imageUpdate:checked', () => true, timeout);
+}
+
+export async function waitForImageUpdateRedeploy(node, appName, timeout = 120000) {
+  return node.waitForEvent('imageUpdate:redeployTriggered', (d) => d.appName === appName, timeout);
+}
