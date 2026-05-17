@@ -12,6 +12,8 @@ const globalState = require('../utils/globalState');
 const appQueryService = require('../appQuery/appQueryService');
 const containerHealthMonitor = require('../appMonitoring/containerHealthMonitor');
 
+const fluxEventBus = require('../../lib/fluxEventBus');
+
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 let checkAndNotifyPeersOfRunningAppsFirstRun = true;
@@ -142,6 +144,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       await messageStore.storeAppRunningMessage(appRunningMessage);
       const signed = await fluxCommunicationMessagesSender.broadcastMessageToAll(appRunningMessage);
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: signed });
+      fluxEventBus.publish('app:running', { apps, ip: appRunningMessage.ip });
       log.info(`App Running Message broadcasted: ${apps.length} apps`);
     } catch (err) {
       log.error(err);

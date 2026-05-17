@@ -96,3 +96,11 @@ export async function waitForImageUpdateChecked(node, timeout = 60000) {
 export async function waitForImageUpdateRedeploy(node, appName, timeout = 120000) {
   return node.waitForEvent('imageUpdate:redeployTriggered', (d) => d.appName === appName, timeout);
 }
+
+export async function waitForImageUpdateRedeployComplete(node, appName, timeout = 120000) {
+  return node.waitForEvent('imageUpdate:redeployComplete', (d) => d.appName === appName, timeout);
+}
+
+export async function waitForAppRunning(node, appName, timeout = 60000) {
+  return node.waitForEvent('app:running', (d) => d.apps?.some((a) => a.name === appName), timeout);
+}

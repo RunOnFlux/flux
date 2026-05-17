@@ -332,6 +332,8 @@ async function triggerAppUpdate(appSpec) {
     // Call softRedeploy without response object (internal call)
     await advancedWorkflows.softRedeploy(appSpec, null);
 
+    fluxEventBus.publish('imageUpdate:redeployComplete', { appName: appSpec.name });
+
     return true;
   } catch (error) {
     log.error(`Error triggering redeploy for ${appSpec.name}: ${error.message}`);
