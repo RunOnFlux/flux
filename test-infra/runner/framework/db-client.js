@@ -219,6 +219,63 @@ export function dbClient(nodeNum) {
       );
     },
 
+    async seedGlobalAppSpec(spec) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('zelappsinformation').insertOne(spec);
+    },
+
+    async seedPermanentMessage(msg) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('zelappsmessages').insertOne(msg);
+    },
+
+    async seedAppLocation({ name, ip, hash, broadcastedAt, runningSince }) {
+      const globalDb = await db('appsGlobal');
+      const ts = broadcastedAt ?? Date.now();
+      await globalDb.collection('zelappslocation').insertOne({
+        name,
+        ip,
+        hash,
+        broadcastedAt: new Date(ts),
+        expireAt: new Date(ts + 125 * 60 * 1000),
+        runningSince: runningSince ?? ts,
+      });
+    },
+
+    async seedAppStateEvent(event) {
+      const globalDb = await db('appsGlobal');
+      await globalDb.collection('appstateevents').insertOne(event);
+    },
+
+    async seedLocalApp(spec) {
+      const localDb = await db('appsLocal');
+      await localDb.collection('zelappsinformation').insertOne(spec);
+    },
+
+    async seedInstallingLocation({ name, ip, broadcastedAt }) {
+      const globalDb = await db('appsGlobal');
+      const ts = broadcastedAt ?? Date.now();
+      await globalDb.collection('appsinstallinglocations').insertOne({
+        name,
+        ip,
+        broadcastedAt: new Date(ts),
+        expireAt: new Date(ts + 15 * 60 * 1000),
+      });
+    },
+
+    async seedInstallingError({ name, hash, ip, error, broadcastedAt }) {
+      const globalDb = await db('appsGlobal');
+      const ts = broadcastedAt ?? Date.now();
+      await globalDb.collection('appsInstallingErrorsLocations').insertOne({
+        name,
+        hash,
+        ip,
+        error,
+        broadcastedAt: new Date(ts),
+        expireAt: new Date(ts + 24 * 60 * 60 * 1000),
+      });
+    },
+
     async dropAndReseed(ip, height) {
       const client = await getClient();
       for (const name of Object.values(dbNames)) {

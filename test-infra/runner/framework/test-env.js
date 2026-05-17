@@ -170,13 +170,13 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running') {
   }
 }
 
-export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], configOverrides = null, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
+export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], configOverrides = null, nodeTiers = null, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
+    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, nodeTiers, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
   } catch (err) {
     for (const c of started.reverse()) {
       await c.stop().catch(() => {});
@@ -186,7 +186,7 @@ export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes 
   }
 }
 
-async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
+async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, nodeTiers, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
 
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
@@ -240,6 +240,17 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
 
   for (const ip of rpcFailures) {
     await fetch(`http://${DAEMON_IP}:18232/rpc-fail/${ip}`, { method: 'POST' });
+  }
+
+  if (nodeTiers) {
+    for (const [index, tier] of Object.entries(nodeTiers)) {
+      const ip = `198.18.${Number(index) + 1}.0`;
+      await fetch(`http://${DAEMON_IP}:18232/node-tier/${ip}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier }),
+      });
+    }
   }
 
   const syncthingStub = await new StaticIpContainer('flux-e2e-syncthing-stub')
@@ -401,6 +412,14 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       return client;
     },
 
+    async restartNode(index) {
+      if (clients[index]) clients[index].disconnectEventStream();
+      const container = fluxNodes[index].container;
+      await container.restart({ timeout: 30 });
+      if (clients[index]) await clients[index].connectEventStream();
+      return clients[index];
+    },
+
     async disconnectNode(index) {
       const rtClient = await getContainerRuntimeClient();
       const network = rtClient.container.dockerode.getNetwork(networkName);
@@ -421,10 +440,12 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       if (clients[index]) await clients[index].connectEventStream();
     },
 
-    async startDiscovery() {
+    async startDiscovery(indices = null) {
       const teamKey = fluxTeamKey();
-      await Promise.all(clients.map(async (client) => {
-        if (!client) return;
+      const targets = indices
+        ? indices.map((i) => clients[i]).filter(Boolean)
+        : clients.filter(Boolean);
+      await Promise.all(targets.map(async (client) => {
         const auth = await authenticate(client.url, teamKey);
         await client.getAuthed('/flux/startdiscovery', auth.zelidauth);
       }));

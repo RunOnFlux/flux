@@ -22,6 +22,16 @@ export async function isAppContainerRunning(container, appName) {
   return containers.some((c) => c.name.includes(appName) && c.status?.startsWith('Up'));
 }
 
+export async function killAppContainer(container, appName, componentName) {
+  const name = `flux${componentName ?? appName}_${appName}`;
+  return execInContainer(container, `docker rm -f ${name}`);
+}
+
+export async function getAppContainerStatus(container, appName) {
+  const all = await listAppContainers(container);
+  return all.find((c) => c.name.includes(appName)) ?? null;
+}
+
 export async function getContainerImageDigest(container, appName, componentName) {
   const containerName = `flux${componentName}_${appName}`;
   const { stdout } = await execInContainer(container,

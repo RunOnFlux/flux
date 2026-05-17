@@ -579,6 +579,21 @@ control.post('/node-list/reset', (req, res) => {
   res.json({ nodeCount: deterministicNodeList.length });
 });
 
+// -- Per-node tier control --
+
+control.post('/node-tier/:ip', (req, res) => {
+  const ip = req.params.ip;
+  const { tier } = req.body;
+  if (!tier || !['CUMULUS', 'NIMBUS', 'STRATUS'].includes(tier)) {
+    return res.status(400).json({ error: 'tier must be CUMULUS, NIMBUS, or STRATUS' });
+  }
+  const node = deterministicNodeList.find((n) => n.ip.split(':')[0] === ip);
+  if (!node) return res.status(404).json({ error: `node ${ip} not found` });
+  node.tier = tier;
+  const amounts = { CUMULUS: 1000, NIMBUS: 12500, STRATUS: 40000 };
+  return res.json({ ip, tier, collateral: amounts[tier] });
+});
+
 // -- RPC failure simulation --
 
 control.post('/rpc-fail/:ip', (req, res) => {

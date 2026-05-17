@@ -90,6 +90,12 @@ export async function resetNodeList() {
   return post('/node-list/reset');
 }
 
+// -- Node tier --
+
+export async function setNodeTier(ip, tier) {
+  return post(`/node-tier/${ip}`, { tier });
+}
+
 // -- RPC failure --
 
 export async function enableRpcFailure(ip) {
