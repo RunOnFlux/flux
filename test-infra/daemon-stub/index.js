@@ -445,7 +445,7 @@ function buildAppRegistrationTx(appHash, height) {
     vin: [{ txid: 'prev-tx-stub', vout: 0, address: 'stub-sender-address' }],
     vout: [
       {
-        valueSat: 10000000,
+        valueSat: 200000000,
         scriptPubKey: {
           addresses: ['t3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX'],
           asm: '',
