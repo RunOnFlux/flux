@@ -19,6 +19,7 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 let checkAndNotifyPeersOfRunningAppsFirstRun = true;
 let broadcastInterval = null;
 let broadcastInProgress = false;
+let rebroadcastNeeded = false;
 
 function resetBroadcastInterval() {
   if (broadcastInterval) clearInterval(broadcastInterval);
@@ -45,7 +46,8 @@ function initialize() {
 
 async function checkAndNotifyPeersOfRunningApps() {
   if (broadcastInProgress) {
-    log.info('Broadcast cycle already in progress, skipping');
+    rebroadcastNeeded = true;
+    log.info('Broadcast cycle already in progress, will rebroadcast when complete');
     return;
   }
   broadcastInProgress = true;
@@ -160,7 +162,12 @@ async function checkAndNotifyPeersOfRunningApps() {
     log.error(error);
   } finally {
     broadcastInProgress = false;
-    resetBroadcastInterval();
+    if (rebroadcastNeeded) {
+      rebroadcastNeeded = false;
+      setImmediate(() => checkAndNotifyPeersOfRunningApps());
+    } else {
+      resetBroadcastInterval();
+    }
   }
 }
 
