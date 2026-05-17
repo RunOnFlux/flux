@@ -54,6 +54,15 @@ export function buildAppSpec({ enterprise = false, ...overrides } = {}) {
     spec.contacts = [];
   }
 
+  // specificationFormatter outputs datacenter before enterprise.
+  // Since datacenter isn't in defaultSpec, the spread puts it after
+  // enterprise. Reorder to match the formatter's field ordering so
+  // JSON.stringify produces the same string for signature verification.
+  if (spec.datacenter !== undefined) {
+    const { enterprise: ent, datacenter, ...rest } = spec;
+    return { ...rest, datacenter, enterprise: ent };
+  }
+
   return spec;
 }
 
