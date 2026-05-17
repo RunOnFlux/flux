@@ -71,6 +71,7 @@ export function nodeClient(nodeNum) {
         'peers:removed',
         'peers:thresholdReached',
         'spawner:blocked',
+        'spawner:deferred',
         'spawner:paused',
         'spawner:resumed',
       ]) {
