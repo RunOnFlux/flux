@@ -37,7 +37,8 @@ COPY . .
 
 COPY test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
 
-RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log
+RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
+    && ln -s /flux /root/zelflux
 
 ENV NODE_CONFIG_DIR=/flux/ZelBack/config
 

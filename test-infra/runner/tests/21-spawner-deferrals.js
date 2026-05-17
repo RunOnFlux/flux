@@ -61,6 +61,12 @@ async function registerApp(env, appName, specOverrides = {}) {
   await waitForAppSpecStored(env.clients[0], appName);
 }
 
+function anyDeferralEvent(env, appName, reason) {
+  return Promise.any(
+    env.clients.map((c) => waitForSpawnerDeferred(c, appName, reason, 30000)),
+  );
+}
+
 function findDeferralEvent(env, appName, reason) {
   for (const client of env.clients) {
     const events = client.getEventBuffer();
@@ -74,109 +80,17 @@ function findDeferralEvent(env, appName, reason) {
   return null;
 }
 
-function anyDeferralEvent(env, appName, reason) {
-  return Promise.any(
-    env.clients.map((c) => waitForSpawnerDeferred(c, appName, reason, 30000)),
-  );
-}
+// --- Arcane node tests (default — all nodes have FLUXOS_PATH) ---
 
-describe('Spawner deferral — static IP node, app without staticip', function () {
+describe('Arcane: non-enterprise app deferred as non_enterprise_on_arcane', function () {
   let env;
-  const appName = `e2estaticip${Date.now()}`;
+  const appName = `e2earcdefer${Date.now()}`;
 
   before(async function () {
     this.timeout(300000);
     env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
-    await registerApp(env, appName, { staticip: false });
-  });
-
-  after(async function () {
-    this.timeout(30000);
-    await env?.teardown();
-  });
-
-  it('should defer with reason static_ip and correct delay', async function () {
-    this.timeout(60000);
-    const deferred = await anyDeferralEvent(env, appName, 'static_ip');
-    expect(deferred.reason).to.equal('static_ip');
-    expect(deferred.delayMs).to.equal(400);
-  });
-
-  it('should install after deferral expires', async function () {
-    this.timeout(180000);
-    await Promise.any(
-      env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
-    );
-  });
-});
-
-describe('Spawner deferral — static IP bypass with staticip: true', function () {
-  let env;
-  const appName = `e2enostatip${Date.now()}`;
-
-  before(async function () {
-    this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
-    await bootAndPeer(env);
-    await registerApp(env, appName, { staticip: true });
-  });
-
-  after(async function () {
-    this.timeout(30000);
-    await env?.teardown();
-  });
-
-  it('should install without static_ip deferral', async function () {
-    this.timeout(180000);
-    await Promise.any(
-      env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
-    );
-    const deferral = findDeferralEvent(env, appName, 'static_ip');
-    expect(deferral, 'should not have static_ip deferral').to.be.null;
-  });
-});
-
-describe('Spawner deferral — datacenter node, app without datacenter', function () {
-  let env;
-  const appName = `e2edc${Date.now()}`;
-
-  before(async function () {
-    this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
-    await bootAndPeer(env);
-    await registerApp(env, appName, { staticip: true });
-  });
-
-  after(async function () {
-    this.timeout(30000);
-    await env?.teardown();
-  });
-
-  it('should defer with reason datacenter and correct delay', async function () {
-    this.timeout(60000);
-    const deferred = await anyDeferralEvent(env, appName, 'datacenter');
-    expect(deferred.reason).to.equal('datacenter');
-    expect(deferred.delayMs).to.equal(500);
-  });
-
-  it('should install after deferral expires', async function () {
-    this.timeout(180000);
-    await Promise.any(
-      env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
-    );
-  });
-});
-
-describe('Spawner deferral — non-enterprise app on arcane node', function () {
-  let env;
-  const appName = `e2earcane${Date.now()}`;
-
-  before(async function () {
-    this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
-    await bootAndPeer(env);
-    await registerApp(env, appName, { staticip: true, datacenter: true });
+    await registerApp(env, appName);
   });
 
   after(async function () {
@@ -198,9 +112,9 @@ describe('Spawner deferral — non-enterprise app on arcane node', function () {
   });
 });
 
-describe('Spawner deferral — enterprise app gets shorter static IP delay', function () {
+describe('Arcane: enterprise app deferred for static_ip', function () {
   let env;
-  const appName = `e2eentdefer${Date.now()}`;
+  const appName = `e2eentstatip${Date.now()}`;
 
   before(async function () {
     this.timeout(300000);
@@ -214,7 +128,7 @@ describe('Spawner deferral — enterprise app gets shorter static IP delay', fun
     await env?.teardown();
   });
 
-  it('should defer with enterprise static_ip delay (shorter than standard)', async function () {
+  it('should defer with reason static_ip and enterprise delay', async function () {
     this.timeout(60000);
     const deferred = await anyDeferralEvent(env, appName, 'static_ip');
     expect(deferred.reason).to.equal('static_ip');
@@ -226,5 +140,160 @@ describe('Spawner deferral — enterprise app gets shorter static IP delay', fun
     await Promise.any(
       env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
     );
+  });
+});
+
+describe('Arcane: enterprise app deferred for datacenter', function () {
+  let env;
+  const appName = `e2eentdc${Date.now()}`;
+
+  before(async function () {
+    this.timeout(300000);
+    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    await bootAndPeer(env);
+    await registerApp(env, appName, { enterprise: true, staticip: true });
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('should defer with reason datacenter and enterprise delay', async function () {
+    this.timeout(60000);
+    const deferred = await anyDeferralEvent(env, appName, 'datacenter');
+    expect(deferred.reason).to.equal('datacenter');
+    expect(deferred.delayMs).to.equal(250);
+  });
+
+  it('should install after deferral expires', async function () {
+    this.timeout(180000);
+    await Promise.any(
+      env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
+    );
+  });
+});
+
+describe('Arcane: enterprise app bypasses all deferrals', function () {
+  let env;
+  const appName = `e2eentbypass${Date.now()}`;
+
+  before(async function () {
+    this.timeout(300000);
+    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    await bootAndPeer(env);
+    await registerApp(env, appName, { enterprise: true, staticip: true, datacenter: true });
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('should install without any deferral', async function () {
+    this.timeout(180000);
+    await Promise.any(
+      env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
+    );
+    const staticIpDefer = findDeferralEvent(env, appName, 'static_ip');
+    const datacenterDefer = findDeferralEvent(env, appName, 'datacenter');
+    const arcaneDefer = findDeferralEvent(env, appName, 'non_enterprise_on_arcane');
+    expect(staticIpDefer, 'should not have static_ip deferral').to.be.null;
+    expect(datacenterDefer, 'should not have datacenter deferral').to.be.null;
+    expect(arcaneDefer, 'should not have arcane deferral').to.be.null;
+  });
+});
+
+// --- Legacy node tests (all nodes without FLUXOS_PATH) ---
+
+describe('Legacy: non-enterprise app deferred for static_ip', function () {
+  let env;
+  const appName = `e2elegstatip${Date.now()}`;
+
+  before(async function () {
+    this.timeout(300000);
+    env = await createTestEnv({ nodes: 10, legacyNodes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], tickerAutostart: false });
+    await bootAndPeer(env);
+    await registerApp(env, appName, { staticip: false });
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('should defer with reason static_ip and standard delay', async function () {
+    this.timeout(60000);
+    const deferred = await anyDeferralEvent(env, appName, 'static_ip');
+    expect(deferred.reason).to.equal('static_ip');
+    expect(deferred.delayMs).to.equal(400);
+  });
+
+  it('should install after deferral expires', async function () {
+    this.timeout(180000);
+    await Promise.any(
+      env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
+    );
+  });
+});
+
+describe('Legacy: non-enterprise app deferred for datacenter', function () {
+  let env;
+  const appName = `e2elegdc${Date.now()}`;
+
+  before(async function () {
+    this.timeout(300000);
+    env = await createTestEnv({ nodes: 10, legacyNodes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], tickerAutostart: false });
+    await bootAndPeer(env);
+    await registerApp(env, appName, { staticip: true });
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('should defer with reason datacenter and standard delay', async function () {
+    this.timeout(60000);
+    const deferred = await anyDeferralEvent(env, appName, 'datacenter');
+    expect(deferred.reason).to.equal('datacenter');
+    expect(deferred.delayMs).to.equal(500);
+  });
+
+  it('should install after deferral expires', async function () {
+    this.timeout(180000);
+    await Promise.any(
+      env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
+    );
+  });
+});
+
+describe('Legacy: non-enterprise app bypasses all deferrals', function () {
+  let env;
+  const appName = `e2elegbypass${Date.now()}`;
+
+  before(async function () {
+    this.timeout(300000);
+    env = await createTestEnv({ nodes: 10, legacyNodes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], tickerAutostart: false });
+    await bootAndPeer(env);
+    await registerApp(env, appName, { staticip: true, datacenter: true });
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('should install without any deferral', async function () {
+    this.timeout(180000);
+    await Promise.any(
+      env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
+    );
+    const staticIpDefer = findDeferralEvent(env, appName, 'static_ip');
+    const datacenterDefer = findDeferralEvent(env, appName, 'datacenter');
+    const arcaneDefer = findDeferralEvent(env, appName, 'non_enterprise_on_arcane');
+    expect(staticIpDefer, 'should not have static_ip deferral').to.be.null;
+    expect(datacenterDefer, 'should not have datacenter deferral').to.be.null;
+    expect(arcaneDefer, 'should not have arcane deferral').to.be.null;
   });
 });

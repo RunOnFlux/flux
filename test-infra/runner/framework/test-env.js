@@ -170,7 +170,7 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running') {
   }
 }
 
-export async function createTestEnv({ nodes = 1, deferredNodes = 0, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
+export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
@@ -315,29 +315,32 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       { source: volumeNames[i], target: '/mnt/appdata' },
       { source: join(fixturesDir, 'registry-tls', 'ca.pem'), target: '/usr/local/share/ca-certificates/test-registry.crt', mode: 'ro' },
     ];
+    const isLegacy = legacyNodes.includes(i);
+    const nodeEnv = {
+      NODE_CONFIG_DIR: `/flux/test-infra/config/node-${num}`,
+      FLUXD_PATH: '/dat/var/lib/fluxd',
+      FLUXD_CONFIG_PATH: `/flux/test-infra/fixtures/conf/flux-${num}.conf`,
+      SYNCTHING_PATH: '/dat/usr/lib/syncthing',
+      FLUXBENCH_PATH: '/dat/usr/lib/fluxbenchd',
+      FLUX_WATCHDOG_PATH: '/dat/usr/lib/fluxwatchdog',
+      FLUX_APPS_FOLDER: '/mnt/appdata/flux-apps',
+      FLUX_NODE_IP: nodeIp,
+      FLUX_ADMIN_ZELID: nodeManifest.zelid,
+      FLUX_API_PORT: '16127',
+      FLUX_SYNCTHING_HOST: SYNCTHING_IP,
+      FLUX_SYNCTHING_PORT: '8384',
+      FLUX_BOOT_ID: getBootId(i + 1),
+      NODE_EXTRA_CA_CERTS: '/usr/local/share/ca-certificates/test-registry.crt',
+    };
+    if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
+    if (discoveryAutostart) nodeEnv.FLUX_DISCOVERY_AUTOSTART = 'true';
+
     const builder = new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
       .withBindMounts(bindMounts)
       .withLogConsumer(logCollector)
-      .withEnvironment({
-        NODE_CONFIG_DIR: `/flux/test-infra/config/node-${num}`,
-        FLUXOS_PATH: '/flux',
-        FLUXD_PATH: '/dat/var/lib/fluxd',
-        FLUXD_CONFIG_PATH: `/flux/test-infra/fixtures/conf/flux-${num}.conf`,
-        SYNCTHING_PATH: '/dat/usr/lib/syncthing',
-        FLUXBENCH_PATH: '/dat/usr/lib/fluxbenchd',
-        FLUX_WATCHDOG_PATH: '/dat/usr/lib/fluxwatchdog',
-        FLUX_APPS_FOLDER: '/mnt/appdata/flux-apps',
-        FLUX_NODE_IP: nodeIp,
-        FLUX_ADMIN_ZELID: nodeManifest.zelid,
-        FLUX_API_PORT: '16127',
-        FLUX_SYNCTHING_HOST: SYNCTHING_IP,
-        FLUX_SYNCTHING_PORT: '8384',
-        FLUX_BOOT_ID: getBootId(i + 1),
-        NODE_EXTRA_CA_CERTS: '/usr/local/share/ca-certificates/test-registry.crt',
-        ...(discoveryAutostart ? { FLUX_DISCOVERY_AUTOSTART: 'true' } : {}),
-      });
+      .withEnvironment(nodeEnv);
 
     nodeConfigs.push({ index: i, builder, ip: nodeIp, num: i + 1, logCollector });
   }
