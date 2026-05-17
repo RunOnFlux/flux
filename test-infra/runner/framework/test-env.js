@@ -109,7 +109,7 @@ function getBootId(nodeNum) {
   return `test-boot-id-node-${String(nodeNum).padStart(2, '0')}`;
 }
 
-async function seedMongo(mongoIp, nodeCount, bootContext = 'running') {
+async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCenter = true } = {}) {
   const client = new MongoClient(`mongodb://${mongoIp}:27017`);
   try {
     await client.connect();
@@ -132,9 +132,9 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running') {
               country: 'Germany', countryCode: 'DE',
               region: 'HE', regionName: 'Hesse',
               lat: 50.1109, lon: 8.6821,
-              org: 'Test Network', static: true, dataCenter: true,
+              org: 'Test Network', static: true, dataCenter,
             },
-            staticIp: true, dataCenter: true,
+            staticIp: true, dataCenter,
             lastIpChangeDate: null, updatedAt: Date.now(),
           },
         },
@@ -170,13 +170,13 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running') {
   }
 }
 
-export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], configOverrides = null, nodeTiers = null, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
+export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], configOverrides = null, nodeTiers = null, dataCenter = true, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, nodeTiers, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
+    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
   } catch (err) {
     for (const c of started.reverse()) {
       await c.stop().catch(() => {});
@@ -186,7 +186,7 @@ export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes 
   }
 }
 
-async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, nodeTiers, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
+async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
 
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
@@ -202,7 +202,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   started.push(mongo);
   containers.mongo = mongo;
 
-  await seedMongo(MONGO_IP, nodes, bootContext);
+  await seedMongo(MONGO_IP, nodes, bootContext, { dataCenter });
 
   const daemonStub = await new StaticIpContainer('flux-e2e-daemon-stub')
     .withStaticIp(networkName, DAEMON_IP)
@@ -280,6 +280,16 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     .start();
   started.push(externalStub);
   containers.externalStub = externalStub;
+
+  if (!dataCenter) {
+    for (let i = 1; i <= nodes; i++) {
+      await fetch(`http://${EXTERNAL_STUB_IP}:3001/geolocation/198.18.${i}.0`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hosting: false }),
+      });
+    }
+  }
 
   const registryTlsDir = join(fixturesDir, 'registry-tls');
   const registry = await new StaticIpContainer('registry:2')
