@@ -176,7 +176,7 @@ export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes 
   const started = [];
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
+    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
   } catch (err) {
     for (const c of started.reverse()) {
       await c.stop().catch(() => {});
@@ -186,7 +186,7 @@ export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes 
   }
 }
 
-async function _buildEnv(networkName, containers, started, nodes, deferredNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
+async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
 
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
