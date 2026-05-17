@@ -54,6 +54,9 @@ async function registerApp(env, appName, specOverrides = {}) {
   const regResult = await registerAndConfirm(
     env.clients[0].url, nodeKey(1), spec, env.clients,
   );
+  if (regResult.status !== 'success') {
+    console.log('Registration failed:', JSON.stringify(regResult).substring(0, 500));
+  }
   expect(regResult.status).to.equal('success');
   await waitForBlockProcessed(
     env.clients[0], (d) => d.height >= regResult.targetHeight, 60000,
