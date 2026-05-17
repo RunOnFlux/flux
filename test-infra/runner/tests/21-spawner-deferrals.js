@@ -180,7 +180,11 @@ describe('Arcane: enterprise app bypasses all deferrals', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({
+      nodes: 10,
+      tickerAutostart: false,
+      configOverrides: { enterpriseAppOwners: ['1L2cmJ69frZTg83izRNJsYwDWh5ZmdoUSx'] },
+    });
     await bootAndPeer(env);
     await registerApp(env, appName, { enterprise: true, staticip: true, datacenter: true });
   });

@@ -170,13 +170,13 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running') {
   }
 }
 
-export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
+export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], configOverrides = null, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
+    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
   } catch (err) {
     for (const c of started.reverse()) {
       await c.stop().catch(() => {});
@@ -186,7 +186,7 @@ export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes 
   }
 }
 
-async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
+async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
 
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
@@ -334,6 +334,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     };
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
     if (discoveryAutostart) nodeEnv.FLUX_DISCOVERY_AUTOSTART = 'true';
+    if (configOverrides) nodeEnv.NODE_CONFIG = JSON.stringify(configOverrides);
 
     const builder = new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()
