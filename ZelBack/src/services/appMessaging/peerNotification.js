@@ -12,7 +12,7 @@ const globalState = require('../utils/globalState');
 const appQueryService = require('../appQuery/appQueryService');
 const containerHealthMonitor = require('../appMonitoring/containerHealthMonitor');
 
-const fluxEventBus = require('../../lib/fluxEventBus');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
