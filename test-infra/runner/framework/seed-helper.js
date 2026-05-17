@@ -45,7 +45,7 @@ export async function buildSeedableApp({
     instances,
     contacts: [],
     geolocation: [],
-    expire: height + 22000,
+    expire: 22000,
     nodes: [],
     staticip,
     enterprise,
