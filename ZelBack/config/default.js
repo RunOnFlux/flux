@@ -313,6 +313,16 @@ module.exports = {
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
     nodeMonitorCheckTimeoutMs: 10000,
+    spawnDeferrals: {
+      targetedNodesMs: { enterprise: 1800000, standard: 3420000 },
+      staticIpMs: { enterprise: 1620000, standard: 3420000 },
+      datacenterMs: { enterprise: 1620000, standard: 3420000 },
+      capacityGap: {
+        largeMs: { enterprise: 1800000, standard: 7020000 },
+        mediumMs: { enterprise: 1260000, standard: 5220000 },
+        smallMs: { enterprise: 720000, standard: 3420000 },
+      },
+    },
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,
     explorerSyncRetryMs: 120000,

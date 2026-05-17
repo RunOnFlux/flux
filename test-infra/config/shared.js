@@ -82,6 +82,16 @@ module.exports = {
     discoveryFailRetryMs: 5000,
     connectionBackoffMs: [2000, 5000, 10000, 15000],
     nodeMonitorIntervalMs: 10000,
+    spawnDeferrals: {
+      targetedNodesMs: { enterprise: 100, standard: 100 },
+      staticIpMs: { enterprise: 100, standard: 100 },
+      datacenterMs: { enterprise: 100, standard: 100 },
+      capacityGap: {
+        largeMs: { enterprise: 100, standard: 100 },
+        mediumMs: { enterprise: 100, standard: 100 },
+        smallMs: { enterprise: 100, standard: 100 },
+      },
+    },
     spawnDelayMultiplier: 0.01,
     daemonInfoIntervalMs: 5000,
     explorerSyncRetryMs: 5000,
