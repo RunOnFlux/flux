@@ -6,6 +6,7 @@ import {
   execInContainer, killAppContainer, getAppContainerStatus,
 } from '../framework/container.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
+import { dbClient } from '../framework/db-client.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
