@@ -361,7 +361,12 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   });
   containers.fluxNodes = fluxNodes;
 
-  const clients = fluxNodes.map((n) => (n.container ? nodeClient(n.num) : null));
+  const clients = fluxNodes.map((n) => {
+    if (!n.container) return null;
+    const client = nodeClient(n.num);
+    client.container = n.container;
+    return client;
+  });
 
   for (const client of clients) {
     if (client) await client.connectEventStream();
@@ -385,6 +390,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       started.push(container);
       fluxNodes[index].container = container;
       const client = nodeClient(fluxNodes[index].num);
+      client.container = container;
       await client.connectEventStream();
       clients[index] = client;
       deferredBuilders.delete(index);

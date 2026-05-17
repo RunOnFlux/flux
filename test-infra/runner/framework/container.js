@@ -21,3 +21,12 @@ export async function isAppContainerRunning(container, appName) {
   const containers = await listAppContainers(container);
   return containers.some((c) => c.name.includes(appName) && c.status?.startsWith('Up'));
 }
+
+export async function getContainerImageDigest(container, appName, componentName) {
+  const containerName = `flux${componentName}_${appName}`;
+  const { stdout } = await execInContainer(container,
+    `docker image inspect $(docker inspect --format '{{.Image}}' ${containerName}) --format '{{index .RepoDigests 0}}'`,
+  );
+  const match = stdout.trim().match(/@(sha256:[a-f0-9]+)$/);
+  return match ? match[1] : null;
+}

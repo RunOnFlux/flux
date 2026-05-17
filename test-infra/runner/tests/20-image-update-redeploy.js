@@ -4,11 +4,12 @@ import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { pushImage, pushUpdatedImage } from '../framework/registry-helper.js';
+import { getContainerImageDigest } from '../framework/container.js';
 import { startTicker, advanceBlock, advanceBlocks } from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForAppInstalled, waitForAppSpecStored,
-  waitForImageUpdateRedeploy,
+  waitForImageUpdateRedeploy, waitForImageUpdateRedeployComplete,
 } from '../framework/wait.js';
 
 function localRegistryCompose(appName) {
@@ -104,13 +105,9 @@ describe('Non-enterprise image update redeploy', function () {
     const originalApp = beforeRes.data.find((a) => a.name === appName);
     const originalHeight = originalApp.height;
 
-    await pushUpdatedImage(appName, 'v1');
+    const newDigest = await pushUpdatedImage(appName, 'v1');
 
-    await waitForImageUpdateRedeploy(
-      env.clients[installedNodeIndex], appName, 120000,
-    );
-
-    await waitForAppInstalled(
+    await waitForImageUpdateRedeployComplete(
       env.clients[installedNodeIndex], appName, 120000,
     );
 
@@ -118,6 +115,11 @@ describe('Non-enterprise image update redeploy', function () {
     const updatedApp = afterRes.data.find((a) => a.name === appName);
     expect(updatedApp, 'app not found after redeploy').to.exist;
     expect(updatedApp.height, 'height lost after redeploy').to.equal(originalHeight);
+
+    const runningDigest = await getContainerImageDigest(
+      env.clients[installedNodeIndex].container, appName, appName,
+    );
+    expect(runningDigest, 'running image digest should match pushed').to.equal(newDigest);
   });
 
   it('should survive expiry check after redeploy', async function () {
@@ -200,13 +202,9 @@ describe('Enterprise image update redeploy', function () {
     const originalApp = beforeRes.data.find((a) => a.name === appName);
     const originalHeight = originalApp.height;
 
-    await pushUpdatedImage(appName, 'v1');
+    const newDigest = await pushUpdatedImage(appName, 'v1');
 
-    await waitForImageUpdateRedeploy(
-      env.clients[installedNodeIndex], appName, 120000,
-    );
-
-    await waitForAppInstalled(
+    await waitForImageUpdateRedeployComplete(
       env.clients[installedNodeIndex], appName, 120000,
     );
 
@@ -215,6 +213,11 @@ describe('Enterprise image update redeploy', function () {
     expect(updatedApp, 'app not found after redeploy').to.exist;
     expect(updatedApp.height, 'height lost after redeploy').to.equal(originalHeight);
     expect(updatedApp.enterprise, 'enterprise field lost').to.be.a('string').that.is.not.empty;
+
+    const runningDigest = await getContainerImageDigest(
+      env.clients[installedNodeIndex].container, appName, appName,
+    );
+    expect(runningDigest, 'running image digest should match pushed').to.equal(newDigest);
   });
 
   it('should survive expiry check after redeploy', async function () {
