@@ -1,36 +1,17 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { nodeKey } from '../framework/keys.js';
-import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { pushImage } from '../framework/registry-helper.js';
+import { dbClient } from '../framework/db-client.js';
+import { buildSeedableApp } from '../framework/seed-helper.js';
 import {
-  startTicker, advanceBlock, setNodeStatus,
-  clearNodeStatus, enableRpcFailure,
+  startTicker, advanceBlock, setNodeStatus, enableRpcFailure,
 } from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
-  waitForAppSpecStored, waitForAppInstalled,
+  waitForAppInstalled,
 } from '../framework/wait.js';
 import { waitFor } from '../framework/wait.js';
-
-function localRegistryCompose(appName) {
-  return [{
-    name: appName,
-    description: 'test container',
-    repotag: `198.18.0.5:5000/${appName}:v1`,
-    ports: [31111],
-    domains: [''],
-    environmentParameters: [],
-    commands: [],
-    containerPorts: [80],
-    containerData: '/tmp',
-    cpu: 0.1,
-    ram: 100,
-    hdd: 1,
-    repoauth: '',
-  }];
-}
 
 async function bootAndPeer(env) {
   for (const client of env.clients) await waitForDaemonReady(client);
@@ -47,21 +28,33 @@ async function bootAndPeer(env) {
   await startTicker();
 }
 
-async function registerAndInstall(env, appName) {
+async function seedAndWaitForInstall(env, appName) {
   await pushImage(appName, 'v1');
-  const spec = buildAppSpec({
+  const app = await buildSeedableApp({
     name: appName,
-    compose: localRegistryCompose(appName),
-    instances: 3,
+    compose: [{
+      name: appName,
+      description: 'test container',
+      repotag: `198.18.0.5:5000/${appName}:v1`,
+      ports: [31111],
+      domains: [''],
+      environmentParameters: [],
+      commands: [],
+      containerPorts: [80],
+      containerData: '/tmp',
+      cpu: 0.1,
+      ram: 100,
+      hdd: 1,
+      repoauth: '',
+    }],
   });
-  const regResult = await registerAndConfirm(
-    env.clients[0].url, nodeKey(1), spec, env.clients,
-  );
-  expect(regResult.status).to.equal('success');
-  await waitForBlockProcessed(
-    env.clients[0], (d) => d.height >= regResult.targetHeight, 60000,
-  );
-  await waitForAppSpecStored(env.clients[0], appName);
+
+  for (let i = 1; i <= env.nodeCount; i++) {
+    const dc = dbClient(i);
+    await dc.seedGlobalAppSpec(app.spec);
+    await dc.seedPermanentMessage(app.permanentMessage);
+    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
+  }
 
   const installed = await Promise.any(
     env.clients.map(async (c, i) => {
@@ -81,7 +74,7 @@ describe('Confirmation loss removes installed apps', function () {
     this.timeout(300000);
     env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
-    installedOnIndex = await registerAndInstall(env, appName);
+    installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
 
   after(async function () {
@@ -113,7 +106,7 @@ describe('Daemon stale removes installed apps', function () {
     this.timeout(300000);
     env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
-    installedOnIndex = await registerAndInstall(env, appName);
+    installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
 
   after(async function () {

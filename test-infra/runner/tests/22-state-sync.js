@@ -1,39 +1,18 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { nodeKey } from '../framework/keys.js';
-import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { pushImage } from '../framework/registry-helper.js';
-import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
+import { buildSeedableApp, buildRunningState } from '../framework/seed-helper.js';
+import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
-  waitForAppSpecStored, waitForAppInstalled, waitForOrchestratorState,
+  waitForAppInstalled, waitForOrchestratorState,
 } from '../framework/wait.js';
 import { waitFor } from '../framework/wait.js';
 
-function localRegistryCompose(appName) {
-  return [{
-    name: appName,
-    description: 'test container',
-    repotag: `198.18.0.5:5000/${appName}:v1`,
-    ports: [31111],
-    domains: [''],
-    environmentParameters: [],
-    commands: [],
-    containerPorts: [80],
-    containerData: '/tmp',
-    cpu: 0.1,
-    ram: 100,
-    hdd: 1,
-    repoauth: '',
-  }];
-}
-
-async function bootAndPeer(env, nodeIndices = null) {
-  const clients = nodeIndices
-    ? nodeIndices.map((i) => env.clients[i]).filter(Boolean)
-    : env.clients.filter(Boolean);
+async function bootAndPeer(env, nodeIndices) {
+  const clients = nodeIndices.map((i) => env.clients[i]).filter(Boolean);
 
   for (const client of clients) await waitForDaemonReady(client);
   await Promise.all(clients.map(
@@ -51,40 +30,61 @@ async function bootAndPeer(env, nodeIndices = null) {
 
 describe('Late-joining node syncs state from peers', function () {
   let env;
-  const appName = `e2esync${Date.now()}`;
+  const appNames = [];
+  const apps = [];
 
   before(async function () {
-    this.timeout(300000);
-    // 12 nodes: 10 running + 2 deferred (for late-join testing)
+    this.timeout(600000);
     env = await createTestEnv({ nodes: 12, deferredNodes: 2, tickerAutostart: false });
 
-    // Boot and peer only the first 10 nodes
     const initialIndices = Array.from({ length: 10 }, (_, i) => i);
     await bootAndPeer(env, initialIndices);
 
-    // Register an app on the initial 10 nodes
-    await pushImage(appName, 'v1');
-    const spec = buildAppSpec({
-      name: appName,
-      compose: localRegistryCompose(appName),
-      instances: 3,
-    });
-    const regResult = await registerAndConfirm(
-      env.clients[0].url, nodeKey(1), spec, env.clients.slice(0, 10),
-    );
-    expect(regResult.status).to.equal('success');
-    await waitForBlockProcessed(
-      env.clients[0], (d) => d.height >= regResult.targetHeight, 60000,
-    );
-    await waitForAppSpecStored(env.clients[0], appName);
+    // Wait for orchestrator READY on initial nodes
+    await waitForOrchestratorState(env.clients[0], 'READY', 120000);
 
-    // Wait for app to install on at least one node
-    await Promise.any(
-      env.clients.slice(0, 10).map((c) => waitForAppInstalled(c, appName, 120000)),
-    );
+    // Seed 3 apps with full state on the 10 running nodes
+    for (let a = 0; a < 3; a++) {
+      const name = `e2esync${a}${Date.now()}`;
+      appNames.push(name);
+      await pushImage(name, 'v1');
 
-    // Wait for a running broadcast to propagate (app:running event)
-    await env.clients[0].waitForEvent('app:running', (d) => d.apps?.some((a) => a.name === appName), 60000);
+      const app = await buildSeedableApp({
+        name,
+        compose: [{
+          name,
+          description: 'sync test container',
+          repotag: `198.18.0.5:5000/${name}:v1`,
+          ports: [31111 + a],
+          domains: [''],
+          environmentParameters: [],
+          commands: [],
+          containerPorts: [80],
+          containerData: '/tmp',
+          cpu: 0.1,
+          ram: 100,
+          hdd: 1,
+          repoauth: '',
+        }],
+      });
+      apps.push(app);
+
+      const nodeIps = initialIndices.map((i) => `198.18.${i + 1}.0`);
+      const state = buildRunningState({ appName: name, nodeIps, hash: app.hash });
+
+      for (let i = 1; i <= 10; i++) {
+        const dc = dbClient(i);
+        await dc.seedGlobalAppSpec(app.spec);
+        await dc.seedPermanentMessage(app.permanentMessage);
+        await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
+        for (const loc of state.locations) {
+          await dc.seedAppLocation(loc);
+        }
+        for (const evt of state.stateEvents) {
+          await dc.seedAppStateEvent(evt);
+        }
+      }
+    }
   });
 
   after(async function () {
@@ -101,24 +101,25 @@ describe('Late-joining node syncs state from peers', function () {
 
   it('should reach orchestrator READY on the late-joining node', async function () {
     this.timeout(180000);
-    const client = env.clients[10];
-    await waitForOrchestratorState(client, 'READY', 120000);
+    await waitForOrchestratorState(env.clients[10], 'READY', 120000);
   });
 
-  it('should have the app spec on the late-joining node', async function () {
+  it('should have all app specs on the late-joining node', async function () {
     this.timeout(30000);
-    const client = env.clients[10];
-    const res = await client.getAppSpecs(appName);
-    expect(res.status).to.equal('success');
-    expect(res.data).to.have.property('name', appName);
+    for (const name of appNames) {
+      const res = await env.clients[10].getAppSpecs(name);
+      expect(res.status, `spec for ${name}`).to.equal('success');
+      expect(res.data).to.have.property('name', name);
+    }
   });
 
   it('should have app locations on the late-joining node', async function () {
     this.timeout(30000);
-    const client = env.clients[10];
-    const res = await client.getAppLocations(appName);
-    expect(res.status).to.equal('success');
-    expect(res.data).to.be.an('array').with.length.greaterThan(0);
+    for (const name of appNames) {
+      const res = await env.clients[10].getAppLocations(name);
+      expect(res.status, `locations for ${name}`).to.equal('success');
+      expect(res.data).to.be.an('array').with.length.greaterThan(0);
+    }
   });
 
   it('should have permanent messages on the late-joining node', async function () {
