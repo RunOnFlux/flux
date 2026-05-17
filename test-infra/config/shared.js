@@ -96,7 +96,7 @@ module.exports = {
     daemonInfoIntervalMs: 5000,
     explorerSyncRetryMs: 5000,
     explorerDeepRestoreBlocks: 0,
-    imageUpdateCheckIntervalMs: 30000,
+    imageUpdateCheckIntervalMs: 5000,
     imageUpdateInitialDelayMinMs: 1000,
     imageUpdateInitialDelayMaxMs: 2000,
     imageUpdateDelayBetweenAppsMs: 100,
