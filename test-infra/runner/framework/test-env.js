@@ -5,7 +5,8 @@ process.env.TESTCONTAINERS_HOST_OVERRIDE ??= '127.0.0.1';
 process.env.TESTCONTAINERS_RYUK_RECONNECTION_TIMEOUT ??= '5s';
 
 import { GenericContainer, Network, Wait, getContainerRuntimeClient } from 'testcontainers';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
@@ -332,9 +333,13 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     const nodeManifest = manifest.nodes[i];
 
     const logCollector = createLogCollector();
+    const bootIdDir = join(tmpdir(), `flux-bootid-${networkName}-${num}`);
+    mkdirSync(bootIdDir, { recursive: true });
+    writeFileSync(join(bootIdDir, 'boot-id'), getBootId(i + 1));
     const bindMounts = [
       { source: volumeNames[i], target: '/mnt/appdata' },
       { source: join(fixturesDir, 'registry-tls', 'ca.pem'), target: '/usr/local/share/ca-certificates/test-registry.crt', mode: 'ro' },
+      { source: bootIdDir, target: '/tmp/flux-boot-config' },
     ];
     const isLegacy = legacyNodes.includes(i);
     const nodeEnv = {
@@ -350,7 +355,6 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       FLUX_API_PORT: '16127',
       FLUX_SYNCTHING_HOST: SYNCTHING_IP,
       FLUX_SYNCTHING_PORT: '8384',
-      FLUX_BOOT_ID: getBootId(i + 1),
       NODE_EXTRA_CA_CERTS: '/usr/local/share/ca-certificates/test-registry.crt',
     };
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
@@ -374,7 +378,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
         startPeriod: 15000,
       });
 
-    nodeConfigs.push({ index: i, builder, ip: nodeIp, num: i + 1, logCollector });
+    nodeConfigs.push({ index: i, builder, ip: nodeIp, num: i + 1, logCollector, bootIdDir });
   }
 
   const startPromises = nodeConfigs
@@ -390,9 +394,9 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
 
   const fluxNodes = nodeConfigs.map((n) => {
     const s = startedByIndex.get(n.index);
-    if (s) return { container: s.container, ip: n.ip, num: n.num, logCollector: n.logCollector };
+    if (s) return { container: s.container, ip: n.ip, num: n.num, logCollector: n.logCollector, bootIdDir: n.bootIdDir };
     deferredBuilders.set(n.index, n.builder);
-    return { container: null, ip: n.ip, num: n.num, logCollector: n.logCollector };
+    return { container: null, ip: n.ip, num: n.num, logCollector: n.logCollector, bootIdDir: n.bootIdDir };
   });
   containers.fluxNodes = fluxNodes;
 
@@ -437,6 +441,10 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       await fluxNodes[index].container.restart({ timeout: 10000 });
       if (clients[index]) await clients[index].connectEventStream();
       return clients[index];
+    },
+
+    setBootId(index, bootId) {
+      writeFileSync(join(fluxNodes[index].bootIdDir, 'boot-id'), bootId);
     },
 
     async disconnectNode(index) {
@@ -500,6 +508,10 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
         await cleanupClient.container.dockerode.getVolume(volName).remove().catch(() => {});
       }
       await removeNetwork(networkName);
+      for (const n of fluxNodes) {
+        const { rmSync } = await import('node:fs');
+        rmSync(n.bootIdDir, { recursive: true, force: true });
+      }
       http.globalAgent.destroy();
     },
   };

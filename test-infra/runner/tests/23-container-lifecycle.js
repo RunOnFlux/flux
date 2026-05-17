@@ -6,7 +6,6 @@ import {
   execInContainer, killAppContainer, getAppContainerStatus,
 } from '../framework/container.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
-import { dbClient } from '../framework/db-client.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
@@ -85,15 +84,11 @@ describe('reconcileAppsOnBoot restarts containers after simulated reboot', funct
 
   it('should reconcile app container after simulated reboot', async function () {
     this.timeout(180000);
-    const nodeNum = installedOnIndex + 1;
-    const dc = dbClient(nodeNum);
     const client = env.clients[installedOnIndex];
 
-    await dc.writeHeartbeat({
-      machineBootId: 'old-boot-id',
-      lastAlive: Date.now(),
-      shutdownReason: 'sigterm',
-    });
+    // Change boot ID to simulate machine reboot — heartbeat has the old ID,
+    // FluxOS reads the new one from the mount → machineRebooted=true
+    env.setBootId(installedOnIndex, 'simulated-reboot-id');
 
     await env.restartNode(installedOnIndex);
 

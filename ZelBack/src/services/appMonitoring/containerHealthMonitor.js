@@ -116,7 +116,7 @@ async function monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames) {
 
   if (globalState.isOperationInProgress()) {
     log.warn('Stopped application checks not running, some removal or installation is in progress');
-    return masterSlaveAppsInstalled;
+    return { masterSlaveAppsInstalled, startedApps };
   }
 
   // eslint-disable-next-line no-restricted-syntax
