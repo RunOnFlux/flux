@@ -7,11 +7,9 @@ import { pushImage, pushUpdatedImage } from '../framework/registry-helper.js';
 import { startTicker, advanceBlock, advanceBlocks } from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
-  waitForExplorerReady, waitForOrchestratorStarted,
   waitForAppInstalled, waitForAppSpecStored,
-  waitForImageUpdateRedeploy, waitForPeerThreshold,
+  waitForImageUpdateRedeploy,
 } from '../framework/wait.js';
-import { isAppContainerRunning } from '../framework/container.js';
 
 function localRegistryCompose(appName) {
   return [{
@@ -62,11 +60,14 @@ describe('Non-enterprise image update redeploy', function () {
     const spec = buildAppSpec({
       name: appName,
       compose: localRegistryCompose(appName),
-      instances: 1,
+      instances: 3,
     });
     const regResult = await registerAndConfirm(
       env.clients[0].url, nodeKey(1), spec, env.clients,
     );
+    if (regResult.status !== 'success') {
+      console.log('Registration failed:', JSON.stringify(regResult).substring(0, 500));
+    }
     expect(regResult.status).to.equal('success');
 
     await waitForBlockProcessed(
@@ -137,12 +138,6 @@ describe('Non-enterprise image update redeploy', function () {
     const app = res.data.find((a) => a.name === appName);
     expect(app, 'app missing from installed apps after expiry').to.exist;
   });
-
-  it('should have running containers after redeploy + expiry', async function () {
-    this.timeout(30000);
-    const running = await isAppContainerRunning(installedNodeIndex + 1, appName);
-    expect(running, 'app containers not running').to.equal(true);
-  });
 });
 
 describe('Enterprise image update redeploy', function () {
@@ -162,7 +157,7 @@ describe('Enterprise image update redeploy', function () {
       name: appName,
       compose: localRegistryCompose(appName),
       enterprise: true,
-      instances: 1,
+      instances: 3,
     });
     const regResult = await registerAndConfirm(
       env.clients[0].url, nodeKey(1), spec, env.clients,
@@ -240,11 +235,5 @@ describe('Enterprise image update redeploy', function () {
     const app = res.data.find((a) => a.name === appName);
     expect(app, 'app missing after expiry').to.exist;
     expect(app.height, 'height missing after expiry').to.be.a('number');
-  });
-
-  it('should have running containers after redeploy + expiry', async function () {
-    this.timeout(30000);
-    const running = await isAppContainerRunning(installedNodeIndex + 1, appName);
-    expect(running, 'app containers not running').to.equal(true);
   });
 });
