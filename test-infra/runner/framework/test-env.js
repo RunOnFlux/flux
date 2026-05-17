@@ -365,11 +365,13 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       .withEnvironment(nodeEnv)
       .withWaitStrategy(Wait.forHealthCheck())
       .withHealthCheck({
-        test: ['CMD', 'curl', '-sf', 'http://localhost:16127/flux/version'],
+        // CMD requires full path — no shell PATH resolution on restart.
+        // Alternative: ['CMD-SHELL', 'curl -sf http://localhost:16127/flux/version']
+        test: ['CMD', '/usr/bin/curl', '-sf', 'http://localhost:16127/flux/version'],
         interval: 3000,
         timeout: 5000,
         retries: 30,
-        startPeriod: 5000,
+        startPeriod: 15000,
       });
 
     nodeConfigs.push({ index: i, builder, ip: nodeIp, num: i + 1, logCollector });
