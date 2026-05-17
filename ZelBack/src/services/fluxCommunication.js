@@ -18,6 +18,7 @@ const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const registryManager = require('./appDatabase/registryManager');
+const fluxEventBus = require('./utils/fluxEventBus');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
@@ -57,6 +58,7 @@ async function handleAppMessages(message, fromIP, port) {
     // do furtherVerification of message
     const rebroadcastToPeers = await messageStore.storeAppTemporaryMessage(message.data);
     if (rebroadcastToPeers === true) {
+      fluxEventBus.publish('network:appmessage', { hash: message.data.hash, type: message.data.type, name: message.data.appSpecifications?.name });
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height || 0;
       if (daemonHeight >= config.messagesBroadcastRefactorStart) {
@@ -275,6 +277,9 @@ async function handleAppRunningMessage(message, fromIP, port) {
   try {
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, { signedBroadcast: message });
     const result = await messageStore.storeAppRunningMessage(message.data);
+    if (result.stored) {
+      fluxEventBus.publish('network:apprunning', { ip: message.data.ip, apps: message.data.apps || [{ name: message.data.name }] });
+    }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (result.rebroadcast && timestampOK) {
@@ -300,6 +305,9 @@ async function handleAppRunningMessage(message, fromIP, port) {
 async function handleAppInstallingMessage(message, fromIP, port) {
   try {
     const rebroadcastToPeers = await messageStore.storeAppInstallingMessage(message.data);
+    if (rebroadcastToPeers === true) {
+      fluxEventBus.publish('network:appinstalling', { ip: message.data.ip, name: message.data.name });
+    }
     messageStore.storeSignedAppInstallingBroadcast(message);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
@@ -326,6 +334,9 @@ async function handleAppInstallingMessage(message, fromIP, port) {
 async function handleAppInstallingErrorMessage(message, fromIP, port) {
   try {
     const rebroadcastToPeers = await messageStore.storeAppInstallingErrorMessage(message.data);
+    if (rebroadcastToPeers === true) {
+      fluxEventBus.publish('network:appinstallingerror', { ip: message.data.ip, name: message.data.name });
+    }
     messageStore.storeSignedAppInstallingErrorBroadcast(message);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
@@ -354,6 +365,9 @@ async function handleIPChangedMessage(message, fromIP, port) {
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.IPCHANGED, { message: message.data, envelope });
     const rebroadcastToPeers = await messageStore.storeIPChangedMessage(message.data);
+    if (rebroadcastToPeers) {
+      fluxEventBus.publish('network:ipchanged', { oldIP: message.data.oldIP, newIP: message.data.newIP });
+    }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
@@ -383,6 +397,9 @@ async function handleAppRemovedMessage(message, fromIP, port) {
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPREMOVED, { message: message.data, envelope });
     const rebroadcastToPeers = await messageStore.storeAppRemovedMessage(message.data);
+    if (rebroadcastToPeers) {
+      fluxEventBus.publish('network:appremoved', { ip: message.data.ip, name: message.data.appName });
+    }
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
@@ -429,6 +446,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
 
     const envelope = { version: message.version, timestamp: message.timestamp, pubKey: message.pubKey, signature: message.signature };
     await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { message: message.data, envelope });
+    fluxEventBus.publish('network:sigterm', { ip });
 
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);

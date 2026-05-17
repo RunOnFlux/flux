@@ -74,6 +74,13 @@ export function nodeClient(nodeNum) {
         'spawner:deferred',
         'spawner:paused',
         'spawner:resumed',
+        'network:apprunning',
+        'network:appinstalling',
+        'network:appinstallingerror',
+        'network:appremoved',
+        'network:appmessage',
+        'network:ipchanged',
+        'network:sigterm',
       ]) {
         eventSource.addEventListener(name, (e) => {
           const entry = {

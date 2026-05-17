@@ -70,9 +70,11 @@ describe('State sync: app running state (0x21)', function () {
       env.clients.slice(0, 10).map((c) => waitForAppInstalled(c, appName, 120000)),
     );
 
-    // Wait for broadcast cycle to create real signed apprunning events
-    await env.clients[0].waitForEvent('app:running',
-      (d) => d.apps?.some((a) => a.name === appName), 60000);
+    // Wait for running broadcast to propagate across network
+    await Promise.any(
+      env.clients.slice(0, 10).map((c) => c.waitForEvent('network:apprunning',
+        (d) => d.apps?.some((a) => a.name === appName), 60000)),
+    );
   });
 
   after(async function () {
