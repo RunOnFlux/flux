@@ -25,6 +25,10 @@ module.exports = {
     rawBaseUrl: 'http://198.18.0.6:3000',
     apiBaseUrl: 'http://198.18.0.6:3000',
   },
+  geolocation: {
+    ipApiBaseUrl: 'http://198.18.0.6:3000',
+    statsApiBaseUrl: 'http://198.18.0.6:3000',
+  },
   fluxapps: {
     minOutgoing: 4,
     minIncoming: 2,
@@ -83,13 +87,13 @@ module.exports = {
     connectionBackoffMs: [2000, 5000, 10000, 15000],
     nodeMonitorIntervalMs: 10000,
     spawnDeferrals: {
-      targetedNodesMs: { enterprise: 100, standard: 100 },
-      staticIpMs: { enterprise: 100, standard: 100 },
-      datacenterMs: { enterprise: 100, standard: 100 },
+      targetedNodesMs: { enterprise: 150, standard: 300 },
+      staticIpMs: { enterprise: 200, standard: 400 },
+      datacenterMs: { enterprise: 250, standard: 500 },
       capacityGap: {
-        largeMs: { enterprise: 100, standard: 100 },
-        mediumMs: { enterprise: 100, standard: 100 },
-        smallMs: { enterprise: 100, standard: 100 },
+        largeMs: { enterprise: 350, standard: 700 },
+        mediumMs: { enterprise: 400, standard: 800 },
+        smallMs: { enterprise: 450, standard: 900 },
       },
     },
     spawnDelayMultiplier: 0.01,

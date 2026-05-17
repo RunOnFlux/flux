@@ -97,7 +97,7 @@ async function setNodeGeolocation() {
       log.info(`Checking geolocation of ${myIP}`);
       storedIp = myIP;
       // consider another service failover or stats db
-      const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org,isp,proxy,hosting`;
+      const ipApiUrl = `${config.geolocation.ipApiBaseUrl}/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org,isp,proxy,hosting`;
       const ipRes = await serviceHelper.axiosGet(ipApiUrl);
       if (ipRes.data.status === 'success' && ipRes.data.query !== '') {
         storedGeolocation = {
@@ -115,7 +115,7 @@ async function setNodeGeolocation() {
           dataCenter: ipRes.data.hosting,
         };
       } else {
-        const statsApiUrl = `https://stats.runonflux.io/fluxlocation/${myIP.split(':')[0]}`;
+        const statsApiUrl = `${config.geolocation.statsApiBaseUrl}/fluxlocation/${myIP.split(':')[0]}`;
         const statsRes = await serviceHelper.axiosGet(statsApiUrl);
         if (statsRes.data.status === 'success' && statsRes.data.data) {
           storedGeolocation = {

@@ -432,6 +432,10 @@ module.exports = {
     rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
     apiBaseUrl: 'https://api.github.com',
   },
+  geolocation: {
+    ipApiBaseUrl: 'http://ip-api.com',
+    statsApiBaseUrl: 'https://stats.runonflux.io',
+  },
   analytics: {
     url: 'https://cloudaudit.runonflux.io', // analytics server URL (e.g. 'https://analytics.runonflux.io'). Empty = disabled.
   },

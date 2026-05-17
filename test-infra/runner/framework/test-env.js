@@ -56,7 +56,7 @@ const MONGO_IP = '198.18.0.2';
 const DAEMON_IP = '198.18.0.3';
 const SYNCTHING_IP = '198.18.0.4';
 const REGISTRY_IP = '198.18.0.5';
-const GITHUB_STUB_IP = '198.18.0.6';
+const EXTERNAL_STUB_IP = '198.18.0.6';
 const INITIAL_HEIGHT = 2100000;
 
 class StaticIpContainer extends GenericContainer {
@@ -256,9 +256,9 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   started.push(syncthingStub);
   containers.syncthingStub = syncthingStub;
 
-  const githubStub = await new StaticIpContainer('flux-e2e-github-stub')
-    .withStaticIp(networkName, GITHUB_STUB_IP)
-    .withEnvironment({ GITHUB_STUB_PORT: '3000', CONTROL_PORT: '3001' })
+  const externalStub = await new StaticIpContainer('flux-e2e-external-http-stub')
+    .withStaticIp(networkName, EXTERNAL_STUB_IP)
+    .withEnvironment({ STUB_PORT: '3000', CONTROL_PORT: '3001' })
     .withWaitStrategy(Wait.forHealthCheck())
     .withHealthCheck({
       test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3001/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
@@ -267,8 +267,8 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       retries: 10,
     })
     .start();
-  started.push(githubStub);
-  containers.githubStub = githubStub;
+  started.push(externalStub);
+  containers.externalStub = externalStub;
 
   const registryTlsDir = join(fixturesDir, 'registry-tls');
   const registry = await new StaticIpContainer('registry:2')
@@ -379,7 +379,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     get nodeCount() { return clients.length; },
     get lastNodeIndex() { return clients.length - 1; },
     daemonControl: `http://${DAEMON_IP}:18232`,
-    githubControl: `http://${GITHUB_STUB_IP}:3001`,
+    stubControl: `http://${EXTERNAL_STUB_IP}:3001`,
     registryUrl: `https://${REGISTRY_IP}:5000`,
     mongoUrl: `mongodb://${MONGO_IP}:27017`,
 
@@ -446,7 +446,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
         if (n.container) await n.container.stop().catch(() => {});
       }
       await syncthingStub.stop().catch(() => {});
-      await githubStub.stop().catch(() => {});
+      await externalStub.stop().catch(() => {});
       await registry.stop().catch(() => {});
       await daemonStub.stop().catch(() => {});
       await mongo.stop().catch(() => {});
