@@ -101,7 +101,8 @@ export function nodeClient(nodeNum) {
       eventSource = null;
     }
     eventBuffer.length = 0;
-    emitter.removeAllListeners();
+    const names = emitter.eventNames().filter((n) => n !== 'error');
+    for (const name of names) emitter.removeAllListeners(name);
   }
 
   function waitForEvent(name, predicate = () => true, timeout = 30000) {

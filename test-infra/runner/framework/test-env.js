@@ -362,7 +362,15 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       .withStaticIp(networkName, nodeIp)
       .withBindMounts(bindMounts)
       .withLogConsumer(logCollector)
-      .withEnvironment(nodeEnv);
+      .withEnvironment(nodeEnv)
+      .withWaitStrategy(Wait.forHealthCheck())
+      .withHealthCheck({
+        test: ['CMD', 'curl', '-sf', 'http://localhost:16127/flux/version'],
+        interval: 3000,
+        timeout: 5000,
+        retries: 30,
+        startPeriod: 5000,
+      });
 
     nodeConfigs.push({ index: i, builder, ip: nodeIp, num: i + 1, logCollector });
   }
@@ -424,8 +432,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
 
     async restartNode(index) {
       if (clients[index]) clients[index].disconnectEventStream();
-      const container = fluxNodes[index].container;
-      await container.restart({ timeout: 30 });
+      await fluxNodes[index].container.restart({ timeout: 10 });
       if (clients[index]) await clients[index].connectEventStream();
       return clients[index];
     },
