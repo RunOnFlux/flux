@@ -104,6 +104,6 @@ module.exports = {
     imageUpdateDelayBetweenComponentsMs: 100,
     installation: { probability: 100, delay: 5 },
     removal: { probability: 25, delay: 5 },
-    redeploy: { probability: 2, delay: 5, composedDelay: 2 },
+    redeploy: { probability: 2, delay: 1, composedDelay: 1 },
   },
 };
