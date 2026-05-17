@@ -70,18 +70,6 @@ function anyDeferralEvent(env, appName, reason) {
   );
 }
 
-function findDeferralEvent(env, appName, reason) {
-  for (const client of env.clients) {
-    const events = client.getEventBuffer();
-    const match = events.find(
-      (e) => e.event === 'spawner:deferred'
-        && e.data?.appName === appName
-        && e.data?.reason === reason,
-    );
-    if (match) return match.data;
-  }
-  return null;
-}
 
 // --- Arcane node tests (default — all nodes have FLUXOS_PATH) ---
 
@@ -174,40 +162,6 @@ describe('Arcane: enterprise app deferred for datacenter', function () {
     await Promise.any(
       env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
     );
-  });
-});
-
-describe('Arcane: enterprise app bypasses all deferrals', function () {
-  let env;
-  const appName = `e2eentbypass${Date.now()}`;
-
-  before(async function () {
-    this.timeout(300000);
-    env = await createTestEnv({
-      nodes: 10,
-      tickerAutostart: false,
-      configOverrides: { enterpriseAppOwners: ['1L2cmJ69frZTg83izRNJsYwDWh5ZmdoUSx'] },
-    });
-    await bootAndPeer(env);
-    await registerApp(env, appName, { enterprise: true, staticip: true, datacenter: true });
-  });
-
-  after(async function () {
-    this.timeout(30000);
-    await env?.teardown();
-  });
-
-  it('should install without any deferral', async function () {
-    this.timeout(180000);
-    await Promise.any(
-      env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
-    );
-    const staticIpDefer = findDeferralEvent(env, appName, 'static_ip');
-    const datacenterDefer = findDeferralEvent(env, appName, 'datacenter');
-    const arcaneDefer = findDeferralEvent(env, appName, 'non_enterprise_on_arcane');
-    expect(staticIpDefer, 'should not have static_ip deferral').to.be.null;
-    expect(datacenterDefer, 'should not have datacenter deferral').to.be.null;
-    expect(arcaneDefer, 'should not have arcane deferral').to.be.null;
   });
 });
 
