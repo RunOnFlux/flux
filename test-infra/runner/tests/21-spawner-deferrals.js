@@ -61,6 +61,25 @@ async function registerApp(env, appName, specOverrides = {}) {
   await waitForAppSpecStored(env.clients[0], appName);
 }
 
+function findDeferralEvent(env, appName, reason) {
+  for (const client of env.clients) {
+    const events = client.getEventBuffer();
+    const match = events.find(
+      (e) => e.event === 'spawner:deferred'
+        && e.data?.appName === appName
+        && e.data?.reason === reason,
+    );
+    if (match) return match.data;
+  }
+  return null;
+}
+
+function anyDeferralEvent(env, appName, reason) {
+  return Promise.any(
+    env.clients.map((c) => waitForSpawnerDeferred(c, appName, reason, 30000)),
+  );
+}
+
 describe('Spawner deferral — static IP node, app without staticip', function () {
   let env;
   const appName = `e2estaticip${Date.now()}`;
@@ -79,7 +98,7 @@ describe('Spawner deferral — static IP node, app without staticip', function (
 
   it('should defer with reason static_ip and correct delay', async function () {
     this.timeout(60000);
-    const deferred = await waitForSpawnerDeferred(env.clients[0], appName, 'static_ip', 30000);
+    const deferred = await anyDeferralEvent(env, appName, 'static_ip');
     expect(deferred.reason).to.equal('static_ip');
     expect(deferred.delayMs).to.equal(400);
   });
@@ -113,11 +132,8 @@ describe('Spawner deferral — static IP bypass with staticip: true', function (
     await Promise.any(
       env.clients.map((c) => waitForAppInstalled(c, appName, 120000)),
     );
-    const events = env.clients[0].getEventBuffer();
-    const deferral = events.find(
-      (e) => e.event === 'spawner:deferred' && e.data?.appName === appName && e.data?.reason === 'static_ip',
-    );
-    expect(deferral, 'should not have static_ip deferral').to.be.undefined;
+    const deferral = findDeferralEvent(env, appName, 'static_ip');
+    expect(deferral, 'should not have static_ip deferral').to.be.null;
   });
 });
 
@@ -139,7 +155,7 @@ describe('Spawner deferral — datacenter node, app without datacenter', functio
 
   it('should defer with reason datacenter and correct delay', async function () {
     this.timeout(60000);
-    const deferred = await waitForSpawnerDeferred(env.clients[0], appName, 'datacenter', 30000);
+    const deferred = await anyDeferralEvent(env, appName, 'datacenter');
     expect(deferred.reason).to.equal('datacenter');
     expect(deferred.delayMs).to.equal(500);
   });
@@ -170,7 +186,7 @@ describe('Spawner deferral — non-enterprise app on arcane node', function () {
 
   it('should defer with reason non_enterprise_on_arcane', async function () {
     this.timeout(60000);
-    const deferred = await waitForSpawnerDeferred(env.clients[0], appName, 'non_enterprise_on_arcane', 30000);
+    const deferred = await anyDeferralEvent(env, appName, 'non_enterprise_on_arcane');
     expect(deferred.reason).to.equal('non_enterprise_on_arcane');
   });
 
@@ -200,7 +216,7 @@ describe('Spawner deferral — enterprise app gets shorter static IP delay', fun
 
   it('should defer with enterprise static_ip delay (shorter than standard)', async function () {
     this.timeout(60000);
-    const deferred = await waitForSpawnerDeferred(env.clients[0], appName, 'static_ip', 30000);
+    const deferred = await anyDeferralEvent(env, appName, 'static_ip');
     expect(deferred.reason).to.equal('static_ip');
     expect(deferred.delayMs).to.equal(200);
   });
