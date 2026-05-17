@@ -102,7 +102,8 @@ export async function waitForImageUpdateRedeployComplete(node, appName, timeout 
 }
 
 export async function waitForSpawnerDeferred(node, appName, reason, timeout = 60000) {
-  return node.waitForEvent('spawner:deferred', (d) => d.appName === appName && (!reason || d.reason === reason), timeout);
+  const entry = await node.waitForEvent('spawner:deferred', (d) => d.appName === appName && (!reason || d.reason === reason), timeout);
+  return entry.data;
 }
 
 export async function waitForAppRunning(node, appName, timeout = 60000) {
