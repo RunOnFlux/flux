@@ -127,9 +127,9 @@ describe('Boundary: block timer', function () {
 
   it('should NOT transition to READY at 249 blocks (just under threshold)', async function () {
     this.timeout(120000);
-    await advanceBlocks(249);
-    // Wait for blocks to be processed
-    await waitForBlockProcessed(env.clients[0], (d) => d.height >= 2100250, 30000);
+    // before hook advanced 1 block to enter SYNCING — that block counts toward the threshold
+    await advanceBlocks(248);
+    await waitForBlockProcessed(env.clients[0], (d) => d.height >= 2100249, 30000);
     const stateEvents = env.clients[0].getEventBuffer()
       .filter((e) => e.event === 'orchestrator:stateChanged' && e.data.to === 'READY');
     expect(stateEvents.length, 'should not be READY at 249 blocks').to.equal(0);
