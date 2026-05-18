@@ -41,13 +41,17 @@ async function respondWithAppMessage(msgObj, peer) {
     // eslint-disable-next-line global-require
     const messageVerifier = require('./appMessaging/messageVerifier');
     const appsMessages = [];
+    log.info(`[DEBUG] respondWithAppMessage msgObj.data=${JSON.stringify(msgObj.data).substring(0, 200)}`);
     if (!msgObj.data) {
+      log.info('[DEBUG] respondWithAppMessage: no msgObj.data');
       throw new Error('Invalid Flux App Request message');
     }
 
     const message = msgObj.data;
+    log.info(`[DEBUG] respondWithAppMessage version=${message.version} type=${message.type} hashes=${message.hashes?.length}`);
 
     if (message.version !== 1 && message.version !== 2) {
+      log.info(`[DEBUG] respondWithAppMessage: bad version ${message.version}`);
       throw new Error(`Invalid Flux App Request message, version ${message.version} not supported`);
     }
 
@@ -111,8 +115,10 @@ async function respondWithAppMessage(msgObj, peer) {
     }
 
     fluxEventBus.publish('hashRequest:responded', { peer: peer.key, requested: appsMessages.length, found });
+    log.info(`[DEBUG] respondWithAppMessage DONE: requested=${appsMessages.length} found=${found}`);
     // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
   } catch (error) {
+    log.info(`[DEBUG] respondWithAppMessage CATCH: ${error.message}`);
     log.error(error);
   }
 }
