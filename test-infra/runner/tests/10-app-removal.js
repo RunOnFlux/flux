@@ -37,6 +37,14 @@ describe('Confirmation loss consequences', function () {
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
     await env.clients[0].waitForEvent('spawner:paused', () => true, 30000);
     await waitForOrchestratorState(env.clients[0], 'SYNCING', 10000);
+
+    const events = env.clients[0].getEventBuffer();
+    const confirmationLostIdx = events.findIndex((e) => e.event === 'confirmation:changed' && e.data.confirmed === false);
+    const pausedIdx = events.findIndex((e) => e.event === 'spawner:paused');
+    const stateChangeIdx = events.findIndex((e) => e.event === 'orchestrator:stateChanged' && e.data.from === 'READY' && e.data.to === 'SYNCING');
+    expect(confirmationLostIdx).to.be.greaterThan(-1);
+    expect(pausedIdx).to.be.greaterThan(confirmationLostIdx);
+    expect(stateChangeIdx).to.be.greaterThan(confirmationLostIdx);
   });
 });
 
