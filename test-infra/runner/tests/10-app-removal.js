@@ -3,8 +3,11 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
-import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
-import { waitForDaemonReady, waitForNodeStatus, waitForDosChanged, waitFor } from '../framework/wait.js';
+import { setNodeStatus, clearNodeStatus, advanceBlock, advanceBlocks } from '../framework/daemon-control.js';
+import {
+  waitForDaemonReady, waitForNodeStatus, waitForDosChanged, waitFor,
+  waitForBlockProcessed, waitForOrchestratorState, waitForSpawnerBlocked,
+} from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 describe('Confirmation loss consequences', function () {
@@ -16,6 +19,10 @@ describe('Confirmation loss consequences', function () {
     env = await createTestEnv({ nodes: 1, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 30000);
+    await advanceBlock();
+    await waitForBlockProcessed(env.clients[0], () => true, 20000);
+    await advanceBlocks(251);
+    await waitForOrchestratorState(env.clients[0], 'READY', 120000);
   });
 
   after(async function () {
@@ -28,10 +35,7 @@ describe('Confirmation loss consequences', function () {
     this.timeout(60000);
     await setNodeStatus('198.18.1.0', 'EXPIRED');
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
-    await waitFor(
-      () => env.nodeHasLog(0, 'Flux Node not Confirmed'),
-      { timeout: 30000, interval: 3000, label: 'spawner blocked by confirmation loss' },
-    );
+    await waitForSpawnerBlocked(env.clients[0], 'not_confirmed', 30000);
     expect(env.nodeHasLog(0, 'Flux Node not Confirmed')).to.equal(true);
   });
 });
