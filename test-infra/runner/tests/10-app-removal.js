@@ -35,8 +35,8 @@ describe('Confirmation loss consequences', function () {
     this.timeout(60000);
     await setNodeStatus('198.18.1.0', 'EXPIRED');
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
-    await waitForSpawnerBlocked(env.clients[0], 'not_confirmed', 30000);
-    expect(env.nodeHasLog(0, 'Flux Node not Confirmed')).to.equal(true);
+    await env.clients[0].waitForEvent('spawner:paused', () => true, 30000);
+    await waitForOrchestratorState(env.clients[0], 'SYNCING', 10000);
   });
 });
 
