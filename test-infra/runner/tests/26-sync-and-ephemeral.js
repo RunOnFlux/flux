@@ -11,6 +11,7 @@ import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForAppInstalled, waitForOrchestratorState, waitFor,
 } from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 async function bootAndPeer(env, nodeIndices) {
   const clients = nodeIndices.map((i) => env.clients[i]).filter(Boolean);
@@ -82,6 +83,7 @@ describe('Signed sync completes on late-joining node', function () {
 
 describe('Ephemeral connections resolve hashes from non-connected peers', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   const appName = `e2eephem${Date.now()}`;
 
   before(async function () {
