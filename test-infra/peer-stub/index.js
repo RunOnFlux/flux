@@ -100,7 +100,7 @@ async function handleMessage(ws, rawData) {
 const wss = new WebSocketServer({ noServer: true });
 
 wss.on('headers', (headers) => {
-  headers.push('X-Flux-Capabilities: transmissionTimestamps,peerExchange,binaryMessages,appStateSync');
+  headers.push('X-Flux-Capabilities: peerExchange,appStateSync');
   headers.push('X-Flux-Version: 8.0.0');
   headers.push('X-Flux-Uptime: 1000');
 });

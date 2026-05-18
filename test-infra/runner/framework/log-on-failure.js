@@ -6,7 +6,7 @@ export function dumpLogsOnFailure(getEnv) {
     const env = getEnv();
     if (!env) return;
     for (let i = 0; i < env.nodeCount; i++) {
-      const lines = env.nodeLogLines(i);
+      const lines = env.containers?.fluxNodes?.[i]?.logCollector ? env.nodeLogLines(i) : [];
       if (lines.length) {
         console.log(`\n--- Node ${i} logs (${lines.length} lines) ---`);
         lines.forEach((l) => console.log(l));
