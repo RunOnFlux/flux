@@ -109,3 +109,7 @@ export async function waitForSpawnerDeferred(node, appName, reason, timeout = 60
 export async function waitForAppRunning(node, appName, timeout = 60000) {
   return node.waitForEvent('app:running', (d) => d.apps?.some((a) => a.name === appName), timeout);
 }
+
+export async function waitForPeersRemoved(node, predicate = () => true, timeout = 30000) {
+  return node.waitForEvent('peers:removed', predicate, timeout);
+}
