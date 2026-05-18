@@ -162,7 +162,7 @@ describe('containerHealthMonitor restarts stopped container', function () {
 
     await execInContainer(client.container, `docker stop ${containerName}`);
 
-    const afterStop = await getAppContainerStatus(client.container, appName);
+    const afterStop = await getAppContainerStatus(client.container, appName, { all: true });
     expect(afterStop).to.not.be.null;
     expect(afterStop.status).to.not.match(/^Up/);
 

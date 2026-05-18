@@ -4,9 +4,10 @@ export async function execInContainer(container, command) {
   return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode, output: result.output };
 }
 
-export async function listAppContainers(container) {
+export async function listAppContainers(container, { all = false } = {}) {
+  const flag = all ? ' -a' : '';
   const { stdout } = await execInContainer(container,
-    'docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}" 2>/dev/null || echo ""',
+    `docker ps${flag} --format "{{.Names}}\t{{.Status}}\t{{.Image}}" 2>/dev/null || echo ""`,
   );
   return stdout.trim().split('\n')
     .filter((line) => line && !line.includes('NAMES'))
@@ -27,9 +28,9 @@ export async function killAppContainer(container, appName, componentName) {
   return execInContainer(container, `docker rm -f ${name}`);
 }
 
-export async function getAppContainerStatus(container, appName) {
-  const all = await listAppContainers(container);
-  return all.find((c) => c.name.includes(appName)) ?? null;
+export async function getAppContainerStatus(container, appName, { all = false } = {}) {
+  const containers = await listAppContainers(container, { all });
+  return containers.find((c) => c.name.includes(appName)) ?? null;
 }
 
 export async function getContainerImageDigest(container, appName, componentName) {
