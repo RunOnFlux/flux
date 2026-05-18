@@ -178,6 +178,8 @@ export function dbClient(nodeNum) {
       await explorerDb.collection('zelappshashes').insertOne({
         hash,
         height,
+        txid: hash,
+        value: 200000000,
         message: resolved,
         messageNotFound: false,
         createdAt: new Date(),
