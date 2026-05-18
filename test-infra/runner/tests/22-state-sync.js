@@ -9,6 +9,7 @@ import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForAppInstalled, waitForOrchestratorState,
 } from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 async function bootAndPeer(env, nodeIndices) {
   const clients = nodeIndices.map((i) => env.clients[i]).filter(Boolean);
@@ -28,6 +29,7 @@ async function bootAndPeer(env, nodeIndices) {
 
 describe('State sync: app running state (0x21)', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   const appName = `e2esynrun${Date.now()}`;
 
   before(async function () {
@@ -97,6 +99,7 @@ describe('State sync: app running state (0x21)', function () {
 
 describe('State sync: hash resolution', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   const appName = `e2esynhash${Date.now()}`;
 
   before(async function () {

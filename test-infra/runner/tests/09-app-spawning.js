@@ -5,6 +5,7 @@ import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForAppInstalled, waitForAppSpecStored, waitForNodeStatus } from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 let env;
 

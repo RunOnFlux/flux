@@ -7,6 +7,7 @@ import { buildAppSpec, registerApp, registerAndConfirm, checkPermanentSpec } fro
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import { waitForDaemonReady, waitFor, waitForBlockProcessed, waitForNodeStatus } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 let env;
 

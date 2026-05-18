@@ -4,6 +4,7 @@ import { authenticate, signBtcMessage } from '../auth.js';
 import { nodeKey, appOwnerKey, fluxTeamKey, userKey } from '../framework/keys.js';
 import { createTestEnv } from '../framework/test-env.js';
 import { waitForDaemonReady } from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 let env;
 let node;

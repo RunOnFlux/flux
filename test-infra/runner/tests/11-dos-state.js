@@ -4,6 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey, fluxTeamKey, appOwnerKey, userKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
 import { waitForDaemonReady, waitForDosChanged } from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 let env;
 let fluxTeamAuth;

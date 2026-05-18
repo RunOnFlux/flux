@@ -12,6 +12,7 @@ import {
   waitForAppInstalled,
 } from '../framework/wait.js';
 import { waitFor } from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 async function bootAndPeer(env) {
   for (const client of env.clients) await waitForDaemonReady(client);
@@ -67,6 +68,7 @@ async function seedAndWaitForInstall(env, appName) {
 
 describe('Confirmation loss removes installed apps', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   let installedOnIndex;
   const appName = `e2econfirm${Date.now()}`;
 
@@ -99,6 +101,7 @@ describe('Confirmation loss removes installed apps', function () {
 
 describe('Daemon stale removes installed apps', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   let installedOnIndex;
   const appName = `e2edaemonstale${Date.now()}`;
 

@@ -3,9 +3,11 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
 import { waitForDaemonReady, waitForNodeStatus, waitFor } from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 describe('Confirmation state: confirmed boot', function () {
   let env;
+  dumpLogsOnFailure(() => env);
 
   before(async function () {
     this.timeout(120000);
@@ -31,6 +33,7 @@ describe('Confirmation state: confirmed boot', function () {
 
 describe('Confirmation state: unconfirmed boot', function () {
   let env;
+  dumpLogsOnFailure(() => env);
 
   before(async function () {
     this.timeout(120000);
@@ -65,6 +68,7 @@ describe('Confirmation state: unconfirmed boot', function () {
 
 describe('Confirmation state: runtime loss', function () {
   let env;
+  dumpLogsOnFailure(() => env);
 
   before(async function () {
     this.timeout(120000);

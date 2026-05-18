@@ -13,6 +13,7 @@ import {
 } from '../framework/daemon-control.js';
 import { fluxTeamKey } from '../framework/keys.js';
 import { authenticate } from '../auth.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 async function bootToReady(env) {
   await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
@@ -30,6 +31,7 @@ async function bootToReady(env) {
 
 describe('Spawner gate conditions', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   let fluxTeamAuth;
 
   before(async function () {

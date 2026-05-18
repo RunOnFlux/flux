@@ -7,11 +7,13 @@ import {
 import {
   clearAllNodeStatus,
 } from '../framework/daemon-control.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // Suite 1: FluxOS-only restart (bootContext='running')
 
 describe('Boot manager: FluxOS-only restart', function () {
   let env;
+  dumpLogsOnFailure(() => env);
 
   before(async function () {
     this.timeout(120000);
@@ -45,6 +47,7 @@ describe('Boot manager: FluxOS-only restart', function () {
 
 describe('Boot manager: machine reboot with clean shutdown', function () {
   let env;
+  dumpLogsOnFailure(() => env);
 
   before(async function () {
     this.timeout(120000);
@@ -74,6 +77,7 @@ describe('Boot manager: machine reboot with clean shutdown', function () {
 
 describe('Boot manager: first boot', function () {
   let env;
+  dumpLogsOnFailure(() => env);
 
   before(async function () {
     this.timeout(120000);
@@ -103,6 +107,7 @@ describe('Boot manager: first boot', function () {
 
 describe('Boot manager: daemon timeout', function () {
   let env;
+  dumpLogsOnFailure(() => env);
 
   before(async function () {
     this.timeout(120000);
@@ -128,6 +133,7 @@ describe('Boot manager: daemon timeout', function () {
 
 describe('Boot manager: not confirmed', function () {
   let env;
+  dumpLogsOnFailure(() => env);
 
   before(async function () {
     this.timeout(120000);

@@ -13,6 +13,7 @@ import {
   waitForAppInstalled, waitForBootSettled,
 } from '../framework/wait.js';
 import { waitFor } from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 async function bootAndPeer(env) {
   for (const client of env.clients) await waitForDaemonReady(client);
@@ -68,6 +69,7 @@ async function seedAndWaitForInstall(env, appName) {
 
 describe('reconcileAppsOnBoot restarts containers after simulated reboot', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   let installedOnIndex;
   const appName = `e2erecon${Date.now()}`;
 
@@ -104,6 +106,7 @@ describe('reconcileAppsOnBoot restarts containers after simulated reboot', funct
 
 describe('containerHealthMonitor recreates killed container', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   let installedOnIndex;
   const appName = `e2ehealth${Date.now()}`;
 
@@ -140,6 +143,7 @@ describe('containerHealthMonitor recreates killed container', function () {
 
 describe('containerHealthMonitor restarts stopped container', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   let installedOnIndex;
   const appName = `e2estop${Date.now()}`;
 

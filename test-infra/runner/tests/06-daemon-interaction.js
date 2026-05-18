@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus, removeFromNodeList, restoreToNodeList, resetNodeList, enableRpcFailure, disableRpcFailure } from '../framework/daemon-control.js';
 import { waitForDaemonReady, waitForDaemonPolled, waitForNodeStatus, waitForDaemonUnreachable, waitForDaemonRecovered } from '../framework/wait.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 let env;
 const NODE_COUNT = 4;

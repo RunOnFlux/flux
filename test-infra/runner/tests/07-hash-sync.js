@@ -6,6 +6,7 @@ import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForNodeStatus } from '../framework/wait.js';
 import { advanceBlock, startTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 async function bootAndPeer(env) {
   for (const client of env.clients) {
@@ -43,6 +44,7 @@ async function waitForHashResolved(nodeNum, initialResolved, timeout = 120000) {
 
 describe('Hash sync: late-joining node', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   let appHash;
 
   before(async function () {
@@ -91,6 +93,7 @@ describe('Hash sync: late-joining node', function () {
 
 describe('Hash sync: network partition', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   let appHash;
 
   before(async function () {
@@ -139,6 +142,7 @@ describe('Hash sync: network partition', function () {
 
 describe('Hash sync: stale state recovery', function () {
   let env;
+  dumpLogsOnFailure(() => env);
   let appHash;
 
   before(async function () {

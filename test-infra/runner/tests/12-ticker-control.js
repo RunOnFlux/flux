@@ -7,6 +7,7 @@ import {
   enableRpcFailure, disableRpcFailure, removeFromNodeList, restoreToNodeList,
   resetAll,
 } from '../framework/daemon-control.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 let env;
 
