@@ -1,3 +1,5 @@
+import { afterEach } from 'mocha';
+
 export function dumpLogsOnFailure(getEnv) {
   afterEach(function () {
     if (this.currentTest.state !== 'failed') return;
