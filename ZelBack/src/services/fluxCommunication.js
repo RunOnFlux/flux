@@ -1089,6 +1089,10 @@ async function addPeer(req, res) {
  */
 async function addOutgoingPeer(req, res) {
   try {
+    if (!nodeConfirmationService.isConfirmed()) {
+      const errMessage = messageHelper.createErrorMessage('Node is not confirmed.');
+      return res.json(errMessage);
+    }
     let { ip } = req.params;
     ip = ip || req.query.ip;
     if (ip === undefined || ip === null) {
