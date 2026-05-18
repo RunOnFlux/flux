@@ -74,6 +74,7 @@ async function handleAppMessages(message, fromIP, port) {
 
 async function handleTempSyncResponse(message, peerKey) {
   try {
+    if (!peerManager.isSyncRequested(peerKey)) return;
     if (!message.data || message.data.type !== 'fluxapptempsync') return;
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
@@ -171,6 +172,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
 
 async function handleAppInstallingSyncResponse(message, peerKey) {
   try {
+    if (!peerManager.isSyncRequested(peerKey)) return;
     if (!message.data || message.data.type !== 'fluxappinstallingsync') return;
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
@@ -203,6 +205,7 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
 
 async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
   try {
+    if (!peerManager.isSyncRequested(peerKey)) return;
     if (!message.data || message.data.type !== 'fluxappinstallingerrorssync') return;
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;

@@ -157,7 +157,7 @@ async function processMessages(messages, onProgress) {
 
     // 4. Verify each message and collect for batch insert
     const permInserts = [];
-    const hashMarkOps = [];
+    let hashMarkOps = [];
 
     for (const appMessage of newMessages) {
       try {
@@ -263,17 +263,22 @@ async function processMessages(messages, onProgress) {
       }
     }
 
-    // 5. Batch insert permanent messages
+    // 5. Batch insert permanent messages (ordered so insertedCount is deterministic on failure)
     if (permInserts.length > 0) {
-      await appsGlobalDb.collection(globalAppsMessages).insertMany(permInserts, { ordered: false })
-        .catch((err) => log.error(`processMessages insertMany: ${err.message}`));
-      processed += permInserts.length;
+      let inserted = permInserts.length;
+      await appsGlobalDb.collection(globalAppsMessages).insertMany(permInserts, { ordered: true })
+        .catch((err) => {
+          inserted = err.result?.insertedCount ?? 0;
+          hashMarkOps = hashMarkOps.slice(0, inserted);
+          log.error(`processMessages insertMany: ${inserted}/${permInserts.length} inserted — ${err.message}`);
+        });
+      processed += inserted;
     }
 
     // 6. Batch mark hashes
     if (hashMarkOps.length > 0) {
       await daemonDb.collection(appsHashesCollection).bulkWrite(hashMarkOps, { ordered: false })
-        .catch((err) => log.error(`processMessages hashMark new: ${err.message}`));
+        .catch((err) => log.error(`processMessages hashMark: ${err.message}`));
     }
 
     log.info(`syncMissingHashes - ${processed} processed, ${skipped} skipped, ${failed} failed of ${filtered.length}`);
