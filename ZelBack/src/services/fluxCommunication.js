@@ -476,6 +476,7 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket FluxPeerSocket instance.
  */
 async function dispatchFluxMessage(msgObj, peerSocket) {
+  fluxEventBus.publish('message:dispatched', { peer: peerSocket.key, type: msgObj.data?.type ?? 'unknown', source: peerSocket.source });
   const isOutbound = peerSocket.direction === DIRECTION.OUTBOUND;
   const codes = peerSocket.closeCodes;
   const {

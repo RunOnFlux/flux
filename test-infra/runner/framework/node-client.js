@@ -83,6 +83,7 @@ export function nodeClient(nodeNum) {
         'network:sigterm',
         'hashRequest:received',
         'hashRequest:responded',
+        'message:dispatched',
       ]) {
         eventSource.addEventListener(name, (e) => {
           const entry = {
