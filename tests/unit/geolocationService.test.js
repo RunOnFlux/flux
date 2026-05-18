@@ -70,6 +70,10 @@ describe('geolocationService tests', () => {
           },
         },
       },
+      geolocation: {
+        ipApiBaseUrl: 'http://ip-api.com',
+        statsApiBaseUrl: 'https://stats.runonflux.io',
+      },
     };
 
     // Load module with stubs

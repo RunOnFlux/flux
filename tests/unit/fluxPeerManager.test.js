@@ -21,6 +21,7 @@ function createMockWs(ip = '192.168.1.1') {
   ws.ping = sinon.stub();
   ws.send = sinon.stub();
   ws.close = sinon.stub();
+  ws.terminate = sinon.stub();
   ws.onclose = null;
   ws.onerror = null;
   ws.onmessage = null;
@@ -641,9 +642,8 @@ describe('FluxPeerManager tests', () => {
       peer.onPingSent(); // missedPongs = 2
       sinon.assert.notCalled(ws.close);
 
-      peer.onPingSent(); // missedPongs = 3 — should close
-      sinon.assert.calledOnce(ws.close);
-      sinon.assert.calledWith(ws.close, CLOSE_CODES.DEAD_CONNECTION, 'dead connection');
+      peer.onPingSent(); // missedPongs = 3 — should terminate
+      sinon.assert.calledOnce(ws.terminate);
     });
 
     it('should not close if pongs are received', () => {
