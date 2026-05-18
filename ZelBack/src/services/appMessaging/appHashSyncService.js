@@ -355,17 +355,20 @@ async function requestHashesFromPeer(hashes, peer) {
  * @param {number} count
  * @returns {Promise<string[]>} Array of ip:port strings
  */
-async function pickEphemeralTargets(count) {
+async function pickEphemeralTargets(count, localSocketAddress) {
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
   const connectedKeys = new Set();
   for (const peer of peerManager.allValues()) {
     connectedKeys.add(peer.key);
   }
+  const selfKey = localSocketAddress.includes(':') ? localSocketAddress : `${localSocketAddress}:16127`;
   const candidates = [];
   for (const node of nodeList) {
     if (!node.ip) continue;
     const key = node.ip.includes(':') ? node.ip : `${node.ip}:16127`;
-    if (!connectedKeys.has(key)) candidates.push(key);
+    if (connectedKeys.has(key)) continue;
+    if (key === selfKey) continue;
+    candidates.push(key);
   }
   for (let i = candidates.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -381,8 +384,8 @@ async function pickEphemeralTargets(count) {
  * @param {boolean} force - Pass to getMissingHashes
  * @returns {Promise<Array>} Remaining missing hashes
  */
-async function ephemeralHashRound(hashes, force, currentHeight) {
-  const targets = await pickEphemeralTargets(EPHEMERAL_PEERS_COUNT);
+async function ephemeralHashRound(hashes, force, currentHeight, localSocketAddress) {
+  const targets = await pickEphemeralTargets(EPHEMERAL_PEERS_COUNT, localSocketAddress);
   if (targets.length === 0) {
     log.info('syncMissingHashes - No ephemeral targets available');
     return getMissingHashes({ force, currentHeight });
@@ -416,7 +419,7 @@ async function ephemeralHashRound(hashes, force, currentHeight) {
 }
 
 async function syncMissingHashes(options = {}) {
-  const { maxConcurrentPeers = 3, onProgress = null, force = false, currentHeight = 0 } = options;
+  const { maxConcurrentPeers = 3, onProgress = null, force = false, currentHeight = 0, localSocketAddress = null } = options;
 
   if (syncRunning) {
     log.info('syncMissingHashes - Already running, skipping');

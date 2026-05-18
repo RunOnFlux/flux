@@ -262,7 +262,7 @@ const benchHandlers = {
     };
     const s = specs[tier] || specs.cumulus;
     return {
-      ipaddress: node ? node.ip.split(':')[0] : '127.0.0.1',
+      ipaddress: node ? node.ip : '127.0.0.1',
       cores: s.cores,
       ram: s.ram,
       ssd: s.ssd,

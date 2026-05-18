@@ -312,7 +312,8 @@ class AppSyncOrchestrator {
     if (blockHeight < this.#nextHashRetryHeight) return;
 
     try {
-      const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight });
+      const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+      const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight, localSocketAddress });
       this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
       if (result.missing > 0) {
         log.info(`AppSyncOrchestrator - Hash retry: ${result.resolved} resolved, ${result.missing} remaining, next check at block ${this.#nextHashRetryHeight}`);
@@ -372,7 +373,8 @@ class AppSyncOrchestrator {
     this.#syncInProgress = true;
     try {
       this.#hashSyncAttempts += 1;
-      const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight });
+      const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+      const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight, localSocketAddress });
       if (result.missing > 0) {
         log.warn(`AppSyncOrchestrator - Hash sync has ${result.missing} unresolvable hashes, proceeding`);
       } else {
