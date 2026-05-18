@@ -311,6 +311,7 @@ class AppSyncOrchestrator {
     if (this.#syncInProgress) return;
     if (blockHeight < this.#nextHashRetryHeight) return;
 
+    this.#syncInProgress = true;
     try {
       const result = await appHashSyncService.syncMissingHashes({ currentHeight: this.#lastBlockHeight });
       this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
@@ -320,6 +321,8 @@ class AppSyncOrchestrator {
     } catch (error) {
       log.error(`AppSyncOrchestrator - Hash retry failed: ${error.message}`);
       this.#nextHashRetryHeight = this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS;
+    } finally {
+      this.#syncInProgress = false;
     }
   }
 
