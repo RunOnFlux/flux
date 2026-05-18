@@ -516,7 +516,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   }
   if (!pubKey || !timestamp || !signature || !version || !data) {
     try {
-      log.info(`Invalid received from ${peerSocket.direction} peer ${peerSocket.key}. Closing connection`);
+      log.info(`[DEBUG] Invalid message from ${peerSocket.key}: pubKey=${!!pubKey} ts=${!!timestamp} sig=${!!signature} ver=${!!version} data=${!!data}`);
       peerSocket.close(codes.invalidMsg, 'Message not valid, disconnect');
     } catch (e) {
       log.error(e);
@@ -528,6 +528,7 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   await serviceHelper.delay(Math.floor(Math.random() * 75 + 1));
   const messageHash = hash(msgObj.data);
   if (messageCache.has(messageHash)) {
+    log.info(`[DEBUG] Message from ${peerSocket.key} type=${data?.type} dropped by cache (hash=${messageHash.substring(0, 16)})`);
     return;
   }
   messageCache.set(messageHash, msgObj);
@@ -545,9 +546,11 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   const currentTimeStamp = Date.now();
   const { VerifyResult } = fluxCommunicationUtils;
   const verifyResult = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj, undefined, currentTimeStamp);
+  log.info(`[DEBUG] verifyFluxBroadcast from ${peerSocket.key} type=${data?.type}: result=${verifyResult}`);
 
   if (verifyResult === VerifyResult.OK) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, currentTimeStamp);
+    log.info(`[DEBUG] timestampOK=${timestampOK} for ${data?.type} from ${peerSocket.key}`);
     if (timestampOK === true) {
       try {
         if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
