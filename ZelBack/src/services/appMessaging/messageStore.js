@@ -118,6 +118,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
   };
   let database = db.db(config.database.daemon.database);
   const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
+  log.info(`[DEBUG] storeAppTemp: hash=${message.hash.substring(0, 16)} explorerResult=${JSON.stringify(result)} furtherVerification=${!!furtherVerification}`);
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
   const daemonHeight = syncStatus.data.height;
   let block = daemonHeight;
@@ -125,6 +126,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
     isAppRequested = true;
     block = result.height;
     appSyncEvents.emit(SYNC_EVENTS.HASH_RESPONSE_RECEIVED, message.hash);
+    log.info(`[DEBUG] storeAppTemp: isAppRequested=true, block=${block}`);
   }
 
   // data shall already be verified by the broadcasting node. But verify all again.
