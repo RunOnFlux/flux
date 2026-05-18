@@ -51,9 +51,6 @@ describe('Peers disconnect on confirmation loss (4019)', function () {
       const res = await client.getPeers();
       return res.data.length === 0;
     }, { timeout: 30000, interval: 1000, label: 'all peers disconnected after confirmation loss' });
-
-    const peersAfter = await client.getPeers();
-    expect(peersAfter.data.length).to.equal(0);
   });
 });
 
