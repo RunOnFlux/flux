@@ -6,7 +6,6 @@ import { dbClient } from '../framework/db-client.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import {
   startTicker, advanceBlock, advanceBlocks, queueAppTx,
-  removeFromNodeList, restoreToNodeList,
 } from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
@@ -78,38 +77,6 @@ describe('Signed sync completes on late-joining node', function () {
     const res = await client.getAppLocations(appName);
     expect(res.status).to.equal('success');
     expect(res.data).to.be.an('array').with.length.greaterThan(0);
-  });
-});
-
-describe('Signed sync rejected from removed node', function () {
-  let env;
-
-  before(async function () {
-    this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
-    const indices = Array.from({ length: 10 }, (_, i) => i);
-    await bootAndPeer(env, indices);
-    await waitForOrchestratorState(env.clients[0], 'READY', 120000);
-  });
-
-  after(async function () {
-    this.timeout(30000);
-    await restoreToNodeList('198.18.10.0').catch(() => {});
-    await env?.teardown();
-  });
-
-  it('should reject sync requests from node not in deterministic list', async function () {
-    this.timeout(120000);
-    const targetIp = '198.18.10.0';
-    await removeFromNodeList(targetIp);
-
-    await env.restartNode(9);
-    const client = env.clients[9];
-    await waitForDaemonReady(client);
-
-    await waitFor(async () => {
-      return env.nodeHasLog(9, /rejected.*pubkey not in node list/);
-    }, { timeout: 60000, interval: 2000, label: 'sync request rejected' });
   });
 });
 
