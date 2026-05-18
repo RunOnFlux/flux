@@ -35,6 +35,7 @@ async function sendSignedMessage(message, peer) {
  * @returns {void}
  */
 async function respondWithAppMessage(msgObj, peer) {
+  log.info(`[DEBUG] respondWithAppMessage ENTERED from ${peer.key} readyState=${peer.ws?.readyState}`);
   try {
     // check if we have it database of permanent appMessages
     // eslint-disable-next-line global-require
