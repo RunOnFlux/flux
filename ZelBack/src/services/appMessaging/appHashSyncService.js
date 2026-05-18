@@ -1,3 +1,4 @@
+const zlib = require('zlib');
 const config = require('config');
 const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
@@ -69,24 +70,153 @@ async function getMissingHashes(options = {}) {
   });
 }
 
-async function bulkFetchFromPeer(peerIp, peerPort) {
+function createJsonArrayExtractor(onObject) {
+  let buffer = '';
+  let scanPos = 0;
+  let inDataArray = false;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let objStart = -1;
+
+  return {
+    write(chunk) {
+      buffer += chunk;
+      while (scanPos < buffer.length) {
+        const ch = buffer[scanPos];
+        if (!inDataArray) {
+          const idx = buffer.indexOf('"data":[', scanPos);
+          if (idx === -1) {
+            const keep = Math.max(0, buffer.length - 20);
+            buffer = buffer.slice(keep);
+            scanPos = 0;
+            return;
+          }
+          scanPos = idx + 8;
+          inDataArray = true;
+          continue;
+        }
+        if (escaped) { escaped = false; scanPos += 1; continue; }
+        if (ch === '\\' && inString) { escaped = true; scanPos += 1; continue; }
+        if (ch === '"') { inString = !inString; scanPos += 1; continue; }
+        if (inString) { scanPos += 1; continue; }
+        if (ch === '{') {
+          if (depth === 0) objStart = scanPos;
+          depth += 1;
+        } else if (ch === '}') {
+          depth -= 1;
+          if (depth === 0 && objStart !== -1) {
+            try { onObject(JSON.parse(buffer.slice(objStart, scanPos + 1))); } catch (e) { /* skip malformed */ }
+            objStart = -1;
+          }
+        } else if (ch === ']' && depth === 0) {
+          buffer = '';
+          scanPos = 0;
+          return;
+        }
+        scanPos += 1;
+      }
+      if (objStart !== -1) {
+        buffer = buffer.slice(objStart);
+        scanPos -= objStart;
+        objStart = 0;
+      } else {
+        buffer = '';
+        scanPos = 0;
+      }
+    },
+  };
+}
+
+const BULK_FETCH_BATCH_SIZE = 500;
+
+async function bulkFetchStreamAndProcess(peerIp, peerPort, missingSet, onProgress) {
   log.info(`syncMissingHashes - Checking explorer sync on ${peerIp}:${peerPort}`);
   const syncResponse = await serviceHelper.axiosGet(
     `http://${peerIp}:${peerPort}/explorer/issynced`,
     { timeout: 5000 },
   ).catch((error) => { log.error(error); return null; });
   if (!syncResponse || !syncResponse.data || syncResponse.data.status !== 'success' || !syncResponse.data.data) {
-    return null;
+    return { processed: 0, skipped: 0, streamed: 0 };
   }
-  log.info(`syncMissingHashes - Fetching permanent messages from ${peerIp}:${peerPort}`);
+
+  log.info(`syncMissingHashes - Streaming permanent messages from ${peerIp}:${peerPort} (${missingSet.size} missing)`);
   const response = await serviceHelper.axiosGet(
     `http://${peerIp}:${peerPort}/apps/permanentmessages`,
-    { timeout: 120000 },
+    { responseType: 'stream', timeout: 120000, headers: { 'Accept-Encoding': 'gzip' }, decompress: false },
   ).catch((error) => { log.error(error); return null; });
-  if (!response || !response.data || response.data.status !== 'success' || !response.data.data) {
-    return null;
+  if (!response || !response.data) {
+    return { processed: 0, skipped: 0, streamed: 0 };
   }
-  return response.data.data;
+
+  const isGzip = response.headers?.['content-encoding'] === 'gzip';
+  let dataStream = response.data;
+  if (isGzip) {
+    dataStream = response.data.pipe(zlib.createGunzip());
+  }
+
+  let totalSeen = 0;
+  let totalProcessed = 0;
+  let totalSkipped = 0;
+  const batch = [];
+  let streamDone = false;
+  let stopped = false;
+  let signalBatch;
+  let waitForBatch = new Promise((r) => { signalBatch = r; });
+
+  const extractor = createJsonArrayExtractor((obj) => {
+    totalSeen += 1;
+    if (obj.hash && missingSet.has(obj.hash)) {
+      batch.push(obj);
+      if (batch.length >= BULK_FETCH_BATCH_SIZE) {
+        dataStream.pause();
+        signalBatch();
+      }
+    }
+  });
+
+  dataStream.on('data', (chunk) => extractor.write(chunk.toString()));
+  dataStream.on('end', () => { streamDone = true; signalBatch(); });
+  dataStream.on('close', () => { streamDone = true; signalBatch(); });
+  dataStream.on('error', (err) => {
+    if (!stopped) log.error(`syncMissingHashes - stream error from ${peerIp}:${peerPort}: ${err.message}`);
+    streamDone = true;
+    signalBatch();
+  });
+
+  while (!streamDone || batch.length >= BULK_FETCH_BATCH_SIZE) {
+    // eslint-disable-next-line no-await-in-loop
+    await waitForBatch;
+    if (batch.length === 0) break;
+
+    const currentBatch = batch.splice(0, BULK_FETCH_BATCH_SIZE);
+    // eslint-disable-next-line no-await-in-loop
+    const stats = await processMessages(currentBatch, onProgress);
+    totalProcessed += stats.processed;
+    totalSkipped += stats.skipped;
+    for (const msg of currentBatch) missingSet.delete(msg.hash);
+
+    if (missingSet.size === 0) {
+      log.info(`syncMissingHashes - All missing hashes resolved after streaming ${totalSeen} messages`);
+      stopped = true;
+      dataStream.destroy();
+      response.data.destroy();
+      break;
+    }
+
+    waitForBatch = new Promise((r) => { signalBatch = r; });
+    dataStream.resume();
+  }
+
+  if (batch.length > 0) {
+    const stats = await processMessages(batch, onProgress);
+    totalProcessed += stats.processed;
+    totalSkipped += stats.skipped;
+    for (const msg of batch) missingSet.delete(msg.hash);
+  }
+
+  log.info(`syncMissingHashes - Streamed ${totalSeen} messages from ${peerIp}:${peerPort}: ${totalProcessed} processed, ${totalSkipped} skipped`);
+  return { processed: totalProcessed, skipped: totalSkipped, streamed: totalSeen };
 }
 
 async function processMessages(messages, onProgress) {
@@ -475,28 +605,14 @@ async function syncMissingHashes(options = {}) {
     if (missingHashes.length > 500) {
       const peers = pickRandomPeers(peerManager, 3, { excludeSources: ['deterministic'] });
       const peerKeys = peers.map((p) => p.key).join(', ');
-      log.info(`syncMissingHashes - ${missingHashes.length} missing, using bulk fetch from ${peers.length} peers: ${peerKeys}`);
+      log.info(`syncMissingHashes - ${missingHashes.length} missing, using streaming bulk fetch from ${peers.length} peers: ${peerKeys}`);
 
-      const fetchPromises = peers.map((p) => bulkFetchFromPeer(p.ip, p.port));
-      const results = await Promise.allSettled(fetchPromises);
-
-      const messagesByHash = new Map();
-      for (const result of results) {
-        if (result.status === 'fulfilled' && result.value) {
-          for (const msg of result.value) {
-            if (msg.hash && !messagesByHash.has(msg.hash)) {
-              messagesByHash.set(msg.hash, msg);
-            }
-          }
-        }
-      }
-
-      if (messagesByHash.size > 0) {
-        const merged = [...messagesByHash.values()];
-        log.info(`syncMissingHashes - Bulk fetched ${merged.length} unique messages from ${peers.length} peers, processing`);
-        const stats = await processMessages(merged, onProgress);
+      const missingSet = new Set(missingHashes.map((h) => h.hash));
+      for (const peer of peers) {
+        if (missingSet.size === 0) break;
+        // eslint-disable-next-line no-await-in-loop
+        const stats = await bulkFetchStreamAndProcess(peer.ip, peer.port, missingSet, onProgress);
         resolved += stats.processed;
-        log.info(`syncMissingHashes - Bulk: ${stats.processed} processed, ${stats.skipped} skipped`);
       }
 
       missingHashes = await getMissingHashes({ force, currentHeight });

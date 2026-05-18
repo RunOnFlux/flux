@@ -1,7 +1,14 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const { Readable } = require('stream');
 const config = require('config');
+
+function makeStreamResponse(data) {
+  const json = JSON.stringify({ status: 'success', data });
+  const stream = new Readable({ read() { this.push(json); this.push(null); } });
+  return { data: stream, headers: {} };
+}
 
 describe('appHashSyncService tests', () => {
   let appHashSyncService;
@@ -300,13 +307,9 @@ describe('appHashSyncService tests', () => {
       dbHelperStub.findInDatabase.resolves([]);
       dbHelperStub.findOneInDatabase.resolves(null);
 
-      serviceHelperStub.axiosGet.resolves({
-        data: { status: 'success', data: true },
-      });
-
-      // Bulk fetch returns no messages (peer has nothing)
-      serviceHelperStub.axiosGet.onSecondCall().resolves({
-        data: { status: 'success', data: [] },
+      serviceHelperStub.axiosGet.callsFake((url) => {
+        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse([]));
+        return Promise.resolve({ data: { status: 'success', data: true } });
       });
 
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
@@ -315,7 +318,7 @@ describe('appHashSyncService tests', () => {
 
       // Should have attempted bulk fetch (axiosGet called for explorer sync check + permanent messages)
       expect(serviceHelperStub.axiosGet.called).to.be.true;
-      expect(logStub.info.calledWith(sinon.match('using bulk fetch'))).to.be.true;
+      expect(logStub.info.calledWith(sinon.match('streaming bulk fetch'))).to.be.true;
     });
 
     it('should handle errors without crashing', async () => {
@@ -362,7 +365,7 @@ describe('appHashSyncService tests', () => {
 
       // Bulk fetch: 3 peers × 2 calls each (explorer check + permanent messages)
       serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve({ data: { status: 'success', data: bulkFetchResult } });
+        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkFetchResult));
         return Promise.resolve({ data: { status: 'success', data: true } });
       });
 
@@ -406,7 +409,7 @@ describe('appHashSyncService tests', () => {
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
       serviceHelperStub.axiosGet.callsFake((url) => {
-        if (url.includes('permanentmessages')) return Promise.resolve({ data: { status: 'success', data: bulkFetchResult } });
+        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse(bulkFetchResult));
         return Promise.resolve({ data: { status: 'success', data: true } });
       });
 
@@ -712,7 +715,10 @@ describe('appHashSyncService tests', () => {
       dbHelperStub.findInDatabase.onFirstCall().resolves([recentRetry, oldRetry, ...padding]);
       dbHelperStub.findInDatabase.resolves([recentRetry, oldRetry]);
 
-      serviceHelperStub.axiosGet.resolves({ data: { status: 'success', data: [] } });
+      serviceHelperStub.axiosGet.callsFake((url) => {
+        if (url.includes('permanentmessages')) return Promise.resolve(makeStreamResponse([]));
+        return Promise.resolve({ data: { status: 'success', data: true } });
+      });
 
       advanceDateOnDelay();
       try {
@@ -827,7 +833,7 @@ describe('appHashSyncService tests', () => {
       // Bulk fetch returns our two update messages from all peers
       serviceHelperStub.axiosGet.callsFake((url) => {
         if (url.includes('permanentmessages')) {
-          return Promise.resolve({ data: { status: 'success', data: bulkMessages } });
+          return Promise.resolve(makeStreamResponse(bulkMessages));
         }
         return Promise.resolve({ data: { status: 'success', data: true } });
       });
@@ -894,7 +900,7 @@ describe('appHashSyncService tests', () => {
 
       serviceHelperStub.axiosGet.callsFake((url) => {
         if (url.includes('permanentmessages')) {
-          return Promise.resolve({ data: { status: 'success', data: bulkMessages } });
+          return Promise.resolve(makeStreamResponse(bulkMessages));
         }
         return Promise.resolve({ data: { status: 'success', data: true } });
       });
