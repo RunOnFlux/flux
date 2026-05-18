@@ -134,12 +134,19 @@ describe('appHashSyncService tests', () => {
       '../invalidMessages': { invalidMessages: [] },
       '../utils/peerState': { peerManager: peerManagerStub },
       '../nodeConfirmationService': { canSendMessages: sinon.stub().returns(true) },
+      '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: sinon.stub().callsFake((spec) => Promise.resolve(spec)) },
+      '../utils/FluxPeerSocket': { CLOSE_CODES: { EPHEMERAL_DONE: 4020 } },
+      '../fluxCommunicationUtils': { deterministicFluxList: sinon.stub().resolves([]) },
+      '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
+      '../fluxNetworkHelper': { getMyFluxIPandPort: sinon.stub().resolves('10.0.0.99:16127') },
     });
   });
 
   afterEach(() => {
     sinon.restore();
   });
+
+
 
   describe('triggerAppHashesCheckAPI', () => {
     it('should trigger sync when authorized', async () => {
@@ -208,6 +215,13 @@ describe('appHashSyncService tests', () => {
         '../../lib/log': logStub,
         './messageStore': messageStoreStub,
         './messageVerifier': messageVerifierStub,
+        '../appRequirements/appValidator': { verifyAppSpecifications: sinon.stub().resolves() },
+        '../appDatabase/registryManager': { checkApplicationRegistrationNameConflicts: sinon.stub().resolves() },
+        '../utils/appSpecHelpers': { specificationFormatter: sinon.stub().returnsArg(0) },
+        '../utils/appUtilities': { appPricePerMonth: sinon.stub().returns(0.01) },
+        '../utils/chainUtilities': { getChainParamsPriceUpdates: sinon.stub().resolves([{ height: 0, minPrice: 0.01, cpu: 1, ram: 1, hdd: 1 }]) },
+        '../daemonService/daemonServiceMiscRpcs': { isDaemonSynced: sinon.stub().returns({ data: { height: 2555000 } }) },
+        '../utils/fluxBroadcastHelper': fluxBroadcastHelperStub,
         '../invalidMessages': {
           invalidMessages: [{ hash: 'invalid1', txid: 'tx1' }],
         },
@@ -215,6 +229,11 @@ describe('appHashSyncService tests', () => {
           peerManager: { getRandomPeer: () => null },
         },
         '../nodeConfirmationService': { canSendMessages: sinon.stub().returns(true) },
+        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: sinon.stub().callsFake((spec) => Promise.resolve(spec)) },
+        '../utils/FluxPeerSocket': { CLOSE_CODES: { EPHEMERAL_DONE: 4020 } },
+        '../fluxCommunicationUtils': { deterministicFluxList: sinon.stub().resolves([]) },
+        '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
+        '../fluxNetworkHelper': { getMyFluxIPandPort: sinon.stub().resolves('10.0.0.99:16127') },
       });
 
       const mockDb = { db: sinon.stub().returns('database') };
@@ -375,14 +394,12 @@ describe('appHashSyncService tests', () => {
 
       await appHashSyncService.syncMissingHashes();
 
-      // serialiseAndSignFluxBroadcast called 3 times (once per peer)
-      expect(fluxBroadcastHelperStub.serialiseAndSignFluxBroadcast.callCount).to.equal(3);
-      const sentMessages = fluxBroadcastHelperStub.serialiseAndSignFluxBroadcast.args.map((a) => a[0]);
-      sentMessages.forEach((msg) => {
-        expect(msg.type).to.equal('fluxapprequest');
-        expect(msg.version).to.equal(2);
-        expect(msg.hashes).to.deep.equal(['h1', 'h2']);
-      });
+      // broadcastHashRequest signs once per round, sends to all peers in that round
+      expect(fluxBroadcastHelperStub.serialiseAndSignFluxBroadcast.callCount).to.equal(1);
+      const msg = fluxBroadcastHelperStub.serialiseAndSignFluxBroadcast.firstCall.args[0];
+      expect(msg.type).to.equal('fluxapprequest');
+      expect(msg.version).to.equal(2);
+      expect(msg.hashes).to.deep.equal(['h1', 'h2']);
 
       // Verify 3 different peers were used (check peer.send was called)
       const peers = peerManagerStub.allValues();
@@ -726,6 +743,9 @@ describe('appHashSyncService tests', () => {
         '../utils/peerState': { peerManager: peerManagerStub },
         '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: localCheckAndDecryptStub },
         '../nodeConfirmationService': { canSendMessages: sinon.stub().returns(true) },
+        '../fluxCommunicationUtils': { deterministicFluxList: sinon.stub().resolves([]) },
+        '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
+        '../fluxNetworkHelper': { getMyFluxIPandPort: sinon.stub().resolves('10.0.0.99:16127') },
       });
     });
 
@@ -977,4 +997,5 @@ describe('appHashSyncService tests', () => {
       expect(result.missing).to.equal(1);
     });
   });
+
 });
