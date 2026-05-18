@@ -13,6 +13,7 @@ const { serialiseAndSignFluxBroadcast } = require('../utils/fluxBroadcastHelper'
 const { peerManager } = require('../utils/peerState');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const { openEphemeralConnection } = require('../fluxCommunication');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { CLOSE_CODES } = require('../utils/FluxPeerSocket');
 const globalState = require('../utils/globalState');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
@@ -355,13 +356,14 @@ async function requestHashesFromPeer(hashes, peer) {
  * @param {number} count
  * @returns {Promise<string[]>} Array of ip:port strings
  */
-async function pickEphemeralTargets(count, localSocketAddress) {
+async function pickEphemeralTargets(count) {
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+  const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+  const selfKey = localSocketAddress.includes(':') ? localSocketAddress : `${localSocketAddress}:16127`;
   const connectedKeys = new Set();
   for (const peer of peerManager.allValues()) {
     connectedKeys.add(peer.key);
   }
-  const selfKey = localSocketAddress.includes(':') ? localSocketAddress : `${localSocketAddress}:16127`;
   const candidates = [];
   for (const node of nodeList) {
     if (!node.ip) continue;
@@ -384,8 +386,8 @@ async function pickEphemeralTargets(count, localSocketAddress) {
  * @param {boolean} force - Pass to getMissingHashes
  * @returns {Promise<Array>} Remaining missing hashes
  */
-async function ephemeralHashRound(hashes, force, currentHeight, localSocketAddress) {
-  const targets = await pickEphemeralTargets(EPHEMERAL_PEERS_COUNT, localSocketAddress);
+async function ephemeralHashRound(hashes, force, currentHeight) {
+  const targets = await pickEphemeralTargets(EPHEMERAL_PEERS_COUNT);
   if (targets.length === 0) {
     log.info('syncMissingHashes - No ephemeral targets available');
     return getMissingHashes({ force, currentHeight });
@@ -419,7 +421,7 @@ async function ephemeralHashRound(hashes, force, currentHeight, localSocketAddre
 }
 
 async function syncMissingHashes(options = {}) {
-  const { maxConcurrentPeers = 3, onProgress = null, force = false, currentHeight = 0, localSocketAddress = null } = options;
+  const { maxConcurrentPeers = 3, onProgress = null, force = false, currentHeight = 0 } = options;
 
   if (syncRunning) {
     log.info('syncMissingHashes - Already running, skipping');
