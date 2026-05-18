@@ -8,6 +8,7 @@ const dbHelper = require('./dbHelper');
 const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
 const { serialiseAndSignFluxBroadcast, getFluxMessageSignature } = require('./utils/fluxBroadcastHelper');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 const myMessageCache = cacheManager.tempMessageCache;
 
@@ -68,12 +69,16 @@ async function respondWithAppMessage(msgObj, peer) {
       }
     }
 
+    fluxEventBus.publish('hashRequest:received', { peer: peer.key, count: appsMessages.length });
+
+    let found = 0;
     // eslint-disable-next-line no-restricted-syntax
     for (const hash of appsMessages) {
       if (myMessageCache.has(hash)) {
         const tempMesResponse = myMessageCache.get(hash);
         if (tempMesResponse) {
           sendSignedMessage(tempMesResponse, peer);
+          found += 1;
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -97,11 +102,14 @@ async function respondWithAppMessage(msgObj, peer) {
           arcaneSender: appMessage.arcaneSender ?? true,
         };
         sendSignedMessage(temporaryAppMessage, peer);
+        found += 1;
       }
       myMessageCache.set(hash, temporaryAppMessage);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(150);
     }
+
+    fluxEventBus.publish('hashRequest:responded', { peer: peer.key, requested: appsMessages.length, found });
     // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
   } catch (error) {
     log.error(error);

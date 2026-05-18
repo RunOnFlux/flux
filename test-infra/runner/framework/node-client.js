@@ -81,6 +81,8 @@ export function nodeClient(nodeNum) {
         'network:appmessage',
         'network:ipchanged',
         'network:sigterm',
+        'hashRequest:received',
+        'hashRequest:responded',
       ]) {
         eventSource.addEventListener(name, (e) => {
           const entry = {
