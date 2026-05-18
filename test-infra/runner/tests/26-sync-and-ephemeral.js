@@ -81,26 +81,28 @@ describe('Signed sync completes on late-joining node', function () {
   });
 });
 
-describe('Ephemeral connections resolve hashes from non-connected peers', function () {
+describe('Ephemeral connections resolve hashes via stub peers', function () {
   let env;
   dumpLogsOnFailure(() => env);
   const appName = `e2eephem${Date.now()}`;
+  const stubIndices = [5, 7, 9, 11, 13];
+  const realIndices = [0, 1, 2, 3, 4, 6, 8, 10, 12, 14, 15];
 
   before(async function () {
     this.timeout(600000);
     env = await createTestEnv({
-      nodes: 10,
+      nodes: 16,
+      stubPeers: stubIndices,
       tickerAutostart: false,
       configOverrides: {
         fluxapps: {
           hashSyncFallbackRecheckBlocks: 2,
           hashSyncMaxRounds: 1,
-          hashSyncEphemeralPeers: 3,
+          hashSyncEphemeralPeers: 5,
         },
       },
     });
-    const indices = Array.from({ length: 10 }, (_, i) => i);
-    await bootAndPeer(env, indices);
+    await bootAndPeer(env, realIndices);
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
   });
 
@@ -109,12 +111,8 @@ describe('Ephemeral connections resolve hashes from non-connected peers', functi
     await env?.teardown();
   });
 
-  it('should resolve hash via ephemeral connection to non-connected peer', async function () {
+  it('should resolve hash via ephemeral connection to stub peer', async function () {
     this.timeout(180000);
-    const target = env.clients[0];
-
-    const peersRes = await target.getPeers();
-    const connectedIps = new Set(peersRes.data);
 
     await pushImage(appName, 'v1');
     const app = await buildSeedableApp({
@@ -131,23 +129,24 @@ describe('Ephemeral connections resolve hashes from non-connected peers', functi
     const dc0 = dbClient(1);
     await dc0.seedAppHash(app.hash, app.permanentMessage.height, false);
 
-    for (let i = 2; i <= 10; i++) {
-      const nodeIp = `198.18.${i}.0`;
-      if (!connectedIps.has(nodeIp)) {
-        const dc = dbClient(i);
-        await dc.seedPermanentMessage(app.permanentMessage);
-        await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-      }
+    for (const [, stub] of env.stubPeerClients) {
+      await stub.loadMessage(app.permanentMessage);
     }
 
     await advanceBlocks(3);
 
     await waitFor(async () => {
-      const dc = dbClient(1);
-      const counts = await dc.hashCounts();
+      const counts = await dc0.hashCounts();
       return counts.missing === 0;
     }, { timeout: 120000, interval: 3000, label: 'hash resolved via ephemeral connection' });
 
     expect(env.nodeHasLog(0, /Ephemeral round/)).to.be.true;
+
+    let totalServed = 0;
+    for (const [, stub] of env.stubPeerClients) {
+      const stats = await stub.getStats();
+      totalServed += stats.messagesServed;
+    }
+    expect(totalServed).to.be.greaterThan(0);
   });
 });

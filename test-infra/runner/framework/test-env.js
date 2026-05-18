@@ -12,9 +12,10 @@ import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { nodeClient } from './node-client.js';
 import { closeDb } from './db-client.js';
+import { stubPeerClient } from './stub-peer-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
-import { fluxTeamKey } from './keys.js';
+import { fluxTeamKey, nodeKey } from './keys.js';
 
 function createLogCollector() {
   const lines = [];
@@ -171,13 +172,13 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
   }
 }
 
-export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], configOverrides = null, nodeTiers = null, dataCenter = true, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
+export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], configOverrides = null, nodeTiers = null, dataCenter = true, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
+    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
   } catch (err) {
     for (const c of started.reverse()) {
       await c.stop().catch(() => {});
@@ -187,7 +188,8 @@ export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes 
   }
 }
 
-async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, configOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
+async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
+  const stubPeerSet = new Set(stubPeers);
 
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
@@ -328,6 +330,8 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   const nodeConfigs = [];
 
   for (let i = 0; i < nodes; i++) {
+    if (stubPeerSet.has(i)) continue;
+
     const num = String(i + 1).padStart(2, '0');
     const nodeIp = `198.18.${i + 1}.0`;
     const nodeManifest = manifest.nodes[i];
@@ -369,8 +373,6 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       .withEnvironment(nodeEnv)
       .withWaitStrategy(Wait.forHealthCheck())
       .withHealthCheck({
-        // CMD requires full path — no shell PATH resolution on restart.
-        // Alternative: ['CMD-SHELL', 'curl -sf http://localhost:16127/flux/version']
         test: ['CMD', '/usr/bin/curl', '-sf', 'http://localhost:16127/flux/version'],
         interval: 3000,
         timeout: 5000,
@@ -392,12 +394,52 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   const startedNodes = await Promise.all(startPromises);
   const startedByIndex = new Map(startedNodes.map((n) => [n.index, n]));
 
-  const fluxNodes = nodeConfigs.map((n) => {
-    const s = startedByIndex.get(n.index);
-    if (s) return { container: s.container, ip: n.ip, num: n.num, logCollector: n.logCollector, bootIdDir: n.bootIdDir };
-    deferredBuilders.set(n.index, n.builder);
-    return { container: null, ip: n.ip, num: n.num, logCollector: n.logCollector, bootIdDir: n.bootIdDir };
-  });
+  const stubPeerContainers = [];
+  const stubPeerClientsMap = new Map();
+
+  for (const stubIdx of stubPeers) {
+    const nodeIp = `198.18.${stubIdx + 1}.0`;
+    const key = nodeKey(stubIdx + 1);
+
+    const stub = await new StaticIpContainer('flux-e2e-peer-stub')
+      .withStaticIp(networkName, nodeIp)
+      .withEnvironment({
+        FLUX_TEST_HARNESS: 'true',
+        WS_PORT: '16127',
+        CONTROL_PORT: '16128',
+        PRIVATE_KEY: key.privkey,
+        PUBLIC_KEY: key.pubkey,
+        NODE_IP: nodeIp,
+      })
+      .withWaitStrategy(Wait.forHealthCheck())
+      .withHealthCheck({
+        test: ['CMD', 'node', '-e', "require('http').get('http://localhost:16128/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
+        interval: 3000,
+        timeout: 5000,
+        retries: 10,
+      })
+      .start();
+    started.push(stub);
+    stubPeerContainers.push(stub);
+    stubPeerClientsMap.set(stubIdx, stubPeerClient(nodeIp));
+  }
+
+  const fluxNodesByIndex = new Map(nodeConfigs.map((n) => [n.index, n]));
+  const fluxNodes = [];
+  for (let i = 0; i < nodes; i++) {
+    const cfg = fluxNodesByIndex.get(i);
+    if (!cfg) {
+      fluxNodes.push({ container: null, ip: `198.18.${i + 1}.0`, num: i + 1, logCollector: null, bootIdDir: null });
+      continue;
+    }
+    const s = startedByIndex.get(i);
+    if (s) {
+      fluxNodes.push({ container: s.container, ip: cfg.ip, num: cfg.num, logCollector: cfg.logCollector, bootIdDir: cfg.bootIdDir });
+    } else {
+      deferredBuilders.set(i, cfg.builder);
+      fluxNodes.push({ container: null, ip: cfg.ip, num: cfg.num, logCollector: cfg.logCollector, bootIdDir: cfg.bootIdDir });
+    }
+  }
   containers.fluxNodes = fluxNodes;
 
   const clients = fluxNodes.map((n) => {
@@ -415,6 +457,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     networkName,
     containers,
     clients,
+    stubPeerClients: stubPeerClientsMap,
     get nodeCount() { return clients.length; },
     get lastNodeIndex() { return clients.length - 1; },
     daemonControl: `http://${DAEMON_IP}:18232`,
@@ -497,6 +540,9 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       for (const n of fluxNodes) {
         if (n.container) await n.container.stop().catch(() => {});
       }
+      for (const sc of stubPeerContainers) {
+        await sc.stop().catch(() => {});
+      }
       await syncthingStub.stop().catch(() => {});
       await externalStub.stop().catch(() => {});
       await registry.stop().catch(() => {});
@@ -509,6 +555,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       }
       await removeNetwork(networkName);
       for (const n of fluxNodes) {
+        if (!n.bootIdDir) continue;
         const { rmSync } = await import('node:fs');
         rmSync(n.bootIdDir, { recursive: true, force: true });
       }
