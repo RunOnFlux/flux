@@ -289,10 +289,6 @@ class FluxPeerSocket {
 
     ws.onmessage = (evt) => {
       if (!evt) return;
-      if (this.source === PEER_SOURCE.INBOUND) {
-        const preview = typeof evt.data === 'string' ? evt.data.substring(0, 80) : 'binary';
-        log.info(`onmessage from ${this.key} source=${this.source}: ${preview}`);
-      }
 
       const rateOK = rateLimit.lruRateLimit(`${this.ip}:${this.port}`, 120);
       if (!rateOK) return;

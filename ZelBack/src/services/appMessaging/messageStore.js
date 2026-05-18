@@ -118,7 +118,6 @@ async function storeAppTemporaryMessage(message, options = {}) {
   };
   let database = db.db(config.database.daemon.database);
   const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
-  log.info(`[DEBUG] storeAppTemp: hash=${message.hash.substring(0, 16)} explorerResult=${JSON.stringify(result)} furtherVerification=${!!furtherVerification}`);
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
   const daemonHeight = syncStatus.data.height;
   let block = daemonHeight;
@@ -126,7 +125,6 @@ async function storeAppTemporaryMessage(message, options = {}) {
     isAppRequested = true;
     block = result.height;
     appSyncEvents.emit(SYNC_EVENTS.HASH_RESPONSE_RECEIVED, message.hash);
-    log.info(`[DEBUG] storeAppTemp: isAppRequested=true, block=${block}`);
   }
 
   // data shall already be verified by the broadcasting node. But verify all again.
@@ -169,27 +167,17 @@ async function storeAppTemporaryMessage(message, options = {}) {
         }
       }
     } else {
-      log.info(`[DEBUG] storeAppTemp: verifyAppSpecifications start`);
       await appValidator.verifyAppSpecifications(appSpecFormatted, block);
-      log.info(`[DEBUG] storeAppTemp: verifyAppSpecifications done`);
       if (appRegistration) {
-        log.info(`[DEBUG] storeAppTemp: checkApplicationRegistrationNameConflicts start`);
         await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
-        log.info(`[DEBUG] storeAppTemp: checkApplicationRegistrationNameConflicts done`);
       } else {
-        log.info(`[DEBUG] storeAppTemp: validateApplicationUpdateCompatibility start`);
         await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
-        log.info(`[DEBUG] storeAppTemp: validateApplicationUpdateCompatibility done`);
       }
     }
 
-    log.info(`[DEBUG] storeAppTemp: verifyAppHash start`);
     await messageVerifier.verifyAppHash(message);
-    log.info(`[DEBUG] storeAppTemp: verifyAppHash done`);
     if (appRegistration) {
-      log.info(`[DEBUG] storeAppTemp: verifyAppMessageSignature start`);
       await messageVerifier.verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
-      log.info(`[DEBUG] storeAppTemp: verifyAppMessageSignature done`);
     } else {
       const { owner } = previousAppSpecs;
       try {
@@ -224,12 +212,10 @@ async function storeAppTemporaryMessage(message, options = {}) {
 
   database = db.db(config.database.appsglobal.database);
   // message does not exist anywhere and is ok, store it
-  log.info(`[DEBUG] storeAppTemp: inserting temp message`);
   await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value).catch((error) => {
     log.error(error);
     throw error;
   });
-  log.info(`[DEBUG] storeAppTemp: temp message inserted, isAppRequested=${isAppRequested} hasTxid=${!!result?.txid} hasHeight=${!!result?.height}`);
   // it is stored and rebroadcasted
   if (isAppRequested) {
     if (result && result.txid && result.height) {

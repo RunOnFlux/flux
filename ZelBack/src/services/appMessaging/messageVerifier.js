@@ -611,20 +611,16 @@ async function getAppsPermanentMessages(req, res) {
  */
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
   try {
-    log.info(`[DEBUG] checkAndRequestApp ENTER hash=${hash.substring(0, 16)} height=${height} txid=${txid}`);
     if (height < config.fluxapps.epochstart) { // do not request testing apps
-      log.info(`[DEBUG] checkAndRequestApp: height ${height} < epochstart ${config.fluxapps.epochstart}, skipping`);
       return false;
     }
 
     const appMessageExists = await checkAppMessageExistence(hash);
-    log.info(`[DEBUG] checkAndRequestApp: permanent exists=${!!appMessageExists}`);
     if (appMessageExists === false) { // otherwise do nothing
       // we surely do not have that message in permanent storage.
       // check temporary message storage
       // if we have it in temporary storage, get the temporary message
       const tempMessage = await checkAppTemporaryMessageExistence(hash);
-      log.info(`[DEBUG] checkAndRequestApp: temp exists=${!!tempMessage} type=${typeof tempMessage}`);
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
         const specifications = tempMessage.appSpecifications || tempMessage.zelAppSpecifications;
         if (!specifications) {
@@ -701,7 +697,6 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         await messageStore.storeAppPermanentMessage(permanentAppMessage);
         // await update zelapphashes that we already have it stored
         await appHashHasMessage(hash);
-        log.info(`[DEBUG] checkAndRequestApp: hash ${hash.substring(0, 16)} marked as message=true`);
 
         const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
         const daemonHeight = syncStatus.data.height;
