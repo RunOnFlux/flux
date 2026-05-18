@@ -124,9 +124,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
   if (result && !result.message) {
     isAppRequested = true;
     block = result.height;
-    if (globalState.pendingHashRequests?.has(message.hash)) {
-      appSyncEvents.emit(SYNC_EVENTS.HASH_RESPONSE_RECEIVED);
-    }
+    appSyncEvents.emit(SYNC_EVENTS.HASH_RESPONSE_RECEIVED, message.hash);
   }
 
   // data shall already be verified by the broadcasting node. But verify all again.

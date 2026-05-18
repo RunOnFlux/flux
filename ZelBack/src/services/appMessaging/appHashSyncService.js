@@ -290,11 +290,11 @@ async function processMessages(messages, onProgress) {
  * @param {boolean} force - Pass to getMissingHashes
  * @returns {Promise<Array>} Remaining missing hashes
  */
-async function waitForResolution(previousCount, maxWaitMs, force, currentHeight) {
+async function waitForResolution(pendingHashes, maxWaitMs, force, currentHeight) {
   const deadline = Date.now() + maxWaitMs;
   let lastActivityAt = Date.now();
 
-  const handler = () => { lastActivityAt = Date.now(); };
+  const handler = (hash) => { if (pendingHashes.has(hash)) lastActivityAt = Date.now(); };
   appSyncEvents.on(EVENTS.HASH_RESPONSE_RECEIVED, handler);
 
   try {
@@ -406,12 +406,10 @@ async function ephemeralHashRound(hashes, force, currentHeight) {
   const peerKeys = peers.map((p) => p.key).join(', ');
   log.info(`syncMissingHashes - Ephemeral round: requesting ${hashes.length} hashes from ${peers.length} peers: ${peerKeys}`);
 
-  globalState.pendingHashRequests = new Set(hashes);
   await broadcastHashRequest(hashes, peers);
 
   const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
-  const remaining = await waitForResolution(hashes.length, maxWait, force, currentHeight);
-  globalState.pendingHashRequests = null;
+  const remaining = await waitForResolution(new Set(hashes), maxWait, force, currentHeight);
 
   for (const peer of peers) {
     try { peer.close(CLOSE_CODES.EPHEMERAL_DONE, 'done'); } catch (_e) { /* noop */ }
@@ -521,7 +519,6 @@ async function syncMissingHashes(options = {}) {
         }
 
         const hashes = missingHashes.map((h) => h.hash);
-        globalState.pendingHashRequests = new Set(hashes);
         const peerKeys = peers.map((p) => p.key).join(', ');
         log.info(`syncMissingHashes - Round ${round + 1}: requesting ${hashes.length} hashes from ${peers.length} peers: ${peerKeys}`);
 
@@ -529,8 +526,7 @@ async function syncMissingHashes(options = {}) {
 
         const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
         const beforeCount = missingHashes.length;
-        missingHashes = await waitForResolution(beforeCount, maxWait, force, currentHeight);
-        globalState.pendingHashRequests = null;
+        missingHashes = await waitForResolution(new Set(hashes), maxWait, force, currentHeight);
         const resolvedThisRound = beforeCount - missingHashes.length;
         resolved += resolvedThisRound;
 
