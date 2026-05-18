@@ -12,6 +12,7 @@ const globalState = require('../utils/globalState');
 const cacheManager = require('../utils/cacheManager').default;
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const { localAppsInformation } = require('../utils/appConstants');
+const { verifyAppVolumeMount } = require('../utils/volumeService');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
@@ -51,7 +52,17 @@ async function recreateMissingContainers(componentIdentifier) {
     componentSpec.cpu = componentSpec[cpuTier] || componentSpec.cpu;
     componentSpec.ram = componentSpec[ramTier] || componentSpec.ram;
     componentSpec.hdd = componentSpec[hddTier] || componentSpec.hdd;
-    await appInstaller.installApplicationHard(componentSpec, mainAppName, true, null, appSpec);
+    let volumeMounted = false;
+    try {
+      volumeMounted = await verifyAppVolumeMount(mainAppName, true, componentName);
+    } catch {
+      // volume not mounted
+    }
+    if (volumeMounted) {
+      await appInstaller.installApplicationSoft(componentSpec, mainAppName, true, null, appSpec);
+    } else {
+      await appInstaller.installApplicationHard(componentSpec, mainAppName, true, null, appSpec);
+    }
   } else {
     for (const componentSpec of appSpec.compose) {
       const hddTier = `hdd${tier}`;
@@ -60,8 +71,20 @@ async function recreateMissingContainers(componentIdentifier) {
       componentSpec.cpu = componentSpec[cpuTier] || componentSpec.cpu;
       componentSpec.ram = componentSpec[ramTier] || componentSpec.ram;
       componentSpec.hdd = componentSpec[hddTier] || componentSpec.hdd;
-      // eslint-disable-next-line no-await-in-loop
-      await appInstaller.installApplicationHard(componentSpec, mainAppName, true, null, appSpec);
+      let volumeMounted = false;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        volumeMounted = await verifyAppVolumeMount(mainAppName, true, componentSpec.name);
+      } catch {
+        // volume not mounted
+      }
+      if (volumeMounted) {
+        // eslint-disable-next-line no-await-in-loop
+        await appInstaller.installApplicationSoft(componentSpec, mainAppName, true, null, appSpec);
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        await appInstaller.installApplicationHard(componentSpec, mainAppName, true, null, appSpec);
+      }
     }
   }
 
