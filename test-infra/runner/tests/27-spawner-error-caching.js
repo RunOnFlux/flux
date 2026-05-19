@@ -13,14 +13,13 @@ import {
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
-const REGISTRY_IP = '198.18.0.5';
+const REGISTRY = '198.18.0.5:5000';
 
 describe('Spawner error caching: local install failure', function () {
   let env;
   const appName = `e2eBroken${Date.now()}`;
-  const brokenRepo = `${REGISTRY_IP}:5000/broken-app`;
-  const brokenTag = 'v1';
-  const brokenRepotag = `${brokenRepo}:${brokenTag}`;
+  const repoName = 'broken-app';
+  const brokenRepotag = `${REGISTRY}/${repoName}:v1`;
   dumpLogsOnFailure(() => env);
 
   before(async function () {
@@ -34,7 +33,7 @@ describe('Spawner error caching: local install failure', function () {
     }
 
     // Push broken image to test registry before discovery so it's available when spawner tries
-    await pushBrokenImage(brokenRepo, brokenTag);
+    await pushBrokenImage(repoName, 'v1');
 
     await env.startDiscovery();
     await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
@@ -127,9 +126,8 @@ describe('Spawner error caching: local install failure', function () {
 describe('Spawner error caching: network-wide error skip', function () {
   let env;
   const appName = `e2eNetErr${Date.now()}`;
-  const goodRepo = `${REGISTRY_IP}:5000/good-app`;
-  const goodTag = 'v1';
-  const goodRepotag = `${goodRepo}:${goodTag}`;
+  const goodRepoName = 'good-app';
+  const goodRepotag = `${REGISTRY}/${goodRepoName}:v1`;
   let appHash;
   dumpLogsOnFailure(() => env);
 
@@ -143,7 +141,7 @@ describe('Spawner error caching: network-wide error skip', function () {
       await waitForBlockProcessed(c, (d) => d.height > 2100000, 50000);
     }
 
-    await pushImage(goodRepo, goodTag);
+    await pushImage(goodRepoName, 'v1');
 
     await env.startDiscovery();
     await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
