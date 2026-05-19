@@ -700,9 +700,6 @@ async function syncMissingHashes(options = {}) {
     const remaining = finalMissing.length - unreachable;
     log.info(`syncMissingHashes - Complete: ${resolved}/${initialCount} resolved, ${remaining} missing (${backoffOps.length} backed off), ${unreachable} unreachable`);
     return { resolved, missing: remaining, unreachable, nextRetryHeight: minNextRetry };
-  } catch (error) {
-    log.error(error);
-    return { resolved: 0, missing: -1, unreachable: 0 };
   } finally {
     syncRunning = false;
   }
@@ -716,7 +713,7 @@ async function triggerAppHashesCheckAPI(req, res) {
       res.json(errMessage);
       return;
     }
-    syncMissingHashes({ force: true });
+    syncMissingHashes({ force: true }).catch((err) => log.error(`syncMissingHashes API trigger: ${err.message}`));
     const resultsResponse = messageHelper.createSuccessMessage('Running sync on missing application messages');
     res.json(resultsResponse);
   } catch (error) {
