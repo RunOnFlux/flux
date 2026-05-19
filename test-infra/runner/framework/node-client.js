@@ -72,6 +72,8 @@ export function nodeClient(nodeNum) {
         'peers:thresholdReached',
         'spawner:blocked',
         'spawner:deferred',
+        'spawner:installFailed',
+        'spawner:networkErrorSkip',
         'spawner:paused',
         'spawner:resumed',
         'network:apprunning',

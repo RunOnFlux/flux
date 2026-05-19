@@ -132,3 +132,46 @@ export async function pushUpdatedImage(repo, tag) {
   const marker = `updated-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
   return pushImage(repo, tag, marker);
 }
+
+export async function pushBrokenImage(repo, tag) {
+  const gzippedLayer = buildLayerTar('broken');
+  const layerDigest = await uploadBlob(repo, gzippedLayer);
+
+  const uncompressedLayer = zlib.gunzipSync(gzippedLayer);
+  const diffId = `sha256:${sha256(uncompressedLayer)}`;
+
+  const configObj = {
+    architecture: 'amd64',
+    os: 'linux',
+    config: { Entrypoint: ['/nonexistent'] },
+    rootfs: { type: 'layers', diff_ids: [diffId] },
+  };
+  const configBuf = Buffer.from(JSON.stringify(configObj));
+  const configDigest = await uploadBlob(repo, configBuf);
+
+  const manifest = {
+    schemaVersion: 2,
+    mediaType: 'application/vnd.docker.distribution.manifest.v2+json',
+    config: {
+      mediaType: 'application/vnd.docker.container.image.v1+json',
+      size: configBuf.length,
+      digest: configDigest,
+    },
+    layers: [{
+      mediaType: 'application/vnd.docker.image.rootfs.diff.tar.gzip',
+      size: gzippedLayer.length,
+      digest: layerDigest,
+    }],
+  };
+
+  const manifestRes = await registryClient.put(
+    `/v2/${repo}/manifests/${tag}`,
+    JSON.stringify(manifest),
+    {
+      headers: { 'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json' },
+      validateStatus: (s) => s === 201,
+    },
+  );
+
+  return manifestRes.headers['docker-content-digest'];
+}

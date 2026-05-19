@@ -348,6 +348,7 @@ async function trySpawningGlobalApplication() {
     const errorCount = await registryManager.countAppInstallingErrors(appHash);
     if (errorCount >= 5) {
       globalState.trySpawningGlobalAppCache.set(appHash, '', { ttl: FluxCacheManager.oneHour * 6 });
+      fluxEventBus.publish('spawner:networkErrorSkip', { appName: appToRun, hash: appHash, errorCount });
       throw new Error(`trySpawningGlobalApplication - App ${appToRun} hash ${appHash} has ${errorCount} network-wide install failures, skipping`);
     }
 
@@ -774,6 +775,7 @@ async function trySpawningGlobalApplication() {
     if (!registerOk) {
       log.info(`trySpawningGlobalApplication - Install failed for ${appToRun}, adding to local error cache`);
       globalState.spawnErrorsLongerAppCache.set(appHash, '');
+      fluxEventBus.publish('spawner:installFailed', { appName: appToRun, hash: appHash });
       await serviceHelper.delay(shortDelayTime);
       trySpawningGlobalApplication();
       return;
