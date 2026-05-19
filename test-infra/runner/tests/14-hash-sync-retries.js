@@ -114,9 +114,9 @@ describe('Hash sync: retry exhaustion', function () {
 
   it('should still reach READY via block fallback', async function () {
     this.timeout(300000);
-    await startTicker();
+    // Block threshold is 250 (125 min * 2 blocks/min). Advance past it.
+    await advanceBlocks(260);
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
-    await stopTicker();
   });
 });
 
@@ -190,10 +190,9 @@ describe('Hash sync: attempts reset after degrade/recover', function () {
     // Clear failpoint so recovery sync succeeds
     await db.failpointClear();
 
-    // Reach READY via block fallback so we can degrade
-    await startTicker();
+    // Block threshold is 250 (125 min * 2 blocks/min). Advance past it.
+    await advanceBlocks(260);
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
-    await stopTicker();
   });
 
   after(async function () {
