@@ -1515,8 +1515,10 @@ async function insertAppSpecifications(appSpecs) {
     fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
+    return true;
   } catch (error) {
     log.error(`insertAppSpecifications failed for ${appSpecs.name}: ${error.message}`);
+    return false;
   }
 }
 
@@ -1527,13 +1529,15 @@ async function updateAppSpecifications(appSpecs) {
     const query = { name: appSpecs.name };
     const projection = { projection: { _id: 0 } };
     const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-    if (!appInfo || appInfo.height >= appSpecs.height) return;
+    if (!appInfo || appInfo.height >= appSpecs.height) return true;
     await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, { upsert: false });
     fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
+    return true;
   } catch (error) {
     log.error(`updateAppSpecifications failed for ${appSpecs.name}: ${error.message}`);
+    return false;
   }
 }
 

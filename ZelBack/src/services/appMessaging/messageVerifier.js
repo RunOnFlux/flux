@@ -741,9 +741,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               updateForSpecifications.hash = permanentAppMessage.hash;
               updateForSpecifications.height = permanentAppMessage.height;
               // object of appSpecifications extended for hash and height
-              await insertAppSpecifications(updateForSpecifications);
-              // Process any pending updates that were queued waiting for this registration
+              const inserted = await insertAppSpecifications(updateForSpecifications);
               const appName = specifications.name;
+              if (!inserted) {
+                globalState.clearPendingUpdates(appName);
+                return true;
+              }
               const pendingUpdates = globalState.getPendingUpdates(appName);
               if (pendingUpdates.length > 0) {
                 log.info(`Processing ${pendingUpdates.length} pending updates for ${appName}`);

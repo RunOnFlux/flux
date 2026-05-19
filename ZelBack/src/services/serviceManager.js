@@ -95,8 +95,9 @@ const appsStorageViolations = [];
 
 /**
  * createIndex that tolerates a pre-existing index with conflicting options
- * (IndexOptionsConflict / IndexKeySpecsConflict) by dropping the old one and
- * recreating. Every other error bubbles up.
+ * (IndexOptionsConflict / IndexKeySpecsConflict) by finding the conflicting
+ * index via listIndexes, dropping it by its actual name, and recreating.
+ * Every other error bubbles up.
  */
 async function ensureIndex(collection, spec, options = {}) {
   try {
@@ -104,11 +105,14 @@ async function ensureIndex(collection, spec, options = {}) {
   } catch (err) {
     const conflict = err && (err.codeName === 'IndexOptionsConflict' || err.codeName === 'IndexKeySpecsConflict');
     if (!conflict) throw err;
-    const indexName = options.name || Object.entries(spec).map(([k, v]) => `${k}_${v}`).join('_');
-    log.warn(`ensureIndex - conflicting index ${indexName} on ${collection.collectionName}, dropping and recreating`);
-    await collection.dropIndex(indexName).catch((dropErr) => {
-      log.warn(`ensureIndex - dropIndex ${indexName} failed: ${dropErr.message}`);
-    });
+    const specKeys = JSON.stringify(spec);
+    const indexes = await collection.listIndexes().toArray();
+    const match = indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
+    const dropName = match?.name;
+    if (dropName) {
+      log.warn(`ensureIndex - conflicting index '${dropName}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
+      await collection.dropIndex(dropName);
+    }
     await collection.createIndex(spec, options);
   }
 }
@@ -170,12 +174,12 @@ async function startFluxFunctions() {
         log.error(error);
       }
     });
-    await database.collection(config.database.local.collections.loggedUsers).createIndex({ createdAt: 1 }, { expireAfterSeconds: 14 * 24 * 60 * 60 }); // 2days
-    await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
-    await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
-    await database.collection(config.database.local.collections.activePaymentRequests).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 }); // 1 hour
-    await database.collection(config.database.local.collections.completedPayments).createIndex({ paymentId: 1 });
-    await database.collection(config.database.local.collections.completedPayments).createIndex({ createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 }); // 7 days
+    await ensureIndex(database.collection(config.database.local.collections.loggedUsers), { createdAt: 1 }, { expireAfterSeconds: 14 * 24 * 60 * 60 });
+    await ensureIndex(database.collection(config.database.local.collections.activeLoginPhrases), { createdAt: 1 }, { expireAfterSeconds: 900 });
+    await ensureIndex(database.collection(config.database.local.collections.activeSignatures), { createdAt: 1 }, { expireAfterSeconds: 900 });
+    await ensureIndex(database.collection(config.database.local.collections.activePaymentRequests), { createdAt: 1 }, { expireAfterSeconds: 3600 });
+    await ensureIndex(database.collection(config.database.local.collections.completedPayments), { paymentId: 1 });
+    await ensureIndex(database.collection(config.database.local.collections.completedPayments), { createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 });
     await ensureIndex(
       database.collection(config.database.local.collections.appTamperingEvents),
       { detectedAt: 1 },
@@ -191,7 +195,7 @@ async function startFluxFunctions() {
     log.info('Preparing temporary database...');
     // no need to drop temporary messages
     const databaseTemp = db.db(config.database.appsglobal.database);
-    await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: tempMsgTtlS });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages), { receivedAt: 1 }, { expireAfterSeconds: tempMsgTtlS });
     log.info('Temporary database prepared');
     log.info('Preparing Flux Apps locations');
 
@@ -205,41 +209,41 @@ async function startFluxFunctions() {
 
     // we have to create this index again here, as we need it to repair the db. As we were deleting this on every reboot (and it was only created when scannedHeight was 0)
     // Creating an index that already exists is a no-op
-    await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), { hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), { 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), { 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
     // TTL is driven by expireAt (set per-document by store functions). Migrate from old broadcastedAt-based TTL.
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).dropIndex('broadcastedAt_1').catch(() => {});
-    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1, name: 1 });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), { expireAt: 1 }, { expireAfterSeconds: 0 });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), { name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), { ip: 1, name: 1 });
     log.info('Flux Apps locations prepared');
-    await databaseTemp.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ ip: 1, type: 1, dedupKey: 1 }, { unique: true });
-    await databaseTemp.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ broadcastedAt: 1 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ createdAt: 1 });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), { expireAt: 1 }, { expireAfterSeconds: 0 });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), { ip: 1, type: 1, dedupKey: 1 }, { unique: true });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), { broadcastedAt: 1 });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), { createdAt: 1 });
     log.info('App state events collection prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ broadcastedAt: 1 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).createIndex({ 'data.name': 1, 'data.ip': 1 }, { unique: true });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), { expireAt: 1 }, { expireAfterSeconds: 0 });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), { broadcastedAt: 1 });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), { 'data.name': 1, 'data.ip': 1 }, { unique: true });
     log.info('Signed appinstalling broadcasts collection prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).dropIndex('broadcastedAt_1').catch(() => {});
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install location based on specs name' });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), { expireAt: 1 }, { expireAfterSeconds: 0 });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), { name: 1 }, { name: 'query for getting flux app install location based on specs name' });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), { name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
     log.info('Flux Apps installing locations prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).dropIndex('cachedAt_1').catch(() => {});
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).dropIndex('broadcastedAt_1').catch(() => {});
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), { expireAt: 1 }, { expireAfterSeconds: 0 });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), { name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), { name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations), { name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
     log.info('App installing errors locations prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).createIndex({ broadcastedAt: 1 });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).createIndex({ 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, { unique: true });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), { expireAt: 1 }, { expireAfterSeconds: 0 });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), { broadcastedAt: 1 });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), { 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, { unique: true });
     log.info('Signed app installing errors broadcasts collection prepared');
 
     // This fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,

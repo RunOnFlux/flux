@@ -96,10 +96,11 @@ describe('appSpawner tests', () => {
       '../appDatabase/registryManager': {
         appLocation: sinon.stub().resolves([]),
         appInstallingLocation: sinon.stub().resolves([]),
-        getApplicationGlobalSpecifications: sinon.stub().resolves(null),
+        getApplicationGlobalSpecifications: sinon.stub().resolves(opts.appSpec || null),
         expireGlobalApplications: sinon.stub().resolves(),
         storeAppInstallingMessage: sinon.stub().resolves(),
         getRunningAppIpList: sinon.stub().resolves([]),
+        countAppInstallingErrors: sinon.stub().resolves(opts.errorCount ?? 0),
       },
       '../appSecurity/imageManager': {
         checkApplicationImagesCompliance: sinon.stub().resolves(),
@@ -146,6 +147,15 @@ describe('appSpawner tests', () => {
       },
       '../utils/cacheManager': {
         FluxCacheManager: { oneHour: 3600000 },
+      },
+      '../utils/fluxEventBus': {
+        publish: sinon.stub(),
+      },
+      './appInstaller': {
+        registerAppLocally: opts.installStub ?? sinon.stub().resolves(true),
+      },
+      './appUninstaller': {
+        removeAppLocally: sinon.stub().resolves(),
       },
     });
   }
@@ -345,6 +355,73 @@ describe('appSpawner tests', () => {
         expect(result.actualExpirationHeight - currentHeight).to.equal(100);
         expect(result.wouldInstall).to.be.false;
       });
+    });
+  });
+
+  describe('install error caching', () => {
+    const spawnableApp = {
+      name: 'testApp',
+      actual: 0,
+      required: 3,
+      nodes: [],
+      geolocation: [],
+      hash: 'abc123',
+      version: 7,
+      enterprise: false,
+      owner: 'testOwner',
+    };
+
+    const fullSpec = {
+      name: 'testApp',
+      hash: 'abc123',
+      version: 7,
+      instances: 3,
+      compose: [{ repotag: 'testimage:latest', containerData: '' }],
+    };
+
+    it('should add to short-term cache when network error count >= 5', async () => {
+      buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 5 });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(globalStateStub.trySpawningGlobalAppCache.has('abc123')).to.be.true;
+      expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.false;
+    });
+
+    it('should not block when network error count < 5', async () => {
+      buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 4 });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(logStub.error.args.some((a) => a[0]?.message?.includes('network-wide install failures'))).to.be.false;
+    });
+
+    it('should add to long-term cache on local install failure', async () => {
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        installStub: sinon.stub().resolves(false),
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.true;
+    });
+
+    it('should not overwrite short-term cache with long-term cache when network errors throw into catch', async () => {
+      buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 5 });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(globalStateStub.trySpawningGlobalAppCache.has('abc123')).to.be.true;
+      expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.false;
+    });
+
+    it('should filter apps in long-term cache from selection', async () => {
+      buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0 });
+      globalStateStub.spawnErrorsLongerAppCache.set('abc123', '');
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(logStub.info.args.some((a) => a[0]?.includes?.('No app currently to be processed'))).to.be.true;
+    });
+
+    it('should filter apps in short-term cache from selection', async () => {
+      buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 0 });
+      globalStateStub.trySpawningGlobalAppCache.set('abc123', '');
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(logStub.info.args.some((a) => a[0]?.includes?.('No app currently to be processed'))).to.be.true;
     });
   });
 

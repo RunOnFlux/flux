@@ -321,13 +321,17 @@ describe('appHashSyncService tests', () => {
       expect(logStub.info.calledWith(sinon.match('streaming bulk fetch'))).to.be.true;
     });
 
-    it('should handle errors without crashing', async () => {
+    it('should propagate errors to caller', async () => {
       dbHelperStub.findInDatabase.rejects(new Error('DB error'));
 
-      const result = await appHashSyncService.syncMissingHashes();
-
-      expect(result.missing).to.equal(-1);
-      expect(logStub.error.called).to.be.true;
+      let threw = false;
+      try {
+        await appHashSyncService.syncMissingHashes();
+      } catch (err) {
+        threw = true;
+        expect(err.message).to.equal('DB error');
+      }
+      expect(threw).to.equal(true);
     });
 
     it('should batch existence checks and skip existing messages via bulk fetch', async () => {
