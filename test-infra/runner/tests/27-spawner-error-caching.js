@@ -26,6 +26,8 @@ async function bootToSpawnerReady(env) {
   await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
   await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
   await startTicker();
+  // Advance past the 250-block threshold so orchestrator reaches READY via block fallback
+  await advanceBlocks(260);
   await waitForOrchestratorState(env.clients[0], 'READY', 120000);
 }
 
