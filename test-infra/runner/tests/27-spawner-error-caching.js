@@ -15,6 +15,20 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const REGISTRY = '198.18.0.5:5000';
 
+async function bootToSpawnerReady(env) {
+  for (const c of env.clients) await waitForDaemonReady(c);
+  await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+  await advanceBlock();
+  for (const c of env.clients) {
+    await waitForBlockProcessed(c, (d) => d.height > 2100000, 50000);
+  }
+  await env.startDiscovery();
+  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
+  await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
+  await startTicker();
+  await waitForOrchestratorState(env.clients[0], 'READY', 120000);
+}
+
 describe('Spawner error caching: local install failure', function () {
   let env;
   const appName = `e2eBroken${Date.now()}`;
@@ -25,20 +39,8 @@ describe('Spawner error caching: local install failure', function () {
   before(async function () {
     this.timeout(300000);
     env = await createTestEnv({ nodes: 10, tickerAutostart: false });
-    for (const c of env.clients) await waitForDaemonReady(c);
-    await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
-    await advanceBlock();
-    for (const c of env.clients) {
-      await waitForBlockProcessed(c, (d) => d.height > 2100000, 50000);
-    }
-
-    // Push broken image to test registry before discovery so it's available when spawner tries
     await pushBrokenImage(repoName, 'v1');
-
-    await env.startDiscovery();
-    await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
-
-    await startTicker();
+    await bootToSpawnerReady(env);
 
     const spec = buildAppSpec({
       name: appName,
@@ -86,7 +88,6 @@ describe('Spawner error caching: local install failure', function () {
 
   it('should broadcast install error to other nodes', async function () {
     this.timeout(60000);
-    // At least one other node should have received the error broadcast
     const received = await Promise.any(
       env.clients.map((c) => c.waitForEvent(
         'network:appinstallingerror',
@@ -99,7 +100,6 @@ describe('Spawner error caching: local install failure', function () {
 
   it('should not retry the app on the node that failed (7-day cache)', async function () {
     this.timeout(60000);
-    // Find which node had the installFailed event
     let failedNodeIdx = -1;
     for (let i = 0; i < env.clients.length; i++) {
       const buf = env.clients[i].getEventBuffer();
@@ -111,8 +111,6 @@ describe('Spawner error caching: local install failure', function () {
     expect(failedNodeIdx).to.be.gte(0, 'should have found a node with installFailed');
 
     const mark = env.clients[failedNodeIdx].getLastEventId();
-
-    // Wait and verify no second install attempt on the same node
     await new Promise((r) => { setTimeout(r, 30000); });
 
     const buf = env.clients[failedNodeIdx].getEventBuffer();
@@ -134,19 +132,8 @@ describe('Spawner error caching: network-wide error skip', function () {
   before(async function () {
     this.timeout(300000);
     env = await createTestEnv({ nodes: 10, tickerAutostart: false });
-    for (const c of env.clients) await waitForDaemonReady(c);
-    await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
-    await advanceBlock();
-    for (const c of env.clients) {
-      await waitForBlockProcessed(c, (d) => d.height > 2100000, 50000);
-    }
-
     await pushImage(goodRepoName, 'v1');
-
-    await env.startDiscovery();
-    await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
-
-    await startTicker();
+    await bootToSpawnerReady(env);
 
     const spec = buildAppSpec({
       name: appName,
@@ -210,7 +197,6 @@ describe('Spawner error caching: network-wide error skip', function () {
 
   it('should not have installed the app on the skipping node', async function () {
     this.timeout(10000);
-    // Find the node that skipped
     let skipNodeIdx = -1;
     for (let i = 0; i < env.clients.length; i++) {
       const buf = env.clients[i].getEventBuffer();
@@ -228,8 +214,6 @@ describe('Spawner error caching: network-wide error skip', function () {
 
   it('should use short-term cache not long-term cache for network errors', async function () {
     this.timeout(10000);
-    // The node that skipped should still consider the app later (6h cache, not 7-day).
-    // We verify by checking no installFailed event was emitted (which would indicate 7-day cache path).
     let skipNodeIdx = -1;
     for (let i = 0; i < env.clients.length; i++) {
       const buf = env.clients[i].getEventBuffer();
