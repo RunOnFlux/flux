@@ -227,9 +227,7 @@ describe('Hash sync: attempts reset after degrade/recover', function () {
     this.timeout(120000);
     const mark = env.clients[0].getLastEventId();
 
-    // Inject failpoint — first attempt fails, retry succeeds
     const db = dbClient(1);
-    await db.failpointFind('zelappshashes', { times: 1 });
 
     // Degrade again
     for (let i = 1; i < env.clients.length; i++) {
@@ -237,6 +235,10 @@ describe('Hash sync: attempts reset after degrade/recover', function () {
       await env.disconnectNode(i);
     }
     await waitForOrchestratorState(env.clients[0], 'DEGRADED', 30000);
+
+    // Inject failpoint after DEGRADED — node is quiet (no blocks processing,
+    // no explorer queries) so the failpoint won't be consumed before hash sync.
+    await db.failpointFind('zelappshashes', { times: 1 });
 
     // Reconnect
     for (let i = 1; i < env.clients.length; i++) {
