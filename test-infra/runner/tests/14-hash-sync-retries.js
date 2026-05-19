@@ -226,7 +226,6 @@ describe('Hash sync: attempts reset after degrade/recover', function () {
   it('should retry if hash sync fails after recovery', async function () {
     this.timeout(120000);
     const mark = env.clients[0].getLastEventId();
-
     const db = dbClient(1);
 
     // Degrade again
@@ -234,7 +233,7 @@ describe('Hash sync: attempts reset after degrade/recover', function () {
       // eslint-disable-next-line no-await-in-loop
       await env.disconnectNode(i);
     }
-    await waitForOrchestratorState(env.clients[0], 'DEGRADED', 30000);
+    await waitForOrchestratorState(env.clients[0], 'DEGRADED', 30000, { afterId: mark });
 
     // Inject failpoint after DEGRADED — node is quiet (no blocks processing,
     // no explorer queries) so the failpoint won't be consumed before hash sync.
