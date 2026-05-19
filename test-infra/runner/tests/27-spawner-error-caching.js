@@ -173,17 +173,19 @@ describe('Spawner error caching: network-wide error skip', function () {
     await waitForBlockProcessed(env.clients[0], (d) => d.height >= result.targetHeight, 60000);
     await waitForAppSpecStored(env.clients[0], appName);
 
-    // Seed 5 install errors from fake IPs so the spawner sees network-wide failures
-    const db = dbClient(1);
-    for (let i = 0; i < 5; i++) {
-      // eslint-disable-next-line no-await-in-loop
-      await db.seedInstallingError({
-        name: appName,
-        hash: appHash,
-        ip: `10.0.0.${i + 1}`,
-        error: `simulated failure ${i + 1}`,
-        broadcastedAt: Date.now(),
-      });
+    // Seed 5 install errors on every node so each spawner sees network-wide failures
+    for (let n = 1; n <= env.nodeCount; n++) {
+      const db = dbClient(n);
+      for (let i = 0; i < 5; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await db.seedInstallingError({
+          name: appName,
+          hash: appHash,
+          ip: `10.0.0.${i + 1}`,
+          error: `simulated failure ${i + 1}`,
+          broadcastedAt: Date.now(),
+        });
+      }
     }
   });
 
