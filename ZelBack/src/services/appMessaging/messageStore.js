@@ -19,6 +19,7 @@ const {
   globalAppStateEvents,
   appsHashesCollection,
 } = require('../utils/appConstants');
+const appsInstallingBroadcasts = config.database.appsglobal.collections.appsInstallingBroadcasts;
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 
@@ -825,8 +826,6 @@ async function storeBatchAppRunningEvents(verifiedBroadcasts) {
 
   return { stored: ops.length };
 }
-
-const appsInstallingBroadcasts = config.database.appsglobal.collections.appsInstallingBroadcasts;
 
 function storeSignedAppInstallingBroadcast(signedBroadcast) {
   const { data } = signedBroadcast;
