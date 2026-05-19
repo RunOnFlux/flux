@@ -53,6 +53,7 @@ class AppSyncOrchestrator {
   #hashUnresolvedHandler = null;
   #hashesChangedHandler = null;
   #broadcastStarted = null;
+  #started = false;
   #syncInProgress = false;
   #askedPeers = new Set();
   #syncCompletions = { apprunning: 0, appinstalling: 0, apperrors: 0 };
@@ -97,6 +98,8 @@ class AppSyncOrchestrator {
   }
 
   async start(bootContext) {
+    if (this.#started) return;
+    this.#started = true;
     log.info(`AppSyncOrchestrator - Starting in state ${this.#state}`);
 
     this.#bootContext = bootContext;
@@ -568,6 +571,7 @@ class AppSyncOrchestrator {
   }
 
   stop() {
+    this.#started = false;
     if (this.#heartbeatInterval) {
       clearInterval(this.#heartbeatInterval);
       this.#heartbeatInterval = null;
