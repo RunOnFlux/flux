@@ -81,6 +81,8 @@ export function nodeClient(nodeNum) {
         'network:appmessage',
         'network:ipchanged',
         'network:sigterm',
+        'hashSync:complete',
+        'hashSync:failed',
         'hashRequest:received',
         'hashRequest:responded',
         'message:dispatched',
@@ -108,8 +110,8 @@ export function nodeClient(nodeNum) {
     for (const name of names) emitter.removeAllListeners(name);
   }
 
-  function waitForEvent(name, predicate = () => true, timeout = 30000) {
-    const found = eventBuffer.find((e) => e.event === name && predicate(e.data));
+  function waitForEvent(name, predicate = () => true, timeout = 30000, { afterId = 0 } = {}) {
+    const found = eventBuffer.find((e) => e.event === name && e.id > afterId && predicate(e.data));
     if (found) return Promise.resolve(found);
 
     return new Promise((resolve, reject) => {
@@ -119,7 +121,7 @@ export function nodeClient(nodeNum) {
       }, timeout);
 
       function handler(entry) {
-        if (predicate(entry.data)) {
+        if (entry.id > afterId && predicate(entry.data)) {
           cleanup();
           resolve(entry);
         }
@@ -134,6 +136,11 @@ export function nodeClient(nodeNum) {
     });
   }
 
+  function getLastEventId() {
+    if (eventBuffer.length === 0) return 0;
+    return eventBuffer[eventBuffer.length - 1].id;
+  }
+
   return {
     ip,
     url,
@@ -144,6 +151,7 @@ export function nodeClient(nodeNum) {
     connectEventStream,
     disconnectEventStream,
     waitForEvent,
+    getLastEventId,
     getEventBuffer: () => [...eventBuffer],
     getVersion: () => get('/flux/version'),
     getPeers: () => get('/flux/connectedpeers'),

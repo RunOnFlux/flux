@@ -192,7 +192,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   const stubPeerSet = new Set(stubPeers);
 
   const mongo = await new StaticIpContainer('mongo:8')
-    .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64'])
+    .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
     .withStaticIp(networkName, MONGO_IP)
     .withWaitStrategy(Wait.forHealthCheck())
     .withHealthCheck({

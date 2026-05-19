@@ -264,6 +264,7 @@ class AppSyncOrchestrator {
     this.#clearSyncRequested();
     this.#syncCompletions = { apprunning: 0, appinstalling: 0, apperrors: 0 };
     this.#stateSyncComplete = false;
+    this.#hashSyncAttempts = 0;
     if (this.#syncTimeout) {
       clearTimeout(this.#syncTimeout);
       this.#syncTimeout = null;
@@ -386,9 +387,12 @@ class AppSyncOrchestrator {
       await this.#writeVersionMarker();
       await this.#rebuildDb();
       globalState.dbReady = true;
+      fluxEventBus.publish('hashSync:complete', { attempt: this.#hashSyncAttempts, missing: result.missing });
     } catch (error) {
       log.error(`AppSyncOrchestrator - Hash sync failed (attempt ${this.#hashSyncAttempts}/${HASH_SYNC_MAX_RETRIES}): ${error.message}`);
-      if (this.#hashSyncAttempts < HASH_SYNC_MAX_RETRIES) {
+      const willRetry = this.#hashSyncAttempts < HASH_SYNC_MAX_RETRIES;
+      fluxEventBus.publish('hashSync:failed', { attempt: this.#hashSyncAttempts, maxRetries: HASH_SYNC_MAX_RETRIES, willRetry, error: error.message });
+      if (willRetry) {
         log.info(`AppSyncOrchestrator - Scheduling hash sync retry in ${HASH_SYNC_RETRY_MS / 1000}s`);
         this.#hashSyncRetryTimer = setTimeout(() => {
           this.#hashSyncRetryTimer = null;
