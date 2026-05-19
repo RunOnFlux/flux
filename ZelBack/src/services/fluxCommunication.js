@@ -161,7 +161,6 @@ async function handleAppRunningSyncResponse(message, peerKey) {
       }
     }
     if (done) {
-      peerManager.completeSyncRequest(peerKey);
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
       log.info('handleAppRunningSyncResponse - Sync complete');
     }

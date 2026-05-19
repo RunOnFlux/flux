@@ -161,6 +161,7 @@ class AppSyncOrchestrator {
         clearTimeout(this.#syncTimeout);
         this.#syncTimeout = null;
       }
+      this.#clearSyncRequested();
       log.info('AppSyncOrchestrator - All state syncs complete');
       this.#checkReadiness();
     }
