@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { pushBrokenImage, pushImage } from '../framework/registry-helper.js';
-import { advanceBlock, startTicker, stopTicker } from '../framework/daemon-control.js';
+import { advanceBlock, advanceBlocks, startTicker, stopTicker } from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForOrchestratorState, waitForAppSpecStored,
