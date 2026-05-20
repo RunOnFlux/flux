@@ -49,6 +49,7 @@ export function nodeClient(nodeNum) {
 
       for (const name of [
         'block:processed',
+        'boot:context',
         'boot:settled',
         'confirmation:changed',
         'daemon:polled',

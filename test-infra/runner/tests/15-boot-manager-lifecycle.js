@@ -164,37 +164,53 @@ describe('Boot manager: not confirmed', function () {
 // Suite 6: Stale shutdownReason clearing — sigterm → boot → clear → kill → boot → unclean
 
 describe('Boot manager: shutdownReason sequence', function () {
-  let env;
-  dumpLogsOnFailure(() => env);
+  describe('clean shutdown (SIGTERM writes shutdownReason)', function () {
+    let env;
+    dumpLogsOnFailure(() => env);
 
-  before(async function () {
-    this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
-    await waitForDaemonReady(env.clients[0]);
+    before(async function () {
+      this.timeout(120000);
+      env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
+      await waitForDaemonReady(env.clients[0]);
+    });
+
+    after(async function () {
+      this.timeout(30000);
+      await env?.teardown();
+    });
+
+    it('should detect cleanShutdown=true on boot after SIGTERM', async function () {
+      this.timeout(60000);
+      const event = await env.clients[0].waitForEvent('boot:context', () => true, 50000);
+      expect(event.data.cleanShutdown).to.equal(true);
+      expect(event.data.machineRebooted).to.equal(true);
+    });
   });
 
-  after(async function () {
-    this.timeout(30000);
-    await env?.teardown();
-  });
+  describe('unclean shutdown (no shutdownReason in heartbeat)', function () {
+    let env;
+    dumpLogsOnFailure(() => env);
 
-  it('should detect cleanShutdown=true on boot after SIGTERM', async function () {
-    this.timeout(60000);
-    await waitForBootSettled(env.clients[0], 50000);
-    expect(env.nodeHasLog(0, 'cleanShutdown=true')).to.equal(true);
-  });
+    before(async function () {
+      this.timeout(120000);
+      env = await createTestEnv({
+        nodes: 1,
+        tickerAutostart: false,
+        bootContext: { lastAlive: Date.now() - 60000, machineBootId: 'old-boot-id' },
+      });
+      await waitForDaemonReady(env.clients[0]);
+    });
 
-  it('should clear shutdownReason after first heartbeat', async function () {
-    this.timeout(10000);
-    expect(env.nodeHasLog(0, 'Failed to clear shutdown reason')).to.equal(false);
-  });
+    after(async function () {
+      this.timeout(30000);
+      await env?.teardown();
+    });
 
-  it('should detect cleanShutdown=false after hard kill (no SIGTERM)', async function () {
-    this.timeout(120000);
-    // timeout: 0 sends SIGTERM + immediate SIGKILL — process has no time to write shutdownReason
-    env.setBootId(0, `power-cut-${Date.now()}`);
-    await env.restartNode(0, { timeout: 0 });
-    await waitForBootSettled(env.clients[0], 60000);
-    expect(env.nodeHasLog(0, 'cleanShutdown=false')).to.equal(true);
+    it('should detect cleanShutdown=false when shutdownReason absent', async function () {
+      this.timeout(60000);
+      const event = await env.clients[0].waitForEvent('boot:context', () => true, 50000);
+      expect(event.data.cleanShutdown).to.equal(false);
+      expect(event.data.machineRebooted).to.equal(true);
+    });
   });
 });

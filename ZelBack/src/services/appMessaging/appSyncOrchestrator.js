@@ -103,6 +103,7 @@ class AppSyncOrchestrator {
     log.info(`AppSyncOrchestrator - Starting in state ${this.#state}`);
 
     this.#bootContext = bootContext;
+    fluxEventBus.publish('boot:context', bootContext);
     this.#startHeartbeat();
 
     this.#peerThresholdHandler = (count) => {

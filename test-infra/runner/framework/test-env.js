@@ -479,9 +479,9 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       return client;
     },
 
-    async restartNode(index, { timeout = 15000 } = {}) {
+    async restartNode(index) {
       if (clients[index]) clients[index].disconnectEventStream();
-      await fluxNodes[index].container.restart({ timeout });
+      await fluxNodes[index].container.restart({ timeout: 15000 });
       if (clients[index]) await clients[index].connectEventStream();
       return clients[index];
     },
