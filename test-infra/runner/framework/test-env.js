@@ -479,21 +479,9 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       return client;
     },
 
-    async restartNode(index) {
+    async restartNode(index, { timeout = 15000 } = {}) {
       if (clients[index]) clients[index].disconnectEventStream();
-      await fluxNodes[index].container.restart({ timeout: 15000 });
-      if (clients[index]) await clients[index].connectEventStream();
-      return clients[index];
-    },
-
-    async killNode(index) {
-      if (clients[index]) clients[index].disconnectEventStream();
-      fluxNodes[index].stoppedContainer = await fluxNodes[index].container.stop({ timeout: 0 });
-    },
-
-    async startKilledNode(index) {
-      fluxNodes[index].container = await fluxNodes[index].stoppedContainer.start();
-      fluxNodes[index].stoppedContainer = null;
+      await fluxNodes[index].container.restart({ timeout });
       if (clients[index]) await clients[index].connectEventStream();
       return clients[index];
     },

@@ -191,11 +191,9 @@ describe('Boot manager: shutdownReason sequence', function () {
 
   it('should detect cleanShutdown=false after hard kill (no SIGTERM)', async function () {
     this.timeout(120000);
-    // Kill without SIGTERM — writeShutdownReason never runs
-    await env.killNode(0);
-    // Change boot_id so machineRebooted=true (simulates power-cut reboot)
+    // timeout: 0 sends SIGTERM + immediate SIGKILL — process has no time to write shutdownReason
     env.setBootId(0, `power-cut-${Date.now()}`);
-    await env.startKilledNode(0);
+    await env.restartNode(0, { timeout: 0 });
     await waitForBootSettled(env.clients[0], 60000);
     expect(env.nodeHasLog(0, 'cleanShutdown=false')).to.equal(true);
   });
