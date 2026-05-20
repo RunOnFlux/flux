@@ -89,6 +89,8 @@ class NetworkStateManager extends EventEmitter {
    * Until we get onto NodeJS > 17.0.0 - we need this. I.e. we have no
    * structured clone
    */
+  static _searchTimings = { wait: 0, clone: 0, count: 0 };
+
   static deepClone(target) {
     function replacer(_key, value) {
       if (value instanceof Map) {
@@ -501,10 +503,25 @@ class NetworkStateManager extends EventEmitter {
 
     // if we are mid stroke indexing, may as well wait the ~10ms and get the
     // latest block
+    const tw0 = process.hrtime.bigint();
     await this.waitIndexesReady;
+    const tw1 = process.hrtime.bigint();
 
     const cached = this.#indexes[type].get(filter);
+    const tc0 = process.hrtime.bigint();
     const clone = cached ? NetworkStateManager.deepClone(cached) : null;
+    const tc1 = process.hrtime.bigint();
+
+    NetworkStateManager._searchTimings.wait += Number(tw1 - tw0);
+    NetworkStateManager._searchTimings.clone += Number(tc1 - tc0);
+    NetworkStateManager._searchTimings.count += 1;
+    if (NetworkStateManager._searchTimings.count % 200 === 0) {
+      const t = NetworkStateManager._searchTimings;
+      const w = (t.wait / 1e6).toFixed(1);
+      const c = (t.clone / 1e6).toFixed(1);
+      log.info(`networkStateManager.search timing (${t.count} calls): waitIndexesReady=${w}ms deepClone=${c}ms`);
+      NetworkStateManager._searchTimings = { wait: 0, clone: 0, count: 0 };
+    }
 
     return clone;
   }
