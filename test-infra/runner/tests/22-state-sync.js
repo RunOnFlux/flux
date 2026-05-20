@@ -171,7 +171,12 @@ describe('State sync: 3-peer ephemeral sync', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({ nodes: 12, deferredNodes: 2, tickerAutostart: false });
+    env = await createTestEnv({
+      nodes: 12,
+      deferredNodes: 2,
+      tickerAutostart: false,
+      configOverrides: { fluxapps: { appSyncMinCompletions: 3 } },
+    });
     const initial = Array.from({ length: 10 }, (_, i) => i);
     await bootAndPeer(env, initial);
 
