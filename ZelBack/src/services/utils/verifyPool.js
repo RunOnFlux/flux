@@ -5,41 +5,46 @@ const log = require('../../lib/log');
 
 const WORKER_PATH = path.join(__dirname, 'verifyWorker.js');
 
-let workers = [];
+let slots = [];
 
 function start(poolSize) {
   const size = poolSize ?? Math.max(1, os.cpus().length - 1);
-  if (workers.length) return;
+  if (slots.length) return;
   for (let i = 0; i < size; i++) {
-    const w = new Worker(WORKER_PATH);
-    w.on('error', (err) => log.error(`Verify worker error: ${err.message}`));
-    workers.push(w);
+    const worker = new Worker(WORKER_PATH);
+    const callbacks = [];
+    worker.on('error', (err) => log.error(`Verify worker error: ${err.message}`));
+    worker.on('message', (results) => {
+      const cb = callbacks.shift();
+      if (cb) cb(results);
+    });
+    slots.push({ worker, callbacks });
   }
-  log.info(`Verify worker pool started: ${workers.length} workers`);
+  log.info(`Verify worker pool started: ${slots.length} workers`);
 }
 
 function stop() {
-  for (const w of workers) w.terminate();
-  workers = [];
+  for (const { worker } of slots) worker.terminate();
+  slots = [];
 }
 
-function sendToWorker(worker, batch) {
+function sendToWorker(slot, batch) {
   return new Promise((resolve) => {
-    worker.once('message', resolve);
-    worker.postMessage(batch);
+    slot.callbacks.push(resolve);
+    slot.worker.postMessage(batch);
   });
 }
 
 async function verify(items) {
-  if (!workers.length) start();
+  if (!slots.length) start();
 
-  const n = workers.length;
+  const n = slots.length;
   const chunkSize = Math.ceil(items.length / n);
   const promises = [];
   for (let i = 0; i < n; i++) {
     const slice = items.slice(i * chunkSize, (i + 1) * chunkSize);
     if (slice.length > 0) {
-      promises.push(sendToWorker(workers[i], slice));
+      promises.push(sendToWorker(slots[i], slice));
     }
   }
 
