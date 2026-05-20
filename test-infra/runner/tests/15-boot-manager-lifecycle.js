@@ -181,9 +181,9 @@ describe('Boot manager: shutdownReason sequence', function () {
 
     it('should detect cleanShutdown=true on boot after SIGTERM', async function () {
       this.timeout(60000);
-      const event = await env.clients[0].waitForEvent('boot:context', () => true, 50000);
-      expect(event.data.cleanShutdown).to.equal(true);
-      expect(event.data.machineRebooted).to.equal(true);
+      const event = await env.clients[0].waitForEvent('orchestrator:started', () => true, 50000);
+      expect(event.data.bootContext.cleanShutdown).to.equal(true);
+      expect(event.data.bootContext.machineRebooted).to.equal(true);
     });
   });
 
@@ -208,9 +208,9 @@ describe('Boot manager: shutdownReason sequence', function () {
 
     it('should detect cleanShutdown=false when shutdownReason absent', async function () {
       this.timeout(60000);
-      const event = await env.clients[0].waitForEvent('boot:context', () => true, 50000);
-      expect(event.data.cleanShutdown).to.equal(false);
-      expect(event.data.machineRebooted).to.equal(true);
+      const event = await env.clients[0].waitForEvent('orchestrator:started', () => true, 50000);
+      expect(event.data.bootContext.cleanShutdown).to.equal(false);
+      expect(event.data.bootContext.machineRebooted).to.equal(true);
     });
   });
 });
