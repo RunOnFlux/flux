@@ -163,3 +163,125 @@ describe('State sync: hash resolution', function () {
     expect(res.data).to.have.property('name', appName);
   });
 });
+
+describe('State sync: 3-peer ephemeral sync', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+  const appName = `e2esyn3p${Date.now()}`;
+
+  before(async function () {
+    this.timeout(600000);
+    env = await createTestEnv({ nodes: 12, deferredNodes: 2, tickerAutostart: false });
+    const initial = Array.from({ length: 10 }, (_, i) => i);
+    await bootAndPeer(env, initial);
+
+    // Seed app spec + hash + running locations on source nodes
+    await pushImage(appName, 'v1');
+    const app = await buildSeedableApp({
+      name: appName,
+      compose: [{
+        name: appName,
+        description: '3-peer sync test',
+        repotag: `198.18.0.5:5000/${appName}:v1`,
+        ports: [31113],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: [80],
+        containerData: '/tmp',
+        cpu: 0.1, ram: 100, hdd: 1,
+        repoauth: '',
+      }],
+    });
+
+    for (let i = 1; i <= 10; i++) {
+      const dc = dbClient(i);
+      await dc.seedGlobalAppSpec(app.spec);
+      await dc.seedPermanentMessage(app.permanentMessage);
+      await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
+      // Seed running locations on each source node so they have ephemeral data to sync
+      await dc.seedAppLocation({
+        name: appName,
+        ip: `198.18.1.${i - 1}:16127`,
+        hash: app.hash,
+        broadcastedAt: Date.now(),
+      });
+    }
+
+    await queueAppTx(app.hash);
+    await advanceBlock();
+
+    // Wait for running broadcast to propagate
+    await Promise.any(
+      env.clients.slice(0, 10).map((c) => c.waitForEvent('network:apprunning',
+        (d) => d.apps?.some((a) => a.name === appName), 60000)),
+    );
+
+    await waitForOrchestratorState(env.clients[0], 'READY', 120000);
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('should request sync from 3 peers', async function () {
+    this.timeout(180000);
+    const client = await env.startNode(10);
+    await waitForDaemonReady(client);
+    await waitForNodeStatus(client, (d) => d.confirmed === true, 30000);
+
+    const reqEvent = await client.waitForEvent(
+      'ephemeralSync:requested',
+      (d) => d.peerCount >= 3,
+      120000,
+    );
+    expect(reqEvent.data.peerCount).to.be.gte(3);
+  });
+
+  it('should complete apprunning sync from 3 peers', async function () {
+    this.timeout(120000);
+    const client = env.clients[10];
+    const event = await client.waitForEvent(
+      'ephemeralSync:peerComplete',
+      (d) => d.syncType === 'apprunning' && d.completions >= 3,
+      90000,
+    );
+    expect(event.data.completions).to.be.gte(3);
+  });
+
+  it('should complete all ephemeral syncs', async function () {
+    this.timeout(120000);
+    const client = env.clients[10];
+    const event = await client.waitForEvent(
+      'ephemeralSync:allComplete',
+      () => true,
+      90000,
+    );
+    expect(event.data.apprunning).to.be.gte(3);
+    expect(event.data.appinstalling).to.be.gte(3);
+    expect(event.data.apperrors).to.be.gte(3);
+  });
+
+  it('should have verified chunks via worker threads', async function () {
+    this.timeout(10000);
+    const client = env.clients[10];
+    const chunkEvents = client.getEventBuffer()
+      .filter((e) => e.event === 'sync:chunkVerified' && e.data.syncType === 'apprunning');
+    expect(chunkEvents.length).to.be.greaterThan(0);
+    const totalVerified = chunkEvents.reduce((sum, e) => sum + e.data.verified, 0);
+    expect(totalVerified).to.be.greaterThan(0);
+  });
+
+  it('should have synced app locations to MongoDB', async function () {
+    this.timeout(10000);
+    const dc = dbClient(11);
+    const count = await dc.locationCount();
+    expect(count).to.be.greaterThan(0);
+  });
+
+  it('should reach READY state', async function () {
+    this.timeout(120000);
+    await waitForOrchestratorState(env.clients[10], 'READY', 90000);
+  });
+});

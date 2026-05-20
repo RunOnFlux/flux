@@ -123,7 +123,10 @@ describe('Spawner error caching: local install failure', function () {
   });
 });
 
-describe('Spawner error caching: network-wide error skip', function () {
+// TODO: re-enable once error classification (transient vs permanent) is implemented.
+// Network-wide error blocking disabled — spawner now logs+emits but does not skip.
+// See dev/app-state-sync/installing-errors-analysis.md for redesign plan.
+describe.skip('Spawner error caching: network-wide error skip', function () {
   let env;
   const appName = `e2eNetErr${Date.now()}`;
   const goodRepoName = 'good-app';

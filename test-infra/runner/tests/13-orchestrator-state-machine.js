@@ -130,6 +130,22 @@ describe('Orchestrator: SYNCING to READY', function () {
       await advanceBlocks(260);
       await waitForOrchestratorState(env.clients[0], 'READY', 120000);
     });
+
+    it('should signal spawner to start after block timer fallback', async function () {
+      this.timeout(30000);
+      await waitForSpawnerResumed(env.clients[0], 20000);
+    });
+
+    it('should have dbReady set (spawner not blocked on db_not_ready)', async function () {
+      this.timeout(30000);
+      const resumeEvent = env.clients[0].getEventBuffer()
+        .find((e) => e.event === 'spawner:resumed');
+      const dbBlockedAfterResume = env.clients[0].getEventBuffer()
+        .filter((e) => e.event === 'spawner:blocked'
+          && e.data.reason === 'db_not_ready'
+          && e.id > resumeEvent.id);
+      expect(dbBlockedAfterResume).to.have.lengthOf(0);
+    });
   });
 });
 

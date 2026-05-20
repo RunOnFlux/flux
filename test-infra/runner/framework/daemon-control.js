@@ -127,6 +127,24 @@ export async function clearJournal() {
   return del('/journal');
 }
 
+// -- Seeded RPC data --
+
+export async function seedAddressDeltas(deltas) {
+  return post('/seed-address-deltas', { deltas });
+}
+
+export async function seedAddressTxids(txids) {
+  return post('/seed-address-txids', { txids });
+}
+
+export async function seedTransaction(txid, tx) {
+  return post('/seed-transaction', { txid, tx });
+}
+
+export async function clearSeededData() {
+  return del('/seed-data');
+}
+
 // -- Reset --
 
 export async function resetAll() {

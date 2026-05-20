@@ -24,6 +24,10 @@ const rpcFailures = new Map();
 const requestJournal = [];
 const MAX_JOURNAL_SIZE = 10000;
 
+const seededAddressDeltas = [];
+const seededAddressTxids = [];
+const seededTransactions = new Map();
+
 const fixturesDir = process.env.FIXTURES_DIR || path.join(__dirname, '..', 'fixtures');
 
 const NODE_COUNT = Number(process.env.NODE_COUNT) || 16;
@@ -193,6 +197,9 @@ const rpcHandlers = {
   getrawtransaction: (params) => {
     const txid = params[0];
     const verbose = params[1] || 0;
+    if (verbose && seededTransactions.has(txid)) {
+      return seededTransactions.get(txid);
+    }
     if (verbose) {
       const collateralAmounts = { CUMULUS: 1000, NIMBUS: 12500, STRATUS: 40000 };
       const node = deterministicNodeList.find((n) => n.txhash === txid);
@@ -225,8 +232,8 @@ const rpcHandlers = {
 
   getaddressbalance: () => ({ balance: 0, received: 0 }),
   getaddressutxos: () => [],
-  getaddresstxids: () => [],
-  getaddressdeltas: () => [],
+  getaddresstxids: () => (seededAddressTxids.length > 0 ? seededAddressTxids : []),
+  getaddressdeltas: () => (seededAddressDeltas.length > 0 ? seededAddressDeltas : []),
 
   listunspent: () => [],
   validateaddress: (params) => ({
@@ -618,6 +625,36 @@ control.delete('/rpc-fail/all', (req, res) => {
   res.json({ rpcFailing: false, cleared: true });
 });
 
+// -- Seeded RPC data --
+
+control.post('/seed-address-deltas', (req, res) => {
+  const { deltas } = req.body;
+  if (!Array.isArray(deltas)) return res.status(400).json({ error: 'deltas must be an array' });
+  seededAddressDeltas.push(...deltas);
+  return res.json({ count: seededAddressDeltas.length });
+});
+
+control.post('/seed-address-txids', (req, res) => {
+  const { txids } = req.body;
+  if (!Array.isArray(txids)) return res.status(400).json({ error: 'txids must be an array' });
+  seededAddressTxids.push(...txids);
+  return res.json({ count: seededAddressTxids.length });
+});
+
+control.post('/seed-transaction', (req, res) => {
+  const { txid, tx } = req.body;
+  if (!txid || !tx) return res.status(400).json({ error: 'txid and tx required' });
+  seededTransactions.set(txid, tx);
+  return res.json({ txid, seeded: true, count: seededTransactions.size });
+});
+
+control.delete('/seed-data', (req, res) => {
+  seededAddressDeltas.length = 0;
+  seededAddressTxids.length = 0;
+  seededTransactions.clear();
+  res.json({ cleared: true });
+});
+
 // -- Reset all overrides --
 
 control.post('/reset', (req, res) => {
@@ -627,6 +664,9 @@ control.post('/reset', (req, res) => {
   pendingBlocks = [];
   pendingAppTxQueue.length = 0;
   requestJournal.length = 0;
+  seededAddressDeltas.length = 0;
+  seededAddressTxids.length = 0;
+  seededTransactions.clear();
   res.json({ reset: true, nodeCount: deterministicNodeList.length });
 });
 

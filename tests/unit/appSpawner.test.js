@@ -425,6 +425,128 @@ describe('appSpawner tests', () => {
     });
   });
 
+  describe('spawn loop', () => {
+    const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
+
+    afterEach(() => {
+      appSyncEvents.removeAllListeners();
+    });
+
+    function waitForLoopExits(n, timeoutMs = 2000) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Expected ${n} loop exit(s) within ${timeoutMs}ms`)), timeoutMs);
+        const check = () => {
+          const count = logStub.info.getCalls().filter(
+            (c) => c.args[0] === 'Spawn loop exited (paused)',
+          ).length;
+          if (count >= n) { clearTimeout(timer); resolve(); } else { setTimeout(check, 5); }
+        };
+        check();
+      });
+    }
+
+    it('should call trySpawningGlobalApplication repeatedly until paused', async () => {
+      buildModule();
+      delayStub.resetBehavior();
+      let iterations = 0;
+      delayStub.callsFake(() => {
+        iterations += 1;
+        if (iterations >= 3) globalStateStub.spawnerPaused = true;
+        return Promise.resolve();
+      });
+
+      appSpawner.initialize();
+      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+      await waitForLoopExits(1);
+
+      expect(aggregateStub.callCount).to.equal(3);
+    });
+
+    it('should exit loop when spawnerPaused set mid-iteration', async () => {
+      buildModule();
+      delayStub.resetBehavior();
+      delayStub.callsFake(() => {
+        globalStateStub.spawnerPaused = true;
+        return Promise.resolve();
+      });
+
+      appSpawner.initialize();
+      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+      await waitForLoopExits(1);
+
+      expect(aggregateStub.callCount).to.equal(1);
+      expect(logStub.info.calledWith('Spawn loop exited (paused)')).to.be.true;
+    });
+
+    it('should not start a second loop on duplicate SPAWNER_READY', async () => {
+      buildModule();
+      delayStub.resetBehavior();
+      let iterations = 0;
+      delayStub.callsFake(() => {
+        iterations += 1;
+        if (iterations === 1) {
+          appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+        }
+        if (iterations >= 3) globalStateStub.spawnerPaused = true;
+        return Promise.resolve();
+      });
+
+      appSpawner.initialize();
+      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+      await waitForLoopExits(1);
+
+      const exitLogs = logStub.info.getCalls().filter(
+        (c) => c.args[0] === 'Spawn loop exited (paused)',
+      );
+      expect(exitLogs).to.have.lengthOf(1);
+      expect(aggregateStub.callCount).to.equal(3);
+    });
+
+    it('should restart loop on SPAWNER_READY after pause', async () => {
+      buildModule();
+      delayStub.resetBehavior();
+      let iterations = 0;
+      delayStub.callsFake(() => {
+        iterations += 1;
+        if (iterations === 2) {
+          appSyncEvents.emit(SYNC_EVENTS.READINESS_LOST);
+        }
+        if (iterations >= 5) globalStateStub.spawnerPaused = true;
+        return Promise.resolve();
+      });
+
+      appSpawner.initialize();
+      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+      await waitForLoopExits(1);
+
+      expect(aggregateStub.callCount).to.equal(2);
+
+      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+      await waitForLoopExits(2);
+
+      expect(aggregateStub.callCount).to.be.gte(4);
+    });
+
+    it('should return delay value from trySpawningGlobalApplication not recurse', async () => {
+      buildModule();
+      delayStub.resetBehavior();
+      const delays = [];
+      delayStub.callsFake((ms) => {
+        delays.push(ms);
+        globalStateStub.spawnerPaused = true;
+        return Promise.resolve();
+      });
+
+      appSpawner.initialize();
+      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+      await waitForLoopExits(1);
+
+      expect(delays).to.have.lengthOf(1);
+      expect(delays[0]).to.be.a('number');
+      expect(delays[0]).to.be.greaterThan(0);
+    });
+  });
+
   describe('deferred queue fixes', () => {
     it('findIndex should match apps whose timeToCheck is in the past (<=)', () => {
       const now = Date.now();

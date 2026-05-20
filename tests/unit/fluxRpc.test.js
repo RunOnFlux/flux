@@ -197,5 +197,38 @@ describe('fluxRpc tests', () => {
       await expect(rpc.runBatch([{ method: 'getblockcount', params: [] }]))
         .to.be.rejectedWith('Batch response is not an array');
     });
+
+    it('should use 0-based array IDs regardless of global counter state', async () => {
+      const rpc = new FluxRpc(goodUrl);
+      postStub.resolves({ status: 200, data: { result: '' } });
+
+      // Advance global counter to 998
+      for (let i = 0; i < 998; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await rpc.run('getblockcount');
+      }
+
+      // Now runBatch — IDs should be 0-based, not 998+
+      postStub.resolves({
+        status: 200,
+        data: [
+          { id: 0, result: 'a', error: null },
+          { id: 1, result: 'b', error: null },
+          { id: 2, result: 'c', error: null },
+        ],
+      });
+      const result = await rpc.runBatch([
+        { method: 'getblockhash', params: [1] },
+        { method: 'getblockhash', params: [2] },
+        { method: 'getblockhash', params: [3] },
+      ]);
+
+      const payload = postStub.lastCall.args[1];
+      expect(payload[0].id).to.equal(0);
+      expect(payload[1].id).to.equal(1);
+      expect(payload[2].id).to.equal(2);
+      expect(result).to.have.length(3);
+      expect(result[0].result).to.equal('a');
+    });
   });
 });

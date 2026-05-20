@@ -153,6 +153,11 @@ class AppSyncOrchestrator {
     if (this.#syncCompletions[syncType] === undefined) return;
     this.#syncCompletions[syncType] += 1;
     log.info(`AppSyncOrchestrator - ${syncType} sync complete (${this.#syncCompletions[syncType]}/${MIN_SYNC_COMPLETIONS})`);
+    fluxEventBus.publish('ephemeralSync:peerComplete', {
+      syncType,
+      completions: this.#syncCompletions[syncType],
+      required: MIN_SYNC_COMPLETIONS,
+    });
     if (this.#syncCompletions.apprunning >= MIN_SYNC_COMPLETIONS
       && this.#syncCompletions.appinstalling >= MIN_SYNC_COMPLETIONS
       && this.#syncCompletions.apperrors >= MIN_SYNC_COMPLETIONS) {
@@ -163,6 +168,11 @@ class AppSyncOrchestrator {
       }
       this.#clearSyncRequested();
       log.info('AppSyncOrchestrator - All state syncs complete');
+      fluxEventBus.publish('ephemeralSync:allComplete', {
+        apprunning: this.#syncCompletions.apprunning,
+        appinstalling: this.#syncCompletions.appinstalling,
+        apperrors: this.#syncCompletions.apperrors,
+      });
       this.#checkReadiness();
     }
   }
@@ -229,6 +239,10 @@ class AppSyncOrchestrator {
     this.#sendRequests(peersToAsk, 'apprunning', peerCodec.encodeRequestAppRunning(0, requestTs, pubkey, runningSig));
     this.#sendRequests(peersToAsk, 'appinstalling', peerCodec.encodeRequestAppInstalling(0, requestTs, pubkey, installingSig));
     this.#sendRequests(peersToAsk, 'apperrors', peerCodec.encodeRequestAppInstallingErrors(0, requestTs, pubkey, errorsSig));
+    fluxEventBus.publish('ephemeralSync:requested', {
+      peerCount: peersToAsk.length,
+      peers: peersToAsk.map((p) => p.key),
+    });
 
     if (!this.#syncTimeout && !this.#stateSyncComplete) {
       this.#syncTimeout = setTimeout(() => {

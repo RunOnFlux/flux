@@ -193,6 +193,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     if (verifiedAppRunning.length > 0) {
       const { stored } = await messageStore.storeBatchAppRunningMessages(verifiedAppRunning);
       log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verifiedAppRunning.length} verified apprunning events`);
+      fluxEventBus.publish('sync:chunkVerified', { syncType: 'apprunning', peer: peerKey, verified: verifiedAppRunning.length, stored });
     }
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
@@ -231,6 +232,7 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
     if (verified.length > 0) {
       const { stored } = await messageStore.storeBatchAppInstallingMessages(verified);
       log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
+      fluxEventBus.publish('sync:chunkVerified', { syncType: 'appinstalling', peer: peerKey, verified: verified.length, stored });
     }
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
@@ -252,6 +254,7 @@ async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
     if (verified.length > 0) {
       const { stored } = await messageStore.storeBatchAppInstallingErrorMessages(verified);
       log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
+      fluxEventBus.publish('sync:chunkVerified', { syncType: 'apperrors', peer: peerKey, verified: verified.length, stored });
     }
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');

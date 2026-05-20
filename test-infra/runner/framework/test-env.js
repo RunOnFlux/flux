@@ -486,6 +486,17 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       return clients[index];
     },
 
+    async killNode(index) {
+      if (clients[index]) clients[index].disconnectEventStream();
+      await fluxNodes[index].container.stop({ timeout: 0 });
+    },
+
+    async startKilledNode(index) {
+      await fluxNodes[index].container.start();
+      if (clients[index]) await clients[index].connectEventStream();
+      return clients[index];
+    },
+
     setBootId(index, bootId) {
       writeFileSync(join(fluxNodes[index].bootIdDir, 'boot-id'), bootId);
     },

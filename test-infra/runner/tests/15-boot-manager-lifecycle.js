@@ -160,3 +160,43 @@ describe('Boot manager: not confirmed', function () {
     expect(env.nodeHasLog(0, 'Boot container state settled')).to.equal(true);
   });
 });
+
+// Suite 6: Stale shutdownReason clearing — sigterm → boot → clear → kill → boot → unclean
+
+describe('Boot manager: shutdownReason sequence', function () {
+  let env;
+  dumpLogsOnFailure(() => env);
+
+  before(async function () {
+    this.timeout(120000);
+    env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
+    await waitForDaemonReady(env.clients[0]);
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  it('should detect cleanShutdown=true on boot after SIGTERM', async function () {
+    this.timeout(60000);
+    await waitForBootSettled(env.clients[0], 50000);
+    expect(env.nodeHasLog(0, 'cleanShutdown=true')).to.equal(true);
+  });
+
+  it('should clear shutdownReason after first heartbeat', async function () {
+    this.timeout(10000);
+    expect(env.nodeHasLog(0, 'Failed to clear shutdown reason')).to.equal(false);
+  });
+
+  it('should detect cleanShutdown=false after hard kill (no SIGTERM)', async function () {
+    this.timeout(120000);
+    // Kill without SIGTERM — writeShutdownReason never runs
+    await env.killNode(0);
+    // Change boot_id so machineRebooted=true (simulates power-cut reboot)
+    env.setBootId(0, `power-cut-${Date.now()}`);
+    await env.startKilledNode(0);
+    await waitForBootSettled(env.clients[0], 60000);
+    expect(env.nodeHasLog(0, 'cleanShutdown=false')).to.equal(true);
+  });
+});

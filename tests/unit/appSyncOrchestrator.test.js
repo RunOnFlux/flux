@@ -506,6 +506,63 @@ describe('AppSyncOrchestrator', () => {
     });
   });
 
+  describe('dbReady on fallback paths', () => {
+    it('should set dbReady after block timer fallback when hash sync fails', async () => {
+      syncMissingHashesStub.rejects(new Error('failed'));
+
+      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      orchestrator.start(defaultBootContext);
+
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+
+      for (let i = 1; i <= 130; i += 1) {
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
+      }
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state).to.equal(STATES.READY);
+      expect(globalStateStub.dbReady).to.be.true;
+    });
+
+    it('should set dbReady when too few sync peers and block timer fires', async () => {
+      getEligibleSyncPeersStub = sinon.stub().returns([]);
+
+      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      orchestrator.start(defaultBootContext);
+
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+
+      for (let i = 1; i <= 130; i += 1) {
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
+      }
+      await clock.tickAsync(0);
+
+      expect(orchestrator.state).to.equal(STATES.READY);
+      expect(globalStateStub.dbReady).to.be.true;
+    });
+
+    it('should leave dbReady false when rebuildDb throws on fallback path', async () => {
+      syncMissingHashesStub.rejects(new Error('failed'));
+      reindexStub.rejects(new Error('reindex failed'));
+
+      const orchestrator = makeOrchestrator({ isEnterprise: () => true });
+      orchestrator.start(defaultBootContext);
+
+      blockEmitter.emit('blocksProcessed', 2555000);
+      await clock.tickAsync(0);
+
+      for (let i = 1; i <= 130; i += 1) {
+        blockEmitter.emit('blocksProcessed', 2555000 + i);
+      }
+      await clock.tickAsync(0);
+
+      expect(globalStateStub.dbReady).to.be.false;
+      expect(orchestrator.state).to.not.equal(STATES.READY);
+    });
+  });
+
   describe('hash retry scheduling', () => {
     it('should retry hash sync when block reaches nextRetryHeight', async () => {
       syncMissingHashesStub.onFirstCall().resolves({ resolved: 5, missing: 2, unreachable: 0, nextRetryHeight: 2555200 });

@@ -1979,6 +1979,7 @@ module.exports = {
   getBlockEmitter,
 
   // exports for testing purposes
+  bootstrapSoftForks,
   bootstrapAppHashes,
   getPriceSpecForHeight,
   processBootstrapTx,

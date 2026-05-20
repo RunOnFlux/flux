@@ -101,6 +101,20 @@ export function dbClient(nodeNum) {
       return { total };
     },
 
+    async chainMessageCount() {
+      const cpDb = await db('chainparams');
+      const hasCollection = await cpDb.listCollections({ name: 'chainmessages' }).hasNext();
+      if (!hasCollection) return 0;
+      return cpDb.collection('chainmessages').countDocuments({});
+    },
+
+    async chainMessages() {
+      const cpDb = await db('chainparams');
+      const hasCollection = await cpDb.listCollections({ name: 'chainmessages' }).hasNext();
+      if (!hasCollection) return [];
+      return cpDb.collection('chainmessages').find({}).toArray();
+    },
+
     async geolocation() {
       const localDb = await db('local');
       return localDb.collection('geolocation').findOne({ _id: 'nodeGeolocation' });

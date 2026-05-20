@@ -478,8 +478,6 @@ async function trySpawningGlobalApplication() {
               required: minInstances,
             };
             globalState.appsSyncthingToBeCheckedLater.push(appToCheck);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(shortDelayTime);
             globalState.trySpawningGlobalAppCache.delete(appHash);
             return shortDelayTime;
           }
@@ -499,8 +497,6 @@ async function trySpawningGlobalApplication() {
               required: minInstances,
             };
             globalState.appsSyncthingToBeCheckedLater.push(appToCheck);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(shortDelayTime);
             globalState.trySpawningGlobalAppCache.delete(appHash);
             return shortDelayTime;
           }

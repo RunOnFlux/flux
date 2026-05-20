@@ -2304,4 +2304,155 @@ describe('explorerService tests', () => {
       expect(insertManyStub.callCount).to.be.greaterThan(1);
     });
   });
+
+  describe('bootstrapSoftForks tests', () => {
+    const config = require('config');
+    const multisigA = config.fluxapps.addressMultisig;
+    const multisigB = config.fluxapps.addressMultisigB;
+    let executeCallStub;
+    let executeBatchCallStub;
+    let updateOneStub;
+
+    // "p1_100000_200000_0.5_300_20_0.01_1_0" encoded as hex
+    const priceForkMsg = 'p1_100000_200000_0.5_300_20_0.01_1_0';
+    const priceForkHex = Buffer.from(priceForkMsg).toString('hex');
+
+    function makeDelta(txid, address, satoshis) {
+      return { txid, address, satoshis, index: 0, height: 1594832 };
+    }
+
+    function makeSoftForkTx(txid, height, msgHex) {
+      return {
+        txid,
+        height,
+        vin: [{ address: multisigA }],
+        vout: [
+          { valueSat: 100000, scriptPubKey: { addresses: [multisigA], asm: '' } },
+          { valueSat: 0, scriptPubKey: { addresses: [], asm: `OP_RETURN ${msgHex}` } },
+        ],
+      };
+    }
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      executeCallStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      executeBatchCallStub = sinon.stub(daemonServiceUtils, 'executeBatchCall');
+      updateOneStub = sinon.stub(dbHelper, 'updateOneInDatabase').resolves();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should call getaddressdeltas for both multisig addresses', async () => {
+      executeCallStub.resolves({ status: 'success', data: [] });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      sinon.assert.calledOnce(executeCallStub);
+      const args = executeCallStub.firstCall.args;
+      expect(args[0]).to.equal('getaddressdeltas');
+      expect(args[1][0].addresses).to.include(multisigA);
+      expect(args[1][0].addresses).to.include(multisigB);
+      expect(args[1][0].end).to.equal(2579000);
+    });
+
+    it('should identify self-send transactions and fetch them', async () => {
+      executeCallStub.resolves({
+        status: 'success',
+        data: [
+          makeDelta('selfTx1', multisigA, -500000),
+          makeDelta('selfTx1', multisigA, 500000),
+          makeDelta('onlySpend', multisigA, -100000),
+          makeDelta('onlyReceive', multisigB, 200000),
+        ],
+      });
+      executeBatchCallStub.resolves({
+        status: 'success',
+        data: [{ id: 0, result: makeSoftForkTx('selfTx1', 1594832, priceForkHex), error: null }],
+      });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      sinon.assert.calledOnce(executeBatchCallStub);
+      const batch = executeBatchCallStub.firstCall.args[0];
+      expect(batch).to.have.lengthOf(1);
+      expect(batch[0].params[0]).to.equal('selfTx1');
+    });
+
+    it('should call processSoftFork for foundation-to-foundation tx with OP_RETURN', async () => {
+      executeCallStub.resolves({
+        status: 'success',
+        data: [
+          makeDelta('forkTx', multisigA, -500000),
+          makeDelta('forkTx', multisigA, 500000),
+        ],
+      });
+      executeBatchCallStub.resolves({
+        status: 'success',
+        data: [{ id: 0, result: makeSoftForkTx('forkTx', 1594832, priceForkHex), error: null }],
+      });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      const forkWrite = updateOneStub.getCalls().find(
+        (c) => c.args[2]?.txid === 'forkTx',
+      );
+      expect(forkWrite).to.not.be.undefined;
+      expect(forkWrite.args[3].$set.height).to.equal(1594832);
+      expect(forkWrite.args[3].$set.message).to.equal(priceForkMsg);
+    });
+
+    it('should batch-fetch in chunks of 500', async () => {
+      const deltas = [];
+      for (let i = 0; i < 600; i++) {
+        deltas.push(makeDelta(`tx${i}`, multisigA, -100));
+        deltas.push(makeDelta(`tx${i}`, multisigA, 100));
+      }
+      executeCallStub.resolves({ status: 'success', data: deltas });
+      executeBatchCallStub.resolves({ status: 'success', data: [] });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      expect(executeBatchCallStub.callCount).to.equal(2);
+      expect(executeBatchCallStub.firstCall.args[0]).to.have.lengthOf(500);
+      expect(executeBatchCallStub.secondCall.args[0]).to.have.lengthOf(100);
+    });
+
+    it('should handle getaddressdeltas failure gracefully', async () => {
+      const logWarnStub = sinon.stub(log, 'warn');
+      executeCallStub.resolves({ status: 'error', data: { message: 'RPC unavailable' } });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      expect(logWarnStub.calledWith(sinon.match(/getaddressdeltas failed/))).to.be.true;
+      sinon.assert.notCalled(executeBatchCallStub);
+      logWarnStub.restore();
+    });
+
+    it('should skip transactions without OP_RETURN message', async () => {
+      executeCallStub.resolves({
+        status: 'success',
+        data: [
+          makeDelta('noOpReturn', multisigA, -500000),
+          makeDelta('noOpReturn', multisigA, 500000),
+        ],
+      });
+      const txWithoutOpReturn = {
+        txid: 'noOpReturn',
+        height: 1594832,
+        vin: [{ address: multisigA }],
+        vout: [{ valueSat: 500000, scriptPubKey: { addresses: [multisigA], asm: '' } }],
+      };
+      executeBatchCallStub.resolves({
+        status: 'success',
+        data: [{ id: 0, result: txWithoutOpReturn, error: null }],
+      });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      sinon.assert.notCalled(updateOneStub);
+    });
+  });
 });
