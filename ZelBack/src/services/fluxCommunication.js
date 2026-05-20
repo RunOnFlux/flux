@@ -35,6 +35,7 @@ const testListCache = new LRUCache(LRUTest); */
 const { FluxPeerManager, DIRECTION, FLUX_VERSION, FLUX_CAPABILITIES } = require('./utils/FluxPeerManager');
 const { NAK_REASON, buildSyncSignatureMessage } = require('./utils/peerCodec');
 const { networkHealthMonitor } = require('./utils/NetworkHealthMonitor');
+const verifyPool = require('./utils/verifyPool');
 
 const DISCOVERY = {
   maxOutbound: 14,
@@ -72,37 +73,52 @@ async function handleAppMessages(message, fromIP, port) {
   }
 }
 
-const VERIFY_BATCH_SIZE = 1;
-
 async function batchVerifyBroadcasts(broadcasts, label) {
-  const verified = [];
-  const totalStart = Date.now();
-  for (let i = 0; i < broadcasts.length; i += VERIFY_BATCH_SIZE) {
-    const batchStart = Date.now();
-    const batch = broadcasts.slice(i, i + VERIFY_BATCH_SIZE);
-    const results = await Promise.allSettled(
-      batch.map((b) => fluxCommunicationUtils.verifyFluxBroadcast(b)),
-    );
-    const batchEnd = Date.now();
-    for (let j = 0; j < results.length; j++) {
-      const r = results[j];
-      if (r.status === 'fulfilled' && r.value === fluxCommunicationUtils.VerifyResult.OK) {
-        verified.push(batch[j]);
-      } else if (r.status === 'rejected') {
-        log.error(`${label} - Verification error: ${r.reason.message}`);
-      } else {
-        log.warn(`${label} - Broadcast from ${batch[j].data?.ip} failed: ${r.value}`);
-      }
+  if (broadcasts.length === 0) return [];
+
+  const items = [];
+  const nodeCheckFailed = new Set();
+  for (let i = 0; i < broadcasts.length; i++) {
+    const b = broadcasts[i];
+    const { pubKey, timestamp, signature, version, data: payload } = b;
+    if (version !== 1 || !pubKey || !timestamp || !signature || !payload) {
+      nodeCheckFailed.add(i);
+      continue;
     }
-    log.info(`${label} - Batch ${i / VERIFY_BATCH_SIZE}: ${batch.length} items in ${batchEnd - batchStart}ms`);
-    if (i + VERIFY_BATCH_SIZE < broadcasts.length) {
-      const yieldStart = Date.now();
-      await new Promise((resolve) => { setImmediate(resolve); });
-      const yieldTime = Date.now() - yieldStart;
-      if (yieldTime > 5) log.info(`${label} - Yield gap: ${yieldTime}ms`);
+    const { type: msgType } = payload;
+    let target = payload.ip ?? payload.oldIP;
+    if (!target && msgType) {
+      target = await networkStateService.getFluxnodesByPubkey(pubKey);
+    }
+    if (!target) { nodeCheckFailed.add(i); continue; }
+    if (target instanceof Map) {
+      // pubkey lookup — node exists in network
+    } else {
+      const node = await networkStateService.getFluxnodeBySocketAddress(target);
+      if (!node) { nodeCheckFailed.add(i); continue; }
+      if (node.pubkey !== pubKey) { nodeCheckFailed.add(i); continue; }
+    }
+    const message = serviceHelper.ensureString(payload);
+    items.push({ index: i, messageToVerify: String(version) + message + String(timestamp), pubKey, signature });
+  }
+
+  if (nodeCheckFailed.size > 0) {
+    log.warn(`${label} - ${nodeCheckFailed.size} broadcasts failed node lookup`);
+  }
+
+  if (items.length === 0) return [];
+
+  const workerItems = items.map((it) => ({ messageToVerify: it.messageToVerify, pubKey: it.pubKey, signature: it.signature }));
+  const cryptoResults = await verifyPool.verify(workerItems);
+
+  const verified = [];
+  for (let i = 0; i < items.length; i++) {
+    if (cryptoResults[i]) {
+      verified.push(broadcasts[items[i].index]);
     }
   }
-  log.info(`${label} - Total verify: ${broadcasts.length} items, ${verified.length} verified in ${Date.now() - totalStart}ms`);
+
+  log.info(`${label} - Verified ${verified.length}/${broadcasts.length} broadcasts (${nodeCheckFailed.size} node lookup failures, ${items.length - verified.length} signature failures)`);
   return verified;
 }
 
@@ -175,9 +191,8 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     }
 
     if (verifiedAppRunning.length > 0) {
-      const storeStart = Date.now();
       const { stored } = await messageStore.storeBatchAppRunningMessages(verifiedAppRunning);
-      log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verifiedAppRunning.length} verified apprunning events in ${Date.now() - storeStart}ms`);
+      log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verifiedAppRunning.length} verified apprunning events`);
     }
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
@@ -214,9 +229,8 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
     log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     const verified = await batchVerifyBroadcasts(messages, 'handleAppInstallingSyncResponse');
     if (verified.length > 0) {
-      const storeStart = Date.now();
       const { stored } = await messageStore.storeBatchAppInstallingMessages(verified);
-      log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts in ${Date.now() - storeStart}ms`);
+      log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
     }
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
@@ -236,9 +250,8 @@ async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
     log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     const verified = await batchVerifyBroadcasts(messages, 'handleAppInstallingErrorsSyncResponse');
     if (verified.length > 0) {
-      const storeStart = Date.now();
       const { stored } = await messageStore.storeBatchAppInstallingErrorMessages(verified);
-      log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts in ${Date.now() - storeStart}ms`);
+      log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
     }
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
@@ -619,38 +632,58 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   }
 }
 
+const syncChunkQueues = new Map();
+
+async function processSyncChunk(msgObj, peerKey) {
+  const result = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
+  if (result !== fluxCommunicationUtils.VerifyResult.OK) {
+    log.warn(`Sync response from ${peerKey} failed envelope verification: ${result}`);
+    return;
+  }
+
+  const { type } = msgObj.data;
+  switch (type) {
+    case 'fluxapptempsync':
+      await handleTempSyncResponse(msgObj, peerKey);
+      break;
+    case 'fluxapprunningsync':
+      await handleAppRunningSyncResponse(msgObj, peerKey);
+      break;
+    case 'fluxappinstallingsync':
+      await handleAppInstallingSyncResponse(msgObj, peerKey);
+      break;
+    case 'fluxappinstallingerrorssync':
+      await handleAppInstallingErrorsSyncResponse(msgObj, peerKey);
+      break;
+    default:
+      log.warn(`Unknown sync response type: ${type}`);
+  }
+}
+
 async function dispatchSyncResponse(msgObj, peerSocket) {
   try {
     const peerKey = peerSocket.key;
     if (!peerManager.isSyncRequested(peerKey)) return;
 
-    const envelopeStart = Date.now();
-    const result = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
-    log.info(`dispatchSyncResponse - Envelope verify for ${msgObj.data?.type} from ${peerKey}: ${Date.now() - envelopeStart}ms, result: ${result}`);
-    if (result !== fluxCommunicationUtils.VerifyResult.OK) {
-      log.warn(`Sync response from ${peerKey} failed envelope verification: ${result}`);
-      return;
+    if (!syncChunkQueues.has(peerKey)) {
+      syncChunkQueues.set(peerKey, { queue: [], processing: false });
+    }
+    const state = syncChunkQueues.get(peerKey);
+    state.queue.push(msgObj);
+
+    if (state.processing) return;
+    state.processing = true;
+
+    while (state.queue.length > 0) {
+      const chunk = state.queue.shift();
+      await processSyncChunk(chunk, peerKey);
     }
 
-    const { type } = msgObj.data;
-    switch (type) {
-      case 'fluxapptempsync':
-        await handleTempSyncResponse(msgObj, peerKey);
-        break;
-      case 'fluxapprunningsync':
-        await handleAppRunningSyncResponse(msgObj, peerKey);
-        break;
-      case 'fluxappinstallingsync':
-        await handleAppInstallingSyncResponse(msgObj, peerKey);
-        break;
-      case 'fluxappinstallingerrorssync':
-        await handleAppInstallingErrorsSyncResponse(msgObj, peerKey);
-        break;
-      default:
-        log.warn(`Unknown sync response type: ${type}`);
-    }
+    state.processing = false;
+    syncChunkQueues.delete(peerKey);
   } catch (error) {
     log.error(error);
+    syncChunkQueues.delete(peerSocket.key);
   }
 }
 

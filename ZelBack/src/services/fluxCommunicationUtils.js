@@ -97,8 +97,6 @@ const VerifyResult = Object.freeze({
   PUBKEY_MISMATCH: 'pubkeyMismatch',
 });
 
-let verifyTimings = { stringify: 0, lookup: 0, crypto: 0, count: 0 };
-
 async function verifyFluxBroadcast(broadcast) {
   const {
     pubKey, timestamp, signature, version, data: payload,
@@ -106,9 +104,7 @@ async function verifyFluxBroadcast(broadcast) {
 
   if (version !== 1) return VerifyResult.MALFORMED;
 
-  const t0 = process.hrtime.bigint();
   const message = serviceHelper.ensureString(payload);
-  const t1 = process.hrtime.bigint();
 
   if (!message) return VerifyResult.MALFORMED;
 
@@ -192,7 +188,6 @@ async function verifyFluxBroadcast(broadcast) {
     return VerifyResult.NODE_NOT_FOUND;
   }
 
-  const t2 = process.hrtime.bigint();
   // if we get a map, we have hit the default case and searched for pubkeys
   if (target instanceof Map) {
     // default case: already verified pubkey exists in network
@@ -208,7 +203,6 @@ async function verifyFluxBroadcast(broadcast) {
       return VerifyResult.PUBKEY_MISMATCH;
     }
   }
-  const t3 = process.hrtime.bigint();
 
   const messageToVerify = version + message + timestamp;
   const verified = verificationHelper.verifyMessage(
@@ -216,20 +210,6 @@ async function verifyFluxBroadcast(broadcast) {
     pubKey,
     signature,
   );
-  const t4 = process.hrtime.bigint();
-
-  verifyTimings.stringify += Number(t1 - t0);
-  verifyTimings.lookup += Number(t3 - t2);
-  verifyTimings.crypto += Number(t4 - t3);
-  verifyTimings.count += 1;
-  if (verifyTimings.count % 200 === 0) {
-    const c = verifyTimings.count;
-    const s = (verifyTimings.stringify / 1e6).toFixed(1);
-    const l = (verifyTimings.lookup / 1e6).toFixed(1);
-    const cr = (verifyTimings.crypto / 1e6).toFixed(1);
-    log.info(`verifyFluxBroadcast timing (${c} calls): stringify=${s}ms lookup=${l}ms crypto=${cr}ms`);
-    verifyTimings = { stringify: 0, lookup: 0, crypto: 0, count: 0 };
-  }
 
   return verified ? VerifyResult.OK : VerifyResult.BAD_SIGNATURE;
 }
