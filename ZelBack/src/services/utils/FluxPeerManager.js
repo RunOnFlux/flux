@@ -103,6 +103,13 @@ class FluxPeerManager extends EventEmitter {
     this.messageDispatcher = null;
 
     /**
+     * Sync response dispatch callback — set by fluxCommunication.js.
+     * Routes sync response messages directly, bypassing the gossip pipeline.
+     * @type {function(object, FluxPeerSocket)|null}
+     */
+    this.syncResponseDispatcher = null;
+
+    /**
      * Number of flux nodes in the network — set by fluxDiscovery.
      * @type {number}
      */

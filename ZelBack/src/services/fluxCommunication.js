@@ -72,6 +72,32 @@ async function handleAppMessages(message, fromIP, port) {
   }
 }
 
+const VERIFY_BATCH_SIZE = 200;
+
+async function batchVerifyBroadcasts(broadcasts, label) {
+  const verified = [];
+  for (let i = 0; i < broadcasts.length; i += VERIFY_BATCH_SIZE) {
+    const batch = broadcasts.slice(i, i + VERIFY_BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map((b) => fluxCommunicationUtils.verifyFluxBroadcast(b)),
+    );
+    for (let j = 0; j < results.length; j++) {
+      const r = results[j];
+      if (r.status === 'fulfilled' && r.value === fluxCommunicationUtils.VerifyResult.OK) {
+        verified.push(batch[j]);
+      } else if (r.status === 'rejected') {
+        log.error(`${label} - Verification error: ${r.reason.message}`);
+      } else {
+        log.warn(`${label} - Broadcast from ${batch[j].data?.ip} failed: ${r.value}`);
+      }
+    }
+    if (i + VERIFY_BATCH_SIZE < broadcasts.length) {
+      await new Promise((resolve) => { setImmediate(resolve); });
+    }
+  }
+  return verified;
+}
+
 async function handleTempSyncResponse(message, peerKey) {
   try {
     if (!peerManager.isSyncRequested(peerKey)) return;
@@ -101,44 +127,45 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppRunningSyncResponse - Received ${messages.length} events from ${peerKey} (done: ${!!done})`);
-    const verifiedAppRunning = [];
-    const otherEvents = [];
+
+    const appRunningBroadcasts = [];
+    const otherBroadcasts = [];
+    const evictedEvents = [];
     for (const event of messages) {
-      try {
-        if (event.envelope && event.type === 'apprunning') {
-          const broadcast = { ...event.envelope, data: event.data };
-          const result = await fluxCommunicationUtils.verifyFluxBroadcast(broadcast);
-          if (result === fluxCommunicationUtils.VerifyResult.OK) {
-            verifiedAppRunning.push(broadcast);
-          } else {
-            log.warn(`handleAppRunningSyncResponse - Event from ${event.ip} failed verification: ${result}`);
-          }
-        } else if (event.type === 'evicted') {
-          // Evicted events lack per-event signatures because they are generated
-          // locally by nodeStatusMonitor, which makes non-deterministic HTTP
-          // probe decisions about whether a remote node is alive. The
-          // isSyncRequested check above ensures only solicited responses are
-          // processed, but a compromised confirmed peer we sync from could still
-          // include fake evictions. Impact is limited: only affects this node's
-          // view and self-heals on the next apprunning broadcast (≤60 min).
-          //
-          // The root cause is nodeStatusMonitor itself — it will be replaced by
-          // a peer quorum approach where eviction is determined by consensus of
-          // signed "peer unreachable" events (3 missed pongs on the WebSocket
-          // layer). Once that lands, evicted events will carry verifiable
-          // signatures and this path will verify them like all other event types.
-          otherEvents.push(event);
-        } else if (event.envelope) {
-          const broadcast = { ...event.envelope, data: event.data };
-          const result = await fluxCommunicationUtils.verifyFluxBroadcast(broadcast);
-          if (result === fluxCommunicationUtils.VerifyResult.OK) {
-            otherEvents.push(event);
-          }
-        }
-      } catch (err) {
-        log.error(`handleAppRunningSyncResponse - Verification error: ${err.message}`);
+      if (event.envelope && event.type === 'apprunning') {
+        appRunningBroadcasts.push({ ...event.envelope, data: event.data });
+      } else if (event.type === 'evicted') {
+        // Evicted events lack per-event signatures because they are generated
+        // locally by nodeStatusMonitor, which makes non-deterministic HTTP
+        // probe decisions about whether a remote node is alive. The
+        // isSyncRequested check above ensures only solicited responses are
+        // processed, but a compromised confirmed peer we sync from could still
+        // include fake evictions. Impact is limited: only affects this node's
+        // view and self-heals on the next apprunning broadcast (≤60 min).
+        //
+        // The root cause is nodeStatusMonitor itself — it will be replaced by
+        // a peer quorum approach where eviction is determined by consensus of
+        // signed "peer unreachable" events (3 missed pongs on the WebSocket
+        // layer). Once that lands, evicted events will carry verifiable
+        // signatures and this path will verify them like all other event types.
+        evictedEvents.push(event);
+      } else if (event.envelope) {
+        otherBroadcasts.push(event);
       }
     }
+
+    const verifiedAppRunning = await batchVerifyBroadcasts(appRunningBroadcasts, 'handleAppRunningSyncResponse');
+
+    const otherToVerify = otherBroadcasts.map((e) => ({ ...e.envelope, data: e.data }));
+    const verifiedOther = await batchVerifyBroadcasts(otherToVerify, 'handleAppRunningSyncResponse');
+    const verifiedOtherSet = new Set(verifiedOther);
+    const otherEvents = [...evictedEvents];
+    for (let i = 0; i < otherBroadcasts.length; i++) {
+      if (verifiedOtherSet.has(otherToVerify[i])) {
+        otherEvents.push(otherBroadcasts[i]);
+      }
+    }
+
     if (verifiedAppRunning.length > 0) {
       const { stored } = await messageStore.storeBatchAppRunningMessages(verifiedAppRunning);
       log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verifiedAppRunning.length} verified apprunning events`);
@@ -176,19 +203,7 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
-    const verified = [];
-    for (const broadcast of messages) {
-      try {
-        const result = await fluxCommunicationUtils.verifyFluxBroadcast(broadcast);
-        if (result === fluxCommunicationUtils.VerifyResult.OK) {
-          verified.push(broadcast);
-        } else {
-          log.warn(`handleAppInstallingSyncResponse - Broadcast from ${broadcast.data?.ip} failed: ${result}`);
-        }
-      } catch (err) {
-        log.error(`handleAppInstallingSyncResponse - Verification error: ${err.message}`);
-      }
-    }
+    const verified = await batchVerifyBroadcasts(messages, 'handleAppInstallingSyncResponse');
     if (verified.length > 0) {
       const { stored } = await messageStore.storeBatchAppInstallingMessages(verified);
       log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
@@ -209,19 +224,7 @@ async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
-    const verified = [];
-    for (const broadcast of messages) {
-      try {
-        const result = await fluxCommunicationUtils.verifyFluxBroadcast(broadcast);
-        if (result === fluxCommunicationUtils.VerifyResult.OK) {
-          verified.push(broadcast);
-        } else {
-          log.warn(`handleAppInstallingErrorsSyncResponse - Broadcast from ${broadcast.data?.ip} failed: ${result}`);
-        }
-      } catch (err) {
-        log.error(`handleAppInstallingErrorsSyncResponse - Verification error: ${err.message}`);
-      }
-    }
+    const verified = await batchVerifyBroadcasts(messages, 'handleAppInstallingErrorsSyncResponse');
     if (verified.length > 0) {
       const { stored } = await messageStore.storeBatchAppInstallingErrorMessages(verified);
       log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
@@ -567,14 +570,6 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
           setImmediate(() => handleAppInstallingErrorMessage(msgObj, peerSocket.ip, peerSocket.port));
         } else if (msgObj.data.type === 'fluxnodesigterm') {
           setImmediate(() => handleNodeSigtermMessage(msgObj, peerSocket.ip, peerSocket.port));
-        } else if (msgObj.data.type === 'fluxapptempsync') {
-          setImmediate(() => handleTempSyncResponse(msgObj, peerSocket.key));
-        } else if (msgObj.data.type === 'fluxapprunningsync') {
-          setImmediate(() => handleAppRunningSyncResponse(msgObj, peerSocket.key));
-        } else if (msgObj.data.type === 'fluxappinstallingsync') {
-          setImmediate(() => handleAppInstallingSyncResponse(msgObj, peerSocket.key));
-        } else if (msgObj.data.type === 'fluxappinstallingerrorssync') {
-          setImmediate(() => handleAppInstallingErrorsSyncResponse(msgObj, peerSocket.key));
         } else {
           log.warn(`Unrecognised message type of ${msgObj.data.type}`);
         }
@@ -613,8 +608,42 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
   }
 }
 
-// Register the message dispatcher on the peerManager singleton
+async function dispatchSyncResponse(msgObj, peerSocket) {
+  try {
+    const peerKey = peerSocket.key;
+    if (!peerManager.isSyncRequested(peerKey)) return;
+
+    const result = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
+    if (result !== fluxCommunicationUtils.VerifyResult.OK) {
+      log.warn(`Sync response from ${peerKey} failed envelope verification: ${result}`);
+      return;
+    }
+
+    const { type } = msgObj.data;
+    switch (type) {
+      case 'fluxapptempsync':
+        await handleTempSyncResponse(msgObj, peerKey);
+        break;
+      case 'fluxapprunningsync':
+        await handleAppRunningSyncResponse(msgObj, peerKey);
+        break;
+      case 'fluxappinstallingsync':
+        await handleAppInstallingSyncResponse(msgObj, peerKey);
+        break;
+      case 'fluxappinstallingerrorssync':
+        await handleAppInstallingErrorsSyncResponse(msgObj, peerKey);
+        break;
+      default:
+        log.warn(`Unknown sync response type: ${type}`);
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+// Register message dispatchers on the peerManager singleton
 peerManager.messageDispatcher = dispatchFluxMessage;
+peerManager.syncResponseDispatcher = dispatchSyncResponse;
 async function verifySyncRequest(peer, decoded) {
   const { requestTimestamp, pubkey, signature, sinceTimestamp } = decoded;
   const now = Date.now();

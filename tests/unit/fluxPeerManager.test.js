@@ -44,7 +44,8 @@ describe('FluxPeerSocket tests', () => {
 
   beforeEach(() => {
     manager = new FluxPeerManager();
-    manager.messageDispatcher = sinon.stub();
+    manager.messageDispatcher = sinon.stub().resolves();
+    manager.syncResponseDispatcher = sinon.stub().resolves();
   });
 
   afterEach(() => {
@@ -226,6 +227,65 @@ describe('FluxPeerSocket tests', () => {
     });
   });
 
+  describe('sendAsync', () => {
+    it('should resolve true when ws.send callback succeeds', async () => {
+      const ws = createMockWs();
+      ws.readyState = WebSocket.OPEN;
+      ws.send = sinon.stub().callsFake((data, cb) => cb());
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      const result = await peer.sendAsync('hello');
+      expect(result).to.equal(true);
+      sinon.assert.calledOnce(ws.send);
+    });
+
+    it('should resolve false when ws is not OPEN', async () => {
+      const ws = createMockWs();
+      ws.readyState = WebSocket.CLOSED;
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      const result = await peer.sendAsync('hello');
+      expect(result).to.equal(false);
+      sinon.assert.notCalled(ws.send);
+    });
+
+    it('should resolve false when ws.send callback has error', async () => {
+      const ws = createMockWs();
+      ws.readyState = WebSocket.OPEN;
+      ws.send = sinon.stub().callsFake((data, cb) => cb(new Error('write failed')));
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      const result = await peer.sendAsync('hello');
+      expect(result).to.equal(false);
+    });
+
+    it('should resolve false when ws.send throws synchronously', async () => {
+      const ws = createMockWs();
+      ws.readyState = WebSocket.OPEN;
+      ws.send = sinon.stub().throws(new Error('CONNECTING'));
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      const result = await peer.sendAsync('hello');
+      expect(result).to.equal(false);
+    });
+
+    it('should track messagesSent and bytesSent on success', async () => {
+      const ws = createMockWs();
+      ws.readyState = WebSocket.OPEN;
+      ws.send = sinon.stub().callsFake((data, cb) => cb());
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      await peer.sendAsync('hello');
+      expect(peer.messagesSent).to.equal(1);
+      expect(peer.bytesSent).to.be.greaterThan(0);
+    });
+  });
+
   describe('ping', () => {
     it('should call ws.ping and onPingSent when OPEN', () => {
       const ws = createMockWs();
@@ -371,22 +431,83 @@ describe('FluxPeerSocket tests', () => {
       sinon.assert.calledWith(manager.remove, '10.0.0.1:16127');
     });
 
-    it('should set onmessage that calls manager.messageDispatcher', async () => {
+    it('should set onmessage that calls manager.messageDispatcher via setImmediate', async () => {
       const ws = createMockWs();
-      // Stub the rate limiter to allow the message through
-
       sinon.stub(rateLimit, 'lruRateLimit').returns(true);
 
       const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
-
       peer.source = PEER_SOURCE.RANDOM;
 
       expect(ws.onmessage).to.be.a('function');
 
       const msgData = JSON.stringify({ type: 'test', data: 'hello' });
-      await ws.onmessage({ data: msgData });
-
+      ws.onmessage({ data: msgData });
+      // messageDispatcher is deferred via setImmediate
+      sinon.assert.notCalled(manager.messageDispatcher);
+      await new Promise(setImmediate);
       sinon.assert.calledOnce(manager.messageDispatcher);
+    });
+
+    it('should route sync responses to syncResponseDispatcher', async () => {
+      const ws = createMockWs();
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      sinon.stub(manager, 'isSyncRequested').returns(true);
+
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      const syncMsg = JSON.stringify({
+        pubKey: 'abc', timestamp: Date.now(), signature: 'sig', version: 1,
+        data: { type: 'fluxapprunningsync', messages: [], done: true },
+      });
+      ws.onmessage({ data: syncMsg });
+      await new Promise(setImmediate);
+
+      sinon.assert.calledOnce(manager.syncResponseDispatcher);
+      sinon.assert.notCalled(manager.messageDispatcher);
+    });
+
+    it('should fall through to messageDispatcher when isSyncRequested is false', async () => {
+      const ws = createMockWs();
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      sinon.stub(manager, 'isSyncRequested').returns(false);
+
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      const syncMsg = JSON.stringify({
+        pubKey: 'abc', timestamp: Date.now(), signature: 'sig', version: 1,
+        data: { type: 'fluxappinstallingsync', messages: [], done: true },
+      });
+      ws.onmessage({ data: syncMsg });
+      await new Promise(setImmediate);
+
+      sinon.assert.notCalled(manager.syncResponseDispatcher);
+      sinon.assert.calledOnce(manager.messageDispatcher);
+    });
+
+    it('should route all four sync response types to syncResponseDispatcher', async () => {
+      const ws = createMockWs();
+      sinon.stub(rateLimit, 'lruRateLimit').returns(true);
+      sinon.stub(manager, 'isSyncRequested').returns(true);
+
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      const types = ['fluxapptempsync', 'fluxapprunningsync', 'fluxappinstallingsync', 'fluxappinstallingerrorssync'];
+      for (const type of types) {
+        manager.syncResponseDispatcher.resetHistory();
+        manager.messageDispatcher.resetHistory();
+        const msg = JSON.stringify({
+          pubKey: 'abc', timestamp: Date.now(), signature: 'sig', version: 1,
+          data: { type, messages: [], done: true },
+        });
+        ws.onmessage({ data: msg });
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(setImmediate);
+        sinon.assert.calledOnce(manager.syncResponseDispatcher);
+        sinon.assert.notCalled(manager.messageDispatcher);
+      }
     });
 
     it('should handle NAK messages via onNakReceived', async () => {
@@ -471,7 +592,8 @@ describe('FluxPeerManager tests', () => {
 
   beforeEach(() => {
     manager = new FluxPeerManager();
-    manager.messageDispatcher = sinon.stub();
+    manager.messageDispatcher = sinon.stub().resolves();
+    manager.syncResponseDispatcher = sinon.stub().resolves();
     manager.allowConnections();
   });
 

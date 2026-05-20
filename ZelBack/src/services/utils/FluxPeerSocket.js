@@ -174,6 +174,36 @@ class FluxPeerSocket {
   }
 
   /**
+   * Send data over the WebSocket, returning a Promise that resolves when the
+   * data has been flushed to the kernel TCP buffer. Provides backpressure —
+   * callers can await to pace sends to the drain rate.
+   * @param {string|Buffer} data
+   * @returns {Promise<boolean>} true if sent successfully
+   */
+  sendAsync(data) {
+    return new Promise((resolve) => {
+      try {
+        if (this.ws.readyState !== WebSocket.OPEN) { resolve(false); return; }
+        let payload;
+        if (this.remoteCapabilities.has('transmissionTimestamps') && typeof data === 'string') {
+          payload = `T${Date.now()}|${data}`;
+        } else {
+          payload = data;
+        }
+        this.ws.send(payload, (err) => {
+          if (err) { resolve(false); return; }
+          this.messagesSent += 1;
+          this.bytesSent += Buffer.byteLength(payload, 'utf8');
+          resolve(true);
+        });
+      } catch (e) {
+        log.error(e);
+        resolve(false);
+      }
+    });
+  }
+
+  /**
    * Send a WebSocket ping and track it.
    */
   ping() {
@@ -348,9 +378,21 @@ class FluxPeerSocket {
         return;
       }
 
-      // Dispatch to the manager's message handler
+      // Route sync responses directly — bypass the gossip pipeline
+      const syncType = msgObj.data?.type;
+      if (syncType === 'fluxapptempsync'
+        || syncType === 'fluxapprunningsync'
+        || syncType === 'fluxappinstallingsync'
+        || syncType === 'fluxappinstallingerrorssync') {
+        if (manager.syncResponseDispatcher && manager.isSyncRequested(this.key)) {
+          setImmediate(() => manager.syncResponseDispatcher(msgObj, this));
+          return;
+        }
+      }
+
+      // Dispatch to the manager's message handler (gossip pipeline)
       if (manager.messageDispatcher) {
-        Promise.resolve(manager.messageDispatcher(msgObj, this)).catch((e) => log.error(e));
+        setImmediate(() => manager.messageDispatcher(msgObj, this).catch((e) => log.error(e)));
       }
     };
   }

@@ -19,10 +19,14 @@ const myMessageCache = cacheManager.tempMessageCache;
  * @param {object} message Message to sign and send.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer Peer to send to.
  */
-async function sendSignedMessage(message, peer) {
+async function sendSignedMessage(message, peer, options = {}) {
   try {
     const messageSigned = await serialiseAndSignFluxBroadcast(message);
-    peer.send(messageSigned);
+    if (options.awaitDrain) {
+      await peer.sendAsync(messageSigned);
+    } else {
+      peer.send(messageSigned);
+    }
   } catch (error) {
     log.error(error);
   }
@@ -307,13 +311,13 @@ async function respondWithTempMessages(peer, sinceTimestamp = 0) {
       });
       if (batch.length >= batchSize) {
         log.info(`respondWithTempMessages - Sending chunk of ${batch.length} to ${peer.key}`);
-        await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: batch, done: false }, peer);
+        await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: batch, done: false }, peer, { awaitDrain: true });
         total += batch.length;
         batch = [];
       }
     }
     log.info(`respondWithTempMessages - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
-    await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: batch, done: true }, peer);
+    await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: batch, done: true }, peer, { awaitDrain: true });
   } catch (error) {
     log.error(error);
   }
@@ -343,13 +347,13 @@ async function streamBatchedSync(peer, { sinceTimestamp, collectionName, validit
       batch.push(doc);
       if (batch.length >= batchSize) {
         log.info(`${label} - Sending chunk of ${batch.length} to ${peer.key}`);
-        await sendSignedMessage({ type: messageType, messages: batch, done: false }, peer);
+        await sendSignedMessage({ type: messageType, messages: batch, done: false }, peer, { awaitDrain: true });
         total += batch.length;
         batch = [];
       }
     }
     log.info(`${label} - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
-    await sendSignedMessage({ type: messageType, messages: batch, done: true }, peer);
+    await sendSignedMessage({ type: messageType, messages: batch, done: true }, peer, { awaitDrain: true });
   } catch (error) {
     log.error(error);
   }
