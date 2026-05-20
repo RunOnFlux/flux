@@ -488,11 +488,12 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
 
     async killNode(index) {
       if (clients[index]) clients[index].disconnectEventStream();
-      await fluxNodes[index].container.stop({ timeout: 0 });
+      fluxNodes[index].stoppedContainer = await fluxNodes[index].container.stop({ timeout: 0 });
     },
 
     async startKilledNode(index) {
-      await fluxNodes[index].container.start();
+      fluxNodes[index].container = await fluxNodes[index].stoppedContainer.start();
+      fluxNodes[index].stoppedContainer = null;
       if (clients[index]) await clients[index].connectEventStream();
       return clients[index];
     },
