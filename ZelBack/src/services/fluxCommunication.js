@@ -76,11 +76,14 @@ const VERIFY_BATCH_SIZE = 200;
 
 async function batchVerifyBroadcasts(broadcasts, label) {
   const verified = [];
+  const totalStart = Date.now();
   for (let i = 0; i < broadcasts.length; i += VERIFY_BATCH_SIZE) {
+    const batchStart = Date.now();
     const batch = broadcasts.slice(i, i + VERIFY_BATCH_SIZE);
     const results = await Promise.allSettled(
       batch.map((b) => fluxCommunicationUtils.verifyFluxBroadcast(b)),
     );
+    const batchEnd = Date.now();
     for (let j = 0; j < results.length; j++) {
       const r = results[j];
       if (r.status === 'fulfilled' && r.value === fluxCommunicationUtils.VerifyResult.OK) {
@@ -91,10 +94,15 @@ async function batchVerifyBroadcasts(broadcasts, label) {
         log.warn(`${label} - Broadcast from ${batch[j].data?.ip} failed: ${r.value}`);
       }
     }
+    log.info(`${label} - Batch ${i / VERIFY_BATCH_SIZE}: ${batch.length} items in ${batchEnd - batchStart}ms`);
     if (i + VERIFY_BATCH_SIZE < broadcasts.length) {
+      const yieldStart = Date.now();
       await new Promise((resolve) => { setImmediate(resolve); });
+      const yieldTime = Date.now() - yieldStart;
+      if (yieldTime > 5) log.info(`${label} - Yield gap: ${yieldTime}ms`);
     }
   }
+  log.info(`${label} - Total verify: ${broadcasts.length} items, ${verified.length} verified in ${Date.now() - totalStart}ms`);
   return verified;
 }
 
@@ -167,8 +175,9 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     }
 
     if (verifiedAppRunning.length > 0) {
+      const storeStart = Date.now();
       const { stored } = await messageStore.storeBatchAppRunningMessages(verifiedAppRunning);
-      log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verifiedAppRunning.length} verified apprunning events`);
+      log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verifiedAppRunning.length} verified apprunning events in ${Date.now() - storeStart}ms`);
     }
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
@@ -205,8 +214,9 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
     log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     const verified = await batchVerifyBroadcasts(messages, 'handleAppInstallingSyncResponse');
     if (verified.length > 0) {
+      const storeStart = Date.now();
       const { stored } = await messageStore.storeBatchAppInstallingMessages(verified);
-      log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
+      log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts in ${Date.now() - storeStart}ms`);
     }
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
@@ -226,8 +236,9 @@ async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
     log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
     const verified = await batchVerifyBroadcasts(messages, 'handleAppInstallingErrorsSyncResponse');
     if (verified.length > 0) {
+      const storeStart = Date.now();
       const { stored } = await messageStore.storeBatchAppInstallingErrorMessages(verified);
-      log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
+      log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts in ${Date.now() - storeStart}ms`);
     }
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
@@ -613,7 +624,9 @@ async function dispatchSyncResponse(msgObj, peerSocket) {
     const peerKey = peerSocket.key;
     if (!peerManager.isSyncRequested(peerKey)) return;
 
+    const envelopeStart = Date.now();
     const result = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj);
+    log.info(`dispatchSyncResponse - Envelope verify for ${msgObj.data?.type} from ${peerKey}: ${Date.now() - envelopeStart}ms, result: ${result}`);
     if (result !== fluxCommunicationUtils.VerifyResult.OK) {
       log.warn(`Sync response from ${peerKey} failed envelope verification: ${result}`);
       return;
