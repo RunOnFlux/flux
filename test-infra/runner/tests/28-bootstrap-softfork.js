@@ -26,7 +26,10 @@ describe('Bootstrap: soft fork pre-pass', function () {
   before(async function () {
     this.timeout(300000);
 
+    env = await createTestEnv({ nodes: 3, tickerAutostart: false });
+
     // Seed daemon stub with foundation self-send deltas and the transaction
+    // Must happen after createTestEnv (daemon stub running) but before blocks advance
     await seedAddressDeltas([
       { txid: FORK_TXID, address: MULTISIG_A, satoshis: -500000, index: 0, height: FORK_HEIGHT },
       { txid: FORK_TXID, address: MULTISIG_A, satoshis: 500000, index: 1, height: FORK_HEIGHT },
@@ -41,8 +44,6 @@ describe('Bootstrap: soft fork pre-pass', function () {
         { valueSat: 0, scriptPubKey: { addresses: [], asm: `OP_RETURN ${PRICE_FORK_HEX}` } },
       ],
     });
-
-    env = await createTestEnv({ nodes: 3, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await waitForExplorerReady(env.clients[0]);
