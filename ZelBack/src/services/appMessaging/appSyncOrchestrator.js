@@ -103,6 +103,7 @@ class AppSyncOrchestrator {
     log.info(`AppSyncOrchestrator - Starting in state ${this.#state}`);
 
     this.#bootContext = bootContext;
+    log.info(`AppSyncOrchestrator - bootContext received: ${bootContext ? JSON.stringify(bootContext) : 'undefined'}`);
     this.#startHeartbeat();
 
     this.#peerThresholdHandler = (count) => {
