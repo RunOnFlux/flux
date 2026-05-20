@@ -72,7 +72,7 @@ async function handleAppMessages(message, fromIP, port) {
   }
 }
 
-const VERIFY_BATCH_SIZE = 200;
+const VERIFY_BATCH_SIZE = 1;
 
 async function batchVerifyBroadcasts(broadcasts, label) {
   const verified = [];
