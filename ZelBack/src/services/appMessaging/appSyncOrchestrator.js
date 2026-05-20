@@ -391,7 +391,6 @@ class AppSyncOrchestrator {
       this.#nextHashRetryHeight = result.nextRetryHeight ?? (this.#lastBlockHeight + FALLBACK_RECHECK_BLOCKS);
       await this.#writeVersionMarker();
       await this.#rebuildDb();
-      globalState.dbReady = true;
       fluxEventBus.publish('hashSync:complete', { attempt: this.#hashSyncAttempts, missing: result.missing });
     } catch (error) {
       log.error(`AppSyncOrchestrator - Hash sync failed (attempt ${this.#hashSyncAttempts}/${HASH_SYNC_MAX_RETRIES}): ${error.message}`);
@@ -416,6 +415,7 @@ class AppSyncOrchestrator {
       log.info('AppSyncOrchestrator - Rebuilding globalAppsInformation');
       await registryManager.reindexGlobalAppsInformation();
       this.#dbRebuilt = true;
+      globalState.dbReady = true;
       log.info('AppSyncOrchestrator - DB ready');
     } catch (error) {
       log.error(`AppSyncOrchestrator - DB rebuild failed: ${error.message}`);
@@ -533,6 +533,16 @@ class AppSyncOrchestrator {
     }
   }
 
+  async #clearShutdownReason() {
+    try {
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.local.database);
+      await dbHelper.findOneAndUpdateInDatabase(database, startupCollection, { _id: 'heartbeat' }, { $unset: { shutdownReason: '' } });
+    } catch (error) {
+      log.error(`Failed to clear shutdown reason: ${error.message}`);
+    }
+  }
+
   #startHeartbeat() {
     const writeHeartbeat = async () => {
       try {
@@ -547,6 +557,7 @@ class AppSyncOrchestrator {
         log.error(`Heartbeat write failed: ${error.message}`);
       }
     };
+    this.#clearShutdownReason();
     writeHeartbeat();
     this.#heartbeatInterval = setInterval(writeHeartbeat, config.system.heartbeatIntervalMs ?? 30000);
   }

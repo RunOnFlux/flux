@@ -1,4 +1,3 @@
-const os = require('os');
 // path is used for dynamic requires in the file
 // eslint-disable-next-line no-unused-vars
 const path = require('path');
@@ -11,7 +10,6 @@ const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
-const geolocationService = require('../geolocationService');
 const appUninstaller = require('./appUninstaller');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');

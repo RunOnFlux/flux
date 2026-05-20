@@ -1604,6 +1604,7 @@ module.exports = {
   connectedPeersInfo,
   keepConnectionsAlive,
   fluxDiscovery,
+  startDiscovery,
   initializeDiscovery,
   startDiscoveryApi,
   handleAppMessages,

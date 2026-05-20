@@ -297,10 +297,10 @@ class FluxRpc {
   async runBatch(calls) {
     if (!calls.length) return [];
 
-    const payloads = calls.map((call) => {
+    const payloads = calls.map((call, i) => {
       const method = call.method.toLowerCase();
       if (!this.methods.has(method)) throw new Error(`Invalid Method: ${method}`);
-      return this.#createPayload(method, call.params || []);
+      return { jsonrpc: '2.0', id: i, method, params: call.params || [] };
     });
 
     const { signal } = this.controller;

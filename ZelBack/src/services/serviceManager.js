@@ -264,7 +264,7 @@ async function startFluxFunctions() {
       hardwareValidationService.performBootTimeHardwareValidation().catch((error) => {
         log.error(`Hardware validation service error: ${error.message}`);
       });
-    }, bootDelay(50 * 1000)); // Run at 50 seconds - BEFORE stopped apps recovery
+    }, bootDelay(50 * 1000)); // Run at 50 seconds - BEFORE boot reconciliation
 
     // Migrate existing containers from 'unless-stopped'/'always' to 'no' restart policy.
     // Non-destructive — doesn't stop containers, just prevents Docker from auto-starting
@@ -332,7 +332,7 @@ async function startFluxFunctions() {
     fluxCommunication.initializeDiscovery();
     await nodeConfirmationService.start();
     if (config.fluxapps.discoveryAutostart !== false) {
-      fluxCommunication.fluxDiscovery();
+      fluxCommunication.startDiscovery();
       log.info('Flux Discovery started');
     }
     // Cleanup and fix crontab mount entries (add wait logic, remove stale entries, ensure mounts are active)

@@ -818,22 +818,82 @@ function getPriceSpecForHeight(priceSpecs, height) {
   return priceSpecs[lo];
 }
 
-function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch, softForkBatch) {
+async function bootstrapSoftForks(currentDaemonHeight) {
+  const multisigAddresses = [config.fluxapps.addressMultisig, config.fluxapps.addressMultisigB];
+  const deltaResult = await daemonServiceUtils.executeCall('getaddressdeltas', [{
+    addresses: multisigAddresses,
+    start: config.fluxapps.epochstart,
+    end: currentDaemonHeight,
+  }]);
+  if (deltaResult.status !== 'success') {
+    log.warn(`Bootstrap: getaddressdeltas failed: ${deltaResult.data?.message || deltaResult.data}`);
+    return;
+  }
+
+  const byTx = new Map();
+  for (const d of deltaResult.data) {
+    if (!byTx.has(d.txid)) byTx.set(d.txid, []);
+    byTx.get(d.txid).push(d);
+  }
+  const selfSendTxids = [];
+  for (const [txid, deltas] of byTx) {
+    const hasSpend = deltas.some((d) => d.satoshis < 0);
+    const hasReceive = deltas.some((d) => d.satoshis > 0);
+    if (hasSpend && hasReceive) selfSendTxids.push(txid);
+  }
+
+  if (selfSendTxids.length === 0) return;
+  log.info(`Bootstrap: Found ${selfSendTxids.length} foundation self-send transactions, checking for soft forks`);
+
+  const BATCH_SIZE = 500;
+  const multisigSet = new Set(multisigAddresses);
+  let totalForks = 0;
+  for (let i = 0; i < selfSendTxids.length; i += BATCH_SIZE) {
+    const batch = selfSendTxids.slice(i, i + BATCH_SIZE);
+    const calls = batch.map((txid) => ({ method: 'getrawtransaction', params: [txid, 1] }));
+    // eslint-disable-next-line no-await-in-loop
+    const batchResult = await daemonServiceUtils.executeBatchCall(calls);
+    if (batchResult.status !== 'success') continue;
+
+    for (const response of batchResult.data) {
+      if (response.error || !response.result) continue;
+      const tx = response.result;
+      let senderFoundation = false;
+      let receiverFoundation = false;
+      let message = '';
+
+      for (const vin of (tx.vin || [])) {
+        if (vin.address && multisigSet.has(vin.address)) { senderFoundation = true; break; }
+      }
+      for (const vout of tx.vout) {
+        if (vout.scriptPubKey.addresses) {
+          for (const addr of vout.scriptPubKey.addresses) {
+            if (multisigSet.has(addr)) receiverFoundation = true;
+          }
+        }
+        if (vout.scriptPubKey.asm) {
+          const decoded = decodeMessage(vout.scriptPubKey.asm);
+          if (decoded) message = decoded;
+        }
+      }
+
+      if (senderFoundation && receiverFoundation && message) {
+        // eslint-disable-next-line no-await-in-loop
+        await processSoftFork(tx.txid, tx.height, message);
+        totalForks += 1;
+      }
+    }
+  }
+  log.info(`Bootstrap: Stored ${totalForks} soft fork messages`);
+}
+
+function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch) {
   if (tx.version >= 5 || tx.version <= 0) return;
   const { height } = tx;
   if (!height) return;
 
   let message = '';
   let appValue = 0;
-  let senderFoundation = false;
-  let receiverFoundation = false;
-
-  for (const vin of (tx.vin || [])) {
-    if (vin.address === config.fluxapps.addressMultisig || vin.address === config.fluxapps.addressMultisigB) {
-      senderFoundation = true;
-      break;
-    }
-  }
 
   for (const vout of tx.vout) {
     if (vout.scriptPubKey.addresses) {
@@ -843,9 +903,6 @@ function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch, softForkBatch
         || (addr === config.fluxapps.addressMultisigB && height >= config.fluxapps.multisigAddressChange)
         || (addr === config.fluxapps.addressDevelopment && config.development)) {
         appValue += vout.valueSat;
-      }
-      if (addr === config.fluxapps.addressMultisig || addr === config.fluxapps.addressMultisigB) {
-        receiverFoundation = true;
       }
     }
     if (vout.scriptPubKey.asm) {
@@ -865,9 +922,6 @@ function processBootstrapTx(tx, priceSpecs, seenHashes, hashBatch, softForkBatch
     }
   }
 
-  if (senderFoundation && receiverFoundation && message) {
-    softForkBatch.push({ txid: tx.txid, height, message });
-  }
 }
 
 async function bootstrapAppHashes(currentDaemonHeight) {
@@ -894,7 +948,9 @@ async function bootstrapAppHashes(currentDaemonHeight) {
   const allTxids = [...new Set(txidResult.data)];
   log.info(`Bootstrap: ${allTxids.length} unique txids to process`);
 
+  await bootstrapSoftForks(currentDaemonHeight);
   const priceSpecs = await chainUtilities.getChainParamsPriceUpdates();
+
   const seenHashes = new Set();
   let hashBatch = [];
   const db = dbHelper.databaseConnection();
@@ -903,7 +959,6 @@ async function bootstrapAppHashes(currentDaemonHeight) {
   const BATCH_SIZE = 500;
   const INSERT_THRESHOLD = 5000;
   let totalHashes = 0;
-  let totalSoftForks = 0;
 
   for (let i = 0; i < allTxids.length; i += BATCH_SIZE) {
     const batch = allTxids.slice(i, i + BATCH_SIZE);
@@ -915,28 +970,13 @@ async function bootstrapAppHashes(currentDaemonHeight) {
       throw new Error(`Batch getrawtransaction failed: ${batchResult.data.message || batchResult.data}`);
     }
 
-    const softForkBatch = [];
     for (const response of batchResult.data) {
       if (response.error) {
         log.warn(`Bootstrap: failed to fetch tx: ${response.error.message || JSON.stringify(response.error)}`);
         continue;
       }
-      processBootstrapTx(response.result, priceSpecs, seenHashes, hashBatch, softForkBatch);
+      processBootstrapTx(response.result, priceSpecs, seenHashes, hashBatch);
     }
-
-    for (const sf of softForkBatch) {
-      // eslint-disable-next-line no-await-in-loop
-      await processSoftFork(sf.txid, sf.height, sf.message);
-      const splitted = sf.message.split('_');
-      if (splitted[0] === 'p' && splitted[4]) {
-        priceSpecs.push({
-          height: sf.height, cpu: +splitted[1], ram: +splitted[2], hdd: +splitted[3],
-          minPrice: +splitted[4], port: +splitted[5] || 2, scope: +splitted[6] || 6, staticip: +splitted[7] || 3,
-        });
-        priceSpecs.sort((a, b) => a.height - b.height);
-      }
-    }
-    totalSoftForks += softForkBatch.length;
 
     if (hashBatch.length >= INSERT_THRESHOLD || i + BATCH_SIZE >= allTxids.length) {
       if (hashBatch.length > 0) {
@@ -949,7 +989,7 @@ async function bootstrapAppHashes(currentDaemonHeight) {
 
     const processed = Math.min(i + BATCH_SIZE, allTxids.length);
     if (processed % 5000 < BATCH_SIZE || processed === allTxids.length) {
-      log.info(`Bootstrap: ${processed}/${allTxids.length} txids processed, ${totalHashes + hashBatch.length} hashes, ${totalSoftForks} soft forks`);
+      log.info(`Bootstrap: ${processed}/${allTxids.length} txids processed, ${totalHashes + hashBatch.length} hashes`);
     }
   }
 
@@ -957,7 +997,7 @@ async function bootstrapAppHashes(currentDaemonHeight) {
   const update = { $set: { generalScannedHeight: currentDaemonHeight } };
   await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, { upsert: true });
 
-  log.info(`Bootstrap complete: ${totalHashes} app hashes, ${totalSoftForks} soft fork messages, scanned to height ${currentDaemonHeight}`);
+  log.info(`Bootstrap complete: ${totalHashes} app hashes, scanned to height ${currentDaemonHeight}`);
 }
 
 async function waitForDaemonSync() {
@@ -1195,6 +1235,10 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           if (error.message !== 'ns not found') throw error;
         });
         log.info(resultE, resultF, resultG, resultH, resultI, resultJ, resultK, resultL);
+        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
+        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ ip: 1, type: 1, dedupKey: 1 }, { unique: true });
+        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ broadcastedAt: 1 });
+        await databaseGlobal.collection(config.database.appsglobal.collections.appStateEvents).createIndex({ createdAt: 1 });
       }
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });

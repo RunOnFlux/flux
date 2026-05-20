@@ -19,7 +19,6 @@ const upnpService = require('../upnpService');
 const {
   localAppsInformation,
   globalAppsInformation,
-  globalAppsInstallingErrorsLocations,
   globalAppsMessages,
   globalAppsLocations,
   appsFolder,

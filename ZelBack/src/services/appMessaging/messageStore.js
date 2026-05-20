@@ -359,7 +359,7 @@ async function storeAppRunningMessage(message) {
   }
 
   if (message.version === 2 && appsMessages.length === 0) {
-    const result = await dbHelper.findInDatabase(database, globalAppsLocations, { ip: message.ip }, { _id: 0, runningSince: 1 });
+    const result = await dbHelper.findInDatabase(database, globalAppsLocations, { ip: message.ip }, { projection: { _id: 0, runningSince: 1 } });
     if (result.length > 0) {
       const broadcastDate = new Date(message.broadcastedAt);
       const olderThanBroadcast = { ip: message.ip, broadcastedAt: { $lte: broadcastDate } };

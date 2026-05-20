@@ -94,7 +94,7 @@ async function reconcileAppsOnBoot() {
   };
 
   try {
-    log.info('appStartupManager - Starting stopped apps recovery check');
+    log.info('appStartupManager - Starting boot reconciliation check');
 
     // Get all installed apps from database (just to get the list of app names)
     const installedApps = await getInstalledAppsFromDb();

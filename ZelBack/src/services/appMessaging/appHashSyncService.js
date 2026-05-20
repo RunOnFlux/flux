@@ -184,35 +184,38 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missingSet, onProgres
     signalBatch();
   });
 
-  while (!streamDone || batch.length >= BULK_FETCH_BATCH_SIZE) {
-    // eslint-disable-next-line no-await-in-loop
-    await waitForBatch;
-    if (batch.length === 0) break;
+  try {
+    while (!streamDone || batch.length >= BULK_FETCH_BATCH_SIZE) {
+      // eslint-disable-next-line no-await-in-loop
+      await waitForBatch;
+      if (batch.length === 0) break;
 
-    const currentBatch = batch.splice(0, BULK_FETCH_BATCH_SIZE);
-    // eslint-disable-next-line no-await-in-loop
-    const stats = await processMessages(currentBatch, onProgress);
-    totalProcessed += stats.processed;
-    totalSkipped += stats.skipped;
-    for (const msg of currentBatch) missingSet.delete(msg.hash);
+      const currentBatch = batch.splice(0, BULK_FETCH_BATCH_SIZE);
+      // eslint-disable-next-line no-await-in-loop
+      const stats = await processMessages(currentBatch, onProgress);
+      totalProcessed += stats.processed;
+      totalSkipped += stats.skipped;
+      for (const msg of currentBatch) missingSet.delete(msg.hash);
 
-    if (missingSet.size === 0) {
-      log.info(`syncMissingHashes - All missing hashes resolved after streaming ${totalSeen} messages`);
-      stopped = true;
-      dataStream.destroy();
-      response.data.destroy();
-      break;
+      if (missingSet.size === 0) {
+        log.info(`syncMissingHashes - All missing hashes resolved after streaming ${totalSeen} messages`);
+        stopped = true;
+        break;
+      }
+
+      waitForBatch = new Promise((r) => { signalBatch = r; });
+      dataStream.resume();
     }
 
-    waitForBatch = new Promise((r) => { signalBatch = r; });
-    dataStream.resume();
-  }
-
-  if (batch.length > 0) {
-    const stats = await processMessages(batch, onProgress);
-    totalProcessed += stats.processed;
-    totalSkipped += stats.skipped;
-    for (const msg of batch) missingSet.delete(msg.hash);
+    if (batch.length > 0) {
+      const stats = await processMessages(batch, onProgress);
+      totalProcessed += stats.processed;
+      totalSkipped += stats.skipped;
+      for (const msg of batch) missingSet.delete(msg.hash);
+    }
+  } finally {
+    dataStream.destroy();
+    response.data.destroy();
   }
 
   log.info(`syncMissingHashes - Streamed ${totalSeen} messages from ${peerIp}:${peerPort}: ${totalProcessed} processed, ${totalSkipped} skipped`);
@@ -541,16 +544,18 @@ async function ephemeralHashRound(hashes, force, currentHeight) {
   const peerKeys = peers.map((p) => p.key).join(', ');
   log.info(`syncMissingHashes - Ephemeral round: requesting ${hashes.length} hashes from ${peers.length} peers: ${peerKeys}`);
 
-  await broadcastHashRequest(hashes, peers);
+  try {
+    await broadcastHashRequest(hashes, peers);
 
-  const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
-  const remaining = await waitForResolution(new Set(hashes), maxWait, force, currentHeight);
+    const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
+    const remaining = await waitForResolution(new Set(hashes), maxWait, force, currentHeight);
 
-  for (const peer of peers) {
-    try { peer.close(CLOSE_CODES.EPHEMERAL_DONE, 'done'); } catch (_e) { /* noop */ }
+    return remaining;
+  } finally {
+    for (const peer of peers) {
+      try { peer.close(CLOSE_CODES.EPHEMERAL_DONE, 'done'); } catch (_e) { /* noop */ }
+    }
   }
-
-  return remaining;
 }
 
 async function syncMissingHashes(options = {}) {

@@ -1899,6 +1899,10 @@ async function reindexGlobalAppsLocation() {
         throw error;
       }
     });
+    await database.collection(globalAppStateEvents).createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 });
+    await database.collection(globalAppStateEvents).createIndex({ ip: 1, type: 1, dedupKey: 1 }, { unique: true });
+    await database.collection(globalAppStateEvents).createIndex({ broadcastedAt: 1 });
+    await database.collection(globalAppStateEvents).createIndex({ createdAt: 1 });
     await database.collection(globalAppsLocations).createIndex({ name: 1 }, { name: 'query for getting app location based on app specs name' });
     await database.collection(globalAppsLocations).createIndex({ hash: 1 }, { name: 'query for getting app location based on app hash' });
     await database.collection(globalAppsLocations).createIndex({ ip: 1 }, { name: 'query for getting app location based on ip' });

@@ -32,6 +32,7 @@ const dbHelper = require('./ZelBack/src/services/dbHelper');
 const messageStore = require('./ZelBack/src/services/appMessaging/messageStore');
 const { AppSyncOrchestrator } = require('./ZelBack/src/services/appMessaging/appSyncOrchestrator');
 const { SIGTERM_EXPIRY_MS } = require('./ZelBack/src/services/utils/appConstants');
+const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -470,6 +471,7 @@ async function handleSigterm() {
   // Give some time for the broadcast to complete
   await serviceHelper.delay(1000);
 
+  verifyPool.stop();
   log.info('Graceful shutdown complete, exiting...');
   process.exit(0);
 }

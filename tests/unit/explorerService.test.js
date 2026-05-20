@@ -2116,8 +2116,7 @@ describe('explorerService tests', () => {
       const priceSpecs = [{ height: -1, minPrice: 0.01 }];
       const seenHashes = new Set();
       const hashBatch = [];
-      const softForkBatch = [];
-      explorerService.processBootstrapTx(makeTx(), priceSpecs, seenHashes, hashBatch, softForkBatch);
+      explorerService.processBootstrapTx(makeTx(), priceSpecs, seenHashes, hashBatch);
       expect(hashBatch).to.have.length(1);
       expect(hashBatch[0].txid).to.equal('abc123');
       expect(hashBatch[0].hash).to.have.length(64);
@@ -2126,13 +2125,13 @@ describe('explorerService tests', () => {
 
     it('should skip tx with version >= 5', () => {
       const hashBatch = [];
-      explorerService.processBootstrapTx(makeTx({ version: 5 }), [{ height: -1, minPrice: 0.01 }], new Set(), hashBatch, []);
+      explorerService.processBootstrapTx(makeTx({ version: 5 }), [{ height: -1, minPrice: 0.01 }], new Set(), hashBatch);
       expect(hashBatch).to.have.length(0);
     });
 
     it('should skip tx below minPrice', () => {
       const hashBatch = [];
-      explorerService.processBootstrapTx(makeTx({ vout: [{ valueSat: 100, scriptPubKey: { addresses: [config.fluxapps.address], asm: 'OP_RETURN 6162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738394142434445464748494a4b4c4d4e4f505152535455565758595a3031' } }] }), [{ height: -1, minPrice: 1 }], new Set(), hashBatch, []);
+      explorerService.processBootstrapTx(makeTx({ vout: [{ valueSat: 100, scriptPubKey: { addresses: [config.fluxapps.address], asm: 'OP_RETURN 6162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738394142434445464748494a4b4c4d4e4f505152535455565758595a3031' } }] }), [{ height: -1, minPrice: 1 }], new Set(), hashBatch);
       expect(hashBatch).to.have.length(0);
     });
 
@@ -2140,13 +2139,13 @@ describe('explorerService tests', () => {
       const priceSpecs = [{ height: -1, minPrice: 0.01 }];
       const seenHashes = new Set();
       const hashBatch = [];
-      explorerService.processBootstrapTx(makeTx(), priceSpecs, seenHashes, hashBatch, []);
-      explorerService.processBootstrapTx(makeTx({ txid: 'def456' }), priceSpecs, seenHashes, hashBatch, []);
+      explorerService.processBootstrapTx(makeTx(), priceSpecs, seenHashes, hashBatch);
+      explorerService.processBootstrapTx(makeTx({ txid: 'def456' }), priceSpecs, seenHashes, hashBatch);
       expect(hashBatch).to.have.length(1);
     });
 
-    it('should detect soft fork messages', () => {
-      const softForkBatch = [];
+    it('should not collect soft forks (handled by bootstrapSoftForks pre-pass)', () => {
+      const hashBatch = [];
       const tx = makeTx({
         vin: [{ address: config.fluxapps.addressMultisig }],
         vout: [{
@@ -2157,9 +2156,8 @@ describe('explorerService tests', () => {
           },
         }],
       });
-      explorerService.processBootstrapTx(tx, [{ height: -1, minPrice: 0.01 }], new Set(), [], softForkBatch);
-      expect(softForkBatch).to.have.length(1);
-      expect(softForkBatch[0].txid).to.equal('abc123');
+      explorerService.processBootstrapTx(tx, [{ height: -1, minPrice: 0.01 }], new Set(), hashBatch);
+      expect(hashBatch).to.have.length(0);
     });
 
     it('should not count multisig payment before enforcement height', () => {
@@ -2174,7 +2172,7 @@ describe('explorerService tests', () => {
           },
         }],
       });
-      explorerService.processBootstrapTx(tx, [{ height: -1, minPrice: 0.01 }], new Set(), hashBatch, []);
+      explorerService.processBootstrapTx(tx, [{ height: -1, minPrice: 0.01 }], new Set(), hashBatch);
       expect(hashBatch).to.have.length(0);
     });
   });

@@ -226,6 +226,7 @@ function decodeSignedSyncRequest(buf) {
   const sigLen = buf[offset]; offset += 1;
   if (buf.length < offset + sigLen) return null;
   const signature = buf.slice(offset, offset + sigLen).toString('base64');
+  if (!pubkeyLen || !sigLen) return null;
   return { type, sinceTimestamp, requestTimestamp, pubkey, signature };
 }
 
