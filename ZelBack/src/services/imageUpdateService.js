@@ -359,7 +359,7 @@ async function checkForImageUpdates() {
     }
 
     // Decrypt enterprise apps (version 8 with encrypted content)
-    const apps = await appQueryService.decryptEnterpriseApps(installedAppsResponse.data);
+    const apps = await appQueryService.decryptEnterpriseApps(installedAppsResponse.data, { formatSpecs: false });
     log.info(`Checking ${apps.length} installed apps for image updates`);
 
     let updatesTriggered = 0;

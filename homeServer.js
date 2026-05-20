@@ -27,8 +27,15 @@ homeApp.get('/health', (req, res) => {
 // Serve static files from CloudUI
 homeApp.use(express.static(cloudUI));
 
-// SPA fallback - serve index.html for all unmatched routes
+// SPA fallback - serve index.html for unmatched routes.
+// File-like URLs (with an extension) return 404 so missing static assets such as
+// /llms.txt or /ads.txt don't produce a "false 200" with the SPA shell.
 homeApp.get('*', (req, res) => {
+  if (path.extname(req.path)) {
+    res.status(404).type('text/plain').send('Not Found');
+
+    return;
+  }
   res.sendFile(path.join(cloudUI, 'index.html'));
 });
 
