@@ -172,13 +172,13 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
   }
 }
 
-export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], configOverrides = null, nodeTiers = null, dataCenter = true, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
+export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
+    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
   } catch (err) {
     for (const c of started.reverse()) {
       await c.stop().catch(() => {});
@@ -188,7 +188,21 @@ export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes 
   }
 }
 
-async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
+function mergeConfigs(base, override) {
+  if (!override) return base;
+  if (!base) return override;
+  const result = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && result[key] && typeof result[key] === 'object') {
+      result[key] = { ...result[key], ...value };
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
   const stubPeerSet = new Set(stubPeers);
 
   const mongo = await new StaticIpContainer('mongo:8')
@@ -363,7 +377,8 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     };
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
     if (discoveryAutostart) nodeEnv.FLUX_DISCOVERY_AUTOSTART = 'true';
-    if (configOverrides) nodeEnv.NODE_CONFIG = JSON.stringify(configOverrides);
+    const nodeConfig = mergeConfigs(configOverrides, nodeConfigOverrides[i]);
+    if (nodeConfig) nodeEnv.NODE_CONFIG = JSON.stringify(nodeConfig);
 
     const builder = new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()

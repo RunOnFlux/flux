@@ -175,7 +175,10 @@ describe('State sync: 3-peer ephemeral sync', function () {
       nodes: 12,
       deferredNodes: 2,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { appSyncMinCompletions: 3 } },
+      nodeConfigOverrides: {
+        10: { fluxapps: { appSyncMinCompletions: 3 } },
+        11: { fluxapps: { appSyncMinCompletions: 3 } },
+      },
     });
     const initial = Array.from({ length: 10 }, (_, i) => i);
     await bootAndPeer(env, initial);
