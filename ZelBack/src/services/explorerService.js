@@ -449,14 +449,14 @@ async function insertAndRequestAppHashes(apps, database) {
       if (hasUnresolved) {
         appSyncEvents.emit(SYNC_EVENTS.HASH_UNRESOLVED);
       }
-      apps.filter((item) => !appsToRemove.includes(item));
-      while (apps.length > 500) {
-        messageVerifier.checkAndRequestMultipleApps(apps.splice(0, 500));
+      const remaining = apps.filter((item) => !appsToRemove.includes(item));
+      while (remaining.length > 500) {
+        messageVerifier.checkAndRequestMultipleApps(remaining.splice(0, 500));
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(30 * 1000); // delay 30 seconds
       }
-      if (apps.length > 0) {
-        messageVerifier.checkAndRequestMultipleApps(apps);
+      if (remaining.length > 0) {
+        messageVerifier.checkAndRequestMultipleApps(remaining);
       }
     }, 1);
   }
