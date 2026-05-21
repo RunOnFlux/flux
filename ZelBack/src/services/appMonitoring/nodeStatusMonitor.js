@@ -8,7 +8,6 @@ const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const messageStore = require('../appMessaging/messageStore');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const log = require('../../lib/log');
-const fluxEventBus = require('../utils/fluxEventBus');
 
 let removalInProgress = false;
 

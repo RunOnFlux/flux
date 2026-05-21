@@ -70,13 +70,7 @@ const portRestoreIntervalMs = config.fluxapps.portRestoreIntervalMs;
 const cpuCheckIntervalMs = config.fluxapps.cpuCheckIntervalMs;
 const imageComplianceIntervalMs = config.fluxapps.imageComplianceIntervalMs;
 const forceRemovalIntervalMs = config.fluxapps.forceRemovalIntervalMs;
-const hashSyncIntervalMs = config.fluxapps.hashSyncIntervalMs;
-const peerNotifyIntervalMs = config.fluxapps.peerNotifyIntervalMs;
-const locationTtlS = config.fluxapps.locationTtlS;
-const installingTtlS = config.fluxapps.installingTtlS;
-const installErrorTtlS = config.fluxapps.installErrorTtlS;
 const tempMsgTtlS = config.fluxapps.tempMsgTtlS;
-const removalSpacingMs = config.fluxapps.removalSpacingMs;
 
 // State objects for monitoring services
 const dosState = {

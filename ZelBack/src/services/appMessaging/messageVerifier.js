@@ -22,7 +22,6 @@ const {
   // eslint-disable-next-line no-unused-vars
   globalAppsInstallingLocations,
   appsHashesCollection,
-  scannedHeightCollection,
   globalAppsInformation,
   localAppsInformation,
 } = require('../utils/appConstants');
