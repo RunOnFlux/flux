@@ -350,6 +350,16 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
         canCompareSpecs = false;
       }
     }
+    // Consensus note: non-secure nodes can't decrypt enterprise specs, so
+    // canCompareSpecs=false and the isExpireOnlyUpdate check is skipped —
+    // they accept any usersToExtend-signed update. Secure (Arcane) nodes
+    // enforce expire-only. This means secure and non-secure nodes can reach
+    // different validity verdicts for the same message. Interim tradeoff:
+    // master's alternative is worse (throws on decrypt failure, permanently
+    // marks the hash as messageNotFound, creating data holes). Will be
+    // resolved by Arcane attestations — Arcane nodes sign a verification
+    // attestation that any node can validate using the attestation pubkey,
+    // eliminating the need for per-node decryption.
     // eslint-disable-next-line no-restricted-syntax
     for (const userToExtend of usersToExtend) {
       const isValidUserToExtendSignature = signatureVerifier.verifySignature(messageToVerify, userToExtend, signature);
