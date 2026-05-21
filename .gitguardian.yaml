@@ -20,6 +20,7 @@ secret:
 
     # Test files with example credentials
     - 'tests/unit/registryAuth/*.test.js'
+    - 'tests/unit/fluxCommunicationMessagesSender.test.js'
 
     # Documentation examples
     - 'docs/registry-auth/**/examples/*'
