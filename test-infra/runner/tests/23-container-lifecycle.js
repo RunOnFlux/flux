@@ -10,7 +10,7 @@ import { dbClient } from '../framework/db-client.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
-  waitForAppInstalled, waitForBootSettled,
+  waitForAppInstalled, waitForBootSettled, waitForAppRunning,
 } from '../framework/wait.js';
 import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -101,6 +101,12 @@ describe('reconcileAppsOnBoot restarts containers after simulated reboot', funct
       const status = await getAppContainerStatus(client.container, appName);
       return status && status.status.startsWith('Up');
     }, { timeout: 60000, interval: 3000, label: 'app container running after reconciliation' });
+  });
+
+  it('should broadcast reconciled app as running', async function () {
+    this.timeout(60000);
+    const client = env.clients[installedOnIndex];
+    await waitForAppRunning(client, appName, 50000);
   });
 });
 
