@@ -205,6 +205,8 @@ function mergeConfigs(base, override) {
 async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
   const stubPeerSet = new Set(stubPeers);
 
+  // Health check timeout must be < interval — Docker's health state machine
+  // produces spurious "unhealthy" on container restart when timeout >= interval.
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
     .withStaticIp(networkName, MONGO_IP)
@@ -212,7 +214,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     .withHealthCheck({
       test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"],
       interval: 3000,
-      timeout: 5000,
+      timeout: 2000,
       retries: 10,
     })
     .start();
@@ -240,7 +242,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     .withHealthCheck({
       test: ['CMD', 'node', '-e', "require('http').get('http://localhost:18232/state', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
       interval: 3000,
-      timeout: 5000,
+      timeout: 2000,
       retries: 10,
     })
     .start();
@@ -277,7 +279,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     .withHealthCheck({
       test: ['CMD', 'node', '-e', "require('http').get('http://localhost:8384/rest/noauth/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
       interval: 3000,
-      timeout: 5000,
+      timeout: 2000,
       retries: 10,
     })
     .start();
@@ -291,7 +293,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     .withHealthCheck({
       test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3001/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
       interval: 3000,
-      timeout: 5000,
+      timeout: 2000,
       retries: 10,
     })
     .start();
@@ -390,7 +392,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       .withHealthCheck({
         test: ['CMD', '/usr/bin/curl', '-sf', 'http://localhost:16127/flux/version'],
         interval: 3000,
-        timeout: 5000,
+        timeout: 2000,
         retries: 30,
         startPeriod: 15000,
       });
@@ -430,7 +432,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       .withHealthCheck({
         test: ['CMD', 'node', '-e', "require('http').get('http://localhost:16128/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
         interval: 3000,
-        timeout: 5000,
+        timeout: 2000,
         retries: 10,
       })
       .start();
@@ -494,9 +496,35 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       return client;
     },
 
-    async restartNode(index) {
+    // Docker's CloseMonitorChannel (moby/daemon/container/health.go:80) sets
+    // status to "unhealthy" during monitor teardown. On restart, there's a
+    // race between this and the reset to "starting" (different locks), so
+    // HealthCheckWaitStrategy can see a transient "unhealthy" and destroy
+    // the container. We swap in an HTTP-polling wait strategy for restarts
+    // to bypass Docker's health state machine entirely.
+    async restartNode(index, { timeout = 15000 } = {}) {
       if (clients[index]) clients[index].disconnectEventStream();
-      await fluxNodes[index].container.restart({ timeout: 15000 });
+      const container = fluxNodes[index].container;
+      const saved = container.waitStrategy;
+      const nodeUrl = `http://${fluxNodes[index].ip}:16127/flux/version`;
+      container.waitStrategy = {
+        waitUntilReady: async () => {
+          const deadline = Date.now() + 120000;
+          while (Date.now() < deadline) {
+            try {
+              const res = await fetch(nodeUrl, { signal: AbortSignal.timeout(2000) });
+              if (res.ok) return;
+            } catch {}
+            await new Promise((r) => setTimeout(r, 500));
+          }
+          throw new Error('Container not ready after restart');
+        },
+      };
+      try {
+        await container.restart({ timeout });
+      } finally {
+        container.waitStrategy = saved;
+      }
       if (clients[index]) await clients[index].connectEventStream();
       return clients[index];
     },
