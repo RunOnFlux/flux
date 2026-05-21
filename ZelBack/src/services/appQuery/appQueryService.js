@@ -291,12 +291,8 @@ async function getAppsMessagesCount(req, res) {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 
-    // Query for both appSpecifications.owner and zelAppSpecifications.owner (legacy)
     const query = {
-      $or: [
-        { 'appSpecifications.owner': appowner },
-        { 'zelAppSpecifications.owner': appowner },
-      ],
+      'appSpecifications.owner': appowner,
     };
 
     const count = await dbHelper.countInDatabase(database, globalAppsMessages, query);

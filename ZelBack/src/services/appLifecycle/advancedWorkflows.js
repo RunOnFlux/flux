@@ -415,33 +415,10 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
       }
     }
   });
-  // some early app have zelAppSepcifications
-  const appsQueryB = {
-    'zelAppSpecifications.name': specifications.name,
-  };
-  const permanentAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
-  permanentAppMessageB.forEach((foundMessage) => {
-    // has to be registration message
-    const validTypes = ['zelappregister', 'fluxappregister', 'zelappupdate', 'fluxappupdate'];
-    if (validTypes.includes(foundMessage.type)) {
-      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) {
-        // no message and found message is not newer than our message
-        latestPermanentRegistrationMessage = foundMessage;
-      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) {
-        // we have some message and the message is quite new
-        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp
-          && foundMessage.timestamp <= verificationTimestamp) {
-          // but our message is newer. foundMessage has to have lower timestamp than our new message
-          latestPermanentRegistrationMessage = foundMessage;
-        }
-      }
-    }
-  });
   if (!latestPermanentRegistrationMessage) {
     return null;
   }
-  const appSpecs = latestPermanentRegistrationMessage.appSpecifications
-    || latestPermanentRegistrationMessage.zelAppSpecifications;
+  const appSpecs = latestPermanentRegistrationMessage.appSpecifications;
   if (!appSpecs) {
     throw new Error(`Previous specifications for ${specifications.name} update message does not exists! This should not happen.`);
   }
