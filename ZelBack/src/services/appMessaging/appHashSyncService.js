@@ -1,4 +1,5 @@
 const zlib = require('zlib');
+const { StringDecoder } = require('string_decoder');
 const config = require('config');
 const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
@@ -173,7 +174,8 @@ async function bulkFetchStreamAndProcess(peerIp, peerPort, missingSet, onProgres
     }
   });
 
-  dataStream.on('data', (chunk) => extractor.write(chunk.toString()));
+  const decoder = new StringDecoder('utf8');
+  dataStream.on('data', (chunk) => extractor.write(decoder.write(chunk)));
   dataStream.on('end', () => { streamDone = true; signalBatch(); });
   dataStream.on('close', () => { streamDone = true; signalBatch(); });
   dataStream.on('error', (err) => {
