@@ -498,11 +498,12 @@ class AppSyncOrchestrator {
     }
   }
 
-  #startAppRunningBroadcast() {
+  async #startAppRunningBroadcast() {
     if (this.#broadcastStarted) return;
     this.#broadcastStarted = true;
-    peerNotification.checkAndNotifyPeersOfRunningApps();
     log.info('AppSyncOrchestrator - App running broadcast started');
+    await globalState.waitForBootContainerStateSettled();
+    peerNotification.checkAndNotifyPeersOfRunningApps();
   }
 
   get bootContext() {
