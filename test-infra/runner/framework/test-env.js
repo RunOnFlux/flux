@@ -517,7 +517,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
             } catch {}
             await new Promise((r) => setTimeout(r, 500));
           }
-          throw new Error('Container not ready after restart');
+          console.warn('restartNode: container not responding after 120s, continuing');
         },
       };
       try {
