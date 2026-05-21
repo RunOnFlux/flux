@@ -613,17 +613,14 @@ async function syncMissingHashes(options = {}) {
     if (missingHashes.length > 500) {
       const peers = pickRandomPeers(peerManager, maxConcurrentPeers, { excludeSources: ['deterministic'] });
       const peerKeys = peers.map((p) => p.key).join(', ');
-      log.info(`syncMissingHashes - ${missingHashes.length} missing, using parallel streaming bulk fetch from ${peers.length} peers: ${peerKeys}`);
+      log.info(`syncMissingHashes - ${missingHashes.length} missing, using streaming bulk fetch from ${peers.length} peers: ${peerKeys}`);
 
-      const allHashes = missingHashes.map((h) => h.hash);
-      const partitions = peers.map(() => new Set());
-      allHashes.forEach((hash, i) => partitions[i % peers.length].add(hash));
-
-      const results = await Promise.allSettled(
-        peers.map((peer, i) => bulkFetchStreamAndProcess(peer.ip, peer.port, partitions[i], onProgress)),
-      );
-      for (const result of results) {
-        if (result.status === 'fulfilled') resolved += result.value.processed;
+      const missingSet = new Set(missingHashes.map((h) => h.hash));
+      for (const peer of peers) {
+        if (missingSet.size === 0) break;
+        // eslint-disable-next-line no-await-in-loop
+        const stats = await bulkFetchStreamAndProcess(peer.ip, peer.port, missingSet, onProgress);
+        resolved += stats.processed;
       }
 
       missingHashes = await getMissingHashes({ force, currentHeight });
