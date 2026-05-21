@@ -577,26 +577,27 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     },
 
     async teardown() {
+      const warn = (label, err) => console.warn(`teardown [${networkName}] ${label}: ${err.message}`);
       for (const client of clients) {
         if (client) client.disconnectEventStream();
       }
       for (const n of fluxNodes) {
-        if (n.container) await n.container.stop().catch(() => {});
+        if (n.container) await n.container.stop().catch((e) => warn('fluxNode stop', e));
       }
       for (const sc of stubPeerContainers) {
-        await sc.stop().catch(() => {});
+        await sc.stop().catch((e) => warn('stubPeer stop', e));
       }
-      await syncthingStub.stop().catch(() => {});
-      await externalStub.stop().catch(() => {});
-      await registry.stop().catch(() => {});
-      await daemonStub.stop().catch(() => {});
-      await mongo.stop().catch(() => {});
+      await syncthingStub.stop().catch((e) => warn('syncthing stop', e));
+      await externalStub.stop().catch((e) => warn('external stop', e));
+      await registry.stop().catch((e) => warn('registry stop', e));
+      await daemonStub.stop().catch((e) => warn('daemon stop', e));
+      await mongo.stop().catch((e) => warn('mongo stop', e));
       await closeDb();
       const cleanupClient = await getContainerRuntimeClient();
       for (const volName of volumeNames) {
-        await cleanupClient.container.dockerode.getVolume(volName).remove().catch(() => {});
+        await cleanupClient.container.dockerode.getVolume(volName).remove().catch((e) => warn(`volume ${volName}`, e));
       }
-      await removeNetwork(networkName);
+      await removeNetwork(networkName).catch((e) => warn('network remove', e));
       for (const n of fluxNodes) {
         if (!n.bootIdDir) continue;
         const { rmSync } = await import('node:fs');
