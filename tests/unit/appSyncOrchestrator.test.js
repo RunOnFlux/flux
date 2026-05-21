@@ -72,6 +72,7 @@ describe('AppSyncOrchestrator', () => {
     reindexStub = sinon.stub().resolves();
     globalStateStub = {
       dbReady: false,
+      waitForBootContainerStateSettled: () => Promise.resolve(),
     };
     checkAndNotifyStub = sinon.stub().resolves();
     resetHashSyncForUpgradeStub = sinon.stub().resolves(0);
