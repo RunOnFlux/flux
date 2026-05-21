@@ -545,7 +545,10 @@ async function ephemeralHashRound(hashes, force, currentHeight) {
   log.info(`syncMissingHashes - Ephemeral round: requesting ${hashes.length} hashes from ${peers.length} peers: ${peerKeys}`);
 
   try {
-    await broadcastHashRequest(hashes, peers);
+    for (let offset = 0; offset < hashes.length; offset += 500) {
+      // eslint-disable-next-line no-await-in-loop
+      await broadcastHashRequest(hashes.slice(offset, offset + 500), peers);
+    }
 
     const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
     const remaining = await waitForResolution(new Set(hashes), maxWait, force, currentHeight);
@@ -608,22 +611,25 @@ async function syncMissingHashes(options = {}) {
 
     // Bulk fetch for large gaps (> 500 exceeds single fluxapprequest v2 cap)
     if (missingHashes.length > 500) {
-      const peers = pickRandomPeers(peerManager, 3, { excludeSources: ['deterministic'] });
+      const peers = pickRandomPeers(peerManager, maxConcurrentPeers, { excludeSources: ['deterministic'] });
       const peerKeys = peers.map((p) => p.key).join(', ');
-      log.info(`syncMissingHashes - ${missingHashes.length} missing, using streaming bulk fetch from ${peers.length} peers: ${peerKeys}`);
+      log.info(`syncMissingHashes - ${missingHashes.length} missing, using parallel streaming bulk fetch from ${peers.length} peers: ${peerKeys}`);
 
-      const missingSet = new Set(missingHashes.map((h) => h.hash));
-      for (const peer of peers) {
-        if (missingSet.size === 0) break;
-        // eslint-disable-next-line no-await-in-loop
-        const stats = await bulkFetchStreamAndProcess(peer.ip, peer.port, missingSet, onProgress);
-        resolved += stats.processed;
+      const allHashes = missingHashes.map((h) => h.hash);
+      const partitions = peers.map(() => new Set());
+      allHashes.forEach((hash, i) => partitions[i % peers.length].add(hash));
+
+      const results = await Promise.allSettled(
+        peers.map((peer, i) => bulkFetchStreamAndProcess(peer.ip, peer.port, partitions[i], onProgress)),
+      );
+      for (const result of results) {
+        if (result.status === 'fulfilled') resolved += result.value.processed;
       }
 
       missingHashes = await getMissingHashes({ force, currentHeight });
     }
 
-    // Targeted fetch for <= 500 missing hashes
+    // Targeted fetch via fluxapprequest v2 (capped at 500 per request)
     if (missingHashes.length > 0) {
       log.info(`syncMissingHashes - ${missingHashes.length} missing, requesting from peers`);
       const triedPeers = new Set();
@@ -644,15 +650,19 @@ async function syncMissingHashes(options = {}) {
           triedPeers.add(peer.key);
         }
 
-        const hashes = missingHashes.map((h) => h.hash);
-        const peerKeys = peers.map((p) => p.key).join(', ');
-        log.info(`syncMissingHashes - Round ${round + 1}: requesting ${hashes.length} hashes from ${peers.length} peers: ${peerKeys}`);
+        const allHashes = missingHashes.map((h) => h.hash);
+        for (let offset = 0; offset < allHashes.length; offset += 500) {
+          const hashChunk = allHashes.slice(offset, offset + 500);
+          const peerKeys = peers.map((p) => p.key).join(', ');
+          log.info(`syncMissingHashes - Round ${round + 1}: requesting ${hashChunk.length} hashes from ${peers.length} peers: ${peerKeys}`);
 
-        await broadcastHashRequest(hashes, peers);
+          // eslint-disable-next-line no-await-in-loop
+          await broadcastHashRequest(hashChunk, peers);
+        }
 
-        const maxWait = hashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
+        const maxWait = allHashes.length * RESPONSE_TIME_PER_HASH_MS + BUFFER_MS;
         const beforeCount = missingHashes.length;
-        missingHashes = await waitForResolution(new Set(hashes), maxWait, force, currentHeight);
+        missingHashes = await waitForResolution(new Set(allHashes), maxWait, force, currentHeight);
         const resolvedThisRound = beforeCount - missingHashes.length;
         resolved += resolvedThisRound;
 
