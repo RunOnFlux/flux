@@ -8,6 +8,7 @@ const pgpService = require('./pgpService');
 const deviceHelper = require('./deviceHelper');
 const generalService = require('./generalService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const { extractIp } = require('./utils/socketAddressUtils');
 const log = require('../lib/log');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
 
@@ -838,19 +839,19 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   }
 
   let nodeId = null;
-  let nodeIP = null;
+  let nodeSocketAddr = null;
   let labels = null;
   if (syslogTarget && syslogIP) {
     const nodeCollateralInfo = await generalService.obtainNodeCollateralInformation().catch(() => { throw new Error('Host Identifier information not available at the moment'); });
     nodeId = nodeCollateralInfo.txhash + nodeCollateralInfo.txindex;
-    nodeIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!nodeIP) {
+    nodeSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    if (!nodeSocketAddr) {
       throw new Error('Not possible to get node IP');
     }
     labels = {
       app_name: `${appName}`,
       host_id: `${nodeId}`,
-      host_ip: `${nodeIP}`,
+      host_ip: `${nodeSocketAddr}`,
     };
   }
   log.info(`syslogTarget=${syslogTarget}, syslogIP=${syslogIP}`);
@@ -1011,8 +1012,8 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   // via ${VAR} expansion in their own config files (e.g. Datadog's
   // DD_HOSTNAME=${FLUX_NODE_HOST_IP}). Appended last so they win over any
   // identically-named values supplied by the operator.
-  const myFluxIp = await fluxNetworkHelper.getMyFluxIPandPort();
-  const nodeHostIp = myFluxIp ? myFluxIp.split(':')[0] : null;
+  const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+  const nodeHostIp = localSocketAddr ? extractIp(localSocketAddr) : null;
   if (nodeHostIp) {
     options.Env.push(`FLUX_NODE_HOST_IP=${nodeHostIp}`);
   } else {

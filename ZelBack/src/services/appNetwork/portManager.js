@@ -2,6 +2,7 @@ const config = require('config');
 const axios = require('axios');
 const dbHelper = require('../dbHelper');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const networkStateService = require('../networkStateService');
 const verificationHelper = require('../verificationHelper');
 const log = require('../../lib/log');
@@ -395,11 +396,12 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
   let nextTestingPort = 0;
 
   try {
-    const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+    const localSocketAddress = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddress) {
       throw new Error('Failed to detect Public IP');
     }
-    const [myIP, myPort = '16127'] = localSocketAddress.split(':');
+    const localIp = extractIp(localSocketAddress);
+    const localPort = extractPort(localSocketAddress);
 
     const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
     let somePortBanned = false;
@@ -475,8 +477,8 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       timeout,
     };
     const data = {
-      ip: myIP,
-      port: myPort,
+      ip: localIp,
+      port: localPort,
       appname: 'appPortsTest',
       ports: portsToTest,
       pubKey,
@@ -595,20 +597,20 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
   try {
     const userconfig = globalThis.userconfig;
     const apiPort = userconfig.initial.apiport || config.server.apiport;
-    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!myIP) {
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    if (!localSocketAddr) {
       return;
     }
 
-    const randomSocketAddress = await networkStateService.getRandomSocketAddress(myIP);
+    const randomSocketAddress = await networkStateService.getRandomSocketAddress(localSocketAddr);
 
     if (!randomSocketAddress) return;
 
-    const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
+    const askingIP = extractIp(randomSocketAddress);
+    const askingIpPort = extractPort(randomSocketAddress);
+    const localIp = extractIp(localSocketAddr);
 
-    myIP = myIP.split(':')[0];
-
-    if (myIP === askingIP) {
+    if (localIp === askingIP) {
       callOtherNodeToKeepUpnpPortsOpen();
       return;
     }
@@ -662,7 +664,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     };
 
     const dataUPNP = {
-      ip: myIP,
+      ip: localIp,
       apiPort,
       ports,
       pubKey,

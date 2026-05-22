@@ -498,7 +498,7 @@ async function broadcastHashRequest(hashes, peers) {
  */
 async function pickEphemeralTargets(count) {
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-  const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+  const localSocketAddress = await fluxNetworkHelper.getLocalSocketAddress();
   const selfKey = localSocketAddress.includes(':') ? localSocketAddress : `${localSocketAddress}:16127`;
   const connectedKeys = new Set();
   for (const peer of peerManager.allValues()) {

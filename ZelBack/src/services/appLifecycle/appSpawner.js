@@ -8,6 +8,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
+const { normalizeSocketAddress, extractIp, socketAddressesMatch } = require('../utils/socketAddressUtils');
 
 // Import modular services
 const appQueryService = require('../appQuery/appQueryService');
@@ -129,12 +130,12 @@ async function trySpawningGlobalApplication() {
       return installDelay;
     }
     // get my external IP and check that it is longer than 5 in length.
-    let myIP = null;
+    let localSocketAddr = null;
     if (benchmarkResponse.data.ipaddress) {
       log.info(`Gathered IP ${benchmarkResponse.data.ipaddress}`);
-      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
+      localSocketAddr = benchmarkResponse.data.ipaddress.length > 5 ? normalizeSocketAddress(benchmarkResponse.data.ipaddress) : null;
     }
-    if (myIP === null) {
+    if (localSocketAddr === null) {
       throw new Error('Unable to detect Flux IP address');
     }
 
@@ -283,7 +284,7 @@ async function trySpawningGlobalApplication() {
         && !globalState.trySpawningGlobalAppCache.has(app.hash)
         && !appsToBeCheckedLater.some((appAux) => appAux.appName === app.name));
       // filter apps that are non enterprise or are marked to install on my node
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP) || app.version >= 8);
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)) || app.version >= 8);
       // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('a!c')).length === 0 || !app.geolocation.find((loc) => loc.startsWith('a!c') && `a!c${myNodeLocation}`.startsWith(loc.replace('_NONE', '')))));
       // filter apps that dont have geolocation or have and match my node geolocation
@@ -300,7 +301,7 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);
       let random = Math.floor(Math.random() * globalAppNamesLocation.length);
       appToRunAux = globalAppNamesLocation[random];
-      const filterAppsWithNyNodeIP = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => ip === myIP));
+      const filterAppsWithNyNodeIP = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)));
       if (filterAppsWithNyNodeIP.length > 0) {
         random = Math.floor(Math.random() * filterAppsWithNyNodeIP.length);
         appToRunAux = filterAppsWithNyNodeIP[random];
@@ -338,7 +339,7 @@ async function trySpawningGlobalApplication() {
 
     runningAppList = await registryManager.appLocation(appToRun);
 
-    const adjustedIP = myIP.split(':')[0]; // just IP address
+    const adjustedIP = extractIp(localSocketAddr); // just IP address
     // check if app not running on this device
     if (runningAppList.find((document) => document.ip.includes(adjustedIP))) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already running on this Flux IP`);
@@ -416,8 +417,8 @@ async function trySpawningGlobalApplication() {
 
     // ensure ports unused
     // Get apps running specifically on this IP
-    const myIPAddress = myIP.split(':')[0]; // just IP address without port
-    const runningAppsOnThisIP = await registryManager.getRunningAppIpList(myIPAddress);
+    const localSocketAddrAddress = extractIp(localSocketAddr); // just IP address without port
+    const runningAppsOnThisIP = await registryManager.getRunningAppIpList(localSocketAddrAddress);
     const runningAppsNames = runningAppsOnThisIP.map((app) => app.name);
 
     await portManager.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
@@ -445,10 +446,10 @@ async function trySpawningGlobalApplication() {
       syncthingApp = appSpecifications.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
     }
 
-    const myIpWithoutPort = myIP.split(':')[0];
-    const lastIndex = myIpWithoutPort.lastIndexOf('.');
-    const secondLastIndex = myIpWithoutPort.substring(0, lastIndex).lastIndexOf('.');
-    const ipPrefix = myIpWithoutPort.substring(0, secondLastIndex + 1); // includes the '.' e.g. "192.168."
+    const localIp = extractIp(localSocketAddr);
+    const lastIndex = localIp.lastIndexOf('.');
+    const secondLastIndex = localIp.substring(0, lastIndex).lastIndexOf('.');
+    const ipPrefix = localIp.substring(0, secondLastIndex + 1); // includes the '.' e.g. "192.168."
 
     if (syncthingApp) {
       let sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
@@ -465,8 +466,8 @@ async function trySpawningGlobalApplication() {
         // check if there are connectivity to all nodes
         // eslint-disable-next-line no-restricted-syntax
         for (const node of runningAppList) {
-          const ip = node.ip.split(':')[0];
-          const port = node.ip.split(':')[1] || '16127';
+          const ip = extractIp(node.ip);
+          const port = extractPort(node.ip);
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
           if (!isOpen) {
@@ -484,8 +485,8 @@ async function trySpawningGlobalApplication() {
         }
         // eslint-disable-next-line no-restricted-syntax
         for (const node of installingAppList) {
-          const ip = node.ip.split(':')[0];
-          const port = node.ip.split(':')[1] || '16127';
+          const ip = extractIp(node.ip);
+          const port = extractPort(node.ip);
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
           if (!isOpen) {
@@ -505,7 +506,7 @@ async function trySpawningGlobalApplication() {
     }
 
     if (!appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater
-      && appToRunAux.nodes.length > 0 && !appToRunAux.nodes.find((ip) => ip === myIP)) {
+      && appToRunAux.nodes.length > 0 && !appToRunAux.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr))) {
       const deferral = config.fluxapps.spawnDeferrals.targetedNodesMs;
       const appToCheck = {
         timeToCheck: Date.now() + (appToRunAux.enterprise ? deferral.enterprise : deferral.standard),
@@ -566,7 +567,7 @@ async function trySpawningGlobalApplication() {
         globalState.trySpawningGlobalAppCache.delete(appHash);
         fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'datacenter', delayMs });
         delay = true;
-      } else if (appToRunAux.nodes.length > 0 && appToRunAux.nodes.find((ip) => ip === myIP)) {
+      } else if (appToRunAux.nodes.length > 0 && appToRunAux.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr))) {
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs have this node as target ip`);
       } else if (appToRunAux.nodes.length === 0 && tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const deferral = config.fluxapps.spawnDeferrals.capacityGap.largeMs;
@@ -656,7 +657,7 @@ async function trySpawningGlobalApplication() {
       type: 'fluxappinstalling',
       version: 1,
       name: appSpecifications.name,
-      ip: myIP,
+      ip: localSocketAddr,
       broadcastedAt,
     };
 
@@ -683,7 +684,7 @@ async function trySpawningGlobalApplication() {
         return 0;
       });
       broadcastedAt = Date.now();
-      const index = installingAppList.findIndex((x) => x.ip === myIP);
+      const index = installingAppList.findIndex((x) => socketAddressesMatch(x.ip, localSocketAddr));
       if (runningAppList.length + index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances, my instance is number ${runningAppList.length + index + 1}`);
         return shortDelayTime;
@@ -705,7 +706,7 @@ async function trySpawningGlobalApplication() {
           return current.broadcastedAt < oldest.broadcastedAt ? current : oldest;
         });
         // If our node is not the oldest one, skip - let the first node continue
-        if (oldestNode.ip !== myIP) {
+        if (!socketAddressesMatch(oldestNode.ip, localSocketAddr)) {
           log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
           return shortDelayTime;
         }
@@ -748,7 +749,7 @@ async function trySpawningGlobalApplication() {
         }
         return 0;
       });
-      const index = runningAppList.findIndex((x) => x.ip === myIP);
+      const index = runningAppList.findIndex((x) => socketAddressesMatch(x.ip, localSocketAddr));
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances, my instance is number ${index + 1}`);
       if (index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is going to be removed as already passed the instances required.`);

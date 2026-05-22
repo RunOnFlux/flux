@@ -17,6 +17,7 @@ const { SIGTERM_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const nodeConfirmationService = require('./nodeConfirmationService');
+const { extractIp, extractPort, socketAddressesMatch } = require('./utils/socketAddressUtils');
 const registryManager = require('./appDatabase/registryManager');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
@@ -957,12 +958,12 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
     if (peerManager.has(key) || peerManager.isPending(key)) return;
     peerManager.markPending(key);
     if (!myPort) {
-      const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-      if (!myIP) {
+      const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+      if (!localSocketAddr) {
         peerManager.clearPending(key);
         return;
       }
-      myPort = myIP.split(':')[1] || '16127';
+      myPort = extractPort(localSocketAddr);
     }
     const options = {
       handshakeTimeout: config.fluxapps.wsHandshakeTimeoutMs ?? 10000,
@@ -1179,32 +1180,32 @@ async function addOutgoingPeer(req, res) {
       const errMessage = messageHelper.createErrorMessage('No IP address specified.');
       return res.json(errMessage);
     }
-    const justIP = ip.split(':')[0];
+    const peerIp = extractIp(ip);
+    const peerPort = extractPort(ip);
 
     const remoteIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
 
     const remoteIP4 = remoteIP.replace('::ffff:', '');
 
-    if (justIP !== remoteIP4) {
-      const errMessage = messageHelper.createErrorMessage(`Request ip ${remoteIP4} of ${remoteIP} doesn't match the ip: ${justIP} to connect.`);
+    if (peerIp !== remoteIP4) {
+      const errMessage = messageHelper.createErrorMessage(`Request ip ${remoteIP4} of ${remoteIP} doesn't match the ip: ${peerIp} to connect.`);
       return res.json(errMessage);
     }
-    const port = ip.split(':')[1] || '16127';
 
-    if (peerManager.has(`${justIP}:${port}`)) {
-      const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}:${port}`);
+    if (peerManager.has(`${peerIp}:${peerPort}`)) {
+      const errMessage = messageHelper.createErrorMessage(`Already connected to ${peerIp}:${peerPort}`);
       return res.json(errMessage);
     }
 
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    const fluxNode = nodeList.find((node) => node.ip.split(':')[0] === ip.split(':')[0] && (node.ip.split(':')[1] || '16127') === port);
+    const fluxNode = nodeList.find((node) => socketAddressesMatch(node.ip, ip));
     if (!fluxNode) {
-      const errMessage = messageHelper.createErrorMessage(`FluxNode ${ip.split(':')[0]}:${port} is not confirmed on the network.`);
+      const errMessage = messageHelper.createErrorMessage(`FluxNode ${peerIp}:${peerPort} is not confirmed on the network.`);
       return res.json(errMessage);
     }
 
     initiateAndHandleConnection(ip, PEER_SOURCE.DETERMINISTIC);
-    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip.split(':')[0]}:${port} initiated`);
+    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${peerIp}:${peerPort} initiated`);
     return res.json(message);
   } catch (error) {
     log.error(error);
@@ -1251,9 +1252,9 @@ async function fluxDiscovery() {
       throw new Error('Node not confirmed. Flux discovery is awaiting.');
     }
 
-    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
 
-    if (!myIP) {
+    if (!localSocketAddr) {
       throw new Error('Flux IP not detected. Flux discovery is awaiting.');
     }
 
@@ -1265,7 +1266,7 @@ async function fluxDiscovery() {
     peerManager.numberOfFluxNodes = sortedNodeList.length;
 
     log.info('Searching for my node on sortedNodeList');
-    const fluxNodeIndex = sortedNodeList.findIndex((ip) => ip === myIP);
+    const fluxNodeIndex = sortedNodeList.findIndex((addr) => socketAddressesMatch(addr, localSocketAddr));
     log.info(`My node was found on index: ${fluxNodeIndex} of ${sortedNodeList.length} nodes`);
     const minDeterministicOutPeers = Math.min(sortedNodeList.length, config.fluxapps.minOutgoing);
     // const minIncomingPeers = Math.min(sortedNodeList.length, 1.5 * config.fluxapps.minIncoming);
@@ -1274,21 +1275,21 @@ async function fluxDiscovery() {
     // always try to connect to deterministic nodes
     // established deterministic outgoing connections
     let deterministicPeerConnections = false;
-    const myIpGroup = FluxPeerManager.getIpGroup(myIP.split(':')[0]);
+    const myIpGroup = FluxPeerManager.getIpGroup(extractIp(localSocketAddr));
 
     // established deterministic 8 outgoing connections
     for (let i = 1; i <= minDeterministicOutPeers; i += 1) {
       const fixedIndex = fluxNodeIndex + i < sortedNodeList.length ? fluxNodeIndex + i : fluxNodeIndex + i - sortedNodeList.length;
-      const ip = sortedNodeList[fixedIndex];
-      const ipInc = ip.split(':')[0];
-      if (!ipInc || ipInc === myIP.split(':')[0]) {
+      const addr = sortedNodeList[fixedIndex];
+      const ipInc = extractIp(addr);
+      if (!ipInc || ipInc === extractIp(localSocketAddr)) {
         // eslint-disable-next-line no-continue
         continue;
       }
-      const portInc = ip.split(':')[1] || '16127';
+      const portInc = extractPort(addr);
       if (peerManager.shouldAttemptConnection(ipInc, portInc)) {
         deterministicPeerConnections = true;
-        initiateAndHandleConnection(ip, PEER_SOURCE.DETERMINISTIC);
+        initiateAndHandleConnection(addr, PEER_SOURCE.DETERMINISTIC);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(DISCOVERY.connectionDelayMs);
       }
@@ -1296,17 +1297,17 @@ async function fluxDiscovery() {
     // established deterministic 8 incoming connections
     for (let i = 1; i <= minDeterministicOutPeers; i += 1) {
       const fixedIndex = fluxNodeIndex - i >= 0 ? fluxNodeIndex - i : sortedNodeList.length + fluxNodeIndex - i;
-      const ip = sortedNodeList[fixedIndex];
-      const ipInc = ip.split(':')[0];
-      if (!ipInc || ipInc === myIP.split(':')[0]) {
+      const addr = sortedNodeList[fixedIndex];
+      const ipInc = extractIp(addr);
+      if (!ipInc || ipInc === extractIp(localSocketAddr)) {
         // eslint-disable-next-line no-continue
         continue;
       }
-      const portInc = ip.split(':')[1] || '16127';
+      const portInc = extractPort(addr);
       if (peerManager.shouldAttemptConnection(ipInc, portInc)) {
         // eslint-disable-next-line no-await-in-loop
         const result = await serviceHelper.axiosGet(
-          `http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`,
+          `http://${ipInc}:${portInc}/flux/addoutgoingpeer/${localSocketAddr}`,
           { timeout: 5_000 },
         ).catch((error) => {
           peerManager.recordFailedConnection(ipInc, portInc);
@@ -1344,9 +1345,10 @@ async function fluxDiscovery() {
     while (peerManager.needsMorePeers(DIRECTION.OUTBOUND, outThresholds) && index < DISCOVERY.maxIterations) {
       index += 1;
       // eslint-disable-next-line no-await-in-loop
-      const connection = await networkStateService.getRandomSocketAddress(myIP);
+      const connection = await networkStateService.getRandomSocketAddress(localSocketAddr);
       if (connection) {
-        const [ipInc, portInc = '16127'] = connection.split(':');
+        const ipInc = extractIp(connection);
+        const portInc = extractPort(connection);
         if (!peerManager.canAcceptPeer(ipInc, portInc, DIRECTION.OUTBOUND, myIpGroup)) {
           // eslint-disable-next-line no-continue
           continue;
@@ -1371,9 +1373,10 @@ async function fluxDiscovery() {
     while (peerManager.needsMorePeers(DIRECTION.INBOUND, inThresholds) && index < DISCOVERY.maxIterations) {
       index += 1;
       // eslint-disable-next-line no-await-in-loop
-      const connection = await networkStateService.getRandomSocketAddress(myIP);
+      const connection = await networkStateService.getRandomSocketAddress(localSocketAddr);
       if (connection) {
-        const [ipInc, portInc = '16127'] = connection.split(':');
+        const ipInc = extractIp(connection);
+        const portInc = extractPort(connection);
         if (!peerManager.canAcceptPeer(ipInc, portInc, DIRECTION.INBOUND, myIpGroup)) {
           // eslint-disable-next-line no-continue
           continue;
@@ -1388,7 +1391,7 @@ async function fluxDiscovery() {
         triedIpGroups.add(ipGroup);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.axiosGet(
-          `http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`,
+          `http://${ipInc}:${portInc}/flux/addoutgoingpeer/${localSocketAddr}`,
           { timeout: 5_000 },
         ).catch((error) => log.error(error));
       }

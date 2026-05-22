@@ -128,7 +128,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
       return;
     }
 
-    const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+    const localSocketAddress = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddress) {
       log.info('No Public IP found. Application checks are disabled');
       await serviceHelper.delay(timeouts.appError);

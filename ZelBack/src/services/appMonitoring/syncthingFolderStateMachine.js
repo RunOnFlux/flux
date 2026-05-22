@@ -7,6 +7,7 @@ const syncthingService = require('../syncthingService');
 const serviceHelper = require('../serviceHelper');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
+const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const {
   MAX_SYNC_WAIT_EXECUTIONS,
   STALLED_SYNC_CHECK_COUNT,
@@ -184,22 +185,22 @@ async function getFolderSyncCompletion(folderId) {
  * Uses deterministic leader election to prevent race conditions.
  *
  * @param {Array<Object>} allPeersList - List of ALL peers including the current node
- * @param {string} myIP - The current node's IP address
+ * @param {string} localSocketAddr - The current node's IP address
  * @returns {boolean} True if this node is the designated leader
  */
-function isDesignatedLeader(allPeersList, myIP) {
+function isDesignatedLeader(allPeersList, localSocketAddr) {
   if (!allPeersList || allPeersList.length === 0) {
     return false; // Be conservative - wait for peers to broadcast
   }
 
   // Check if any OTHER peer is already running
-  const runningPeers = allPeersList.filter((peer) => peer.runningSince && peer.ip !== myIP);
+  const runningPeers = allPeersList.filter((peer) => peer.runningSince && !socketAddressesMatch(peer.ip, localSocketAddr));
   if (runningPeers.length > 0) {
     return false; // Someone else is already running
   }
 
   // Special case: single peer deployment
-  if (allPeersList.length === 1 && allPeersList[0].ip === myIP) {
+  if (allPeersList.length === 1 && socketAddressesMatch(allPeersList[0].ip, localSocketAddr)) {
     return true;
   }
 
@@ -219,20 +220,20 @@ function isDesignatedLeader(allPeersList, myIP) {
   });
 
   const leader = sortedPeers[0];
-  const isLeader = leader?.ip === myIP;
+  const isLeader = socketAddressesMatch(leader?.ip, localSocketAddr);
 
-  return isLeader && allPeersList.some((peer) => peer.ip === myIP);
+  return isLeader && allPeersList.some((peer) => socketAddressesMatch(peer.ip, localSocketAddr));
 }
 
 /**
  * Calculate required executions based on node index (fallback for time-based sync)
  * @param {Array} runningAppList - Sorted list of running apps
- * @param {string} myIP - Current node IP
+ * @param {string} localSocketAddr - Current node IP
  * @returns {number} Number of required executions
  */
-function calculateRequiredExecutions(runningAppList, myIP) {
+function calculateRequiredExecutions(runningAppList, localSocketAddr) {
   const sortedList = sortRunningAppList(runningAppList);
-  const index = sortedList.findIndex((x) => x.ip === myIP);
+  const index = sortedList.findIndex((x) => socketAddressesMatch(x.ip, localSocketAddr));
 
   let required = LEADER_ELECTION_MIN_EXECUTIONS;
   if (index > 0) {
@@ -430,7 +431,7 @@ async function handleReceiveOnlyTransition(params) {
     appId,
     cache,
     runningAppList,
-    myIP,
+    localSocketAddr,
     containerDataFlags,
     appDockerRestartFn,
     syncthingFolder,
@@ -439,7 +440,7 @@ async function handleReceiveOnlyTransition(params) {
   log.info(`handleReceiveOnlyTransition - ${appId} in cache and not restarted, processing receive-only logic`);
 
   // Check if this node is the designated leader
-  const isLeader = isDesignatedLeader(runningAppList, myIP);
+  const isLeader = isDesignatedLeader(runningAppList, localSocketAddr);
 
   if (isLeader) {
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers), starting immediately`);
@@ -578,7 +579,7 @@ async function handleReceiveOnlyTransition(params) {
     // Fallback to time-based approach
     log.warn(`handleReceiveOnlyTransition - Could not get sync status for ${appId}, using fallback time-based logic`);
 
-    const numberOfExecutionsRequired = calculateRequiredExecutions(runningAppList, myIP);
+    const numberOfExecutionsRequired = calculateRequiredExecutions(runningAppList, localSocketAddr);
     cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
 
     log.info(`handleReceiveOnlyTransition - ${appId} executions: ${cache.numberOfExecutions}/${cache.numberOfExecutionsRequired}`);
@@ -667,7 +668,7 @@ async function manageFolderSyncState(params) {
     syncthingAppsFirstRun,
     receiveOnlySyncthingAppsCache,
     appLocation,
-    myIP,
+    localSocketAddr,
     appDockerStopFn,
     appDockerRestartFn,
     appDeleteDataInMountPointFn,
@@ -747,7 +748,7 @@ async function manageFolderSyncState(params) {
       appId,
       cache,
       runningAppList,
-      myIP,
+      localSocketAddr,
       containerDataFlags,
       appDockerRestartFn,
       appDockerStopFn,
