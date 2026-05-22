@@ -1425,6 +1425,27 @@ async function forceRemoveFluxAppDockerNetwork(appname) {
 }
 
 /**
+ * Connects a container to an existing docker network. Idempotent — if the
+ * container is already attached to the network this resolves without error.
+ *
+ * @param {string} containerIdOrName - container id or name
+ * @param {string} networkName - target docker network name
+ * @returns {Promise<void>}
+ */
+async function appDockerNetworkConnect(containerIdOrName, networkName) {
+  const network = docker.getNetwork(networkName);
+  try {
+    await network.connect({ Container: containerIdOrName });
+  } catch (error) {
+    // 403 - endpoint already exists in network (container already connected)
+    if (error.statusCode === 403 || /already exists|already connected/i.test(error.message || '')) {
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
  * Remove all unused containers. Unused contaienrs are those wich are not running
  */
 async function pruneContainers() {
@@ -1642,6 +1663,7 @@ module.exports = {
   pruneVolumes,
   removeFluxAppDockerNetwork,
   forceRemoveFluxAppDockerNetwork,
+  appDockerNetworkConnect,
   getAppNameByContainerIp,
   waitForDocker,
 };

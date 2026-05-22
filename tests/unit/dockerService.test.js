@@ -715,6 +715,40 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('appDockerNetworkConnect tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should connect a container to the given network', async () => {
+      const connectStub = sinon.stub().resolves();
+      const getNetworkStub = sinon.stub(Dockerode.prototype, 'getNetwork').returns({ connect: connectStub });
+
+      await dockerService.appDockerNetworkConnect('fluxweb_myapp', 'fluxDockerNetwork_dep');
+
+      sinon.assert.calledOnceWithExactly(getNetworkStub, 'fluxDockerNetwork_dep');
+      sinon.assert.calledOnceWithExactly(connectStub, { Container: 'fluxweb_myapp' });
+    });
+
+    it('should resolve without error when the container is already connected (403)', async () => {
+      const error = new Error('endpoint with name fluxweb_myapp already exists in network fluxDockerNetwork_dep');
+      error.statusCode = 403;
+      const connectStub = sinon.stub().rejects(error);
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ connect: connectStub });
+
+      await expect(dockerService.appDockerNetworkConnect('fluxweb_myapp', 'fluxDockerNetwork_dep')).to.not.be.rejected;
+    });
+
+    it('should rethrow non-403 errors', async () => {
+      const error = new Error('network fluxDockerNetwork_dep not found');
+      error.statusCode = 404;
+      const connectStub = sinon.stub().rejects(error);
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ connect: connectStub });
+
+      await expect(dockerService.appDockerNetworkConnect('fluxweb_myapp', 'fluxDockerNetwork_dep')).to.be.rejectedWith('not found');
+    });
+  });
+
   describe('appDockerCreate tests', () => {
     let dockerStub;
     let advancedWorkflowsStub;
