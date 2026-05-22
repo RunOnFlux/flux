@@ -133,12 +133,32 @@ async function getFluxnodesByPubkey(pubkey) {
  * @param {string} socketAddress
  * @returns {Promise<boolean>}
  */
+// TODO: Remove once all nodes run fluxbench with always-attached port.
+// During the transition, the node list may contain either "ip" (old format)
+// or "ip:16127" (new format) for default-port nodes. This function checks
+// both formats so the lookup works regardless of which fluxbench version
+// produced the entry.
+function defaultPortAltAddress(socketAddress) {
+  const DEFAULT_API_PORT = 16127;
+  if (socketAddress.includes(':')) {
+    const [ip, port] = socketAddress.split(':');
+    if (+port === DEFAULT_API_PORT) return ip;
+  } else {
+    return `${socketAddress}:${DEFAULT_API_PORT}`;
+  }
+  return null;
+}
+
 async function socketAddressInNetworkState(socketAddress) {
   if (!stateManager) return false;
 
   const found = await stateManager.includes(socketAddress, 'socketAddress');
+  if (found) return true;
 
-  return found;
+  const alt = defaultPortAltAddress(socketAddress);
+  if (alt) return stateManager.includes(alt, 'socketAddress');
+
+  return false;
 }
 
 /**
