@@ -1,0 +1,139 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const manifest = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'node-manifest.json'), 'utf-8'));
+const NODE_COUNT = manifest.nodes.length;
+
+const MONGO_IP = '198.18.0.2';
+const DAEMON_IP = '198.18.0.3';
+const SYNCTHING_IP = '198.18.0.4';
+const SYNCTHING_PORT = '8384';
+
+const lines = [];
+const w = (s = '') => lines.push(s);
+
+w('name: flux-e2e');
+w();
+w('networks:');
+w('  flux-test-net:');
+w('    driver: bridge');
+w('    ipam:');
+w('      config:');
+w('        - subnet: 198.18.0.0/16');
+w();
+w('volumes:');
+w('  mongo-data:');
+for (let i = 1; i <= NODE_COUNT; i++) {
+  w(`  docker-${String(i).padStart(2, '0')}-data:`);
+  w(`  appdata-${String(i).padStart(2, '0')}:`);
+}
+w();
+w('services:');
+
+// MongoDB
+w('  mongodb:');
+w('    image: mongo:8');
+w('    command: ["--wiredTigerCacheSizeGB", "1", "--setParameter", "maxNumActiveUserIndexBuilds=64"]');
+w('    ulimits:');
+w('      nofile:');
+w('        soft: 65536');
+w('        hard: 65536');
+w('    networks:');
+w('      flux-test-net:');
+w(`        ipv4_address: ${MONGO_IP}`);
+w('    volumes:');
+w('      - mongo-data:/data/db');
+w('      - ./fixtures/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro');
+w('    healthcheck:');
+w('      test: ["CMD", "mongosh", "--eval", "db.adminCommand(\'ping\')"]');
+w('      interval: 5s');
+w('      timeout: 5s');
+w('      retries: 5');
+w();
+
+// Daemon stub
+w('  daemon-stub:');
+w('    build: ./daemon-stub');
+w('    networks:');
+w('      flux-test-net:');
+w(`        ipv4_address: ${DAEMON_IP}`);
+w('    environment:');
+w('      FLUXD_PORT: "16124"');
+w('      BENCHD_PORT: "16224"');
+w('      CONTROL_PORT: "18232"');
+w('      TICKER_AUTOSTART: "false"');
+w('    volumes:');
+w('      - ./fixtures:/fixtures');
+w('    healthcheck:');
+w('      test: ["CMD", "node", "-e", "require(\'http\').get(\'http://localhost:18232/state\', r => { r.on(\'data\', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"]');
+w('      interval: 5s');
+w('      timeout: 5s');
+w('      retries: 5');
+w();
+
+// Syncthing stub
+w('  syncthing-stub:');
+w('    build: ./syncthing-stub');
+w('    networks:');
+w('      flux-test-net:');
+w(`        ipv4_address: ${SYNCTHING_IP}`);
+w('    environment:');
+w(`      SYNCTHING_PORT: "${SYNCTHING_PORT}"`);
+w('      CONTROL_PORT: "8385"');
+w('    healthcheck:');
+w(`      test: ["CMD", "node", "-e", "require('http').get('http://localhost:${SYNCTHING_PORT}/rest/noauth/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"]`);
+w('      interval: 5s');
+w('      timeout: 5s');
+w('      retries: 5');
+w();
+
+// Nodes
+for (let i = 0; i < NODE_COUNT; i++) {
+  const num = String(i + 1).padStart(2, '0');
+  const node = manifest.nodes[i];
+  const nodeIp = `198.18.${i + 1}.0`;
+
+  w(`  fluxos-${num}:`);
+  w('    build:');
+  w('      context: ..');
+  w('      dockerfile: test-infra/Dockerfile.fluxos');
+  w('    privileged: true');
+  w('    networks:');
+  w('      flux-test-net:');
+  w(`        ipv4_address: ${nodeIp}`);
+  w('    volumes:');
+  w(`      - docker-${num}-data:/var/lib/docker`);
+  w(`      - appdata-${num}:/mnt/appdata`);
+  w('    environment:');
+  w('      # Config');
+  w(`      NODE_CONFIG_DIR: "/flux/test-infra/config/node-${num}"`);
+  w('      # Arcane OS');
+  w('      FLUXOS_PATH: "/flux"');
+  w('      FLUXD_PATH: "/dat/var/lib/fluxd"');
+  w(`      FLUXD_CONFIG_PATH: "/flux/test-infra/fixtures/conf/flux-${num}.conf"`);
+  w('      SYNCTHING_PATH: "/dat/usr/lib/syncthing"');
+  w('      FLUXBENCH_PATH: "/dat/usr/lib/fluxbenchd"');
+  w('      FLUX_WATCHDOG_PATH: "/dat/usr/lib/fluxwatchdog"');
+  w('      FLUX_APPS_FOLDER: "/mnt/appdata/flux-apps"');
+  w('      # Node identity');
+  w(`      FLUX_NODE_IP: "${nodeIp}"`);
+  w(`      FLUX_ADMIN_ZELID: "${node.zelid}"`);
+  w('      FLUX_API_PORT: "16127"');
+  w('      # Entrypoint socat forwarding');
+  w(`      FLUX_SYNCTHING_HOST: "${SYNCTHING_IP}"`);
+  w(`      FLUX_SYNCTHING_PORT: "${SYNCTHING_PORT}"`);
+  w('    depends_on:');
+  w('      mongodb:');
+  w('        condition: service_healthy');
+  w('      daemon-stub:');
+  w('        condition: service_healthy');
+  w('      syncthing-stub:');
+  w('        condition: service_healthy');
+  w();
+}
+
+const output = lines.join('\n');
+writeFileSync(join(__dirname, 'docker-compose.yml'), output);
+console.log(`Generated docker-compose.yml with ${NODE_COUNT} nodes (${NODE_COUNT + 3} containers)`);

@@ -1,0 +1,12 @@
+node_modules
+.git
+.nyc_output
+coverage
+debug.log
+error.log
+info.log
+warn.log
+.venv
+.mypy_cache
+audit
+.claude

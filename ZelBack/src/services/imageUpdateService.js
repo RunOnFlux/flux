@@ -6,6 +6,7 @@
  * Replaces the external containrrr/watchtower Docker container.
  */
 
+const config = require('config');
 const log = require('../lib/log');
 const dockerService = require('./dockerService');
 const appQueryService = require('./appQuery/appQueryService');
@@ -14,13 +15,14 @@ const registryCredentialHelper = require('./utils/registryCredentialHelper');
 const { ImageVerifier } = require('./utils/imageVerifier');
 const serviceHelper = require('./serviceHelper');
 const globalState = require('./utils/globalState');
+const fluxEventBus = require('./utils/fluxEventBus');
 
-// Rate limiting configuration
-const CHECK_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
-const DELAY_BETWEEN_APPS = 5000; // 5 seconds between app checks
-const DELAY_AFTER_REDEPLOY = 2 * 60 * 1000; // 2 minutes after redeploy
-const INITIAL_DELAY_MIN = 10 * 60 * 1000; // 10 minutes minimum initial delay
-const INITIAL_DELAY_MAX = 30 * 60 * 1000; // 30 minutes maximum initial delay
+const CHECK_INTERVAL = config.fluxapps.imageUpdateCheckIntervalMs || 6 * 60 * 60 * 1000;
+const DELAY_BETWEEN_APPS = config.fluxapps.imageUpdateDelayBetweenAppsMs || 5000;
+const DELAY_AFTER_REDEPLOY = config.fluxapps.imageUpdateDelayAfterRedeployMs || 2 * 60 * 1000;
+const INITIAL_DELAY_MIN = config.fluxapps.imageUpdateInitialDelayMinMs || 10 * 60 * 1000;
+const INITIAL_DELAY_MAX = config.fluxapps.imageUpdateInitialDelayMaxMs || 30 * 60 * 1000;
+const DELAY_BETWEEN_COMPONENTS = config.fluxapps.imageUpdateDelayBetweenComponentsMs || 1000;
 
 // Track the timers
 let checkIntervalTimer = null;
@@ -301,7 +303,7 @@ async function checkAppForUpdates(appSpec) {
 
       // Add delay between component checks for rate limiting
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(1000);
+      await serviceHelper.delay(DELAY_BETWEEN_COMPONENTS);
     }
 
     return result;
@@ -325,9 +327,12 @@ async function triggerAppUpdate(appSpec) {
     }
 
     log.info(`Triggering soft redeploy for ${appSpec.name}`);
+    fluxEventBus.publish('imageUpdate:redeployTriggered', { appName: appSpec.name });
 
     // Call softRedeploy without response object (internal call)
     await advancedWorkflows.softRedeploy(appSpec, null);
+
+    fluxEventBus.publish('imageUpdate:redeployComplete', { appName: appSpec.name });
 
     return true;
   } catch (error) {
@@ -404,6 +409,7 @@ async function checkForImageUpdates() {
     }
 
     log.info(`Image update check cycle complete: checked ${appsChecked} apps, triggered ${updatesTriggered} updates`);
+    fluxEventBus.publish('imageUpdate:checked', { appsChecked, updatesTriggered });
   } catch (error) {
     log.error(`Error in image update check cycle: ${error.message}`);
   }

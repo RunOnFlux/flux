@@ -23,6 +23,7 @@ const { peerManager } = require('./utils/peerState');
 const { CLOSE_CODES, DIRECTION } = require('./utils/FluxPeerSocket');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -636,6 +637,7 @@ function setStickyDosStateValue(value) {
  */
 function setDosStateValue(value) {
   dosState = value;
+  fluxEventBus.publish('dos:changed', { dosState, dosMessage });
 }
 
 /**
@@ -646,6 +648,15 @@ function setDosStateValue(value) {
  */
 function getDosStateValue() {
   return dosState;
+}
+
+// Future: refactor all 21 direct `dosState += N` / `dosState = N` mutations
+// to go through addDosState()/setDosStateValue() with event emission on
+// threshold crossing. This would eliminate polling and give immediate
+// response to DOS state changes.
+function isNodeDos() {
+  const effectiveState = stickyDosMessage ? stickyDosState : dosState;
+  return effectiveState >= 100;
 }
 
 /**
@@ -1542,6 +1553,29 @@ function getDOSState(req, res) {
   return res ? res.json(message) : message;
 }
 
+async function setDOSStateApi(req, res) {
+  if (!config.has('testEventStream') || config.get('testEventStream') !== true) {
+    return res.status(404).json({ status: 'error', data: { message: 'Not available' } });
+  }
+  const authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
+  if (authorized !== true) {
+    const errMessage = messageHelper.errUnauthorizedMessage();
+    return res.json(errMessage);
+  }
+  let body = req.body;
+  if (typeof body !== 'object') {
+    try { body = JSON.parse(body); } catch { body = {}; }
+  }
+  const newDosState = Number(body.dosState);
+  if (Number.isNaN(newDosState)) {
+    return res.json(messageHelper.createErrorMessage('dosState must be a number'));
+  }
+  setDosMessage(body.dosMessage ?? null);
+  setDosStateValue(newDosState);
+  return res.json(messageHelper.createSuccessMessage({ dosState, dosMessage }));
+}
+
+
 /**
  * To allow a port.
  * @param {string} port Port.
@@ -2193,6 +2227,7 @@ module.exports = {
   getIncomingConnections,
   getIncomingConnectionsInfo,
   getDOSState,
+  setDOSStateApi,
   getNumberOfPeers,
   hasPublicIpOnInterface,
   denyPort,
@@ -2220,6 +2255,7 @@ module.exports = {
   setDosMessage,
   setDosStateValue,
   getDosStateValue,
+  isNodeDos,
   setStickyDosMessage,
   getStickyDosMessage,
   clearStickyDosMessage,

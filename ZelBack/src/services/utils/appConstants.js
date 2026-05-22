@@ -19,7 +19,9 @@ const globalAppsInformation = config.database.appsglobal.collections.appsInforma
 const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 const globalAppsInstallingLocations = config.database.appsglobal.collections.appsInstallingLocations;
+const globalAppStateEvents = config.database.appsglobal.collections.appStateEvents;
 const globalAppsInstallingErrorsLocations = config.database.appsglobal.collections.appsInstallingErrorsLocations;
+const globalAppsInstallingErrorsBroadcasts = config.database.appsglobal.collections.appsInstallingErrorsBroadcasts;
 
 // Supported architectures
 const supportedArchitectures = ['amd64', 'arm64'];
@@ -63,6 +65,18 @@ const appsMonitoredTemplate = {
   // },
 };
 
+// Expiry / TTL constants (milliseconds)
+const GOSSIP_VALIDITY_MS = 5 * 60 * 1000;
+const RUNNING_EXPIRY_MS = 125 * 60 * 1000;
+const INSTALLING_EXPIRY_MS = 15 * 60 * 1000;
+const INSTALLING_ERRORS_EXPIRY_MS = 24 * 60 * 60 * 1000;
+const SIGTERM_EXPIRY_MS = 420 * 1000;
+const EVICTED_EXPIRY_MS = RUNNING_EXPIRY_MS;
+
+// Hash sync constants (blocks, at 30s per block)
+const HASH_EXPIRY_BLOCKS = 1051200; // ~1 year — permanently flag unresolvable hashes
+const HASH_RETRY_BACKOFF = [0, 100, 500, 2500, 12500, 50000, 100000]; // ~0, 50min, 4h, 21h, 4d, 17d, 35d
+
 module.exports = {
   // Paths
   fluxDirPath,
@@ -78,7 +92,9 @@ module.exports = {
   globalAppsTempMessages,
   globalAppsLocations,
   globalAppsInstallingLocations,
+  globalAppStateEvents,
   globalAppsInstallingErrorsLocations,
+  globalAppsInstallingErrorsBroadcasts,
 
   // Configuration
   supportedArchitectures,
@@ -87,4 +103,16 @@ module.exports = {
   appsThatMightBeUsingOldGatewayIpAssignment,
   defaultNodeSpecs,
   appsMonitoredTemplate,
+
+  // Expiry / TTL
+  GOSSIP_VALIDITY_MS,
+  RUNNING_EXPIRY_MS,
+  INSTALLING_EXPIRY_MS,
+  INSTALLING_ERRORS_EXPIRY_MS,
+  SIGTERM_EXPIRY_MS,
+  EVICTED_EXPIRY_MS,
+
+  // Hash sync
+  HASH_EXPIRY_BLOCKS,
+  HASH_RETRY_BACKOFF,
 };

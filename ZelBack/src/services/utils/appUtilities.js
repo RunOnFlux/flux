@@ -4,9 +4,12 @@ const nodecmd = require('node-cmd');
 const config = require('config');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
+const dbHelper = require('../dbHelper');
 const dockerService = require('../dockerService');
 const geolocationService = require('../geolocationService');
 const { getChainParamsPriceUpdates } = require('./chainUtilities');
+
+const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 const cmdAsync = util.promisify(nodecmd.run);
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
@@ -721,24 +724,6 @@ function specificationFormatter(appSpecification) {
     if (Number.isInteger(expire) !== true) {
       throw new Error('Invalid instances specified');
     }
-
-    // Determine the correct maxBlocksAllowance based on current blockchain height
-    let maxAllowance = config.fluxapps.maxBlocksAllowance;
-    try {
-      // eslint-disable-next-line global-require
-      const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
-      const currentHeight = daemonServiceMiscRpcs.getCurrentDaemonHeight();
-      if (currentHeight >= config.fluxapps.daemonPONFork) {
-        maxAllowance = config.fluxapps.postPonMaxBlocksAllowance;
-      }
-    } catch (error) {
-      log.warn(`Unable to fetch blockchain height for maxBlocksAllowance validation: ${error.message}. Using default value.`);
-      // If we can't get the height, default to the original maxBlocksAllowance for safety
-    }
-
-    if (expire > maxAllowance) {
-      throw new Error(`Maximum expiration of application is ${maxAllowance} blocks ~ 1 year`);
-    }
     appSpecFormatted.expire = expire;
   }
 
@@ -1054,13 +1039,88 @@ function findCommonArchitectures(componentArchitectures) {
   );
 }
 
+function appUsesGSyncthingMode(appSpec) {
+  if (!appSpec) {
+    return false;
+  }
+  if (appSpec.compose && appSpec.compose.length > 0) {
+    return appSpec.compose.some((comp) => comp.containerData && comp.containerData.includes('g:'));
+  }
+  if (appSpec.containerData) {
+    return appSpec.containerData.includes('g:');
+  }
+  return false;
+}
+
+function getNonGComponentIdentifiers(appSpec, appName) {
+  if (!appSpec) {
+    return [];
+  }
+  const resolvedName = appSpec.name || appName;
+  if (appSpec.compose && appSpec.compose.length > 0) {
+    return appSpec.compose
+      .filter((comp) => !(comp.containerData && comp.containerData.includes('g:')))
+      .map((comp) => `${comp.name}_${resolvedName}`);
+  }
+  if (appSpec.containerData && appSpec.containerData.includes('g:')) {
+    return [];
+  }
+  return [resolvedName];
+}
+
+function parseContainerName(containerName) {
+  const name = containerName.replace(/^\//, '');
+  let cleanName = name;
+  if (name.startsWith('flux')) {
+    cleanName = name.substring(4);
+  } else if (name.startsWith('zel')) {
+    cleanName = name.substring(3);
+  }
+  const underscoreIndex = cleanName.indexOf('_');
+  if (underscoreIndex > 0) {
+    return {
+      componentName: cleanName.substring(0, underscoreIndex),
+      appName: cleanName.substring(underscoreIndex + 1),
+    };
+  }
+  return {
+    componentName: cleanName,
+    appName: cleanName,
+  };
+}
+
+async function appHasValidLocationOnNode(appName, myIp) {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const query = { name: appName, ip: myIp };
+    const projection = { _id: 0, expireAt: 1 };
+    const records = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+    if (!records || records.length === 0) {
+      return false;
+    }
+    const now = Date.now();
+    return records.some((record) => {
+      if (!record.expireAt) return false;
+      return new Date(record.expireAt).getTime() > now;
+    });
+  } catch (error) {
+    log.error(`Error checking app location for ${appName}: ${error.message}`);
+    return true;
+  }
+}
+
 module.exports = {
+  appHasValidLocationOnNode,
   appPricePerMonth,
-  nodeFullGeolocation,
+  appUsesGSyncthingMode,
+  findCommonArchitectures,
   getAppFolderSize,
-  getContainerStorage,
   getAppPorts,
+  getContainerStorage,
+  getNonGComponentIdentifiers,
+  nodeFullGeolocation,
+  parseContainerName,
   specificationFormatter,
   updateToLatestAppSpecifications,
-  findCommonArchitectures,
 };

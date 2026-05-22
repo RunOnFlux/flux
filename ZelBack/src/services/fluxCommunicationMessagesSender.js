@@ -1,64 +1,32 @@
 /* eslint-disable no-underscore-dangle */
+const config = require('config');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
+const dbHelper = require('./dbHelper');
 const { peerManager } = require('./utils/peerState');
 const cacheManager = require('./utils/cacheManager').default;
+const { serialiseAndSignFluxBroadcast, getFluxMessageSignature } = require('./utils/fluxBroadcastHelper');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 const myMessageCache = cacheManager.tempMessageCache;
 
 
-/**
- * To get Flux message signature.
- * @param {object} message Message.
- * @param {string} privatekey Private key.
- * @returns {Promise<string>} Signature.
- */
-async function getFluxMessageSignature(message, privatekey) {
-  const privKey = await fluxNetworkHelper.getFluxNodePrivateKey(privatekey);
-  const signature = await verificationHelper.signMessage(message, privKey);
-  return signature;
-}
-
-/**
- * To serialise and sign a Flux broadcast.
- * @param {object} dataToBroadcast Data to broadcast. Contains version, timestamp, pubKey, signature and data.
- * @param {string} privatekey Private key.
- * @returns {string} Data string (serialised data object).
- */
-async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
-  const version = 1;
-  const timestamp = Date.now();
-  const pubKey = await fluxNetworkHelper.getFluxNodePublicKey(privatekey);
-  const message = serviceHelper.ensureString(dataToBroadcast);
-  const messageToSign = version + message + timestamp;
-  const signature = await getFluxMessageSignature(messageToSign, privatekey);
-  // version 1 specifications
-  // message contains version, timestamp, pubKey, signature and data. Data is a stringified json. Signature is signature of version+stringifieddata+timestamp
-  // signed by the priv key corresponding to pubkey attached
-  // data object contains version, timestamp of signing, signature, pubKey, data object. further data object must at least contain its type as string to determine it further.
-  const dataObj = {
-    version,
-    timestamp,
-    pubKey,
-    signature,
-    data: dataToBroadcast,
-  };
-  const dataString = JSON.stringify(dataObj);
-  return dataString;
-}
 
 /**
  * Sign and send a message to a peer.
  * @param {object} message Message to sign and send.
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peer Peer to send to.
  */
-async function sendSignedMessage(message, peer) {
+async function sendSignedMessage(message, peer, options = {}) {
   try {
     const messageSigned = await serialiseAndSignFluxBroadcast(message);
-    peer.send(messageSigned);
+    if (options.awaitDrain) {
+      await peer.sendAsync(messageSigned);
+    } else {
+      peer.send(messageSigned);
+    }
   } catch (error) {
     log.error(error);
   }
@@ -105,12 +73,16 @@ async function respondWithAppMessage(msgObj, peer) {
       }
     }
 
+    fluxEventBus.publish('hashRequest:received', { peer: peer.key, count: appsMessages.length });
+
+    let found = 0;
     // eslint-disable-next-line no-restricted-syntax
     for (const hash of appsMessages) {
       if (myMessageCache.has(hash)) {
         const tempMesResponse = myMessageCache.get(hash);
         if (tempMesResponse) {
           sendSignedMessage(tempMesResponse, peer);
+          found += 1;
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -134,11 +106,14 @@ async function respondWithAppMessage(msgObj, peer) {
           arcaneSender: appMessage.arcaneSender ?? true,
         };
         sendSignedMessage(temporaryAppMessage, peer);
+        found += 1;
       }
       myMessageCache.set(hash, temporaryAppMessage);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(150);
     }
+
+    fluxEventBus.publish('hashRequest:responded', { peer: peer.key, requested: appsMessages.length, found });
     // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
   } catch (error) {
     log.error(error);
@@ -161,6 +136,7 @@ async function relay(data, excludeKey) {
 async function broadcastMessageToAll(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   await relay(serialisedData);
+  return JSON.parse(serialisedData);
 }
 
 /**
@@ -310,10 +286,120 @@ async function broadcastTemporaryAppMessage(message) {
   await broadcastMessageToAll(message);
 }
 
+async function respondWithTempMessages(peer, sinceTimestamp = 0) {
+  try {
+    const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const query = sinceTimestamp > 0 ? { receivedAt: { $gt: new Date(sinceTimestamp) } } : {};
+    const cursor = database.collection(globalAppsTempMessages)
+      .find(query, { projection: { _id: 0, receivedAt: 0, expireAt: 0 } })
+      .sort({ receivedAt: 1 });
+
+    const batchSize = 2000;
+    let batch = [];
+    let total = 0;
+    for await (const msg of cursor) {
+      batch.push({
+        type: msg.type,
+        version: msg.version,
+        appSpecifications: msg.appSpecifications,
+        hash: msg.hash,
+        timestamp: msg.timestamp,
+        signature: msg.signature,
+        arcaneSender: msg.arcaneSender,
+      });
+      if (batch.length >= batchSize) {
+        log.info(`respondWithTempMessages - Sending chunk of ${batch.length} to ${peer.key}`);
+        await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: batch, done: false }, peer, { awaitDrain: true });
+        total += batch.length;
+        batch = [];
+      }
+    }
+    log.info(`respondWithTempMessages - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
+    await sendSignedMessage({ type: 'fluxapptempsync', version: 1, messages: batch, done: true }, peer, { awaitDrain: true });
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function streamBatchedSync(peer, { sinceTimestamp, collectionName, validityMs, query, projection, messageType, label }) {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+
+    const adjustedTimestamp = sinceTimestamp > 0
+      ? new Date(sinceTimestamp - (peer.remoteClockOffsetMs || 0))
+      : new Date(0);
+    const validAfter = new Date(Date.now() - validityMs);
+    const minTimestamp = adjustedTimestamp > validAfter ? adjustedTimestamp : validAfter;
+
+    const finalQuery = query ? query(minTimestamp) : { broadcastedAt: { $gt: minTimestamp } };
+    const finalProjection = projection ?? { _id: 0, expireAt: 0 };
+    const cursor = database.collection(collectionName)
+      .find(finalQuery, { projection: finalProjection })
+      .sort({ broadcastedAt: 1 });
+
+    const batchSize = 2000;
+    let batch = [];
+    let total = 0;
+    for await (const doc of cursor) {
+      batch.push(doc);
+      if (batch.length >= batchSize) {
+        log.info(`${label} - Sending chunk of ${batch.length} to ${peer.key}`);
+        await sendSignedMessage({ type: messageType, messages: batch, done: false }, peer, { awaitDrain: true });
+        total += batch.length;
+        batch = [];
+      }
+    }
+    log.info(`${label} - Sending final ${batch.length} to ${peer.key} (total: ${total + batch.length})`);
+    await sendSignedMessage({ type: messageType, messages: batch, done: true }, peer, { awaitDrain: true });
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+async function respondWithAppRunningMessages(peer, sinceTimestamp = 0) {
+  return streamBatchedSync(peer, {
+    sinceTimestamp,
+    collectionName: config.database.appsglobal.collections.appStateEvents,
+    validityMs: 125 * 60 * 1000,
+    query: (min) => ({ $or: [{ broadcastedAt: { $gt: min } }, { createdAt: { $gt: min } }] }),
+    projection: { _id: 0, expireAt: 0 },
+    messageType: 'fluxapprunningsync',
+    label: 'respondWithAppRunningMessages',
+  });
+}
+
+async function respondWithAppInstallingMessages(peer, sinceTimestamp = 0) {
+  return streamBatchedSync(peer, {
+    sinceTimestamp,
+    collectionName: config.database.appsglobal.collections.appsInstallingBroadcasts,
+    validityMs: 15 * 60 * 1000,
+    messageType: 'fluxappinstallingsync',
+    label: 'respondWithAppInstallingMessages',
+  });
+}
+
+async function respondWithAppInstallingErrorsMessages(peer, sinceTimestamp = 0) {
+  return streamBatchedSync(peer, {
+    sinceTimestamp,
+    collectionName: config.database.appsglobal.collections.appsInstallingErrorsBroadcasts,
+    validityMs: 24 * 60 * 60 * 1000,
+    projection: { _id: 0 },
+    messageType: 'fluxappinstallingerrorssync',
+    label: 'respondWithAppInstallingErrorsMessages',
+  });
+}
+
 module.exports = {
   relay,
   sendSignedMessage,
   respondWithAppMessage,
+  respondWithTempMessages,
+  respondWithAppRunningMessages,
+  respondWithAppInstallingMessages,
+  respondWithAppInstallingErrorsMessages,
   serialiseAndSignFluxBroadcast,
   getFluxMessageSignature,
   broadcastMessageToOutgoingFromUser,

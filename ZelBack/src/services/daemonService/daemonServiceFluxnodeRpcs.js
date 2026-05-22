@@ -11,12 +11,13 @@ let response = messageHelper.createErrorMessage();
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function getFluxNodeStatus(req, res) {
-  const rpccall = 'getzelnodestatus'; // getfluxnodestatus
+async function getFluxNodeStatus() {
+  return daemonServiceUtils.executeCall('getzelnodestatus', [], { useCache: false });
+}
 
-  response = await daemonServiceUtils.executeCall(rpccall);
-
-  return res ? res.json(response) : response;
+async function getFluxNodeStatusApi(req, res) {
+  const response = await getFluxNodeStatus();
+  return res.json(response);
 }
 
 /**
@@ -255,6 +256,7 @@ module.exports = {
   getFluxNodeCount,
   getFluxNodeOutputs,
   getFluxNodeStatus,
+  getFluxNodeStatusApi,
   listFluxNodeConf,
   listFluxNodes,
   startDeterministicFluxNode,

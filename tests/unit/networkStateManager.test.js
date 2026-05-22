@@ -89,28 +89,83 @@ describe('networkStateManager tests', () => {
   it('should throw if state event not provided when using a state emitter', () => {
     expect(
       () => new NetworkStateManager(fetcher, { stateEmitter: new EventEmitter() }),
-    ).to.throw('The State Event is mandatory is state emitter is used');
+    ).to.throw('The State Event is mandatory when state emitter is used');
   });
 
   it('should instantiate and set user provided values', () => {
     const options = {
       intervalMs: 60_000,
-      stateEvent: 'blockReceived',
+      stateEvent: 'blocksProcessed',
       stateEmitter: new EventEmitter(),
     };
 
     const nsm = new NetworkStateManager(fetcher, options);
 
     expect(nsm.intervalMs).to.be.equal(60_000);
-    expect(nsm.stateEvent).to.be.equal('blockReceived');
+    expect(nsm.stateEvent).to.be.equal('blocksProcessed');
     expect(nsm.started).to.be.equal(false);
+  });
+
+  it('should trigger fetch on progressEvent during sync', async () => {
+    const blockEmitter = new EventEmitter();
+
+    const options = {
+      stateEvent: 'blocksProcessed',
+      progressEvent: 'syncProgress',
+      stateEmitter: blockEmitter,
+    };
+
+    fetcher.resolves(defaultNetworkState);
+
+    let hrtimeCallCount = 0;
+    const hrtimeStub = sinon.stub(process.hrtime, 'bigint');
+    hrtimeStub.callsFake(() => {
+      hrtimeCallCount += 1;
+      if (hrtimeCallCount <= 3) {
+        return BigInt(hrtimeCallCount * 100_000_000);
+      }
+      return BigInt(31_000_000_000 + (hrtimeCallCount - 4) * 100_000_000);
+    });
+
+    const nsm = new NetworkStateManager(fetcher, options);
+
+    await nsm.start();
+    sinon.assert.calledOnce(fetcher);
+
+    blockEmitter.emit('syncProgress', 500000);
+    await new Promise((r) => { setImmediate(r); });
+
+    sinon.assert.calledTwice(fetcher);
+
+    await nsm.stop();
+    hrtimeStub.restore();
+  });
+
+  it('should remove progressEvent listener on stop', async () => {
+    const blockEmitter = new EventEmitter();
+
+    const options = {
+      stateEvent: 'blocksProcessed',
+      progressEvent: 'syncProgress',
+      stateEmitter: blockEmitter,
+    };
+
+    fetcher.resolves(defaultNetworkState);
+
+    const nsm = new NetworkStateManager(fetcher, options);
+    await nsm.start();
+
+    await nsm.stop();
+
+    expect(blockEmitter.listenerCount('blocksProcessed')).to.equal(0);
+    expect(blockEmitter.listenerCount('syncProgress')).to.equal(0);
   });
 
   it('should start eventEmitter fetcher and get network state on start', async () => {
     const blockEmitter = new EventEmitter();
 
     const options = {
-      stateEvent: 'blockReceived',
+      stateEvent: 'blocksProcessed',
       stateEmitter: blockEmitter,
     };
 
@@ -137,7 +192,7 @@ describe('networkStateManager tests', () => {
 
     sinon.assert.calledOnce(fetcher);
 
-    blockEmitter.emit('blockReceived', 1946562);
+    blockEmitter.emit('blocksProcessed', 1946562);
     // we yield to the event queue here so the state fetcher has a chance to run
     await new Promise((r) => { setImmediate(r); });
 
@@ -195,7 +250,7 @@ describe('networkStateManager tests', () => {
     const blockEmitter = new EventEmitter();
 
     const options = {
-      stateEvent: 'blockReceived',
+      stateEvent: 'blocksProcessed',
       stateEmitter: blockEmitter,
     };
 
@@ -235,7 +290,7 @@ describe('networkStateManager tests', () => {
     const blockEmitter = new EventEmitter();
 
     const options = {
-      stateEvent: 'blockReceived',
+      stateEvent: 'blocksProcessed',
       stateEmitter: blockEmitter,
     };
 
@@ -253,7 +308,7 @@ describe('networkStateManager tests', () => {
     const blockEmitter = new EventEmitter();
 
     const options = {
-      stateEvent: 'blockReceived',
+      stateEvent: 'blocksProcessed',
       stateEmitter: blockEmitter,
     };
 
@@ -270,7 +325,7 @@ describe('networkStateManager tests', () => {
     const blockEmitter = new EventEmitter();
 
     const options = {
-      stateEvent: 'blockReceived',
+      stateEvent: 'blocksProcessed',
       stateEmitter: blockEmitter,
     };
 
@@ -287,7 +342,7 @@ describe('networkStateManager tests', () => {
     const blockEmitter = new EventEmitter();
 
     const options = {
-      stateEvent: 'blockReceived',
+      stateEvent: 'blocksProcessed',
       stateEmitter: blockEmitter,
     };
 
@@ -304,7 +359,7 @@ describe('networkStateManager tests', () => {
     const blockEmitter = new EventEmitter();
 
     const options = {
-      stateEvent: 'blockReceived',
+      stateEvent: 'blocksProcessed',
       stateEmitter: blockEmitter,
     };
 
@@ -355,7 +410,7 @@ describe('networkStateManager tests', () => {
     const blockEmitter = new EventEmitter();
 
     const options = {
-      stateEvent: 'blockReceived',
+      stateEvent: 'blocksProcessed',
       stateEmitter: blockEmitter,
     };
 
@@ -399,7 +454,7 @@ describe('networkStateManager tests', () => {
 
     // This may not be 100% correct - but it's pretty close (and works)
 
-    blockEmitter.emit('blockReceived', 1946562);
+    blockEmitter.emit('blocksProcessed', 1946562);
     await new Promise((r) => { setImmediate(r); });
 
     expect(nsm.indexesReady).to.be.equal(false);
@@ -466,7 +521,7 @@ describe('networkStateManager tests', () => {
     const blockEmitter = new EventEmitter();
 
     const options = {
-      stateEvent: 'blockReceived',
+      stateEvent: 'blocksProcessed',
       stateEmitter: blockEmitter,
     };
 
@@ -488,7 +543,7 @@ describe('networkStateManager tests', () => {
 
     const indexBefore = await nsm.search('04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc', 'pubkey');
 
-    blockEmitter.emit('blockReceived', 1946562);
+    blockEmitter.emit('blocksProcessed', 1946562);
     await new Promise((r) => { setImmediate(r); });
 
     expect(nsm.indexesReady).to.be.equal(false);
@@ -559,11 +614,11 @@ describe('networkStateManager tests', () => {
 
     const emitBlock = () => {
       blockCount += 1;
-      blockEmitter.emit('blockReceived', blockCount);
+      blockEmitter.emit('blocksProcessed', blockCount);
     };
 
     const options = {
-      stateEvent: 'blockReceived',
+      stateEvent: 'blocksProcessed',
       stateEmitter: blockEmitter,
     };
 

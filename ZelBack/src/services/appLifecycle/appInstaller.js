@@ -1,4 +1,3 @@
-const os = require('os');
 // path is used for dynamic requires in the file
 // eslint-disable-next-line no-unused-vars
 const path = require('path');
@@ -11,11 +10,15 @@ const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
-const geolocationService = require('../geolocationService');
 const appUninstaller = require('./appUninstaller');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-const { storeAppRunningMessage, storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
+const { storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
+
+let onInstallComplete = null;
+function setOnInstallComplete(callback) {
+  onInstallComplete = callback;
+}
 const { systemArchitecture } = require('../appSystem/systemIntegration');
 const { checkApplicationImagesCompliance, verifyRepository } = require('../appSecurity/imageManager');
 const { startAppMonitoring } = require('../appManagement/appInspector');
@@ -30,54 +33,23 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
-const { appsFolder, localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
+const { localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
 const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require('../appMessaging/messageVerifier');
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
 const hwRequirements = require('../appRequirements/hwRequirements');
 const config = require('config');
+const fluxEventBus = require('../utils/fluxEventBus');
+const { verifyAppVolumeMount } = require('../utils/volumeService');
 
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
 
 // Helper functions and constants for installApplicationHard
 const util = require('util');
-const { exec } = require('child_process');
 
-const cmdAsync = util.promisify(exec);
 const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 
 const supportedArchitectures = ['amd64', 'arm64'];
-
-/**
- * Verify that the app volume is mounted
- * @param {string} appName - Application name
- * @param {boolean} isComponent - Whether this is a component
- * @param {string} componentName - Component name (if isComponent is true)
- * @returns {Promise<boolean>} True if mount exists, throws error otherwise
- */
-async function verifyAppVolumeMount(appName, isComponent, componentName) {
-  const identifier = isComponent ? `${componentName}_${appName}` : appName;
-  const appId = dockerService.getAppIdentifier(identifier);
-  const mountPath = `${appsFolder}${appId}`;
-
-  try {
-    // Check if mount exists using mount command
-    // grep will throw if no match is found
-    const { stdout } = await cmdAsync(`mount | grep "${mountPath}"`);
-    if (stdout && stdout.includes(mountPath)) {
-      log.info(`Volume mount verified for ${identifier} at ${mountPath}`);
-      return true;
-    }
-  } catch (error) {
-    // grep returns non-zero exit code when no matches found, or other command errors
-    const errorMessage = `Volume mount verification failed for ${mountPath}. Mount does not exist or is not accessible.`;
-    log.error(`${errorMessage} Details: ${error.message}`);
-    throw new Error(errorMessage);
-  }
-
-  // This shouldn't be reached, but just in case
-  throw new Error(`Volume mount verification failed for ${mountPath}. Mount does not exist or is not accessible.`);
-}
 
 /**
  * Perform Docker cleanup (prune containers, networks, volumes, images)
@@ -639,26 +611,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
 
     log.info(`Flux App: ${appName} is test install: ${test}`);
 
-    if (!test) {
-      const broadcastedAt = Date.now();
-      const newAppRunningMessage = {
-        type: 'fluxapprunning',
-        version: 1,
-        name: appSpecifications.name,
-        hash: appSpecifications.hash, // hash of application specifics that are running
-        ip: myIP,
-        broadcastedAt,
-        runningSince: new Date(broadcastedAt).toISOString(),
-        osUptime: os.uptime(),
-        staticIp: geolocationService.isStaticIP(),
-      };
-
-      // store it in local database first
-      // eslint-disable-next-line no-await-in-loop, no-use-before-define
-      await storeAppRunningMessage(newAppRunningMessage);
-      // broadcast messages about running apps to all peers
-      await fluxCommunicationMessagesSender.broadcastMessageToAll(newAppRunningMessage);
-      // broadcast messages about running apps to all peers
+    if (!test && onInstallComplete) {
+      await onInstallComplete();
+      fluxEventBus.publish('app:installed', { name: appSpecifications.name, hash: appSpecifications.hash });
     }
 
     // all done message
@@ -1235,4 +1190,5 @@ module.exports = {
   installAppLocally,
   checkAppRequirements,
   testAppInstall,
+  setOnInstallComplete,
 };

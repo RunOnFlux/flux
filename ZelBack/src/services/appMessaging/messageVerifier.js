@@ -9,10 +9,10 @@ const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSen
 const serviceHelper = require('../serviceHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 // Removed messageStore require to avoid circular dependency - will import locally where needed
-const { appPricePerMonth } = require('../utils/appUtilities');
+const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { updateAppSpecifications } = require('../appDatabase/registryManager');
+const { insertAppSpecifications, updateAppSpecifications } = require('../appDatabase/registryManager');
 const { getPreviousAppSpecifications } = require('../appLifecycle/advancedWorkflows');
 const {
   globalAppsMessages,
@@ -22,17 +22,11 @@ const {
   // eslint-disable-next-line no-unused-vars
   globalAppsInstallingLocations,
   appsHashesCollection,
-  scannedHeightCollection,
   globalAppsInformation,
   localAppsInformation,
 } = require('../utils/appConstants');
-const { invalidMessages } = require('../invalidMessages');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const globalState = require('../utils/globalState');
-
-// Import hashesNumberOfSearchs from appsService - this should be shared state
-// For now, we'll create a local instance, but ideally this should be moved to globalState
-const hashesNumberOfSearchs = new Map();
 
 /**
  * Verify app hash against message content
@@ -221,12 +215,16 @@ function isExpireOnlyUpdate(newSpec, existingSpec) {
   const existingCopy = JSON.parse(JSON.stringify(existingSpec));
 
   // Remove expire from both (and height/hash which are added by system)
+  // Remove enterprise — after decryption its content is represented in compose/contacts,
+  // and the encrypted blob differs between updates due to re-encryption
   delete newCopy.expire;
   delete existingCopy.expire;
   delete newCopy.height;
   delete existingCopy.height;
   delete newCopy.hash;
   delete existingCopy.hash;
+  delete newCopy.enterprise;
+  delete existingCopy.enterprise;
 
   // Use deep equality check that ignores property order
   const isEqual = deepEqual(newCopy, existingCopy);
@@ -327,30 +325,45 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     const messageToVerifyC = type + version + JSON.stringify(appSpecsClone) + timestamp;
     // we can just use the btc / eth verifier as v7 specs came out at 1688749251
     isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appOwner, signature);
+    if (isValidSignature !== true && marketplaceApp) {
+      isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, fluxSupportTeamFluxID, signature);
+    }
   }
 
   // Check if usersToExtend can sign this update (only for expire-only changes)
   // Uses previousAppSpec (from permanent messages) for the expire-only comparison,
   // so this works even when the app has expired from globalAppsInformation (e.g. during resync)
+  // Callers are responsible for decrypting previousAppSpec before passing it in
+  // (getPreviousAppSpecifications and processMessages both do this)
   const usersToExtend = config.fluxapps.usersToExtend || [];
   if (isValidSignature !== true && usersToExtend.length > 0 && previousAppSpec) {
-    // For v8+ enterprise apps, we need to decrypt specs before comparing
+    let canCompareSpecs = true;
     let newSpecToCompare = appSpec;
-    let prevSpecToCompare = previousAppSpec;
-    const specOwner = previousAppSpec.owner || appOwner;
-    if ((appSpec.version >= 8 && appSpec.enterprise) || (previousAppSpec.version >= 8 && previousAppSpec.enterprise)) {
-      if (appSpec.version >= 8 && appSpec.enterprise) {
-        newSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: specOwner });
-      }
-      if (previousAppSpec.version >= 8 && previousAppSpec.enterprise) {
-        prevSpecToCompare = await checkAndDecryptAppSpecs(previousAppSpec, { daemonHeight, owner: specOwner });
+    const prevSpecToCompare = previousAppSpec;
+    if (appSpec.version >= 8 && appSpec.enterprise) {
+      // eslint-disable-next-line global-require
+      const fluxService = require('../fluxService');
+      if (await fluxService.isSystemSecure()) {
+        const decrypted = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: previousAppSpec.owner || appOwner });
+        newSpecToCompare = specificationFormatter(decrypted);
+      } else {
+        canCompareSpecs = false;
       }
     }
-    // Check if signature matches any of the usersToExtend addresses
+    // Consensus note: non-secure nodes can't decrypt enterprise specs, so
+    // canCompareSpecs=false and the isExpireOnlyUpdate check is skipped —
+    // they accept any usersToExtend-signed update. Secure (Arcane) nodes
+    // enforce expire-only. This means secure and non-secure nodes can reach
+    // different validity verdicts for the same message. Interim tradeoff:
+    // master's alternative is worse (throws on decrypt failure, permanently
+    // marks the hash as messageNotFound, creating data holes). Will be
+    // resolved by Arcane attestations — Arcane nodes sign a verification
+    // attestation that any node can validate using the attestation pubkey,
+    // eliminating the need for per-node decryption.
     // eslint-disable-next-line no-restricted-syntax
     for (const userToExtend of usersToExtend) {
       const isValidUserToExtendSignature = signatureVerifier.verifySignature(messageToVerify, userToExtend, signature);
-      if (isValidUserToExtendSignature === true && isExpireOnlyUpdate(newSpecToCompare, prevSpecToCompare)) {
+      if (isValidUserToExtendSignature === true && (!canCompareSpecs || isExpireOnlyUpdate(newSpecToCompare, prevSpecToCompare))) {
         log.info(`App ${appSpec.name} expire extension signed by userToExtend address ${userToExtend}`);
         isValidSignature = true;
         break;
@@ -641,8 +654,37 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
                 tempMessage.signature, previousAppSpecs.owner, daemonHeight, previousAppSpecs,
               );
             } catch (error) {
-              log.warn(`Promotion re-verification failed for ${specifications.name} (${hash}): ${error.message}`);
-              return false;
+              // Before height 2000000, owner-change races were accepted by the
+              // network (re-verification was not deployed until v8.10.0, well
+              // after the last known race at h=1880981). Retry with previous
+              // owner to replay history as it was.
+              if (height < 2000000) {
+                const db = dbHelper.databaseConnection();
+                const appsDb = db.db(config.database.appsglobal.database);
+                const prevOwnerDoc = await dbHelper.findOneInDatabase(
+                  appsDb, globalAppsMessages,
+                  { 'appSpecifications.name': specifications.name, 'appSpecifications.owner': { $ne: previousAppSpecs.owner } },
+                  { projection: { _id: 0, 'appSpecifications.owner': 1 }, sort: { height: -1 } },
+                );
+                const prevOwner = prevOwnerDoc?.appSpecifications?.owner;
+                if (prevOwner) {
+                  try {
+                    await verifyAppMessageUpdateSignature(
+                      tempMessage.type, messageVersion, specifications, messageTimestamp,
+                      tempMessage.signature, prevOwner, daemonHeight, previousAppSpecs,
+                    );
+                  } catch {
+                    log.warn(`Promotion re-verification failed for ${specifications.name} (${hash}): ${error.message}`);
+                    return false;
+                  }
+                } else {
+                  log.warn(`Promotion re-verification failed for ${specifications.name} (${hash}): ${error.message}`);
+                  return false;
+                }
+              } else {
+                log.warn(`Promotion re-verification failed for ${specifications.name} (${hash}): ${error.message}`);
+                return false;
+              }
             }
           }
         }
@@ -708,9 +750,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               updateForSpecifications.hash = permanentAppMessage.hash;
               updateForSpecifications.height = permanentAppMessage.height;
               // object of appSpecifications extended for hash and height
-              await updateAppSpecifications(updateForSpecifications);
-              // Process any pending updates that were queued waiting for this registration
+              const inserted = await insertAppSpecifications(updateForSpecifications);
               const appName = specifications.name;
+              if (!inserted) {
+                globalState.clearPendingUpdates(appName);
+                return true;
+              }
               const pendingUpdates = globalState.getPendingUpdates(appName);
               if (pendingUpdates.length > 0) {
                 log.info(`Processing ${pendingUpdates.length} pending updates for ${appName}`);
@@ -734,50 +779,17 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8} - priceSpecs ${JSON.stringify(priceSpecifications)} - specs ${JSON.stringify(specifications)}`);
             }
           } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
-          // appSpecifications.name as identifier
             const db = dbHelper.databaseConnection();
             const database = db.db(config.database.appsglobal.database);
-            const projection = {
-              projection: {
-                _id: 0,
+            const messageInfo = await dbHelper.findOneInDatabase(
+              database,
+              globalAppsMessages,
+              {
+                'appSpecifications.name': specifications.name,
+                timestamp: { $lte: tempMessage.timestamp },
               },
-            };
-            // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
-            const appsQuery = {
-              'appSpecifications.name': specifications.name,
-            };
-            const findPermAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-            let latestPermanentRegistrationMessage;
-            findPermAppMessage.forEach((foundMessage) => {
-            // has to be registration message
-              if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-                if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
-                  latestPermanentRegistrationMessage = foundMessage;
-                } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
-                    latestPermanentRegistrationMessage = foundMessage;
-                  }
-                }
-              }
-            });
-            // some early app have zelAppSepcifications
-            const appsQueryB = {
-              'zelAppSpecifications.name': specifications.name,
-            };
-            const findPermAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
-            findPermAppMessageB.forEach((foundMessage) => {
-            // has to be registration message
-              if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-                if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
-                  latestPermanentRegistrationMessage = foundMessage;
-                } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
-                    latestPermanentRegistrationMessage = foundMessage;
-                  }
-                }
-              }
-            });
-            const messageInfo = latestPermanentRegistrationMessage;
+              { projection: { _id: 0 }, sort: { height: -1 } },
+            );
             if (!messageInfo) {
               log.error(`Last permanent message for ${specifications.name} not found`);
               return true;
@@ -820,8 +832,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               updateForSpecifications.hash = permanentAppMessage.hash;
               updateForSpecifications.height = permanentAppMessage.height;
               // object of appSpecifications extended for hash and height
-              // do not await this
-              updateAppSpecifications(updateForSpecifications);
+              await updateAppSpecifications(updateForSpecifications);
             } else {
               log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
             }
@@ -862,11 +873,6 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
       }
 
       if (i < 2) {
-      // request the message and broadcast the message further to our connected peers.
-      // rerun this after 1 min delay
-      // We ask to the connected nodes 2 times in 1 minute interval for the app message, if connected nodes don't
-      // have the app message we will ask for it again when continuousFluxAppHashesCheck executes again.
-      // in total we ask to the connected nodes 10 (30m interval) x 2 (1m interval) = 20 times before apphash is marked as not found
         await requestAppMessage(hash);
         await serviceHelper.delay(60 * 1000);
         return checkAndRequestApp(hash, txid, height, valueSat, i + 1);
@@ -894,7 +900,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
 async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
   try {
     const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();
-    if (numberOfPeers < 12) {
+    if (numberOfPeers < config.fluxapps.minHashSyncPeers) {
       log.info('checkAndRequestMultipleApps - Not enough connected peers to request missing Flux App messages');
       return;
     }
@@ -919,159 +925,6 @@ async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
   }
 }
 
-// Global variables for continuousFluxAppHashesCheck
-let continuousFluxAppHashesCheckRunning = false;
-let firstContinuousFluxAppHashesCheckRun = true;
-
-/**
- * Continuously checks for missing flux app hashes and requests missing messages
- * @param {boolean} force - Force check even if already running
- * @returns {Promise<void>}
- */
-async function continuousFluxAppHashesCheck(force = false) {
-  try {
-    if (continuousFluxAppHashesCheckRunning) {
-      return;
-    }
-    log.info('Requesting missing Flux App messages');
-    continuousFluxAppHashesCheckRunning = true;
-    const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();
-    if (numberOfPeers < 12) {
-      log.info('Not enough connected peers to request missing Flux App messages');
-      continuousFluxAppHashesCheckRunning = false;
-      return;
-    }
-
-    const synced = await generalService.checkSynced();
-    if (synced !== true) {
-      log.info('Flux not yet synced');
-      continuousFluxAppHashesCheckRunning = false;
-      return;
-    }
-
-    if (firstContinuousFluxAppHashesCheckRun && !globalState.checkAndSyncAppHashesWasEverExecuted) {
-      // Import checkAndSyncAppHashes from appHashSyncService
-      // eslint-disable-next-line global-require
-      const appHashSyncService = require('./appHashSyncService');
-      await appHashSyncService.checkAndSyncAppHashes();
-    }
-
-    const dbopen = dbHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const queryHeight = { generalScannedHeight: { $gte: 0 } };
-    const projectionHeight = {
-      projection: {
-        _id: 0,
-        generalScannedHeight: 1,
-      },
-    };
-    const scanHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, queryHeight, projectionHeight);
-    if (!scanHeight) {
-      throw new Error('Scanning not initiated');
-    }
-    const explorerHeight = serviceHelper.ensureNumber(scanHeight.generalScannedHeight);
-
-    // get flux app hashes that do not have a message
-    const query = { message: false };
-    const projection = {
-      projection: {
-        _id: 0,
-        txid: 1,
-        hash: 1,
-        height: 1,
-        value: 1,
-        message: 1,
-        messageNotFound: 1,
-      },
-    };
-    const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
-    // sort it by height, so we request oldest messages first
-    results.sort((a, b) => a.height - b.height);
-    let appsMessagesMissing = [];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const result of results) {
-      if (!result.messageNotFound || force || firstContinuousFluxAppHashesCheckRun) { // most likely wrong data, if no message found. This attribute is cleaned every reconstructAppMessagesHashPeriod blocks so all nodes search again for missing messages
-        let heightDifference = explorerHeight - result.height;
-        if (heightDifference < 0) {
-          heightDifference = 0;
-        }
-        let maturity = Math.round(heightDifference / config.fluxapps.blocksLasting);
-        if (maturity > 12) {
-          maturity = 16; // maturity of max 16 representing its older than 1 year. Old messages will only be searched 3 times, newer messages more oftenly
-        }
-        if (invalidMessages.find((message) => message.hash === result.hash && message.txid === result.txid)) {
-          if (!force) {
-            maturity = 30; // do not request known invalid messages.
-          }
-        }
-        // every config.fluxapps.blocksLasting increment maturity by 2;
-        let numberOfSearches = maturity;
-        if (hashesNumberOfSearchs.has(result.hash)) {
-          numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 2; // max 10 tries
-        }
-        hashesNumberOfSearchs.set(result.hash, numberOfSearches);
-        log.info(`Requesting missing Flux App message: ${result.hash}, ${result.txid}, ${result.height}`);
-        if (numberOfSearches <= 20) { // up to 10 searches
-          const appMessageInformation = {
-            hash: result.hash,
-            txid: result.txid,
-            height: result.height,
-            value: result.value,
-          };
-          appsMessagesMissing.push(appMessageInformation);
-          if (appsMessagesMissing.length === 500) {
-            log.info('Requesting 500 app messages');
-            checkAndRequestMultipleApps(appsMessagesMissing);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(2 * 60 * 1000); // delay 2 minutes to give enough time to process all messages received
-            appsMessagesMissing = [];
-          }
-        } else {
-          // eslint-disable-next-line no-await-in-loop
-          await appHashHasMessageNotFound(result.hash); // mark message as not found
-          hashesNumberOfSearchs.delete(result.hash); // remove from our map
-        }
-      }
-    }
-    if (appsMessagesMissing.length > 0) {
-      log.info(`Requesting ${appsMessagesMissing.length} app messages`);
-      checkAndRequestMultipleApps(appsMessagesMissing);
-    }
-    continuousFluxAppHashesCheckRunning = false;
-    firstContinuousFluxAppHashesCheckRun = false;
-  } catch (error) {
-    log.error(error);
-    continuousFluxAppHashesCheckRunning = false;
-    firstContinuousFluxAppHashesCheckRun = false;
-  }
-}
-
-/**
- * API endpoint to manually trigger app hashes check
- * @param {object} req - Request object
- * @param {object} res - Response object
- * @returns {Promise<void>}
- */
-async function triggerAppHashesCheckAPI(req, res) {
-  try {
-    // only flux team and node owner can do this
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
-    }
-
-    continuousFluxAppHashesCheck(true);
-    const resultsResponse = messageHelper.createSuccessMessage('Running check on missing application messages ');
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
 module.exports = {
   verifyAppHash,
   verifyAppMessageSignature,
@@ -1088,6 +941,4 @@ module.exports = {
   getAppsPermanentMessages,
   checkAndRequestApp,
   checkAndRequestMultipleApps,
-  continuousFluxAppHashesCheck,
-  triggerAppHashesCheckAPI,
 };

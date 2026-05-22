@@ -182,7 +182,7 @@ async function getBlockedRepositores() {
     if (cachedResponse) {
       return cachedResponse;
     }
-    const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/blockedrepositories.json');
+    const resBlockedRepo = await serviceHelper.axiosGet(`${config.github.rawBaseUrl}/helpers/blockedrepositories.json`);
     if (resBlockedRepo.data) {
       fluxCaching.blockedRepositoriesCache.set('blockedRepositories', resBlockedRepo.data);
       return resBlockedRepo.data;
@@ -205,7 +205,7 @@ async function getVettedRepositories() {
     if (cachedResponse) {
       return cachedResponse;
     }
-    const resVettedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/vettedrepositories.json');
+    const resVettedRepo = await serviceHelper.axiosGet(`${config.github.rawBaseUrl}/helpers/vettedrepositories.json`);
     if (resVettedRepo.data) {
       fluxCaching.blockedRepositoriesCache.set('vettedRepositories', resVettedRepo.data);
       return resVettedRepo.data;

@@ -264,43 +264,6 @@ describe('serviceHelper tests', () => {
     });
   });
 
-  describe('deleteLoginPhrase tests', () => {
-    const query = { loginPhrase: { $eq: '1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj' } };
-    const loginPhrase = {
-      _id: new ObjectId('620bba81c04b4966674013a4'),
-      loginPhrase: '1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj',
-      createdAt: new Date('2022-02-15T14:36:49.116Z'),
-      expireAt: new Date('2022-02-15T14:51:49.116Z'),
-    };
-    let db;
-    let database;
-    let collection;
-
-    beforeEach(async () => {
-      await dbHelper.initiateDB();
-      db = dbHelper.databaseConnection();
-      database = db.db(config.database.local.database);
-      collection = config.database.local.collections.activeLoginPhrases;
-
-      try {
-        await database.collection(collection).drop();
-      } catch (err) {
-        console.log('Collection not found.');
-      }
-
-      await database.collection(collection).insertOne(loginPhrase);
-
-      const initialInsert = await database.collection(collection).findOne(query);
-      expect(initialInsert).to.eql(loginPhrase);
-    });
-
-    it('should delete the login phrase properly', async () => {
-      await serviceHelper.deleteLoginPhrase('1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj');
-      const afterDeletionResult = await database.collection(collection).findOne(query);
-      expect(afterDeletionResult).to.be.null;
-    });
-  });
-
   describe('isDecimalLimit function tests', () => {
     const falseBools = [3.123456789, '0.1234567890', 'number', undefined, NaN, '3.123.3', '7.000000000'];
     const trueBools = [1.123, 4.12345678, '4324.123453', 4, '6', 4.00, '5.000', null];

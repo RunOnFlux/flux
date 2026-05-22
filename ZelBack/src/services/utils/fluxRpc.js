@@ -283,9 +283,66 @@ class FluxRpc {
       throw resError;
     }
 
-    const { result } = axiosData;
+    const { result, error } = axiosData;
+
+    if (error) {
+      const rpcError = new Error(error.message);
+      rpcError.code = error.code;
+      throw rpcError;
+    }
 
     return result;
+  }
+
+  async runBatch(calls) {
+    if (!calls.length) return [];
+
+    const payloads = calls.map((call, i) => {
+      const method = call.method.toLowerCase();
+      if (!this.methods.has(method)) throw new Error(`Invalid Method: ${method}`);
+      return { jsonrpc: '2.0', id: i, method, params: call.params || [] };
+    });
+
+    const { signal } = this.controller;
+
+    const res = await this.#instance.post('/', payloads, { signal }).catch((err) => {
+      const { response: { data } = {} } = err;
+
+      let errorMessage;
+      let errorCode;
+
+      if (typeof data === 'string') {
+        errorCode = 500;
+        errorMessage = data;
+      } else if (data) {
+        errorCode = data.error?.code;
+        errorMessage = data.error?.message;
+      }
+
+      errorCode = errorCode || err.code;
+      errorMessage = errorMessage || err.message;
+
+      const fetchError = new Error(errorMessage);
+      fetchError.code = errorCode;
+
+      throw fetchError;
+    });
+
+    const { status: axiosStatus, data: axiosData } = res;
+
+    if (axiosStatus !== 200) {
+      const resError = new Error(`Invalid response status code: ${axiosStatus}`);
+      resError.code = 'INVALID_STATUS_CODE';
+      throw resError;
+    }
+
+    if (!Array.isArray(axiosData)) {
+      throw new Error('Batch response is not an array');
+    }
+
+    axiosData.sort((a, b) => a.id - b.id);
+
+    return axiosData;
   }
 }
 

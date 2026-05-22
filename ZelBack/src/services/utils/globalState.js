@@ -1,3 +1,5 @@
+const { AsyncGate } = require('./asyncGate');
+
 // Global state variables for apps service
 // These need to be shared across all modules to maintain the original business logic
 
@@ -7,7 +9,9 @@ let softRedeployInProgress = false;
 let hardRedeployInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
-let checkAndSyncAppHashesWasEverExecuted = false;
+const daemonReadyGate = new AsyncGate();
+const bootContainerStateSettledGate = new AsyncGate();
+const dbReadyGate = new AsyncGate();
 let updateSyncthingRunning = false;
 let syncthingAppsFirstRun = true;
 const backupInProgress = [];
@@ -20,6 +24,7 @@ let appsMonitored = {};
 let fluxNodeWasNotConfirmedOnLastCheck = false;
 let firstExecutionAfterItsSynced = true;
 let fluxNodeWasAlreadyConfirmed = false;
+let spawnerPaused = false;
 
 // Cache and delay lists
 const appsToBeCheckedLater = [];
@@ -64,11 +69,24 @@ module.exports = {
   get reinstallationOfOldAppsInProgress() { return reinstallationOfOldAppsInProgress; },
   set reinstallationOfOldAppsInProgress(value) { reinstallationOfOldAppsInProgress = value; },
 
+  isOperationInProgress() {
+    return removalInProgress || installationInProgress || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
+  },
+
   get masterSlaveAppsRunning() { return masterSlaveAppsRunning; },
   set masterSlaveAppsRunning(value) { masterSlaveAppsRunning = value; },
 
-  get checkAndSyncAppHashesWasEverExecuted() { return checkAndSyncAppHashesWasEverExecuted; },
-  set checkAndSyncAppHashesWasEverExecuted(value) { checkAndSyncAppHashesWasEverExecuted = value; },
+  get daemonReady() { return daemonReadyGate.ready; },
+  set daemonReady(value) { if (value) daemonReadyGate.open(); else daemonReadyGate.close(); },
+  waitForDaemonReady() { return daemonReadyGate.wait(); },
+
+  get bootContainerStateSettled() { return bootContainerStateSettledGate.ready; },
+  set bootContainerStateSettled(value) { if (value) bootContainerStateSettledGate.open(); else bootContainerStateSettledGate.close(); },
+  waitForBootContainerStateSettled() { return bootContainerStateSettledGate.wait(); },
+
+  get dbReady() { return dbReadyGate.ready; },
+  set dbReady(value) { if (value) dbReadyGate.open(); else dbReadyGate.close(); },
+  waitForDbReady() { return dbReadyGate.wait(); },
 
   get updateSyncthingRunning() { return updateSyncthingRunning; },
   set updateSyncthingRunning(value) { updateSyncthingRunning = value; },
@@ -91,6 +109,9 @@ module.exports = {
 
   get fluxNodeWasAlreadyConfirmed() { return fluxNodeWasAlreadyConfirmed; },
   set fluxNodeWasAlreadyConfirmed(value) { fluxNodeWasAlreadyConfirmed = value; },
+
+  get spawnerPaused() { return spawnerPaused; },
+  set spawnerPaused(value) { spawnerPaused = value; },
 
   get appsToBeCheckedLater() { return appsToBeCheckedLater; },
   get appsSyncthingToBeCheckedLater() { return appsSyncthingToBeCheckedLater; },

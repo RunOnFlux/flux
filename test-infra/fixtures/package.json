@@ -1,0 +1,16 @@
+{
+  "name": "flux-test-fixtures",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fixture generators for FluxOS E2E testing",
+  "scripts": {
+    "generate-keys": "node generate-keys.js",
+    "generate-all": "node generate-keys.js"
+  },
+  "dependencies": {
+    "@noble/secp256k1": "^2.2.3",
+    "@noble/hashes": "^1.7.2",
+    "bs58check": "^4.0.0"
+  }
+}

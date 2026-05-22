@@ -48,8 +48,14 @@ describe('messageStore tests', () => {
           database: 'appsdb',
           collections: {
             appsLocations: 'appsLocations',
+            appStateEvents: 'appStateEvents',
+            appsInstallingBroadcasts: 'appsInstallingBroadcasts',
+            appsInstallingErrorsBroadcasts: 'appsInstallingErrorsBroadcasts',
           },
         },
+      },
+      fluxapps: {
+        maxAppsPerNode: 200,
       },
     };
 
@@ -82,7 +88,15 @@ describe('messageStore tests', () => {
         globalAppsLocations: 'appsLocations',
         globalAppsInstallingLocations: 'appsInstallingLocations',
         globalAppsInstallingErrorsLocations: 'appsInstallingErrorsLocations',
+        globalAppsInstallingErrorsBroadcasts: 'appsInstallingErrorsBroadcasts',
+        globalAppStateEvents: 'appStateEvents',
         appsHashesCollection: 'appsHashes',
+        GOSSIP_VALIDITY_MS: 5 * 60 * 1000,
+        RUNNING_EXPIRY_MS: 125 * 60 * 1000,
+        INSTALLING_EXPIRY_MS: 15 * 60 * 1000,
+        INSTALLING_ERRORS_EXPIRY_MS: 24 * 60 * 60 * 1000,
+        SIGTERM_EXPIRY_MS: 420 * 1000,
+        EVICTED_EXPIRY_MS: 125 * 60 * 1000,
       },
       '../utils/appSpecHelpers': {
         specificationFormatter: sinon.stub().returnsArg(0),
@@ -334,7 +348,7 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.be.false;
+      expect(result).to.deep.equal({ stored: false, rebroadcast: false });
       expect(logStub.warn.called).to.be.true;
     });
 
@@ -350,13 +364,12 @@ describe('messageStore tests', () => {
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.findOneInDatabase.resolves(null);
-      dbHelperStub.updateOneInDatabase.resolves();
+      dbHelperStub.updateOneInDatabase.resolves({ modifiedCount: 0, upsertedCount: 1 });
       dbHelperStub.removeDocumentsFromCollection.resolves();
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.be.true;
+      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
       expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
     });
 
@@ -374,16 +387,15 @@ describe('messageStore tests', () => {
 
       const mockDb = { db: sinon.stub().returns('database') };
       dbHelperStub.databaseConnection.returns(mockDb);
-      dbHelperStub.findOneInDatabase.resolves(null);
-      dbHelperStub.updateOneInDatabase.resolves();
+      dbHelperStub.updateOneInDatabase.resolves({ modifiedCount: 0, upsertedCount: 1 });
       dbHelperStub.removeDocumentsFromCollection.resolves();
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.be.true;
+      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
       expect(dbHelperStub.updateOneInDatabase.callCount).to.equal(2);
-      // Should clean up installing records for each app
-      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(2);
+      // Should clean up installing records for each app (location + broadcast per app)
+      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(4);
     });
 
     it('should handle version 2 message with empty apps array', async () => {
@@ -402,9 +414,9 @@ describe('messageStore tests', () => {
 
       const result = await messageStore.storeAppRunningMessage(message);
 
-      expect(result).to.be.true;
-      // Called twice: once for locations, once for installing locations
-      expect(dbHelperStub.removeDocumentsFromCollection.calledTwice).to.be.true;
+      expect(result).to.deep.equal({ stored: true, rebroadcast: true });
+      // Called three times: locations, installing locations, installing broadcasts
+      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(3);
     });
   });
 
@@ -479,7 +491,7 @@ describe('messageStore tests', () => {
       expect(result.message).to.include('appName cannot be empty');
     });
 
-    it('should store valid removed message', async () => {
+    it('should store valid removed message and delete location', async () => {
       const message = {
         type: 'fluxappremoved',
         version: 1,
@@ -496,6 +508,9 @@ describe('messageStore tests', () => {
 
       expect(result).to.be.true;
       expect(dbHelperStub.findOneAndDeleteInDatabase.calledOnce).to.be.true;
+      expect(dbHelperStub.findOneAndDeleteInDatabase.firstCall.args[2]).to.deep.equal({
+        ip: '192.168.1.1', name: 'testapp',
+      });
     });
   });
 
@@ -531,8 +546,8 @@ describe('messageStore tests', () => {
 
       expect(result).to.be.true;
       expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
-      // Should clean up installing record since installation failed
-      expect(dbHelperStub.removeDocumentsFromCollection.calledOnce).to.be.true;
+      // Should clean up installing record since installation failed (location + broadcast)
+      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(2);
       expect(dbHelperStub.removeDocumentsFromCollection.calledWith(
         'database',
         'appsInstallingLocations',
@@ -562,8 +577,7 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppInstallingErrorMessage(message);
 
       expect(result).to.be.true;
-      expect(dbHelperStub.updateInDatabase.calledOnce).to.be.true;
-      expect(dbHelperStub.removeDocumentsFromCollection.calledOnce).to.be.true;
+      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(2);
     });
   });
 
@@ -624,6 +638,87 @@ describe('messageStore tests', () => {
 
       expect(result).to.be.true;
       expect(dbHelperStub.updateInDatabase.calledOnce).to.be.true;
+    });
+  });
+
+  describe('storeAppStateEvent', () => {
+    let collectionStub;
+
+    beforeEach(() => {
+      collectionStub = { updateOne: sinon.stub().resolves({ modifiedCount: 1 }) };
+      const mockDb = { db: sinon.stub().returns({ collection: sinon.stub().returns(collectionStub) }) };
+      dbHelperStub.databaseConnection.returns(mockDb);
+    });
+
+    it('should store apprunning v2 event with correct dedupKey', async () => {
+      const payload = {
+        signedBroadcast: {
+          version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
+          data: { ip: '1.2.3.4', broadcastedAt: Date.now(), apps: [{ name: 'a', hash: 'h' }] },
+        },
+      };
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
+      expect(collectionStub.updateOne.calledOnce).to.be.true;
+      const filter = collectionStub.updateOne.firstCall.args[0];
+      expect(filter.ip).to.equal('1.2.3.4');
+      expect(filter.type).to.equal('apprunning');
+      expect(filter.dedupKey).to.equal('v2');
+    });
+
+    it('should store apprunning v1 event with name in dedupKey', async () => {
+      const payload = {
+        signedBroadcast: {
+          version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
+          data: { ip: '1.2.3.4', broadcastedAt: Date.now(), name: 'myapp', hash: 'h' },
+        },
+      };
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
+      expect(collectionStub.updateOne.calledOnce).to.be.true;
+      const filter = collectionStub.updateOne.firstCall.args[0];
+      expect(filter.dedupKey).to.equal('v1:myapp');
+    });
+
+    it('should store sigterm event', async () => {
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, {
+        message: { type: 'fluxnodesigterm', version: 1, ip: '1.2.3.4', broadcastedAt: Date.now() },
+        envelope: { version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig' },
+      });
+      expect(collectionStub.updateOne.calledOnce).to.be.true;
+      const filter = collectionStub.updateOne.firstCall.args[0];
+      expect(filter.type).to.equal('sigterm');
+      expect(filter.dedupKey).to.equal('sigterm');
+    });
+
+    it('should store appremoved event', async () => {
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPREMOVED, {
+        message: { ip: '1.2.3.4', appName: 'myapp', broadcastedAt: Date.now() },
+        envelope: { version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig' },
+      });
+      expect(collectionStub.updateOne.calledOnce).to.be.true;
+      const filter = collectionStub.updateOne.firstCall.args[0];
+      expect(filter.type).to.equal('appremoved');
+      expect(filter.dedupKey).to.equal('appremoved:myapp');
+    });
+
+    it('should store evicted event with createdAt', async () => {
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.EVICTED, { ip: '1.2.3.4' });
+      expect(collectionStub.updateOne.calledOnce).to.be.true;
+      const filter = collectionStub.updateOne.firstCall.args[0];
+      expect(filter.type).to.equal('evicted');
+      expect(filter.dedupKey).to.equal('evicted');
+      const update = collectionStub.updateOne.firstCall.args[1];
+      expect(update.$set.createdAt).to.be.instanceOf(Date);
+    });
+
+    it('should reject expired apprunning events', async () => {
+      const payload = {
+        signedBroadcast: {
+          version: 1, timestamp: Date.now(), pubKey: 'pk', signature: 'sig',
+          data: { ip: '1.2.3.4', broadcastedAt: Date.now() - (130 * 60 * 1000), apps: [{ name: 'a', hash: 'h' }] },
+        },
+      };
+      await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
+      expect(collectionStub.updateOne.called).to.be.false;
     });
   });
 });

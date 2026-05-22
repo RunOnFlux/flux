@@ -1,0 +1,15 @@
+{
+  "name": "flux-peer-stub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lightweight WebSocket peer stub for deterministic ephemeral hash sync testing",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.7.2",
+    "@noble/secp256k1": "^2.2.3",
+    "ws": "^8.18.0"
+  }
+}

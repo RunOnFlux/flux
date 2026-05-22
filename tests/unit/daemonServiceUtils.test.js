@@ -149,4 +149,46 @@ describe('daemonServiceUtils tests', () => {
       expect(result).to.eql(expectedErrorMessage);
     });
   });
+
+  describe('executeBatchCall tests', () => {
+    afterEach(() => {
+      daemonServiceUtils.setFluxdClient(null);
+      sinon.restore();
+    });
+
+    it('should delegate to fluxdClient.runBatch', async () => {
+      const batchData = [{ id: 0, result: 'ok', error: null }];
+      const runBatchStub = sinon.stub().resolves(batchData);
+      daemonServiceUtils.setFluxdClient({ run: sinon.stub(), runBatch: runBatchStub });
+
+      const calls = [{ method: 'getblockcount', params: [] }];
+      const result = await daemonServiceUtils.executeBatchCall(calls);
+
+      expect(result.status).to.equal('success');
+      expect(result.data).to.eql(batchData);
+      sinon.assert.calledOnceWithExactly(runBatchStub, calls);
+    });
+
+    it('should return error message on failure', async () => {
+      const runBatchStub = sinon.stub().rejects(new Error('Connection refused'));
+      daemonServiceUtils.setFluxdClient({ run: sinon.stub(), runBatch: runBatchStub });
+
+      const calls = [{ method: 'getblockcount', params: [] }];
+      const result = await daemonServiceUtils.executeBatchCall(calls);
+
+      expect(result.status).to.equal('error');
+      expect(result.data.message).to.equal('Connection refused');
+    });
+
+    it('should not use cache or lock', async () => {
+      const getSpy = sinon.spy(FluxTTLCache.prototype, 'get');
+      const batchData = [{ id: 0, result: 'ok', error: null }];
+      const runBatchStub = sinon.stub().resolves(batchData);
+      daemonServiceUtils.setFluxdClient({ run: sinon.stub(), runBatch: runBatchStub });
+
+      await daemonServiceUtils.executeBatchCall([{ method: 'getblockcount', params: [] }]);
+
+      sinon.assert.notCalled(getSpy);
+    });
+  });
 });

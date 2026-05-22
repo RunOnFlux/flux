@@ -29,6 +29,10 @@ const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
 const dockerService = require('./ZelBack/src/services/dockerService');
 const dbHelper = require('./ZelBack/src/services/dbHelper');
+const messageStore = require('./ZelBack/src/services/appMessaging/messageStore');
+const { AppSyncOrchestrator } = require('./ZelBack/src/services/appMessaging/appSyncOrchestrator');
+const { SIGTERM_EXPIRY_MS } = require('./ZelBack/src/services/utils/appConstants');
+const verifyPool = require('./ZelBack/src/services/utils/verifyPool');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -396,23 +400,23 @@ async function handleSigterm() {
 
         log.info(`Broadcasting fluxnodesigterm message: ${JSON.stringify(sigtermMessage)}`);
 
-        await fluxCommunicationMessagesSender.broadcastMessageToAll(sigtermMessage);
+        const signedMessage = await fluxCommunicationMessagesSender.broadcastMessageToAll(sigtermMessage);
 
-        // Update local DB to expire app location records in ~7 minutes,
-        // same manipulation that peers apply when receiving the sigterm.
-        // This keeps the local DB consistent with the network so that on
-        // reboot the TTL check correctly detects expired locations.
+        // Store sigterm event in event log and shorten location TTL to ~7 minutes.
+        // Peers apply the same when receiving the sigterm via gossip.
         try {
+          const envelope = { version: signedMessage.version, timestamp: signedMessage.timestamp, pubKey: signedMessage.pubKey, signature: signedMessage.signature };
+          await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.SIGTERM, { message: sigtermMessage, envelope });
+
           const db = dbHelper.databaseConnection();
           const database = db.db(config.database.appsglobal.database);
           const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
-          const newBroadcastedAt = new Date(sigtermMessage.broadcastedAt - (7500 - 420) * 1000);
-          const newExpireAt = new Date(sigtermMessage.broadcastedAt + (420 * 1000));
-          const update = { $set: { broadcastedAt: newBroadcastedAt, expireAt: newExpireAt } };
+          const newExpireAt = new Date(sigtermMessage.broadcastedAt + SIGTERM_EXPIRY_MS);
+          const update = { $set: { expireAt: newExpireAt } };
           await dbHelper.updateInDatabase(database, globalAppsLocations, { ip }, update);
-          log.info('Local app location records updated to expire in ~7 minutes');
+          log.info('Local sigterm event stored and location records updated to expire in ~7 minutes');
         } catch (dbError) {
-          log.warn(`Failed to update local app location expiration: ${dbError.message}`);
+          log.warn(`Failed to update local app expiration: ${dbError.message}`);
         }
 
         log.info('Shutdown notification broadcasted successfully');
@@ -425,6 +429,8 @@ async function handleSigterm() {
   } catch (error) {
     log.error(`Error during SIGTERM handling: ${error.message}`);
   }
+
+  await AppSyncOrchestrator.writeShutdownReason('sigterm');
 
   // Gracefully stop all running Flux app containers
   try {
@@ -465,6 +471,7 @@ async function handleSigterm() {
   // Give some time for the broadcast to complete
   await serviceHelper.delay(1000);
 
+  verifyPool.stop();
   log.info('Graceful shutdown complete, exiting...');
   process.exit(0);
 }

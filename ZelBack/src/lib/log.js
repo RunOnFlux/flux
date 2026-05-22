@@ -11,6 +11,7 @@ const levels = {
 };
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
+const forceConsole = Boolean(config.logConsole);
 
 const logLevel = config && config.logLevel ? config.logLevel : levels.debug;
 
@@ -72,7 +73,7 @@ function debug(args) {
     return;
   }
   try {
-    if (!isArcane) console.log(args);
+    if (!isArcane || forceConsole) console.log(args);
     // write to file
     const filepath = `${homeDirPath}debug.log`;
     writeToFile(filepath, args);

@@ -1,9 +1,7 @@
 const { match } = require('path-to-regexp');
 const WebSocketServer = require('ws').Server;
 const log = require('./log');
-const { FLUX_VERSION } = require('../services/utils/FluxPeerSocket');
-
-const LOCAL_CAPABILITIES = ['transmissionTimestamps', 'peerExchange', 'binaryMessages'];
+const { FLUX_VERSION, FLUX_CAPABILITIES } = require('../services/utils/FluxPeerSocket');
 
 class FluxWebsocketServer {
   static defautlErrorHandler = () => { };
@@ -51,8 +49,9 @@ class FluxWebsocketServer {
     // Add our capabilities and clock offset to every WS upgrade response header.
     // Old nodes silently ignore unknown headers.
     this.#socketServer.on('headers', (headers) => {
-      headers.push(`X-Flux-Capabilities: ${LOCAL_CAPABILITIES.join(',')}`);
+      headers.push(`X-Flux-Capabilities: ${FLUX_CAPABILITIES.join(',')}`);
       headers.push(`X-Flux-Version: ${FLUX_VERSION}`);
+      headers.push(`X-Flux-Uptime: ${Math.floor(process.uptime())}`);
       // Lazy require to avoid circular deps at module load time
       const fluxNetworkHelper = require('../services/fluxNetworkHelper');
       const offsetMs = fluxNetworkHelper.getLocalClockOffsetMs();

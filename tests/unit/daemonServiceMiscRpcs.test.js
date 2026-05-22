@@ -170,7 +170,7 @@ describe('daemonServiceMiscRpcs tests', () => {
     let logInfoSpy;
 
     beforeEach(() => {
-      daemonServiceBlockchainRpcsStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockchainInfo');
+      daemonServiceBlockchainRpcsStub = sinon.stub(daemonServiceUtils, 'executeCall');
       logInfoSpy = sinon.spy(log, 'info');
 
       daemonServiceMiscRpcs.setCurrentDaemonHeader(249187);
@@ -182,7 +182,7 @@ describe('daemonServiceMiscRpcs tests', () => {
     });
 
     it('should set new current header and height', async () => {
-      daemonServiceBlockchainRpcsStub.returns({
+      daemonServiceBlockchainRpcsStub.resolves({
         status: 'success',
         data: {
           blocks: 123456,
@@ -207,7 +207,7 @@ describe('daemonServiceMiscRpcs tests', () => {
     });
 
     it('should not set a new header if the number is lower', async () => {
-      daemonServiceBlockchainRpcsStub.returns({
+      daemonServiceBlockchainRpcsStub.resolves({
         status: 'success',
         data: {
           blocks: 123456,
@@ -227,7 +227,7 @@ describe('daemonServiceMiscRpcs tests', () => {
       const initialTimestamp = Date.now() - 60000; // 1 minute ago
       daemonServiceMiscRpcs.setLastSuccessfulRpcCall(initialTimestamp);
 
-      daemonServiceBlockchainRpcsStub.returns({
+      daemonServiceBlockchainRpcsStub.resolves({
         status: 'error',
         data: {
           message: 'Connection failed',
@@ -244,7 +244,7 @@ describe('daemonServiceMiscRpcs tests', () => {
       const initialTimestamp = Date.now() - 60000; // 1 minute ago
       daemonServiceMiscRpcs.setLastSuccessfulRpcCall(initialTimestamp);
 
-      daemonServiceBlockchainRpcsStub.throws(new Error('Network error'));
+      daemonServiceBlockchainRpcsStub.rejects(new Error('Network error'));
 
       await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo();
 

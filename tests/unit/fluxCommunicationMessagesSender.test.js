@@ -204,6 +204,32 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       sinon.assert.calledOnceWithExactly(websocket.send, sinon.match.string);
     });
+
+    it('should use sendAsync when awaitDrain option is true', async () => {
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const data = { title: 'test' };
+      const websocket = generateWebsocket();
+      websocket.sendAsync = sinon.stub().resolves(true);
+
+      await fluxCommunicationMessagesSender.sendSignedMessage(data, websocket, { awaitDrain: true });
+
+      sinon.assert.calledOnce(websocket.sendAsync);
+      sinon.assert.notCalled(websocket.send);
+    });
+
+    it('should use send when awaitDrain option is not set', async () => {
+      fluxNetworkHelperPublicKeyStub.returns('0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab');
+      fluxNetworkHelperPrivateKeyStub.returns('5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh');
+      const data = { title: 'test' };
+      const websocket = generateWebsocket();
+      websocket.sendAsync = sinon.stub().resolves(true);
+
+      await fluxCommunicationMessagesSender.sendSignedMessage(data, websocket);
+
+      sinon.assert.calledOnce(websocket.send);
+      sinon.assert.notCalled(websocket.sendAsync);
+    });
   });
 
   describe('respondWithAppMessage tests', () => {

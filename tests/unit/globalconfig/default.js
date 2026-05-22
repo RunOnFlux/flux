@@ -2,6 +2,22 @@
 const database = process.env.FLUX_DATABASE || '127.0.0.1';
 
 module.exports = {
+  testEventStream: false,
+  system: {
+    bootIdPath: '/proc/sys/kernel/random/boot_id',
+    heartbeatIntervalMs: 30000,
+    bootSyncTimeoutMs: 300000,
+    bootDaemonTimeoutMs: 300000,
+  },
+  peers: {
+    wsPingIntervalMs: 15000,
+    wsMaxMissedPongs: 3,
+  },
+  confirmation: {
+    pollIntervalMs: 30000,
+    daemonStaleMs: 7500000,
+    daemonExpiredMs: 19200000,
+  },
   server: {
     allowedPorts: [11, 13, 16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
@@ -49,6 +65,9 @@ module.exports = {
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsInstallingLocations',
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
+        appStateEvents: 'appstateevents',
+        appsInstallingBroadcasts: 'fluxappinstallingbroadcasts',
+        appsInstallingErrorsBroadcasts: 'fluxappinstallingerrorsbroadcasts',
       },
     },
     chainparams: {
@@ -65,13 +84,20 @@ module.exports = {
       },
     },
   },
+  logConsole: false,
+  upnp: {
+    gatewayUrl: '',
+    nodeIp: '',
+  },
   benchmark: {
+    host: '127.0.0.1',
     port: 16225,
     rpcport: 16224,
     porttestnet: 26225,
     rpcporttestnet: 26224,
   },
   daemon: {
+    host: '127.0.0.1',
     chainValidHeight: 1062000,
     port: 16125,
     rpcport: 16124,
@@ -201,11 +227,16 @@ module.exports = {
     minimumInstancesV8: 1,
     minimumInstancesV8Block: 2176519, // block height where v8+ apps can have 1 instance - expected around December 19th 2025
     maximumInstances: 100,
+    maxAppsPerNode: 200,
     minOutgoing: 8,
     minUniqueIpsOutgoing: 7,
     minIncoming: 4,
     minUniqueIpsIncoming: 3,
     minUpTime: 1800, // 30 mins
+    appSyncPeerThreshold: 12,
+    appSyncDegradedThreshold: 4,
+    appSyncMinPeerUptime: 60,
+    appSyncMinCompletions: 3,
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds
@@ -241,6 +272,67 @@ module.exports = {
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
     applyMinimumPriceOn3Instances: 1691000, // after this block we use the min. usd price on prices per 3 instances.
     applyMinimumForExtraInstances: 1890000,
+    minHashSyncPeers: 12,
+    bootDelayMultiplier: 1,
+    spawnDelayMs: 0,
+    removalSpacingMs: 60000,
+    locationTtlS: 7500,
+    installingTtlS: 900,
+    installErrorTtlS: 3600,
+    tempMsgTtlS: 3600,
+    hashSyncIntervalMs: 1800000,
+    peerNotifyIntervalMs: 3600000,
+    cpuCheckIntervalMs: 900000,
+    portRestoreIntervalMs: 600000,
+    imageComplianceIntervalMs: 3600000,
+    forceRemovalIntervalMs: 7200000,
+    installCollisionWaitMs: 90000,
+    spawnReconfirmDelayMs: 7500000,
+    nonEnterpriseSpawnDelayMs: 120000,
+    globalCmdDelayMs: 500,
+    discoveryAutostart: true,
+    discoveryRetryMs: 60000,
+    discoveryFailRetryMs: 120000,
+    connectionBackoffMs: [120000, 300000, 600000, 900000],
+    nodeMonitorIntervalMs: 1200000,
+    spawnDeferrals: {
+      targetedNodesMs: { enterprise: 1800000, standard: 3420000 },
+      staticIpMs: { enterprise: 1620000, standard: 3420000 },
+      datacenterMs: { enterprise: 1620000, standard: 3420000 },
+      capacityGap: {
+        largeMs: { enterprise: 1800000, standard: 7020000 },
+        mediumMs: { enterprise: 1260000, standard: 5220000 },
+        smallMs: { enterprise: 720000, standard: 3420000 },
+      },
+    },
+    spawnDelayMultiplier: 1,
+    daemonInfoIntervalMs: 30000,
+    explorerSyncRetryMs: 120000,
+    explorerDeepRestoreBlocks: 100,
+    syncTimeoutMs: 120000,
+    hashSyncMaxRetries: 3,
+    hashSyncRetryMs: 300000,
+    hashSyncSettleMs: 4000,
+    hashSyncResponseTimePerHashMs: 150,
+    hashSyncBufferMs: 5000,
+    hashSyncMaxRounds: 4,
+    hashSyncPeersPerRound: 3,
+    hashSyncEphemeralPeers: 5,
+    hashSyncFallbackRecheckBlocks: 100,
+    syncResponseThrottleMs: 300000,
+    wsHandshakeTimeoutMs: 10000,
+    discoveryConnectionDelayMs: 500,
+    nodeMonitorRemovalDelayMs: 60000,
+    nodeMonitorDosRecoveryDelayMs: 600000,
+    nodeMonitorConfirmationLossDelayMs: 1200000,
+    nodeMonitorErrorRecoveryDelayMs: 120000,
+    nodeMonitorCheckTimeoutMs: 10000,
+    imageUpdateCheckIntervalMs: 21600000,
+    imageUpdateInitialDelayMinMs: 600000,
+    imageUpdateInitialDelayMaxMs: 1800000,
+    imageUpdateDelayBetweenAppsMs: 5000,
+    imageUpdateDelayAfterRedeployMs: 120000,
+    imageUpdateDelayBetweenComponentsMs: 1000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -291,4 +383,12 @@ module.exports = {
   enterpriseNodesPublicKeys: [
     '027595b0b8257d7b901fc024d7c5b66a7af68b64240dea0359dec3ffb1f2a33a8d',
   ],
+  github: {
+    rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
+    apiBaseUrl: 'https://api.github.com',
+  },
+  geolocation: {
+    ipApiBaseUrl: 'http://ip-api.com',
+    statsApiBaseUrl: 'https://stats.runonflux.io',
+  },
 };

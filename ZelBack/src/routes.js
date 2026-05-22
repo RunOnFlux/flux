@@ -51,6 +51,7 @@ const backupRestoreService = require('./services/backupRestoreService');
 const IOUtils = require('./services/IOUtils');
 const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
+const fluxEventBus = require('./services/utils/fluxEventBus');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -81,10 +82,10 @@ module.exports = (app) => {
     daemonServiceControlRpcs.getInfo(req, res);
   });
   app.get('/daemon/getfluxnodestatus', cache('60 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
+    daemonServiceNodeRpcs.getFluxNodeStatusApi(req, res);
   });
   app.get('/daemon/getzelnodestatus', cache('60 seconds'), (req, res) => { // DEPRECATED
-    daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
+    daemonServiceNodeRpcs.getFluxNodeStatusApi(req, res);
   });
   app.get('/daemon/listfluxnodes/:filter?', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.listFluxNodes(req, res);
@@ -321,6 +322,9 @@ module.exports = (app) => {
   });
   app.get('/flux/dosstate', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getDOSState(req, res);
+  });
+  app.post('/flux/dosstate', (req, res) => {
+    fluxNetworkHelper.setDOSStateApi(req, res);
   });
   // New peer endpoints
   app.get('/flux/peers/:filter?', cache('30 seconds'), (req, res) => {
@@ -1120,6 +1124,9 @@ module.exports = (app) => {
   app.get('/flux/removeincomingpeer/:ip?', (req, res) => {
     fluxCommunication.removeIncomingPeer(req, res);
   });
+  app.get('/flux/startdiscovery', (req, res) => {
+    fluxCommunication.startDiscoveryApi(req, res);
+  });
   app.get('/flux/allowport/:port?', (req, res) => {
     fluxNetworkHelper.allowPortApi(req, res);
   });
@@ -1549,5 +1556,9 @@ module.exports = (app) => {
   });
   app.get('/explorer/issynced', cache('30 seconds'), (req, res) => {
     explorerService.isExplorerSynced(req, res);
+  });
+
+  app.get('/flux/eventstream', (req, res) => {
+    fluxEventBus.sseHandler(req, res);
   });
 };
