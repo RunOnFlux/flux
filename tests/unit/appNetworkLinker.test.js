@@ -10,6 +10,7 @@ describe('appNetworkLinker tests', () => {
   let appNetworkLinker;
   let dbHelperStub;
   let dockerServiceStub;
+  let registryManagerStub;
   let logStub;
 
   const configStub = {
@@ -33,12 +34,16 @@ describe('appNetworkLinker tests', () => {
       appDockerNetworkConnect: sinon.stub().resolves(),
       getAppContainerNames: sinon.stub().resolves([]),
     };
+    registryManagerStub = {
+      getApplicationSpecifications: sinon.stub(),
+    };
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
 
     appNetworkLinker = proxyquire('../../ZelBack/src/services/appLifecycle/appNetworkLinker', {
       config: configStub,
       '../dbHelper': dbHelperStub,
       '../dockerService': dockerServiceStub,
+      '../appDatabase/registryManager': registryManagerStub,
       '../../lib/log': logStub,
       '../utils/appConstants': appConstantsStub,
     });
@@ -173,6 +178,89 @@ describe('appNetworkLinker tests', () => {
     it('does not throw when the database read fails', async () => {
       dbHelperStub.findInDatabase.rejects(new Error('db down'));
       await expect(appNetworkLinker.reconnectLinkedApps('appA')).to.not.be.rejected;
+    });
+  });
+
+  describe('findLinkedAppLogCollector', () => {
+    it('returns null when there are no linked apps', async () => {
+      const result = await appNetworkLinker.findLinkedAppLogCollector({ name: 'appB', description: 'no token' });
+      expect(result).to.equal(null);
+      sinon.assert.notCalled(registryManagerStub.getApplicationSpecifications);
+    });
+
+    it('returns the first linked app exposing a LOG=COLLECT component', async () => {
+      registryManagerStub.getApplicationSpecifications.withArgs('appA').resolves({
+        name: 'appA',
+        compose: [
+          { name: 'web', environmentParameters: ['FOO=BAR'] },
+          { name: 'logsink', environmentParameters: ['LOG=COLLECT'] },
+        ],
+      });
+
+      const result = await appNetworkLinker.findLinkedAppLogCollector({
+        name: 'appB',
+        description: 'networkWith:[appA]',
+      });
+
+      expect(result).to.eql({ linkedAppName: 'appA', collectorComponentName: 'logsink' });
+    });
+
+    it('accepts the legacy enviromentParameters (typo) field', async () => {
+      registryManagerStub.getApplicationSpecifications.withArgs('appA').resolves({
+        name: 'appA',
+        compose: [{ name: 'logsink', enviromentParameters: ['LOG=COLLECT'] }],
+      });
+
+      const result = await appNetworkLinker.findLinkedAppLogCollector({
+        name: 'appB',
+        description: 'networkWith:[appA]',
+      });
+
+      expect(result).to.eql({ linkedAppName: 'appA', collectorComponentName: 'logsink' });
+    });
+
+    it('skips linked apps with blanked compose (enterprise on non-Arcane)', async () => {
+      registryManagerStub.getApplicationSpecifications.withArgs('appA').resolves({ name: 'appA', compose: [] });
+      registryManagerStub.getApplicationSpecifications.withArgs('appC').resolves({
+        name: 'appC',
+        compose: [{ name: 'collector', environmentParameters: ['LOG=COLLECT'] }],
+      });
+
+      const result = await appNetworkLinker.findLinkedAppLogCollector({
+        name: 'appB',
+        description: 'networkWith:[appA,appC]',
+      });
+
+      expect(result).to.eql({ linkedAppName: 'appC', collectorComponentName: 'collector' });
+    });
+
+    it('returns null when no linked app exposes a LOG=COLLECT component', async () => {
+      registryManagerStub.getApplicationSpecifications.withArgs('appA').resolves({
+        name: 'appA',
+        compose: [{ name: 'web', environmentParameters: ['FOO=BAR'] }],
+      });
+
+      const result = await appNetworkLinker.findLinkedAppLogCollector({
+        name: 'appB',
+        description: 'networkWith:[appA]',
+      });
+
+      expect(result).to.equal(null);
+    });
+
+    it('continues past a spec lookup that throws', async () => {
+      registryManagerStub.getApplicationSpecifications.withArgs('appA').rejects(new Error('db down'));
+      registryManagerStub.getApplicationSpecifications.withArgs('appC').resolves({
+        name: 'appC',
+        compose: [{ name: 'collector', environmentParameters: ['LOG=COLLECT'] }],
+      });
+
+      const result = await appNetworkLinker.findLinkedAppLogCollector({
+        name: 'appB',
+        description: 'networkWith:[appA,appC]',
+      });
+
+      expect(result).to.eql({ linkedAppName: 'appC', collectorComponentName: 'collector' });
     });
   });
 

@@ -836,6 +836,28 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     syslogIP = await getNextAvailableIPForApp(appName);
   }
 
+  // Cross-app LOG=SEND → LOG=COLLECT discovery: if this is a SEND component and
+  // the app has no in-compose collector, look at every app this one is
+  // networkWith-linked to and ship to the first linked app exposing a COLLECT
+  // component. Reachability is provided by appNetworkLinker attaching this
+  // container to the linked app's docker network.
+  if (!syslogTarget && isSender && fullAppSpecs) {
+    // eslint-disable-next-line global-require
+    const appNetworkLinker = require('./appLifecycle/appNetworkLinker');
+    const linkedCollector = await appNetworkLinker.findLinkedAppLogCollector(fullAppSpecs);
+    if (linkedCollector) {
+      const collectorContainerName = `flux${linkedCollector.collectorComponentName}_${linkedCollector.linkedAppName}`;
+      const linkedIP = await getContainerIP(collectorContainerName);
+      if (linkedIP) {
+        syslogTarget = linkedCollector.collectorComponentName;
+        syslogIP = linkedIP;
+        log.info(`Cross-app LOG: ${appName} sender will ship to ${collectorContainerName} at ${syslogIP}`);
+      } else {
+        log.warn(`Cross-app LOG: collector ${collectorContainerName} not reachable; ${appName} will fall back to json-file logging`);
+      }
+    }
+  }
+
   let nodeId = null;
   let nodeIP = null;
   let labels = null;

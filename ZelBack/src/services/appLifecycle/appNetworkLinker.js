@@ -216,6 +216,56 @@ async function reconcileAllAppNetworkLinks() {
   }
 }
 
+/**
+ * For a SEND component being installed in an app whose own compose array does
+ * NOT contain a LOG=COLLECT component, looks at every app this app is
+ * networkWith-linked to and returns the first linked app that owns a COLLECT
+ * component. The actual container name resolution happens in the caller.
+ *
+ * Enterprise linked apps whose `compose` is blanked in the local DB and not
+ * decryptable on this node are skipped — the SEND container will fall back to
+ * json-file logging.
+ *
+ * @param {object} fullAppSpecs - app specification of the app being installed
+ * @returns {Promise<{linkedAppName: string, collectorComponentName: string}|null>}
+ */
+async function findLinkedAppLogCollector(fullAppSpecs) {
+  const linkedApps = getLinkedApps(fullAppSpecs);
+  if (!linkedApps.length) {
+    return null;
+  }
+
+  // Lazy require to avoid the circular dependency dockerService → appLifecycle/appNetworkLinker → appDatabase/registryManager → dockerService.
+  // eslint-disable-next-line global-require
+  const registryManager = require('../appDatabase/registryManager');
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const linkedAppName of linkedApps) {
+    let linkedSpec;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      linkedSpec = await registryManager.getApplicationSpecifications(linkedAppName);
+    } catch (error) {
+      log.warn(`findLinkedAppLogCollector: failed to read spec for ${linkedAppName}: ${error.message}`);
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    if (!linkedSpec || !Array.isArray(linkedSpec.compose) || !linkedSpec.compose.length) {
+      // No compose to scan — typical for enterprise apps on non-Arcane nodes.
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    const collectorComponent = linkedSpec.compose.find((component) => {
+      const envs = (component && (component.environmentParameters || component.enviromentParameters)) || [];
+      return envs.some((env) => typeof env === 'string' && env.startsWith('LOG=COLLECT'));
+    });
+    if (collectorComponent && collectorComponent.name) {
+      return { linkedAppName, collectorComponentName: collectorComponent.name };
+    }
+  }
+  return null;
+}
+
 module.exports = {
   parseNetworkWith,
   getLinkedApps,
@@ -223,4 +273,5 @@ module.exports = {
   connectComponentToLinkedApps,
   reconnectLinkedApps,
   reconcileAllAppNetworkLinks,
+  findLinkedAppLogCollector,
 };
