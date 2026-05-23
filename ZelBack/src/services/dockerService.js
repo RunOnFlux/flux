@@ -623,8 +623,7 @@ async function getNextAvailableIPForApp(appName) {
       });
     }
 
-    const allContainers = await docker.listContainers({ all: true });
-    const filteredContainers = allContainers.filter((container) => container.Names.some((name) => name.endsWith(`_${appName}`)));
+    const filteredContainers = await getAppContainerObjects(appName);
 
     // eslint-disable-next-line no-restricted-syntax
     for (const container of filteredContainers) {
@@ -1428,21 +1427,88 @@ async function forceRemoveFluxAppDockerNetwork(appname) {
  * Connects a container to an existing docker network. Idempotent — if the
  * container is already attached to the network this resolves without error.
  *
+ * Strategy: inspect the container's NetworkSettings.Networks and return early
+ * if the network is already present. Falls back to a narrow string-match catch
+ * only for the connect race window (another caller wired the container between
+ * our inspect and connect). The previous blanket 403 catch is gone — 403 is
+ * overloaded by docker for unrelated failure modes (e.g. forbidden swarm-scoped
+ * operations) and was silently masking them.
+ *
  * @param {string} containerIdOrName - container id or name
  * @param {string} networkName - target docker network name
  * @returns {Promise<void>}
  */
 async function appDockerNetworkConnect(containerIdOrName, networkName) {
+  try {
+    const containerInfo = await docker.getContainer(containerIdOrName).inspect();
+    const attached = containerInfo && containerInfo.NetworkSettings && containerInfo.NetworkSettings.Networks;
+    if (attached && Object.prototype.hasOwnProperty.call(attached, networkName)) {
+      return;
+    }
+  } catch (error) {
+    // Inspect failed (container not found, transient docker error). Let the
+    // connect attempt below surface the real error message.
+  }
+
   const network = docker.getNetwork(networkName);
   try {
     await network.connect({ Container: containerIdOrName });
   } catch (error) {
-    // 403 - endpoint already exists in network (container already connected)
-    if (error.statusCode === 403 || /already exists|already connected/i.test(error.message || '')) {
+    if (/already exists in network|already connected/i.test(error.message || '')) {
       return;
     }
     throw error;
   }
+}
+
+/**
+ * Escapes a string for safe use inside a RegExp source.
+ */
+function escapeRegExp(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Returns the docker container summary objects (output of listContainers)
+ * belonging to a given Flux app — both the modern component form
+ * `flux<componentName>_<appName>` / `zel<componentName>_<appName>` and the
+ * legacy single-component form `flux<appName>` / `zel<appName>`.
+ *
+ * Docker-listing based on purpose: the local DB blanks `compose` for enterprise
+ * apps, so iterating spec.compose would miss components on non-Arcane nodes. The
+ * regex anchors the `flux`/`zel` prefix so non-Flux containers cannot match.
+ *
+ * @param {string} appName
+ * @returns {Promise<Array<object>>} container summary objects
+ */
+async function getAppContainerObjects(appName) {
+  const containers = await dockerListContainers(true);
+  const singleComponentSlashName = getAppDockerNameIdentifier(appName);
+  const componentRegex = new RegExp(`^/(?:flux|zel)[a-zA-Z0-9]+_${escapeRegExp(appName)}$`);
+
+  return (containers || []).filter((container) => {
+    const names = container.Names || [];
+    return names.some((name) => name === singleComponentSlashName || componentRegex.test(name));
+  });
+}
+
+/**
+ * Returns the docker container names (without leading slash) belonging to a
+ * given Flux app. Thin wrapper around getAppContainerObjects.
+ *
+ * @param {string} appName
+ * @returns {Promise<string[]>}
+ */
+async function getAppContainerNames(appName) {
+  const objects = await getAppContainerObjects(appName);
+  const names = [];
+  objects.forEach((container) => {
+    const raw = container.Names && container.Names[0];
+    if (!raw) return;
+    const name = raw.replace(/^\//, '');
+    if (!names.includes(name)) names.push(name);
+  });
+  return names;
 }
 
 /**
@@ -1664,6 +1730,8 @@ module.exports = {
   removeFluxAppDockerNetwork,
   forceRemoveFluxAppDockerNetwork,
   appDockerNetworkConnect,
+  getAppContainerNames,
+  getAppContainerObjects,
   getAppNameByContainerIp,
   waitForDocker,
 };

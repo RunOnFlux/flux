@@ -20,6 +20,7 @@ describe('appNetworkLinker tests', () => {
 
   const appConstantsStub = {
     localAppsInformation: 'localAppsInformation',
+    APP_NAME_REGEX: /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/,
   };
 
   beforeEach(() => {
@@ -30,8 +31,7 @@ describe('appNetworkLinker tests', () => {
     };
     dockerServiceStub = {
       appDockerNetworkConnect: sinon.stub().resolves(),
-      dockerListContainers: sinon.stub().resolves([]),
-      getAppIdentifier: sinon.stub().callsFake((name) => (name.startsWith('flux') || name.startsWith('zel') ? name : `flux${name}`)),
+      getAppContainerNames: sinon.stub().resolves([]),
     };
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
 
@@ -153,20 +153,6 @@ describe('appNetworkLinker tests', () => {
     });
   });
 
-  describe('getAppContainerNames', () => {
-    it('returns component and single-component containers belonging to an app', async () => {
-      dockerServiceStub.dockerListContainers.resolves([
-        { Names: ['/fluxweb_myapp'] },
-        { Names: ['/fluxapi_myapp'] },
-        { Names: ['/fluxother_differentapp'] },
-        { Names: ['/fluxmyapp'] },
-      ]);
-      const names = await appNetworkLinker.getAppContainerNames('myapp');
-      expect(names).to.have.members(['fluxweb_myapp', 'fluxapi_myapp', 'fluxmyapp']);
-      expect(names).to.not.include('fluxother_differentapp');
-    });
-  });
-
   describe('reconnectLinkedApps', () => {
     it('reconnects only the apps that are networked with the given app', async () => {
       dbHelperStub.findInDatabase.resolves([
@@ -174,11 +160,8 @@ describe('appNetworkLinker tests', () => {
         { name: 'appC', description: 'no links here' },
         { name: 'appA', description: 'networkWith:[appA]' },
       ]);
-      dockerServiceStub.dockerListContainers.resolves([
-        { Names: ['/fluxweb_appB'] },
-        { Names: ['/fluxapi_appB'] },
-        { Names: ['/fluxweb_appC'] },
-      ]);
+      dockerServiceStub.getAppContainerNames.withArgs('appB').resolves(['fluxweb_appB', 'fluxapi_appB']);
+      dockerServiceStub.getAppContainerNames.withArgs('appC').resolves(['fluxweb_appC']);
 
       await appNetworkLinker.reconnectLinkedApps('appA');
 
@@ -199,7 +182,7 @@ describe('appNetworkLinker tests', () => {
         { name: 'appB', description: 'networkWith:[appA]' },
         { name: 'appC', description: 'plain' },
       ]);
-      dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxweb_appB'] }]);
+      dockerServiceStub.getAppContainerNames.withArgs('appB').resolves(['fluxweb_appB']);
 
       await appNetworkLinker.reconcileAllAppNetworkLinks();
 

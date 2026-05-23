@@ -24,10 +24,7 @@ const config = require('config');
 const dbHelper = require('../dbHelper');
 const dockerService = require('../dockerService');
 const log = require('../../lib/log');
-const { localAppsInformation } = require('../utils/appConstants');
-
-// Flux app name syntax (version 8 superset — alphanumerics with internal hyphens).
-const appNameRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/;
+const { localAppsInformation, APP_NAME_REGEX } = require('../utils/appConstants');
 
 /**
  * Parses the `networkWith:[...]` token out of an app description.
@@ -48,7 +45,7 @@ function parseNetworkWith(description) {
   match[1].split(',').forEach((raw) => {
     const name = raw.trim().replace(/^["']+|["']+$/g, '').trim();
     const key = name.toLowerCase();
-    if (name && appNameRegex.test(name) && !seen.has(key)) {
+    if (name && APP_NAME_REGEX.test(name) && !seen.has(key)) {
       seen.add(key);
       names.push(name);
     }
@@ -69,31 +66,6 @@ function getLinkedApps(appSpecs) {
   }
   const selfName = String(appSpecs.name).toLowerCase();
   return parseNetworkWith(appSpecs.description).filter((linked) => linked.toLowerCase() !== selfName);
-}
-
-/**
- * Resolves the docker container names belonging to an installed app by
- * inspecting docker directly. This is robust for enterprise apps, whose stored
- * `compose` array is blanked in the local database.
- *
- * @param {string} appName - application name
- * @returns {Promise<string[]>} docker container names (without leading slash)
- */
-async function getAppContainerNames(appName) {
-  const containers = await dockerService.dockerListContainers(true);
-  const singleComponentName = dockerService.getAppIdentifier(appName);
-  const names = [];
-  (containers || []).forEach((container) => {
-    (container.Names || []).forEach((rawName) => {
-      const name = rawName.replace(/^\//, '');
-      // component container: flux<component>_<appName>; single-component app: flux<appName> / zel<appName>
-      const belongsToApp = name === singleComponentName || name.endsWith(`_${appName}`);
-      if (belongsToApp && !names.includes(name)) {
-        names.push(name);
-      }
-    });
-  });
-  return names;
 }
 
 /**
@@ -187,7 +159,7 @@ async function reconnectLinkedApps(appName) {
     }
     try {
       // eslint-disable-next-line no-await-in-loop
-      const containerNames = await getAppContainerNames(app.name);
+      const containerNames = await dockerService.getAppContainerNames(app.name);
       // eslint-disable-next-line no-restricted-syntax
       for (const containerName of containerNames) {
         // eslint-disable-next-line no-await-in-loop
@@ -226,7 +198,7 @@ async function reconcileAllAppNetworkLinks() {
     }
     try {
       // eslint-disable-next-line no-await-in-loop
-      const containerNames = await getAppContainerNames(app.name);
+      const containerNames = await dockerService.getAppContainerNames(app.name);
       // eslint-disable-next-line no-restricted-syntax
       for (const linkedApp of linkedApps) {
         const networkName = `fluxDockerNetwork_${linkedApp}`;
@@ -247,7 +219,6 @@ async function reconcileAllAppNetworkLinks() {
 module.exports = {
   parseNetworkWith,
   getLinkedApps,
-  getAppContainerNames,
   checkAppNetworkRequirements,
   connectComponentToLinkedApps,
   reconnectLinkedApps,
