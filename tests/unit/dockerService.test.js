@@ -715,6 +715,118 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('appDockerNetworkConnect tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    function stubInspectWithNetworks(networks) {
+      const inspectStub = sinon.stub().resolves({ NetworkSettings: { Networks: networks } });
+      sinon.stub(Dockerode.prototype, 'getContainer').returns({ inspect: inspectStub });
+      return inspectStub;
+    }
+
+    function stubInspectThrows(error) {
+      const inspectStub = sinon.stub().rejects(error);
+      sinon.stub(Dockerode.prototype, 'getContainer').returns({ inspect: inspectStub });
+      return inspectStub;
+    }
+
+    it('connects the container when not already attached', async () => {
+      stubInspectWithNetworks({ bridge: {} });
+      const connectStub = sinon.stub().resolves();
+      const getNetworkStub = sinon.stub(Dockerode.prototype, 'getNetwork').returns({ connect: connectStub });
+
+      await dockerService.appDockerNetworkConnect('fluxweb_myapp', 'fluxDockerNetwork_dep');
+
+      sinon.assert.calledOnceWithExactly(getNetworkStub, 'fluxDockerNetwork_dep');
+      sinon.assert.calledOnceWithExactly(connectStub, { Container: 'fluxweb_myapp' });
+    });
+
+    it('skips the connect call when the container is already attached', async () => {
+      stubInspectWithNetworks({ fluxDockerNetwork_dep: {} });
+      const connectStub = sinon.stub().resolves();
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ connect: connectStub });
+
+      await dockerService.appDockerNetworkConnect('fluxweb_myapp', 'fluxDockerNetwork_dep');
+
+      sinon.assert.notCalled(connectStub);
+    });
+
+    it('still attempts to connect when inspect fails', async () => {
+      stubInspectThrows(new Error('inspect transient'));
+      const connectStub = sinon.stub().resolves();
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ connect: connectStub });
+
+      await dockerService.appDockerNetworkConnect('fluxweb_myapp', 'fluxDockerNetwork_dep');
+
+      sinon.assert.calledOnceWithExactly(connectStub, { Container: 'fluxweb_myapp' });
+    });
+
+    it('swallows the race-window already-exists error from connect', async () => {
+      stubInspectWithNetworks({ bridge: {} });
+      const error = new Error('endpoint with name fluxweb_myapp already exists in network fluxDockerNetwork_dep');
+      error.statusCode = 403;
+      const connectStub = sinon.stub().rejects(error);
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ connect: connectStub });
+
+      await expect(dockerService.appDockerNetworkConnect('fluxweb_myapp', 'fluxDockerNetwork_dep')).to.not.be.rejected;
+    });
+
+    it('rethrows generic connect errors (no message match)', async () => {
+      stubInspectWithNetworks({ bridge: {} });
+      const error = new Error('network fluxDockerNetwork_dep not found');
+      error.statusCode = 404;
+      const connectStub = sinon.stub().rejects(error);
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ connect: connectStub });
+
+      await expect(dockerService.appDockerNetworkConnect('fluxweb_myapp', 'fluxDockerNetwork_dep')).to.be.rejectedWith('not found');
+    });
+
+    it('rethrows a generic 403 that is not already-exists', async () => {
+      stubInspectWithNetworks({ bridge: {} });
+      const error = new Error('operation not permitted on swarm-scoped network');
+      error.statusCode = 403;
+      const connectStub = sinon.stub().rejects(error);
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ connect: connectStub });
+
+      await expect(dockerService.appDockerNetworkConnect('fluxweb_myapp', 'fluxDockerNetwork_dep')).to.be.rejectedWith('swarm-scoped');
+    });
+  });
+
+  describe('getAppContainerNames tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('returns multi-component and legacy single-component containers, anchored to flux/zel', async () => {
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([
+        { Names: ['/fluxweb_myapp'] },
+        { Names: ['/fluxapi_myapp'] },
+        { Names: ['/fluxother_differentapp'] },
+        { Names: ['/fluxmyapp'] },
+        { Names: ['/zelmyapp'] },
+        { Names: ['/someoneelse_myapp'] }, // missing flux/zel prefix — must NOT match
+      ]);
+
+      const names = await dockerService.getAppContainerNames('myapp');
+
+      expect(names).to.have.members(['fluxweb_myapp', 'fluxapi_myapp', 'fluxmyapp']);
+      expect(names).to.not.include('fluxother_differentapp');
+      expect(names).to.not.include('someoneelse_myapp');
+    });
+
+    it('escapes regex metacharacters in the app name', async () => {
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([
+        { Names: ['/fluxweb_my-app'] },
+      ]);
+
+      const names = await dockerService.getAppContainerNames('my-app');
+
+      expect(names).to.eql(['fluxweb_my-app']);
+    });
+  });
+
   describe('appDockerCreate tests', () => {
     let dockerStub;
     let advancedWorkflowsStub;

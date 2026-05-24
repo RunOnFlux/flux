@@ -23,6 +23,11 @@ const globalAppStateEvents = config.database.appsglobal.collections.appStateEven
 const globalAppsInstallingErrorsLocations = config.database.appsglobal.collections.appsInstallingErrorsLocations;
 const globalAppsInstallingErrorsBroadcasts = config.database.appsglobal.collections.appsInstallingErrorsBroadcasts;
 
+// App / component name validation regexes.
+// v8+ app names allow internal hyphens; v<=7 app names and all component names are strictly alphanumeric.
+const APP_NAME_REGEX = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/;
+const APP_NAME_REGEX_LEGACY = /^[a-zA-Z0-9]+$/;
+
 // Supported architectures
 const supportedArchitectures = ['amd64', 'arm64'];
 
@@ -95,6 +100,10 @@ module.exports = {
   globalAppStateEvents,
   globalAppsInstallingErrorsLocations,
   globalAppsInstallingErrorsBroadcasts,
+
+  // Validation regexes
+  APP_NAME_REGEX,
+  APP_NAME_REGEX_LEGACY,
 
   // Configuration
   supportedArchitectures,

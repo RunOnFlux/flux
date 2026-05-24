@@ -100,6 +100,8 @@ describe('appValidator tests', () => {
       '../utils/appConstants': {
         supportedArchitectures: ['amd64', 'arm64'],
         enterpriseRequiredArchitectures: ['amd64'],
+        APP_NAME_REGEX: /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/,
+        APP_NAME_REGEX_LEGACY: /^[a-zA-Z0-9]+$/,
       },
       '../utils/appUtilities': {
         specificationFormatter: sinon.stub().returnsArg(0),

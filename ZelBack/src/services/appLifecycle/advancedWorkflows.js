@@ -28,6 +28,7 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
+const appNetworkLinker = require('./appNetworkLinker');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -1014,6 +1015,11 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       return;
     }
 
+    // Verify the apps this app must be networked with (networkWith token in the
+    // description) are installed locally and owned by the same owner before any
+    // side effects.
+    await appNetworkLinker.checkAppNetworkRequirements(appSpecifications);
+
     if (!isComponent) {
       let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
       if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
@@ -1151,6 +1157,14 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         log.info(`Restored syncthing cache for ${appId} during soft redeploy`);
       }
     }
+
+    // Reconnect any locally installed apps that are networked with this app.
+    // Guarded on appComponent (the unmutated entry value) since isComponent is
+    // flipped to true inside the component install loop above.
+    if (!appComponent) {
+      await appNetworkLinker.reconnectLinkedApps(appName);
+    }
+
     // all done message
     const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
     log.info(successStatus);
