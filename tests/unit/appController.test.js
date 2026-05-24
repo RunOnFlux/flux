@@ -531,7 +531,7 @@ describe('appController tests', () => {
         { ip: '192.168.1.2:16127', name: 'TestApp' },
       ];
       sinon.stub(dbHelper, 'findInDatabase').resolves(locations);
-      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').resolves('192.168.1.3:16127');
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.3:16127');
     });
 
     it('should execute command on all app instances', async () => {
@@ -553,7 +553,7 @@ describe('appController tests', () => {
       sinon.stub(dbHelper, 'findInDatabase').resolves(locations);
       // eslint-disable-next-line global-require, no-shadow
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').resolves('192.168.1.3:16127');
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.3:16127');
 
       // eslint-disable-next-line global-require
       const axios = require('axios');

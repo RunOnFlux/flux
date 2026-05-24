@@ -23,9 +23,19 @@ function extractPort(address) {
   return parts.length > 1 ? +parts[1] : DEFAULT_API_PORT;
 }
 
+const ipPattern = /^(?!0)(?!.*\.$)(?:(?:1?\d?\d|25[0-5]|2[0-4]\d)(?:\.|$)){4}$/;
+
+function parseSocketAddress(raw) {
+  if (typeof raw !== 'string') return null;
+  const ip = extractIp(raw);
+  const port = extractPort(raw);
+  if (!ipPattern.test(ip) || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return { ip, port };
+}
+
 function socketAddressesMatch(a, b) {
-  if (a === b) return true;
   if (!a || !b) return false;
+  if (a === b) return true;
   const normalA = normalizeSocketAddress(a);
   const normalB = normalizeSocketAddress(b);
   return normalA === normalB;
@@ -36,5 +46,6 @@ module.exports = {
   normalizeSocketAddress,
   extractIp,
   extractPort,
+  parseSocketAddress,
   socketAddressesMatch,
 };

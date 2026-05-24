@@ -11,6 +11,7 @@ const networkStateService = require('../networkStateService');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
+const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 
 // Helper function to sign check app data
 async function signCheckAppData(message) {
@@ -295,8 +296,10 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     };
 
     const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
-    const [localIp, localPort = '16127'] = localSocketAddress.split(':');
-    const [remoteIp, remotePort = '16127'] = remoteSocketAddress.split(':');
+    const localIp = extractIp(localSocketAddress);
+    const localPort = extractPort(localSocketAddress);
+    const remoteIp = extractIp(remoteSocketAddress);
+    const remotePort = extractPort(remoteSocketAddress);
 
     const data = {
       ip: localIp,

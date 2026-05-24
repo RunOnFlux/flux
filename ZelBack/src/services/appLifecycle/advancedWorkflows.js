@@ -198,8 +198,7 @@ async function getMasterIpFromFdm(appName, axiosOptions) {
       if (response.data && response.data.status === 'success' && response.data.data) {
         const { ips } = response.data.data;
         if (ips && ips.length > 0) {
-          // Return the first IP, stripping the port if present
-          const ip = ips[0].split(':')[0];
+          const ip = extractIp(ips[0]);
           log.debug(`getMasterIpFromFdm: Got IP ${ip} for app ${appName} from ${region.name} FDM`);
           return { ip, fdmOk: true };
         }

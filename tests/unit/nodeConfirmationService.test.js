@@ -6,7 +6,7 @@ describe('nodeConfirmationService', () => {
   let service;
   let clock;
   let getFluxNodeStatusStub;
-  let getMyFluxIPandPortStub;
+  let getLocalSocketAddressStub;
   let getFluxNodePublicKeyStub;
   let getFluxnodeBySocketAddressStub;
   let logStub;
@@ -14,7 +14,7 @@ describe('nodeConfirmationService', () => {
   beforeEach(() => {
     clock = sinon.useFakeTimers({ shouldAdvanceTime: false });
     getFluxNodeStatusStub = sinon.stub();
-    getMyFluxIPandPortStub = sinon.stub();
+    getLocalSocketAddressStub = sinon.stub();
     getFluxNodePublicKeyStub = sinon.stub();
     getFluxnodeBySocketAddressStub = sinon.stub();
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
@@ -22,7 +22,7 @@ describe('nodeConfirmationService', () => {
     service = proxyquire('../../ZelBack/src/services/nodeConfirmationService', {
       './daemonService/daemonServiceFluxnodeRpcs': { getFluxNodeStatus: getFluxNodeStatusStub },
       './fluxNetworkHelper': {
-        getMyFluxIPandPort: getMyFluxIPandPortStub,
+        getLocalSocketAddress: getLocalSocketAddressStub,
         getFluxNodePublicKey: getFluxNodePublicKeyStub,
       },
       './networkStateService': { getFluxnodeBySocketAddress: getFluxnodeBySocketAddressStub },
@@ -38,7 +38,7 @@ describe('nodeConfirmationService', () => {
   function setupConfirmed() {
     getFluxNodeStatusStub.resolves({ status: 'success', data: { status: 'CONFIRMED' } });
     getFluxNodePublicKeyStub.resolves('04abcdef1234567890');
-    getMyFluxIPandPortStub.resolves('1.2.3.4:16127');
+    getLocalSocketAddressStub.resolves('1.2.3.4:16127');
     getFluxnodeBySocketAddressStub.resolves({ pubkey: '04abcdef1234567890' });
   }
 
@@ -49,7 +49,7 @@ describe('nodeConfirmationService', () => {
   function setupConfirmedButIpMissing() {
     getFluxNodeStatusStub.resolves({ status: 'success', data: { status: 'CONFIRMED' } });
     getFluxNodePublicKeyStub.resolves('04abcdef1234567890');
-    getMyFluxIPandPortStub.resolves('1.2.3.4:16127');
+    getLocalSocketAddressStub.resolves('1.2.3.4:16127');
     getFluxnodeBySocketAddressStub.resolves(null);
   }
 
@@ -122,7 +122,7 @@ describe('nodeConfirmationService', () => {
     it('should return false when confirmed but pubkey mismatch', async () => {
       getFluxNodeStatusStub.resolves({ status: 'success', data: { status: 'CONFIRMED' } });
       getFluxNodePublicKeyStub.resolves('04abcdef1234567890');
-      getMyFluxIPandPortStub.resolves('1.2.3.4:16127');
+      getLocalSocketAddressStub.resolves('1.2.3.4:16127');
       getFluxnodeBySocketAddressStub.resolves({ pubkey: '04different9876543210' });
 
       await service.start();
@@ -134,7 +134,7 @@ describe('nodeConfirmationService', () => {
     it('should return false when confirmed but IP detection fails', async () => {
       getFluxNodeStatusStub.resolves({ status: 'success', data: { status: 'CONFIRMED' } });
       getFluxNodePublicKeyStub.resolves('04abcdef1234567890');
-      getMyFluxIPandPortStub.resolves(null);
+      getLocalSocketAddressStub.resolves(null);
 
       await service.start();
 

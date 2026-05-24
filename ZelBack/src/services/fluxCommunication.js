@@ -17,7 +17,7 @@ const { SIGTERM_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const nodeConfirmationService = require('./nodeConfirmationService');
-const { extractIp, extractPort, socketAddressesMatch } = require('./utils/socketAddressUtils');
+const { extractIp, extractPort, parseSocketAddress, socketAddressesMatch } = require('./utils/socketAddressUtils');
 const registryManager = require('./appDatabase/registryManager');
 const fluxEventBus = require('./utils/fluxEventBus');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
@@ -825,12 +825,9 @@ async function removePeer(req, res) {
       return;
     }
 
-    const normalized = serviceHelper.normalizeNodeIpApiPort(
-      ip,
-      { portAsNumber: true },
-    );
+    const parsed = parseSocketAddress(ip);
 
-    if (!normalized) {
+    if (!parsed) {
       const unparsableError = messageHelper.createErrorMessage(
         'Unparsable `ip` parameter',
       );
@@ -838,7 +835,7 @@ async function removePeer(req, res) {
       return;
     }
 
-    const response = await fluxNetworkHelper.closeConnection(...normalized);
+    const response = await fluxNetworkHelper.closeConnection(parsed.ip, parsed.port);
 
     res.json(response);
   } catch (error) {
@@ -872,12 +869,9 @@ async function removeIncomingPeer(req, res) {
       return;
     }
 
-    const normalized = serviceHelper.normalizeNodeIpApiPort(
-      ip,
-      { portAsNumber: true },
-    );
+    const parsed = parseSocketAddress(ip);
 
-    if (!normalized) {
+    if (!parsed) {
       const unparsableError = messageHelper.createErrorMessage(
         'Unparsable `ip` parameter',
       );
@@ -885,7 +879,7 @@ async function removeIncomingPeer(req, res) {
       return;
     }
 
-    const response = await fluxNetworkHelper.closeIncomingConnection(...normalized);
+    const response = await fluxNetworkHelper.closeIncomingConnection(parsed.ip, parsed.port);
     res.json(response);
   } catch (error) {
     log.error(error);
@@ -947,13 +941,9 @@ function onOutboundUpgrade(response) {
 }
 
 async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RANDOM) {
-  let ip = connection;
-  let port = config.server.apiport.toString();
+  const ip = extractIp(connection);
+  const port = extractPort(connection);
   try {
-    if (connection.includes(':')) {
-      ip = connection.split(':')[0];
-      port = connection.split(':')[1];
-    }
     const key = `${ip}:${port}`;
     if (peerManager.has(key) || peerManager.isPending(key)) return;
     peerManager.markPending(key);
@@ -1021,13 +1011,9 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
  */
 function openEphemeralConnection(connection) {
   return new Promise((resolve) => {
-    let ip = connection;
-    let port = config.server.apiport.toString();
+    const ip = extractIp(connection);
+    const port = extractPort(connection);
     try {
-      if (connection.includes(':')) {
-        ip = connection.split(':')[0];
-        port = connection.split(':')[1];
-      }
       const key = `${ip}:${port}`;
       if (peerManager.isPending(key)) {
         log.info(`Ephemeral connection to ${key} skipped: pending`);
@@ -1123,12 +1109,9 @@ async function addPeer(req, res) {
       return;
     }
 
-    const normalized = serviceHelper.normalizeNodeIpApiPort(
-      ip,
-      { portAsNumber: true },
-    );
+    const parsed = parseSocketAddress(ip);
 
-    if (!normalized) {
+    if (!parsed) {
       const unparsableError = messageHelper.createErrorMessage(
         'Unparsable `ip` parameter',
       );
@@ -1136,7 +1119,7 @@ async function addPeer(req, res) {
       return;
     }
 
-    const [peerIp, peerPort] = normalized;
+    const { ip: peerIp, port: peerPort } = parsed;
 
     if (peerManager.has(`${peerIp}:${peerPort}`)) {
       const errMessage = messageHelper.createErrorMessage(`Already connected to ${peerIp}:${peerPort}`);
@@ -1497,10 +1480,9 @@ function getUnstableNodes(req, res) {
   const unstable = [];
   for (const [key, entry] of peerManager.unstableEntries()) {
     if (entry.disconnects >= 5) {
-      const [ip, port] = key.split(':');
       unstable.push({
-        ip,
-        port,
+        ip: extractIp(key),
+        port: extractPort(key),
         disconnects: entry.disconnects,
         firstDisconnect: entry.firstDisconnect,
       });

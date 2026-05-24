@@ -51,7 +51,7 @@ describe('geolocationService tests', () => {
     };
 
     fluxNetworkHelperStub = {
-      getMyFluxIPandPort: sinon.stub(),
+      getLocalSocketAddress: sinon.stub(),
       hasPublicIpOnInterface: sinon.stub(),
     };
 
@@ -177,7 +177,7 @@ describe('geolocationService tests', () => {
   describe('setNodeGeolocation tests', () => {
     beforeEach(() => {
       // Setup default successful response
-      fluxNetworkHelperStub.getMyFluxIPandPort.resolves('185.199.108.1:16127');
+      fluxNetworkHelperStub.getLocalSocketAddress.resolves('185.199.108.1:16127');
       fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
       serviceHelperStub.axiosGet.resolves({
         data: {
@@ -200,7 +200,7 @@ describe('geolocationService tests', () => {
     });
 
     it('should not proceed if IP is not detected', async () => {
-      fluxNetworkHelperStub.getMyFluxIPandPort.resolves(null);
+      fluxNetworkHelperStub.getLocalSocketAddress.resolves(null);
 
       await geolocationService.setNodeGeolocation();
 
@@ -311,7 +311,7 @@ describe('geolocationService tests', () => {
 
     testOrgs.forEach(({ org, expected }) => {
       it(`should ${expected ? 'detect' : 'not detect'} "${org}" as static IP org`, async () => {
-        fluxNetworkHelperStub.getMyFluxIPandPort.resolves('185.199.108.1:16127');
+        fluxNetworkHelperStub.getLocalSocketAddress.resolves('185.199.108.1:16127');
         fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false); // No public IP on interface
         serviceHelperStub.axiosGet.resolves({
           data: {
@@ -341,7 +341,7 @@ describe('geolocationService tests', () => {
 
   describe('Database storage tests', () => {
     beforeEach(() => {
-      fluxNetworkHelperStub.getMyFluxIPandPort.resolves('185.199.108.1:16127');
+      fluxNetworkHelperStub.getLocalSocketAddress.resolves('185.199.108.1:16127');
       fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
       serviceHelperStub.axiosGet.resolves({
         data: {

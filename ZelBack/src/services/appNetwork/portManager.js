@@ -501,7 +501,8 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         throw new Error('Unable to get random test connection');
       }
 
-      const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
+      const askingIP = extractIp(randomSocketAddress);
+      const askingIpPort = extractPort(randomSocketAddress);
 
       // first check against our IP address
       // eslint-disable-next-line no-await-in-loop

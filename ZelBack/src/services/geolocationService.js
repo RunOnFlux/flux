@@ -97,7 +97,7 @@ async function setNodeGeolocation() {
     const previousIp = storedGeolocation ? storedGeolocation.ip : null;
 
     if (!storedGeolocation || localSocketAddr !== storedIp || execution % 4 === 0) {
-      log.info(`Checking geolocation of ${localSocketAddr}`);
+      log.info(`Checking geolocation of ${localIp}`);
       storedIp = localSocketAddr;
       // consider another service failover or stats db
       const ipApiUrl = `${config.geolocation.ipApiBaseUrl}/json/${localIp}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org,isp,proxy,hosting`;
@@ -136,11 +136,11 @@ async function setNodeGeolocation() {
             dataCenter: statsRes.data.data.dataCenter,
           };
         } else {
-          throw new Error(`Geolocation of IP ${localSocketAddr} is unavailable`);
+          throw new Error(`Geolocation of IP ${localIp} is unavailable`);
         }
       }
     }
-    log.info(`Geolocation of ${localSocketAddr} is ${JSON.stringify(storedGeolocation)}`);
+    log.info(`Geolocation of ${localIp} is ${JSON.stringify(storedGeolocation)}`);
 
     // Check if IP has changed
     const currentIp = storedGeolocation.ip;

@@ -8,6 +8,7 @@ const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const messageStore = require('../appMessaging/messageStore');
 const nodeConfirmationService = require('../nodeConfirmationService');
 const log = require('../../lib/log');
+const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 
 let removalInProgress = false;
 
@@ -112,8 +113,8 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
       // eslint-disable-next-line no-restricted-syntax
       for (const location of appsLocationsNotOnNodelist) {
         log.info(`monitorNodeStatus - Checking IP ${location}.`);
-        const ip = location.split(':')[0];
-        const port = location.split(':')[1] || '16127';
+        const ip = extractIp(location);
+        const port = extractPort(location);
         const { CancelToken } = axios;
         const source = CancelToken.source();
         let isResolved = false;

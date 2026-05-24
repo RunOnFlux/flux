@@ -851,7 +851,7 @@ describe('fluxCommunication tests', () => {
       ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
       peerManager.reset();
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
-      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16127');
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').returns('44.192.51.11:16127');
     });
 
     afterEach(() => {
@@ -1357,7 +1357,7 @@ describe('fluxCommunication tests', () => {
 
     it('should return warning if ip cannot be detected', async () => {
       sinon.stub(nodeConfirmationService, 'isConfirmed').returns(true);
-      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns(null);
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').returns(null);
       daemonServiceStub.returns({
         data: {
           synced: true,
@@ -1397,8 +1397,8 @@ describe('fluxCommunication tests', () => {
       ];
 
       sinon.stub(nodeConfirmationService, 'isConfirmed').returns(true);
-      sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11');
-      fluxNetworkHelper.setMyFluxIp('44.192.51.11');
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').returns('44.192.51.11');
+      fluxNetworkHelper.setLocalSocketAddress('44.192.51.11');
       sinon.stub(fluxCommunicationUtils, 'getFluxnodeFromFluxList').returns('44.192.51.11');
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(fluxNodeList);
 
