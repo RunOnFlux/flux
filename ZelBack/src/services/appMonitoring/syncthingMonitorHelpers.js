@@ -9,7 +9,7 @@ const {
 } = require('./syncthingMonitorConstants');
 
 const cmdAsync = util.promisify(require('child_process').exec);
-const { extractIp, extractPort } = require('../utils/socketAddressUtils');
+const { extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 
 /**
  * Helper function to get device ID from remote node with retry capability
@@ -60,17 +60,17 @@ async function getDeviceIDCached(name, cache) {
 /**
  * Sort and filter app locations
  * @param {Array} locations - App locations
- * @param {string} myIP - Current node IP
+ * @param {string} localSocketAddr - Current node socket address
  * @returns {Array} Sorted and filtered locations (excluding current node)
  */
-function sortAndFilterLocations(locations, myIP) {
+function sortAndFilterLocations(locations, localSocketAddr) {
   return locations
     .sort((a, b) => {
       if (a.ip < b.ip) return -1;
       if (a.ip > b.ip) return 1;
       return 0;
     })
-    .filter((loc) => loc.ip !== myIP);
+    .filter((loc) => !socketAddressesMatch(loc.ip, localSocketAddr));
 }
 
 /**
@@ -95,7 +95,7 @@ function sortRunningAppList(runningAppList) {
 /**
  * Build device configuration from locations
  * @param {Array} locations - App locations
- * @param {string} myIP - Current node IP
+ * @param {string} localSocketAddr - Current node socket address
  * @param {string} myDeviceId - Current node device ID
  * @param {Map} deviceCache - Device ID cache
  * @param {Array} devicesConfiguration - Array to populate with devices
@@ -105,7 +105,7 @@ function sortRunningAppList(runningAppList) {
  */
 async function buildDeviceConfiguration(
   locations,
-  myIP,
+  localSocketAddr,
   myDeviceId,
   deviceCache,
   devicesConfiguration,

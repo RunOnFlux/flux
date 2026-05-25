@@ -119,6 +119,27 @@ describe('socketAddressUtils tests', () => {
       expect(parseSocketAddress('1.2.3.4:0')).to.be.null;
     });
 
+    it('should reject hex port', () => {
+      expect(parseSocketAddress('1.2.3.4:0x3F7F')).to.be.null;
+    });
+
+    it('should reject trailing garbage after port', () => {
+      expect(parseSocketAddress('1.2.3.4:16127:foo')).to.be.null;
+    });
+
+    it('should reject leading zero port', () => {
+      expect(parseSocketAddress('1.2.3.4:016127')).to.be.null;
+    });
+
+    it('should accept port 65535', () => {
+      const result = parseSocketAddress('1.2.3.4:65535');
+      expect(result).to.deep.equal({ ip: '1.2.3.4', port: 65535 });
+    });
+
+    it('should reject port 65536', () => {
+      expect(parseSocketAddress('1.2.3.4:65536')).to.be.null;
+    });
+
     it('should parse bare IP with default port', () => {
       const result = parseSocketAddress('1.2.3.4');
       expect(result).to.deep.equal({ ip: '1.2.3.4', port: 16127 });

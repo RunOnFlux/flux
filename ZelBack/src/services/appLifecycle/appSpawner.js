@@ -8,7 +8,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
-const { normalizeSocketAddress, extractIp, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 
 // Import modular services
 const appQueryService = require('../appQuery/appQueryService');

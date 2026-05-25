@@ -303,7 +303,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
 
     const data = {
       ip: localIp,
-      port: localPort,
+      port: String(localPort),
       appname: 'appPortsTest',
       ports: [dosState.testingPort],
       pubKey,

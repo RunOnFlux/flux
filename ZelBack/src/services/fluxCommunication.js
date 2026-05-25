@@ -1482,7 +1482,7 @@ function getUnstableNodes(req, res) {
     if (entry.disconnects >= 5) {
       unstable.push({
         ip: extractIp(key),
-        port: extractPort(key),
+        port: String(extractPort(key)),
         disconnects: entry.disconnects,
         firstDisconnect: entry.firstDisconnect,
       });

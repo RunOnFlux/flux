@@ -24,13 +24,16 @@ function extractPort(address) {
 }
 
 const ipPattern = /^(?!0)(?!.*\.$)(?:(?:1?\d?\d|25[0-5]|2[0-4]\d)(?:\.|$)){4}$/;
+const portPattern = /^([1-9]\d{0,3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])$/;
 
 function parseSocketAddress(raw) {
   if (typeof raw !== 'string') return null;
-  const ip = extractIp(raw);
-  const port = extractPort(raw);
-  if (!ipPattern.test(ip) || !Number.isInteger(port) || port < 1 || port > 65535) return null;
-  return { ip, port };
+  const parts = raw.split(':');
+  if (parts.length > 2) return null;
+  const ip = parts[0];
+  const portStr = parts[1] || String(DEFAULT_API_PORT);
+  if (!ipPattern.test(ip) || !portPattern.test(portStr)) return null;
+  return { ip, port: +portStr };
 }
 
 function socketAddressesMatch(a, b) {

@@ -1,6 +1,6 @@
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const networkStateManager = require('./utils/networkStateManager');
-const { normalizeSocketAddress, extractIp } = require('./utils/socketAddressUtils');
+const { normalizeSocketAddress, extractIp, extractPort, DEFAULT_API_PORT } = require('./utils/socketAddressUtils');
 
 /**
  * @typedef {import('./utils/networkStateManager').Fluxnode} Fluxnode
@@ -143,10 +143,12 @@ async function socketAddressInNetworkState(socketAddress) {
   const found = await stateManager.includes(socketAddress, 'socketAddress');
   if (found) return true;
 
-  const normalized = normalizeSocketAddress(socketAddress);
-  const bareIp = extractIp(socketAddress);
-  const alt = normalized === socketAddress ? bareIp : normalized;
-  if (alt) return stateManager.includes(alt, 'socketAddress');
+  if (extractPort(socketAddress) === DEFAULT_API_PORT) {
+    const normalized = normalizeSocketAddress(socketAddress);
+    const bareIp = extractIp(socketAddress);
+    const alt = normalized === socketAddress ? bareIp : normalized;
+    if (alt) return stateManager.includes(alt, 'socketAddress');
+  }
 
   return false;
 }

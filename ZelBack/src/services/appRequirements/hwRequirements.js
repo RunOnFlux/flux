@@ -2,7 +2,8 @@ const os = require('os');
 const config = require('config');
 const generalService = require('../generalService');
 const geolocationService = require('../geolocationService');
-const benchmarkService = require('../benchmarkService');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
+const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const log = require('../../lib/log');
 
 // Node specifications (shared state)
@@ -208,23 +209,12 @@ async function checkAppGeolocationRequirements(appSpecs) {
 async function checkAppNodesRequirements(appSpecs) {
   if (appSpecs.version === 7 && appSpecs.nodes && appSpecs.nodes.length) {
     const myCollateral = await generalService.obtainNodeCollateralInformation();
-    const benchmarkResponse = await benchmarkService.getBenchmarks();
-
-    if (benchmarkResponse.status === 'error') {
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    if (!localSocketAddr) {
       throw new Error('Unable to detect Flux IP address');
     }
 
-    let myIP = null;
-    if (benchmarkResponse.data.ipaddress) {
-      log.info(`Gathered IP ${benchmarkResponse.data.ipaddress}`);
-      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
-    }
-
-    if (myIP === null) {
-      throw new Error('Unable to detect Flux IP address');
-    }
-
-    if (appSpecs.nodes.includes(myIP) || appSpecs.nodes.includes(`${myCollateral.txhash}:${myCollateral.txindex}`)) {
+    if (appSpecs.nodes.find((node) => socketAddressesMatch(node, localSocketAddr)) || appSpecs.nodes.includes(`${myCollateral.txhash}:${myCollateral.txindex}`)) {
       return true;
     }
     throw new Error(`Application ${appSpecs.name} is not allowed to run on this node. Aborting.`);
