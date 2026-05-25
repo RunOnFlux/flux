@@ -9,6 +9,7 @@ const dockerService = require('../dockerService');
 // eslint-disable-next-line no-unused-vars
 const daemonServiceFluxnodeRpcs = require('../daemonService/daemonServiceFluxnodeRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const benchmarkService = require('../benchmarkService');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const hwRequirements = require('../appRequirements/hwRequirements');
 const daemonServiceBenchmarkRpcs = require('../daemonService/daemonServiceBenchmarkRpcs');
