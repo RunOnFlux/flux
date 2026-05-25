@@ -50,11 +50,8 @@ describe('peerNotification tests', () => {
         isNodeStatusConfirmed: sinon.stub().resolves(true),
         nodeTier: sinon.stub().resolves('cumulus'),
       },
-      '../benchmarkService': {
-        getBenchmarks: sinon.stub().resolves({
-          status: 'success',
-          data: { ipaddress: '192.168.1.1' },
-        }),
+      '../fluxNetworkHelper': {
+        getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
       },
       '../geolocationService': {
         isStaticIP: sinon.stub().returns(true),
@@ -127,7 +124,7 @@ describe('peerNotification tests', () => {
 
       expect(monitorAndRecoverAppsStub.calledOnce).to.be.true;
       const [ip, apps, runningNames] = monitorAndRecoverAppsStub.firstCall.args;
-      expect(ip).to.equal('192.168.1.1');
+      expect(ip).to.equal('192.168.1.1:16127');
       expect(apps).to.have.length(1);
       expect(apps[0].name).to.equal('app1');
       expect(runningNames).to.deep.equal(['c1_app1']);
