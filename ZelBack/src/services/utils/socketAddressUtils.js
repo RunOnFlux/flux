@@ -20,7 +20,7 @@ function extractIp(address) {
 function extractPort(address) {
   if (!address) return DEFAULT_API_PORT;
   const parts = address.split(':');
-  return parts.length > 1 ? +parts[1] : DEFAULT_API_PORT;
+  return parts.length > 1 && +parts[1] ? +parts[1] : DEFAULT_API_PORT;
 }
 
 const ipPattern = /^(?!0)(?!.*\.$)(?:(?:1?\d?\d|25[0-5]|2[0-4]\d)(?:\.|$)){4}$/;

@@ -13,7 +13,7 @@ const dockerService = require('../dockerService');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
-const { extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { DEFAULT_API_PORT, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 const generalService = require('../generalService');
 // eslint-disable-next-line no-unused-vars
 const upnpService = require('../upnpService');
@@ -3910,7 +3910,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // Look up the correct port from runningAppList since FDM API returns IP without port
                   const previousMasterNode = runningAppList.find((x) => socketAddressesMatch(x.ip, previousMasterIp));
                   const ipToCheckAppRunning = extractIp(previousMasterIp);
-                  const portToCheckAppRunning = previousMasterNode ? extractPort(previousMasterNode.ip) : 16127;
+                  const portToCheckAppRunning = previousMasterNode ? extractPort(previousMasterNode.ip) : DEFAULT_API_PORT;
                   let previousMasterStillRunning = false;
                   try {
                     // eslint-disable-next-line no-await-in-loop

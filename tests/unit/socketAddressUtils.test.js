@@ -88,6 +88,14 @@ describe('socketAddressUtils tests', () => {
       const port = extractPort('1.2.3.4:16137');
       expect(port).to.be.a('number');
     });
+
+    it('should return default port for trailing colon', () => {
+      expect(extractPort('1.2.3.4:')).to.equal(16127);
+    });
+
+    it('should return default port for non-numeric port', () => {
+      expect(extractPort('1.2.3.4:abc')).to.equal(16127);
+    });
   });
 
   describe('parseSocketAddress', () => {

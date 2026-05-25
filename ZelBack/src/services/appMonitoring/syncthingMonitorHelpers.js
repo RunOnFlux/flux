@@ -9,7 +9,7 @@ const {
 } = require('./syncthingMonitorConstants');
 
 const cmdAsync = util.promisify(require('child_process').exec);
-const { extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 
 /**
  * Helper function to get device ID from remote node with retry capability
@@ -66,8 +66,10 @@ async function getDeviceIDCached(name, cache) {
 function sortAndFilterLocations(locations, localSocketAddr) {
   return locations
     .sort((a, b) => {
-      if (a.ip < b.ip) return -1;
-      if (a.ip > b.ip) return 1;
+      const addrA = normalizeSocketAddress(a.ip);
+      const addrB = normalizeSocketAddress(b.ip);
+      if (addrA < addrB) return -1;
+      if (addrA > addrB) return 1;
       return 0;
     })
     .filter((loc) => !socketAddressesMatch(loc.ip, localSocketAddr));
