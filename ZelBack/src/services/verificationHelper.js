@@ -101,9 +101,7 @@ function verifyMessage(message, address, signature, strMessageMagic, checkSegwit
       signingAddress = sigAddress;
     }
     isValid = bitcoinMessage.verify(message, signingAddress, signature, strMessageMagic, checkSegwitAlways);
-  } catch (e) {
-    log.error(e);
-  }
+  } catch { /* not a valid signature */ }
   return isValid;
 }
 

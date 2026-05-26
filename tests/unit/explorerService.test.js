@@ -10,6 +10,7 @@ const daemonServiceAddressRpcs = require('../../ZelBack/src/services/daemonServi
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 const log = require('../../ZelBack/src/lib/log');
 const { requireMongo } = require('./dbTestHelper');
 
@@ -761,9 +762,11 @@ describe('explorerService tests', () => {
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
       daemonServiceBlockchainRpcsStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlock');
       logInfoSpy = sinon.spy(log, 'info');
+      globalState.dbReady = true;
     });
 
     afterEach(() => {
+      globalState.dbReady = false;
       sinon.restore();
     });
 
@@ -1752,43 +1755,28 @@ describe('explorerService tests', () => {
 
     it('should return right away if isInInitiationOfBP is true', async () => {
       explorerService.setIsInInitiationOfBP(true);
-      const res = generateResponse();
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
 
-      const result = await explorerService.initiateBlockProcessor(req, res);
+      const result = await explorerService.initiateBlockProcessor(true, true);
 
       expect(result).to.be.undefined;
-      sinon.assert.calledOnce(findInDatabaseStub);
+      sinon.assert.notCalled(findInDatabaseStub);
     });
 
-    it('should return error if daemon service getBlockCountStub does not return success message', async () => {
+    it('should throw and log error if getBlockCount does not return success', async () => {
+      sinon.stub(dbHelper, 'countInDatabase').resolves(1);
+      explorerService.setBlockProccessingCanContinue(false);
       getBlockCountStub.returns({
         status: 'error',
         data: {
           message: 'message',
         },
       });
-      const res = generateResponse();
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
 
-      await explorerService.initiateBlockProcessor(req, res);
+      await explorerService.initiateBlockProcessor(false, false);
+      await serviceHelper.delay(200);
 
       sinon.assert.calledOnce(logErrorSpy);
-      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
+      sinon.assert.calledWithMatch(findInDatabaseStub, sinon.match.object, 'scannedheight', { generalScannedHeight: { $gte: 0 } }, { projection: { _id: 0, generalScannedHeight: 1 } });
     });
 
     it('should run the block processor, all params false', async () => {
@@ -1805,15 +1793,39 @@ describe('explorerService tests', () => {
         data: 200000,
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
+      sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
+      sinon.stub(daemonServiceUtils, 'executeBatchCall').resolves({ status: 'success', data: [] });
       explorerService.setBlockProccessingCanContinue(false);
 
       await explorerService.initiateBlockProcessor(false, false, false);
       await serviceHelper.delay(200);
 
       sinon.assert.notCalled(logErrorSpy);
-      sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap: Using address-index fast path');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap complete');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
+    });
+
+    it('should fall back to block-by-block scan when bootstrap fails', async () => {
+      findInDatabaseStub.returns({ generalScannedHeight: 0 });
+      dropCollectionStub.resolves(true);
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+      sinon.stub(dbHelper, 'countInDatabase').resolves(1);
+      const createIndexFake = sinon.fake.resolves(true);
+      const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
+      const dbFake = sinon.fake.returns({ collection: collectionFake });
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
+      getBlockCountStub.returns({ status: 'success', data: 200000 });
+      sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
+      sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'error', data: { message: 'RPC unavailable' } });
+      explorerService.setBlockProccessingCanContinue(false);
+
+      await explorerService.initiateBlockProcessor(false, false, false);
+      await serviceHelper.delay(200);
+
+      sinon.assert.calledWithMatch(logErrorSpy, 'Bootstrap failed, falling back to block-by-block scan');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
     });
 
     it('should run the block processor, restoreDatabase set to true, height > 0', async () => {
@@ -1890,13 +1902,15 @@ describe('explorerService tests', () => {
         data: 200000,
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
+      sinon.stub(daemonServiceUtils, 'executeCall').resolves({ status: 'success', data: [] });
+      sinon.stub(daemonServiceUtils, 'executeBatchCall').resolves({ status: 'success', data: [] });
       explorerService.setBlockProccessingCanContinue(false);
 
       await explorerService.initiateBlockProcessor(false, false, true);
       await serviceHelper.delay(200);
 
       sinon.assert.notCalled(logErrorSpy);
-      sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
+      sinon.assert.calledWithMatch(logInfoSpy, 'Bootstrap: Using address-index fast path');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelappslocation');
@@ -2062,6 +2076,383 @@ describe('explorerService tests', () => {
         ],
       });
       sinon.assert.notCalled(findInDatabaseStub);
+    });
+  });
+
+  describe('getPriceSpecForHeight tests', () => {
+    it('should return correct price spec via binary search', () => {
+      const specs = [
+        { height: -1, minPrice: 1 },
+        { height: 983000, minPrice: 0.1 },
+        { height: 1004000, minPrice: 0.01 },
+      ];
+      expect(explorerService.getPriceSpecForHeight(specs, 500000).minPrice).to.equal(1);
+      expect(explorerService.getPriceSpecForHeight(specs, 983001).minPrice).to.equal(0.1);
+      expect(explorerService.getPriceSpecForHeight(specs, 2000000).minPrice).to.equal(0.01);
+    });
+  });
+
+  describe('processBootstrapTx tests', () => {
+    const config = require('config');
+
+    function makeTx(overrides = {}) {
+      return {
+        txid: 'abc123',
+        version: 1,
+        height: 700000,
+        vin: [{ address: 't1SenderAddr' }],
+        vout: [{
+          valueSat: 500000000,
+          scriptPubKey: {
+            addresses: [config.fluxapps.address],
+            asm: 'OP_RETURN 6162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738394142434445464748494a4b4c4d4e4f505152535455565758595a3031',
+          },
+        }],
+        ...overrides,
+      };
+    }
+
+    it('should extract valid app hash', () => {
+      const priceSpecs = [{ height: -1, minPrice: 0.01 }];
+      const seenHashes = new Set();
+      const hashBatch = [];
+      explorerService.processBootstrapTx(makeTx(), priceSpecs, seenHashes, hashBatch);
+      expect(hashBatch).to.have.length(1);
+      expect(hashBatch[0].txid).to.equal('abc123');
+      expect(hashBatch[0].hash).to.have.length(64);
+      expect(hashBatch[0].message).to.equal(false);
+    });
+
+    it('should skip tx with version >= 5', () => {
+      const hashBatch = [];
+      explorerService.processBootstrapTx(makeTx({ version: 5 }), [{ height: -1, minPrice: 0.01 }], new Set(), hashBatch);
+      expect(hashBatch).to.have.length(0);
+    });
+
+    it('should skip tx below minPrice', () => {
+      const hashBatch = [];
+      explorerService.processBootstrapTx(makeTx({ vout: [{ valueSat: 100, scriptPubKey: { addresses: [config.fluxapps.address], asm: 'OP_RETURN 6162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738394142434445464748494a4b4c4d4e4f505152535455565758595a3031' } }] }), [{ height: -1, minPrice: 1 }], new Set(), hashBatch);
+      expect(hashBatch).to.have.length(0);
+    });
+
+    it('should deduplicate by hash', () => {
+      const priceSpecs = [{ height: -1, minPrice: 0.01 }];
+      const seenHashes = new Set();
+      const hashBatch = [];
+      explorerService.processBootstrapTx(makeTx(), priceSpecs, seenHashes, hashBatch);
+      explorerService.processBootstrapTx(makeTx({ txid: 'def456' }), priceSpecs, seenHashes, hashBatch);
+      expect(hashBatch).to.have.length(1);
+    });
+
+    it('should not collect soft forks (handled by bootstrapSoftForks pre-pass)', () => {
+      const hashBatch = [];
+      const tx = makeTx({
+        vin: [{ address: config.fluxapps.addressMultisig }],
+        vout: [{
+          valueSat: 0,
+          scriptPubKey: {
+            addresses: [config.fluxapps.addressMultisig],
+            asm: 'OP_RETURN 705f302e30315f302e30315f302e3030345f302e30315f302e345f302e385f302e34',
+          },
+        }],
+      });
+      explorerService.processBootstrapTx(tx, [{ height: -1, minPrice: 0.01 }], new Set(), hashBatch);
+      expect(hashBatch).to.have.length(0);
+    });
+
+    it('should not count multisig payment before enforcement height', () => {
+      const hashBatch = [];
+      const tx = makeTx({
+        height: 1200000,
+        vout: [{
+          valueSat: 500000000,
+          scriptPubKey: {
+            addresses: [config.fluxapps.addressMultisig],
+            asm: 'OP_RETURN 6162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738394142434445464748494a4b4c4d4e4f505152535455565758595a3031',
+          },
+        }],
+      });
+      explorerService.processBootstrapTx(tx, [{ height: -1, minPrice: 0.01 }], new Set(), hashBatch);
+      expect(hashBatch).to.have.length(0);
+    });
+  });
+
+  describe('bootstrapAppHashes tests', () => {
+    const config = require('config');
+    let executeCallStub;
+    let executeBatchCallStub;
+    let insertManyStub;
+    let updateOneStub;
+
+    const hashHex1 = '6162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738394142434445464748494a4b4c4d4e4f505152535455565758595a3031';
+    const hashHex2 = '30313233343536373839616263646566303132333435363738396162636465663031323334353637383961626364656630313233343536373839616263646566';
+
+    function makeRpcTx(txid, height, address, valueSat, hashHex) {
+      return {
+        txid,
+        version: 1,
+        height,
+        vin: [{ address: 't1Sender' }],
+        vout: [{
+          valueSat,
+          scriptPubKey: { addresses: [address], asm: `OP_RETURN ${hashHex || hashHex1}` },
+        }],
+      };
+    }
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      executeCallStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      executeBatchCallStub = sinon.stub(daemonServiceUtils, 'executeBatchCall');
+      insertManyStub = sinon.stub(dbHelper, 'insertManyToDatabase').resolves();
+      updateOneStub = sinon.stub(dbHelper, 'updateOneInDatabase').resolves();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should extract hashes and update scannedHeight', async () => {
+      executeCallStub.resolves({ status: 'success', data: ['tx1', 'tx2'] });
+      executeBatchCallStub.resolves({
+        status: 'success',
+        data: [
+          { id: 0, result: makeRpcTx('tx1', 700000, config.fluxapps.address, 500000000, hashHex1), error: null },
+          { id: 1, result: makeRpcTx('tx2', 700001, config.fluxapps.address, 500000000, hashHex2), error: null },
+        ],
+      });
+
+      await explorerService.bootstrapAppHashes(2579000);
+
+      sinon.assert.calledOnce(insertManyStub);
+      const inserted = insertManyStub.getCall(0).args[2];
+      expect(inserted).to.have.length(2);
+      expect(inserted[0].hash).to.have.length(64);
+
+      sinon.assert.called(updateOneStub);
+      const updateCall = updateOneStub.getCalls().find((c) => c.args[1] === config.database.daemon.collections.scannedHeight);
+      expect(updateCall.args[3].$set.generalScannedHeight).to.equal(2579000);
+    });
+
+    it('should throw on getaddresstxids failure', async () => {
+      executeCallStub.resolves({ status: 'error', data: { message: 'RPC failed' } });
+      await expect(explorerService.bootstrapAppHashes(2579000)).to.be.rejectedWith('getaddresstxids failed');
+    });
+
+    it('should throw on batch getrawtransaction failure', async () => {
+      executeCallStub.resolves({ status: 'success', data: ['tx1'] });
+      executeBatchCallStub.resolves({ status: 'error', data: { message: 'Batch failed' } });
+      await expect(explorerService.bootstrapAppHashes(2579000)).to.be.rejectedWith('Batch getrawtransaction failed');
+    });
+
+    it('should tolerate individual tx errors in batch', async () => {
+      executeCallStub.resolves({ status: 'success', data: ['tx1', 'tx2'] });
+      executeBatchCallStub.resolves({
+        status: 'success',
+        data: [
+          { id: 0, result: makeRpcTx('tx1', 700000, config.fluxapps.address, 500000000), error: null },
+          { id: 1, result: null, error: { code: -5, message: 'Not found' } },
+        ],
+      });
+
+      await explorerService.bootstrapAppHashes(2579000);
+      const inserted = insertManyStub.getCall(0).args[2];
+      expect(inserted).to.have.length(1);
+    });
+
+    it('should deduplicate txids from address overlap', async () => {
+      executeCallStub.resolves({ status: 'success', data: ['tx1', 'tx1', 'tx2'] });
+      executeBatchCallStub.resolves({
+        status: 'success',
+        data: [
+          { id: 0, result: makeRpcTx('tx1', 700000, config.fluxapps.address, 500000000), error: null },
+          { id: 1, result: makeRpcTx('tx2', 700001, config.fluxapps.address, 500000000), error: null },
+        ],
+      });
+
+      await explorerService.bootstrapAppHashes(2579000);
+      const batchCalls = executeBatchCallStub.getCall(0).args[0];
+      expect(batchCalls).to.have.length(2);
+    });
+
+    it('should insert in chunks when exceeding threshold', async () => {
+      const txids = Array.from({ length: 6000 }, (_, i) => `tx${i}`);
+      executeCallStub.resolves({ status: 'success', data: txids });
+
+      const batchResponses = [];
+      for (let i = 0; i < 6000; i += 500) {
+        const batch = [];
+        for (let j = 0; j < 500 && i + j < 6000; j++) {
+          const hexHash = Buffer.from(`hash${String(i + j).padStart(60, '0')}`).toString('hex');
+          batch.push({
+            id: j,
+            result: {
+              txid: `tx${i + j}`, version: 1, height: 700000 + i + j,
+              vin: [{ address: 't1Sender' }],
+              vout: [{ valueSat: 500000000, scriptPubKey: { addresses: [config.fluxapps.address], asm: `OP_RETURN ${hexHash}` } }],
+            },
+            error: null,
+          });
+        }
+        batchResponses.push({ status: 'success', data: batch });
+      }
+      let callIdx = 0;
+      executeBatchCallStub.callsFake(() => batchResponses[callIdx++]);
+
+      await explorerService.bootstrapAppHashes(2579000);
+      expect(insertManyStub.callCount).to.be.greaterThan(1);
+    });
+  });
+
+  describe('bootstrapSoftForks tests', () => {
+    const config = require('config');
+    const multisigA = config.fluxapps.addressMultisig;
+    const multisigB = config.fluxapps.addressMultisigB;
+    let executeCallStub;
+    let executeBatchCallStub;
+    let updateOneStub;
+
+    // "p1_100000_200000_0.5_300_20_0.01_1_0" encoded as hex
+    const priceForkMsg = 'p1_100000_200000_0.5_300_20_0.01_1_0';
+    const priceForkHex = Buffer.from(priceForkMsg).toString('hex');
+
+    function makeDelta(txid, address, satoshis) {
+      return { txid, address, satoshis, index: 0, height: 1594832 };
+    }
+
+    function makeSoftForkTx(txid, height, msgHex) {
+      return {
+        txid,
+        height,
+        vin: [{ address: multisigA }],
+        vout: [
+          { valueSat: 100000, scriptPubKey: { addresses: [multisigA], asm: '' } },
+          { valueSat: 0, scriptPubKey: { addresses: [], asm: `OP_RETURN ${msgHex}` } },
+        ],
+      };
+    }
+
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      dbHelper.databaseConnection();
+      executeCallStub = sinon.stub(daemonServiceUtils, 'executeCall');
+      executeBatchCallStub = sinon.stub(daemonServiceUtils, 'executeBatchCall');
+      updateOneStub = sinon.stub(dbHelper, 'updateOneInDatabase').resolves();
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should call getaddressdeltas for both multisig addresses', async () => {
+      executeCallStub.resolves({ status: 'success', data: [] });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      sinon.assert.calledOnce(executeCallStub);
+      const args = executeCallStub.firstCall.args;
+      expect(args[0]).to.equal('getaddressdeltas');
+      expect(args[1][0].addresses).to.include(multisigA);
+      expect(args[1][0].addresses).to.include(multisigB);
+      expect(args[1][0].end).to.equal(2579000);
+    });
+
+    it('should identify self-send transactions and fetch them', async () => {
+      executeCallStub.resolves({
+        status: 'success',
+        data: [
+          makeDelta('selfTx1', multisigA, -500000),
+          makeDelta('selfTx1', multisigA, 500000),
+          makeDelta('onlySpend', multisigA, -100000),
+          makeDelta('onlyReceive', multisigB, 200000),
+        ],
+      });
+      executeBatchCallStub.resolves({
+        status: 'success',
+        data: [{ id: 0, result: makeSoftForkTx('selfTx1', 1594832, priceForkHex), error: null }],
+      });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      sinon.assert.calledOnce(executeBatchCallStub);
+      const batch = executeBatchCallStub.firstCall.args[0];
+      expect(batch).to.have.lengthOf(1);
+      expect(batch[0].params[0]).to.equal('selfTx1');
+    });
+
+    it('should call processSoftFork for foundation-to-foundation tx with OP_RETURN', async () => {
+      executeCallStub.resolves({
+        status: 'success',
+        data: [
+          makeDelta('forkTx', multisigA, -500000),
+          makeDelta('forkTx', multisigA, 500000),
+        ],
+      });
+      executeBatchCallStub.resolves({
+        status: 'success',
+        data: [{ id: 0, result: makeSoftForkTx('forkTx', 1594832, priceForkHex), error: null }],
+      });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      const forkWrite = updateOneStub.getCalls().find(
+        (c) => c.args[2]?.txid === 'forkTx',
+      );
+      expect(forkWrite).to.not.be.undefined;
+      expect(forkWrite.args[3].$set.height).to.equal(1594832);
+      expect(forkWrite.args[3].$set.message).to.equal(priceForkMsg);
+    });
+
+    it('should batch-fetch in chunks of 500', async () => {
+      const deltas = [];
+      for (let i = 0; i < 600; i++) {
+        deltas.push(makeDelta(`tx${i}`, multisigA, -100));
+        deltas.push(makeDelta(`tx${i}`, multisigA, 100));
+      }
+      executeCallStub.resolves({ status: 'success', data: deltas });
+      executeBatchCallStub.resolves({ status: 'success', data: [] });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      expect(executeBatchCallStub.callCount).to.equal(2);
+      expect(executeBatchCallStub.firstCall.args[0]).to.have.lengthOf(500);
+      expect(executeBatchCallStub.secondCall.args[0]).to.have.lengthOf(100);
+    });
+
+    it('should handle getaddressdeltas failure gracefully', async () => {
+      const logWarnStub = sinon.stub(log, 'warn');
+      executeCallStub.resolves({ status: 'error', data: { message: 'RPC unavailable' } });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      expect(logWarnStub.calledWith(sinon.match(/getaddressdeltas failed/))).to.be.true;
+      sinon.assert.notCalled(executeBatchCallStub);
+      logWarnStub.restore();
+    });
+
+    it('should skip transactions without OP_RETURN message', async () => {
+      executeCallStub.resolves({
+        status: 'success',
+        data: [
+          makeDelta('noOpReturn', multisigA, -500000),
+          makeDelta('noOpReturn', multisigA, 500000),
+        ],
+      });
+      const txWithoutOpReturn = {
+        txid: 'noOpReturn',
+        height: 1594832,
+        vin: [{ address: multisigA }],
+        vout: [{ valueSat: 500000, scriptPubKey: { addresses: [multisigA], asm: '' } }],
+      };
+      executeBatchCallStub.resolves({
+        status: 'success',
+        data: [{ id: 0, result: txWithoutOpReturn, error: null }],
+      });
+
+      await explorerService.bootstrapSoftForks(2579000);
+
+      sinon.assert.notCalled(updateOneStub);
     });
   });
 });

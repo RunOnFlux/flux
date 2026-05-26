@@ -129,10 +129,11 @@ class NetworkStateManager extends EventEmitter {
     this.#stateFetcher = stateFetcher;
     this.intervalMs = options.intervalMs || 120_000;
     this.stateEvent = options.stateEvent || null;
+    this.progressEvent = options.progressEvent || null;
     this.#stateEmitter = options.stateEmitter || null;
 
     if (this.#stateEmitter && !this.stateEvent) {
-      throw new Error('The State Event is mandatory is state emitter is used');
+      throw new Error('The State Event is mandatory when state emitter is used');
     }
 
     this.#controller.addLock('fetcher');
@@ -454,6 +455,9 @@ class NetworkStateManager extends EventEmitter {
     this.#boundEventHandler = handler;
 
     this.#stateEmitter.on(this.stateEvent, handler);
+    if (this.progressEvent) {
+      this.#stateEmitter.on(this.progressEvent, handler);
+    }
   }
 
   async start() {
@@ -470,11 +474,11 @@ class NetworkStateManager extends EventEmitter {
   async stop() {
     await this.#controller.abort();
 
-    if (this.#stateEmitter) {
-      this.#stateEmitter.removeListener(
-        this.stateEvent,
-        this.#boundEventHandler,
-      );
+    if (this.#stateEmitter && this.#boundEventHandler) {
+      this.#stateEmitter.removeListener(this.stateEvent, this.#boundEventHandler);
+      if (this.progressEvent) {
+        this.#stateEmitter.removeListener(this.progressEvent, this.#boundEventHandler);
+      }
       this.#boundEventHandler = null;
     }
 

@@ -3,9 +3,27 @@ let userconfig = require('../../config/userconfig');
 
 const isDevelopment = userconfig.initial.development || false;
 
+const dbPrefix = '';
+
 module.exports = {
   development: isDevelopment,
   loglevel: 'debug', // severity ordering specified by RFC5424
+  testEventStream: false,
+  system: {
+    bootIdPath: '/proc/sys/kernel/random/boot_id',
+    heartbeatIntervalMs: 30000,
+    bootSyncTimeoutMs: 300000,
+    bootDaemonTimeoutMs: 300000,
+  },
+  peers: {
+    wsPingIntervalMs: 15000,
+    wsMaxMissedPongs: 3,
+  },
+  confirmation: {
+    pollIntervalMs: 30000,
+    daemonStaleMs: 7500000,
+    daemonExpiredMs: 19200000,
+  },
   server: {
     allowedPorts: [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
@@ -15,7 +33,7 @@ module.exports = {
     url: '127.0.0.1',
     port: 27017,
     local: {
-      database: 'zelfluxlocal',
+      database: `${dbPrefix}zelfluxlocal`,
       collections: {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
@@ -29,7 +47,7 @@ module.exports = {
       },
     },
     daemon: {
-      database: 'zelcashdata',
+      database: `${dbPrefix}zelcashdata`,
       collections: {
         // addreesIndex contains a) balance, b) list of all transacitons, c) list of utxos
         scannedHeight: 'scannedheight',
@@ -41,13 +59,13 @@ module.exports = {
       },
     },
     appslocal: {
-      database: 'localzelapps',
+      database: `${dbPrefix}localzelapps`,
       collections: {
         appsInformation: 'zelappsinformation',
       },
     },
     appsglobal: {
-      database: 'globalzelapps',
+      database: `${dbPrefix}globalzelapps`,
       collections: {
         appsMessages: 'zelappsmessages', // storage for all flux apps messages done on flux network
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
@@ -55,29 +73,39 @@ module.exports = {
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
         appsInstallingLocations: 'appsinstallinglocations', // stores install location of flux apps as documents containing name, ip, obtainedAt
         appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
+        appStateEvents: 'appstateevents', // event log for running app state (apprunning, sigterm, appremoved, evicted)
+        appsInstallingBroadcasts: 'fluxappinstallingbroadcasts', // stores signed appinstalling broadcasts for sync
+        appsInstallingErrorsBroadcasts: 'fluxappinstallingerrorsbroadcasts', // stores signed appinstalling error broadcasts for sync
       },
     },
     chainparams: {
-      database: 'chainparams',
+      database: `${dbPrefix}chainparams`,
       collections: {
         chainMessages: 'chainmessages', // soft fork messages occuring on chain, Messages have immediate activation from its occurance blockheight (next blockheight mined are already new specs enforced)
         // height, txid, message, version (version X_ determines the value of adjustment p_ specifies new price structure as per fluxapps.price array values)
       },
     },
     fluxshare: {
-      database: 'zelshare',
+      database: `${dbPrefix}zelshare`,
       collections: {
         shared: 'shared',
       },
     },
   },
+  logConsole: false,
+  upnp: {
+    gatewayUrl: '',
+    nodeIp: '',
+  },
   benchmark: {
+    host: '127.0.0.1',
     port: 16225,
     rpcport: 16224,
     porttestnet: 26225,
     rpcporttestnet: 26224,
   },
   daemon: {
+    host: '127.0.0.1',
     chainValidHeight: 1062000,
     port: 16125,
     rpcport: 16124,
@@ -179,7 +207,7 @@ module.exports = {
       address: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
     }],
     usersToExtend: ['1MCBJn6qsy3YRY2YasdYMYdJcdhy1ev8Rd'], // addresses that can extend applications on behalf of app owners (expire-only updates) addresses cannot be deleted over time, just adding new ones
-    restartAlwaysOwners: ['16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW'], // app owners whose containers should have restart policy 'always' instead of 'unless-stopped'
+    // restartAlwaysOwners removed — all containers use restart policy 'no', FluxOS manages startup
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight
@@ -210,11 +238,17 @@ module.exports = {
     minimumInstancesV8: 1,
     minimumInstancesV8Block: 2176519, // block height where v8+ apps can have 1 instance - expected around December 19th 2025
     maximumInstances: 100,
+    maxAppsPerNode: 200,
     minOutgoing: 8,
     minUniqueIpsOutgoing: 7,
     minIncoming: 4,
     minUniqueIpsIncoming: 3,
+    minHashSyncPeers: 12,
     minUpTime: 1800, // 30 mins
+    appSyncPeerThreshold: 12, // peers needed before starting app sync / spawning
+    appSyncDegradedThreshold: 4, // below this, pause spawner — gossip unreliable
+    appSyncMinPeerUptime: 7500, // seconds a peer must have been running before we sync from it
+    appSyncMinCompletions: 3, // sync responses needed per type before spawner can start
     installation: {
       probability: 100, // 1%
       delay: 120, // in seconds
@@ -251,6 +285,66 @@ module.exports = {
     applyMinimumPriceOn3Instances: 1691000, // after this block we use the min. usd price on prices per 3 instances.
     applyMinimumForExtraInstances: 1890000,
     latestAppSpecification: 8,
+    bootDelayMultiplier: 1,
+    spawnDelayMs: 0,
+    removalSpacingMs: 60000,
+    locationTtlS: 7500,
+    installingTtlS: 900,
+    installErrorTtlS: 3600,
+    tempMsgTtlS: 3600,
+    hashSyncIntervalMs: 1800000,
+    peerNotifyIntervalMs: 3600000,
+    cpuCheckIntervalMs: 900000,
+    portRestoreIntervalMs: 600000,
+    imageComplianceIntervalMs: 3600000,
+    forceRemovalIntervalMs: 7200000,
+    installCollisionWaitMs: 90000,
+    spawnReconfirmDelayMs: 7500000,
+    nonEnterpriseSpawnDelayMs: 120000,
+    globalCmdDelayMs: 500,
+    discoveryAutostart: true,
+    discoveryRetryMs: 60000,
+    discoveryFailRetryMs: 120000,
+    discoveryConnectionDelayMs: 500,
+    connectionBackoffMs: [120000, 300000, 600000, 900000],
+    nodeMonitorIntervalMs: 1200000,
+    nodeMonitorRemovalDelayMs: 60000,
+    nodeMonitorDosRecoveryDelayMs: 600000,
+    nodeMonitorConfirmationLossDelayMs: 1200000,
+    nodeMonitorErrorRecoveryDelayMs: 120000,
+    nodeMonitorCheckTimeoutMs: 10000,
+    spawnDeferrals: {
+      targetedNodesMs: { enterprise: 1800000, standard: 3420000 },
+      staticIpMs: { enterprise: 1620000, standard: 3420000 },
+      datacenterMs: { enterprise: 1620000, standard: 3420000 },
+      capacityGap: {
+        largeMs: { enterprise: 1800000, standard: 7020000 },
+        mediumMs: { enterprise: 1260000, standard: 5220000 },
+        smallMs: { enterprise: 720000, standard: 3420000 },
+      },
+    },
+    spawnDelayMultiplier: 1,
+    daemonInfoIntervalMs: 30000,
+    explorerSyncRetryMs: 120000,
+    explorerDeepRestoreBlocks: 100,
+    syncTimeoutMs: 120000,
+    hashSyncMaxRetries: 3,
+    hashSyncRetryMs: 300000,
+    hashSyncSettleMs: 4000,
+    hashSyncResponseTimePerHashMs: 150,
+    hashSyncBufferMs: 5000,
+    hashSyncMaxRounds: 4,
+    hashSyncPeersPerRound: 3,
+    hashSyncEphemeralPeers: 5,
+    hashSyncFallbackRecheckBlocks: 100,
+    syncResponseThrottleMs: 300000,
+    wsHandshakeTimeoutMs: 10000,
+    imageUpdateCheckIntervalMs: 21600000,
+    imageUpdateInitialDelayMinMs: 600000,
+    imageUpdateInitialDelayMaxMs: 1800000,
+    imageUpdateDelayBetweenAppsMs: 5000,
+    imageUpdateDelayAfterRedeployMs: 120000,
+    imageUpdateDelayBetweenComponentsMs: 1000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -284,8 +378,8 @@ module.exports = {
     },
   },
   syncthing: { // operates on apiPort + 2
-    ip: '127.0.0.1', // local
-    port: 8384, // local
+    ip: '127.0.0.1',
+    port: 8384,
   },
   enterpriseAppOwners: [ // list of whitelisted app owner addresses allowed to deploy apps with datacenter=true
     '15ULw4JU6wqGESRYU3z3MjFETqLN3sA9Gn',
@@ -333,6 +427,14 @@ module.exports = {
     // Tokens will be refreshed when they expire within this time window
     // Default: 15 minutes (15 * 60 * 1000 = 900000ms)
     tokenRefreshBufferMs: 15 * 60 * 1000,
+  },
+  github: {
+    rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
+    apiBaseUrl: 'https://api.github.com',
+  },
+  geolocation: {
+    ipApiBaseUrl: 'http://ip-api.com',
+    statsApiBaseUrl: 'https://stats.runonflux.io',
   },
   analytics: {
     url: 'https://cloudaudit.runonflux.io', // analytics server URL (e.g. 'https://analytics.runonflux.io'). Empty = disabled.

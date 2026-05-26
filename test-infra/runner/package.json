@@ -1,0 +1,20 @@
+{
+  "name": "flux-e2e-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "E2E test runner and helpers for FluxOS test network",
+  "scripts": {
+    "test": "mocha --timeout 120000 --slow 10000 tests/**/*.js"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.7.2",
+    "@noble/secp256k1": "^2.2.3",
+    "axios": "^1.7.9",
+    "chai": "^6.2.2",
+    "eventsource": "^4.1.0",
+    "mocha": "^11.7.5",
+    "mongodb": "^7.2.0",
+    "testcontainers": "^11.14.0"
+  }
+}

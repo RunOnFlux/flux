@@ -11,7 +11,9 @@ const messageVerifier = require('../appMessaging/messageVerifier');
 const imageManager = require('../appSecurity/imageManager');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 // eslint-disable-next-line no-unused-vars
-const { supportedArchitectures, enterpriseRequiredArchitectures } = require('../utils/appConstants');
+const {
+  supportedArchitectures, enterpriseRequiredArchitectures, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY,
+} = require('../utils/appConstants');
 const { specificationFormatter, findCommonArchitectures } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const portManager = require('../appNetwork/portManager');
@@ -573,10 +575,10 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   }
   // Version 8+ allows hyphens in app names (but not as first or last character)
   if (appSpecifications.version >= 8) {
-    if (!appSpecifications.name.match(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/)) {
+    if (!APP_NAME_REGEX.test(appSpecifications.name)) {
       throw new Error('Flux App name contains special characters. Only a-z, A-Z, 0-9 and hyphens are allowed (hyphens cannot be first or last character)');
     }
-  } else if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
+  } else if (!APP_NAME_REGEX_LEGACY.test(appSpecifications.name)) {
     throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
   }
   if (appSpecifications.name.startsWith('zel')) {
@@ -703,7 +705,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
         throw new Error('Flux App Component name can not start with flux');
       }
       // furthermore name cannot contain any special character
-      if (!appComponent.name.match(/^[a-zA-Z0-9]+$/)) {
+      if (!APP_NAME_REGEX_LEGACY.test(appComponent.name)) {
         throw new Error('Flux App component name contains special characters. Only a-z, A-Z and 0-9 are allowed');
       }
       if (usedNames.includes(appComponent.name)) {

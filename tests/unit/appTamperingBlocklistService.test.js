@@ -22,6 +22,9 @@ describe('appTamperingBlocklistService tests', () => {
             collections: { appTamperingEvents: 'apptamperingevents' },
           },
         },
+        github: {
+          rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
+        },
       },
       '../lib/log': {
         info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(),

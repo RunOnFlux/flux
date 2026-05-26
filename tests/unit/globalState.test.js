@@ -120,4 +120,70 @@ describe('globalState tests', () => {
       expect(globalState.appsToBeCheckedLater).to.include('app1');
     });
   });
+
+  describe('waitForDbReady', () => {
+    it('should resolve immediately when dbReady is already true', async () => {
+      globalState.dbReady = true;
+      await globalState.waitForDbReady();
+    });
+
+    it('should wait until dbReady is set to true', async () => {
+      globalState.dbReady = false;
+      let resolved = false;
+      const promise = globalState.waitForDbReady().then(() => { resolved = true; });
+      await new Promise((r) => setImmediate(r));
+      expect(resolved).to.equal(false);
+      globalState.dbReady = true;
+      await promise;
+      expect(resolved).to.equal(true);
+    });
+
+    it('should resolve again after a reset cycle', async () => {
+      globalState.dbReady = true;
+      await globalState.waitForDbReady();
+
+      globalState.dbReady = false;
+      let resolved = false;
+      const promise = globalState.waitForDbReady().then(() => { resolved = true; });
+      await new Promise((r) => setImmediate(r));
+      expect(resolved).to.equal(false);
+      globalState.dbReady = true;
+      await promise;
+      expect(resolved).to.equal(true);
+    });
+  });
+
+  describe('waitForDaemonReady', () => {
+    it('should resolve immediately when daemonReady is already true', async () => {
+      globalState.daemonReady = true;
+      await globalState.waitForDaemonReady();
+    });
+
+    it('should wait until daemonReady is set to true', async () => {
+      let resolved = false;
+      const promise = globalState.waitForDaemonReady().then(() => { resolved = true; });
+      await new Promise((r) => setImmediate(r));
+      expect(resolved).to.equal(false);
+      globalState.daemonReady = true;
+      await promise;
+      expect(resolved).to.equal(true);
+    });
+  });
+
+  describe('waitForBootContainerStateSettled', () => {
+    it('should resolve immediately when bootContainerStateSettled is already true', async () => {
+      globalState.bootContainerStateSettled = true;
+      await globalState.waitForBootContainerStateSettled();
+    });
+
+    it('should wait until bootContainerStateSettled is set to true', async () => {
+      let resolved = false;
+      const promise = globalState.waitForBootContainerStateSettled().then(() => { resolved = true; });
+      await new Promise((r) => setImmediate(r));
+      expect(resolved).to.equal(false);
+      globalState.bootContainerStateSettled = true;
+      await promise;
+      expect(resolved).to.equal(true);
+    });
+  });
 });

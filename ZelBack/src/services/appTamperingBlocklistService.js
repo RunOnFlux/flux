@@ -7,7 +7,7 @@ const generalService = require('./generalService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const benchmarkService = require('./benchmarkService');
 
-const BLOCKLIST_URL = 'https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/tamperingblockednodes.json';
+const BLOCKLIST_URL = `${config.github.rawBaseUrl}/helpers/tamperingblockednodes.json`;
 const CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const SYNC_POLL_MS = 60 * 1000; // 60s while waiting for daemon sync
 const TAMPERING_EVENT_THRESHOLD = 10;

@@ -9,6 +9,10 @@
  * Type 0x03 — nak                 [type:1][hash:20][reason:1]  = 22 bytes
  * Type 0x10 — peerExchange        [type:1][count:2][peer:6]... = 3 + count*6
  * Type 0x11 — peerUpdate          [type:1][addCnt:2][rmCnt:2][peer:6]... = 5 + total*6
+ * Type 0x20 — requestTempMessages  [type:1][sinceTs:8]          = 9 bytes
+ * Type 0x21 — requestAppRunning   [type:1][sinceTs:8]          = 9 bytes
+ * Type 0x22 — requestAppInstalling [type:1][sinceTs:8]         = 9 bytes
+ * Type 0x23 — requestAppInstallingErrors [type:1][sinceTs:8]  = 9 bytes
  */
 
 const MSG_TYPE = Object.freeze({
@@ -17,6 +21,10 @@ const MSG_TYPE = Object.freeze({
   NAK: 0x03,
   PEER_EXCHANGE: 0x10,
   PEER_UPDATE: 0x11,
+  REQUEST_TEMP_MESSAGES: 0x20,
+  REQUEST_APP_RUNNING: 0x21,
+  REQUEST_APP_INSTALLING: 0x22,
+  REQUEST_APP_INSTALLING_ERRORS: 0x23,
 });
 
 const NAK_REASON = Object.freeze({
@@ -188,6 +196,65 @@ function decodePeerUpdate(buf) {
   return { addOutbound, addInbound, rm };
 }
 
+// --- Sync Requests ---
+// Signed format: [type:1][sinceTs:8][requestTs:8][pubkeyLen:1][pubkey:var][sigLen:1][signature:var]
+
+function encodeSignedSyncRequest(type, sinceTimestamp, requestTimestamp, pubkey, signature) {
+  const pubkeyBuf = Buffer.from(pubkey, 'hex');
+  const sigBuf = Buffer.from(signature, 'base64');
+  const buf = Buffer.allocUnsafe(1 + 8 + 8 + 1 + pubkeyBuf.length + 1 + sigBuf.length);
+  let offset = 0;
+  buf[offset] = type; offset += 1;
+  buf.writeBigUInt64BE(BigInt(sinceTimestamp), offset); offset += 8;
+  buf.writeBigUInt64BE(BigInt(requestTimestamp), offset); offset += 8;
+  buf[offset] = pubkeyBuf.length; offset += 1;
+  pubkeyBuf.copy(buf, offset); offset += pubkeyBuf.length;
+  buf[offset] = sigBuf.length; offset += 1;
+  sigBuf.copy(buf, offset);
+  return buf;
+}
+
+function decodeSignedSyncRequest(buf) {
+  if (buf.length < 19) return null;
+  const type = buf[0];
+  let offset = 1;
+  const sinceTimestamp = Number(buf.readBigUInt64BE(offset)); offset += 8;
+  const requestTimestamp = Number(buf.readBigUInt64BE(offset)); offset += 8;
+  const pubkeyLen = buf[offset]; offset += 1;
+  if (buf.length < offset + pubkeyLen + 1) return null;
+  const pubkey = buf.slice(offset, offset + pubkeyLen).toString('hex'); offset += pubkeyLen;
+  const sigLen = buf[offset]; offset += 1;
+  if (buf.length < offset + sigLen) return null;
+  const signature = buf.slice(offset, offset + sigLen).toString('base64');
+  if (!pubkeyLen || !sigLen) return null;
+  return { type, sinceTimestamp, requestTimestamp, pubkey, signature };
+}
+
+function buildSyncSignatureMessage(type, sinceTimestamp, requestTimestamp) {
+  return `${type}${sinceTimestamp}${requestTimestamp}`;
+}
+
+function encodeRequestTempMessages(sinceTimestamp, requestTimestamp, pubkey, signature) {
+  return encodeSignedSyncRequest(MSG_TYPE.REQUEST_TEMP_MESSAGES, sinceTimestamp, requestTimestamp, pubkey, signature);
+}
+
+function encodeRequestAppRunning(sinceTimestamp, requestTimestamp, pubkey, signature) {
+  return encodeSignedSyncRequest(MSG_TYPE.REQUEST_APP_RUNNING, sinceTimestamp, requestTimestamp, pubkey, signature);
+}
+
+function encodeRequestAppInstalling(sinceTimestamp, requestTimestamp, pubkey, signature) {
+  return encodeSignedSyncRequest(MSG_TYPE.REQUEST_APP_INSTALLING, sinceTimestamp, requestTimestamp, pubkey, signature);
+}
+
+function encodeRequestAppInstallingErrors(sinceTimestamp, requestTimestamp, pubkey, signature) {
+  return encodeSignedSyncRequest(MSG_TYPE.REQUEST_APP_INSTALLING_ERRORS, sinceTimestamp, requestTimestamp, pubkey, signature);
+}
+
+function decodeSyncTimestamp(buf) {
+  if (buf.length < 9) return 0;
+  return Number(buf.readBigUInt64BE(1));
+}
+
 module.exports = {
   MSG_TYPE,
   NAK_REASON,
@@ -203,4 +270,12 @@ module.exports = {
   decodePeerExchange,
   encodePeerUpdate,
   decodePeerUpdate,
+  encodeSignedSyncRequest,
+  decodeSignedSyncRequest,
+  buildSyncSignatureMessage,
+  encodeRequestTempMessages,
+  encodeRequestAppRunning,
+  encodeRequestAppInstalling,
+  encodeRequestAppInstallingErrors,
+  decodeSyncTimestamp,
 };

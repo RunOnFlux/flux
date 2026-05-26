@@ -1,0 +1,116 @@
+export async function waitFor(condition, { timeout = 60000, interval = 2000, label = '' } = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (await condition()) return true;
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  throw new Error(`Timeout after ${timeout}ms waiting for: ${label || 'condition'}`);
+}
+
+// Event-based wait helpers (use SSE event stream)
+// All accept an optional `opts` object passed through to waitForEvent (e.g. { afterId })
+
+export async function waitForDaemonPolled(node, predicate = () => true, timeout = 30000, opts) {
+  return node.waitForEvent('daemon:polled', predicate, timeout, opts);
+}
+
+export async function waitForDaemonReady(node, timeout = 60000, opts) {
+  return node.waitForEvent('daemon:polled', () => true, timeout, opts);
+}
+
+export async function waitForBlockProcessed(node, predicate = () => true, timeout = 30000, opts) {
+  return node.waitForEvent('block:processed', predicate, timeout, opts);
+}
+
+export async function waitForDosChanged(node, predicate = () => true, timeout = 30000, opts) {
+  return node.waitForEvent('dos:changed', predicate, timeout, opts);
+}
+
+export async function waitForAppInstalled(node, appName, timeout = 60000, opts) {
+  return node.waitForEvent('app:installed', (data) => data.name === appName, timeout, opts);
+}
+
+export async function waitForAppRemoved(node, appName, timeout = 60000, opts) {
+  return node.waitForEvent('app:removed', (data) => data.name === appName, timeout, opts);
+}
+
+export async function waitForNodeStatus(node, predicate, timeout = 30000, opts) {
+  return node.waitForEvent('confirmation:changed', predicate, timeout, opts);
+}
+
+export async function waitForAppSpecStored(node, appName, timeout = 120000, opts) {
+  return node.waitForEvent('app:specStored', (data) => data.name === appName, timeout, opts);
+}
+
+export async function waitForDaemonUnreachable(node, timeout = 30000, opts) {
+  return node.waitForEvent('daemon:unreachable', () => true, timeout, opts);
+}
+
+export async function waitForDaemonRecovered(node, timeout = 30000, opts) {
+  return node.waitForEvent('daemon:recovered', () => true, timeout, opts);
+}
+
+export async function waitForExplorerReady(node, timeout = 120000, opts) {
+  return node.waitForEvent('explorer:ready', () => true, timeout, opts);
+}
+
+export async function waitForMessageCapabilityChanged(node, capable, timeout = 30000, opts) {
+  return node.waitForEvent('messageCapability:changed', (d) => d.capable === capable, timeout, opts);
+}
+
+export async function waitForOrchestratorStarted(node, timeout = 120000, opts) {
+  return node.waitForEvent('orchestrator:started', () => true, timeout, opts);
+}
+
+export async function waitForOrchestratorState(node, state, timeout = 60000, opts) {
+  return node.waitForEvent('orchestrator:stateChanged', (d) => d.to === state, timeout, opts);
+}
+
+export async function waitForPeerThreshold(node, timeout = 120000, opts) {
+  return node.waitForEvent('peers:thresholdReached', () => true, timeout, opts);
+}
+
+export async function waitForBootSettled(node, timeout = 120000, opts) {
+  return node.waitForEvent('boot:settled', () => true, timeout, opts);
+}
+
+export async function waitForPeersBelowThreshold(node, timeout = 30000, opts) {
+  return node.waitForEvent('peers:belowThreshold', () => true, timeout, opts);
+}
+
+export async function waitForSpawnerPaused(node, timeout = 30000, opts) {
+  return node.waitForEvent('spawner:paused', () => true, timeout, opts);
+}
+
+export async function waitForSpawnerResumed(node, timeout = 60000, opts) {
+  return node.waitForEvent('spawner:resumed', () => true, timeout, opts);
+}
+
+export async function waitForSpawnerBlocked(node, reason, timeout = 30000, opts) {
+  return node.waitForEvent('spawner:blocked', (d) => d.reason === reason, timeout, opts);
+}
+
+export async function waitForImageUpdateChecked(node, timeout = 60000, opts) {
+  return node.waitForEvent('imageUpdate:checked', () => true, timeout, opts);
+}
+
+export async function waitForImageUpdateRedeploy(node, appName, timeout = 120000, opts) {
+  return node.waitForEvent('imageUpdate:redeployTriggered', (d) => d.appName === appName, timeout, opts);
+}
+
+export async function waitForImageUpdateRedeployComplete(node, appName, timeout = 120000) {
+  return node.waitForEvent('imageUpdate:redeployComplete', (d) => d.appName === appName, timeout);
+}
+
+export async function waitForSpawnerDeferred(node, appName, reason, timeout = 60000) {
+  const entry = await node.waitForEvent('spawner:deferred', (d) => d.appName === appName && (!reason || d.reason === reason), timeout);
+  return entry.data;
+}
+
+export async function waitForAppRunning(node, appName, timeout = 60000) {
+  return node.waitForEvent('app:running', (d) => d.apps?.some((a) => a.name === appName), timeout);
+}
+
+export async function waitForPeersRemoved(node, predicate = () => true, timeout = 30000) {
+  return node.waitForEvent('peers:removed', predicate, timeout);
+}

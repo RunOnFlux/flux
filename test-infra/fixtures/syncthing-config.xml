@@ -1,0 +1,7 @@
+<configuration version="37">
+    <gui enabled="true" tls="false" debugging="false" sendBasicAuthPrompt="false">
+        <address>0.0.0.0:8384</address>
+        <apikey>stub-syncthing-api-key</apikey>
+        <theme>default</theme>
+    </gui>
+</configuration>

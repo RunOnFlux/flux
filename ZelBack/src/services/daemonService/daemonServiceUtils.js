@@ -54,7 +54,8 @@ async function buildFluxdClient() {
 
   const rpcPort = fluxdConfig.rpcport || config.daemon[portId];
 
-  const client = new fluxRpc.FluxRpc(`http://127.0.0.1:${rpcPort}`, {
+  const rpcHost = config.daemon.host;
+  const client = new fluxRpc.FluxRpc(`http://${rpcHost}:${rpcPort}`, {
     auth: { username, password }, timeout: 40_000,
   });
 
@@ -106,6 +107,22 @@ async function executeCall(rpc, params, options = {}) {
     return daemonError;
   } finally {
     lock.disable();
+  }
+}
+
+/**
+ * Execute a batch of RPC calls directly, bypassing cache and semaphore lock.
+ * @param {Array<{method: string, params: Array}>} calls Array of RPC call specifications.
+ * @returns {object} Message containing array of {id, result, error} objects.
+ */
+async function executeBatchCall(calls) {
+  if (!fluxdClient) await buildFluxdClient();
+
+  try {
+    const data = await fluxdClient.runBatch(calls);
+    return messageHelper.createDataMessage(data);
+  } catch (error) {
+    return messageHelper.createErrorMessage(error.message, error.name, error.code);
   }
 }
 
@@ -271,6 +288,7 @@ module.exports = {
   buildFluxdClient,
   createBackupFluxdConfig,
   executeCall,
+  executeBatchCall,
   getConfigValue,
   getFluxdClient,
   getFluxdConfig,

@@ -1,0 +1,51 @@
+FROM ubuntu:26.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    sudo \
+    ufw \
+    mount \
+    cron \
+    gnupg \
+    iproute2 \
+    socat \
+    iptables \
+    e2fsprogs \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /flux
+
+COPY package.json ./
+RUN npm install --production
+
+COPY . .
+
+COPY test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
+
+RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
+    && ln -s /flux /root/zelflux
+
+ENV NODE_CONFIG_DIR=/flux/ZelBack/config
+
+COPY test-infra/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 16126 16127 16128 16129
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["node", "app.js"]

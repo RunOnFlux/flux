@@ -1,3 +1,4 @@
+const config = require('config');
 const axios = require('axios');
 const serviceHelper = require('../serviceHelper');
 // Removed verificationHelper to avoid circular dependency - will use dynamic require where needed
@@ -7,6 +8,8 @@ const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('./appInspector');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const log = require('../../lib/log');
+
+const globalCmdDelayMs = config.fluxapps.globalCmdDelayMs;
 
 /**
  * Get application locations from the global database
@@ -85,7 +88,7 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
           log.error(`Axios request failed for ${url}`, error);
         });
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500);
+      await serviceHelper.delay(globalCmdDelayMs);
     }
   } catch (error) {
     log.error(error);

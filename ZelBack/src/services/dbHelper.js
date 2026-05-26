@@ -7,6 +7,8 @@ const log = require('../lib/log');
 const mongodb = require('mongodb');
 const config = require('config');
 
+const serviceHelper = require('./serviceHelper');
+
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
@@ -47,6 +49,34 @@ async function connectMongoDb(url) {
 async function initiateDB() {
   if (!openDBConnection) openDBConnection = await connectMongoDb();
   return true;
+}
+
+/**
+ * Waits for MongoDB to become available, retrying indefinitely.
+ * Logs on first attempt, then every ~60 seconds.
+ * @returns {Promise<void>}
+ */
+async function waitForMongo() {
+  const RETRY_DELAY_MS = 5000;
+  const LOG_INTERVAL_MS = 60000;
+  let lastLogAt = 0;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      await initiateDB();
+      log.info('MongoDB connected');
+      return;
+    } catch (error) {
+      const now = Date.now();
+      if (!lastLogAt || now - lastLogAt >= LOG_INTERVAL_MS) {
+        log.info(`Waiting for MongoDB... (${error.message})`);
+        lastLogAt = now;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(RETRY_DELAY_MS);
+    }
+  }
 }
 
 /**
@@ -721,43 +751,24 @@ async function reindexGlobalAppsInformation(
   appsLocalDb,
   globalAppsMessagesCol,
   globalAppsInformationCol,
-  globalAppsInstallingErrorsLocationsCol,
   localAppsInformationCol,
   scannedHeight,
 ) {
-  const dropped = await dropCollection(appsGlobalDb, globalAppsInformationCol)
-    .catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error('reindexGlobalAppsInformation - Unable to drop db. '
-          + `Error: ${error}`);
-        return false;
-      }
-      return true;
-    });
-
-  if (!dropped) return [];
+  try {
+    await appsGlobalDb.collection(globalAppsInformationCol).deleteMany({});
+  } catch (error) {
+    log.error(`reindexGlobalAppsInformation - Unable to clear collection. Error: ${error}`);
+    return [];
+  }
 
   const infoCol = appsGlobalDb.collection(globalAppsInformationCol);
-  await infoCol.createIndex(
-    { name: 1 },
-    { name: 'query for getting zelapp based on zelapp specs name' },
-  );
-  await infoCol.createIndex(
-    { owner: 1 },
-    { name: 'query for getting zelapp based on zelapp specs owner' },
-  );
-  await infoCol.createIndex(
-    { repotag: 1 },
-    { name: 'query for getting zelapp based on image' },
-  );
-  await infoCol.createIndex(
-    { height: 1 },
-    { name: 'query for getting zelapp based on last height update' },
-  );
-  await infoCol.createIndex(
-    { hash: 1 },
-    { name: 'query for getting zelapp based on last hash' },
-  );
+  await infoCol.createIndexes([
+    { key: { name: 1 }, name: 'query for getting zelapp based on zelapp specs name' },
+    { key: { owner: 1 }, name: 'query for getting zelapp based on zelapp specs owner' },
+    { key: { repotag: 1 }, name: 'query for getting zelapp based on image' },
+    { key: { height: 1 }, name: 'query for getting zelapp based on last height update' },
+    { key: { hash: 1 }, name: 'query for getting zelapp based on last hash' },
+  ]);
 
   const pipeline = [
     { $sort: { 'appSpecifications.name': 1, height: -1 } },
@@ -808,14 +819,6 @@ async function reindexGlobalAppsInformation(
     localAppsInformationCol,
   );
 
-  // Drop all install errors. Collection has a 1-hour TTL anyway and any
-  // surviving errors would be tied to specs that may have just changed.
-  await removeDocumentsFromCollection(
-    appsGlobalDb,
-    globalAppsInstallingErrorsLocationsCol,
-    {},
-  );
-
   log.info(
     `Reindexing of global applications finished. Local apps to be removed: ${JSON.stringify(appsToRemove)}`,
   );
@@ -827,10 +830,10 @@ async function reindexGlobalAppsInformation(
  * Verifies the app count based on an aggregation from appsmessages and compares it to the
  * app count in appsinformation. If they differ - the appsinformation collection is dropped and
  * rebuilt from the appsmessages. The entire process takes about 500-700ms.
- * @returns {Promise<{validated: boolean, reindexed: boolean, appsToRemove: Array<string>}>}
+ * @returns {Promise<{validated: boolean, reindexed: boolean}>}
  */
 async function validateAppsInformation() {
-  const response = { validated: false, reindexed: false, appsToRemove: [] };
+  const response = { validated: false, reindexed: false };
 
   const {
     database: {
@@ -839,7 +842,6 @@ async function validateAppsInformation() {
         collections: {
           appsInformation: globalAppsInformationCol,
           appsMessages: globalAppsMessagesCol,
-          appsInstallingErrorsLocations: globalAppsInstallingErrorsLocationsCol,
         },
       },
       appslocal: {
@@ -889,18 +891,16 @@ async function validateAppsInformation() {
       return response;
     }
 
-    const appsToRemove = await reindexGlobalAppsInformation(
+    await reindexGlobalAppsInformation(
       appsGlobalDb,
       appsLocalDb,
       globalAppsMessagesCol,
       globalAppsInformationCol,
-      globalAppsInstallingErrorsLocationsCol,
       localAppsInformationCol,
       scannedHeight,
     );
 
     response.reindexed = true;
-    response.appsToRemove = appsToRemove;
   } catch (err) {
     log.error(`Unable to validate apps information. Error: ${err}`);
   }
@@ -972,4 +972,5 @@ module.exports = {
   updateInDatabase,
   updateOneInDatabase,
   validateAppsInformation,
+  waitForMongo,
 };

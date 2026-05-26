@@ -219,7 +219,7 @@ async function checkSynced() {
  */
 async function whitelistedRepositories(req, res) {
   try {
-    const whitelisted = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json');
+    const whitelisted = await serviceHelper.axiosGet(`${config.github.rawBaseUrl}/helpers/repositories.json`);
     const resultsResponse = messageHelper.createDataMessage(whitelisted.data);
     res.json(resultsResponse);
   } catch (error) {

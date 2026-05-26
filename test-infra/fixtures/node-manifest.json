@@ -1,0 +1,173 @@
+{
+  "nodes": [
+    {
+      "label": "node-01",
+      "ip": "198.18.1.0",
+      "zelid": "14dQFmgDLVEVG7vNH8ibWuUEkuvxuogg13",
+      "pubkey": "02bb0c6ae7fd788911562daf2c781d6f4cf83a2916a9956f26adff88b2f973242a",
+      "tier": "CUMULUS",
+      "region": "EU_DE",
+      "staticIp": true,
+      "txhash": "0b7c2a5f894aef9ad4f1d791476630d48370206583c1ec1999e852e6ad8e7e70"
+    },
+    {
+      "label": "node-02",
+      "ip": "198.18.2.0",
+      "zelid": "1HeAi8u8gAr89ekYsemWqwwg9wp3zXohkq",
+      "pubkey": "03d08b7eaa1e7edb1487b86e89ee2c652d96971f316c861f3008a17965012c317c",
+      "tier": "CUMULUS",
+      "region": "EU_DE",
+      "staticIp": false,
+      "txhash": "3889bb476c8d8b6fe29558b750864ce41e58af74f38199e76116bfc38c7a7079"
+    },
+    {
+      "label": "node-03",
+      "ip": "198.18.3.0",
+      "zelid": "1NeQjrGRuAhAQYgugBPBEMB3BW2tnqLE2G",
+      "pubkey": "026df75069da3fe4a46c1140f8bacb8f2ed02fcf2ad078656bbcbf41f669ecc63a",
+      "tier": "CUMULUS",
+      "region": "EU_FR",
+      "staticIp": true,
+      "txhash": "9a51c6986d6f36d39d44864b5b4d1e7693b08513aa8c62cdb77896116f09ad18"
+    },
+    {
+      "label": "node-04",
+      "ip": "198.18.4.0",
+      "zelid": "17bNDmy6nN2jMz4v6BWZxCpLAkVze6zrUH",
+      "pubkey": "03568f92074082b3c8c6bc726f4313f9e1dcbe08cf2ef47da05d3af2ceb8abaa38",
+      "tier": "CUMULUS",
+      "region": "EU_CZ",
+      "staticIp": true,
+      "txhash": "2c343eb6ffc2b5a22f4c090d6d4f3def64b7d159c8a61fa38eda98f419c26365"
+    },
+    {
+      "label": "node-05",
+      "ip": "198.18.5.0",
+      "zelid": "1AFfatFHuMpgmuRkfW4vLiqDQQPksLeFBu",
+      "pubkey": "0352bc068c6ffd9d2a1328070a2355b0562f7551e684acadd83d38a23924910a6e",
+      "tier": "NIMBUS",
+      "region": "US_NY",
+      "staticIp": true,
+      "txhash": "81543f437e488bcce15f1cdb0de37831cfecc4186ffd301e560b6aedcce36e6a"
+    },
+    {
+      "label": "node-06",
+      "ip": "198.18.6.0",
+      "zelid": "1AjGYYAdkLZLJQHC8A4PNQcTds6SNaowaK",
+      "pubkey": "03d90366e9009235ccf24d39e9297d4ec89b8c93eb6e2c27bfa375345684c76b5d",
+      "tier": "NIMBUS",
+      "region": "US_NY",
+      "staticIp": true,
+      "txhash": "0b14b62cf2582a4907e0c5ce43632e6597ac470e5fcfe6b3e31ccbb3aa93a0e5"
+    },
+    {
+      "label": "node-07",
+      "ip": "198.18.7.0",
+      "zelid": "1L5TLXRGRcyPtopXYYHtpxe9CHAaeh3rYw",
+      "pubkey": "02efc8420a84633f92fba33b4d6b4018f84750806e5eda7e618cc7ce13fcad9a36",
+      "tier": "NIMBUS",
+      "region": "US_CA",
+      "staticIp": true,
+      "txhash": "1986f4424122486917278f3d9988fb0fd5eeb8b7280fe84931dc3ab7c06456a7"
+    },
+    {
+      "label": "node-08",
+      "ip": "198.18.8.0",
+      "zelid": "12TrNc2yK8MAy9gBv3Qw6qjFqDZSZQZq6h",
+      "pubkey": "02a2d216bcb522eea0b1257a43e66c3d8e25ac78fd2e26a93d6965c6e8f3b99442",
+      "tier": "NIMBUS",
+      "region": "US_TX",
+      "staticIp": false,
+      "txhash": "ccc37236424fdd9899590088de6a9de9b42df5fb9e69268d0947ef656854ad31"
+    },
+    {
+      "label": "node-09",
+      "ip": "198.18.9.0",
+      "zelid": "15uqimLo5QqMV2uEoUEFMKD8FnpVrBpgYb",
+      "pubkey": "03496b4f97a3a744cdc4b98f1707327dbc2e5c318d052d022b5c7f8f20057b2caf",
+      "tier": "NIMBUS",
+      "region": "US_VA",
+      "staticIp": true,
+      "txhash": "54917729eb8239fc3a6a3f78ca683bb58092cf300ccc95533b45978d822ca067"
+    },
+    {
+      "label": "node-10",
+      "ip": "198.18.10.0",
+      "zelid": "1GxtCJwXU4pQiTfqbPxUPdQbogTvrtf4p",
+      "pubkey": "02c657c98b0b2553798dd777f764181c4e012a515fbb2244bbd14aa550557fca11",
+      "tier": "NIMBUS",
+      "region": "US_VA",
+      "staticIp": true,
+      "txhash": "f6dfd34f37210ddfdd856d9c3024b438d5acf5abc6cbdae4e16134b9bb38f1f9"
+    },
+    {
+      "label": "node-11",
+      "ip": "198.18.11.0",
+      "zelid": "1DsGyjKcvSS2HPbwcA3FJtmxnzTuppG9LN",
+      "pubkey": "02cf74bdbeca0cf5f18771f08d010f9a3c7874d7e639b69b685a215a0557bf56e4",
+      "tier": "STRATUS",
+      "region": "AS_SG",
+      "staticIp": true,
+      "txhash": "5418dfe928bf409d2806e4a995e650ec963731be3ec060d0f04fc400dd7720b7"
+    },
+    {
+      "label": "node-12",
+      "ip": "198.18.12.0",
+      "zelid": "1G27Ms8zJqqtfJbec8poTwWLwNuRHp7ZpL",
+      "pubkey": "037765f4a95550dea3af60f17e81f75da14ede502dc7abba97c36c22bc6b88ddd5",
+      "tier": "STRATUS",
+      "region": "AS_SG",
+      "staticIp": true,
+      "txhash": "13b9941d777e67e1385b4b211c67f4b936bba6b1024881cf843044368cb5c9c1"
+    },
+    {
+      "label": "node-13",
+      "ip": "198.18.13.0",
+      "zelid": "1B4KkvzmF47CmAmZmksGLoaXWaswF9TApp",
+      "pubkey": "02559fce2984a24d3b4bd306bafce638bedb7c4befad938223b205c45d6ae12916",
+      "tier": "STRATUS",
+      "region": "AS_JP",
+      "staticIp": true,
+      "txhash": "9ec1f523bdfcb9131a2cc024944ae44d3d48b6c06dcc5638d7d69550cee709a8"
+    },
+    {
+      "label": "node-14",
+      "ip": "198.18.14.0",
+      "zelid": "1LC59SMrRCefaAa8GRSG7A91XgXJykQg6E",
+      "pubkey": "0214802f1ef688c1070c9e44c7272a3aeda5cccbae12e9227d0c904535d1e72da2",
+      "tier": "STRATUS",
+      "region": "EU_DE",
+      "staticIp": true,
+      "txhash": "9f195543047750aa7720cc5e4e51cad7adb9cf189a5d4ddfa3fc4907bcf8a42b"
+    },
+    {
+      "label": "node-15",
+      "ip": "198.18.15.0",
+      "zelid": "19ndcTikMqWatuCBbiD4jJ5JeBRJkxmTak",
+      "pubkey": "02cd864f39c55ec9216554f3e2dfda00e7e25eb8327cf2f881cd90f44692492f18",
+      "tier": "STRATUS",
+      "region": "US_CA",
+      "staticIp": true,
+      "txhash": "ae526190d8d93552d73a1b4514b1eb43de460bab87a5562eb422bb24f1b16c17"
+    },
+    {
+      "label": "node-16",
+      "ip": "198.18.16.0",
+      "zelid": "1EpVCybiP1dbPEgu82bcotZ6NKN28U4iXU",
+      "pubkey": "03ab8ed906423a301fa447230d90e98ad7eb039c7fb6267b5771ce3beda0307d1f",
+      "tier": "CUMULUS",
+      "region": "EU_FR",
+      "staticIp": true,
+      "txhash": "a5a6ac49519f023b04ae706e3f6238dc8cba69e48814064e7054120af9def25b"
+    }
+  ],
+  "appOwner": {
+    "zelid": "1L2cmJ69frZTg83izRNJsYwDWh5ZmdoUSx"
+  },
+  "fluxTeam": {
+    "zelid": "19J4Ef396goaQhrqgNLTFvtCXYqjFAx2Js"
+  },
+  "user": {
+    "zelid": "14BKBi3zwPG66UmbfKLRfT78Vs1bL4uiMv"
+  }
+}

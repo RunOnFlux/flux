@@ -31,20 +31,20 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       const result = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodestatus');
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodestatus', [], { useCache: false });
     });
 
-    it('should trigger rpc, response passed', async () => {
+    it('should trigger rpc via api handler, response passed', async () => {
       daemonServiceUtilsStub.returns('success');
 
       const res = generateResponse();
       const expectedResponse = 'success';
 
-      const result = await daemonServiceFluxnodeRpcs.getFluxNodeStatus(undefined, res);
+      const result = await daemonServiceFluxnodeRpcs.getFluxNodeStatusApi(undefined, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodestatus');
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'getzelnodestatus', [], { useCache: false });
     });
   });
 

@@ -15,8 +15,12 @@ secret:
     # Test fixtures with mock tokens
     - 'tests/unit/registryAuth/integration/fixtures/*.json'
 
+    # Test TLS certificates (self-signed, Flux Test CA)
+    - 'test-infra/fixtures/registry-tls/**'
+
     # Test files with example credentials
     - 'tests/unit/registryAuth/*.test.js'
+    - 'tests/unit/fluxCommunicationMessagesSender.test.js'
 
     # Documentation examples
     - 'docs/registry-auth/**/examples/*'
