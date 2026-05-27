@@ -44,10 +44,7 @@ async function handleContainerDie(event) {
 
   if (!containerName || !isFluxContainer(containerName)) return;
 
-  if (exitCode === 0) {
-    log.info(`containerCrashRecovery - ${containerName} exited cleanly (0), no action`);
-    return;
-  }
+  if (exitCode === 0) return;
 
   if (!globalState.bootContainerStateSettled) {
     log.info(`containerCrashRecovery - ${containerName} died (exit ${exitCode}) but boot not settled, skipping`);

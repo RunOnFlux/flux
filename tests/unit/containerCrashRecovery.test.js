@@ -134,6 +134,7 @@ describe('containerCrashRecovery tests', () => {
       await new Promise((r) => setImmediate(r));
 
       expect(dockerServiceStub.appDockerStart.called).to.be.false;
+      expect(logStub.warn.called).to.be.false;
     });
 
     it('should ignore non-flux containers', async () => {
