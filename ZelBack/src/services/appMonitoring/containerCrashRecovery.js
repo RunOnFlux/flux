@@ -7,9 +7,6 @@ const appInspector = require('../appManagement/appInspector');
 const BACKOFF_DELAYS_MS = [0, 30 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 30 * 60 * 1000];
 const BACKOFF_RESET_MS = 60 * 60 * 1000;
 
-// containerName -> [monotonicMs, ...]
-const restartHistory = new Map();
-
 const bootQueue = [];
 
 let eventStream = null;
@@ -31,22 +28,22 @@ function nowMs() {
 
 function getBackoffDelay(containerName) {
   const now = nowMs();
-  const history = restartHistory.get(containerName);
+  const history = globalState.containerRestartHistory.get(containerName);
   if (!history) return 0;
   const recent = history.filter((ts) => now - ts < BACKOFF_RESET_MS);
   if (recent.length === 0) {
-    restartHistory.delete(containerName);
+    globalState.containerRestartHistory.delete(containerName);
     return 0;
   }
-  restartHistory.set(containerName, recent);
+  globalState.containerRestartHistory.set(containerName, recent);
   const index = Math.min(recent.length, BACKOFF_DELAYS_MS.length - 1);
   return BACKOFF_DELAYS_MS[index];
 }
 
 function recordRestart(containerName) {
-  const history = restartHistory.get(containerName) || [];
+  const history = globalState.containerRestartHistory.get(containerName) || [];
   history.push(nowMs());
-  restartHistory.set(containerName, history);
+  globalState.containerRestartHistory.set(containerName, history);
 }
 
 async function handleContainerDie(event) {

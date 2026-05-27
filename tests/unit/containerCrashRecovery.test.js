@@ -20,6 +20,7 @@ describe('containerCrashRecovery tests', () => {
       bootContainerStateSettled: true,
       appsMonitored: {},
       stoppingContainers: new Set(),
+      containerRestartHistory: new Map(),
     };
     appInspectorStub = { startAppMonitoring: sinon.stub() };
 

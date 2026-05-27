@@ -1102,7 +1102,9 @@ async function appDockerStart(idOrName) {
     // container ID or name
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
-    globalState.stoppingContainers.delete(getDockerName(idOrName));
+    const dockerName = getDockerName(idOrName);
+    globalState.stoppingContainers.delete(dockerName);
+    globalState.containerRestartHistory.delete(dockerName);
     await dockerContainer.start(); // may throw
 
     // Apply CFS burst after start — cgroup paths only exist once the container

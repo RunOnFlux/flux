@@ -42,6 +42,9 @@ const runningAppsCache = new Set();
 // Containers intentionally stopped by FluxOS — crash recovery skips die events for these
 const stoppingContainers = new Set();
 
+// containerName -> [monotonicMs, ...] — tracks restart attempts for backoff
+const containerRestartHistory = new Map();
+
 // Cache references - these will be initialized from cacheManager
 let spawnErrorsLongerAppCache = null;
 let trySpawningGlobalAppCache = null;
@@ -123,6 +126,7 @@ module.exports = {
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },
   get stoppingContainers() { return stoppingContainers; },
+  get containerRestartHistory() { return containerRestartHistory; },
 
   get spawnErrorsLongerAppCache() { return spawnErrorsLongerAppCache; },
   set spawnErrorsLongerAppCache(value) { spawnErrorsLongerAppCache = value; },
