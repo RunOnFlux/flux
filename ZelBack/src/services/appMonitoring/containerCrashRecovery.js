@@ -3,10 +3,11 @@ const dockerService = require('../dockerService');
 const globalState = require('../utils/globalState');
 const appInspector = require('../appManagement/appInspector');
 
-const MAX_RESTARTS = 3;
-const RESTART_WINDOW_MS = 5 * 60 * 1000;
+// immediate, 30s, 5m, 15m, 30m cap
+const BACKOFF_DELAYS_MS = [0, 30 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 30 * 60 * 1000];
+const BACKOFF_RESET_MS = 60 * 60 * 1000;
 
-// containerName -> [timestampMs, ...]
+// containerName -> [monotonicMs, ...]
 const restartHistory = new Map();
 
 const bootQueue = [];
@@ -24,18 +25,27 @@ function getComponentIdentifier(containerName) {
   return containerName;
 }
 
-function isCrashLooping(containerName) {
-  const now = Date.now();
+function nowMs() {
+  return Number(process.hrtime.bigint() / 1_000_000n);
+}
+
+function getBackoffDelay(containerName) {
+  const now = nowMs();
   const history = restartHistory.get(containerName);
-  if (!history) return false;
-  const recent = history.filter((ts) => now - ts < RESTART_WINDOW_MS);
+  if (!history) return 0;
+  const recent = history.filter((ts) => now - ts < BACKOFF_RESET_MS);
+  if (recent.length === 0) {
+    restartHistory.delete(containerName);
+    return 0;
+  }
   restartHistory.set(containerName, recent);
-  return recent.length >= MAX_RESTARTS;
+  const index = Math.min(recent.length, BACKOFF_DELAYS_MS.length - 1);
+  return BACKOFF_DELAYS_MS[index];
 }
 
 function recordRestart(containerName) {
   const history = restartHistory.get(containerName) || [];
-  history.push(Date.now());
+  history.push(nowMs());
   restartHistory.set(containerName, history);
 }
 
@@ -60,13 +70,21 @@ async function handleContainerDie(event) {
     return;
   }
 
-  if (isCrashLooping(containerName)) {
-    log.warn(`containerCrashRecovery - ${containerName} crash-looping (${MAX_RESTARTS} restarts in ${RESTART_WINDOW_MS / 1000}s), not restarting`);
-    return;
-  }
-
   const identifier = getComponentIdentifier(containerName);
-  log.warn(`containerCrashRecovery - ${containerName} crashed (exit ${exitCode}), restarting as ${identifier}`);
+  const delay = getBackoffDelay(containerName);
+
+  if (delay > 0) {
+    log.warn(`containerCrashRecovery - ${containerName} crashed (exit ${exitCode}), waiting ${delay / 1000}s before restarting`);
+    await new Promise((resolve) => { setTimeout(resolve, delay); });
+    if (stopped) return;
+    const container = await dockerService.getDockerContainerOnly(identifier);
+    if (!container || container.State === 'running') {
+      log.info(`containerCrashRecovery - ${containerName} already handled during backoff, skipping`);
+      return;
+    }
+  } else {
+    log.warn(`containerCrashRecovery - ${containerName} crashed (exit ${exitCode}), restarting as ${identifier}`);
+  }
 
   try {
     recordRestart(containerName);

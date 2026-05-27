@@ -186,33 +186,58 @@ describe('containerCrashRecovery tests', () => {
       expect(dockerServiceStub.appDockerStart.firstCall.args[0]).to.equal('www_Osmosis');
     });
 
-    it('should detect crash loops and stop restarting', async () => {
-      for (let i = 0; i < 3; i++) {
-        emitDie('fluxwww_Osmosis', 1);
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((r) => setImmediate(r));
-      }
-
-      expect(dockerServiceStub.appDockerStart.callCount).to.equal(3);
-
+    it('should restart immediately on first crash', async () => {
       emitDie('fluxwww_Osmosis', 1);
       await new Promise((r) => setImmediate(r));
 
-      expect(dockerServiceStub.appDockerStart.callCount).to.equal(3);
-      expect(logStub.warn.calledWithMatch(/crash-looping/)).to.be.true;
+      expect(dockerServiceStub.appDockerStart.calledOnce).to.be.true;
+      expect(logStub.warn.calledWithMatch(/crashed.*restarting/)).to.be.true;
     });
 
-    it('should not apply crash loop of one container to another', async () => {
-      for (let i = 0; i < 3; i++) {
-        emitDie('fluxwww_Osmosis', 1);
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((r) => setImmediate(r));
-      }
+    it('should apply backoff delay on second crash', async () => {
+      const clock = sinon.useFakeTimers({ shouldAdvanceTime: true });
+
+      emitDie('fluxwww_Osmosis', 1);
+      await clock.tickAsync(0);
+      expect(dockerServiceStub.appDockerStart.callCount).to.equal(1);
+
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'exited' });
+      emitDie('fluxwww_Osmosis', 1);
+      await clock.tickAsync(0);
+      expect(dockerServiceStub.appDockerStart.callCount).to.equal(1);
+      expect(logStub.warn.calledWithMatch(/waiting 30s/)).to.be.true;
+
+      await clock.tickAsync(30000);
+      expect(dockerServiceStub.appDockerStart.callCount).to.equal(2);
+
+      clock.restore();
+    });
+
+    it('should skip restart if container handled during backoff', async () => {
+      const clock = sinon.useFakeTimers({ shouldAdvanceTime: true });
+
+      emitDie('fluxwww_Osmosis', 1);
+      await clock.tickAsync(0);
+
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'running' });
+      emitDie('fluxwww_Osmosis', 1);
+      await clock.tickAsync(0);
+
+      await clock.tickAsync(30000);
+      expect(dockerServiceStub.appDockerStart.callCount).to.equal(1);
+      expect(logStub.info.calledWithMatch(/already handled during backoff/)).to.be.true;
+
+      clock.restore();
+    });
+
+    it('should not apply backoff of one container to another', async () => {
+      emitDie('fluxwww_Osmosis', 1);
+      await new Promise((r) => setImmediate(r));
 
       emitDie('fluxEthereumNodeLight_EthereumNodeLight', 1);
       await new Promise((r) => setImmediate(r));
 
-      expect(dockerServiceStub.appDockerStart.callCount).to.equal(4);
+      expect(dockerServiceStub.appDockerStart.callCount).to.equal(2);
     });
 
     it('should handle docker start failure gracefully', async () => {
