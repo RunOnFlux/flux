@@ -487,14 +487,16 @@ describe('appStartupManager tests', () => {
   });
 
   describe('manageAppsOnBoot', () => {
-    it('should skip recovery on FluxOS-only restart', async () => {
+    it('should reconcile on FluxOS-only restart (no stopped containers)', async () => {
       const bootContext = {
         machineRebooted: false, downtimeMs: 1000, cleanShutdown: true,
       };
+      dockerServiceStub.dockerListContainers.resolves([]);
+      dbHelperStub.findInDatabase.resolves([]);
 
       await appStartupManager.manageAppsOnBoot(bootContext);
 
-      expect(logStub.info.calledWithMatch(/FluxOS-only restart/)).to.be.true;
+      expect(globalStateStub.waitForDbReady.calledOnce).to.be.true;
       expect(appUninstallerStub.removeAppLocally.called).to.be.false;
     });
 
@@ -591,9 +593,11 @@ describe('appStartupManager tests', () => {
     });
 
     it('should set bootContainerStateSettled on every exit path', async () => {
-      // FluxOS restart path
+      // FluxOS restart path (still reconciles, no stopped containers)
       globalStateStub.bootContainerStateSettled = false;
-      await appStartupManager.manageAppsOnBoot({ machineRebooted: false });
+      dockerServiceStub.dockerListContainers.resolves([]);
+      dbHelperStub.findInDatabase.resolves([]);
+      await appStartupManager.manageAppsOnBoot({ machineRebooted: false, downtimeMs: 1000, cleanShutdown: true });
       expect(globalStateStub.bootContainerStateSettled).to.be.true;
 
       // Expired locations path
