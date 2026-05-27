@@ -1582,12 +1582,13 @@ async function dockerVersion() {
 }
 
 /**
- * Returns docker events
+ * Returns docker events stream
  *
- * @returns {object}
+ * @param {object} options - Docker event filter options
+ * @returns {object} Readable stream of Docker events
  */
-async function dockerGetEvents() {
-  const events = await docker.getEvents();
+async function dockerGetEvents(options = {}) {
+  const events = await docker.getEvents(options);
   return events;
 }
 

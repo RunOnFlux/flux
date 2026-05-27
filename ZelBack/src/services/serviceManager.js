@@ -23,6 +23,7 @@ const nodeStatusMonitor = require('./appMonitoring/nodeStatusMonitor');
 const peerNotification = require('./appMessaging/peerNotification');
 const syncthingMonitor = require('./appMonitoring/syncthingMonitor');
 const daemonHealthMonitor = require('./appMonitoring/daemonHealthMonitor');
+const containerCrashRecovery = require('./appMonitoring/containerCrashRecovery');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
@@ -264,6 +265,10 @@ async function startFluxFunctions() {
     // Non-destructive — doesn't stop containers, just prevents Docker from auto-starting
     // them on future daemon restarts. FluxOS manages container startup after dbReady.
     dockerService.migrateContainerRestartPolicies();
+
+    // Subscribe to Docker container die events for immediate crash recovery.
+    // Gates on bootContainerStateSettled internally so boot reconciliation runs first.
+    containerCrashRecovery.start();
 
     // Read boot context early — determines startup behavior for container management.
     const bootContext = await AppSyncOrchestrator.readBootContext();
