@@ -1102,9 +1102,7 @@ async function appDockerStart(idOrName) {
     // container ID or name
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
-    const dockerName = getDockerName(idOrName);
-    globalState.stoppingContainers.delete(dockerName);
-    globalState.containerRestartHistory.delete(dockerName);
+    globalState.stoppingContainers.delete(getDockerName(idOrName));
     await dockerContainer.start(); // may throw
 
     // Apply CFS burst after start — cgroup paths only exist once the container
@@ -1188,8 +1186,11 @@ async function appDockerRestart(idOrName) {
 
   const dockerName = getDockerName(idOrName);
   globalState.stoppingContainers.add(dockerName);
-  await dockerContainer.restart();
-  globalState.stoppingContainers.delete(dockerName);
+  try {
+    await dockerContainer.restart();
+  } finally {
+    globalState.stoppingContainers.delete(dockerName);
+  }
   return `Flux App ${idOrName} successfully restarted.`;
 }
 

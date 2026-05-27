@@ -20,7 +20,6 @@ describe('containerCrashRecovery tests', () => {
       bootContainerStateSettled: true,
       appsMonitored: {},
       stoppingContainers: new Set(),
-      containerRestartHistory: new Map(),
     };
     appInspectorStub = { startAppMonitoring: sinon.stub() };
 
@@ -97,6 +96,53 @@ describe('containerCrashRecovery tests', () => {
       expect(dockerServiceStub.dockerGetEvents.calledOnce).to.be.true;
       clock.restore();
     });
+
+    it('should clear boot queue on stop()', async () => {
+      globalStateStub.bootContainerStateSettled = false;
+      globalStateStub.waitForBootContainerStateSettled = sinon.stub().returns(new Promise(() => {}));
+
+      const fakeStream = new EventEmitter();
+      fakeStream.destroy = sinon.stub();
+      dockerServiceStub.dockerGetEvents.resolves(fakeStream);
+      await crashRecovery.start();
+
+      const event = makeDieEvent('fluxwww_Osmosis', 1);
+      fakeStream.emit('data', Buffer.from(JSON.stringify(event) + '\n'));
+      await new Promise((r) => setImmediate(r));
+      expect(logStub.info.calledWithMatch(/during boot, queuing/)).to.be.true;
+
+      crashRecovery.stop();
+
+      globalStateStub.bootContainerStateSettled = true;
+      await new Promise((r) => setImmediate(r));
+      expect(dockerServiceStub.appDockerStart.called).to.be.false;
+    });
+
+    it('should not carry partial line buffer across reconnect', async () => {
+      const clock = sinon.useFakeTimers({ shouldAdvanceTime: true });
+      const fakeStream = new EventEmitter();
+      fakeStream.destroy = sinon.stub();
+      dockerServiceStub.dockerGetEvents.resolves(fakeStream);
+      await crashRecovery.start();
+
+      fakeStream.emit('data', Buffer.from('{"partial":"junk'));
+      await clock.tickAsync(0);
+
+      fakeStream.emit('error', new Error('disconnect'));
+
+      const fakeStream2 = new EventEmitter();
+      fakeStream2.destroy = sinon.stub();
+      dockerServiceStub.dockerGetEvents.resolves(fakeStream2);
+      await clock.tickAsync(10000);
+
+      const event = makeDieEvent('fluxwww_Osmosis', 1);
+      fakeStream2.emit('data', Buffer.from(JSON.stringify(event) + '\n'));
+      await clock.tickAsync(0);
+
+      expect(dockerServiceStub.appDockerStart.calledOnce).to.be.true;
+      expect(dockerServiceStub.appDockerStart.firstCall.args[0]).to.equal('www_Osmosis');
+      clock.restore();
+    });
   });
 
   describe('event handling', () => {
@@ -111,7 +157,7 @@ describe('containerCrashRecovery tests', () => {
 
     function emitDie(name, exitCode) {
       const event = makeDieEvent(name, exitCode);
-      fakeStream.emit('data', Buffer.from(JSON.stringify(event)));
+      fakeStream.emit('data', Buffer.from(JSON.stringify(event) + '\n'));
     }
 
     it('should restart a crashed flux container', async () => {
@@ -153,7 +199,16 @@ describe('containerCrashRecovery tests', () => {
       await new Promise((r) => setImmediate(r));
 
       expect(dockerServiceStub.appDockerStart.called).to.be.false;
-      expect(logStub.info.calledWithMatch(/intentionally stopped/)).to.be.true;
+      expect(globalStateStub.stoppingContainers.has('fluxwww_Osmosis')).to.be.false;
+    });
+
+    it('should consume stoppingContainers even on clean exit', async () => {
+      globalStateStub.stoppingContainers.add('fluxwww_Osmosis');
+
+      emitDie('fluxwww_Osmosis', 0);
+      await new Promise((r) => setImmediate(r));
+
+      expect(dockerServiceStub.appDockerStart.called).to.be.false;
       expect(globalStateStub.stoppingContainers.has('fluxwww_Osmosis')).to.be.false;
     });
 
@@ -172,7 +227,7 @@ describe('containerCrashRecovery tests', () => {
       await crashRecovery.start();
 
       const event = makeDieEvent('fluxwww_Osmosis', 1);
-      freshStream.emit('data', Buffer.from(JSON.stringify(event)));
+      freshStream.emit('data', Buffer.from(JSON.stringify(event) + '\n'));
       await new Promise((r) => setImmediate(r));
 
       expect(dockerServiceStub.appDockerStart.called).to.be.false;
@@ -248,6 +303,29 @@ describe('containerCrashRecovery tests', () => {
       await new Promise((r) => setImmediate(r));
 
       expect(logStub.error.calledWithMatch(/failed to restart/)).to.be.true;
+    });
+
+    it('should handle two events in one chunk', async () => {
+      const event1 = makeDieEvent('fluxwww_Osmosis', 1);
+      const event2 = makeDieEvent('fluxkaspad_foo', 1);
+      fakeStream.emit('data', Buffer.from(JSON.stringify(event1) + '\n' + JSON.stringify(event2) + '\n'));
+      await new Promise((r) => setImmediate(r));
+
+      expect(dockerServiceStub.appDockerStart.callCount).to.equal(2);
+      expect(dockerServiceStub.appDockerStart.firstCall.args[0]).to.equal('www_Osmosis');
+      expect(dockerServiceStub.appDockerStart.secondCall.args[0]).to.equal('kaspad_foo');
+    });
+
+    it('should handle an event split across two chunks', async () => {
+      const json = JSON.stringify(makeDieEvent('fluxwww_Osmosis', 1)) + '\n';
+      const mid = Math.floor(json.length / 2);
+      fakeStream.emit('data', Buffer.from(json.slice(0, mid)));
+      await new Promise((r) => setImmediate(r));
+      expect(dockerServiceStub.appDockerStart.called).to.be.false;
+
+      fakeStream.emit('data', Buffer.from(json.slice(mid)));
+      await new Promise((r) => setImmediate(r));
+      expect(dockerServiceStub.appDockerStart.calledOnce).to.be.true;
     });
   });
 });

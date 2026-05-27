@@ -287,7 +287,7 @@ async function manageAppsOnBoot(bootContext) {
       }
     }
 
-    // Machine rebooted, locations still valid — wait for daemon + sync then reconcile.
+    // Locations still valid — wait for daemon + sync then reconcile.
     const DAEMON_TIMEOUT_MS = config.system.bootDaemonTimeoutMs ?? 300000;
     try {
       await Promise.race([

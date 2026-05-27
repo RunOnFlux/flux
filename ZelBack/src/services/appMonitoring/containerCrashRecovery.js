@@ -7,10 +7,14 @@ const appInspector = require('../appManagement/appInspector');
 const BACKOFF_DELAYS_MS = [0, 30 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 30 * 60 * 1000];
 const BACKOFF_RESET_MS = 60 * 60 * 1000;
 
+// containerName -> [monotonicMs, ...]
+const restartHistory = new Map();
+
 const bootQueue = [];
 
 let eventStream = null;
 let stopped = false;
+let lineBuf = '';
 
 function isFluxContainer(name) {
   return name.startsWith('flux') || name.startsWith('zel');
@@ -28,22 +32,22 @@ function nowMs() {
 
 function getBackoffDelay(containerName) {
   const now = nowMs();
-  const history = globalState.containerRestartHistory.get(containerName);
+  const history = restartHistory.get(containerName);
   if (!history) return 0;
   const recent = history.filter((ts) => now - ts < BACKOFF_RESET_MS);
   if (recent.length === 0) {
-    globalState.containerRestartHistory.delete(containerName);
+    restartHistory.delete(containerName);
     return 0;
   }
-  globalState.containerRestartHistory.set(containerName, recent);
+  restartHistory.set(containerName, recent);
   const index = Math.min(recent.length, BACKOFF_DELAYS_MS.length - 1);
   return BACKOFF_DELAYS_MS[index];
 }
 
 function recordRestart(containerName) {
-  const history = globalState.containerRestartHistory.get(containerName) || [];
+  const history = restartHistory.get(containerName) || [];
   history.push(nowMs());
-  globalState.containerRestartHistory.set(containerName, history);
+  restartHistory.set(containerName, history);
 }
 
 async function handleContainerDie(event) {
@@ -53,13 +57,12 @@ async function handleContainerDie(event) {
 
   if (!containerName || !isFluxContainer(containerName)) return;
 
-  if (exitCode === 0) return;
-
   if (globalState.stoppingContainers.has(containerName)) {
     globalState.stoppingContainers.delete(containerName);
-    log.info(`containerCrashRecovery - ${containerName} was intentionally stopped, skipping`);
     return;
   }
+
+  if (exitCode === 0) return;
 
   if (!globalState.bootContainerStateSettled) {
     log.info(`containerCrashRecovery - ${containerName} died (exit ${exitCode}) during boot, queuing`);
@@ -108,9 +111,9 @@ async function waitForBootAndDrain() {
   if (!stopped) await drainBootQueue();
 }
 
-async function start() {
+async function subscribe() {
   if (eventStream) return;
-  stopped = false;
+  lineBuf = '';
 
   try {
     eventStream = await dockerService.dockerGetEvents({
@@ -119,13 +122,19 @@ async function start() {
 
     eventStream.on('data', (buf) => {
       if (stopped) return;
-      try {
-        const event = JSON.parse(buf.toString());
-        handleContainerDie(event).catch((err) => {
-          log.error(`containerCrashRecovery - event handler error: ${err.message}`);
-        });
-      } catch (parseErr) {
-        log.error(`containerCrashRecovery - failed to parse docker event: ${parseErr.message}`);
+      lineBuf += buf.toString();
+      const lines = lineBuf.split('\n');
+      lineBuf = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const event = JSON.parse(line);
+          handleContainerDie(event).catch((err) => {
+            log.error(`containerCrashRecovery - event handler error: ${err.message}`);
+          });
+        } catch (parseErr) {
+          log.error(`containerCrashRecovery - failed to parse docker event: ${parseErr.message}`);
+        }
       }
     });
 
@@ -133,7 +142,7 @@ async function start() {
       log.error(`containerCrashRecovery - event stream error: ${err.message}`);
       eventStream = null;
       if (!stopped) {
-        setTimeout(() => start(), 10000);
+        setTimeout(() => subscribe(), 10000);
       }
     });
 
@@ -141,26 +150,32 @@ async function start() {
       log.warn('containerCrashRecovery - event stream ended');
       eventStream = null;
       if (!stopped) {
-        setTimeout(() => start(), 10000);
+        setTimeout(() => subscribe(), 10000);
       }
     });
 
     log.info('containerCrashRecovery - listening for container crash events');
-
-    waitForBootAndDrain().catch((err) => {
-      log.error(`containerCrashRecovery - boot queue drain failed: ${err.message}`);
-    });
   } catch (err) {
     log.error(`containerCrashRecovery - failed to subscribe to docker events: ${err.message}`);
     eventStream = null;
     if (!stopped) {
-      setTimeout(() => start(), 10000);
+      setTimeout(() => subscribe(), 10000);
     }
   }
 }
 
+async function start() {
+  stopped = false;
+  await subscribe();
+
+  waitForBootAndDrain().catch((err) => {
+    log.error(`containerCrashRecovery - boot queue drain failed: ${err.message}`);
+  });
+}
+
 function stop() {
   stopped = true;
+  bootQueue.splice(0);
   if (eventStream) {
     eventStream.destroy();
     eventStream = null;
