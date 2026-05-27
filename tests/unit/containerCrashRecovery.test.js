@@ -19,6 +19,7 @@ describe('containerCrashRecovery tests', () => {
     globalStateStub = {
       bootContainerStateSettled: true,
       appsMonitored: {},
+      stoppingContainers: new Set(),
     };
     appInspectorStub = { startAppMonitoring: sinon.stub() };
 
@@ -144,14 +145,45 @@ describe('containerCrashRecovery tests', () => {
       expect(dockerServiceStub.appDockerStart.called).to.be.false;
     });
 
-    it('should skip restart when boot not settled', async () => {
-      globalStateStub.bootContainerStateSettled = false;
+    it('should skip containers in the stoppingContainers set', async () => {
+      globalStateStub.stoppingContainers.add('fluxwww_Osmosis');
 
-      emitDie('fluxwww_Osmosis', 1);
+      emitDie('fluxwww_Osmosis', 137);
       await new Promise((r) => setImmediate(r));
 
       expect(dockerServiceStub.appDockerStart.called).to.be.false;
-      expect(logStub.info.calledWithMatch(/boot not settled/)).to.be.true;
+      expect(logStub.info.calledWithMatch(/intentionally stopped/)).to.be.true;
+      expect(globalStateStub.stoppingContainers.has('fluxwww_Osmosis')).to.be.false;
+    });
+
+    it('should queue events when boot not settled and drain after', async () => {
+      // Need a fresh instance with boot not settled from the start
+      crashRecovery.stop();
+      globalStateStub.bootContainerStateSettled = false;
+      let resolveBootSettled;
+      globalStateStub.waitForBootContainerStateSettled = sinon.stub().returns(
+        new Promise((resolve) => { resolveBootSettled = resolve; }),
+      );
+
+      const freshStream = new EventEmitter();
+      freshStream.destroy = sinon.stub();
+      dockerServiceStub.dockerGetEvents.resolves(freshStream);
+      await crashRecovery.start();
+
+      const event = makeDieEvent('fluxwww_Osmosis', 1);
+      freshStream.emit('data', Buffer.from(JSON.stringify(event)));
+      await new Promise((r) => setImmediate(r));
+
+      expect(dockerServiceStub.appDockerStart.called).to.be.false;
+      expect(logStub.info.calledWithMatch(/during boot, queuing/)).to.be.true;
+
+      globalStateStub.bootContainerStateSettled = true;
+      resolveBootSettled();
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+
+      expect(dockerServiceStub.appDockerStart.calledOnce).to.be.true;
+      expect(dockerServiceStub.appDockerStart.firstCall.args[0]).to.equal('www_Osmosis');
     });
 
     it('should detect crash loops and stop restarting', async () => {

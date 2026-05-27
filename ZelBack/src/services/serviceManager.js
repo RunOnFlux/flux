@@ -267,15 +267,14 @@ async function startFluxFunctions() {
     dockerService.migrateContainerRestartPolicies();
 
     // Subscribe to Docker container die events for immediate crash recovery.
-    // Gates on bootContainerStateSettled internally so boot reconciliation runs first.
+    // Events during boot are queued; drainBootQueue() replays them after boot settles.
     containerCrashRecovery.start();
 
     // Read boot context early — determines startup behavior for container management.
     const bootContext = await AppSyncOrchestrator.readBootContext();
 
     // App startup manager owns all boot-time container lifecycle decisions:
-    // FluxOS restart → skip (containers running). Locations expired → remove all.
-    // Machine rebooted → wait for dbReady, then start valid apps. Timeout → remove all.
+    // Locations expired → remove all. Otherwise wait for daemon/DB, then reconcile.
     appStartupManager.manageAppsOnBoot(bootContext).catch((error) => {
       log.error(`App startup manager error: ${error.message}`);
     });

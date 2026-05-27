@@ -11,6 +11,8 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const log = require('../lib/log');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
 
+const globalState = require('./utils/globalState');
+
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
@@ -59,6 +61,11 @@ function getAppIdentifier(appName) {
  * @param {string} appName
  * @returns {string} app docker name id
  */
+function getDockerName(idOrName) {
+  const name = getAppIdentifier(idOrName);
+  return name.startsWith('/') ? name.substring(1) : name;
+}
+
 function getAppDockerNameIdentifier(appName) {
   // this id is used for volumes, docker names so we know it reall belongs to flux
   const name = getAppIdentifier(appName);
@@ -1095,6 +1102,7 @@ async function appDockerStart(idOrName) {
     // container ID or name
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
+    globalState.stoppingContainers.delete(getDockerName(idOrName));
     await dockerContainer.start(); // may throw
 
     // Apply CFS burst after start — cgroup paths only exist once the container
@@ -1143,8 +1151,16 @@ async function appDockerStop(idOrName, timeout) {
     return `Flux App ${idOrName} is already stopped.`;
   }
 
-  const opts = timeout !== undefined ? { t: timeout } : {};
-  await dockerContainer.stop(opts);
+  const dockerName = getDockerName(idOrName);
+  globalState.stoppingContainers.add(dockerName);
+
+  try {
+    const opts = timeout !== undefined ? { t: timeout } : {};
+    await dockerContainer.stop(opts);
+  } catch (err) {
+    globalState.stoppingContainers.delete(dockerName);
+    throw err;
+  }
   return `Flux App ${idOrName} successfully stopped.`;
 }
 
@@ -1163,11 +1179,15 @@ async function appDockerRestart(idOrName) {
   const containerInfo = await dockerContainer.inspect();
   if (!containerInfo.State.Running) {
     // If stopped, start it instead of restarting
+    globalState.stoppingContainers.delete(getDockerName(idOrName));
     await dockerContainer.start();
     return `Flux App ${idOrName} was stopped, successfully started.`;
   }
 
+  const dockerName = getDockerName(idOrName);
+  globalState.stoppingContainers.add(dockerName);
   await dockerContainer.restart();
+  globalState.stoppingContainers.delete(dockerName);
   return `Flux App ${idOrName} successfully restarted.`;
 }
 
@@ -1181,7 +1201,15 @@ async function appDockerKill(idOrName) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
-  await dockerContainer.kill();
+  const dockerName = getDockerName(idOrName);
+  globalState.stoppingContainers.add(dockerName);
+
+  try {
+    await dockerContainer.kill();
+  } catch (err) {
+    globalState.stoppingContainers.delete(dockerName);
+    throw err;
+  }
   return `Flux App ${idOrName} successfully killed.`;
 }
 
@@ -1195,6 +1223,7 @@ async function appDockerRemove(idOrName) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
+  globalState.stoppingContainers.delete(getDockerName(idOrName));
   await dockerContainer.remove();
   return `Flux App ${idOrName} successfully removed.`;
 }
@@ -1210,6 +1239,7 @@ async function appDockerForceRemove(idOrName, removeVolumes = true) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
+  globalState.stoppingContainers.delete(getDockerName(idOrName));
   await dockerContainer.remove({ force: true, v: removeVolumes });
   return `Flux App ${idOrName} successfully force removed.`;
 }

@@ -9,6 +9,8 @@ const RESTART_WINDOW_MS = 5 * 60 * 1000;
 // containerName -> [timestampMs, ...]
 const restartHistory = new Map();
 
+const bootQueue = [];
+
 let eventStream = null;
 let stopped = false;
 
@@ -46,8 +48,15 @@ async function handleContainerDie(event) {
 
   if (exitCode === 0) return;
 
+  if (globalState.stoppingContainers.has(containerName)) {
+    globalState.stoppingContainers.delete(containerName);
+    log.info(`containerCrashRecovery - ${containerName} was intentionally stopped, skipping`);
+    return;
+  }
+
   if (!globalState.bootContainerStateSettled) {
-    log.info(`containerCrashRecovery - ${containerName} died (exit ${exitCode}) but boot not settled, skipping`);
+    log.info(`containerCrashRecovery - ${containerName} died (exit ${exitCode}) during boot, queuing`);
+    bootQueue.push(event);
     return;
   }
 
@@ -67,6 +76,21 @@ async function handleContainerDie(event) {
   } catch (err) {
     log.error(`containerCrashRecovery - failed to restart ${identifier}: ${err.message}`);
   }
+}
+
+async function drainBootQueue() {
+  if (bootQueue.length === 0) return;
+  log.info(`containerCrashRecovery - draining ${bootQueue.length} queued event(s)`);
+  while (bootQueue.length > 0) {
+    const event = bootQueue.shift();
+    // eslint-disable-next-line no-await-in-loop
+    await handleContainerDie(event);
+  }
+}
+
+async function waitForBootAndDrain() {
+  await globalState.waitForBootContainerStateSettled();
+  if (!stopped) await drainBootQueue();
 }
 
 async function start() {
@@ -107,6 +131,10 @@ async function start() {
     });
 
     log.info('containerCrashRecovery - listening for container crash events');
+
+    waitForBootAndDrain().catch((err) => {
+      log.error(`containerCrashRecovery - boot queue drain failed: ${err.message}`);
+    });
   } catch (err) {
     log.error(`containerCrashRecovery - failed to subscribe to docker events: ${err.message}`);
     eventStream = null;
