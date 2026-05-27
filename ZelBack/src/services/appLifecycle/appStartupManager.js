@@ -274,11 +274,6 @@ async function removeAllApps(reason) {
 
 async function manageAppsOnBoot(bootContext) {
   try {
-    if (!bootContext.machineRebooted) {
-      log.info('appStartupManager - FluxOS-only restart, containers already running');
-      return;
-    }
-
     if (bootContext.firstBoot) {
       log.info('appStartupManager - First boot (no heartbeat history), waiting for sync');
     } else {
@@ -292,7 +287,7 @@ async function manageAppsOnBoot(bootContext) {
       }
     }
 
-    // Machine rebooted, locations still valid — wait for daemon + sync then reconcile.
+    // Locations still valid — wait for daemon + sync then reconcile.
     const DAEMON_TIMEOUT_MS = config.system.bootDaemonTimeoutMs ?? 300000;
     try {
       await Promise.race([
