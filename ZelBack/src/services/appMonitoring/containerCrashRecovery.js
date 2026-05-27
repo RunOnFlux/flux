@@ -59,6 +59,7 @@ async function handleContainerDie(event) {
 
   if (globalState.stoppingContainers.has(containerName)) {
     globalState.stoppingContainers.delete(containerName);
+    log.info(`containerCrashRecovery - ${containerName} was intentionally stopped (exit ${exitCode}), skipping`);
     return;
   }
 
