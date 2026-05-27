@@ -286,6 +286,32 @@ describe('containerCrashRecovery tests', () => {
       clock.restore();
     });
 
+    it('should reset backoff after container runs for 10+ minutes', async () => {
+      const clock = sinon.useFakeTimers({ shouldAdvanceTime: true });
+
+      // First crash — immediate
+      emitDie('fluxwww_Osmosis', 1);
+      await clock.tickAsync(0);
+      expect(dockerServiceStub.appDockerStart.callCount).to.equal(1);
+
+      // Second crash — 30s backoff
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'exited' });
+      emitDie('fluxwww_Osmosis', 1);
+      await clock.tickAsync(30000);
+      expect(dockerServiceStub.appDockerStart.callCount).to.equal(2);
+
+      // Container runs successfully for 10+ minutes, then crashes again
+      await clock.tickAsync(11 * 60 * 1000);
+      emitDie('fluxwww_Osmosis', 1);
+      await clock.tickAsync(0);
+
+      // Should be immediate again (backoff reset), not 5m
+      expect(dockerServiceStub.appDockerStart.callCount).to.equal(3);
+      expect(logStub.warn.calledWithMatch(/waiting 5/)).to.be.false;
+
+      clock.restore();
+    });
+
     it('should not apply backoff of one container to another', async () => {
       emitDie('fluxwww_Osmosis', 1);
       await new Promise((r) => setImmediate(r));

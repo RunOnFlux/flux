@@ -5,7 +5,7 @@ const appInspector = require('../appManagement/appInspector');
 
 // immediate, 30s, 5m, 15m, 30m cap
 const BACKOFF_DELAYS_MS = [0, 30 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 30 * 60 * 1000];
-const BACKOFF_RESET_MS = 60 * 60 * 1000;
+const STABLE_RUN_MS = 10 * 60 * 1000;
 
 // containerName -> [monotonicMs, ...]
 const restartHistory = new Map();
@@ -33,14 +33,15 @@ function nowMs() {
 function getBackoffDelay(containerName) {
   const now = nowMs();
   const history = restartHistory.get(containerName);
-  if (!history) return 0;
-  const recent = history.filter((ts) => now - ts < BACKOFF_RESET_MS);
-  if (recent.length === 0) {
+  if (!history || history.length === 0) return 0;
+
+  const lastRestart = history[history.length - 1];
+  if (now - lastRestart > STABLE_RUN_MS) {
     restartHistory.delete(containerName);
     return 0;
   }
-  restartHistory.set(containerName, recent);
-  const index = Math.min(recent.length, BACKOFF_DELAYS_MS.length - 1);
+
+  const index = Math.min(history.length, BACKOFF_DELAYS_MS.length - 1);
   return BACKOFF_DELAYS_MS[index];
 }
 
