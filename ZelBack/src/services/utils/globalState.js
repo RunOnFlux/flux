@@ -39,6 +39,10 @@ let pendingAppUpdatesCache = null;
 // Running apps cache - tracks app names that have been broadcasted as running
 const runningAppsCache = new Set();
 
+// Containers intentionally stopped by FluxOS — crash recovery skips die events for these
+const stoppingContainers = new Set();
+
+
 // Cache references - these will be initialized from cacheManager
 let spawnErrorsLongerAppCache = null;
 let trySpawningGlobalAppCache = null;
@@ -119,6 +123,7 @@ module.exports = {
   get syncthingDevicesIDCache() { return syncthingDevicesIDCache; },
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },
+  get stoppingContainers() { return stoppingContainers; },
 
   get spawnErrorsLongerAppCache() { return spawnErrorsLongerAppCache; },
   set spawnErrorsLongerAppCache(value) { spawnErrorsLongerAppCache = value; },
