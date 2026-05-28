@@ -374,14 +374,8 @@ module.exports = {
     periodUs: 100000,
     reservedCores: 1,
   },
-  enterpriseAppOwners: [ // list of whitelisted app owner addresses allowed to deploy apps with datacenter=true
-    '16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW',
-  ],
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
     '042ebcb3a94fe66b9ded6e456871346d6984502bbadf14ed07644e0eb91f8cc0b1f07632c428e1e6793f372d9c303d680de80ae0499d51095676cabf68599e9591',
-  ],
-  enterpriseNodesPublicKeys: [
-    '027595b0b8257d7b901fc024d7c5b66a7af68b64240dea0359dec3ffb1f2a33a8d',
   ],
   github: {
     rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',

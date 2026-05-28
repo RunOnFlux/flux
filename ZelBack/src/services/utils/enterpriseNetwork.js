@@ -2,16 +2,17 @@ const config = require('config');
 const dbHelper = require('../dbHelper');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const appConstants = require('./appConstants');
+const enterpriseConfig = require('./enterpriseConfig');
 const log = require('../../lib/log');
 
 let cachedIsEnterpriseNode = null;
 
 function getEnterpriseAppOwners() {
-  return config.enterpriseAppOwners || [];
+  return enterpriseConfig.getEnterpriseAppOwners();
 }
 
 function getEnterpriseNodesPublicKeys() {
-  return config.enterpriseNodesPublicKeys || [];
+  return enterpriseConfig.getEnterpriseNodesPublicKeys();
 }
 
 function isEnterpriseAppOwner(owner) {
@@ -20,10 +21,11 @@ function isEnterpriseAppOwner(owner) {
 }
 
 /**
- * Returns true if this fluxnode's own pubkey is listed in
- * config.enterpriseNodesPublicKeys. Result is cached for the lifetime of the
- * process after a successful resolution; call resetEnterpriseNodeCache() if
- * the config is hot-reloaded and the membership might have changed.
+ * Returns true if this fluxnode's own pubkey is listed in the enterprise nodes
+ * public keys list (helpers/enterprisenodespublickeys.json, synced via
+ * enterpriseConfig). Result is cached for the lifetime of the process after a
+ * successful resolution; call resetEnterpriseNodeCache() if the list is
+ * refreshed and the membership might have changed.
  *
  * Throws if the pubkey cannot be resolved (daemon/benchmark down). Prefer the
  * boot-time scheduleIdentityResolution() + getCachedEnterpriseIdentity() pair

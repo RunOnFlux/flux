@@ -15,8 +15,6 @@ function loadModule(overrides = {}) {
   };
 
   const defaultConfig = {
-    enterpriseAppOwners: OWNERS,
-    enterpriseNodesPublicKeys: NODE_PUBKEYS,
     database: {
       appslocal: { database: 'localapps', collections: { appsInformation: 'zelappsinformation' } },
     },
@@ -27,6 +25,10 @@ function loadModule(overrides = {}) {
 
   const stubs = {
     config: overrides.config || defaultConfig,
+    './enterpriseConfig': overrides.enterpriseConfig || {
+      getEnterpriseAppOwners: () => OWNERS,
+      getEnterpriseNodesPublicKeys: () => NODE_PUBKEYS,
+    },
     '../dbHelper': overrides.dbHelper || {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
       findInDatabase: sinon.stub().resolves([]),
@@ -79,9 +81,12 @@ describe('enterpriseNetwork', () => {
       expect(m.getEnterpriseNodesPublicKeys()).to.deep.equal(NODE_PUBKEYS);
     });
 
-    it('returns [] when config field is missing', () => {
+    it('returns [] when the underlying lists are empty', () => {
       const { module: m } = loadModule({
-        config: { database: { appslocal: { database: 'localapps', collections: { appsInformation: 'x' } } } },
+        enterpriseConfig: {
+          getEnterpriseAppOwners: () => [],
+          getEnterpriseNodesPublicKeys: () => [],
+        },
       });
       expect(m.getEnterpriseAppOwners()).to.deep.equal([]);
       expect(m.getEnterpriseNodesPublicKeys()).to.deep.equal([]);
@@ -92,10 +97,9 @@ describe('enterpriseNetwork', () => {
     it('short-circuits to false when enterpriseNodesPublicKeys is empty, without calling getFluxNodePublicKey', async () => {
       const getPubKey = sinon.stub().resolves('pubA');
       const { module: m } = loadModule({
-        config: {
-          enterpriseAppOwners: OWNERS,
-          enterpriseNodesPublicKeys: [],
-          database: { appslocal: { database: 'x', collections: { appsInformation: 'y' } } },
+        enterpriseConfig: {
+          getEnterpriseAppOwners: () => OWNERS,
+          getEnterpriseNodesPublicKeys: () => [],
         },
         fluxNetworkHelper: { getFluxNodePublicKey: getPubKey },
       });
