@@ -6,6 +6,7 @@ const MODULE_PATH = '../../ZelBack/src/services/utils/enterpriseNetwork';
 
 const OWNERS = ['ownerA', 'ownerB'];
 const NODE_PUBKEYS = ['pubA', 'pubB'];
+const NODE_OWNER_MAP = { pubA: ['ownerA'], pubB: ['ownerB'] };
 
 function loadModule(overrides = {}) {
   const logStub = overrides.log || {
@@ -28,6 +29,7 @@ function loadModule(overrides = {}) {
     './enterpriseConfig': overrides.enterpriseConfig || {
       getEnterpriseAppOwners: () => OWNERS,
       getEnterpriseNodesPublicKeys: () => NODE_PUBKEYS,
+      getAllowedOwnersForNode: (pubKey) => NODE_OWNER_MAP[pubKey] || [],
     },
     '../dbHelper': overrides.dbHelper || {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
@@ -86,6 +88,7 @@ describe('enterpriseNetwork', () => {
         enterpriseConfig: {
           getEnterpriseAppOwners: () => [],
           getEnterpriseNodesPublicKeys: () => [],
+          getAllowedOwnersForNode: () => [],
         },
       });
       expect(m.getEnterpriseAppOwners()).to.deep.equal([]);
@@ -100,6 +103,7 @@ describe('enterpriseNetwork', () => {
         enterpriseConfig: {
           getEnterpriseAppOwners: () => OWNERS,
           getEnterpriseNodesPublicKeys: () => [],
+          getAllowedOwnersForNode: () => [],
         },
         fluxNetworkHelper: { getFluxNodePublicKey: getPubKey },
       });
@@ -189,6 +193,29 @@ describe('enterpriseNetwork', () => {
     });
   });
 
+  describe('getCachedAllowedOwnersForNode', () => {
+    it('returns null before isEnterpriseNode resolves', () => {
+      const { module: m } = loadModule();
+      expect(m.getCachedAllowedOwnersForNode()).to.equal(null);
+    });
+
+    it('returns this node\'s mapped owners after resolution', async () => {
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubA') },
+      });
+      await m.isEnterpriseNode();
+      expect(m.getCachedAllowedOwnersForNode()).to.deep.equal(['ownerA']);
+    });
+
+    it('returns [] for a non-enterprise node', async () => {
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubOther') },
+      });
+      await m.isEnterpriseNode();
+      expect(m.getCachedAllowedOwnersForNode()).to.deep.equal([]);
+    });
+  });
+
   describe('scheduleIdentityResolution', () => {
     let clock;
     beforeEach(() => { clock = sinon.useFakeTimers(); });
@@ -229,13 +256,29 @@ describe('enterpriseNetwork', () => {
       { name: 'n2', owner: null },
     ];
 
-    it('enterprise=true keeps only apps whose owner is in enterpriseAppOwners', () => {
-      const { module: m } = loadModule();
+    it('enterprise node keeps only apps whose owner is allowed on THIS node', async () => {
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubA') },
+      });
+      await m.isEnterpriseNode(); // resolves identity -> caches allowed owners for pubA = ['ownerA']
       const kept = m.filterAppsByOwnership(apps, true).map((a) => a.name);
-      expect(kept).to.deep.equal(['e1', 'e2']);
+      expect(kept).to.deep.equal(['e1']);
     });
 
-    it('enterprise=false drops apps whose owner is in enterpriseAppOwners', () => {
+    it('enterprise node mapped to no owners hosts nothing', async () => {
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubB') },
+        enterpriseConfig: {
+          getEnterpriseAppOwners: () => OWNERS,
+          getEnterpriseNodesPublicKeys: () => NODE_PUBKEYS,
+          getAllowedOwnersForNode: () => [], // pubB mapped to no owners
+        },
+      });
+      await m.isEnterpriseNode();
+      expect(m.filterAppsByOwnership(apps, true)).to.deep.equal([]);
+    });
+
+    it('non-enterprise node drops apps owned by ANY enterprise owner (union)', () => {
       const { module: m } = loadModule();
       const kept = m.filterAppsByOwnership(apps, false).map((a) => a.name);
       expect(kept).to.deep.equal(['n1', 'n2']);
