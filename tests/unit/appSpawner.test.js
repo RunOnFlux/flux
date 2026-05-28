@@ -144,6 +144,7 @@ describe('appSpawner tests', () => {
         getCachedEnterpriseIdentity: sinon.stub().returns(false),
         getSpawnDelays: sinon.stub().returns({ shortDelayTime: 60000, delayTime: 60000 }),
         filterAppsByOwnership: sinon.stub().callsFake((apps) => apps),
+        isEnterpriseAppOwner: opts.isEnterpriseAppOwner || sinon.stub().returns(false),
       },
       '../utils/cacheManager': {
         FluxCacheManager: { oneHour: 3600000 },
@@ -187,6 +188,59 @@ describe('appSpawner tests', () => {
 
     it('should be exported as a function', () => {
       expect(appSpawner.trySpawningGlobalApplication).to.be.a('function');
+    });
+  });
+
+  describe('enterprise node-IP targeting filter', () => {
+    const MY_IP = '192.168.1.1'; // matches the benchmark stub ipaddress
+
+    function makeApp(overrides = {}) {
+      return {
+        name: 'targetedapp',
+        hash: 'hash-targetedapp',
+        actual: 0,
+        required: 3,
+        nodes: [],
+        geolocation: [],
+        version: 8,
+        // enterprise:true makes the function short-circuit at the ArcaneOS check
+        // right after selection, keeping these tests shallow.
+        enterprise: true,
+        owner: 'normalOwner',
+        ...overrides,
+      };
+    }
+
+    function infoLogged(substr) {
+      return logStub.info.getCalls().some((c) => typeof c.args[0] === 'string' && c.args[0].includes(substr));
+    }
+
+    it('drops a v8 enterprise-owned app whose targeted IP is not this node', async () => {
+      buildModule({
+        aggregateResult: [makeApp({ owner: 'enterpriseOwnerX', nodes: ['10.0.0.99'] })],
+        isEnterpriseAppOwner: (owner) => owner === 'enterpriseOwnerX',
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('No app currently to be processed')).to.be.true;
+      expect(infoLogged('selected to try to spawn')).to.be.false;
+    });
+
+    it('keeps a v8 enterprise-owned app whose targeted IP matches this node', async () => {
+      buildModule({
+        aggregateResult: [makeApp({ owner: 'enterpriseOwnerX', nodes: [MY_IP] })],
+        isEnterpriseAppOwner: (owner) => owner === 'enterpriseOwnerX',
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.true;
+    });
+
+    it('still lets a v8 non-enterprise app through when its targeted IP is not this node', async () => {
+      buildModule({
+        aggregateResult: [makeApp({ owner: 'normalOwner', nodes: ['10.0.0.99'] })],
+        isEnterpriseAppOwner: () => false,
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.true;
     });
   });
 
