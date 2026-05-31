@@ -14,15 +14,19 @@ function makeLog() {
   return { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
 }
 
-// Each load runs the module top-level fresh, re-seeding from the (stubbed) disk.
+// Each load runs the module top-level fresh. Initialization no longer happens as
+// a side effect of require(): callers must startSync() (which seeds from disk and
+// then syncs from github) before the getters return data.
 function loadModule(overrides = {}) {
   const log = overrides.log || makeLog();
 
   const fsStub = overrides.fs || {
-    readFileSync: sinon.stub().returns(JSON.stringify(DISK_MAP)),
+    promises: { readFile: sinon.stub().resolves(JSON.stringify(DISK_MAP)) },
   };
 
-  const serviceHelperStub = overrides.serviceHelper || { axiosGet: sinon.stub() };
+  // Default to a failing fetch so disk-seeding tests keep the disk value.
+  const serviceHelperStub = overrides.serviceHelper
+    || { axiosGet: sinon.stub().rejects(new Error('no network')) };
 
   const configStub = overrides.config || {
     github: { rawBaseUrl: 'https://raw.example/RunOnFlux/flux/master' },
@@ -43,42 +47,69 @@ function loadModule(overrides = {}) {
 describe('enterpriseConfig', () => {
   afterEach(() => sinon.restore());
 
-  describe('disk seeding at load', () => {
-    it('seeds the node->owners map from the on-disk helper file', () => {
+  describe('disk seeding via startSync', () => {
+    it('seeds the node->owners map from the on-disk helper file', async () => {
       const { module: m } = loadModule();
+      await m.startSync();
       expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal(DISK_MAP);
+      m.stopSync();
     });
 
-    it('derives node pubkeys (keys) and the global owner union (deduped values)', () => {
+    it('derives node pubkeys (keys) and the global owner union (deduped values)', async () => {
       const { module: m } = loadModule();
+      await m.startSync();
       expect(m.getEnterpriseNodesPublicKeys()).to.deep.equal(['nodeA', 'nodeB']);
       expect(m.getEnterpriseAppOwners()).to.deep.equal(['ownerA', 'ownerB']);
+      m.stopSync();
     });
 
-    it('returns a specific node\'s allowed owners, or [] for an unknown node', () => {
+    it('returns a specific node\'s allowed owners, or [] for an unknown node', async () => {
       const { module: m } = loadModule();
+      await m.startSync();
       expect(m.getAllowedOwnersForNode('nodeA')).to.deep.equal(['ownerA', 'ownerB']);
       expect(m.getAllowedOwnersForNode('nodeB')).to.deep.equal(['ownerB']);
       expect(m.getAllowedOwnersForNode('unknown')).to.deep.equal([]);
+      m.stopSync();
     });
 
-    it('falls back to an empty map when the disk read throws', () => {
-      const fs = { readFileSync: sinon.stub().throws(new Error('ENOENT')) };
+    it('does the disk read asynchronously (fs.promises.readFile)', async () => {
+      const readFile = sinon.stub().resolves(JSON.stringify(DISK_MAP));
+      const { module: m } = loadModule({ fs: { promises: { readFile } } });
+      await m.startSync();
+      expect(readFile.calledOnce).to.equal(true);
+      m.stopSync();
+    });
+
+    it('falls back to an empty map when the disk read throws', async () => {
+      const fs = { promises: { readFile: sinon.stub().rejects(new Error('ENOENT')) } };
       const { module: m } = loadModule({ fs });
+      await m.startSync();
       expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal({});
       expect(m.getEnterpriseNodesPublicKeys()).to.deep.equal([]);
       expect(m.getEnterpriseAppOwners()).to.deep.equal([]);
+      m.stopSync();
     });
 
-    it('ignores disk content that is not a JSON object', () => {
-      const fs = { readFileSync: sinon.stub().returns('["not","an","object"]') };
+    it('ignores disk content that is not a JSON object', async () => {
+      const fs = { promises: { readFile: sinon.stub().resolves('["not","an","object"]') } };
       const { module: m } = loadModule({ fs });
+      await m.startSync();
       expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal({});
+      m.stopSync();
+    });
+
+    it('rejects disk content whose values are not arrays of strings (finding #2/#10)', async () => {
+      const fs = { promises: { readFile: sinon.stub().resolves(JSON.stringify({ nodeA: null })) } };
+      const { module: m, log } = loadModule({ fs });
+      await m.startSync();
+      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal({});
+      expect(log.error.called).to.equal(true);
+      m.stopSync();
     });
   });
 
   describe('syncFromGithub', () => {
-    it('replaces the in-memory map when github returns an object', async () => {
+    it('replaces the in-memory map when github returns a valid object', async () => {
       const axiosGet = sinon.stub().resolves({ data: { nodeC: ['ownerC'] } });
       const { module: m } = loadModule({ serviceHelper: { axiosGet } });
 
@@ -88,22 +119,69 @@ describe('enterpriseConfig', () => {
       expect(m.getEnterpriseAppOwners()).to.deep.equal(['ownerC']);
     });
 
-    it('keeps the disk map when the github fetch fails', async () => {
-      const axiosGet = sinon.stub().rejects(new Error('network down'));
+    it('uses a bounded request timeout', async () => {
+      const axiosGet = sinon.stub().resolves({ data: { nodeC: ['ownerC'] } });
       const { module: m } = loadModule({ serviceHelper: { axiosGet } });
 
       await m.syncFromGithub();
 
-      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal(DISK_MAP);
+      expect(axiosGet.firstCall.args[1]).to.have.property('timeout');
+      expect(axiosGet.firstCall.args[1].timeout).to.be.a('number');
     });
 
-    it('keeps the current map when github returns a non-object', async () => {
-      const axiosGet = sinon.stub().resolves({ data: ['unexpected'] });
+    it('keeps the last-good map when the github fetch fails', async () => {
+      const axiosGet = sinon.stub();
+      axiosGet.onFirstCall().resolves({ data: { nodeC: ['ownerC'] } }); // seed via startSync
       const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+      await m.startSync();
+      m.stopSync();
+      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal({ nodeC: ['ownerC'] });
 
+      axiosGet.rejects(new Error('network down'));
       await m.syncFromGithub();
 
-      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal(DISK_MAP);
+      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal({ nodeC: ['ownerC'] });
+    });
+
+    it('rejects a non-object payload and keeps the current map', async () => {
+      const axiosGet = sinon.stub();
+      axiosGet.onFirstCall().resolves({ data: { nodeC: ['ownerC'] } });
+      const { module: m, log } = loadModule({ serviceHelper: { axiosGet } });
+      await m.startSync();
+      m.stopSync();
+
+      axiosGet.resolves({ data: ['unexpected'] });
+      await m.syncFromGithub();
+
+      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal({ nodeC: ['ownerC'] });
+      expect(log.error.called).to.equal(true);
+    });
+
+    it('rejects a payload with non-array values and keeps the last-good map (finding #2/#10)', async () => {
+      const axiosGet = sinon.stub();
+      axiosGet.onFirstCall().resolves({ data: { nodeC: ['ownerC'] } });
+      const { module: m, log } = loadModule({ serviceHelper: { axiosGet } });
+      await m.startSync();
+      m.stopSync();
+
+      axiosGet.resolves({ data: { nodeC: null } });
+      await m.syncFromGithub();
+
+      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal({ nodeC: ['ownerC'] });
+      expect(log.error.called).to.equal(true);
+    });
+
+    it('rejects a payload whose array contains non-string entries (finding #2/#10)', async () => {
+      const axiosGet = sinon.stub();
+      axiosGet.onFirstCall().resolves({ data: { nodeC: ['ownerC'] } });
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+      await m.startSync();
+      m.stopSync();
+
+      axiosGet.resolves({ data: { nodeC: [123] } });
+      await m.syncFromGithub();
+
+      expect(m.getEnterpriseNodeOwnerMap()).to.deep.equal({ nodeC: ['ownerC'] });
     });
   });
 
@@ -140,6 +218,26 @@ describe('enterpriseConfig', () => {
 
       m.stopSync();
       clock.restore();
+    });
+  });
+
+  describe('getEnterpriseAppOwners memoization (finding #6)', () => {
+    it('returns the same array instance until the map is replaced', async () => {
+      const axiosGet = sinon.stub();
+      axiosGet.onFirstCall().resolves({ data: { nodeC: ['ownerC'] } });
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+      await m.startSync();
+      m.stopSync();
+
+      const first = m.getEnterpriseAppOwners();
+      const second = m.getEnterpriseAppOwners();
+      expect(second).to.equal(first); // same reference, not rebuilt
+
+      axiosGet.resolves({ data: { nodeD: ['ownerD'] } });
+      await m.syncFromGithub();
+      const third = m.getEnterpriseAppOwners();
+      expect(third).to.not.equal(first); // rebuilt after map replacement
+      expect(third).to.deep.equal(['ownerD']);
     });
   });
 });

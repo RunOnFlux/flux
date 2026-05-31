@@ -381,7 +381,7 @@ module.exports = {
     ip: '127.0.0.1',
     port: 8384,
   },
-  // enterpriseAppOwners moved to helpers/enterpriseappowners.json (synced from github every 6h, see enterpriseConfig)
+  // enterpriseAppOwners moved to helpers/enterprisenodes.json (synced from github every 6h, see enterpriseConfig)
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
     '045bd4f81d7bda582141793463edb58e0f3228a873bd6b6680b78586db2969f51dfeda672eae65e64ca814316f77557012d02c73db7876764f5eddb6b6d9d02b5b',
     '042ebcb3a94fe66b9ded6e456871346d6984502bbadf14ed07644e0eb91f8cc0b1f07632c428e1e6793f372d9c303d680de80ae0499d51095676cabf68599e9591',
@@ -403,7 +403,7 @@ module.exports = {
   // Pubkeys of nodes that opt into the enterprise network. A node whose own
   // fluxnode pubkey is in this list will only spawn/run apps owned by the
   // enterprise app owners and will uninstall any non-matching apps on boot.
-  // Moved to helpers/enterprisenodespublickeys.json (synced from github every 6h, see enterpriseConfig)
+  // Moved to helpers/enterprisenodes.json (synced from github every 6h, see enterpriseConfig)
   cpuBurst: {
     // Enables CFS CPU burst for enterprise app owners on cgroups-v2 + kernel >= 5.14 hosts.
     // The kernel rule (cgroup-v2: 0 <= cpu.max.burst <= cpu.max quota) lets a container

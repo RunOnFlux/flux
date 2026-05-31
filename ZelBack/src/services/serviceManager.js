@@ -122,10 +122,12 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
-    // Sync enterprise app owners / node pubkeys from github (every 6h). Fire-and-forget:
-    // the lists are seeded from helpers/*.json on disk at load, so consumers have data
-    // immediately and boot is never blocked on this network fetch.
-    enterpriseConfig.startSync().catch((err) => log.error(`enterpriseConfig sync start error: ${err.message}`));
+    // Seed the enterprise node->owners map from helpers/enterprisenodes.json on disk
+    // and sync it from github (every 6h thereafter). Awaited so consumers (identity
+    // resolution, the spawn loop, app-spec validation) have data before they run; the
+    // disk read and github fetch are both bounded (10s fetch timeout) so boot is never
+    // stuck on this. A failed/invalid sync keeps the last-good value.
+    await enterpriseConfig.startSync().catch((err) => log.error(`enterpriseConfig sync start error: ${err.message}`));
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();

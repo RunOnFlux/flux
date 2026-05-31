@@ -5,11 +5,13 @@ const appConstants = require('./appConstants');
 const enterpriseConfig = require('./enterpriseConfig');
 const log = require('../../lib/log');
 
-let cachedIsEnterpriseNode = null;
 // This node's own fluxnode pubkey, cached once resolved. The pubkey never
-// changes, but the owners mapped to it can (the map re-syncs from github every
-// 6h), so the allowed-owner list is read live from the current map rather than
-// frozen here. See getCachedAllowedOwnersForNode().
+// changes, so the expensive daemon/benchmark RPC runs only once. Enterprise
+// membership and the allowed-owner list are NOT cached: both are derived live
+// from the current map (which re-syncs from github every 6h), so adding or
+// removing this node from the map — or changing its owners — takes effect within
+// the sync interval without a node restart. See getCachedEnterpriseIdentity()
+// and getCachedAllowedOwnersForNode().
 let cachedNodePubKey = null;
 
 function getEnterpriseAppOwners() {
@@ -26,47 +28,44 @@ function isEnterpriseAppOwner(owner) {
 }
 
 /**
- * Returns true if this fluxnode's own pubkey is listed in the enterprise nodes
- * public keys list (helpers/enterprisenodespublickeys.json, synced via
- * enterpriseConfig). Result is cached for the lifetime of the process after a
- * successful resolution; call resetEnterpriseNodeCache() if the list is
- * refreshed and the membership might have changed.
+ * Returns true if this fluxnode's own pubkey is currently listed in the
+ * enterprise nodes public keys (helpers/enterprisenodes.json, synced via
+ * enterpriseConfig). Only the resolved pubkey is cached for the lifetime of the
+ * process; membership is evaluated live against the current map on every call,
+ * so a node added to or removed from the map is reflected within the sync
+ * interval with no restart. resetEnterpriseNodeCache() forces the pubkey to be
+ * re-resolved.
  *
  * Throws if the pubkey cannot be resolved (daemon/benchmark down). Prefer the
  * boot-time scheduleIdentityResolution() + getCachedEnterpriseIdentity() pair
  * over awaiting this from hot paths.
  */
 async function isEnterpriseNode() {
-  if (cachedIsEnterpriseNode !== null) return cachedIsEnterpriseNode;
-
-  const nodePubKeys = getEnterpriseNodesPublicKeys();
-  if (!nodePubKeys.length) {
-    cachedIsEnterpriseNode = false;
-    return false;
+  if (cachedNodePubKey === null) {
+    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    // getFluxNodePublicKey swallows errors and returns the Error object on failure.
+    if (!pubKey || typeof pubKey !== 'string') {
+      throw new Error('enterpriseNetwork: unable to resolve fluxnode public key (daemon/benchmark unavailable)');
+    }
+    cachedNodePubKey = pubKey;
   }
-
-  const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
-  // getFluxNodePublicKey swallows errors and returns the Error object on failure.
-  if (!pubKey || typeof pubKey !== 'string') {
-    throw new Error('enterpriseNetwork: unable to resolve fluxnode public key (daemon/benchmark unavailable)');
-  }
-
-  cachedNodePubKey = pubKey;
-  cachedIsEnterpriseNode = nodePubKeys.includes(pubKey);
-  return cachedIsEnterpriseNode;
+  return getEnterpriseNodesPublicKeys().includes(cachedNodePubKey);
 }
 
 /**
- * Synchronous read of the cached identity. Returns:
- *   - true  : node is in the enterprise set
- *   - false : node is not in the enterprise set
- *   - null  : identity not yet resolved (caller should defer)
+ * Synchronous read of the enterprise identity. Returns:
+ *   - true  : node is currently in the enterprise set
+ *   - false : node is not currently in the enterprise set
+ *   - null  : pubkey not yet resolved (caller should defer)
  *
- * This is the read used by hot paths (e.g. the spawn loop) so they don't
- * need to await or handle a throw on every iteration.
+ * Membership is recomputed live from the current map on each call (only the
+ * pubkey is cached), so node add/remove via a github sync is honoured without a
+ * restart. This is the read used by hot paths (e.g. the spawn loop) so they
+ * don't need to await or handle a throw on every iteration.
  */
 function getCachedEnterpriseIdentity() {
-  return cachedIsEnterpriseNode;
+  if (cachedNodePubKey === null) return null;
+  return getEnterpriseNodesPublicKeys().includes(cachedNodePubKey);
 }
 
 /**
@@ -77,8 +76,8 @@ function getCachedEnterpriseIdentity() {
  * restart; only the node's enterprise identity itself is cached for the process.
  */
 function getCachedAllowedOwnersForNode() {
-  if (cachedIsEnterpriseNode === null) return null;
-  if (!cachedIsEnterpriseNode) return [];
+  if (cachedNodePubKey === null) return null;
+  if (!getEnterpriseNodesPublicKeys().includes(cachedNodePubKey)) return [];
   return enterpriseConfig.getAllowedOwnersForNode(cachedNodePubKey);
 }
 
@@ -105,7 +104,6 @@ function scheduleIdentityResolution({ retryDelayMs = 5 * 60 * 1000 } = {}) {
 }
 
 function resetEnterpriseNodeCache() {
-  cachedIsEnterpriseNode = null;
   cachedNodePubKey = null;
 }
 

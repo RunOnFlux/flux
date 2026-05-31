@@ -242,6 +242,15 @@ describe('appSpawner tests', () => {
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       expect(infoLogged('selected to try to spawn')).to.be.true;
     });
+
+    it('keeps an enterprise-owned app that targets no nodes (no IP restriction) (finding #12)', async () => {
+      buildModule({
+        aggregateResult: [makeApp({ owner: 'enterpriseOwnerX', nodes: [] })],
+        isEnterpriseAppOwner: (owner) => owner === 'enterpriseOwnerX',
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.true;
+    });
   });
 
   describe('expiration filter pipeline', () => {
