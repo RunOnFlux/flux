@@ -809,6 +809,12 @@ async function restartSystemdService(service) {
   return Boolean(error);
 }
 
+// Bump when the fluxd ZMQ topic set changes so already-enabled nodes re-apply it
+// once. The .zmqEnabled marker stores the version it last applied.
+// v1: hashtx/hashblock/rawblock/rawtx/sequence.
+// v2: hashblock + hashblockheight/chainreorg/fluxnodestatus/fluxnodelistdelta.
+const ZMQ_CONFIG_VERSION = '2';
+
 async function enableFluxdZmq(zmqEndpoint) {
   if (isArcane) return true;
 
@@ -820,9 +826,11 @@ async function enableFluxdZmq(zmqEndpoint) {
 
   const zmqEnabledPath = path.join(fluxConfigDir, '.zmqEnabled');
 
-  const exists = Boolean(await fs.stat(zmqEnabledPath).catch(() => false));
+  // Re-run once when the topic set version changes; the marker holds the version
+  // last applied (empty/absent means never applied or the pre-versioned v1).
+  const appliedVersion = await fs.readFile(zmqEnabledPath, 'utf8').catch(() => '');
 
-  if (exists) return true;
+  if (appliedVersion.trim() === ZMQ_CONFIG_VERSION) return true;
 
   let parseError = false;
 
@@ -860,9 +868,21 @@ async function enableFluxdZmq(zmqEndpoint) {
     return false;
   }
 
+  // hashblock is kept so the zmqEnabled flag (which reads zmqpubhashblock) stays
+  // true; the rest are the forward-looking set configd/FluxOS consume. Enabling a
+  // topic an older fluxd doesn't know is inert (it ignores unknown -zmqpub args),
+  // so this is written unconditionally.
   const topics = [
-    'zmqpubhashtx',
     'zmqpubhashblock',
+    'zmqpubhashblockheight',
+    'zmqpubchainreorg',
+    'zmqpubfluxnodestatus',
+    'zmqpubfluxnodelistdelta',
+  ];
+
+  // Legacy publishers nothing subscribes to anymore; remove on the v1 -> v2 re-run.
+  const legacyTopics = [
+    'zmqpubhashtx',
     'zmqpubrawblock',
     'zmqpubrawtx',
     'zmqpubsequence',
@@ -873,6 +893,10 @@ async function enableFluxdZmq(zmqEndpoint) {
   const fluxdConfigBackup = 'flux.conf.bak';
   const newFluxdAbsolutePath = path.join(fluxConfigDir, newFluxdConfig);
   const fluxdConfigBackupAbsolutePath = path.join(fluxConfigDir, fluxdConfigBackup);
+
+  legacyTopics.forEach((topic) => {
+    daemonServiceUtils.unsetConfigValue(topic);
+  });
 
   topics.forEach((topic) => {
     daemonServiceUtils.setConfigValue(topic, zmqEndpoint, {
@@ -906,7 +930,7 @@ async function enableFluxdZmq(zmqEndpoint) {
     return false;
   }
 
-  await fs.writeFile(zmqEnabledPath, '').catch(() => { });
+  await fs.writeFile(zmqEnabledPath, ZMQ_CONFIG_VERSION).catch(() => { });
 
   log.info('ZMQ pub/sub enabled');
 

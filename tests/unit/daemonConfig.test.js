@@ -305,6 +305,38 @@ describe('daemonConfig tests', () => {
     sinon.assert.calledOnceWithExactly(writeStub, '/home/testuser/.flux/flux.conf', fluxdConfigs.withArrayItemAdded);
   });
 
+  it('should remove an option with unset', async () => {
+    setPlatform('linux');
+    sinon.stub(fs, 'stat').resolves({ found: true });
+    const readStub = sinon.stub(fs, 'readFile').resolves(fluxdConfigs.standard);
+
+    const dc = new DaemonConfig();
+    await dc.resolvePaths();
+    await dc.parseConfig();
+
+    sinon.assert.calledOnce(readStub);
+    expect(dc.configElements).to.have.property('addnode');
+
+    dc.unset('addnode');
+
+    expect(dc.configElements).to.not.have.property('addnode');
+  });
+
+  it('should be a no-op when unset is called for a missing key', async () => {
+    setPlatform('linux');
+    sinon.stub(fs, 'stat').resolves({ found: true });
+    sinon.stub(fs, 'readFile').resolves(fluxdConfigs.standard);
+
+    const dc = new DaemonConfig();
+    await dc.resolvePaths();
+    await dc.parseConfig();
+
+    const before = { ...dc.configElements };
+
+    expect(() => dc.unset('thiskeydoesnotexist')).to.not.throw();
+    expect(dc.configElements).to.deep.equal(before);
+  });
+
   it('should create backup file with original config, even after it has changed', async () => {
     const optionName = 'addnode';
     const optionvalue = '7.7.7.7';

@@ -223,6 +223,17 @@ function setConfigValue(parameter, value, options = {}) {
 }
 
 /**
+ * To remove a specified key from the configuration file.
+ * @param {string} parameter Config key.
+ * @returns {void}
+ */
+function unsetConfigValue(parameter) {
+  if (!fluxdConfig) return;
+
+  fluxdConfig.unset(parameter);
+}
+
+/**
  * The DaemonConfig object
  * @returns {daemonConfig.DaemonConfig}
  */
@@ -296,6 +307,7 @@ module.exports = {
   getFluxdDir,
   readDaemonConfig,
   setConfigValue,
+  unsetConfigValue,
   writeFluxdConfig,
 
   // exports for testing purposes
