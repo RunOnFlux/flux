@@ -389,7 +389,7 @@ async function handleSigterm() {
     if (runningAppsCache.size > 0) {
       log.info(`Node was running ${runningAppsCache.size} apps, broadcasting shutdown notification to peers...`);
 
-      const ip = await fluxNetworkHelper.getMyFluxIPandPort();
+      const ip = await fluxNetworkHelper.getLocalSocketAddress();
       if (ip) {
         const sigtermMessage = {
           type: 'fluxnodesigterm',

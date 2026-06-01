@@ -10,6 +10,7 @@ const dockerService = require('../../ZelBack/src/services/dockerService');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const generalService = require('../../ZelBack/src/services/generalService');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 
 describe('systemIntegration tests', () => {
   let req;
@@ -305,10 +306,7 @@ describe('systemIntegration tests', () => {
         txhash: 'abc123',
         txindex: 0,
       });
-      sinon.stub(benchmarkService, 'getBenchmarks').resolves({
-        status: 'success',
-        data: { ipaddress: '123' }, // Too short
-      });
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(null);
 
       try {
         await systemIntegration.checkAppNodesRequirements(appSpecs);

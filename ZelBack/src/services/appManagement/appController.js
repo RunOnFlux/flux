@@ -7,6 +7,7 @@ const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('./appInspector');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const log = require('../../lib/log');
 
 const globalCmdDelayMs = config.fluxapps.globalCmdDelayMs;
@@ -59,15 +60,15 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
   try {
     // get a list of the specific app locations
     const locations = await appLocation(appname);
-    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    const myUrl = myIP.split(':')[0];
-    const myUrlPort = myIP.split(':')[1] || '16127';
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    const localIp = extractIp(localSocketAddr);
+    const localPort = extractPort(localSocketAddr);
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
       // HERE let the node we are connected to handle it
-      const ip = appInstance.ip.split(':')[0];
-      const port = appInstance.ip.split(':')[1] || '16127';
-      if (bypassMyIp && myUrl === ip && myUrlPort === port) {
+      const instanceIp = extractIp(appInstance.ip);
+      const instancePort = extractPort(appInstance.ip);
+      if (bypassMyIp && localIp === instanceIp && localPort === instancePort) {
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -76,7 +77,7 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
           zelidauth,
         },
       };
-      let url = `http://${ip}:${port}/apps/${command}/${appname}`;
+      let url = `http://${instanceIp}:${instancePort}/apps/${command}/${appname}`;
       if (paramA) {
         url += `/${paramA}`;
       }

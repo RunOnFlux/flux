@@ -32,7 +32,7 @@ describe('appStartupManager tests', () => {
     };
 
     fluxNetworkHelperStub = {
-      getMyFluxIPandPort: sinon.stub(),
+      getLocalSocketAddress: sinon.stub(),
       isNodeDos: sinon.stub().returns(false),
     };
 
@@ -205,7 +205,7 @@ describe('appStartupManager tests', () => {
       registryManagerStub.getApplicationGlobalSpecifications.resolves({ version: 3, containerData: '' });
 
       // Default: node IP available
-      fluxNetworkHelperStub.getMyFluxIPandPort.resolves('10.0.0.1:16127');
+      fluxNetworkHelperStub.getLocalSocketAddress.resolves('10.0.0.1:16127');
     });
 
     it('should start app when location record has not expired', async () => {
@@ -261,7 +261,7 @@ describe('appStartupManager tests', () => {
     });
 
     it('should skip location check and start app when IP is not available', async () => {
-      fluxNetworkHelperStub.getMyFluxIPandPort.resolves(null);
+      fluxNetworkHelperStub.getLocalSocketAddress.resolves(null);
 
       dockerServiceStub.dockerListContainers.resolves([
         { Names: ['/fluxAppA'], State: 'exited' },

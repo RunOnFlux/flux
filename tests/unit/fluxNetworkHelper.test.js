@@ -223,7 +223,7 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe('getMyFluxIPandPort tests', () => {
+  describe('getLocalSocketAddress tests', () => {
     let benchStub;
 
     beforeEach(() => {
@@ -242,7 +242,7 @@ describe('fluxNetworkHelper tests', () => {
       };
       benchStub.resolves(getBenchmarkResponseData);
 
-      const getIpResult = await fluxNetworkHelper.getMyFluxIPandPort();
+      const getIpResult = await fluxNetworkHelper.getLocalSocketAddress();
 
       expect(getIpResult).to.equal(ip);
       sinon.assert.calledOnce(benchStub);
@@ -254,7 +254,7 @@ describe('fluxNetworkHelper tests', () => {
       };
       benchStub.resolves(getBenchmarkResponseData);
 
-      const getIpResult = await fluxNetworkHelper.getMyFluxIPandPort();
+      const getIpResult = await fluxNetworkHelper.getLocalSocketAddress();
 
       expect(getIpResult).to.be.null;
       sinon.assert.calledOnce(benchStub);
@@ -268,10 +268,46 @@ describe('fluxNetworkHelper tests', () => {
       };
       benchStub.resolves(getBenchmarkResponseData);
 
-      const getIpResult = await fluxNetworkHelper.getMyFluxIPandPort();
+      const getIpResult = await fluxNetworkHelper.getLocalSocketAddress();
 
       expect(getIpResult).to.be.null;
       sinon.assert.calledOnce(benchStub);
+    });
+
+    it('should normalize bare IP from old fluxbench to ip:port', async () => {
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: { ipaddress: '85.159.213.248' },
+      };
+      benchStub.resolves(getBenchmarkResponseData);
+
+      const result = await fluxNetworkHelper.getLocalSocketAddress();
+
+      expect(result).to.equal('85.159.213.248:16127');
+    });
+
+    it('should return ip:port as-is from new fluxbench', async () => {
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: { ipaddress: '85.159.213.248:16127' },
+      };
+      benchStub.resolves(getBenchmarkResponseData);
+
+      const result = await fluxNetworkHelper.getLocalSocketAddress();
+
+      expect(result).to.equal('85.159.213.248:16127');
+    });
+
+    it('should preserve non-default port from fluxbench', async () => {
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: { ipaddress: '85.159.213.248:16147' },
+      };
+      benchStub.resolves(getBenchmarkResponseData);
+
+      const result = await fluxNetworkHelper.getLocalSocketAddress();
+
+      expect(result).to.equal('85.159.213.248:16147');
     });
   });
 
@@ -809,7 +845,7 @@ describe('fluxNetworkHelper tests', () => {
 
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed('5.0.0');
-      fluxNetworkHelper.setMyFluxIp('129.3.3.3');
+      fluxNetworkHelper.setLocalSocketAddress('129.3.3.3');
       const deterministicFluxnodeListResponse = [
         {
           collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
@@ -849,7 +885,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return false if fluxIp is null', async () => {
-      fluxNetworkHelper.setMyFluxIp(null);
+      fluxNetworkHelper.setLocalSocketAddress(null);
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
@@ -1084,7 +1120,7 @@ describe('fluxNetworkHelper tests', () => {
 
       // Stub fluxNetworkHelper internal functions
       fluxNetworkHelper.setStoredFluxBenchAllowed('5.0.0');
-      fluxNetworkHelper.setMyFluxIp('127.0.0.1');
+      fluxNetworkHelper.setLocalSocketAddress('127.0.0.1');
     });
 
     afterEach(() => {
@@ -1366,7 +1402,7 @@ describe('fluxNetworkHelper tests', () => {
 
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed('5.0.0');
-      fluxNetworkHelper.setMyFluxIp('129.3.3.3');
+      fluxNetworkHelper.setLocalSocketAddress('129.3.3.3');
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);

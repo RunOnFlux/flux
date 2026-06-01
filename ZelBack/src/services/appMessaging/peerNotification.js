@@ -2,7 +2,7 @@ const os = require('os');
 const config = require('config');
 const dbHelper = require('../dbHelper');
 const nodeConfirmationService = require('../nodeConfirmationService');
-const benchmarkService = require('../benchmarkService');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const messageStore = require('./messageStore');
@@ -57,16 +57,8 @@ async function checkAndNotifyPeersOfRunningApps() {
       return;
     }
 
-    const benchmarkResponse = await benchmarkService.getBenchmarks();
-    let myIP = null;
-    if (benchmarkResponse.status === 'success') {
-      const benchmarkResponseData = benchmarkResponse.data;
-      if (benchmarkResponseData.ipaddress) {
-        log.info(`Gathered IP ${benchmarkResponseData.ipaddress}`);
-        myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
-      }
-    }
-    if (myIP === null) {
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    if (!localSocketAddr) {
       throw new Error('Unable to detect Flux IP address');
     }
 
@@ -88,7 +80,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       return app.Names[0].slice(5);
     });
 
-    const { masterSlaveAppsInstalled, startedApps } = await containerHealthMonitor.monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames);
+    const { masterSlaveAppsInstalled, startedApps } = await containerHealthMonitor.monitorAndRecoverApps(localSocketAddr, appsInstalled, runningAppsNames);
     runningAppsNames.push(...startedApps);
 
     const installedAndRunning = [];
@@ -115,7 +107,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     try {
       // eslint-disable-next-line no-restricted-syntax
       for (const application of applicationsToBroadcast) {
-        const queryFind = { name: application.name, ip: myIP };
+        const queryFind = { name: application.name, ip: localSocketAddr };
         const projection = { _id: 0, runningSince: 1 };
         // eslint-disable-next-line no-await-in-loop
         const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
@@ -138,7 +130,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         type: 'fluxapprunning',
         version: 2,
         apps,
-        ip: myIP,
+        ip: localSocketAddr,
         broadcastedAt: Date.now(),
         osUptime: os.uptime(),
         staticIp: geolocationService.isStaticIP(),

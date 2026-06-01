@@ -15,6 +15,7 @@ const { peerManager } = require('../utils/peerState');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const { openEphemeralConnection } = require('../fluxCommunication');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const { normalizeSocketAddress } = require('../utils/socketAddressUtils');
 const { CLOSE_CODES } = require('../utils/FluxPeerSocket');
 const { appSyncEvents, EVENTS } = require('../utils/appSyncEvents');
 const { HASH_EXPIRY_BLOCKS, HASH_RETRY_BACKOFF } = require('../utils/appConstants');
@@ -498,8 +499,8 @@ async function broadcastHashRequest(hashes, peers) {
  */
 async function pickEphemeralTargets(count) {
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-  const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
-  const selfKey = localSocketAddress.includes(':') ? localSocketAddress : `${localSocketAddress}:16127`;
+  const localSocketAddress = await fluxNetworkHelper.getLocalSocketAddress();
+  if (!localSocketAddress) return [];
   const connectedKeys = new Set();
   for (const peer of peerManager.allValues()) {
     connectedKeys.add(peer.key);
@@ -507,9 +508,9 @@ async function pickEphemeralTargets(count) {
   const candidates = [];
   for (const node of nodeList) {
     if (!node.ip) continue;
-    const key = node.ip.includes(':') ? node.ip : `${node.ip}:16127`;
+    const key = normalizeSocketAddress(node.ip);
     if (connectedKeys.has(key)) continue;
-    if (key === selfKey) continue;
+    if (key === localSocketAddress) continue;
     candidates.push(key);
   }
   for (let i = candidates.length - 1; i > 0; i -= 1) {

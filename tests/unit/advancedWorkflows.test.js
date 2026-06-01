@@ -1022,7 +1022,7 @@ describe('advancedWorkflows tests', () => {
       });
 
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-      fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort');
+      fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
 
       const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
       registryManagerStub = sinon.stub(registryManager, 'appLocation');

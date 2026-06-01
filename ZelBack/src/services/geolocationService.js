@@ -1,6 +1,7 @@
 const config = require('config');
 const log = require('../lib/log');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const { extractIp } = require('./utils/socketAddressUtils');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 
@@ -81,8 +82,8 @@ async function getGeolocationFromDb() {
  */
 async function setNodeGeolocation() {
   try {
-    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!myIP) {
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    if (!localSocketAddr) {
       log.error('Flux IP not detected. Flux geolocation service is awaiting');
       setTimeout(() => {
         setNodeGeolocation();
@@ -90,14 +91,16 @@ async function setNodeGeolocation() {
       return;
     }
 
+    const localIp = extractIp(localSocketAddr);
+
     // Store previous IP to detect changes
     const previousIp = storedGeolocation ? storedGeolocation.ip : null;
 
-    if (!storedGeolocation || myIP !== storedIp || execution % 4 === 0) {
-      log.info(`Checking geolocation of ${myIP}`);
-      storedIp = myIP;
+    if (!storedGeolocation || localSocketAddr !== storedIp || execution % 4 === 0) {
+      log.info(`Checking geolocation of ${localIp}`);
+      storedIp = localSocketAddr;
       // consider another service failover or stats db
-      const ipApiUrl = `${config.geolocation.ipApiBaseUrl}/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org,isp,proxy,hosting`;
+      const ipApiUrl = `${config.geolocation.ipApiBaseUrl}/json/${localIp}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org,isp,proxy,hosting`;
       const ipRes = await serviceHelper.axiosGet(ipApiUrl);
       if (ipRes.data.status === 'success' && ipRes.data.query !== '') {
         storedGeolocation = {
@@ -115,7 +118,7 @@ async function setNodeGeolocation() {
           dataCenter: ipRes.data.hosting,
         };
       } else {
-        const statsApiUrl = `${config.geolocation.statsApiBaseUrl}/fluxlocation/${myIP.split(':')[0]}`;
+        const statsApiUrl = `${config.geolocation.statsApiBaseUrl}/fluxlocation/${localIp}`;
         const statsRes = await serviceHelper.axiosGet(statsApiUrl);
         if (statsRes.data.status === 'success' && statsRes.data.data) {
           storedGeolocation = {
@@ -133,11 +136,11 @@ async function setNodeGeolocation() {
             dataCenter: statsRes.data.data.dataCenter,
           };
         } else {
-          throw new Error(`Geolocation of IP ${myIP} is unavailable`);
+          throw new Error(`Geolocation of IP ${localIp} is unavailable`);
         }
       }
     }
-    log.info(`Geolocation of ${myIP} is ${JSON.stringify(storedGeolocation)}`);
+    log.info(`Geolocation of ${localIp} is ${JSON.stringify(storedGeolocation)}`);
 
     // Check if IP has changed
     const currentIp = storedGeolocation.ip;

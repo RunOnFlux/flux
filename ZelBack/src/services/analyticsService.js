@@ -9,7 +9,7 @@ let bufferTotal = 0;
 let isFlushing = false;
 let consecutiveFailures = 0;
 let lastFailureTime = 0;
-let cachedNodeIp = null;
+let cachedNodeSocketAddress = null;
 let flushTimer = null;
 let analyticsUrlCached = '';
 let initialized = false;
@@ -26,9 +26,9 @@ const NODE_IP_REFRESH_INTERVAL = 600000; // 10 minutes
  */
 async function refreshNodeIp() {
   try {
-    const ip = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (ip) {
-      cachedNodeIp = ip;
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    if (localSocketAddr) {
+      cachedNodeSocketAddress = localSocketAddr;
     }
   } catch (error) {
     log.warn(`Analytics: failed to get node IP: ${error.message}`);
@@ -194,7 +194,7 @@ function analyticsMiddleware(req, res, next) {
         responseCode: res.statusCode,
         responseStatus: res.statusCode < 400 ? 'success' : 'error',
         responseTimeMs: Date.now() - startTime,
-        nodeIp: cachedNodeIp,
+        nodeIp: cachedNodeSocketAddress,
         ipAddress: clientIp,
         timestamp: new Date().toISOString(),
       };
@@ -236,7 +236,7 @@ function trackTerminalSession(zelidauth, appName, action, ipAddress, component) 
     responseCode: 200,
     responseStatus: 'success',
     responseTimeMs: 0,
-    nodeIp: cachedNodeIp,
+    nodeIp: cachedNodeSocketAddress,
     ipAddress: ipAddress || null,
     timestamp: new Date().toISOString(),
   };
