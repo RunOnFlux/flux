@@ -35,6 +35,7 @@ const hardwareValidationService = require('./appLifecycle/hardwareValidationServ
 const globalState = require('./utils/globalState');
 const { peerManager } = require('./utils/peerState');
 const enterpriseNetwork = require('./utils/enterpriseNetwork');
+const enterpriseConfig = require('./utils/enterpriseConfig');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
@@ -121,6 +122,12 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
+    // Seed the enterprise node->owners map from helpers/enterprisenodes.json on disk
+    // and sync it from github (every 6h thereafter). Awaited so consumers (identity
+    // resolution, the spawn loop, app-spec validation) have data before they run; the
+    // disk read and github fetch are both bounded (10s fetch timeout) so boot is never
+    // stuck on this. A failed/invalid sync keeps the last-good value.
+    await enterpriseConfig.startSync().catch((err) => log.error(`enterpriseConfig sync start error: ${err.message}`));
     // Hard dependencies — nothing starts until these are confirmed.
     await dbHelper.waitForMongo();
     await dockerService.waitForDocker();

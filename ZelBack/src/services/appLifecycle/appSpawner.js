@@ -283,8 +283,16 @@ async function trySpawningGlobalApplication() {
         && !globalState.spawnErrorsLongerAppCache.has(app.hash)
         && !globalState.trySpawningGlobalAppCache.has(app.hash)
         && !appsToBeCheckedLater.some((appAux) => appAux.appName === app.name));
-      // filter apps that are non enterprise or are marked to install on my node
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)) || app.version >= 8);
+      // filter apps that are non enterprise or are marked to install on my node.
+      // Enterprise-owned apps that target specific node IPs are strict: only a node
+      // whose IP is listed may install them, regardless of version (the version>=8
+      // bypass below does not apply to them).
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => {
+        if (app.nodes.length > 0 && enterpriseNetwork.isEnterpriseAppOwner(app.owner)) {
+          return app.nodes.some((ip) => socketAddressesMatch(ip, localSocketAddr));
+        }
+        return app.nodes.length === 0 || app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)) || app.version >= 8;
+      });
       // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('a!c')).length === 0 || !app.geolocation.find((loc) => loc.startsWith('a!c') && `a!c${myNodeLocation}`.startsWith(loc.replace('_NONE', '')))));
       // filter apps that dont have geolocation or have and match my node geolocation

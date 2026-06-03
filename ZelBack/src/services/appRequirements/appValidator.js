@@ -16,6 +16,7 @@ const {
 } = require('../utils/appConstants');
 const { specificationFormatter, findCommonArchitectures } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const enterpriseConfig = require('../utils/enterpriseConfig');
 const portManager = require('../appNetwork/portManager');
 const { peerManager } = require('../utils/peerState');
 
@@ -541,8 +542,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
     // datacenter=true is only allowed for enterprise app owners
     if (datacenter === true) {
-      const enterpriseAppOwners = config.enterpriseAppOwners || [];
-      if (!enterpriseAppOwners.includes(owner)) {
+      if (!enterpriseConfig.getEnterpriseAppOwners().includes(owner)) {
         throw new Error('Datacenter requirement is only available for enterprise app owners.');
       }
     }
