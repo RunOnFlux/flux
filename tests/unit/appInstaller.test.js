@@ -657,7 +657,7 @@ describe('appInstaller tests', () => {
           appDockerCreate: sinon.stub().resolves(),
           appDockerStart: sinon.stub().resolves('container-started'),
           getAppIdentifier: sinon.stub().returns('multiarchapp'),
-          dockerPullStream: sinon.stub().yields(null, 'pulled'),
+          dockerPullStream: sinon.stub().resolves('pulled'),
         },
         './appUninstaller': {
           removeAppLocally: sinon.stub().resolves(),
@@ -853,7 +853,7 @@ describe('appInstaller tests', () => {
           appDockerCreate: sinon.stub().resolves(),
           appDockerStart: sinon.stub().resolves('container-started'),
           getAppIdentifier: sinon.stub().returns('testapp'),
-          dockerPullStream: sinon.stub().yields(null, 'pulled'),
+          dockerPullStream: sinon.stub().resolves('pulled'),
         },
         './appUninstaller': {
           removeAppLocally: sinon.stub().resolves(),
@@ -977,7 +977,7 @@ describe('appInstaller tests', () => {
           appDockerCreate: sinon.stub().resolves(),
           appDockerStart: sinon.stub().resolves('container-started'),
           getAppIdentifier: sinon.stub().returns('testapp'),
-          dockerPullStream: sinon.stub().yields(null, 'pulled'),
+          dockerPullStream: sinon.stub().resolves('pulled'),
         },
         './appUninstaller': {
           removeAppLocally: sinon.stub().resolves(),
@@ -1053,6 +1053,134 @@ describe('appInstaller tests', () => {
       expect(res.write.called).to.be.true;
       expect(result).to.be.false;
     });
+
+    it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
+      // Regression guard for the post-install broadcast ordering bug.
+      // onInstallComplete() -> checkAndNotifyPeersOfRunningApps() must run with the
+      // install lock already cleared, otherwise containerHealthMonitor.monitorAndRecoverApps
+      // bails on globalState.isOperationInProgress() and the just-installed (syncthing)
+      // app is excluded from its own running-apps announcement.
+      // Pre-fix: the broadcast ran while installationInProgress was still true.
+      let lockHeldWhenBroadcasting = null;
+      const onInstallComplete = sinon.stub().callsFake(() => {
+        lockHeldWhenBroadcasting = globalStateStub.installationInProgress;
+        return Promise.resolve();
+      });
+      const fluxEventBusStub = { publish: sinon.stub(), subscribe: sinon.stub() };
+      const dbHelperStubSuccess = {
+        databaseConnection: sinon.stub().returns({ db: () => ({ collection: () => ({}) }) }),
+        findInDatabase: sinon.stub().resolves([]),
+        // 1st call = "already installed?" -> null (proceed). Later calls (post-insert
+        // validation) -> truthy so the install reaches the success/broadcast path.
+        findOneInDatabase: (() => {
+          const s = sinon.stub().resolves({ name: 'testapp' });
+          s.onFirstCall().resolves(null);
+          return s;
+        })(),
+        findOneAndDeleteInDatabase: sinon.stub().resolves(),
+        insertOneToDatabase: sinon.stub().resolves({ insertedId: 'id' }),
+      };
+
+      const appInstallerSuccess = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        config: configStub,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../dbHelper': dbHelperStubSuccess,
+        '../serviceHelper': {
+          ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
+          ensureNumber: sinon.stub().returnsArg(0),
+          delay: sinon.stub().resolves(),
+        },
+        '../generalService': {
+          nodeTier: sinon.stub().resolves('cumulus'),
+          checkSynced: sinon.stub().resolves(true),
+        },
+        '../benchmarkService': {
+          getBenchmarks: sinon.stub().resolves({ status: 'success', data: { ipaddress: '127.0.0.1:5050' } }),
+        },
+        '../fluxNetworkHelper': {
+          getNumberOfPeers: sinon.stub().returns(15),
+          isFirewallActive: sinon.stub().resolves(false),
+          allowPort: sinon.stub().resolves({ status: true }),
+          removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
+          getLocalSocketAddress: sinon.stub().resolves('1.2.3.4:16127'),
+        },
+        '../geolocationService': { isStaticIP: sinon.stub().returns(true) },
+        '../dockerService': {
+          dockerListContainers: sinon.stub().resolves([]),
+          pruneContainers: sinon.stub().resolves(),
+          pruneNetworks: sinon.stub().resolves(),
+          pruneVolumes: sinon.stub().resolves(),
+          pruneImages: sinon.stub().resolves(),
+          createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
+          getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
+          appDockerCreate: sinon.stub().resolves(),
+          appDockerStart: sinon.stub().resolves('container-started'),
+          getAppIdentifier: sinon.stub().returns('testapp'),
+          dockerPullStream: sinon.stub().resolves('pulled'),
+        },
+        './appUninstaller': { removeAppLocally: sinon.stub().resolves() },
+        './advancedWorkflows': { createAppVolume: sinon.stub().resolves() },
+        './appNetworkLinker': {
+          reconnectLinkedApps: sinon.stub().resolves(),
+          checkAppNetworkRequirements: sinon.stub().resolves(),
+          connectComponentToLinkedApps: sinon.stub().resolves(),
+        },
+        '../fluxCommunicationMessagesSender': {
+          broadcastMessageToOutgoing: sinon.stub().resolves(),
+          broadcastMessageToIncoming: sinon.stub().resolves(),
+          broadcastMessageToAll: sinon.stub().resolves(),
+        },
+        '../appMessaging/messageStore': {
+          storeAppRunningMessage: sinon.stub().resolves(),
+          storeAppInstallingErrorMessage: sinon.stub().resolves(),
+        },
+        '../appSystem/systemIntegration': { systemArchitecture: sinon.stub().resolves('amd64') },
+        '../appSecurity/imageManager': { checkApplicationImagesCompliance: sinon.stub().resolves() },
+        '../appManagement/appInspector': { startAppMonitoring: sinon.stub() },
+        '../utils/imageVerifier': {
+          ImageVerifier: sinon.stub().returns({
+            addCredentials: sinon.stub(),
+            verifyImage: sinon.stub().resolves(),
+            throwIfError: sinon.stub(),
+            supported: true,
+            provider: 'docker.io',
+          }),
+        },
+        '../pgpService': { decryptMessage: sinon.stub().resolves('user:token') },
+        '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
+        '../utils/globalState': globalStateStub,
+        '../utils/fluxEventBus': fluxEventBusStub,
+        '../utils/volumeService': { verifyAppVolumeMount: sinon.stub().resolves() },
+        '../../lib/log': logStub,
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
+        '../appMessaging/messageVerifier': {
+          checkAppTemporaryMessageExistence: sinon.stub().resolves(null),
+          checkAppMessageExistence: sinon.stub().resolves(null),
+        },
+        '../appDatabase/registryManager': {
+          availableApps: sinon.stub().resolves([]),
+          getApplicationGlobalSpecifications: sinon.stub().resolves(null),
+        },
+        '../appRequirements/hwRequirements': hwRequirementsStub,
+        '../appQuery/appQueryService': {
+          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
+          listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+          decryptEnterpriseApps: sinon.stub().callsFake((apps) => Promise.resolve(apps)),
+        },
+        util: { promisify: (fn) => fn },
+      });
+
+      appInstallerSuccess.setOnInstallComplete(onInstallComplete);
+
+      const res = { write: sinon.stub(), end: sinon.stub() };
+      const result = await appInstallerSuccess.registerAppLocally(appSpec, false, res);
+
+      expect(result, 'install should succeed').to.be.true;
+      expect(onInstallComplete.calledOnce, 'post-install broadcast should fire').to.be.true;
+      expect(lockHeldWhenBroadcasting, 'install lock must be released BEFORE broadcasting').to.equal(false);
+      expect(globalStateStub.installationInProgress).to.equal(false);
+    });
   });
 
   describe('prune guard with encrypted enterprise apps', () => {
@@ -1099,7 +1227,7 @@ describe('appInstaller tests', () => {
           appDockerCreate: sinon.stub().resolves(),
           appDockerStart: sinon.stub().resolves('ok'),
           getAppIdentifier: sinon.stub().returns('testapp'),
-          dockerPullStream: sinon.stub().yields(null, 'pulled'),
+          dockerPullStream: sinon.stub().resolves('pulled'),
         },
         './appUninstaller': { removeAppLocally: sinon.stub().resolves() },
         './advancedWorkflows': { createAppVolume: sinon.stub().resolves() },

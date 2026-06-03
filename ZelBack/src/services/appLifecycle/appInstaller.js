@@ -607,11 +607,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
 
     log.info(`Flux App: ${appName} is test install: ${test}`);
 
-    if (!test && onInstallComplete) {
-      await onInstallComplete();
-      fluxEventBus.publish('app:installed', { name: appSpecifications.name, hash: appSpecifications.hash });
-    }
-
     // Reconnect any locally installed apps that are networked with this app —
     // its private network was (re)created during this install. Guarded on
     // appComponent (the unmutated entry value) since isComponent is flipped to
@@ -628,6 +623,20 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       res.end();
     }
     globalState.installationInProgress = false;
+
+    // Broadcast this node's running apps AFTER releasing the install lock.
+    // onInstallComplete() -> checkAndNotifyPeersOfRunningApps() relies on
+    // containerHealthMonitor.monitorAndRecoverApps() to force-include syncthing
+    // apps whose components are not all simultaneously "running" at this instant
+    // (e.g. a component mid receive-only resync). That recovery path bails out
+    // while globalState.isOperationInProgress() is true, so broadcasting before
+    // installationInProgress is cleared would exclude the just-installed app from
+    // its own announcement. checkAndNotifyPeersOfRunningApps never throws (it
+    // catches internally), so running it after res.end() is safe.
+    if (!test && onInstallComplete) {
+      await onInstallComplete();
+      fluxEventBus.publish('app:installed', { name: appSpecifications.name, hash: appSpecifications.hash });
+    }
   } catch (error) {
     globalState.installationInProgress = false;
     const errorResponse = messageHelper.createErrorMessage(
