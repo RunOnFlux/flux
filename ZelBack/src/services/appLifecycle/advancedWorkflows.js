@@ -3892,8 +3892,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       const response = await axios.get(`http://${ipToCheck}:${portToCheck}/apps/listrunningapps`, { timeout, cancelToken: source.token });
                       isResolved = true;
                       const appsRunning = response.data.data;
-                      if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
-                        log.info(`masterSlaveApps: app:${installedApp.name} is running on lower-index node (index ${i}) at ${ipToCheck}, will not start`);
+                      // Match on the g: component identifier, not the app name: non-g siblings
+                      // (e.g. a DB cluster component) run on every node and must not be mistaken
+                      // for the master/slave component being active there.
+                      if (appsRunning.find((app) => app.Names[0].includes(identifier))) {
+                        log.info(`masterSlaveApps: component:${identifier} is running on lower-index node (index ${i}) at ${ipToCheck}, will not start`);
                         return true;
                       }
                     } catch (error) {
@@ -3907,8 +3910,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 
                 if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                   // Index 0: Start immediately if no history
-                  appDockerRestartWithPermissionsFix(installedApp.name, appId);
-                  log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
+                  appDockerRestartWithPermissionsFix(identifier, appId);
+                  log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && !socketAddressesMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
                   // There was a previous master (not me), and it's no longer on FDM
                   const { CancelToken } = axios;
@@ -3931,8 +3934,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
                     isResolved = true;
                     const appsRunning = response.data.data;
-                    if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
-                      log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${ipToCheckAppRunning}:${portToCheckAppRunning}`);
+                    // Match on the g: component identifier, not the app name: non-g siblings
+                    // running on the previous master must not be mistaken for the master/slave
+                    // component still being active there.
+                    if (appsRunning.find((app) => app.Names[0].includes(identifier))) {
+                      log.info(`masterSlaveApps: component:${identifier} is not on fdm but previous master is running it at: ${ipToCheckAppRunning}:${portToCheckAppRunning}`);
                       previousMasterStillRunning = true;
                     }
                   } catch (error) {
@@ -3944,8 +3950,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                   // Previous master is not running, determine next primary
                   if (index === 0) {
-                    appDockerRestartWithPermissionsFix(installedApp.name, appId);
-                    log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
+                    appDockerRestartWithPermissionsFix(identifier, appId);
+                    log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                   } else {
                     const previousMasterIndex = runningAppList.findIndex((x) => socketAddressesMatch(x.ip, mastersRunningGSyncthingApps.get(identifier)));
                     let timetoStartApp = Date.now();
@@ -3964,8 +3970,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       // eslint-disable-next-line no-await-in-loop
                       const lowerNodeRunning = await checkLowerIndexNodesRunning();
                       if (!lowerNodeRunning) {
-                        appDockerRestartWithPermissionsFix(installedApp.name, appId);
-                        log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
+                        appDockerRestartWithPermissionsFix(identifier, appId);
+                        log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                       }
                     } else {
                       log.info(`masterSlaveApps: will start docker app:${installedApp.name} at ${timetoStartApp.toString()}`);
@@ -3977,8 +3983,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // eslint-disable-next-line no-await-in-loop
                   const lowerNodeRunning = await checkLowerIndexNodesRunning();
                   if (!lowerNodeRunning) {
-                    appDockerRestartWithPermissionsFix(installedApp.name, appId);
-                    log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+                    appDockerRestartWithPermissionsFix(identifier, appId);
+                    log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
                     timeTostartNewMasterApp.delete(identifier);
                   } else {
                     log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - lower-index node is already running`);
@@ -4001,8 +4007,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 timeTostartNewMasterApp.delete(identifier);
               }
               if (!socketAddressesMatch(localSocketAddr, ip) && runningAppsNames.includes(identifier)) {
-                appDockerStop(installedApp.name);
-                log.info(`masterSlaveApps: stopping docker app:${installedApp.name} it's running on ip:${ip} and localSocketAddr is: ${localSocketAddr}`);
+                // Stop only the g: component on this standby node. Non-g siblings (e.g. a DB
+                // cluster component that needs all instances running) must keep running.
+                appDockerStop(identifier);
+                log.info(`masterSlaveApps: stopping docker component:${identifier} it's running on ip:${ip} and localSocketAddr is: ${localSocketAddr}`);
               } else if (socketAddressesMatch(localSocketAddr, ip) && !runningAppsNames.includes(identifier)) {
                 // Check if app is ready (syncthing data is synced) before starting
                 let isReady = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
@@ -4032,8 +4040,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 }
 
                 if (isReady) {
-                  appDockerRestartWithPermissionsFix(installedApp.name, appId);
-                  log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
+                  appDockerRestartWithPermissionsFix(identifier, appId);
+                  log.info(`masterSlaveApps: starting docker component:${identifier}`);
                 } else {
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
                 }
