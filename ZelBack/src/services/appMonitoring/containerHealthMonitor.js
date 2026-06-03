@@ -116,7 +116,7 @@ async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName) {
   }
 }
 
-async function monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames) {
+async function monitorAndRecoverApps(localSocketAddr, appsInstalled, runningAppsNames) {
   await globalState.waitForBootContainerStateSettled();
   const masterSlaveAppsInstalled = [];
   const startedApps = [];
@@ -176,7 +176,7 @@ async function monitorAndRecoverApps(myIP, appsInstalled, runningAppsNames) {
           if (containerExists && appInstalledSyncthing) {
             const db = dbHelper.databaseConnection();
             const database = db.db(config.database.appsglobal.database);
-            const queryFind = { name: mainAppName, ip: myIP };
+            const queryFind = { name: mainAppName, ip: localSocketAddr };
             const projection = { _id: 0, runningSince: 1 };
             // eslint-disable-next-line no-await-in-loop
             const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);

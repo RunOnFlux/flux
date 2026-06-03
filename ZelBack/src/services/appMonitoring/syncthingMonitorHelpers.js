@@ -9,6 +9,7 @@ const {
 } = require('./syncthingMonitorConstants');
 
 const cmdAsync = util.promisify(require('child_process').exec);
+const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 
 /**
  * Helper function to get device ID from remote node with retry capability
@@ -59,17 +60,19 @@ async function getDeviceIDCached(name, cache) {
 /**
  * Sort and filter app locations
  * @param {Array} locations - App locations
- * @param {string} myIP - Current node IP
+ * @param {string} localSocketAddr - Current node socket address
  * @returns {Array} Sorted and filtered locations (excluding current node)
  */
-function sortAndFilterLocations(locations, myIP) {
+function sortAndFilterLocations(locations, localSocketAddr) {
   return locations
     .sort((a, b) => {
-      if (a.ip < b.ip) return -1;
-      if (a.ip > b.ip) return 1;
+      const addrA = normalizeSocketAddress(a.ip);
+      const addrB = normalizeSocketAddress(b.ip);
+      if (addrA < addrB) return -1;
+      if (addrA > addrB) return 1;
       return 0;
     })
-    .filter((loc) => loc.ip !== myIP);
+    .filter((loc) => !socketAddressesMatch(loc.ip, localSocketAddr));
 }
 
 /**
@@ -94,7 +97,7 @@ function sortRunningAppList(runningAppList) {
 /**
  * Build device configuration from locations
  * @param {Array} locations - App locations
- * @param {string} myIP - Current node IP
+ * @param {string} localSocketAddr - Current node socket address
  * @param {string} myDeviceId - Current node device ID
  * @param {Map} deviceCache - Device ID cache
  * @param {Array} devicesConfiguration - Array to populate with devices
@@ -104,7 +107,7 @@ function sortRunningAppList(runningAppList) {
  */
 async function buildDeviceConfiguration(
   locations,
-  myIP,
+  localSocketAddr,
   myDeviceId,
   deviceCache,
   devicesConfiguration,
@@ -115,9 +118,9 @@ async function buildDeviceConfiguration(
 
   // Parallelize device ID fetching
   const devicePromises = locations.map(async (appInstance) => {
-    const ip = appInstance.ip.split(':')[0];
-    const port = appInstance.ip.split(':')[1] || '16127';
-    const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
+    const ip = extractIp(appInstance.ip);
+    const port = extractPort(appInstance.ip);
+    const addresses = [`tcp://${ip}:${port + 2}`, `quic://${ip}:${port + 2}`];
     const name = `${ip}:${port}`;
 
     const deviceID = await getDeviceIDCached(name, deviceCache);

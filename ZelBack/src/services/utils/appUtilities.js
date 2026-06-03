@@ -1089,11 +1089,11 @@ function parseContainerName(containerName) {
   };
 }
 
-async function appHasValidLocationOnNode(appName, myIp) {
+async function appHasValidLocationOnNode(appName, localSocketAddr) {
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    const query = { name: appName, ip: myIp };
+    const query = { name: appName, ip: localSocketAddr };
     const projection = { _id: 0, expireAt: 1 };
     const records = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
     if (!records || records.length === 0) {

@@ -18,6 +18,7 @@ const registryManager = require('./appDatabase/registryManager');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const benchmarkService = require('./benchmarkService');
 const fluxNetworkhelper = require('./fluxNetworkHelper');
+const { extractIp } = require('./utils/socketAddressUtils');
 const fluxEventBus = require('./utils/fluxEventBus');
 const globalState = require('./utils/globalState');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
@@ -658,16 +659,16 @@ async function processBlock(blockHeight, isInsightExplorer) {
           // we spread the network out (grouped by ip) over 4 hours so we don't
           // absolutely hammer the speedtest servers at the same time.
           const maxBenchDelay = 4 * 3_600_000;
-          const socketAddress = await fluxNetworkhelper.getMyFluxIPandPort();
+          const socketAddress = await fluxNetworkhelper.getLocalSocketAddress();
 
           // socketAddress can be null. If it is, we just use an empty string. This
           // has the effect of creating an initializer of just the block number. If
           // this happens, every node on the network that uses the block number will
           // run the bench at the same time. However this is an extreme edge case, as
           // all nodes should just return the ip.
-          const ip = socketAddress ? socketAddress.split(':')[0] : '';
+          const localIp = socketAddress ? extractIp(socketAddress) : '';
           // This is: string + number = string
-          const initializer = ip + blockDataVerbose.height;
+          const initializer = localIp + blockDataVerbose.height;
           const benchDelayMs = serviceHelper.randomDelayMs(maxBenchDelay, { initializer });
           const benchDelayS = Math.round((benchDelayMs / 1000) * 100) / 100;
 

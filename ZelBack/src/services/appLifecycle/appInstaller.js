@@ -7,7 +7,6 @@ const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
 const generalService = require('../generalService');
-const benchmarkService = require('../benchmarkService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const appUninstaller = require('./appUninstaller');
@@ -350,17 +349,8 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       return false;
     }
 
-    const benchmarkResponse = await benchmarkService.getBenchmarks();
-    if (benchmarkResponse.status === 'error') {
-      throw new Error('FluxBench status Error. Application cannot be installed at the moment');
-    }
-    // get my external IP and check that it is longer than 5 in length.
-    let myIP = null;
-    if (benchmarkResponse.data.ipaddress) {
-      log.info(`Gathered IP ${benchmarkResponse.data.ipaddress}`);
-      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
-    }
-    if (myIP === null) {
+    const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+    if (!localSocketAddr) {
       throw new Error('Unable to detect Flux IP address');
     }
 
@@ -602,7 +592,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
           name: appSpecifications.name,
           hash: appSpecifications.hash, // hash of application specifics that are running
           error: serviceHelper.ensureString(errorResponse),
-          ip: myIP,
+          ip: localSocketAddr,
           broadcastedAt,
         };
         // store it in local database first

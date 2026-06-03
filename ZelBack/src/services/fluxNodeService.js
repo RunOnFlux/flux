@@ -10,6 +10,7 @@ const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const geolocationService = require('./geolocationService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
+const { extractIp } = require('./utils/socketAddressUtils');
 const generalService = require('./generalService');
 const dockerService = require('./dockerService');
 const benchmarkService = require('./benchmarkService');
@@ -29,14 +30,14 @@ async function getHostInfo(req, res) {
       hostInfo.appName = app;
       const nodeCollateralInfo = await generalService.obtainNodeCollateralInformation().catch(() => { throw new Error('Host Identifier information not available at the moment'); });
       hostInfo.id = nodeCollateralInfo.txhash + nodeCollateralInfo.txindex;
-      const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-      if (myIP) {
-        hostInfo.ip = myIP.split(':')[0];
-        const myGeo = await geolocationService.getNodeGeolocation();
-        if (myGeo) {
-          delete myGeo.ip;
-          delete myGeo.org;
-          hostInfo.geo = myGeo;
+      const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+      if (localSocketAddr) {
+        hostInfo.ip = extractIp(localSocketAddr);
+        const nodeGeo = await geolocationService.getNodeGeolocation();
+        if (nodeGeo) {
+          delete nodeGeo.ip;
+          delete nodeGeo.org;
+          hostInfo.geo = nodeGeo;
         } else {
           throw new Error('Geolocation information not available at the moment');
         }
