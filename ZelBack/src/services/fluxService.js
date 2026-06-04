@@ -24,6 +24,7 @@ const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const dockerService = require('./dockerService');
 const upnpService = require('./upnpService');
+const enterpriseConfig = require('./utils/enterpriseConfig');
 
 // for streamChain endpoint
 const zlib = require('node:zlib');
@@ -656,15 +657,8 @@ function getNodeJsVersions(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function getFluxIP(req, res) {
-  const benchmarkResponse = await benchmarkService.getBenchmarks();
-  let myIP = null;
-  if (benchmarkResponse.status === 'success') {
-    const benchmarkResponseData = benchmarkResponse.data;
-    if (benchmarkResponseData.ipaddress) {
-      myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
-    }
-  }
-  const message = messageHelper.createDataMessage(myIP);
+  const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
+  const message = messageHelper.createDataMessage(localSocketAddr);
   return res ? res.json(message) : message;
 }
 
@@ -806,7 +800,7 @@ function getBlockedRepositories(req, res) {
  * @returns {object} Message.
  */
 function getEnterpriseAppOwners(req, res) {
-  const enterpriseAppOwners = config.enterpriseAppOwners || [];
+  const enterpriseAppOwners = enterpriseConfig.getEnterpriseAppOwners();
   const message = messageHelper.createDataMessage(enterpriseAppOwners);
   return res ? res.json(message) : message;
 }

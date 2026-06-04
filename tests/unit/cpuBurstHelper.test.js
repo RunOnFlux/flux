@@ -14,7 +14,11 @@ describe('cpuBurstHelper tests', () => {
 
   beforeEach(() => {
     // Fresh require each time to reset the cache
-    cpuBurstHelper = proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {});
+    cpuBurstHelper = proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {
+      './enterpriseConfig': {
+        getEnterpriseAppOwners: () => ['16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW'],
+      },
+    });
     cpuBurstHelper.resetBurstSupportCache();
   });
 

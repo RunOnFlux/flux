@@ -52,6 +52,30 @@ describe('syncthingMonitorHelpers tests', () => {
       const result = helpers.sortAndFilterLocations([], '10.0.0.1:16127');
       expect(result).to.be.an('array').that.is.empty;
     });
+
+    it('should sort consistently with mixed bare IP and ip:port formats', () => {
+      const locations = [
+        { ip: '10.0.0.2:16127' },
+        { ip: '10.0.0.1' },
+      ];
+
+      const result = helpers.sortAndFilterLocations(locations, '10.0.0.9:16127');
+
+      expect(result[0].ip).to.equal('10.0.0.1');
+      expect(result[1].ip).to.equal('10.0.0.2:16127');
+    });
+
+    it('should filter bare IP when localSocketAddr is ip:port', () => {
+      const locations = [
+        { ip: '10.0.0.1' },
+        { ip: '10.0.0.2:16127' },
+      ];
+
+      const result = helpers.sortAndFilterLocations(locations, '10.0.0.1:16127');
+
+      expect(result).to.have.lengthOf(1);
+      expect(result[0].ip).to.equal('10.0.0.2:16127');
+    });
   });
 
   describe('getContainerDataFlags', () => {

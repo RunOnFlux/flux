@@ -1022,7 +1022,7 @@ describe('advancedWorkflows tests', () => {
       });
 
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-      fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort');
+      fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
 
       const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
       registryManagerStub = sinon.stub(registryManager, 'appLocation');
@@ -1275,6 +1275,108 @@ describe('advancedWorkflows tests', () => {
       // This is verified by the function logic - it should NOT call appDockerRestart immediately
       expect(serviceHelperStub.called).to.be.true;
       expect(fluxNetworkHelperStub.called).to.be.true;
+    });
+
+    it('stops only the g: component on a standby node, leaving non-g siblings running', async () => {
+      const appName = 'n8napp';
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+      dockerServiceStub.returns('fluxn8n_n8napp');
+      const appDockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+
+      // Mixed compose app: n8n uses g: master/slave, pgcluster needs all instances running
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          {
+            name: appName,
+            version: 8,
+            compose: [
+              { name: 'n8n', containerData: 'g:/home/node/.n8n' },
+              { name: 'pgcluster', containerData: '/var/lib/postgresql/data' },
+            ],
+          },
+        ],
+      });
+      // Both components currently running on this node
+      const listRunningApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          { Names: ['/fluxn8n_n8napp'] },
+          { Names: ['/fluxpgcluster_n8napp'] },
+        ],
+      });
+
+      const receiveOnlyCache = new Map();
+      const https = require('https');
+
+      // FDM reports the primary is another node
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.99'] } } });
+      // This node's address differs from the FDM primary -> we are a standby
+      fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+
+      await advancedWorkflows.masterSlaveApps(
+        globalState,
+        installedApps,
+        listRunningApps,
+        receiveOnlyCache,
+        [],
+        [],
+        https,
+      );
+
+      // Only the g: component must be stopped - not the whole app, not the pgcluster sibling
+      expect(appDockerStopStub.calledWith('n8n_n8napp')).to.be.true;
+      expect(appDockerStopStub.neverCalledWith('pgcluster_n8napp')).to.be.true;
+      expect(appDockerStopStub.neverCalledWith(appName)).to.be.true;
+    });
+
+    it('does not stop anything on a standby node when the g: component is already stopped', async () => {
+      const appName = 'n8napp';
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+      dockerServiceStub.returns('fluxn8n_n8napp');
+      const appDockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          {
+            name: appName,
+            version: 8,
+            compose: [
+              { name: 'n8n', containerData: 'g:/home/node/.n8n' },
+              { name: 'pgcluster', containerData: '/var/lib/postgresql/data' },
+            ],
+          },
+        ],
+      });
+      // Steady state on a standby: only the non-g component is running
+      const listRunningApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          { Names: ['/fluxpgcluster_n8napp'] },
+        ],
+      });
+
+      const receiveOnlyCache = new Map();
+      const https = require('https');
+
+      // FDM reports the primary is another node
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.99'] } } });
+      fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+
+      await advancedWorkflows.masterSlaveApps(
+        globalState,
+        installedApps,
+        listRunningApps,
+        receiveOnlyCache,
+        [],
+        [],
+        https,
+      );
+
+      // The g: component is not running here and we are not primary - nothing to stop.
+      // The running pgcluster sibling must be left alone.
+      expect(appDockerStopStub.called).to.be.false;
     });
   });
 

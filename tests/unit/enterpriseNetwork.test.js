@@ -6,6 +6,7 @@ const MODULE_PATH = '../../ZelBack/src/services/utils/enterpriseNetwork';
 
 const OWNERS = ['ownerA', 'ownerB'];
 const NODE_PUBKEYS = ['pubA', 'pubB'];
+const NODE_OWNER_MAP = { pubA: ['ownerA'], pubB: ['ownerB'] };
 
 function loadModule(overrides = {}) {
   const logStub = overrides.log || {
@@ -15,8 +16,6 @@ function loadModule(overrides = {}) {
   };
 
   const defaultConfig = {
-    enterpriseAppOwners: OWNERS,
-    enterpriseNodesPublicKeys: NODE_PUBKEYS,
     database: {
       appslocal: { database: 'localapps', collections: { appsInformation: 'zelappsinformation' } },
     },
@@ -27,6 +26,11 @@ function loadModule(overrides = {}) {
 
   const stubs = {
     config: overrides.config || defaultConfig,
+    './enterpriseConfig': overrides.enterpriseConfig || {
+      getEnterpriseAppOwners: () => OWNERS,
+      getEnterpriseNodesPublicKeys: () => NODE_PUBKEYS,
+      getAllowedOwnersForNode: (pubKey) => NODE_OWNER_MAP[pubKey] || [],
+    },
     '../dbHelper': overrides.dbHelper || {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
       findInDatabase: sinon.stub().resolves([]),
@@ -79,9 +83,13 @@ describe('enterpriseNetwork', () => {
       expect(m.getEnterpriseNodesPublicKeys()).to.deep.equal(NODE_PUBKEYS);
     });
 
-    it('returns [] when config field is missing', () => {
+    it('returns [] when the underlying lists are empty', () => {
       const { module: m } = loadModule({
-        config: { database: { appslocal: { database: 'localapps', collections: { appsInformation: 'x' } } } },
+        enterpriseConfig: {
+          getEnterpriseAppOwners: () => [],
+          getEnterpriseNodesPublicKeys: () => [],
+          getAllowedOwnersForNode: () => [],
+        },
       });
       expect(m.getEnterpriseAppOwners()).to.deep.equal([]);
       expect(m.getEnterpriseNodesPublicKeys()).to.deep.equal([]);
@@ -89,18 +97,17 @@ describe('enterpriseNetwork', () => {
   });
 
   describe('isEnterpriseNode', () => {
-    it('short-circuits to false when enterpriseNodesPublicKeys is empty, without calling getFluxNodePublicKey', async () => {
+    it('returns false when enterpriseNodesPublicKeys is empty', async () => {
       const getPubKey = sinon.stub().resolves('pubA');
       const { module: m } = loadModule({
-        config: {
-          enterpriseAppOwners: OWNERS,
-          enterpriseNodesPublicKeys: [],
-          database: { appslocal: { database: 'x', collections: { appsInformation: 'y' } } },
+        enterpriseConfig: {
+          getEnterpriseAppOwners: () => OWNERS,
+          getEnterpriseNodesPublicKeys: () => [],
+          getAllowedOwnersForNode: () => [],
         },
         fluxNetworkHelper: { getFluxNodePublicKey: getPubKey },
       });
       expect(await m.isEnterpriseNode()).to.equal(false);
-      expect(getPubKey.called).to.equal(false);
     });
 
     it('returns true when own pubkey is listed', async () => {
@@ -183,6 +190,57 @@ describe('enterpriseNetwork', () => {
       m.resetEnterpriseNodeCache();
       expect(m.getCachedEnterpriseIdentity()).to.equal(null);
     });
+
+    it('re-evaluates membership live when the node set changes after a sync, no restart (finding #1)', async () => {
+      // Mutable key set simulates the map being re-synced from github.
+      let keys = ['pubA'];
+      const getPubKey = sinon.stub().resolves('pubA');
+      const { module: m } = loadModule({
+        enterpriseConfig: {
+          getEnterpriseAppOwners: () => OWNERS,
+          getEnterpriseNodesPublicKeys: () => keys,
+          getAllowedOwnersForNode: (pubKey) => NODE_OWNER_MAP[pubKey] || [],
+        },
+        fluxNetworkHelper: { getFluxNodePublicKey: getPubKey },
+      });
+
+      await m.isEnterpriseNode(); // resolves + caches pubkey only
+      expect(m.getCachedEnterpriseIdentity()).to.equal(true);
+
+      keys = []; // this node removed from the map by a sync
+      expect(m.getCachedEnterpriseIdentity()).to.equal(false);
+      expect(m.getCachedAllowedOwnersForNode()).to.deep.equal([]);
+
+      keys = ['pubA']; // node added back by a later sync
+      expect(m.getCachedEnterpriseIdentity()).to.equal(true);
+      expect(m.getCachedAllowedOwnersForNode()).to.deep.equal(['ownerA']);
+
+      // pubkey resolution happened exactly once despite the membership changes
+      expect(getPubKey.callCount).to.equal(1);
+    });
+  });
+
+  describe('getCachedAllowedOwnersForNode', () => {
+    it('returns null before isEnterpriseNode resolves', () => {
+      const { module: m } = loadModule();
+      expect(m.getCachedAllowedOwnersForNode()).to.equal(null);
+    });
+
+    it('returns this node\'s mapped owners after resolution', async () => {
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubA') },
+      });
+      await m.isEnterpriseNode();
+      expect(m.getCachedAllowedOwnersForNode()).to.deep.equal(['ownerA']);
+    });
+
+    it('returns [] for a non-enterprise node', async () => {
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubOther') },
+      });
+      await m.isEnterpriseNode();
+      expect(m.getCachedAllowedOwnersForNode()).to.deep.equal([]);
+    });
   });
 
   describe('scheduleIdentityResolution', () => {
@@ -225,13 +283,29 @@ describe('enterpriseNetwork', () => {
       { name: 'n2', owner: null },
     ];
 
-    it('enterprise=true keeps only apps whose owner is in enterpriseAppOwners', () => {
-      const { module: m } = loadModule();
+    it('enterprise node keeps only apps whose owner is allowed on THIS node', async () => {
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubA') },
+      });
+      await m.isEnterpriseNode(); // resolves identity -> caches allowed owners for pubA = ['ownerA']
       const kept = m.filterAppsByOwnership(apps, true).map((a) => a.name);
-      expect(kept).to.deep.equal(['e1', 'e2']);
+      expect(kept).to.deep.equal(['e1']);
     });
 
-    it('enterprise=false drops apps whose owner is in enterpriseAppOwners', () => {
+    it('enterprise node mapped to no owners hosts nothing', async () => {
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubB') },
+        enterpriseConfig: {
+          getEnterpriseAppOwners: () => OWNERS,
+          getEnterpriseNodesPublicKeys: () => NODE_PUBKEYS,
+          getAllowedOwnersForNode: () => [], // pubB mapped to no owners
+        },
+      });
+      await m.isEnterpriseNode();
+      expect(m.filterAppsByOwnership(apps, true)).to.deep.equal([]);
+    });
+
+    it('non-enterprise node drops apps owned by ANY enterprise owner (union)', () => {
       const { module: m } = loadModule();
       const kept = m.filterAppsByOwnership(apps, false).map((a) => a.name);
       expect(kept).to.deep.equal(['n1', 'n2']);
@@ -241,6 +315,12 @@ describe('enterpriseNetwork', () => {
       const { module: m } = loadModule();
       expect(m.filterAppsByOwnership([], true)).to.deep.equal([]);
       expect(m.filterAppsByOwnership([], false)).to.deep.equal([]);
+    });
+
+    it('enterprise filter drops all apps when identity is unresolved (allowed owners null) (finding #11)', () => {
+      const { module: m } = loadModule(); // isEnterpriseNode never called -> pubkey unresolved
+      expect(m.getCachedAllowedOwnersForNode()).to.equal(null);
+      expect(m.filterAppsByOwnership(apps, true)).to.deep.equal([]);
     });
   });
 
@@ -292,6 +372,28 @@ describe('enterpriseNetwork', () => {
       // sendMessage flag must be true so peers get fluxappremoved
       const firstCall = removeAppLocally.firstCall.args;
       expect(firstCall[4]).to.equal(true);
+    });
+
+    it('enterprise-network node: uninstalls an app owned by a valid enterprise owner NOT mapped to THIS node (finding #9)', async () => {
+      // pubA is mapped to ['ownerA'] only. ownerB is a valid enterprise owner
+      // (in the global union) but is NOT allowed on this node, so its app must be
+      // removed — this is the PR's core per-node scoping behavior.
+      const removeAppLocally = sinon.stub().resolves();
+      const { module: m } = loadModule({
+        fluxNetworkHelper: { getFluxNodePublicKey: sinon.stub().resolves('pubA') },
+        dbHelper: installedAppsStub([
+          { name: 'keep', owner: 'ownerA' }, // mapped to pubA -> kept
+          { name: 'dropOtherEnterprise', owner: 'ownerB' }, // valid enterprise owner, not on pubA -> removed
+          { name: 'dropStranger', owner: 'stranger' }, // not enterprise at all -> removed
+        ]),
+        appUninstaller: { removeAppLocally },
+      });
+
+      await m.cleanupOwnershipViolations();
+
+      const names = removeAppLocally.getCalls().map((c) => c.args[0]).sort();
+      expect(names).to.deep.equal(['dropOtherEnterprise', 'dropStranger']);
+      expect(removeAppLocally.firstCall.args[4]).to.equal(true);
     });
 
     it('non-enterprise-network node: uninstalls apps whose owner IS in enterpriseAppOwners', async () => {

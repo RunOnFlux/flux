@@ -145,7 +145,7 @@ describe('appHashSyncService tests', () => {
       '../utils/FluxPeerSocket': { CLOSE_CODES: { EPHEMERAL_DONE: 4020 } },
       '../fluxCommunicationUtils': { deterministicFluxList: sinon.stub().resolves([]) },
       '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
-      '../fluxNetworkHelper': { getMyFluxIPandPort: sinon.stub().resolves('10.0.0.99:16127') },
+      '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('10.0.0.99:16127') },
     });
   });
 
@@ -240,7 +240,7 @@ describe('appHashSyncService tests', () => {
         '../utils/FluxPeerSocket': { CLOSE_CODES: { EPHEMERAL_DONE: 4020 } },
         '../fluxCommunicationUtils': { deterministicFluxList: sinon.stub().resolves([]) },
         '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
-        '../fluxNetworkHelper': { getMyFluxIPandPort: sinon.stub().resolves('10.0.0.99:16127') },
+        '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('10.0.0.99:16127') },
       });
 
       const mockDb = { db: sinon.stub().returns('database') };
@@ -801,7 +801,7 @@ describe('appHashSyncService tests', () => {
         '../nodeConfirmationService': { canSendMessages: sinon.stub().returns(true) },
         '../fluxCommunicationUtils': { deterministicFluxList: sinon.stub().resolves([]) },
         '../fluxCommunication': { openEphemeralConnection: sinon.stub().resolves(null) },
-        '../fluxNetworkHelper': { getMyFluxIPandPort: sinon.stub().resolves('10.0.0.99:16127') },
+        '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('10.0.0.99:16127') },
       });
     });
 
