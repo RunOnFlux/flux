@@ -304,6 +304,68 @@ describe('networkStateManager tests', () => {
     expect(response).to.deep.equal(expectedResponse);
   });
 
+  describe('default-port (16127) socketAddress normalization', () => {
+    const mkNode = (ip, pubkey) => ({
+      collateral: `COutPoint(${pubkey}, 0)`,
+      txhash: pubkey,
+      outidx: '0',
+      ip,
+      network: '',
+      added_height: 1,
+      confirmed_height: 1,
+      last_confirmed_height: 1,
+      last_paid_height: 0,
+      tier: 'CUMULUS',
+      payment_address: 't1abc',
+      pubkey,
+      activesince: '1',
+      lastpaid: '1',
+      amount: '1000.00',
+      rank: 0,
+    });
+    // bareNode: default-port node the daemon list carries WITHOUT a port.
+    // portedNode: default-port node the daemon list carries WITH :16127.
+    // upnpNode: explicit non-default port (must be unaffected).
+    const bareNode = mkNode('203.0.113.5', 'aa'.repeat(33));
+    const portedNode = mkNode('203.0.113.6:16127', 'bb'.repeat(33));
+    const upnpNode = mkNode('203.0.113.7:16137', 'cc'.repeat(33));
+    const state = [bareNode, portedNode, upnpNode];
+
+    let nsm;
+
+    beforeEach(async () => {
+      fetcher.resolves(state);
+      nsm = new NetworkStateManager(fetcher, {
+        stateEvent: 'blocksProcessed',
+        stateEmitter: new EventEmitter(),
+      });
+      await nsm.start();
+    });
+
+    it('resolves a bare-listed default-port node when queried with :16127', async () => {
+      expect(await nsm.search('203.0.113.5:16127', 'socketAddress')).to.deep.equal(bareNode);
+    });
+
+    it('resolves a bare-listed default-port node when queried bare', async () => {
+      expect(await nsm.search('203.0.113.5', 'socketAddress')).to.deep.equal(bareNode);
+    });
+
+    it('resolves a :16127-listed default-port node when queried bare', async () => {
+      expect(await nsm.search('203.0.113.6', 'socketAddress')).to.deep.equal(portedNode);
+    });
+
+    it('includes() matches both default-port representations', async () => {
+      expect(await nsm.includes('203.0.113.5:16127', 'socketAddress')).to.equal(true);
+      expect(await nsm.includes('203.0.113.6', 'socketAddress')).to.equal(true);
+    });
+
+    it('leaves explicit (UPnP) ports unaffected', async () => {
+      expect(await nsm.search('203.0.113.7:16137', 'socketAddress')).to.deep.equal(upnpNode);
+      // a bare query normalizes to :16127 and must NOT match a non-default-port node
+      expect(await nsm.search('203.0.113.7', 'socketAddress')).to.equal(null);
+    });
+  });
+
   it('should return null if searching by non existent pubkey', async () => {
     const blockEmitter = new EventEmitter();
 

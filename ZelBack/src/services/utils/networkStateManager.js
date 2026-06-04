@@ -1,5 +1,6 @@
 const { EventEmitter } = require('node:events');
 const { FluxController } = require('./fluxController');
+const { normalizeSocketAddress } = require('./socketAddressUtils');
 
 const log = require('../../lib/log');
 
@@ -233,7 +234,11 @@ class NetworkStateManager extends EventEmitter {
           || pubkeyIndex.set(node.pubkey, new Map()).get(node.pubkey);
 
         nodesByPubkey.set(node.ip, node);
-        socketAddressIndex.set(node.ip, node);
+        // Canonicalise the socketAddress key: the daemon list may carry a
+        // default-port node as either "ip" or "ip:16127". normalizeSocketAddress
+        // appends the default port only to a bare ip; explicit (UPnP) ports pass
+        // through unchanged. Lookups normalize the same way, so both forms resolve.
+        socketAddressIndex.set(normalizeSocketAddress(node.ip), node);
       });
 
       if (endIndex >= nodeCount) {
@@ -503,7 +508,8 @@ class NetworkStateManager extends EventEmitter {
     // latest block
     await this.waitIndexesReady;
 
-    const cached = this.#indexes[type].get(filter);
+    const key = type === 'socketAddress' ? normalizeSocketAddress(filter) : filter;
+    const cached = this.#indexes[type].get(key);
     const clone = cached ? NetworkStateManager.deepClone(cached) : null;
 
     return clone;
@@ -524,7 +530,8 @@ class NetworkStateManager extends EventEmitter {
     // latest block
     await this.waitIndexesReady;
 
-    const found = this.#indexes[type].has(filter);
+    const key = type === 'socketAddress' ? normalizeSocketAddress(filter) : filter;
+    const found = this.#indexes[type].has(key);
 
     return found;
   }
