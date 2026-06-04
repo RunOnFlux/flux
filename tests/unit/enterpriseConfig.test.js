@@ -187,37 +187,52 @@ describe('enterpriseConfig', () => {
 
   describe('startSync / stopSync', () => {
     it('runs an immediate sync then refreshes every 6h, and stops on stopSync', async () => {
-      const clock = sinon.useFakeTimers();
       const axiosGet = sinon.stub().resolves({ data: { nodeC: ['ownerC'] } });
+      // Capture the interval registration rather than advancing a clock. No fake
+      // timers means nothing for a loaded CI event loop to starve and nothing to
+      // leak into sibling tests. The contract is asserted directly: scheduled at
+      // 6h, the callback performs a sync, and stopSync clears the interval.
+      let intervalCb = null;
+      let intervalMs = null;
+      const intervalId = Symbol('enterpriseConfig-interval');
+      sinon.stub(global, 'setInterval').callsFake((cb, ms) => {
+        intervalCb = cb;
+        intervalMs = ms;
+        return intervalId;
+      });
+      const clearIntervalStub = sinon.stub(global, 'clearInterval');
       const { module: m } = loadModule({ serviceHelper: { axiosGet } });
 
       await m.startSync();
       expect(axiosGet.callCount).to.equal(1); // immediate sync
+      expect(intervalMs).to.equal(SIX_HOURS_MS); // refresh scheduled at 6h
 
-      await clock.tickAsync(SIX_HOURS_MS);
+      await intervalCb(); // simulate one refresh tick (axiosGet is invoked synchronously)
       expect(axiosGet.callCount).to.equal(2); // refreshed once
 
       m.stopSync();
-      await clock.tickAsync(SIX_HOURS_MS);
-      expect(axiosGet.callCount).to.equal(2); // no more refreshes
-
-      clock.restore();
+      expect(clearIntervalStub.calledOnceWithExactly(intervalId)).to.equal(true); // interval cleared
     });
 
     it('is idempotent — a second startSync does not schedule a second interval', async () => {
-      const clock = sinon.useFakeTimers();
       const axiosGet = sinon.stub().resolves({ data: { nodeC: ['ownerC'] } });
+      let intervalCb = null;
+      const setIntervalStub = sinon.stub(global, 'setInterval').callsFake((cb) => {
+        intervalCb = cb;
+        return Symbol('enterpriseConfig-interval');
+      });
+      sinon.stub(global, 'clearInterval');
       const { module: m } = loadModule({ serviceHelper: { axiosGet } });
 
       await m.startSync();
       await m.startSync();
       expect(axiosGet.callCount).to.equal(1); // second startSync no-ops
+      expect(setIntervalStub.callCount).to.equal(1); // only one interval scheduled
 
-      await clock.tickAsync(SIX_HOURS_MS);
-      expect(axiosGet.callCount).to.equal(2); // single interval fired once
+      await intervalCb(); // the single scheduled interval still refreshes
+      expect(axiosGet.callCount).to.equal(2);
 
       m.stopSync();
-      clock.restore();
     });
   });
 
