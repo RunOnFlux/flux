@@ -113,7 +113,7 @@ module.exports = {
     rpcporttestnet: 26124,
     zmqport: 16123,
   },
-  minimumFluxBenchAllowedVersion: '6.3.0',
+  minimumFluxBenchAllowedVersion: '6.2.0',
   minimumFluxOSAllowedVersion: '8.13.1',
   minimumSyncthingAllowedVersion: '2.0.10',
   minimumDockerAllowedVersion: '26.1.2',
