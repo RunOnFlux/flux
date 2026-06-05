@@ -44,6 +44,21 @@ function socketAddressesMatch(a, b) {
   return normalA === normalB;
 }
 
+// Compare two addresses at IP granularity, ignoring the port entirely.
+//
+// Use this - not socketAddressesMatch - whenever one operand comes from FDM's
+// /appips endpoint. FDM tracks an app's master per IP (a node can only run one
+// instance of an app on a given IP, enforced by host port mapping) and returns a
+// bare IP. socketAddressesMatch would normalize that bare IP to the default API
+// port (16127), so it never matches a UPnP master on a non-default port (e.g.
+// :16157) - the node fails to recognize itself as primary and stops its own
+// container. Matching on IP alone is correct here because the IP uniquely
+// identifies the instance.
+function ipsMatch(a, b) {
+  if (!a || !b) return false;
+  return extractIp(a) === extractIp(b);
+}
+
 module.exports = {
   DEFAULT_API_PORT,
   normalizeSocketAddress,
@@ -51,4 +66,5 @@ module.exports = {
   extractPort,
   parseSocketAddress,
   socketAddressesMatch,
+  ipsMatch,
 };
