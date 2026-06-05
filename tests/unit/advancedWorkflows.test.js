@@ -1380,10 +1380,11 @@ describe('advancedWorkflows tests', () => {
     });
 
     it('does NOT stop its own container when it is the primary on a UPnP (non-default) port', async () => {
-      // Regression: FDM reports masters as ip:port. A UPnP node (e.g. :16157) that IS the
-      // primary must recognise itself and keep running. The pre-fix code stripped the port
-      // from the FDM response, normalized the bare IP to :16127, failed to match its own
-      // :16157 socket, and repeatedly stopped its own container (start/stop flap loop).
+      // Regression: FDM returns a bare master IP (production format). A UPnP node (e.g.
+      // :16157) that IS the primary must recognise itself and keep running. The pre-fix
+      // code compared with socketAddressesMatch, which normalized the bare IP to :16127,
+      // failed to match its own :16157 socket, and repeatedly stopped its own container
+      // (start/stop flap loop). ipsMatch compares on IP only, so it matches.
       const appName = 'valheim1777035136949';
       const dockerService = require('../../ZelBack/src/services/dockerService');
       dockerServiceStub.returns('fluxvalheim_valheim1777035136949');
@@ -1415,9 +1416,9 @@ describe('advancedWorkflows tests', () => {
       const receiveOnlyCache = new Map();
       const https = require('https');
 
-      // FDM reports the primary as this node's full ip:port socket (UPnP port preserved).
-      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['90.228.196.203:16157'] } } });
-      // This node's API socket is the same UPnP socket -> we are the primary.
+      // FDM returns a bare IP (current production behavior - no FDM change required).
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['90.228.196.203'] } } });
+      // This node's API socket is on a non-default UPnP port at the same IP -> we are the primary.
       fluxNetworkHelperStub.resolves('90.228.196.203:16157');
 
       await advancedWorkflows.masterSlaveApps(
@@ -1434,9 +1435,9 @@ describe('advancedWorkflows tests', () => {
       expect(appDockerStopStub.called).to.be.false;
     });
 
-    it('stops the g: component on a UPnP standby when FDM names a different ip:port primary', async () => {
-      // Guards the inverse: with ip:port now flowing end-to-end, a genuine standby (different
-      // IP, also on a non-default port) must still be detected and stopped.
+    it('stops the g: component on a UPnP standby when FDM names a different primary IP', async () => {
+      // Guards the inverse: a genuine standby (different IP, itself on a non-default port)
+      // must still be detected and stopped - ipsMatch must not over-match across IPs.
       const appName = 'n8napp';
       const dockerService = require('../../ZelBack/src/services/dockerService');
       dockerServiceStub.returns('fluxn8n_n8napp');
@@ -1466,8 +1467,8 @@ describe('advancedWorkflows tests', () => {
       const receiveOnlyCache = new Map();
       const https = require('https');
 
-      // FDM primary is a different node, also advertised with an explicit port.
-      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.99:16157'] } } });
+      // FDM primary is a different node, returned as a bare IP (production format).
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.99'] } } });
       // This node has a different IP (and its own non-default port) -> we are a standby.
       fluxNetworkHelperStub.resolves('192.168.1.5:16137');
 

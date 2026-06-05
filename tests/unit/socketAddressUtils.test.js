@@ -6,6 +6,7 @@ const {
   extractPort,
   parseSocketAddress,
   socketAddressesMatch,
+  ipsMatch,
 } = require('../../ZelBack/src/services/utils/socketAddressUtils');
 
 describe('socketAddressUtils tests', () => {
@@ -207,6 +208,40 @@ describe('socketAddressUtils tests', () => {
 
     it('should not match different IPs with same port', () => {
       expect(socketAddressesMatch('1.2.3.4:16127', '5.6.7.8:16127')).to.be.false;
+    });
+  });
+
+  describe('ipsMatch', () => {
+    it('should match a bare IP against a non-default-port socket on the same IP', () => {
+      // The core case: FDM returns a bare IP, the node is on a UPnP port.
+      expect(ipsMatch('1.2.3.4', '1.2.3.4:16157')).to.be.true;
+      expect(ipsMatch('1.2.3.4:16157', '1.2.3.4')).to.be.true;
+    });
+
+    it('should match a bare IP against a default-port socket on the same IP', () => {
+      expect(ipsMatch('1.2.3.4', '1.2.3.4:16127')).to.be.true;
+    });
+
+    it('should match two bare IPs that are equal', () => {
+      expect(ipsMatch('1.2.3.4', '1.2.3.4')).to.be.true;
+    });
+
+    it('should match sockets on the same IP with different ports', () => {
+      // Unlike socketAddressesMatch, the port is ignored entirely.
+      expect(ipsMatch('1.2.3.4:16137', '1.2.3.4:16157')).to.be.true;
+    });
+
+    it('should not match different IPs regardless of port', () => {
+      expect(ipsMatch('1.2.3.4', '5.6.7.8')).to.be.false;
+      expect(ipsMatch('1.2.3.4:16157', '5.6.7.8:16157')).to.be.false;
+      expect(ipsMatch('1.2.3.4:16157', '5.6.7.8')).to.be.false;
+    });
+
+    it('should return false when either argument is missing', () => {
+      expect(ipsMatch(null, '1.2.3.4')).to.be.false;
+      expect(ipsMatch('1.2.3.4', null)).to.be.false;
+      expect(ipsMatch(null, null)).to.be.false;
+      expect(ipsMatch(undefined, '1.2.3.4')).to.be.false;
     });
   });
 });
