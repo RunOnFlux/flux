@@ -13,7 +13,9 @@ const dockerService = require('../dockerService');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
-const { DEFAULT_API_PORT, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const {
+  DEFAULT_API_PORT, extractIp, extractPort, socketAddressesMatch, ipsMatch,
+} = require('../utils/socketAddressUtils');
 const generalService = require('../generalService');
 // eslint-disable-next-line no-unused-vars
 const upnpService = require('../upnpService');
@@ -180,7 +182,8 @@ function getFdmIndex(appName) {
  * Tries EU, USA, and ASIA FDM servers in order until one succeeds.
  * @param {string} appName - Application name
  * @param {Object} axiosOptions - Axios request options
- * @returns {Promise<{ip: string|null, fdmOk: boolean}>} The master IP (without port) and success status
+ * @returns {Promise<{ip: string|null, fdmOk: boolean}>} The master IP (FDM returns a bare IP;
+ *   compare it with ipsMatch, which ignores the port) and success status
  */
 async function getMasterIpFromFdm(appName, axiosOptions) {
   const fdmIndex = getFdmIndex(appName);
@@ -3862,7 +3865,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                   return 0;
                 });
-                const index = runningAppList.findIndex((x) => socketAddressesMatch(x.ip, localSocketAddr));
+                const index = runningAppList.findIndex((x) => ipsMatch(x.ip, localSocketAddr));
 
                 // Helper function to check if any lower-index nodes are running the app
                 const checkLowerIndexNodesRunning = async () => {
@@ -3912,7 +3915,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // Index 0: Start immediately if no history
                   appDockerRestartWithPermissionsFix(identifier, appId);
                   log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
-                } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && !socketAddressesMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
+                } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && !ipsMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
                   // There was a previous master (not me), and it's no longer on FDM
                   const { CancelToken } = axios;
                   const source = CancelToken.source();
@@ -3925,7 +3928,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }, timeout * 2);
                   const previousMasterIp = mastersRunningGSyncthingApps.get(identifier);
                   // Look up the correct port from runningAppList since FDM API returns IP without port
-                  const previousMasterNode = runningAppList.find((x) => socketAddressesMatch(x.ip, previousMasterIp));
+                  const previousMasterNode = runningAppList.find((x) => ipsMatch(x.ip, previousMasterIp));
                   const ipToCheckAppRunning = extractIp(previousMasterIp);
                   const portToCheckAppRunning = previousMasterNode ? extractPort(previousMasterNode.ip) : DEFAULT_API_PORT;
                   let previousMasterStillRunning = false;
@@ -3953,7 +3956,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     appDockerRestartWithPermissionsFix(identifier, appId);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                   } else {
-                    const previousMasterIndex = runningAppList.findIndex((x) => socketAddressesMatch(x.ip, mastersRunningGSyncthingApps.get(identifier)));
+                    const previousMasterIndex = runningAppList.findIndex((x) => ipsMatch(x.ip, mastersRunningGSyncthingApps.get(identifier)));
                     let timetoStartApp = Date.now();
                     if (previousMasterIndex >= 0) {
                       log.info(`masterSlaveApps: app:${installedApp.name} had primary running at index: ${previousMasterIndex}`);
@@ -4006,12 +4009,12 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
                 timeTostartNewMasterApp.delete(identifier);
               }
-              if (!socketAddressesMatch(localSocketAddr, ip) && runningAppsNames.includes(identifier)) {
+              if (!ipsMatch(localSocketAddr, ip) && runningAppsNames.includes(identifier)) {
                 // Stop only the g: component on this standby node. Non-g siblings (e.g. a DB
                 // cluster component that needs all instances running) must keep running.
                 appDockerStop(identifier);
                 log.info(`masterSlaveApps: stopping docker component:${identifier} it's running on ip:${ip} and localSocketAddr is: ${localSocketAddr}`);
-              } else if (socketAddressesMatch(localSocketAddr, ip) && !runningAppsNames.includes(identifier)) {
+              } else if (ipsMatch(localSocketAddr, ip) && !runningAppsNames.includes(identifier)) {
                 // Check if app is ready (syncthing data is synced) before starting
                 let isReady = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
 
