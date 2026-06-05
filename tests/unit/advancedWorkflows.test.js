@@ -1378,6 +1378,113 @@ describe('advancedWorkflows tests', () => {
       // The running pgcluster sibling must be left alone.
       expect(appDockerStopStub.called).to.be.false;
     });
+
+    it('does NOT stop its own container when it is the primary on a UPnP (non-default) port', async () => {
+      // Regression: FDM reports masters as ip:port. A UPnP node (e.g. :16157) that IS the
+      // primary must recognise itself and keep running. The pre-fix code stripped the port
+      // from the FDM response, normalized the bare IP to :16127, failed to match its own
+      // :16157 socket, and repeatedly stopped its own container (start/stop flap loop).
+      const appName = 'valheim1777035136949';
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+      dockerServiceStub.returns('fluxvalheim_valheim1777035136949');
+      const appDockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+
+      // Compose app with a g: component so the identifier is component_app: this makes the
+      // (mistaken) stop call hit dockerService.appDockerStop directly, so the assertion
+      // actually observes the bug if it regresses.
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          {
+            name: appName,
+            version: 8,
+            compose: [
+              { name: 'valheim', containerData: 'g:/root/.config/valheim' },
+            ],
+          },
+        ],
+      });
+      // The g: component is currently running on this node (it is the primary).
+      const listRunningApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          { Names: ['/fluxvalheim_valheim1777035136949'] },
+        ],
+      });
+
+      const receiveOnlyCache = new Map();
+      const https = require('https');
+
+      // FDM reports the primary as this node's full ip:port socket (UPnP port preserved).
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['90.228.196.203:16157'] } } });
+      // This node's API socket is the same UPnP socket -> we are the primary.
+      fluxNetworkHelperStub.resolves('90.228.196.203:16157');
+
+      await advancedWorkflows.masterSlaveApps(
+        globalState,
+        installedApps,
+        listRunningApps,
+        receiveOnlyCache,
+        [],
+        [],
+        https,
+      );
+
+      // We are the primary - the container must be left running, never stopped.
+      expect(appDockerStopStub.called).to.be.false;
+    });
+
+    it('stops the g: component on a UPnP standby when FDM names a different ip:port primary', async () => {
+      // Guards the inverse: with ip:port now flowing end-to-end, a genuine standby (different
+      // IP, also on a non-default port) must still be detected and stopped.
+      const appName = 'n8napp';
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+      dockerServiceStub.returns('fluxn8n_n8napp');
+      const appDockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          {
+            name: appName,
+            version: 8,
+            compose: [
+              { name: 'n8n', containerData: 'g:/home/node/.n8n' },
+              { name: 'pgcluster', containerData: '/var/lib/postgresql/data' },
+            ],
+          },
+        ],
+      });
+      const listRunningApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          { Names: ['/fluxn8n_n8napp'] },
+          { Names: ['/fluxpgcluster_n8napp'] },
+        ],
+      });
+
+      const receiveOnlyCache = new Map();
+      const https = require('https');
+
+      // FDM primary is a different node, also advertised with an explicit port.
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.99:16157'] } } });
+      // This node has a different IP (and its own non-default port) -> we are a standby.
+      fluxNetworkHelperStub.resolves('192.168.1.5:16137');
+
+      await advancedWorkflows.masterSlaveApps(
+        globalState,
+        installedApps,
+        listRunningApps,
+        receiveOnlyCache,
+        [],
+        [],
+        https,
+      );
+
+      // Only the g: component is stopped; the non-g sibling is left running.
+      expect(appDockerStopStub.calledWith('n8n_n8napp')).to.be.true;
+      expect(appDockerStopStub.neverCalledWith('pgcluster_n8napp')).to.be.true;
+    });
   });
 
   describe('validateApplicationUpdateCompatibility tests', () => {

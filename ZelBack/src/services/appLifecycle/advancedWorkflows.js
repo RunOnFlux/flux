@@ -180,7 +180,8 @@ function getFdmIndex(appName) {
  * Tries EU, USA, and ASIA FDM servers in order until one succeeds.
  * @param {string} appName - Application name
  * @param {Object} axiosOptions - Axios request options
- * @returns {Promise<{ip: string|null, fdmOk: boolean}>} The master IP (without port) and success status
+ * @returns {Promise<{ip: string|null, fdmOk: boolean}>} The master socket address (ip:port,
+ *   or bare ip for default-port masters) and success status
  */
 async function getMasterIpFromFdm(appName, axiosOptions) {
   const fdmIndex = getFdmIndex(appName);
@@ -197,11 +198,16 @@ async function getMasterIpFromFdm(appName, axiosOptions) {
       const response = await serviceHelper.axiosGet(url, axiosOptions);
 
       if (response.data && response.data.status === 'success' && response.data.data) {
-        const { ips } = response.data.data;
-        if (ips && ips.length > 0) {
-          const ip = extractIp(ips[0]);
-          log.debug(`getMasterIpFromFdm: Got IP ${ip} for app ${appName} from ${region.name} FDM`);
-          return { ip, fdmOk: true };
+        const { ips: socketAddresses } = response.data.data;
+        if (socketAddresses && socketAddresses.length > 0) {
+          // Keep the full ip:port socket address from FDM. Stripping the port here would
+          // normalize a UPnP master (e.g. x:16157) down to the default API port (x:16127)
+          // in downstream socketAddressesMatch checks, so the node would fail to recognise
+          // itself as primary and repeatedly stop its own container. Default-port masters
+          // are already bare, so this passes them through unchanged.
+          const [socketAddress] = socketAddresses;
+          log.debug(`getMasterIpFromFdm: Got socket address ${socketAddress} for app ${appName} from ${region.name} FDM`);
+          return { ip: socketAddress, fdmOk: true };
         }
       }
       // No IPs returned from this region, try next
