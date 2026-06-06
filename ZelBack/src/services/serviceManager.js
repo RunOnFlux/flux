@@ -24,6 +24,7 @@ const peerNotification = require('./appMessaging/peerNotification');
 const syncthingMonitor = require('./appMonitoring/syncthingMonitor');
 const daemonHealthMonitor = require('./appMonitoring/daemonHealthMonitor');
 const containerCrashRecovery = require('./appMonitoring/containerCrashRecovery');
+const appReconciler = require('./appMonitoring/appReconciler');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
@@ -273,8 +274,12 @@ async function startFluxFunctions() {
     // them on future daemon restarts. FluxOS manages container startup after dbReady.
     dockerService.migrateContainerRestartPolicies();
 
-    // Subscribe to Docker container die events for immediate crash recovery.
-    // Events during boot are queued; drainBootQueue() replays them after boot settles.
+    // Start the reconcile workqueue (the single container actuator) and the
+    // Docker die-event bridge that feeds it. The workqueue holds all triggers
+    // until bootContainerStateSettled, then drains once daemon/DB are ready.
+    appReconciler.start().catch((error) => {
+      log.error(`App reconciler error: ${error.message}`);
+    });
     containerCrashRecovery.start();
 
     // Read boot context early — determines startup behavior for container management.

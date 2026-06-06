@@ -54,6 +54,7 @@ module.exports = {
       database: 'localzelappstest',
       collections: {
         appsInformation: 'zelappsinformation',
+        appsRuntimeState: 'zelappsruntimestate',
       },
     },
     appsglobal: {

@@ -62,6 +62,7 @@ module.exports = {
       database: `${dbPrefix}localzelapps`,
       collections: {
         appsInformation: 'zelappsinformation',
+        appsRuntimeState: 'zelappsruntimestate', // node-local per-component controller state: desiredState, restartHistory (crash backoff), last exit
       },
     },
     appsglobal: {
