@@ -64,13 +64,15 @@ const INITIAL_HEIGHT = 2100000;
 
 // masterSlaveApps resolves the FDM by hostname (getMasterIpFromFdm tries EU/USA/ASIA
 // regions, server index from getFdmIndex by the app name's first letter). Map every
-// reachable FDM hostname to the stub so any app name lands on it.
+// reachable FDM hostname to the stub so any app name lands on it — otherwise the
+// node resolves the real fdm-*.runonflux.io over the internet. Returns testcontainers
+// ExtraHost objects for the built-in .withExtraHosts().
 function fdmExtraHosts(ip) {
   const hosts = [];
   for (let i = 1; i <= 4; i++) {
-    hosts.push(`fdm-fn-1-${i}.runonflux.io:${ip}`);
-    hosts.push(`fdm-usa-1-${i}.runonflux.io:${ip}`);
-    hosts.push(`fdm-sg-1-${i}.runonflux.io:${ip}`);
+    hosts.push({ host: `fdm-fn-1-${i}.runonflux.io`, ipAddress: ip });
+    hosts.push({ host: `fdm-usa-1-${i}.runonflux.io`, ipAddress: ip });
+    hosts.push({ host: `fdm-sg-1-${i}.runonflux.io`, ipAddress: ip });
   }
   return hosts;
 }
@@ -78,19 +80,10 @@ function fdmExtraHosts(ip) {
 class StaticIpContainer extends GenericContainer {
   #staticIp;
   #networkName;
-  #extraHosts;
 
   withStaticIp(networkName, ip) {
     this.#staticIp = ip;
     this.#networkName = networkName;
-    return this;
-  }
-
-  // entries: array of "hostname:ip" strings -> /etc/hosts in the container. Set
-  // directly on HostConfig.ExtraHosts here (alongside the static-IP networking
-  // config) so this works regardless of the installed testcontainers version.
-  withExtraHostsMap(entries) {
-    this.#extraHosts = entries;
     return this;
   }
 
@@ -102,12 +95,6 @@ class StaticIpContainer extends GenericContainer {
             IPAMConfig: { IPv4Address: this.#staticIp },
           },
         },
-      };
-    }
-    if (this.#extraHosts && this.#extraHosts.length) {
-      this.createOpts.HostConfig = {
-        ...this.createOpts.HostConfig,
-        ExtraHosts: [...(this.createOpts.HostConfig?.ExtraHosts || []), ...this.#extraHosts],
       };
     }
   }
@@ -428,7 +415,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     const builder = new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
-      .withExtraHostsMap(fdmExtraHosts(FDM_IP))
+      .withExtraHosts(fdmExtraHosts(FDM_IP))
       .withBindMounts(bindMounts)
       .withLogConsumer(logCollector)
       .withEnvironment(nodeEnv)
