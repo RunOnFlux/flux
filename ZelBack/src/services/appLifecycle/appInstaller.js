@@ -34,7 +34,10 @@ const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
 const { localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
-const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require('../appMessaging/messageVerifier');
+// require the module (not destructured) — messageVerifier is in a require cycle
+// (appInstaller -> messageVerifier -> advancedWorkflows -> appInstaller), so a
+// top-level destructure captures undefined and the calls throw "not a function".
+const messageVerifier = require('../appMessaging/messageVerifier');
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
 const hwRequirements = require('../appRequirements/hwRequirements');
 const config = require('config');
@@ -939,7 +942,7 @@ async function installAppLocally(req, res) {
       let appSpecifications;
       // anyone can deploy temporary app
       // favor temporary to launch test temporary apps
-      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      const tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(appname);
       if (tempMessage) {
         // eslint-disable-next-line prefer-destructuring
         appSpecifications = tempMessage.appSpecifications;
@@ -966,7 +969,7 @@ async function installAppLocally(req, res) {
       }
       // search in permanent messages for the specific apphash to launch
       if (!appSpecifications) {
-        const permMessage = await checkAppMessageExistence(appname);
+        const permMessage = await messageVerifier.checkAppMessageExistence(appname);
         if (permMessage) {
           // eslint-disable-next-line prefer-destructuring
           appSpecifications = permMessage.appSpecifications;
@@ -1096,7 +1099,7 @@ async function testAppInstall(req, res) {
 
       // anyone can deploy temporary app
       // favor temporary to launch test temporary apps
-      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      const tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(appname);
       if (tempMessage) {
         // eslint-disable-next-line prefer-destructuring
         appSpecifications = tempMessage.appSpecifications;
@@ -1126,7 +1129,7 @@ async function testAppInstall(req, res) {
 
       // search in permanent messages for the specific apphash to launch
       if (!appSpecifications) {
-        const permMessage = await checkAppMessageExistence(appname);
+        const permMessage = await messageVerifier.checkAppMessageExistence(appname);
         if (permMessage) {
           // eslint-disable-next-line prefer-destructuring
           appSpecifications = permMessage.appSpecifications;
