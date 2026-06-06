@@ -15,6 +15,8 @@ describe('containerCrashRecovery tests', () => {
     dockerServiceStub = {
       appDockerStart: sinon.stub().resolves('started'),
       dockerGetEvents: sinon.stub(),
+      // default: container exists and is exited, so the restart path proceeds
+      getDockerContainerOnly: sinon.stub().resolves({ State: 'exited' }),
     };
     globalStateStub = {
       bootContainerStateSettled: true,
@@ -312,7 +314,7 @@ describe('containerCrashRecovery tests', () => {
       clock.restore();
     });
 
-    it('should pin backoff at the 30m cap and not escalate beyond it', async () => {
+    it('should pin backoff at the 30m cap and keep restartHistory bounded', async () => {
       const clock = sinon.useFakeTimers({ shouldAdvanceTime: true });
       dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'exited' });
 
@@ -333,13 +335,41 @@ describe('containerCrashRecovery tests', () => {
         expect(dockerServiceStub.appDockerStart.callCount).to.equal(expectedCount);
       }
 
-      // further crashes stay pinned at the 30m cap (history bounded, ladder index pinned)
-      emitDie('fluxwww_Osmosis', 1);
-      await clock.tickAsync(30 * 60 * 1000);
-      expect(dockerServiceStub.appDockerStart.callCount).to.equal(expectedCount + 1);
-      expect(logStub.warn.calledWithMatch(/waiting 1800s/)).to.be.true;
+      // several more crashes: the delay stays pinned at the 30m cap...
+      // eslint-disable-next-line no-restricted-syntax
+      for (let i = 0; i < 4; i += 1) {
+        emitDie('fluxwww_Osmosis', 1);
+        // eslint-disable-next-line no-await-in-loop
+        await clock.tickAsync(30 * 60 * 1000);
+        expectedCount += 1;
+        expect(dockerServiceStub.appDockerStart.callCount).to.equal(expectedCount);
+        expect(logStub.warn.calledWithMatch(/waiting 1800s/)).to.be.true;
+      }
+
+      // ...and recordRestart's trim keeps the history bounded to the ladder length
+      // (it would be 9 here without the cap). This asserts the trim itself, not just pinning.
+      expect(crashRecovery.restartHistoryLength('fluxwww_Osmosis')).to.equal(5);
 
       clock.restore();
+    });
+
+    it('should skip restart when the container no longer exists (removed outside appDockerStop)', async () => {
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves(null);
+
+      emitDie('fluxwww_Osmosis', 0);
+      await new Promise((r) => setImmediate(r));
+
+      expect(dockerServiceStub.appDockerStart.called).to.be.false;
+      expect(logStub.info.calledWithMatch(/no longer exists or already running/)).to.be.true;
+    });
+
+    it('should skip restart when the container is already running again', async () => {
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'running' });
+
+      emitDie('fluxwww_Osmosis', 1);
+      await new Promise((r) => setImmediate(r));
+
+      expect(dockerServiceStub.appDockerStart.called).to.be.false;
     });
 
     it('should not apply backoff of one container to another', async () => {
