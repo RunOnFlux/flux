@@ -1,8 +1,7 @@
 import { describe, it, before, after } from 'mocha';
-import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
-import { getAppContainerStatus, restartDockerd, stopAppContainer } from '../framework/container.js';
+import { getAppContainerStatus, restartDockerd } from '../framework/container.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
@@ -99,61 +98,21 @@ describe('reconciler recovers orphaned containers after a dockerd restart', func
       return status && status.status.startsWith('Up');
     }, { timeout: 60000, interval: 3000, label: 'app container running before dockerd restart' });
 
-    // --- DIAGNOSTIC 0: do reconciler events reach the test AT ALL (calm window, docker up)? ---
-    // graceful docker stop directly (not via appDockerStop, so it is a real die event the
-    // reconciler must act on). docker is UP, so reconcile -> restart -> reconciler:actuated.
-    // If this is NOT received, reconciler events never reach the SSE (wiring bug). If it IS,
-    // the post-restart miss is specific to the dockerd-restart window (replay gap).
-    const calmAfterId = client.getLastEventId();
-    await stopAppContainer(client.container, appName, appName);
-    let calmActuated = false;
-    try {
-      await waitForReconcileActuated(client, identifier, 'started', 60000, { afterId: calmAfterId });
-      calmActuated = true;
-    } catch (e) { /* none */ }
-    console.log(`DIAG calmActuatedReceived=${calmActuated}`);
-    await waitFor(async () => {
-      const status = await getAppContainerStatus(client.container, appName);
-      return status && status.status.startsWith('Up');
-    }, { timeout: 60000, interval: 3000, label: 'container back up before dockerd restart' });
-
-    // ignore prior events; only look at what the restart triggers
+    // ignore the install-time events; only look at what the dockerd restart triggers
     const afterId = client.getLastEventId();
 
     await restartDockerd(client.container);
 
-    // --- DIAGNOSTIC: bisect "reconciler events not delivered after a dockerd restart" ---
-    // (1) Is the SSE stream still delivering AT ALL post-restart? daemon:polled recurs
-    //     via the ticker and is independent of the reconciler/dockerd. If this stops too,
-    //     the test's SSE connection died (harness reconnect/replay problem). If it keeps
-    //     arriving but reconciler events don't, it's an emission/routing problem.
-    let sseAlive = false;
-    try {
-      await client.waitForEvent('daemon:polled', () => true, 45000, { afterId });
-      sseAlive = true;
-    } catch (e) { /* none */ }
-    console.log(`DIAG sseAlivePostRestart=${sseAlive}`);
+    // The reconciler must bring the orphaned (exited) container back — never
+    // recreate/uninstall it (the docker-unreachable defer guards against that).
+    // Recovery comes from whichever fires first: the deferred retry once docker is
+    // reachable again, or the reconnect orphan sweep. Both end in a restart.
+    await waitForReconcileActuated(client, identifier, 'started', 120000, { afterId });
 
-    // (2) Does the reconciler's started event reach the test?
-    let actuatedReceived = false;
-    try {
-      await waitForReconcileActuated(client, identifier, 'started', 45000, { afterId });
-      actuatedReceived = true;
-    } catch (e) { /* none */ }
-    console.log(`DIAG actuatedReceived=${actuatedReceived}`);
-
-    // (3) Ground truth: did the container actually come back (regardless of events)?
-    let up = false;
-    try {
-      await waitFor(async () => {
-        const status = await getAppContainerStatus(client.container, appName);
-        return status && status.status.startsWith('Up');
-      }, { timeout: 30000, interval: 3000, label: 'container up' });
-      up = true;
-    } catch (e) { /* none */ }
-    console.log(`DIAG containerUp=${up}`);
-
-    // assert only the real requirement so the run completes and surfaces all DIAG lines
-    expect(up, 'orphaned container recovered (docker ground truth)').to.equal(true);
+    // and docker confirms it is actually Up again
+    await waitFor(async () => {
+      const status = await getAppContainerStatus(client.container, appName);
+      return status && status.status.startsWith('Up');
+    }, { timeout: 60000, interval: 3000, label: 'orphaned container running after dockerd restart' });
   });
 });

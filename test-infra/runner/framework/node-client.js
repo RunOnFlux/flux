@@ -92,6 +92,9 @@ export function nodeClient(nodeNum) {
         'hashRequest:received',
         'hashRequest:responded',
         'message:dispatched',
+        'reconciler:actuated',
+        'reconciler:desiredChanged',
+        'reconciler:swept',
       ]) {
         eventSource.addEventListener(name, (e) => {
           const entry = {
