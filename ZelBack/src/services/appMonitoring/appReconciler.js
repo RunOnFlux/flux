@@ -5,6 +5,10 @@ const dockerService = require('../dockerService');
 const globalState = require('../utils/globalState');
 const appInspector = require('../appManagement/appInspector');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
+const appQueryService = require('../appQuery/appQueryService');
+const containerHealthMonitor = require('./containerHealthMonitor');
+const appUninstaller = require('../appLifecycle/appUninstaller');
+const appTamperingDetectionService = require('../appTamperingDetectionService');
 const { localAppsInformation } = require('../utils/appConstants');
 
 // The single, level-based actuator for app containers. Every trigger (docker
@@ -73,8 +77,7 @@ async function getLocalComponentSpec(identifier) {
   }
   if (!appSpec) return null;
   try {
-    const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
-    [appSpec] = await decryptEnterpriseApps([appSpec], { formatSpecs: false });
+    [appSpec] = await appQueryService.decryptEnterpriseApps([appSpec], { formatSpecs: false });
   } catch (err) {
     log.warn(`appReconciler - could not decrypt spec for ${identifier}: ${err.message}`);
   }
@@ -141,10 +144,6 @@ async function effectiveDesiredRunning(identifier, spec, exitCode) {
  */
 async function recreateMissing(identifier) {
   const mainAppName = identifier.split('_')[1] || identifier;
-  // lazy requires: these modules pull in heavy graphs and would cycle at load
-  const containerHealthMonitor = require('./containerHealthMonitor');
-  const appUninstaller = require('../appLifecycle/appUninstaller');
-  const appTamperingDetectionService = require('../appTamperingDetectionService');
 
   await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
   try {
@@ -252,7 +251,6 @@ function enqueue(identifier) {
  * Enqueue every installed component (hourly tick / reconnect / boot drift).
  */
 async function enqueueAll() {
-  const appQueryService = require('../appQuery/appQueryService');
   const res = await appQueryService.installedApps();
   if (!res || res.status !== 'success') return;
   for (const app of res.data) {
