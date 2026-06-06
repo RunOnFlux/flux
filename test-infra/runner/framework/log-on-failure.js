@@ -1,10 +1,12 @@
-import { afterEach } from 'mocha';
+import { afterEach, after } from 'mocha';
 
 export function dumpLogsOnFailure(getEnv) {
-  afterEach(function () {
-    if (this.currentTest.state !== 'failed') return;
+  let dumped = false;
+
+  function dump() {
     const env = getEnv();
     if (!env) return;
+    dumped = true;
     for (let i = 0; i < env.nodeCount; i++) {
       const lines = env.containers?.fluxNodes?.[i]?.logCollector ? env.nodeLogLines(i) : [];
       if (lines.length) {
@@ -20,5 +22,19 @@ export function dumpLogsOnFailure(getEnv) {
         }
       }
     }
+  }
+
+  afterEach(function () {
+    if (this.currentTest.state === 'failed') dump();
+  });
+
+  // afterEach never fires for a before/after-all HOOK failure, which is exactly
+  // when setup blew up and the node logs matter most. As a backstop, dump in the
+  // after-all hook when nothing passed and we haven't already dumped — a strong
+  // signal that a setup hook failed.
+  after(function () {
+    if (dumped) return;
+    const tests = this.test?.parent?.tests || [];
+    if (tests.length > 0 && !tests.some((t) => t.state === 'passed')) dump();
   });
 }

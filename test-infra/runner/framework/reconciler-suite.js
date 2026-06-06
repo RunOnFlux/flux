@@ -1,14 +1,47 @@
 // Shared bootstrap for the reconciler integration suites. bootAndPeer brings a
-// fleet to the peered/ticking state; seedAndInstall DB-seeds a pre-built app on
-// every node and waits for it to install. Modelled on suite 28's inline helpers
-// so new suites don't each re-copy them.
+// fleet to the peered/ticking state. Two deployment interfaces are available and
+// shared by all suites:
+//   - SPAWNER path: seedAndInstall / seedAndInstallMany / seedSimpleApp — seed the
+//     global spec and let the spawner self-select nodes (exercises real placement).
+//   - TARGETED path: installOnNodes — install on specific chosen nodes via the
+//     node's installapplocally endpoint (deterministic, fast, you pick the nodes).
 import { pushImage, pushTestApp } from './registry-helper.js';
 import { startTicker, advanceBlock } from './daemon-control.js';
 import { dbClient } from './db-client.js';
 import { buildSeedableApp, buildSeedableSyncthingApp, buildSeedableTestApp } from './seed-helper.js';
+import { authenticate } from '../auth.js';
+import { fluxTeamKey } from './keys.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled,
 } from './wait.js';
+
+// Seed a pre-built app's global spec into the given nodes' DBs (so a local install
+// can resolve it).
+async function seedGlobalSpec(env, app, indices) {
+  await Promise.all(indices.map(async (i) => {
+    const dc = dbClient(i + 1);
+    await dc.seedGlobalAppSpec(app.spec);
+    await dc.seedPermanentMessage(app.permanentMessage);
+    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
+  }));
+}
+
+// TARGETED deployment: install a pre-built app on exactly the given node indices
+// via each node's installapplocally endpoint (real install: pull + create + start
+// + syncthing config). Deterministic and fast — no spawner-placement timing. Auth
+// as the flux team (adminandfluxteam) since these are seeded global specs.
+// Returns the indices it installed on.
+export async function installOnNodes(env, app, indices, { timeout = 120000 } = {}) {
+  await seedGlobalSpec(env, app, indices);
+  const teamKey = fluxTeamKey();
+  await Promise.all(indices.map(async (i) => {
+    const client = env.clients[i];
+    const auth = await authenticate(client.url, teamKey);
+    await client.installAppLocally(app.spec.name, auth.zelidauth); // drains the install stream
+    await waitForAppInstalled(client, app.spec.name, timeout);
+  }));
+  return indices;
+}
 
 export async function bootAndPeer(env) {
   for (const client of env.clients) await waitForDaemonReady(client);
@@ -65,46 +98,39 @@ export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 
   }));
   installed.sort((a, b) => a - b);
   if (installed.length < minCount) {
-    throw new Error(`app ${app.spec.name} installed on ${installed.length} nodes, needed >= ${minCount}`);
+    throw new Error(`app ${app.spec.name} installed on ${installed.length} nodes (${installed.join(',')}), needed >= ${minCount}`);
   }
   return installed;
 }
 
-// Convenience for a plain single-component app (the suite-28 shape): push an
-// image, build the spec, seed + install. Returns { app, index }.
-// Seed a syncthing (r:/g:/s:) app and wait for it to install. The syncthing
-// folder id the deciders query is getAppIdentifier(`${name}_${name}`) i.e.
-// `flux${name}_${name}` — returned as `folder` for driving syncthing-control.
+// Deploy a syncthing (r:/g:/s:) app on a chosen node (targeted install) and wait
+// for it to install. The syncthing folder id the deciders query is
+// getAppIdentifier(`${name}_${name}`) i.e. `flux${name}_${name}` — returned as
+// `folder` for driving syncthing-control.
 //
 // runningPeerIp: seed a remote running location so the installed node is NOT the
 // syncthing leader (a leader starts immediately; only a non-leader waits for
 // sync). Pass a non-fleet IP to force the sync-gated path.
-export async function seedSyncthingApp(env, { name, mode = 'r', runningPeerIp = null }) {
+export async function seedSyncthingApp(env, {
+  name, mode = 'r', runningPeerIp = null, index = 0,
+}) {
   await pushImage(name, 'v1');
   const app = await buildSeedableSyncthingApp({ name, mode });
 
-  for (let i = 1; i <= env.nodeCount; i++) {
-    const dc = dbClient(i);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedGlobalAppSpec(app.spec);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedPermanentMessage(app.permanentMessage);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-    if (runningPeerIp) {
-      // eslint-disable-next-line no-await-in-loop
-      await dc.seedAppLocation({
-        name, ip: runningPeerIp, hash: app.hash, runningSince: Date.now() - 600000,
-      });
-    }
+  if (runningPeerIp) {
+    await dbClient(index + 1).seedAppLocation({
+      name, ip: runningPeerIp, hash: app.hash, runningSince: Date.now() - 600000,
+    });
   }
 
-  const index = await Promise.any(env.clients.map(async (c, i) => {
-    await waitForAppInstalled(c, name, 150000);
-    return i;
-  }));
-  return { app, index, folder: `flux${name}_${name}`, identifier: `${name}_${name}` };
+  await installOnNodes(env, app, [index]);
+  return {
+    app, index, folder: `flux${name}_${name}`, identifier: `${name}_${name}`,
+  };
 }
+
+// Convenience for a plain single-component app (the suite-28 shape) via the
+// SPAWNER path: push an image, build the spec, seed + install. Returns { app, index }.
 
 // Seed the configurable test-app (controllable exit code / timed exit) and wait
 // for it to install. Returns { app, index, identifier }. Requires the test-app

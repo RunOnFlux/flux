@@ -10,7 +10,7 @@ import { electMaster, resetFdm } from '../framework/fdm-control.js';
 import {
   waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged, assertNoEvent,
 } from '../framework/wait.js';
-import { bootAndPeer, seedAndInstallMany } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // MUST-PASS gate. masterSlave (g:) election now WRITES desired state and the
@@ -46,7 +46,8 @@ describe('reconciler enforces masterSlave g: election', function () {
     await resetFdm();
     await pushImage(appName, 'v1');
     const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g' });
-    holders = await seedAndInstallMany(env, app, 2);
+    // targeted install on two specific nodes — deterministic g: holders
+    holders = await installOnNodes(env, app, [0, 1]);
   });
 
   after(async function () {

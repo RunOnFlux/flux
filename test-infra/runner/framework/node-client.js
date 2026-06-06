@@ -181,6 +181,14 @@ export function nodeClient(nodeNum) {
     getRunningApps: () => get('/apps/runningapps'),
     getLoginPhrase: () => get('/id/loginphrase'),
     verifyLogin: (body) => post('/id/verifylogin', body, { 'Content-Type': 'text/plain' }),
+    // Trigger a real local install on THIS node. The endpoint streams install
+    // progress as concatenated JSON chunks (not a single JSON doc), so drain the
+    // body as text; resolves when the install stream ends. Confirm completion via
+    // the app:installed event (waitForAppInstalled).
+    installAppLocally: async (appname, zelidauth) => {
+      const res = await fetch(`${url}/apps/installapplocally/${appname}`, { headers: { zelidauth } });
+      return res.text();
+    },
   };
 }
 
