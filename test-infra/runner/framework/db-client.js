@@ -268,29 +268,6 @@ export function dbClient(nodeNum) {
       await localDb.collection('zelappsinformation').insertOne(spec);
     },
 
-    // Point an installed app's component image at an unpullable tag so a
-    // reconciler recreate (installApplicationHard) fails — simulates a tampered/
-    // broken image and exercises the recreate-failure -> uninstall path.
-    // Read-modify-write (not a positional $[] update, which silently no-op'd
-    // here) and assert it actually changed the doc, so a non-applied break fails
-    // loudly at the call site rather than as a downstream timeout.
-    async breakLocalAppImage(appName, repotag = '198.18.0.5:5000/doesnotexist:nope') {
-      const localDb = await db('appsLocal');
-      const col = localDb.collection('zelappsinformation');
-      const doc = await col.findOne({ name: appName });
-      if (!doc) throw new Error(`breakLocalAppImage: local app ${appName} not found`);
-      const update = {};
-      if (Array.isArray(doc.compose) && doc.compose.length) {
-        doc.compose.forEach((c) => { c.repotag = repotag; });
-        update.compose = doc.compose;
-      }
-      if (doc.repotag !== undefined) update.repotag = repotag;
-      if (!Object.keys(update).length) throw new Error(`breakLocalAppImage: no repotag field on ${appName}`);
-      const res = await col.updateOne({ name: appName }, { $set: update });
-      if (res.modifiedCount !== 1) {
-        throw new Error(`breakLocalAppImage: did not modify ${appName} (matched ${res.matchedCount}, modified ${res.modifiedCount})`);
-      }
-    },
 
     async seedInstallingLocation({ name, ip, broadcastedAt }) {
       const globalDb = await db('appsGlobal');

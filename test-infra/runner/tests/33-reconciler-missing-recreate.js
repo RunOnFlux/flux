@@ -1,7 +1,5 @@
 import { describe, it, before, after } from 'mocha';
-import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { dbClient } from '../framework/db-client.js';
 import { getAppContainerStatus, killAppContainer } from '../framework/container.js';
 import {
   waitFor, waitForReconcileActuated, waitForAppRemoved,
@@ -10,9 +8,9 @@ import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // A vanished container (no Docker event fires for absence) is recreated by the
-// reconciler when Docker is reachable. If recreation itself fails (e.g. a broken/
-// tampered image), the reconciler records the tampering signal and removes the
-// app locally — the same behaviour the old containerHealthMonitor had.
+// reconciler when Docker is reachable. If recreation itself fails — e.g. the
+// image can no longer be pulled — the reconciler records the tampering signal
+// and removes the app locally, exactly as the old containerHealthMonitor did.
 
 async function waitForUp(client, appName, label) {
   await waitFor(async () => {
@@ -53,20 +51,21 @@ describe('reconciler recreates a missing container', function () {
     await waitForUp(client, appName, 'recreated and running again');
   });
 
-  it('uninstalls locally when recreation fails (broken image -> tampering)', async function () {
-    this.timeout(150000);
+  it('uninstalls locally when recreation fails (image unpullable)', async function () {
+    this.timeout(180000);
     const client = env.clients[idx];
     await waitForUp(client, appName, 'running before forced recreate failure');
 
-    // tamper: point the installed image at an unpullable tag so the recreate's
-    // installApplicationHard throws, then remove the container to trigger recreate.
-    await dbClient(idx + 1).breakLocalAppImage(appName);
+    // make the recreate genuinely fail: stop the registry so the recreate's pull
+    // (verifyAndPullImage -> dockerPullStreamPromise) errors for real. No spec
+    // mutation — the image is simply unavailable, like a deleted/tampered image.
+    await env.containers.registry.stop();
 
     const afterId = client.getLastEventId();
     await killAppContainer(client.container, appName);
 
     // recreate fails -> the reconciler reports it and removes the app locally
-    await waitForReconcileActuated(client, identifier, 'recreateFailed', 90000, { afterId });
+    await waitForReconcileActuated(client, identifier, 'recreateFailed', 120000, { afterId });
     await waitForAppRemoved(client, appName, 60000, { afterId });
   });
 });
