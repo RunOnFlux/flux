@@ -59,15 +59,38 @@ const DAEMON_IP = '198.18.0.3';
 const SYNCTHING_IP = '198.18.0.4';
 const REGISTRY_IP = '198.18.0.5';
 const EXTERNAL_STUB_IP = '198.18.0.6';
+const FDM_IP = '198.18.0.7';
 const INITIAL_HEIGHT = 2100000;
+
+// masterSlaveApps resolves the FDM by hostname (getMasterIpFromFdm tries EU/USA/ASIA
+// regions, server index from getFdmIndex by the app name's first letter). Map every
+// reachable FDM hostname to the stub so any app name lands on it.
+function fdmExtraHosts(ip) {
+  const hosts = [];
+  for (let i = 1; i <= 4; i++) {
+    hosts.push(`fdm-fn-1-${i}.runonflux.io:${ip}`);
+    hosts.push(`fdm-usa-1-${i}.runonflux.io:${ip}`);
+    hosts.push(`fdm-sg-1-${i}.runonflux.io:${ip}`);
+  }
+  return hosts;
+}
 
 class StaticIpContainer extends GenericContainer {
   #staticIp;
   #networkName;
+  #extraHosts;
 
   withStaticIp(networkName, ip) {
     this.#staticIp = ip;
     this.#networkName = networkName;
+    return this;
+  }
+
+  // entries: array of "hostname:ip" strings -> /etc/hosts in the container. Set
+  // directly on HostConfig.ExtraHosts here (alongside the static-IP networking
+  // config) so this works regardless of the installed testcontainers version.
+  withExtraHostsMap(entries) {
+    this.#extraHosts = entries;
     return this;
   }
 
@@ -79,6 +102,12 @@ class StaticIpContainer extends GenericContainer {
             IPAMConfig: { IPv4Address: this.#staticIp },
           },
         },
+      };
+    }
+    if (this.#extraHosts && this.#extraHosts.length) {
+      this.createOpts.HostConfig = {
+        ...this.createOpts.HostConfig,
+        ExtraHosts: [...(this.createOpts.HostConfig?.ExtraHosts || []), ...this.#extraHosts],
       };
     }
   }
@@ -300,6 +329,20 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   started.push(externalStub);
   containers.externalStub = externalStub;
 
+  const fdmStub = await new StaticIpContainer('flux-e2e-fdm-stub')
+    .withStaticIp(networkName, FDM_IP)
+    .withEnvironment({ FDM_PORT: '16130', CONTROL_PORT: '16131' })
+    .withWaitStrategy(Wait.forHealthCheck())
+    .withHealthCheck({
+      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:16131/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
+      interval: 3000,
+      timeout: 2000,
+      retries: 10,
+    })
+    .start();
+  started.push(fdmStub);
+  containers.fdmStub = fdmStub;
+
   if (!dataCenter) {
     for (let i = 1; i <= nodes; i++) {
       await fetch(`http://${EXTERNAL_STUB_IP}:3001/geolocation/198.18.${i}.0`, {
@@ -385,6 +428,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     const builder = new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
+      .withExtraHostsMap(fdmExtraHosts(FDM_IP))
       .withBindMounts(bindMounts)
       .withLogConsumer(logCollector)
       .withEnvironment(nodeEnv)
@@ -479,6 +523,8 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     get lastNodeIndex() { return clients.length - 1; },
     daemonControl: `http://${DAEMON_IP}:18232`,
     stubControl: `http://${EXTERNAL_STUB_IP}:3001`,
+    fdmControl: `http://${FDM_IP}:16131`,
+    syncthingControl: `http://${SYNCTHING_IP}:8385`,
     registryUrl: `https://${REGISTRY_IP}:5000`,
     mongoUrl: `mongodb://${MONGO_IP}:27017`,
 
@@ -589,6 +635,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       }
       await syncthingStub.stop().catch((e) => warn('syncthing stop', e));
       await externalStub.stop().catch((e) => warn('external stop', e));
+      await fdmStub.stop().catch((e) => warn('fdm stop', e));
       await registry.stop().catch((e) => warn('registry stop', e));
       await daemonStub.stop().catch((e) => warn('daemon stop', e));
       await mongo.stop().catch((e) => warn('mongo stop', e));

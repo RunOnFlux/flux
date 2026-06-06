@@ -14,6 +14,34 @@ const folders = new Map();
 const devices = new Map();
 let restartRequired = false;
 
+// --- drivable sync state -------------------------------------------------
+// One stub serves every node, but each node connects directly so the stub sees
+// the node's source IP — that's the per-node lever. Tests drive these via the
+// control API; the defaults (below) reproduce the original always-synced/empty
+// behaviour so existing suites are unaffected.
+//
+//   syncOverrides:       `${ip}|${folder}`          -> { state, globalBytes, inSyncBytes }
+//   completionOverrides: `${ip}|${folder}|${device}`-> completion (0-100)
+// ip may be '*' (any node) and device may be '*' (any peer); exact keys win.
+const syncOverrides = new Map();
+const completionOverrides = new Map();
+
+// the node's source IP as Docker presents it (strip the IPv4-mapped ::ffff: form)
+function clientIp(req) {
+  const raw = req.socket.remoteAddress || '';
+  return raw.replace(/^::ffff:/, '');
+}
+
+function lookupSync(ip, folder) {
+  return syncOverrides.get(`${ip}|${folder}`) ?? syncOverrides.get(`*|${folder}`);
+}
+
+function lookupCompletion(ip, folder, device) {
+  return completionOverrides.get(`${ip}|${folder}|${device}`)
+    ?? completionOverrides.get(`${ip}|${folder}|*`)
+    ?? completionOverrides.get(`*|${folder}|*`);
+}
+
 devices.set(DEVICE_ID, {
   deviceID: DEVICE_ID,
   name: 'stub-node',
@@ -291,7 +319,12 @@ app.get('/rest/db/browse', (req, res) => {
 });
 
 app.get('/rest/db/completion', (req, res) => {
-  res.json({ completion: 100, globalBytes: 0, needBytes: 0, globalItems: 0, needItems: 0, needDeletes: 0 });
+  const completion = lookupCompletion(clientIp(req), req.query.folder || '', req.query.device || '') ?? 100;
+  const globalBytes = 100000;
+  const needBytes = Math.round((globalBytes * (100 - completion)) / 100);
+  res.json({
+    completion, globalBytes, needBytes, globalItems: 0, needItems: 0, needDeletes: 0,
+  });
 });
 
 app.get('/rest/db/file', (req, res) => {
@@ -320,25 +353,30 @@ app.get('/rest/db/remoteneed', (req, res) => {
 
 app.get('/rest/db/status', (req, res) => {
   const folderId = req.query.folder;
+  const ov = lookupSync(clientIp(req), folderId || '');
+  const globalBytes = ov?.globalBytes ?? 0;
+  const inSyncBytes = ov?.inSyncBytes ?? 0;
+  const state = ov?.state ?? 'idle';
+  const needBytes = Math.max(0, globalBytes - inSyncBytes);
   res.json({
     errors: 0,
-    globalBytes: 0,
+    globalBytes,
     globalDeleted: 0,
     globalDirectories: 0,
     globalFiles: 0,
     globalSymlinks: 0,
     globalTotalItems: 0,
     ignorePatterns: false,
-    inSyncBytes: 0,
+    inSyncBytes,
     inSyncFiles: 0,
     invalid: '',
-    localBytes: 0,
+    localBytes: inSyncBytes,
     localDeleted: 0,
     localDirectories: 0,
     localFiles: 0,
     localSymlinks: 0,
     localTotalItems: 0,
-    needBytes: 0,
+    needBytes,
     needDeletes: 0,
     needDirectories: 0,
     needFiles: 0,
@@ -352,7 +390,7 @@ app.get('/rest/db/status', (req, res) => {
     receiveOnlyChangedSymlinks: 0,
     receiveOnlyTotalItems: 0,
     sequence: 0,
-    state: 'idle',
+    state,
     stateChanged: new Date().toISOString(),
     version: 0,
     folder: folderId || '',
@@ -470,6 +508,38 @@ control.delete('/folders', (req, res) => {
 control.delete('/devices', (req, res) => {
   devices.clear();
   devices.set(DEVICE_ID, { deviceID: DEVICE_ID, name: 'stub-node', addresses: ['dynamic'] });
+  res.json({ ok: true });
+});
+
+// --- drivable sync-state control ---
+// Set what /rest/db/status returns for a (node ip, folder). Omit ip to target
+// every node ('*'). A folder reporting globalBytes>0 with inSyncBytes<globalBytes
+// reads as "not synced"; with state:'syncing' and frozen bytes across polls it
+// reads as a stall (the production stall detector needs N unchanged samples).
+control.post('/sync-state', (req, res) => {
+  const {
+    ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0,
+  } = req.body;
+  if (!folder) return res.status(400).json({ error: 'folder required' });
+  syncOverrides.set(`${ip}|${folder}`, { state, globalBytes, inSyncBytes });
+  return res.json({ ok: true });
+});
+
+// Set what /rest/db/completion returns for a (node ip, folder, peer device).
+// Omit device to cover every peer ('*'). completion < 100 => "no peer has the data".
+control.post('/peer-completion', (req, res) => {
+  const {
+    ip = '*', folder, device = '*', completion,
+  } = req.body;
+  if (!folder || completion == null) return res.status(400).json({ error: 'folder and completion required' });
+  completionOverrides.set(`${ip}|${folder}|${device}`, completion);
+  return res.json({ ok: true });
+});
+
+// Back to default always-synced/empty behaviour.
+control.post('/sync-reset', (req, res) => {
+  syncOverrides.clear();
+  completionOverrides.clear();
   res.json({ ok: true });
 });
 

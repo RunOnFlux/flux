@@ -88,6 +88,59 @@ export async function buildSeedableApp({
   return { spec: specWithMeta, permanentMessage, hashEntry, hash, txid };
 }
 
+/**
+ * A seedable app whose primary component carries a syncthing containerData flag
+ * (`g:` masterSlave gateway, `r:` receive-only, `s:` shared). Drive its sync
+ * state with framework/syncthing-control and its election with framework/fdm-control.
+ * Pass `sibling: true` to add a plain (non-synced) component so a test can prove
+ * the decider only acts on the g:/r: component and leaves siblings running.
+ */
+export async function buildSeedableSyncthingApp({
+  name,
+  mode = 'g',
+  repotag = `198.18.0.5:5000/${name}:v1`,
+  ports = [31111],
+  containerPorts = [80],
+  sibling = false,
+  ...rest
+}) {
+  const compose = [{
+    name,
+    description: `${mode}: sync component`,
+    repotag,
+    ports: [ports[0]],
+    domains: [''],
+    environmentParameters: [],
+    commands: [],
+    containerPorts,
+    containerData: `${mode}:/appdata`,
+    cpu: 0.1,
+    ram: 100,
+    hdd: 1,
+    repoauth: '',
+  }];
+
+  if (sibling) {
+    compose.push({
+      name: `${name}sib`,
+      description: 'plain sibling component',
+      repotag,
+      ports: [ports[0] + 1],
+      domains: [''],
+      environmentParameters: [],
+      commands: [],
+      containerPorts,
+      containerData: '/sibdata',
+      cpu: 0.1,
+      ram: 100,
+      hdd: 1,
+      repoauth: '',
+    });
+  }
+
+  return buildSeedableApp({ name, compose, ...rest });
+}
+
 export function buildRunningState({ appName, nodeIps, hash, broadcastedAt = null }) {
   const ts = broadcastedAt ?? Date.now();
 

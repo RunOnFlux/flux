@@ -5,7 +5,11 @@ module.exports = {
   daemon: { host: '198.18.0.3' },
   benchmark: { host: '198.18.0.3' },
   upnp: { gatewayUrl: '', nodeIp: '' },
-  syncthing: { ip: '198.18.0.4', port: 8384 },
+  // compressed decider cadence: the syncthing readiness/stall loop runs every 3s
+  // and a stall is declared after 4 no-progress cycles (~12s) instead of ~5min.
+  syncthing: {
+    ip: '198.18.0.4', port: 8384, monitorIntervalMs: 3000, stalledSyncCheckCount: 4,
+  },
   system: {
     bootIdPath: '/tmp/flux-boot-config/boot-id',
     heartbeatIntervalMs: 10000,
@@ -106,6 +110,7 @@ module.exports = {
     imageUpdateDelayBetweenAppsMs: 100,
     imageUpdateDelayAfterRedeployMs: 1000,
     imageUpdateDelayBetweenComponentsMs: 100,
+    masterSlaveIntervalMs: 3000, // compressed g: FDM election cycle (prod 30s)
     installation: { probability: 100, delay: 5 },
     removal: { probability: 25, delay: 5 },
     redeploy: { probability: 2, delay: 1, composedDelay: 1 },
