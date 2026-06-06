@@ -34,10 +34,12 @@ const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
 const { localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
-// require the module (not destructured) — messageVerifier is in a require cycle
-// (appInstaller -> messageVerifier -> advancedWorkflows -> appInstaller), so a
-// top-level destructure captures undefined and the calls throw "not a function".
-const messageVerifier = require('../appMessaging/messageVerifier');
+// messageVerifier is lazy-required inside installAppLocally/testAppInstall below.
+// appInstaller -> messageVerifier -> advancedWorkflows -> appInstaller is a require
+// cycle, and messageVerifier reassigns module.exports, so a top-level require here
+// captures the empty pre-assignment object and the calls throw "not a function".
+// TODO: break the cycle properly (e.g. move getPreviousAppSpecifications) and
+// restore a top-level require.
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
 const hwRequirements = require('../appRequirements/hwRequirements');
 const config = require('config');
@@ -928,6 +930,9 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
  */
 async function installAppLocally(req, res) {
   try {
+    // lazy require to dodge the appInstaller<->messageVerifier require cycle (see top)
+    // eslint-disable-next-line global-require
+    const messageVerifier = require('../appMessaging/messageVerifier');
     // appname can be app name or app hash of specific app version
     let { appname } = req.params;
     appname = appname || req.query.appname;
@@ -1081,6 +1086,9 @@ async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStati
  */
 async function testAppInstall(req, res) {
   try {
+    // lazy require to dodge the appInstaller<->messageVerifier require cycle (see top)
+    // eslint-disable-next-line global-require
+    const messageVerifier = require('../appMessaging/messageVerifier');
     // appname can be app name or app hash of specific app version
     let { appname } = req.params;
     appname = appname || req.query.appname;
