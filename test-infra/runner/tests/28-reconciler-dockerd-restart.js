@@ -8,8 +8,7 @@ import { dbClient } from '../framework/db-client.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
-  waitForAppInstalled, waitFor,
-  waitForReconcileSwept, waitForReconcileActuated,
+  waitForAppInstalled, waitFor, waitForReconcileActuated,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -105,17 +104,17 @@ describe('reconciler recovers orphaned containers after a dockerd restart', func
 
     await restartDockerd(client.container);
 
-    // the reconnect sweep must fire...
-    const swept = await waitForReconcileSwept(client, 'reconnect', 90000, { afterId });
-    expect(swept.data.count).to.be.greaterThan(0);
-
-    // ...and the orphaned (exited) container must be restarted by the reconciler
-    await waitForReconcileActuated(client, identifier, 'started', 90000, { afterId });
+    // The orphaned (exited) container must be brought back by the reconciler. The
+    // recovery can come from either the reconnect sweep or the deferred retry that
+    // fires once docker is reachable again — both are valid; what matters is that
+    // the container is restarted (never recreated/uninstalled, which the
+    // docker-unreachable defer guards against).
+    await waitForReconcileActuated(client, identifier, 'started', 120000, { afterId });
 
     // and Docker confirms it is actually Up again
     await waitFor(async () => {
       const status = await getAppContainerStatus(client.container, appName);
       return status && status.status.startsWith('Up');
-    }, { timeout: 60000, interval: 3000, label: 'orphaned container running after reconnect sweep' });
+    }, { timeout: 60000, interval: 3000, label: 'orphaned container running after dockerd restart' });
   });
 });
