@@ -346,6 +346,7 @@ module.exports = {
     imageUpdateDelayBetweenAppsMs: 5000,
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
+    masterSlaveIntervalMs: 30000, // masterSlave (g:) FDM election cycle
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -381,6 +382,8 @@ module.exports = {
   syncthing: { // operates on apiPort + 2
     ip: '127.0.0.1',
     port: 8384,
+    monitorIntervalMs: 30000, // syncthingApps reconfiguration/sync-readiness cycle
+    stalledSyncCheckCount: 10, // consecutive no-progress cycles before a sync is "stalled" (~5min at 30s)
   },
   // enterpriseAppOwners moved to helpers/enterprisenodes.json (synced from github every 6h, see enterpriseConfig)
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.

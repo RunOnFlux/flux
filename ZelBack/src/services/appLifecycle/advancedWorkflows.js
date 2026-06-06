@@ -4061,7 +4061,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
   } finally {
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = false;
-    await serviceHelper.delay(30 * 1000);
+    await serviceHelper.delay(config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000);
     masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https);
   }
 }

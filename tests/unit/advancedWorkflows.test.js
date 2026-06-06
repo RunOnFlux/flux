@@ -1282,6 +1282,9 @@ describe('advancedWorkflows tests', () => {
       const dockerService = require('../../ZelBack/src/services/dockerService');
       dockerServiceStub.returns('fluxn8n_n8napp');
       const appDockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+      // post-inversion, a standby records desired-stopped through the reconciler seam
+      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+      const setControllerDesiredStub = sinon.stub(appReconciler, 'setControllerDesired');
 
       // Mixed compose app: n8n uses g: master/slave, pgcluster needs all instances running
       const installedApps = sinon.stub().resolves({
@@ -1324,10 +1327,14 @@ describe('advancedWorkflows tests', () => {
         https,
       );
 
-      // Only the g: component must be stopped - not the whole app, not the pgcluster sibling
-      expect(appDockerStopStub.calledWith('n8n_n8napp')).to.be.true;
-      expect(appDockerStopStub.neverCalledWith('pgcluster_n8napp')).to.be.true;
-      expect(appDockerStopStub.neverCalledWith(appName)).to.be.true;
+      // masterSlaveApps' job here is the election DECISION: it must declare the g:
+      // component desired-stopped (with the standby reason) and touch nothing else.
+      // Actuation is the reconciler's job (covered in appReconciler.test.js), so it
+      // must NOT call appDockerStop directly.
+      expect(setControllerDesiredStub.calledWith('n8n_n8napp', 'stopped', 'masterSlave standby')).to.be.true;
+      expect(setControllerDesiredStub.neverCalledWith('pgcluster_n8napp')).to.be.true;
+      expect(setControllerDesiredStub.neverCalledWith(appName)).to.be.true;
+      expect(appDockerStopStub.called).to.be.false;
     });
 
     it('does not stop anything on a standby node when the g: component is already stopped', async () => {
@@ -1442,6 +1449,8 @@ describe('advancedWorkflows tests', () => {
       const dockerService = require('../../ZelBack/src/services/dockerService');
       dockerServiceStub.returns('fluxn8n_n8napp');
       const appDockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+      const setControllerDesiredStub = sinon.stub(appReconciler, 'setControllerDesired');
 
       const installedApps = sinon.stub().resolves({
         status: 'success',
@@ -1482,9 +1491,11 @@ describe('advancedWorkflows tests', () => {
         https,
       );
 
-      // Only the g: component is stopped; the non-g sibling is left running.
-      expect(appDockerStopStub.calledWith('n8n_n8napp')).to.be.true;
-      expect(appDockerStopStub.neverCalledWith('pgcluster_n8napp')).to.be.true;
+      // The standby's g: component is declared desired-stopped through the reconciler
+      // seam; the non-g sibling is untouched and Docker is not actuated directly here.
+      expect(setControllerDesiredStub.calledWith('n8n_n8napp', 'stopped', 'masterSlave standby')).to.be.true;
+      expect(setControllerDesiredStub.neverCalledWith('pgcluster_n8napp')).to.be.true;
+      expect(appDockerStopStub.called).to.be.false;
     });
   });
 

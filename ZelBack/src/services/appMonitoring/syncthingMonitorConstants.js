@@ -1,8 +1,12 @@
 // Syncthing Monitor - Constants
 
+const config = require('config');
+
 // Timeout values (milliseconds)
 const DEVICE_ID_REQUEST_TIMEOUT_MS = 5000;
-const MONITOR_INTERVAL_MS = 30 * 1000; // 30 seconds
+// Tunable for tests via config.syncthing (see ZelBack/config/default.js); the
+// literal is the production default when the key is absent.
+const MONITOR_INTERVAL_MS = config.syncthing.monitorIntervalMs ?? 30 * 1000; // 30 seconds
 const OPERATION_DELAY_MS = 500;
 const ERROR_RETRY_DELAY_MS = 5 * 1000; // 5 seconds
 const SYNC_STATE_LOG_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -13,7 +17,7 @@ const SYNCTHING_MAX_CONFLICTS = 0;
 
 // Sync monitoring
 const MAX_SYNC_WAIT_EXECUTIONS = 120; // ~1 hour at 30s intervals
-const STALLED_SYNC_CHECK_COUNT = 10; // Number of checks with no progress before considering sync stalled (~5 minutes)
+const STALLED_SYNC_CHECK_COUNT = config.syncthing.stalledSyncCheckCount ?? 10; // no-progress checks before sync is "stalled" (~5 minutes)
 const CLOCK_SKEW_TOLERANCE_MS = 5000; // 5 seconds tolerance for timestamp comparison
 const LEADER_ELECTION_MIN_EXECUTIONS = 2;
 const LEADER_ELECTION_EXECUTIONS_PER_INDEX = 10;

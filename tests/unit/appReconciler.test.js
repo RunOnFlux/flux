@@ -182,6 +182,29 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.calledOnceWith('db_App')).to.be.true;
     });
 
+    // the actuation half of the masterSlave standby path: the decider sets a running
+    // g: component desired-stopped, the reconciler is what actually stops Docker.
+    it('stops a running g: component a controller has set stopped (masterSlave standby)', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'stopped', 'masterSlave standby');
+      stubs.globalState.bootContainerStateSettled = true;
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerStop.calledOnceWith('db_App')).to.be.true;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    // an un-elected g: container that is somehow running (e.g. stale from a prior
+    // election) must be stopped even with no explicit desired set.
+    it('stops a running g: component that no controller has elected', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      await appReconciler.reconcile('db_App'); // controllerDesired unset
+      expect(stubs.dockerService.appDockerStop.calledOnceWith('db_App')).to.be.true;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
     it('defers while another operation owns the container', async () => {
       stubs.globalState.isOperationInProgress = () => true;
       await appReconciler.reconcile('www_App');

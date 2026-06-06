@@ -334,6 +334,7 @@ module.exports = {
     imageUpdateDelayBetweenAppsMs: 5000,
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
+    masterSlaveIntervalMs: 30000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -369,6 +370,8 @@ module.exports = {
   syncthing: { // operates on apiPort + 2
     ip: '127.0.0.1', // local
     port: 8384, // local
+    monitorIntervalMs: 30000,
+    stalledSyncCheckCount: 10,
   },
   cpuBurst: {
     enabled: true,

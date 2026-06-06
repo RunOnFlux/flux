@@ -484,7 +484,7 @@ async function startFluxFunctions() {
           globalState.restoreInProgress,
           https,
         ); // stop and starts apps using syncthing g: when a new master is required or was changed.
-      }, 30 * 1000);
+      }, config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000);
       setTimeout(() => {
         appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally, globalState); // Monitor SharedDB Apps.
       }, 60 * 1000);
