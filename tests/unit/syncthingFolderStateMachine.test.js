@@ -43,8 +43,8 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
 
 describe('syncthingFolderStateMachine tests', () => {
   beforeEach(() => {
-    // Reset all stubs before each test
-    sinon.reset();
+    // Reset only this file's own stubs (NOT a global sinon.reset(), which would
+    // wipe stub behaviour set up by other test files in the same mocha process)
     syncthingServiceMock.getDbStatus.reset();
     syncthingServiceMock.systemRestart.reset();
     syncthingServiceMock.systemRestart.resolves();

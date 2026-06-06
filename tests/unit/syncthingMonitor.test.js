@@ -109,10 +109,8 @@ describe('syncthingMonitor tests', () => {
       receiveOnlySyncthingAppsCache: new Map(),
       syncthingAppsFirstRun: false,
     };
-    // safe defaults so the fire-and-forget runMonitoring() that syncthingApps
-    // kicks off never resolves into garbage (tests override as needed)
-    mockInstalledAppsFn = sinon.stub().resolves({ status: 'success', data: [] });
-    mockGetGlobalStateFn = sinon.stub().returns(mockState);
+    mockInstalledAppsFn = sinon.stub();
+    mockGetGlobalStateFn = sinon.stub();
     mockAppDockerStopFn = sinon.stub().resolves();
     mockAppDockerRestartFn = sinon.stub().resolves();
     mockAppDeleteDataFn = sinon.stub().resolves();
@@ -131,11 +129,6 @@ describe('syncthingMonitor tests', () => {
     dockerServiceMock.dockerContainerInspect.reset();
     dockerServiceMock.appDockerStart.reset();
     syncthingHealthMonitorMock.monitorFolderHealth.reset();
-    // re-establish in beforeEach: this default is set at module load, but another
-    // test file's global sinon.reset() can wipe it, leaving decrypt returning
-    // undefined (-> "appsInstalled is not iterable" in the async runMonitoring)
-    appQueryServiceMock.decryptEnterpriseApps.reset();
-    appQueryServiceMock.decryptEnterpriseApps.returnsArg(0);
 
     // Default stub behaviors
     syncthingServiceMock.getConfigFolders.resolves({ data: [] });
