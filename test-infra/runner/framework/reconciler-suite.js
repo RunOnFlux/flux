@@ -34,12 +34,23 @@ async function seedGlobalSpec(env, app, indices) {
 export async function installOnNodes(env, app, indices, { timeout = 120000 } = {}) {
   await seedGlobalSpec(env, app, indices);
   const teamKey = fluxTeamKey();
-  await Promise.all(indices.map(async (i) => {
+  // install sequentially: concurrent installs of a syncthing (g:/r:) app race on
+  // the shared syncthing-stub folder config; one node at a time is reliable.
+  // eslint-disable-next-line no-restricted-syntax
+  for (const i of indices) {
     const client = env.clients[i];
+    // eslint-disable-next-line no-await-in-loop
     const auth = await authenticate(client.url, teamKey);
-    await client.installAppLocally(app.spec.name, auth.zelidauth); // drains the install stream
+    // installapplocally streams progress then a final status; surface a failure
+    // in that body instead of silently waiting out the app:installed timeout.
+    // eslint-disable-next-line no-await-in-loop
+    const body = await client.installAppLocally(app.spec.name, auth.zelidauth);
+    if (/"status"\s*:\s*"error"|Application .* not found|already installed|Unauthorized|Not enough/i.test(body)) {
+      throw new Error(`installapplocally failed on node ${i}: ${body.slice(-600)}`);
+    }
+    // eslint-disable-next-line no-await-in-loop
     await waitForAppInstalled(client, app.spec.name, timeout);
-  }));
+  }
   return indices;
 }
 
