@@ -82,7 +82,7 @@ async function checkAndNotifyPeersOfRunningApps() {
 
     // hourly resync trigger: let the reconciler bring any drifted containers
     // (crashed, orphaned, missed events) back to their desired state
-    appReconciler.enqueueAll().catch((err) => log.error(`peerNotification - reconcile sweep failed: ${err.message}`));
+    appReconciler.enqueueAll('hourly').catch((err) => log.error(`peerNotification - reconcile sweep failed: ${err.message}`));
 
     // apps using g:/r: syncthing are advertised as installed-and-running even when
     // some components are intentionally stopped (e.g. slaves), so derive them

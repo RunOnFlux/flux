@@ -88,7 +88,7 @@ async function subscribe() {
     // reconcile every component from actual state to catch orphans
     if (hasConnected && globalState.bootContainerStateSettled) {
       log.info('containerCrashRecovery - stream reconnected, reconciling all components');
-      appReconciler.enqueueAll().catch((err) => {
+      appReconciler.enqueueAll('reconnect').catch((err) => {
         log.error(`containerCrashRecovery - reconnect reconcile failed: ${err.message}`);
       });
     }

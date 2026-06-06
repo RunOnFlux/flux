@@ -1,5 +1,6 @@
 const config = require('config');
 const log = require('../../lib/log');
+const fluxEventBus = require('../utils/fluxEventBus');
 const dbHelper = require('../dbHelper');
 const dockerService = require('../dockerService');
 const globalState = require('../utils/globalState');
@@ -130,11 +131,12 @@ function isManagedElsewhere(identifier) {
 }
 
 async function effectiveDesiredRunning(identifier, spec, exitCode) {
-  if (await appsRuntimeState.isOperatorStopped(identifier)) return false;
+  if (await appsRuntimeState.isOperatorStopped(identifier)) return { desired: false, reason: 'operatorStopped' };
   if (spec.isG || spec.isR) {
-    if (controllerDesired.get(identifier) !== 'running') return false;
+    if (controllerDesired.get(identifier) !== 'running') return { desired: false, reason: 'controllerDesired' };
   }
-  return policyAllowsRun(getRestartPolicy(spec), exitCode);
+  const desired = policyAllowsRun(getRestartPolicy(spec), exitCode);
+  return { desired, reason: desired ? 'running' : 'policy' };
 }
 
 /**
@@ -150,8 +152,10 @@ async function recreateMissing(identifier) {
     await containerHealthMonitor.recreateMissingContainers(identifier);
     appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
     log.info(`appReconciler - recreated missing container ${identifier}`);
+    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated' });
   } catch (err) {
     log.error(`appReconciler - failed to recreate ${identifier}: ${err.message}`);
+    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreateFailed', reason: err.message });
     await appTamperingDetectionService.recordEvent(mainAppName, 'recreation_failed', `Container recreation failure: ${err.message}`);
     if (appTamperingDetectionService.isNetworkMissingError(err.message)) {
       await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Docker network missing during recreation: ${err.message}`);
@@ -173,12 +177,13 @@ async function reconcile(identifier) {
   if (!spec) return; // not installed here - nothing to enforce
 
   const actual = await dockerActual(identifier);
-  const desired = await effectiveDesiredRunning(identifier, spec, actual.exitCode);
+  const { desired, reason } = await effectiveDesiredRunning(identifier, spec, actual.exitCode);
 
   if (!desired) {
     if (actual.running) {
       log.info(`appReconciler - ${identifier} desired stopped, stopping`);
       await dockerService.appDockerStop(identifier);
+      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason });
     }
     return;
   }
@@ -195,6 +200,7 @@ async function reconcile(identifier) {
   const wait = await appsRuntimeState.restartWaitMs(identifier);
   if (wait > 0) {
     log.warn(`appReconciler - ${identifier} stopped, backing off ${Math.round(wait / 1000)}s before restart`);
+    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'backoff', waitMs: wait });
     scheduleRetry(identifier, wait);
     return;
   }
@@ -203,6 +209,7 @@ async function reconcile(identifier) {
   await dockerService.appDockerStart(identifier);
   appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
   log.info(`appReconciler - ${identifier} restarted`);
+  fluxEventBus.publish('reconciler:actuated', { identifier, action: 'started', exitCode: actual.exitCode });
 }
 
 // --- workqueue (per-key single-flight, boot-gated) -----------------------
@@ -250,16 +257,19 @@ function enqueue(identifier) {
 /**
  * Enqueue every installed component (hourly tick / reconnect / boot drift).
  */
-async function enqueueAll() {
+async function enqueueAll(reason = 'resync') {
   const res = await appQueryService.installedApps();
   if (!res || res.status !== 'success') return;
+  let count = 0;
   for (const app of res.data) {
     if (app.version >= 4 && Array.isArray(app.compose)) {
-      app.compose.forEach((c) => enqueue(`${c.name}_${app.name}`));
+      app.compose.forEach((c) => { enqueue(`${c.name}_${app.name}`); count += 1; });
     } else {
       enqueue(app.name);
+      count += 1;
     }
   }
+  fluxEventBus.publish('reconciler:swept', { reason, count });
 }
 
 // --- controllerDesired seam (written by masterSlave/syncthing deciders) ---
@@ -273,6 +283,7 @@ async function enqueueAll() {
 function setControllerDesired(identifier, state, reason) {
   controllerDesired.set(identifier, state);
   log.info(`appReconciler - controllerDesired[${identifier}] = ${state} (${reason})`);
+  fluxEventBus.publish('reconciler:desiredChanged', { identifier, state, reason });
   enqueue(identifier);
 }
 
