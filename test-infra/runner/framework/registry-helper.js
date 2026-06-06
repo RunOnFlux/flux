@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import https from 'node:https';
@@ -96,6 +96,65 @@ export async function pushImage(repo, tag, markerContent = 'v1') {
     architecture: 'amd64',
     os: 'linux',
     config: { Entrypoint: ['/bin/pause'] },
+    rootfs: { type: 'layers', diff_ids: [diffId] },
+  };
+  const configBuf = Buffer.from(JSON.stringify(configObj));
+  const configDigest = await uploadBlob(repo, configBuf);
+
+  const manifest = {
+    schemaVersion: 2,
+    mediaType: 'application/vnd.docker.distribution.manifest.v2+json',
+    config: {
+      mediaType: 'application/vnd.docker.container.image.v1+json',
+      size: configBuf.length,
+      digest: configDigest,
+    },
+    layers: [{
+      mediaType: 'application/vnd.docker.image.rootfs.diff.tar.gzip',
+      size: gzippedLayer.length,
+      digest: layerDigest,
+    }],
+  };
+
+  const manifestRes = await registryClient.put(
+    `/v2/${repo}/manifests/${tag}`,
+    JSON.stringify(manifest),
+    {
+      headers: { 'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json' },
+      validateStatus: (s) => s === 201,
+    },
+  );
+
+  return manifestRes.headers['docker-content-digest'];
+}
+
+// Path to the compiled configurable test-app binary (see test-infra/test-app).
+const TEST_APP_BIN = join(__dirname, '..', '..', 'test-app', 'test-app');
+
+function buildBinaryLayerTar(binPath, binName, markerContent) {
+  if (!existsSync(binPath)) {
+    throw new Error(`test-app binary not found at ${binPath}. Build it once: bash test-infra/test-app/build.sh`);
+  }
+  const binEntry = tarEntry(`bin/${binName}`, readFileSync(binPath));
+  const markerEntry = tarEntry('marker', Buffer.from(markerContent), '0100644');
+  const eof = Buffer.alloc(1024);
+  return zlib.gzipSync(Buffer.concat([binEntry, markerEntry, eof]));
+}
+
+// Push the configurable test-app image (entrypoint /bin/test-app). Exit behaviour
+// is driven at run time by the app spec's environmentParameters (EXIT_CODE,
+// EXIT_AFTER_S) — see buildSeedableTestApp and test-infra/test-app/test-app.c.
+export async function pushTestApp(repo, tag = 'v1', markerContent = 'testapp') {
+  const gzippedLayer = buildBinaryLayerTar(TEST_APP_BIN, 'test-app', markerContent);
+  const layerDigest = await uploadBlob(repo, gzippedLayer);
+
+  const uncompressedLayer = zlib.gunzipSync(gzippedLayer);
+  const diffId = `sha256:${sha256(uncompressedLayer)}`;
+
+  const configObj = {
+    architecture: 'amd64',
+    os: 'linux',
+    config: { Entrypoint: ['/bin/test-app'] },
     rootfs: { type: 'layers', diff_ids: [diffId] },
   };
   const configBuf = Buffer.from(JSON.stringify(configObj));

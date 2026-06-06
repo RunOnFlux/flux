@@ -141,6 +141,38 @@ export async function buildSeedableSyncthingApp({
   return buildSeedableApp({ name, compose, ...rest });
 }
 
+/**
+ * A seedable app backed by the configurable test-app image (see
+ * test-infra/test-app). Exit behaviour is driven by env vars passed through the
+ * spec's environmentParameters: EXIT_CODE (status on signal/timed exit) and
+ * optional EXIT_AFTER_S (self-exit after N seconds). Push the image first with
+ * registry-helper.pushTestApp(name).
+ */
+export async function buildSeedableTestApp({
+  name, exitCode = 0, exitAfterS = null, ...rest
+}) {
+  const environmentParameters = [`EXIT_CODE=${exitCode}`];
+  if (exitAfterS != null) environmentParameters.push(`EXIT_AFTER_S=${exitAfterS}`);
+
+  const compose = [{
+    name,
+    description: 'configurable exit test container',
+    repotag: `198.18.0.5:5000/${name}:v1`,
+    ports: [31111],
+    domains: [''],
+    environmentParameters,
+    commands: [],
+    containerPorts: [80],
+    containerData: '/tmp',
+    cpu: 0.1,
+    ram: 100,
+    hdd: 1,
+    repoauth: '',
+  }];
+
+  return buildSeedableApp({ name, compose, ...rest });
+}
+
 export function buildRunningState({ appName, nodeIps, hash, broadcastedAt = null }) {
   const ts = broadcastedAt ?? Date.now();
 

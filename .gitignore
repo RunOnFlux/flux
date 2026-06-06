@@ -378,3 +378,6 @@ CLAUDE.md
 
 # CloudUI - Pre-built frontend (downloaded via npm run update:cloudui)
 CloudUI/
+
+# compiled test-app fixture binary (built via test-infra/test-app/build.sh)
+test-infra/test-app/test-app

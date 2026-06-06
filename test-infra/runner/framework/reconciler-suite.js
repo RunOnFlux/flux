@@ -2,10 +2,10 @@
 // fleet to the peered/ticking state; seedAndInstall DB-seeds a pre-built app on
 // every node and waits for it to install. Modelled on suite 28's inline helpers
 // so new suites don't each re-copy them.
-import { pushImage } from './registry-helper.js';
+import { pushImage, pushTestApp } from './registry-helper.js';
 import { startTicker, advanceBlock } from './daemon-control.js';
 import { dbClient } from './db-client.js';
-import { buildSeedableApp, buildSeedableSyncthingApp } from './seed-helper.js';
+import { buildSeedableApp, buildSeedableSyncthingApp, buildSeedableTestApp } from './seed-helper.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled,
 } from './wait.js';
@@ -104,6 +104,16 @@ export async function seedSyncthingApp(env, { name, mode = 'r', runningPeerIp = 
     return i;
   }));
   return { app, index, folder: `flux${name}_${name}`, identifier: `${name}_${name}` };
+}
+
+// Seed the configurable test-app (controllable exit code / timed exit) and wait
+// for it to install. Returns { app, index, identifier }. Requires the test-app
+// binary to be built (bash test-infra/test-app/build.sh).
+export async function seedTestApp(env, { name, exitCode = 0, exitAfterS = null } = {}) {
+  await pushTestApp(name);
+  const app = await buildSeedableTestApp({ name, exitCode, exitAfterS });
+  const index = await seedAndInstall(env, app);
+  return { app, index, identifier: `${name}_${name}` };
 }
 
 export async function seedSimpleApp(env, appName, { port = 31111 } = {}) {
