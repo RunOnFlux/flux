@@ -45,18 +45,24 @@ if [ -f /usr/local/share/ca-certificates/test-registry.crt ]; then
   cp /usr/local/share/ca-certificates/test-registry.crt "/etc/docker/certs.d/198.18.0.5:5000/ca.crt"
 fi
 
-# Start dockerd (FluxOS expects Docker on the local socket)
+# Start dockerd under a tiny watchdog so it is respawned if it exits. Production
+# nodes run dockerd under systemd (which restarts it); this mirrors that and lets
+# tests bounce dockerd (kill it) to exercise the reconciler's reconnect/orphan
+# recovery without bricking the node. node app.js stays PID 1 (via exec below).
 rm -f /var/run/docker.pid
-dockerd --data-root /mnt/appdata/docker &
-DOCKERD_PID=$!
+(
+  set +e
+  while true; do
+    rm -f /var/run/docker.pid
+    dockerd --data-root /mnt/appdata/docker
+    echo "dockerd exited (rc=$?), respawning in 1s" >&2
+    sleep 1
+  done
+) &
 
 TIMEOUT=30
 ELAPSED=0
 until docker info > /dev/null 2>&1; do
-  if ! kill -0 "$DOCKERD_PID" 2>/dev/null; then
-    echo "ERROR: dockerd exited unexpectedly" >&2
-    exit 1
-  fi
   if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
     echo "ERROR: dockerd failed to start within ${TIMEOUT}s" >&2
     exit 1

@@ -114,3 +114,52 @@ export async function waitForAppRunning(node, appName, timeout = 60000) {
 export async function waitForPeersRemoved(node, predicate = () => true, timeout = 30000) {
   return node.waitForEvent('peers:removed', predicate, timeout);
 }
+
+// --- reconciler (appReconciler) ---
+
+// action: 'started' | 'stopped' | 'backoff' | 'recreated' | 'recreateFailed' (omit to match any)
+export async function waitForReconcileActuated(node, identifier, action, timeout = 60000, opts) {
+  return node.waitForEvent(
+    'reconciler:actuated',
+    (d) => d.identifier === identifier && (!action || d.action === action),
+    timeout,
+    opts,
+  );
+}
+
+// state: 'running' | 'stopped' (omit to match any)
+export async function waitForReconcilerDesiredChanged(node, identifier, state, timeout = 60000, opts) {
+  return node.waitForEvent(
+    'reconciler:desiredChanged',
+    (d) => d.identifier === identifier && (!state || d.state === state),
+    timeout,
+    opts,
+  );
+}
+
+// reason: 'reconnect' | 'hourly' | 'boot' | 'resync' (omit to match any)
+export async function waitForReconcileSwept(node, reason, timeout = 60000, opts) {
+  return node.waitForEvent(
+    'reconciler:swept',
+    (d) => !reason || d.reason === reason,
+    timeout,
+    opts,
+  );
+}
+
+/**
+ * Negative assertion: wait `windowMs` and assert that NO event named `name`
+ * matching `predicate` arrived in that window. Captures the current last-seen
+ * event id up front so events already buffered before the call are ignored.
+ * Use for "the reconciler must NOT start this container" (e.g. syncthing S10).
+ */
+export async function assertNoEvent(node, name, predicate = () => true, windowMs = 5000) {
+  const afterId = node.getLastEventId();
+  await new Promise((r) => setTimeout(r, windowMs));
+  const match = node.getEventBuffer().find(
+    (e) => e.event === name && e.id > afterId && predicate(e.data),
+  );
+  if (match) {
+    throw new Error(`Expected no '${name}' event within ${windowMs}ms but got: ${JSON.stringify(match.data)}`);
+  }
+}
