@@ -36,8 +36,8 @@ const healthMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/synct
 
 describe('syncthingHealthMonitor tests', () => {
   beforeEach(() => {
-    // Reset all stubs before each test
-    sinon.reset();
+    // Reset only this file's own stubs (a global sinon.reset() would wipe stub
+    // behaviour set up at module load by other test files in the same run)
     syncthingServiceMock.getPeerSyncDiagnostics.reset();
     syncthingServiceMock.systemRestart.reset();
     logMock.info.reset();
