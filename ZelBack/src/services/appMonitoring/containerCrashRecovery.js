@@ -48,6 +48,11 @@ function getBackoffDelay(containerName) {
 function recordRestart(containerName) {
   const history = restartHistory.get(containerName) || [];
   history.push(nowMs());
+  // only the count (capped by the backoff ladder) and the last timestamp are
+  // ever read, so keep the array bounded for perpetually crashing containers
+  if (history.length > BACKOFF_DELAYS_MS.length) {
+    history.splice(0, history.length - BACKOFF_DELAYS_MS.length);
+  }
   restartHistory.set(containerName, history);
 }
 
@@ -63,8 +68,6 @@ async function handleContainerDie(event) {
     log.info(`containerCrashRecovery - ${containerName} was intentionally stopped (exit ${exitCode}), skipping`);
     return;
   }
-
-  if (exitCode === 0) return;
 
   if (!globalState.bootContainerStateSettled) {
     log.info(`containerCrashRecovery - ${containerName} died (exit ${exitCode}) during boot, queuing`);

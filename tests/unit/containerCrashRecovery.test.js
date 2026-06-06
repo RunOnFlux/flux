@@ -177,12 +177,12 @@ describe('containerCrashRecovery tests', () => {
       expect(dockerServiceStub.appDockerStart.firstCall.args[0]).to.equal('KadenaChainWebNode');
     });
 
-    it('should ignore clean exits (code 0)', async () => {
+    it('should restart on a clean exit (code 0) by default (restart-always)', async () => {
       emitDie('fluxwww_Osmosis', 0);
       await new Promise((r) => setImmediate(r));
 
-      expect(dockerServiceStub.appDockerStart.called).to.be.false;
-      expect(logStub.warn.called).to.be.false;
+      expect(dockerServiceStub.appDockerStart.calledOnce).to.be.true;
+      expect(dockerServiceStub.appDockerStart.firstCall.args[0]).to.equal('www_Osmosis');
     });
 
     it('should ignore non-flux containers', async () => {
@@ -308,6 +308,36 @@ describe('containerCrashRecovery tests', () => {
       // Should be immediate again (backoff reset), not 5m
       expect(dockerServiceStub.appDockerStart.callCount).to.equal(3);
       expect(logStub.warn.calledWithMatch(/waiting 5/)).to.be.false;
+
+      clock.restore();
+    });
+
+    it('should pin backoff at the 30m cap and not escalate beyond it', async () => {
+      const clock = sinon.useFakeTimers({ shouldAdvanceTime: true });
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'exited' });
+
+      // first crash restarts immediately
+      emitDie('fluxwww_Osmosis', 1);
+      await clock.tickAsync(0);
+      expect(dockerServiceStub.appDockerStart.callCount).to.equal(1);
+
+      // ladder escalates: 30s, 5m, 15m, 30m
+      const ladder = [30 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 30 * 60 * 1000];
+      let expectedCount = 1;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const delay of ladder) {
+        emitDie('fluxwww_Osmosis', 1);
+        // eslint-disable-next-line no-await-in-loop
+        await clock.tickAsync(delay);
+        expectedCount += 1;
+        expect(dockerServiceStub.appDockerStart.callCount).to.equal(expectedCount);
+      }
+
+      // further crashes stay pinned at the 30m cap (history bounded, ladder index pinned)
+      emitDie('fluxwww_Osmosis', 1);
+      await clock.tickAsync(30 * 60 * 1000);
+      expect(dockerServiceStub.appDockerStart.callCount).to.equal(expectedCount + 1);
+      expect(logStub.warn.calledWithMatch(/waiting 1800s/)).to.be.true;
 
       clock.restore();
     });
