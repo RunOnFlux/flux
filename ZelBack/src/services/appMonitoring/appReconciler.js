@@ -97,23 +97,31 @@ async function getLocalComponentSpec(identifier) {
 }
 
 /**
- * Whether an inspect error means the container genuinely doesn't exist (docker
- * is reachable and answered "no such container") as opposed to docker being
- * unreachable (socket down, e.g. dockerd restarting). Only the former is a
- * missing container; the latter is transient and must NOT trigger recreate.
+ * Whether the Docker daemon is reachable at all. A cheap list call: if it
+ * answers, docker is up; if it throws (socket down, e.g. dockerd restarting),
+ * it is not. Used to disambiguate an inspect failure — see dockerActual.
  */
-function isContainerMissingError(err) {
-  if (!err) return false;
-  if (err.statusCode === 404 || err.reason === 'no such container') return true;
-  return typeof err.message === 'string' && err.message.toLowerCase().includes('no such container');
+async function dockerReachable() {
+  try {
+    await dockerService.dockerListContainers(true);
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 /**
  * Reads the container's actual state from Docker. exitCode is null when the
  * container has never run (state 'created') so restart policies treat it as an
- * initial start. `reachable` is false when the Docker daemon could not be
- * contacted at all (e.g. mid dockerd-restart) — the caller must defer rather
- * than mistake an unreachable daemon for a vanished container.
+ * initial start.
+ *
+ * An inspect failure is ambiguous: the container may be genuinely gone, OR
+ * docker may be unreachable (mid dockerd-restart). These surface as different,
+ * version-dependent errors (a lookup TypeError vs a socket error), so rather
+ * than pattern-match the error we probe the daemon directly: if docker is
+ * reachable the container really is missing (recreate); if not, `reachable` is
+ * false and the caller must defer rather than mistake a down daemon for a
+ * vanished container (which would wrongly recreate then uninstall the app).
  */
 async function dockerActual(identifier) {
   try {
@@ -126,10 +134,8 @@ async function dockerActual(identifier) {
       exitCode: everRan ? (info.State.ExitCode ?? null) : null,
     };
   } catch (err) {
-    if (isContainerMissingError(err)) {
-      return { reachable: true, exists: false, running: false, exitCode: null };
-    }
-    return { reachable: false, exists: false, running: false, exitCode: null };
+    const reachable = await dockerReachable();
+    return { reachable, exists: false, running: false, exitCode: null };
   }
 }
 

@@ -20,6 +20,8 @@ describe('appReconciler tests', () => {
       },
       dockerService: {
         dockerContainerInspect: sinon.stub().resolves({ State: { Running: false, Status: 'exited', ExitCode: 1 } }),
+        // reachability probe used by dockerActual on an inspect failure; resolves => docker up
+        dockerListContainers: sinon.stub().resolves([]),
         appDockerStart: sinon.stub().resolves(),
         appDockerStop: sinon.stub().resolves(),
         getAppIdentifier: (id) => `flux${id}`,
@@ -130,16 +132,20 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
-    it('recreates a missing container that should run', async () => {
-      stubs.dockerService.dockerContainerInspect.rejects(new Error('no such container'));
+    it('recreates a missing container that should run (docker reachable)', async () => {
+      // production shape of a genuinely-missing container: getDockerContainerOnly
+      // returns undefined -> docker.getContainer(undefined.Id) throws a TypeError.
+      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
       await appReconciler.reconcile('www_App');
       expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'container_vanished')).to.be.true;
       expect(stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App')).to.be.true;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
-    it('removes the app locally when recreation fails', async () => {
-      stubs.dockerService.dockerContainerInspect.rejects(new Error('no such container'));
+    it('removes the app locally when recreation fails (docker reachable)', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
       stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('boom'));
       await appReconciler.reconcile('www_App');
       expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'recreation_failed')).to.be.true;
@@ -147,11 +153,12 @@ describe('appReconciler tests', () => {
     });
 
     it('defers (never recreates/uninstalls) when docker is unreachable', async () => {
-      // a connection error means dockerd is down (e.g. restarting), NOT that the
-      // container vanished - must not recreate or uninstall the app.
-      const err = new Error('connect ENOENT /var/run/docker.sock');
-      err.code = 'ENOENT';
-      stubs.dockerService.dockerContainerInspect.rejects(err);
+      // dockerd is down (e.g. restarting): inspect throws AND the reachability
+      // probe throws too -> must defer, not mistake it for a vanished container.
+      const connErr = new Error('connect ENOENT /var/run/docker.sock');
+      connErr.code = 'ENOENT';
+      stubs.dockerService.dockerContainerInspect.rejects(connErr);
+      stubs.dockerService.dockerListContainers.rejects(connErr); // probe: docker is down
       await appReconciler.reconcile('www_App');
       expect(stubs.containerHealthMonitor.recreateMissingContainers.called).to.be.false;
       expect(stubs.appUninstaller.removeAppLocally.called).to.be.false;
