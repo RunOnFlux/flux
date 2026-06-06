@@ -27,12 +27,18 @@ const nodecmdMock = {
   run: sinon.stub(),
 };
 
+const appReconcilerMock = { setControllerDesired: sinon.stub(), enqueue: sinon.stub() };
+const appUninstallerMock = { removeAppLocally: sinon.stub().resolves() };
+
 // Load module with mocked dependencies
 const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine', {
   '../dockerService': dockerServiceMock,
   '../syncthingService': syncthingServiceMock,
   '../serviceHelper': serviceHelperMock,
   'node-cmd': nodecmdMock,
+  // stub new collaborators so the unit test doesn't load the real module graph
+  './appReconciler': appReconcilerMock,
+  '../appLifecycle/appUninstaller': appUninstallerMock,
 });
 
 describe('syncthingFolderStateMachine tests', () => {
