@@ -4,6 +4,7 @@ const nodecmd = require('node-cmd');
 const log = require('../../lib/log');
 const dockerService = require('../dockerService');
 const appReconciler = require('./appReconciler');
+const appUninstaller = require('../appLifecycle/appUninstaller');
 const syncthingService = require('../syncthingService');
 const serviceHelper = require('../serviceHelper');
 const { appsFolder } = require('../utils/appConstants');
@@ -487,42 +488,10 @@ async function handleReceiveOnlyTransition(params) {
       + `state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`,
     );
 
-    // Check if synced or reached max wait time first (takes precedence)
-    if (syncStatus.isSynced || cache.numberOfExecutions >= MAX_SYNC_WAIT_EXECUTIONS) {
-      if (syncStatus.isSynced) {
-        log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
-      } else {
-        // Reached max wait time - check if we should remove the app
-        const syncIsStalled = isSyncStalled(cache.syncHistory);
-        const peersAreSynced = syncIsStalled ? await checkIfPeersAreSynced(appId) : false;
-
-        if (!syncStatus.isSynced && syncIsStalled && peersAreSynced) {
-          log.error(
-            `handleReceiveOnlyTransition - ${appId} reached max wait time with stalled sync and synced peers. `
-            + 'Removing app from node...',
-          );
-
-          // Remove the app from the node
-          try {
-            // eslint-disable-next-line global-require
-            const appUninstaller = require('../appLifecycle/appUninstaller');
-            await appUninstaller.removeAppLocally(appId, null, true, false, true);
-            log.info(`handleReceiveOnlyTransition - ${appId} removed from node successfully`);
-          } catch (error) {
-            log.error(`handleReceiveOnlyTransition - Failed to remove ${appId}: ${error.message}`);
-          }
-
-          // Mark as restarted to prevent further processing
-          cache.restarted = true;
-          return { syncthingFolder, cache };
-        }
-
-        log.warn(`handleReceiveOnlyTransition - ${appId} reached max wait time (${MAX_SYNC_WAIT_EXECUTIONS} executions), forcing start`);
-      }
-
-      // Fix permissions before changing to sendreceive - critical for synced data
+    // Synced -> safe to switch to sendreceive and start.
+    if (syncStatus.isSynced) {
+      log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
       await fixAppdataPermissions(appId);
-
       syncthingFolder.type = 'sendreceive';
       if (containerDataFlags.includes('r')) {
         log.info(`handleReceiveOnlyTransition - starting ${appId}`);
@@ -532,50 +501,53 @@ async function handleReceiveOnlyTransition(params) {
       return { syncthingFolder, cache };
     }
 
-    // Check for stalled sync - if no progress and peers are synced, restart Syncthing
-    // This only runs if we haven't reached max executions yet
-    // Limit to one restart attempt per app to prevent infinite loops
-    if (isSyncStalled(cache.syncHistory) && !cache.syncthingRestartAttempted) {
-      log.warn(`handleReceiveOnlyTransition - ${appId} sync appears stalled, checking if peers are available...`);
-      const peersAreSynced = await checkIfPeersAreSynced(appId);
-
-      if (peersAreSynced) {
-        log.warn(
-          `handleReceiveOnlyTransition - ${appId} sync stalled but peers are synced. `
-          + 'Stopping Docker app and restarting Syncthing to recover...',
-        );
-
-        // Stop Docker app if running
-        const { appDockerStopFn } = params;
-        try {
-          await appDockerStopFn(appId);
-          await serviceHelper.delay(OPERATION_DELAY_MS);
-          log.info(`handleReceiveOnlyTransition - ${appId} Docker container stopped`);
-        } catch (error) {
-          log.warn(`handleReceiveOnlyTransition - Could not stop ${appId}: ${error.message}`);
-        }
-
-        // Restart Syncthing
-        try {
-          await syncthingService.systemRestart();
-          log.info('handleReceiveOnlyTransition - Syncthing restarted to recover from stalled sync');
-        } catch (error) {
-          log.error(`handleReceiveOnlyTransition - Failed to restart Syncthing: ${error.message}`);
-        }
-
-        // Reset sync history and mark restart attempted
-        // Keep numberOfExecutions incrementing to eventually reach MAX_SYNC_WAIT_EXECUTIONS
-        cache.syncHistory = [];
-        cache.syncthingRestartAttempted = true; // Prevent infinite restart loop
-        delete cache.previousGlobalBytes;
-
-        log.info(`handleReceiveOnlyTransition - ${appId} recovery attempted (Syncthing restart), continuing to monitor`);
-        return { syncthingFolder, cache };
-      }
-      log.warn(`handleReceiveOnlyTransition - ${appId} sync stalled but no synced peers found, continuing to wait...`);
-    } else if (isSyncStalled(cache.syncHistory) && cache.syncthingRestartAttempted) {
-      log.warn(`handleReceiveOnlyTransition - ${appId} sync still stalled after Syncthing restart, continuing to wait for max executions...`);
+    // Not synced. We must NEVER start on unsynced data: going sendreceive would
+    // propagate an inconsistent state to peers. Only intervene once sync has
+    // actually stalled (no byte progress) — while it's still progressing, wait.
+    if (!isSyncStalled(cache.syncHistory)) {
+      return { syncthingFolder, cache };
     }
+
+    const peersAreSynced = await checkIfPeersAreSynced(appId);
+    if (!peersAreSynced) {
+      // Stalled but no peer holds the full data — there is no safe action, the
+      // only correct option is to keep waiting (an operator can intervene).
+      log.warn(`handleReceiveOnlyTransition - ${appId} sync stalled and no synced peer found, continuing to wait`);
+      return { syncthingFolder, cache };
+    }
+
+    // Stalled and a peer has the full data. Try a one-shot recovery (stop the
+    // container, restart Syncthing); if that doesn't unstick it, give up safely
+    // by removing locally — the data is preserved on the synced peer.
+    if (!cache.syncthingRestartAttempted) {
+      log.warn(`handleReceiveOnlyTransition - ${appId} sync stalled but peers are synced, stopping app and restarting Syncthing to recover`);
+      const { appDockerStopFn } = params;
+      try {
+        await appDockerStopFn(appId);
+        await serviceHelper.delay(OPERATION_DELAY_MS);
+      } catch (error) {
+        log.warn(`handleReceiveOnlyTransition - Could not stop ${appId}: ${error.message}`);
+      }
+      try {
+        await syncthingService.systemRestart();
+        log.info('handleReceiveOnlyTransition - Syncthing restarted to recover from stalled sync');
+      } catch (error) {
+        log.error(`handleReceiveOnlyTransition - Failed to restart Syncthing: ${error.message}`);
+      }
+      cache.syncHistory = [];
+      cache.syncthingRestartAttempted = true; // one attempt only
+      delete cache.previousGlobalBytes;
+      return { syncthingFolder, cache };
+    }
+
+    log.error(`handleReceiveOnlyTransition - ${appId} still stalled after Syncthing restart and peers hold the data; removing locally (data preserved on peers)`);
+    try {
+      await appUninstaller.removeAppLocally(appId, null, true, false, true);
+    } catch (error) {
+      log.error(`handleReceiveOnlyTransition - Failed to remove ${appId}: ${error.message}`);
+    }
+    cache.restarted = true;
+    return { syncthingFolder, cache };
   } else {
     // Fallback to time-based approach
     log.warn(`handleReceiveOnlyTransition - Could not get sync status for ${appId}, using fallback time-based logic`);

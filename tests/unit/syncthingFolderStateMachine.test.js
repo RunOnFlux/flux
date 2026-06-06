@@ -342,14 +342,15 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.calledOnce(mockParams.appDockerRestartFn);
     });
 
-    it('should force start after max executions', async () => {
+    it('should NOT start on unsynced data while sync is still progressing (no force-start)', async () => {
+      // not the leader, sync at 50% and still progressing (not stalled)
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
-        numberOfExecutions: 119, // MAX_SYNC_WAIT_EXECUTIONS - 1
+        numberOfExecutions: 119,
       });
       mockParams.appLocation.resolves([
-        { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 1000 },
-        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 900 }, // leader
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }, // this node
       ]);
       syncthingServiceMock.getDbStatus.resolves({
         status: 'success',
@@ -362,8 +363,11 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
-      expect(result.syncthingFolder.type).to.equal('sendreceive');
-      expect(result.cache.restarted).to.be.true;
+      // must stay receiveonly and never start — starting here would propagate
+      // unsynced data to peers
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted).to.not.equal(true);
+      sinon.assert.notCalled(mockParams.appDockerRestartFn);
     });
 
     it('should skip processing on first encounter when not first run and syncFolder exists', async () => {
@@ -545,8 +549,8 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.syncthingFolder.type).to.equal('receiveonly');
     });
 
-    it('should remove app when max executions reached with stalled sync and synced peers', async () => {
-      // Setup stalled sync scenario at max executions
+    it('should remove app when stalled with synced peers after a recovery attempt', async () => {
+      // Setup stalled sync scenario where the one-shot recovery has already run
       const syncHistory = [];
       for (let i = 0; i < 10; i++) {
         syncHistory.push({
@@ -559,8 +563,8 @@ describe('syncthingFolderStateMachine tests', () => {
 
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
-        numberOfExecutions: 120, // MAX_SYNC_WAIT_EXECUTIONS
         syncHistory,
+        syncthingRestartAttempted: true, // recovery already tried -> safe to give up
       });
       // Add multiple peers so this node is NOT the leader
       mockParams.appLocation.resolves([
