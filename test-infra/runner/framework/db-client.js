@@ -268,6 +268,17 @@ export function dbClient(nodeNum) {
       await localDb.collection('zelappsinformation').insertOne(spec);
     },
 
+    // Point an installed app's component image at an unpullable tag so a
+    // reconciler recreate (installApplicationHard) fails — simulates a tampered/
+    // broken image and exercises the recreate-failure -> uninstall path.
+    async breakLocalAppImage(appName, repotag = '198.18.0.5:5000/doesnotexist:nope') {
+      const localDb = await db('appsLocal');
+      await localDb.collection('zelappsinformation').updateOne(
+        { name: appName },
+        { $set: { 'compose.$[].repotag': repotag } },
+      );
+    },
+
     async seedInstallingLocation({ name, ip, broadcastedAt }) {
       const globalDb = await db('appsGlobal');
       const ts = broadcastedAt ?? Date.now();
