@@ -3,6 +3,7 @@ const util = require('util');
 const nodecmd = require('node-cmd');
 const log = require('../../lib/log');
 const dockerService = require('../dockerService');
+const appReconciler = require('./appReconciler');
 const syncthingService = require('../syncthingService');
 const serviceHelper = require('../serviceHelper');
 const { appsFolder } = require('../utils/appConstants');
@@ -645,8 +646,8 @@ async function ensureContainerRunning(appId, containerDataFlags) {
     const containerInspect = await dockerService.dockerContainerInspect(appId);
 
     if (!containerInspect.State.Running && containerDataFlags.includes('r')) {
-      log.info(`ensureContainerRunning - ${appId} is not running, starting it`);
-      await dockerService.appDockerStart(appId);
+      log.info(`ensureContainerRunning - ${appId} is not running, requesting start`);
+      appReconciler.setControllerDesired(appId, 'running', 'syncthing r: ensure-running');
     }
   } catch (error) {
     log.error(`ensureContainerRunning - Error checking/starting ${appId}: ${error.message}`);

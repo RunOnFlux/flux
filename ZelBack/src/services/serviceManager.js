@@ -462,8 +462,15 @@ async function startFluxFunctions() {
         globalState,
         appQueryService.installedApps,
         () => globalState,
-        dockerService.appDockerStop,
-        dockerService.appDockerRestart,
+        // stop: record the desired run-state, then really stop synchronously so
+        // the folder data wipe that follows happens on a stopped container
+        async (id) => {
+          appReconciler.setControllerDesired(id, 'stopped', 'syncthing sync');
+          await dockerService.appDockerStop(id);
+        },
+        // start: hand the run-state to the reconciler (the single actuator);
+        // permissions are already fixed by the state machine before this point
+        async (id) => { appReconciler.setControllerDesired(id, 'running', 'syncthing synced'); },
         dockerOperations.appDeleteDataInMountPoint,
         appUninstaller.removeAppLocally,
       ); // rechecks and possibly adjust syncthing configuration every 2 minutes

@@ -538,7 +538,9 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
           foldersConfiguration,
           folderHealthCache: state.folderHealthCache,
           appDockerStopFn,
-          appDockerStartFn: dockerService.appDockerStart,
+          // route health-monitor starts through the reconciler too (the injected
+          // appDockerRestartFn is the reconciler-backed start wrapper)
+          appDockerStartFn: appDockerRestartFn,
           removeAppLocallyFn,
           state,
           receiveOnlySyncthingAppsCache: state.receiveOnlySyncthingAppsCache,
