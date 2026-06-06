@@ -139,11 +139,24 @@ describe('appReconciler tests', () => {
     });
 
     it('removes the app locally when recreation fails', async () => {
-      stubs.dockerService.dockerContainerInspect.rejects(new Error('missing'));
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('no such container'));
       stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('boom'));
       await appReconciler.reconcile('www_App');
       expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'recreation_failed')).to.be.true;
       expect(stubs.appUninstaller.removeAppLocally.calledOnceWith('App', null, false, true, true)).to.be.true;
+    });
+
+    it('defers (never recreates/uninstalls) when docker is unreachable', async () => {
+      // a connection error means dockerd is down (e.g. restarting), NOT that the
+      // container vanished - must not recreate or uninstall the app.
+      const err = new Error('connect ENOENT /var/run/docker.sock');
+      err.code = 'ENOENT';
+      stubs.dockerService.dockerContainerInspect.rejects(err);
+      await appReconciler.reconcile('www_App');
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.called).to.be.false;
+      expect(stubs.appUninstaller.removeAppLocally.called).to.be.false;
+      expect(stubs.appTamperingDetectionService.recordEvent.called).to.be.false;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
     it('does NOT start a g: component until a controller elects it', async () => {

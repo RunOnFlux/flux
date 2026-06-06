@@ -97,21 +97,39 @@ async function getLocalComponentSpec(identifier) {
 }
 
 /**
+ * Whether an inspect error means the container genuinely doesn't exist (docker
+ * is reachable and answered "no such container") as opposed to docker being
+ * unreachable (socket down, e.g. dockerd restarting). Only the former is a
+ * missing container; the latter is transient and must NOT trigger recreate.
+ */
+function isContainerMissingError(err) {
+  if (!err) return false;
+  if (err.statusCode === 404 || err.reason === 'no such container') return true;
+  return typeof err.message === 'string' && err.message.toLowerCase().includes('no such container');
+}
+
+/**
  * Reads the container's actual state from Docker. exitCode is null when the
  * container has never run (state 'created') so restart policies treat it as an
- * initial start.
+ * initial start. `reachable` is false when the Docker daemon could not be
+ * contacted at all (e.g. mid dockerd-restart) — the caller must defer rather
+ * than mistake an unreachable daemon for a vanished container.
  */
 async function dockerActual(identifier) {
   try {
     const info = await dockerService.dockerContainerInspect(identifier);
     const everRan = info.State && info.State.Status !== 'created';
     return {
+      reachable: true,
       exists: true,
       running: !!(info.State && info.State.Running),
       exitCode: everRan ? (info.State.ExitCode ?? null) : null,
     };
   } catch (err) {
-    return { exists: false, running: false, exitCode: null };
+    if (isContainerMissingError(err)) {
+      return { reachable: true, exists: false, running: false, exitCode: null };
+    }
+    return { reachable: false, exists: false, running: false, exitCode: null };
   }
 }
 
@@ -177,6 +195,16 @@ async function reconcile(identifier) {
   if (!spec) return; // not installed here - nothing to enforce
 
   const actual = await dockerActual(identifier);
+
+  // docker unreachable (e.g. dockerd restarting): defer rather than misread the
+  // container as vanished and recreate/uninstall it. A reconnect sweep and this
+  // retry both re-reconcile once docker is back.
+  if (!actual.reachable) {
+    log.warn(`appReconciler - docker unreachable for ${identifier}, deferring reconcile`);
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
+
   const { desired, reason } = await effectiveDesiredRunning(identifier, spec, actual.exitCode);
 
   if (!desired) {
