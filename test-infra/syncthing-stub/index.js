@@ -6,31 +6,68 @@ app.use(express.json());
 
 const PORT = Number(process.env.SYNCTHING_PORT) || 8384;
 const CONTROL_PORT = Number(process.env.CONTROL_PORT) || 8385;
-const DEVICE_ID = process.env.SYNCTHING_DEVICE_ID
-  || 'STUBDEV-STUBDEV-STUBDEV-STUBDEV-STUBDEV-STUBDEV-STUBDEV-STUBDEV';
 const API_KEY = process.env.SYNCTHING_API_KEY || 'stub-syncthing-api-key';
-
-const folders = new Map();
-const devices = new Map();
-let restartRequired = false;
-
-// --- drivable sync state -------------------------------------------------
-// One stub serves every node, but each node connects directly so the stub sees
-// the node's source IP — that's the per-node lever. Tests drive these via the
-// control API; the defaults (below) reproduce the original always-synced/empty
-// behaviour so existing suites are unaffected.
-//
-//   syncOverrides:       `${ip}|${folder}`          -> { state, globalBytes, inSyncBytes }
-//   completionOverrides: `${ip}|${folder}|${device}`-> completion (0-100)
-// ip may be '*' (any node) and device may be '*' (any peer); exact keys win.
-const syncOverrides = new Map();
-const completionOverrides = new Map();
 
 // the node's source IP as Docker presents it (strip the IPv4-mapped ::ffff: form)
 function clientIp(req) {
   const raw = req.socket.remoteAddress || '';
   return raw.replace(/^::ffff:/, '');
 }
+
+// --- per-node syncthing identity + config --------------------------------
+// One stub container serves every node, but each node connects directly so the
+// stub sees the node's source IP. We key all syncthing identity and config by
+// that IP, so each node behaves as its own syncthing instance: a unique, stable
+// device ID and its own folders/devices. This is what real syncthing looks like
+// — and it's required for peer logic to work (a node must be able to tell a
+// peer's device ID apart from its own; with a single shared ID every peer looks
+// like "self" and folder peer-device lists come out empty).
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+// Deterministic, syncthing-shaped device ID derived from the node IP: 8 groups
+// of 7 base32 chars (matches FluxOS's id charset). Stable across requests.
+function deviceIdForIp(ip) {
+  const a = crypto.createHash('sha256').update(`fluxstub|${ip}`).digest();
+  const b = crypto.createHash('sha256').update(a).digest();
+  const buf = Buffer.concat([a, b]);
+  let out = '';
+  for (let i = 0; i < 56; i += 1) out += B32[buf[i] & 31];
+  return out.match(/.{1,7}/g).join('-');
+}
+
+// ip -> { deviceID, folders: Map, devices: Map, restartRequired }
+const nodeStates = new Map();
+
+function nodeState(ip) {
+  let state = nodeStates.get(ip);
+  if (!state) {
+    const deviceID = deviceIdForIp(ip);
+    state = {
+      deviceID, folders: new Map(), devices: new Map(), restartRequired: false,
+    };
+    // every node knows itself as a configured device
+    state.devices.set(deviceID, {
+      deviceID, name: `node-${ip}`, addresses: ['dynamic'], compression: 'metadata', introducer: false, paused: false,
+    });
+    nodeStates.set(ip, state);
+  }
+  return state;
+}
+
+// state for the node making this request
+function reqState(req) {
+  return nodeState(clientIp(req));
+}
+
+// --- drivable sync state -------------------------------------------------
+// Tests drive these via the control API; the defaults (below) reproduce the
+// original always-synced/empty behaviour so existing suites are unaffected.
+//
+//   syncOverrides:       `${ip}|${folder}`          -> { state, globalBytes, inSyncBytes }
+//   completionOverrides: `${ip}|${folder}|${device}`-> completion (0-100)
+// ip may be '*' (any node) and device may be '*' (any peer); exact keys win.
+const syncOverrides = new Map();
+const completionOverrides = new Map();
 
 function lookupSync(ip, folder) {
   return syncOverrides.get(`${ip}|${folder}`) ?? syncOverrides.get(`*|${folder}`);
@@ -42,20 +79,11 @@ function lookupCompletion(ip, folder, device) {
     ?? completionOverrides.get(`*|${folder}|*`);
 }
 
-devices.set(DEVICE_ID, {
-  deviceID: DEVICE_ID,
-  name: 'stub-node',
-  addresses: ['dynamic'],
-  compression: 'metadata',
-  introducer: false,
-  paused: false,
-});
-
 // -- Health & Meta --
 
 app.get('/meta.js', (req, res) => {
   res.type('application/javascript');
-  res.send(`var metadata = {"deviceID":"${DEVICE_ID}"};\n`);
+  res.send(`var metadata = {"deviceID":"${reqState(req).deviceID}"};\n`);
 });
 
 app.get('/rest/noauth/health', (req, res) => {
@@ -93,7 +121,7 @@ app.get('/rest/system/status', (req, res) => {
     guiAddressOverridden: false,
     guiAddressUsed: `0.0.0.0:${PORT}`,
     lastDialStatus: {},
-    myID: DEVICE_ID,
+    myID: reqState(req).deviceID,
     pathSeparator: '/',
     startTime: new Date().toISOString(),
     sys: 100000000,
@@ -156,7 +184,7 @@ app.get('/rest/system/browse', (req, res) => {
 // -- System Control --
 
 app.post('/rest/system/restart', (req, res) => {
-  restartRequired = false;
+  reqState(req).restartRequired = false;
   res.json({ ok: 'restarting' });
 });
 
@@ -179,10 +207,11 @@ app.post('/rest/system/error', (req, res) => {
 // -- Config --
 
 app.get('/rest/config', (req, res) => {
+  const state = reqState(req);
   res.json({
     version: 37,
-    folders: Array.from(folders.values()),
-    devices: Array.from(devices.values()),
+    folders: Array.from(state.folders.values()),
+    devices: Array.from(state.devices.values()),
     gui: { enabled: true, address: `0.0.0.0:${PORT}`, apikey: API_KEY, theme: 'default' },
     ldap: {},
     options: { listenAddresses: ['default'], globalAnnEnabled: false, localAnnEnabled: false, relaysEnabled: false },
@@ -191,81 +220,88 @@ app.get('/rest/config', (req, res) => {
 });
 
 app.put('/rest/config', (req, res) => {
+  const state = reqState(req);
   if (req.body.folders) {
-    folders.clear();
-    req.body.folders.forEach((f) => folders.set(f.id, f));
+    state.folders.clear();
+    req.body.folders.forEach((f) => state.folders.set(f.id, f));
   }
   if (req.body.devices) {
-    devices.clear();
-    req.body.devices.forEach((d) => devices.set(d.deviceID, d));
+    state.devices.clear();
+    req.body.devices.forEach((d) => state.devices.set(d.deviceID, d));
   }
-  restartRequired = true;
+  state.restartRequired = true;
   res.json({});
 });
 
 app.get('/rest/config/restart-required', (req, res) => {
-  res.json({ requiresRestart: restartRequired });
+  res.json({ requiresRestart: reqState(req).restartRequired });
 });
 
 // -- Config Folders --
 
 app.get('/rest/config/folders', (req, res) => {
-  res.json(Array.from(folders.values()));
+  res.json(Array.from(reqState(req).folders.values()));
 });
 
 app.get('/rest/config/folders/:id', (req, res) => {
-  const folder = folders.get(req.params.id);
+  const folder = reqState(req).folders.get(req.params.id);
   if (!folder) return res.status(404).json({ error: 'not found' });
   return res.json(folder);
 });
 
 app.put('/rest/config/folders/:id', (req, res) => {
-  folders.set(req.params.id, { ...req.body, id: req.params.id });
-  restartRequired = true;
+  const state = reqState(req);
+  state.folders.set(req.params.id, { ...req.body, id: req.params.id });
+  state.restartRequired = true;
   res.json({});
 });
 
 app.patch('/rest/config/folders/:id', (req, res) => {
-  const existing = folders.get(req.params.id) || { id: req.params.id };
-  folders.set(req.params.id, { ...existing, ...req.body });
-  restartRequired = true;
+  const state = reqState(req);
+  const existing = state.folders.get(req.params.id) || { id: req.params.id };
+  state.folders.set(req.params.id, { ...existing, ...req.body });
+  state.restartRequired = true;
   res.json({});
 });
 
 app.delete('/rest/config/folders/:id', (req, res) => {
-  folders.delete(req.params.id);
-  restartRequired = true;
+  const state = reqState(req);
+  state.folders.delete(req.params.id);
+  state.restartRequired = true;
   res.json({});
 });
 
 // -- Config Devices --
 
 app.get('/rest/config/devices', (req, res) => {
-  res.json(Array.from(devices.values()));
+  res.json(Array.from(reqState(req).devices.values()));
 });
 
 app.get('/rest/config/devices/:id', (req, res) => {
-  const device = devices.get(req.params.id);
+  const device = reqState(req).devices.get(req.params.id);
   if (!device) return res.status(404).json({ error: 'not found' });
   return res.json(device);
 });
 
 app.put('/rest/config/devices/:id', (req, res) => {
-  devices.set(req.params.id, { ...req.body, deviceID: req.params.id });
-  restartRequired = true;
+  const state = reqState(req);
+  state.devices.set(req.params.id, { ...req.body, deviceID: req.params.id });
+  state.restartRequired = true;
   res.json({});
 });
 
 app.patch('/rest/config/devices/:id', (req, res) => {
-  const existing = devices.get(req.params.id) || { deviceID: req.params.id };
-  devices.set(req.params.id, { ...existing, ...req.body });
-  restartRequired = true;
+  const state = reqState(req);
+  const existing = state.devices.get(req.params.id) || { deviceID: req.params.id };
+  state.devices.set(req.params.id, { ...existing, ...req.body });
+  state.restartRequired = true;
   res.json({});
 });
 
 app.delete('/rest/config/devices/:id', (req, res) => {
-  devices.delete(req.params.id);
-  restartRequired = true;
+  const state = reqState(req);
+  state.devices.delete(req.params.id);
+  state.restartRequired = true;
   res.json({});
 });
 
@@ -418,7 +454,7 @@ app.post('/rest/folder/versions', (req, res) => res.json({}));
 
 app.get('/rest/stats/device', (req, res) => {
   const stats = {};
-  devices.forEach((d) => {
+  reqState(req).devices.forEach((d) => {
     stats[d.deviceID] = { lastSeen: new Date().toISOString(), lastConnectionDurationS: 3600 };
   });
   res.json(stats);
@@ -426,7 +462,7 @@ app.get('/rest/stats/device', (req, res) => {
 
 app.get('/rest/stats/folder', (req, res) => {
   const stats = {};
-  folders.forEach((f) => {
+  reqState(req).folders.forEach((f) => {
     stats[f.id] = { lastFile: { at: new Date().toISOString(), filename: '', deleted: false }, lastScan: new Date().toISOString() };
   });
   res.json(stats);
@@ -445,7 +481,7 @@ app.get('/rest/events/disk', (req, res) => {
 // -- SVC --
 
 app.get('/rest/svc/deviceid', (req, res) => {
-  res.json({ id: DEVICE_ID });
+  res.json({ id: reqState(req).deviceID });
 });
 
 app.get('/rest/svc/random/string', (req, res) => {
@@ -478,37 +514,20 @@ app.listen(PORT, () => console.log(`Syncthing stub listening on port ${PORT}`));
 const control = express();
 control.use(express.json());
 
+// Per-node config is keyed by the node's source IP and mutated by the node's own
+// syncthing API calls, so the control surface here is read-only: report every
+// node's identity and config for debugging.
 control.get('/state', (req, res) => {
   res.json({
-    deviceId: DEVICE_ID,
     apiKey: API_KEY,
-    folders: Array.from(folders.values()),
-    devices: Array.from(devices.values()),
-    restartRequired,
+    nodes: Array.from(nodeStates.entries()).map(([ip, s]) => ({
+      ip,
+      deviceId: s.deviceID,
+      folders: Array.from(s.folders.values()),
+      devices: Array.from(s.devices.values()),
+      restartRequired: s.restartRequired,
+    })),
   });
-});
-
-control.post('/add-folder', (req, res) => {
-  const folder = req.body;
-  folders.set(folder.id, folder);
-  res.json({ ok: true, folderCount: folders.size });
-});
-
-control.post('/add-device', (req, res) => {
-  const device = req.body;
-  devices.set(device.deviceID, device);
-  res.json({ ok: true, deviceCount: devices.size });
-});
-
-control.delete('/folders', (req, res) => {
-  folders.clear();
-  res.json({ ok: true });
-});
-
-control.delete('/devices', (req, res) => {
-  devices.clear();
-  devices.set(DEVICE_ID, { deviceID: DEVICE_ID, name: 'stub-node', addresses: ['dynamic'] });
-  res.json({ ok: true });
 });
 
 // --- drivable sync-state control ---
