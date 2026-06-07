@@ -38,8 +38,15 @@ describe('reconciler never force-starts a stalled, un-synced r: app', function (
     env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     await resetSyncState();
+    // Gate both followers as stalled with no peer holding the data BEFORE they first
+    // evaluate sync — otherwise they see the stub's default-synced state and start.
+    // Each test then changes only the variable under test (peer data availability).
     stuck = await seedSyncthingApp(env, { name: stuckApp, mode: 'r', forceNonLeader: true });
+    await setStalled({ folder: stuck.folder, percent: 60 });
+    await setNoPeerData({ folder: stuck.folder });
     recover = await seedSyncthingApp(env, { name: recoverApp, mode: 'r', forceNonLeader: true });
+    await setStalled({ folder: recover.folder, percent: 60 });
+    await setNoPeerData({ folder: recover.folder });
   });
 
   after(async function () {
@@ -51,11 +58,8 @@ describe('reconciler never force-starts a stalled, un-synced r: app', function (
   it('waits forever (never starts) when stalled and no peer has the data', async function () {
     this.timeout(90000);
     const client = env.clients[stuck.index];
-    // stalled (frozen bytes) and no peer holds the full data
-    await setStalled({ folder: stuck.folder, percent: 60 });
-    await setNoPeerData({ folder: stuck.folder });
-
-    // across stall detection + several post-stall cycles, it must never start
+    // stalled with no synced peer (set in before hook); across stall detection and
+    // several post-stall cycles, it must never start
     await assertNoEvent(client, 'reconciler:actuated', (d) => d.identifier === stuck.identifier && d.action === 'started', 45000);
     expect(await isUp(client, stuckApp)).to.equal(false);
   });
@@ -63,12 +67,12 @@ describe('reconciler never force-starts a stalled, un-synced r: app', function (
   it('recovers then safely removes when stalled but a peer holds the data', async function () {
     this.timeout(180000);
     const client = env.clients[recover.index];
-    // stalled, but a peer is fully synced -> one-shot recovery, then safe remove
-    await setStalled({ folder: recover.folder, percent: 60 });
+    // already stalled with no peer data (before hook); now a peer becomes fully
+    // synced -> one-shot recovery (stop + syncthing restart), then safe remove
+    const afterId = client.getLastEventId();
     await setPeerHasData({ folder: recover.folder });
 
     // it must never force-start on the dirty data...
-    const afterId = client.getLastEventId();
     await assertNoEvent(client, 'reconciler:actuated', (d) => d.identifier === recover.identifier && d.action === 'started', 5000);
     // ...and must end in a safe local removal (data preserved on the synced peer)
     await waitForAppRemoved(client, recoverApp, 150000, { afterId });

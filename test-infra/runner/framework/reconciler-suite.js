@@ -12,7 +12,7 @@ import { buildSeedableApp, buildSeedableSyncthingApp, buildSeedableTestApp } fro
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from './keys.js';
 import {
-  waitFor, waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled,
+  waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled,
 } from './wait.js';
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install
@@ -130,15 +130,14 @@ export async function seedSyncthingApp(env, {
 
   const peerIndex = forceNonLeader ? (index === 0 ? env.clients.length - 1 : 0) : null;
   if (forceNonLeader) {
-    const peerIp = env.clients[peerIndex].ip;
+    // run the app on a real peer first: it becomes the syncthing leader, starts, and
+    // gossips its running location. Wait until the subject node receives that
+    // broadcast (surfaced as network:apprunning) before installing it, so its first
+    // leader-election sees a running peer and takes the sync-gated follower path.
+    const afterId = env.clients[index].getLastEventId();
     await installOnNodes(env, app, [peerIndex]);
-    // wait until the subject has learned of the running peer via real gossip, so
-    // its first leader-election sees a peer and takes the follower path. Stored
-    // locations carry a :port suffix (e.g. 198.18.10.0:16127), so match on host.
-    await waitFor(
-      async () => (await dbClient(index + 1).getAppLocations(name))
-        .some((l) => l.ip.split(':')[0] === peerIp),
-      { timeout: 60000, interval: 1000, label: `node ${index} learns running peer ${peerIp} for ${name}` },
+    await env.clients[index].waitForEvent(
+      'network:apprunning', (d) => d.apps?.some((a) => a.name === name), 60000, { afterId },
     );
   }
 
