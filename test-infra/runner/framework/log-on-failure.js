@@ -54,8 +54,12 @@ export function dumpLogsOnFailure(getEnv) {
     }
   }
 
+  // DUMP_LOGS=always dumps per-node logs after every test (pass or fail), not just
+  // failures — used to measure timing on green runs while investigating flakes.
+  const always = process.env.DUMP_LOGS === 'always';
+
   afterEach(function () {
-    if (this.currentTest.state === 'failed') dump(this.currentTest.fullTitle());
+    if (always || this.currentTest.state === 'failed') dump(this.currentTest.fullTitle());
   });
 
   // afterEach never fires for a before/after-all HOOK failure, which is exactly
