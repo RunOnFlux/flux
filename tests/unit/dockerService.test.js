@@ -76,6 +76,26 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('getBaseAppName tests', () => {
+    it('should strip the "flux" prefix', async () => {
+      expect(dockerService.getBaseAppName('fluxdb_App')).to.equal('db_App');
+    });
+
+    it('should strip the "zel" prefix', async () => {
+      expect(dockerService.getBaseAppName('zelKadenaChainWebNode')).to.equal('KadenaChainWebNode');
+    });
+
+    it('should return a bare identifier unchanged', async () => {
+      expect(dockerService.getBaseAppName('db_App')).to.equal('db_App');
+    });
+
+    it('should round-trip getAppIdentifier for compose and zel-legacy names', async () => {
+      ['db_App', 'testing1234', 'KadenaChainWebNode', 'FoldingAtHomeB'].forEach((bare) => {
+        expect(dockerService.getBaseAppName(dockerService.getAppIdentifier(bare))).to.equal(bare);
+      });
+    });
+  });
+
   describe('getAppDockerNameIdentifier tests', () => {
     it('should add /flux/ if name starts with "/"', async () => {
       const appName = '/Testing';

@@ -764,6 +764,12 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
   try {
+    // Normalise to the bare identifier this function reasons about: a caller may
+    // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
+    // otherwise mis-derive the component as `flux{component}` below.
+    // eslint-disable-next-line no-param-reassign
+    app = app ? dockerService.getBaseAppName(app) : app;
+
     // Log removal trigger with stack trace to identify caller
     const { stack } = new Error();
     const callerLine = stack.split('\n')[2]?.trim();

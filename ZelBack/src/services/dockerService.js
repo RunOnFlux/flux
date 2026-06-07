@@ -57,6 +57,27 @@ function getAppIdentifier(appName) {
 }
 
 /**
+ * Inverse of getAppIdentifier: strips the flux/zel namespace prefix to recover
+ * the bare component identifier (`{component}_{app}`, or `{app}` for v1-3) used
+ * by app/component specs. Idempotent on an already-bare identifier. Consumers
+ * whose canonical form is the bare identifier (e.g. the reconciler) normalise
+ * inbound ids through this, mirroring how docker callers normalise through
+ * getAppIdentifier.
+ *
+ * Note: like getAppIdentifier this is not perfectly invertible — a component
+ * literally named `flux...`/`zel...` is ambiguous — but that is the existing
+ * limitation of the prefix-as-marker convention, not new here.
+ *
+ * @param {string} idOrName
+ * @returns {string} bare identifier
+ */
+function getBaseAppName(idOrName) {
+  if (idOrName.startsWith('flux')) return idOrName.slice(4);
+  if (idOrName.startsWith('zel')) return idOrName.slice(3);
+  return idOrName;
+}
+
+/**
  * Generates an app docker name based on app name
  *
  * @param {string} appName
@@ -1774,6 +1795,7 @@ module.exports = {
   dockerVersion,
   getAppDockerNameIdentifier,
   getAppIdentifier,
+  getBaseAppName,
   getDockerContainer,
   getDockerContainerByIdOrName,
   getDockerContainerOnly,

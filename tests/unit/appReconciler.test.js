@@ -25,6 +25,7 @@ describe('appReconciler tests', () => {
         appDockerStart: sinon.stub().resolves(),
         appDockerStop: sinon.stub().resolves(),
         getAppIdentifier: (id) => `flux${id}`,
+        getBaseAppName: (id) => (id.startsWith('flux') ? id.slice(4) : id),
       },
       globalState: {
         appsMonitored: {},
@@ -203,6 +204,19 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('db_App'); // controllerDesired unset
       expect(stubs.dockerService.appDockerStop.calledOnceWith('db_App')).to.be.true;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    // the syncthing decider wires its callbacks to the flux-prefixed docker name,
+    // while masterSlave/die-events use the bare identifier. The reconciler must
+    // canonicalise at its boundary so both forms key the same component: a desired
+    // state written under the prefixed id is honoured by a reconcile of the bare id.
+    it('canonicalises a flux-prefixed controller id to the bare component', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('fluxdb_App', 'running', 'syncthing synced');
+      stubs.globalState.bootContainerStateSettled = true;
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('db_App')).to.be.true;
     });
 
     it('defers while another operation owns the container', async () => {

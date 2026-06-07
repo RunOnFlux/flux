@@ -38,6 +38,15 @@ const backoffTimers = new Map(); // id -> scheduled retry timeout
 // completion, so this is just a backstop)
 const MANAGED_RETRY_MS = 5000;
 
+// The reconciler's canonical id is the bare component identifier
+// (`{component}_{app}`). Deciders disagree on the form they pass — masterSlave
+// uses the bare identifier, the syncthing flow passes the flux-prefixed docker
+// name — so we normalise every inbound id here, at the boundary, the same way
+// dockerService normalises to the prefixed form for docker calls. This keeps the
+// spec lookup and all in-memory state (controllerDesired/backoff/runtime) keyed
+// consistently no matter which decider triggered the reconcile.
+const canonical = (id) => dockerService.getBaseAppName(id);
+
 // --- restart policy ------------------------------------------------------
 // getRestartPolicy is the ONLY place the policy source lives. Today it returns
 // the constant 'always' (restores the pre-FluxOS Docker `restart: always`
@@ -191,7 +200,8 @@ async function recreateMissing(identifier) {
 
 // --- the reconcile -------------------------------------------------------
 
-async function reconcile(identifier) {
+async function reconcile(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
   if (isManagedElsewhere(identifier)) {
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
@@ -275,7 +285,8 @@ function runReconcile(identifier) {
  * same identifier is in flight, it re-runs once when that finishes. Held until
  * the boot gate opens so nothing actuates before daemon/DB are ready.
  */
-function enqueue(identifier) {
+function enqueue(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
   if (!globalState.bootContainerStateSettled) {
     bootPending.add(identifier);
     return;
@@ -314,15 +325,16 @@ async function enqueueAll(reason = 'resync') {
  * own synchronous data-safety steps (stop+wipe, permission-fix) first; this
  * only records intent and enqueues.
  */
-function setControllerDesired(identifier, state, reason) {
+function setControllerDesired(rawIdentifier, state, reason) {
+  const identifier = canonical(rawIdentifier);
   controllerDesired.set(identifier, state);
   log.info(`appReconciler - controllerDesired[${identifier}] = ${state} (${reason})`);
   fluxEventBus.publish('reconciler:desiredChanged', { identifier, state, reason });
   enqueue(identifier);
 }
 
-function clearControllerDesired(identifier) {
-  controllerDesired.delete(identifier);
+function clearControllerDesired(rawIdentifier) {
+  controllerDesired.delete(canonical(rawIdentifier));
 }
 
 // --- lifecycle -----------------------------------------------------------
