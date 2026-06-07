@@ -15,6 +15,7 @@ const {
   STALLED_SYNC_CHECK_COUNT,
   LEADER_ELECTION_MIN_EXECUTIONS,
   LEADER_ELECTION_EXECUTIONS_PER_INDEX,
+  LEADER_CONFIRM_COUNT,
   SYNC_COMPLETE_PERCENTAGE,
   OPERATION_DELAY_MS,
   CLOCK_SKEW_TOLERANCE_MS,
@@ -403,7 +404,7 @@ async function checkIfPeersAreSynced(folderId) {
  * @param {Array} syncHistory - Array of recent sync statuses
  * @returns {boolean} True if sync appears stalled
  */
-function isSyncStalled(syncHistory) {
+function isSyncStalled(syncHistory, appId = 'unknown') {
   if (!syncHistory || syncHistory.length < STALLED_SYNC_CHECK_COUNT) {
     return false;
   }
@@ -416,7 +417,7 @@ function isSyncStalled(syncHistory) {
   const allSameBytes = recentStatuses.every((status) => status.inSyncBytes === firstBytes);
 
   if (allSameBytes) {
-    log.warn(`isSyncStalled - Detected stalled sync: ${firstBytes} bytes unchanged for ${STALLED_SYNC_CHECK_COUNT} checks`);
+    log.warn(`isSyncStalled - ${appId} detected stalled sync: ${firstBytes} bytes unchanged for ${STALLED_SYNC_CHECK_COUNT} checks`);
     return true;
   }
 
@@ -441,11 +442,20 @@ async function handleReceiveOnlyTransition(params) {
 
   log.info(`handleReceiveOnlyTransition - ${appId} in cache and not restarted, processing receive-only logic`);
 
-  // Check if this node is the designated leader
-  const isLeader = isDesignatedLeader(runningAppList, localSocketAddr);
+  // Designated-leader election, with two guards:
+  //  - Never let leadership hijack an in-progress stall recovery: once we've
+  //    restarted Syncthing to recover (syncthingRestartAttempted), our container
+  //    is stopped and we're about to remove locally; a transient drop of the
+  //    peer's running-location must not flip us into self-promoting and starting.
+  //  - Require leadership to hold for LEADER_CONFIRM_COUNT consecutive cycles, so
+  //    a single transient peer-visibility blip doesn't flip a follower to leader.
+  const recoveryInProgress = cache.syncthingRestartAttempted === true;
+  const electedLeader = isDesignatedLeader(runningAppList, localSocketAddr);
+  cache.leaderStreak = electedLeader ? (cache.leaderStreak || 0) + 1 : 0;
+  const isLeader = !recoveryInProgress && electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
 
   if (isLeader) {
-    log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers), starting immediately`);
+    log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers, confirmed ${cache.leaderStreak}x), starting immediately`);
 
     // Fix permissions before changing to sendreceive - ensures correct ownership for synced data
     await fixAppdataPermissions(appId);
@@ -504,7 +514,7 @@ async function handleReceiveOnlyTransition(params) {
     // Not synced. We must NEVER start on unsynced data: going sendreceive would
     // propagate an inconsistent state to peers. Only intervene once sync has
     // actually stalled (no byte progress) — while it's still progressing, wait.
-    if (!isSyncStalled(cache.syncHistory)) {
+    if (!isSyncStalled(cache.syncHistory, appId)) {
       return { syncthingFolder, cache };
     }
 

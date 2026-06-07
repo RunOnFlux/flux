@@ -21,6 +21,10 @@ const STALLED_SYNC_CHECK_COUNT = config.syncthing.stalledSyncCheckCount ?? 10; /
 const CLOCK_SKEW_TOLERANCE_MS = 5000; // 5 seconds tolerance for timestamp comparison
 const LEADER_ELECTION_MIN_EXECUTIONS = 2;
 const LEADER_ELECTION_EXECUTIONS_PER_INDEX = 10;
+// Consecutive cycles a node must observe itself as the designated leader before
+// acting on it, so a single transient drop of a peer's running-location doesn't
+// flip a follower into self-promoting (and starting the app). Tunable for tests.
+const LEADER_CONFIRM_COUNT = config.syncthing.leaderConfirmCount ?? 2;
 
 // Sync completion thresholds
 const SYNC_COMPLETE_PERCENTAGE = 100;
@@ -46,6 +50,7 @@ module.exports = {
   CLOCK_SKEW_TOLERANCE_MS,
   LEADER_ELECTION_MIN_EXECUTIONS,
   LEADER_ELECTION_EXECUTIONS_PER_INDEX,
+  LEADER_CONFIRM_COUNT,
   SYNC_COMPLETE_PERCENTAGE,
   HEALTH_STOP_THRESHOLD_MS,
   HEALTH_RESTART_SYNCTHING_THRESHOLD_MS,

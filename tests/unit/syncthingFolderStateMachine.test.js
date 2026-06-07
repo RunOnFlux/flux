@@ -286,6 +286,7 @@ describe('syncthingFolderStateMachine tests', () => {
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
         numberOfExecutions: 1,
+        leaderStreak: 5, // leadership already confirmed over prior cycles
       });
       mockParams.appLocation.resolves([
         { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
@@ -296,6 +297,65 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.syncthingFolder.type).to.equal('sendreceive');
       expect(result.cache.restarted).to.be.true;
       sinon.assert.calledOnce(mockParams.appDockerRestartFn);
+    });
+
+    it('should not self-promote to leader on a single observation (debounce)', async () => {
+      // sole peer -> isDesignatedLeader is true, but with no confirmed streak yet a
+      // single transient observation must NOT start the app as leader.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      // valid, not-synced, not-yet-stalled status so the non-leader path just waits
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 1000, inSyncBytes: 500, state: 'syncing' },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      sinon.assert.notCalled(mockParams.appDockerRestartFn);
+      expect(result.cache.restarted).to.not.equal(true);
+      expect(result.cache.leaderStreak).to.equal(1);
+    });
+
+    it('should NOT let leader election hijack an in-progress recovery', async () => {
+      // mid-recovery (syncthingRestartAttempted) AND sole peer (would-be leader):
+      // the recovery guard must keep us out of the leader-start path so the safe
+      // stall-recovery/removal completes instead of spuriously starting the app.
+      const syncHistory = [];
+      for (let i = 0; i < 10; i++) {
+        syncHistory.push({ inSyncBytes: 500, globalBytes: 1000, syncPercentage: 50, timestamp: Date.now() + i * 1000 });
+      }
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        syncHistory,
+        syncthingRestartAttempted: true,
+        leaderStreak: 5, // even with leadership "confirmed", recovery must win
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }, // sole peer -> would be leader
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 1000, inSyncBytes: 500, state: 'syncing' },
+      });
+      syncthingServiceMock.getConfig.resolves({
+        status: 'success',
+        data: { folders: [{ id: 'test-app', type: 'receiveonly', devices: [{ deviceID: 'DEVICE123' }] }] },
+      });
+      syncthingServiceMock.getDbCompletion.resolves({ status: 'success', data: { completion: 100 } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      // must NOT have taken the leader-start path (no sendreceive flip, no start)
+      sinon.assert.notCalled(mockParams.appDockerRestartFn);
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      // recovery completed instead (removal path sets restarted)
+      expect(result.cache.restarted).to.be.true;
     });
 
     it('should wait for sync completion when not leader', async () => {
