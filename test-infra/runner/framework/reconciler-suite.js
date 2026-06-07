@@ -133,9 +133,11 @@ export async function seedSyncthingApp(env, {
     const peerIp = env.clients[peerIndex].ip;
     await installOnNodes(env, app, [peerIndex]);
     // wait until the subject has learned of the running peer via real gossip, so
-    // its first leader-election sees a peer and takes the follower path
+    // its first leader-election sees a peer and takes the follower path. Stored
+    // locations carry a :port suffix (e.g. 198.18.10.0:16127), so match on host.
     await waitFor(
-      async () => (await dbClient(index + 1).getAppLocations(name)).some((l) => l.ip === peerIp),
+      async () => (await dbClient(index + 1).getAppLocations(name))
+        .some((l) => l.ip.split(':')[0] === peerIp),
       { timeout: 60000, interval: 1000, label: `node ${index} learns running peer ${peerIp} for ${name}` },
     );
   }
