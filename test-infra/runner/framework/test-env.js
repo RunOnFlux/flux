@@ -89,27 +89,40 @@ const FDM_IP = '198.18.0.7';
 const INITIAL_HEIGHT = 2100000;
 
 // masterSlaveApps resolves the FDM by hostname (getMasterIpFromFdm tries EU/USA/ASIA
-// regions, server index from getFdmIndex by the app name's first letter). Map every
-// reachable FDM hostname to the stub so any app name lands on it — otherwise the
-// node resolves the real fdm-*.runonflux.io over the internet. Returns testcontainers
-// ExtraHost objects for the built-in .withExtraHosts().
-function fdmExtraHosts(ip) {
-  const hosts = [];
+// regions, server index from getFdmIndex by the app name's first letter). Every
+// reachable FDM hostname must resolve to the stub for any app name, otherwise the
+// node resolves the real fdm-*.runonflux.io over the internet.
+//
+// FluxOS installs cacheable-lookup (apiServer.createDnsCache) on the global http/https
+// agents, which resolves via dns.resolve (c-ares) — and c-ares does NOT consult
+// /etc/hosts. So extra_hosts alone aren't enough: the names must be served by Docker's
+// embedded DNS, which we do by setting them as network aliases on the stub (see
+// StaticIpContainer.withStaticIp). extra_hosts are kept as a belt-and-suspenders for
+// any getaddrinfo-based path (curl, dns.lookup).
+function fdmHostnames() {
+  const names = [];
   for (let i = 1; i <= 4; i++) {
-    hosts.push({ host: `fdm-fn-1-${i}.runonflux.io`, ipAddress: ip });
-    hosts.push({ host: `fdm-usa-1-${i}.runonflux.io`, ipAddress: ip });
-    hosts.push({ host: `fdm-sg-1-${i}.runonflux.io`, ipAddress: ip });
+    names.push(`fdm-fn-1-${i}.runonflux.io`);
+    names.push(`fdm-usa-1-${i}.runonflux.io`);
+    names.push(`fdm-sg-1-${i}.runonflux.io`);
   }
-  return hosts;
+  return names;
+}
+
+// testcontainers ExtraHost objects for the built-in .withExtraHosts().
+function fdmExtraHosts(ip) {
+  return fdmHostnames().map((host) => ({ host, ipAddress: ip }));
 }
 
 class StaticIpContainer extends GenericContainer {
   #staticIp;
   #networkName;
+  #aliases = [];
 
-  withStaticIp(networkName, ip) {
+  withStaticIp(networkName, ip, aliases = []) {
     this.#staticIp = ip;
     this.#networkName = networkName;
+    this.#aliases = aliases;
     return this;
   }
 
@@ -119,6 +132,10 @@ class StaticIpContainer extends GenericContainer {
         EndpointsConfig: {
           [this.#networkName]: {
             IPAMConfig: { IPv4Address: this.#staticIp },
+            // Network aliases are served by Docker's embedded DNS (127.0.0.11),
+            // so they're resolvable via c-ares (dns.resolve) — unlike /etc/hosts
+            // extra_hosts, which only getaddrinfo (dns.lookup) consults.
+            ...(this.#aliases.length ? { Aliases: this.#aliases } : {}),
           },
         },
       };
@@ -343,7 +360,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   containers.externalStub = externalStub;
 
   const fdmStub = await new StaticIpContainer('flux-e2e-fdm-stub')
-    .withStaticIp(networkName, FDM_IP)
+    .withStaticIp(networkName, FDM_IP, fdmHostnames())
     .withEnvironment({ FDM_PORT: '16130', CONTROL_PORT: '16131' })
     .withWaitStrategy(Wait.forHealthCheck())
     .withHealthCheck({
