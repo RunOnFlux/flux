@@ -245,6 +245,11 @@ export function dbClient(nodeNum) {
       await globalDb.collection('zelappsmessages').insertOne(msg);
     },
 
+    async getAppLocations(name) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappslocation').find({ name }).toArray();
+    },
+
     async seedAppLocation({ name, ip, hash, broadcastedAt, runningSince }) {
       const globalDb = await db('appsGlobal');
       const ts = broadcastedAt ?? Date.now();

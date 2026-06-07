@@ -12,7 +12,7 @@ import { buildSeedableApp, buildSeedableSyncthingApp, buildSeedableTestApp } fro
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from './keys.js';
 import {
-  waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled,
+  waitFor, waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled,
 } from './wait.js';
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install
@@ -113,28 +113,36 @@ export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 
 // getAppIdentifier(`${name}_${name}`) i.e. `flux${name}_${name}` — returned as
 // `folder` for driving syncthing-control.
 //
-// forceNonLeader: seed a remote running location so the installed node is NOT the
-// syncthing leader (a leader starts immediately; only a non-leader waits for
-// sync). The peer must be a REAL, confirmed fleet node that isn't the install
-// target: nodeStatusMonitor reaps any appslocation IP that isn't on the
-// deterministic node list, so a fake peer IP would be pruned and the install node
-// would then elect itself leader and start immediately — skipping the sync gate.
+// forceNonLeader: make the installed node a follower rather than the syncthing
+// leader (a leader starts immediately; only a follower waits for sync). Done the
+// honest way — actually run the app on a real peer node first. That peer becomes
+// the leader, starts, and advertises its running location via the normal gossip
+// path (checkAndNotifyPeersOfRunningApps, carrying runningSince). We wait until the
+// subject node has received that location, so when it installs it sees a genuine
+// running peer and takes the sync-gated follower path. No fabricated DB rows — the
+// alternative (seeding a location) is reaped by nodeStatusMonitor unless it points
+// at a real node, and even then misrepresents an instance that isn't running.
 export async function seedSyncthingApp(env, {
   name, mode = 'r', forceNonLeader = false, index = 0,
 }) {
   await pushImage(name, 'v1');
   const app = await buildSeedableSyncthingApp({ name, mode });
 
+  const peerIndex = forceNonLeader ? (index === 0 ? env.clients.length - 1 : 0) : null;
   if (forceNonLeader) {
-    const peerIp = env.clients[index === 0 ? env.clients.length - 1 : 0].ip;
-    await dbClient(index + 1).seedAppLocation({
-      name, ip: peerIp, hash: app.hash, runningSince: Date.now() - 600000,
-    });
+    const peerIp = env.clients[peerIndex].ip;
+    await installOnNodes(env, app, [peerIndex]);
+    // wait until the subject has learned of the running peer via real gossip, so
+    // its first leader-election sees a peer and takes the follower path
+    await waitFor(
+      async () => (await dbClient(index + 1).getAppLocations(name)).some((l) => l.ip === peerIp),
+      { timeout: 60000, interval: 1000, label: `node ${index} learns running peer ${peerIp} for ${name}` },
+    );
   }
 
   await installOnNodes(env, app, [index]);
   return {
-    app, index, folder: `flux${name}_${name}`, identifier: `${name}_${name}`,
+    app, index, peerIndex, folder: `flux${name}_${name}`, identifier: `${name}_${name}`,
   };
 }
 
