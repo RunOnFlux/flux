@@ -12,7 +12,7 @@ import { buildSeedableApp, buildSeedableSyncthingApp, buildSeedableTestApp } fro
 import { authenticate } from '../auth.js';
 import { fluxTeamKey } from './keys.js';
 import {
-  waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled,
+  waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
 } from './wait.js';
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install
@@ -106,6 +106,54 @@ export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 
     throw new Error(`app ${app.spec.name} installed on ${installed.length} nodes (${installed.join(',')}), needed >= ${minCount}`);
   }
   return installed;
+}
+
+// SPAWNER path: seed an app's global spec into EVERY node's globalzelapps DB
+// (collection zelappsinformation — the one trySpawningGlobalApplication aggregates
+// over) so each node's spawner sees it as missing-instances and self-selects. No
+// running/installing locations are seeded, so `actual` starts at 0 and the spawner
+// drives real placement + collision-resolution. The app image must be pushed first.
+export async function seedSpawnerApp(env, app) {
+  const all = env.clients.map((_, i) => i);
+  await seedGlobalSpec(env, app, all);
+}
+
+// Ground-truth count of where an app is actually installed across the fleet
+// (queries each node's installedapps endpoint). Returns sorted node indices.
+export async function installedInstanceIndices(env, appName) {
+  const idx = [];
+  await Promise.all(env.clients.map(async (c, i) => {
+    try {
+      const res = await c.getInstalledApps();
+      if (res.status === 'success' && res.data.find((a) => a.name === appName)) idx.push(i);
+    } catch { /* node unreachable this tick */ }
+  }));
+  return idx.sort((a, b) => a - b);
+}
+
+// Wait until exactly `target` nodes have the app installed, then confirm the count
+// HOLDS at exactly `target` for `stableMs` (so a late overshoot is caught, not
+// missed by checking once). Returns the final sorted node indices.
+export async function waitForInstanceCount(env, appName, target, {
+  timeout = 120000, stableMs = 12000, interval = 3000,
+} = {}) {
+  await waitFor(
+    async () => (await installedInstanceIndices(env, appName)).length >= target,
+    { timeout, interval, label: `>=${target} instances of ${appName}` },
+  );
+  const deadline = Date.now() + stableMs;
+  let last = await installedInstanceIndices(env, appName);
+  while (Date.now() < deadline) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => { setTimeout(r, interval); });
+    // eslint-disable-next-line no-await-in-loop
+    const now = await installedInstanceIndices(env, appName);
+    if (now.length !== target) {
+      throw new Error(`${appName} instance count = ${now.length} [${now.join(',')}], expected exactly ${target}`);
+    }
+    last = now;
+  }
+  return last;
 }
 
 // Deploy a syncthing (r:/g:/s:) app on a chosen node (targeted install) and wait

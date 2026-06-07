@@ -149,7 +149,7 @@ export async function buildSeedableSyncthingApp({
  * registry-helper.pushTestApp(name).
  */
 export async function buildSeedableTestApp({
-  name, exitCode = 0, exitAfterS = null, ...rest
+  name, exitCode = 0, exitAfterS = null, port = 31111, ...rest
 }) {
   const environmentParameters = [`EXIT_CODE=${exitCode}`];
   if (exitAfterS != null) environmentParameters.push(`EXIT_AFTER_S=${exitAfterS}`);
@@ -158,7 +158,7 @@ export async function buildSeedableTestApp({
     name,
     description: 'configurable exit test container',
     repotag: `198.18.0.5:5000/${name}:v1`,
-    ports: [31111],
+    ports: [port],
     domains: [''],
     environmentParameters,
     commands: [],
