@@ -1447,10 +1447,12 @@ async function getDbBrowse(req, res) {
  */
 async function getDbCompletion(req, res) {
   try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
-    let { device } = req.params;
-    device = device || req.query.device;
+    // tolerate being called internally with only a query (no params): callers like
+    // checkIfPeersAreSynced pass { query: {...} }, so req.params is undefined and a
+    // bare `const { folder } = req.params` would throw. Default the containers.
+    const { params = {}, query = {} } = req || {};
+    const folder = params.folder || query.folder;
+    const device = params.device || query.device;
     let apiPath = '/rest/db/completion';
     if (folder || device) apiPath += '?';
     const qq = {
