@@ -18,32 +18,38 @@ import { authenticate } from '../auth.js';
 import { fluxTeamKey, nodeKey } from './keys.js';
 
 function createLogCollector() {
-  const lines = [];
+  // Each entry is { t, line }: t is the capture wall-clock (ISO), line is the raw
+  // log text. The container's own log lines carry no timestamp, so we stamp at
+  // capture time (near-realtime off the stream). hasLine/countPattern match the
+  // raw text; getLines prepends t so inter-line gaps reveal timing (e.g. the
+  // monitor cycle interval between successive "sync status" lines).
+  const entries = [];
+  const push = (line) => entries.push({ t: new Date().toISOString(), line });
 
   function consumer(stream) {
     stream.on('data', (data) => {
       const text = typeof data === 'string' ? data : data.toString('utf-8');
       for (const line of text.split('\n')) {
         const trimmed = line.trimEnd();
-        if (trimmed) lines.push(trimmed);
+        if (trimmed) push(trimmed);
       }
     });
-    stream.on('end', () => lines.push('[LOG_STREAM_ENDED]'));
-    stream.on('error', (err) => lines.push(`[LOG_STREAM_ERROR: ${err.message}]`));
-    stream.on('close', () => lines.push('[LOG_STREAM_CLOSED]'));
+    stream.on('end', () => push('[LOG_STREAM_ENDED]'));
+    stream.on('error', (err) => push(`[LOG_STREAM_ERROR: ${err.message}]`));
+    stream.on('close', () => push('[LOG_STREAM_CLOSED]'));
   }
 
   consumer.hasLine = (pattern) => {
     const regex = pattern instanceof RegExp ? pattern : new RegExp(pattern);
-    return lines.some((line) => regex.test(line));
+    return entries.some((e) => regex.test(e.line));
   };
 
   consumer.countPattern = (pattern) => {
     const regex = pattern instanceof RegExp ? pattern : new RegExp(pattern, 'g');
-    return lines.filter((line) => regex.test(line)).length;
+    return entries.filter((e) => regex.test(e.line)).length;
   };
 
-  consumer.getLines = () => [...lines];
+  consumer.getLines = () => entries.map((e) => `${e.t} ${e.line}`);
 
   return consumer;
 }
