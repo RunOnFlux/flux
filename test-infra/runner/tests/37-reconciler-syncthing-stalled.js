@@ -38,8 +38,8 @@ describe('reconciler never force-starts a stalled, un-synced r: app', function (
     env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     await resetSyncState();
-    stuck = await seedSyncthingApp(env, { name: stuckApp, mode: 'r', runningPeerIp: '198.18.98.0' });
-    recover = await seedSyncthingApp(env, { name: recoverApp, mode: 'r', runningPeerIp: '198.18.97.0' });
+    stuck = await seedSyncthingApp(env, { name: stuckApp, mode: 'r', forceNonLeader: true });
+    recover = await seedSyncthingApp(env, { name: recoverApp, mode: 'r', forceNonLeader: true });
   });
 
   after(async function () {

@@ -113,18 +113,22 @@ export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 
 // getAppIdentifier(`${name}_${name}`) i.e. `flux${name}_${name}` — returned as
 // `folder` for driving syncthing-control.
 //
-// runningPeerIp: seed a remote running location so the installed node is NOT the
+// forceNonLeader: seed a remote running location so the installed node is NOT the
 // syncthing leader (a leader starts immediately; only a non-leader waits for
-// sync). Pass a non-fleet IP to force the sync-gated path.
+// sync). The peer must be a REAL, confirmed fleet node that isn't the install
+// target: nodeStatusMonitor reaps any appslocation IP that isn't on the
+// deterministic node list, so a fake peer IP would be pruned and the install node
+// would then elect itself leader and start immediately — skipping the sync gate.
 export async function seedSyncthingApp(env, {
-  name, mode = 'r', runningPeerIp = null, index = 0,
+  name, mode = 'r', forceNonLeader = false, index = 0,
 }) {
   await pushImage(name, 'v1');
   const app = await buildSeedableSyncthingApp({ name, mode });
 
-  if (runningPeerIp) {
+  if (forceNonLeader) {
+    const peerIp = env.clients[index === 0 ? env.clients.length - 1 : 0].ip;
     await dbClient(index + 1).seedAppLocation({
-      name, ip: runningPeerIp, hash: app.hash, runningSince: Date.now() - 600000,
+      name, ip: peerIp, hash: app.hash, runningSince: Date.now() - 600000,
     });
   }
 

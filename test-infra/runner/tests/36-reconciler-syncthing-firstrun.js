@@ -36,7 +36,7 @@ describe('reconciler waits for syncthing r: sync before first start', function (
     await bootAndPeer(env);
     await resetSyncState();
     ({ index: idx, folder, identifier } = await seedSyncthingApp(env, {
-      name: appName, mode: 'r', runningPeerIp: '198.18.99.0',
+      name: appName, mode: 'r', forceNonLeader: true,
     }));
     // start un-synced: actively syncing, only partway done
     await setSyncing({ folder, percent: 40 });
