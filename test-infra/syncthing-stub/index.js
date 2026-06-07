@@ -243,6 +243,17 @@ app.get('/rest/config/folders', (req, res) => {
   res.json(Array.from(reqState(req).folders.values()));
 });
 
+// Collection PUT (no id): the syncthing monitor writes folder config as an array
+// of the folders that changed. Upsert by id (don't replace the whole set) so
+// unrelated folders survive — matching how the monitor uses it.
+app.put('/rest/config/folders', (req, res) => {
+  const state = reqState(req);
+  const arr = Array.isArray(req.body) ? req.body : [req.body];
+  arr.forEach((f) => state.folders.set(f.id, f));
+  state.restartRequired = true;
+  res.json({});
+});
+
 app.get('/rest/config/folders/:id', (req, res) => {
   const folder = reqState(req).folders.get(req.params.id);
   if (!folder) return res.status(404).json({ error: 'not found' });
@@ -275,6 +286,15 @@ app.delete('/rest/config/folders/:id', (req, res) => {
 
 app.get('/rest/config/devices', (req, res) => {
   res.json(Array.from(reqState(req).devices.values()));
+});
+
+// Collection PUT (no id): upsert each device by deviceID (see folders above).
+app.put('/rest/config/devices', (req, res) => {
+  const state = reqState(req);
+  const arr = Array.isArray(req.body) ? req.body : [req.body];
+  arr.forEach((d) => state.devices.set(d.deviceID, d));
+  state.restartRequired = true;
+  res.json({});
 });
 
 app.get('/rest/config/devices/:id', (req, res) => {
