@@ -54,6 +54,26 @@ function createLogCollector() {
   return consumer;
 }
 
+// Persist per-node boot logs when fleet startup fails (a container never goes
+// healthy). createTestEnv throws before `env` exists, so the normal failure dump
+// can't reach these — without this, a boot flake is undiagnosable.
+function dumpBootFailureLogs(nodeConfigs) {
+  try {
+    const dir = join(process.cwd(), 'test-logs', 'boot-failure');
+    mkdirSync(dir, { recursive: true });
+    for (const n of nodeConfigs) {
+      const lines = n.logCollector?.getLines?.() || [];
+      const file = join(dir, `node-${String(n.index).padStart(2, '0')}.log`);
+      writeFileSync(file, `=== node ${n.index} (ip ${n.ip}) — ${lines.length} captured boot lines ===\n${lines.join('\n')}\n`);
+    }
+    // eslint-disable-next-line no-console
+    console.log(`\n--- boot-failure: per-node boot logs written to ${dir} ---`);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.log(`dumpBootFailureLogs failed: ${err.message}`);
+  }
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, '..', '..', 'fixtures');
 const manifest = JSON.parse(readFileSync(join(fixturesDir, 'node-manifest.json'), 'utf-8'));
@@ -445,7 +465,17 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       return { ...n, container };
     });
 
-  const startedNodes = await Promise.all(startPromises);
+  let startedNodes;
+  try {
+    startedNodes = await Promise.all(startPromises);
+  } catch (err) {
+    // A boot/health-check failure throws here, before `env` is returned, so the
+    // normal per-node failure dump can't run and the boot logs would be lost.
+    // The log consumer streams container output before health passes, so persist
+    // whatever each node captured for diagnosis, then re-throw.
+    dumpBootFailureLogs(nodeConfigs);
+    throw err;
+  }
   const startedByIndex = new Map(startedNodes.map((n) => [n.index, n]));
 
   const stubPeerContainers = [];
