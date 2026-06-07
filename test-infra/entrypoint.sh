@@ -3,6 +3,17 @@ set -e
 
 ip addr add 169.254.43.43/32 dev lo 2>/dev/null || true
 
+# App installs mount each app's FLUXFSVOL via `mount -o loop`. Loop devices are a
+# shared host-kernel resource (not namespaced); the kernel default pool (max_loop,
+# typically 8) is small and on-demand creation races under concurrent installs, so a
+# fleet installing at once (e.g. instances == nodeCount) exhausts it and installs
+# fail with "failed to setup loop device". Pre-create a generous pool so each
+# concurrent mount finds a free device. /dev is shared across the privileged nodes,
+# so this is idempotent fleet-wide (existing devices are skipped).
+for i in $(seq 0 63); do
+  [ -e "/dev/loop$i" ] || mknod -m660 "/dev/loop$i" b 7 "$i" 2>/dev/null || true
+done
+
 mkdir -p /dat/var/lib/fluxd \
          /dat/usr/lib/syncthing \
          /dat/usr/lib/fluxbenchd \
