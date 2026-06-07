@@ -444,7 +444,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
 
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(5 * 1000);
+      await serviceHelper.delay(config.fluxapps.portTestBindDelayMs);
 
       beforeAppInstallTestingServers.push(testHttpServer);
 
@@ -471,8 +471,8 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       if (error) throw error;
     }
 
-    await serviceHelper.delay(10 * 1000);
-    const timeout = 30000;
+    await serviceHelper.delay(config.fluxapps.portTestPropagationDelayMs);
+    const timeout = config.fluxapps.portTestPeerTimeoutMs;
     const axiosConfig = {
       timeout,
     };
@@ -489,7 +489,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     data.signature = signature;
     let i = 0;
     let finished = false;
-    while (!finished && i < 5) {
+    while (!finished && i < config.fluxapps.portTestMaxAttempts) {
       i += 1;
       // eslint-disable-next-line no-await-in-loop
       const randomSocketAddress = await networkStateService.getRandomSocketAddress(
