@@ -30,6 +30,16 @@ async function handleContainerDie(event) {
   const containerName = event.Actor?.Attributes?.name;
   if (!containerName || !isFluxContainer(containerName)) return;
 
+  // A deliberate FluxOS stop (appDockerStop/Kill/Restart) marks the container in
+  // stoppingContainers; its die needs no reconcile - the operation already set the
+  // desired state. Consume the flag and skip, mirroring the pre-reconciler watcher.
+  // This also avoids a perpetual 5s reconcile-defer loop for a stopped-and-staying-
+  // stopped container, whose flag would otherwise linger until the next start.
+  if (globalState.stoppingContainers.has(containerName)) {
+    globalState.stoppingContainers.delete(containerName);
+    return;
+  }
+
   const exitCode = parseInt(event.Actor?.Attributes?.exitCode, 10);
   const identifier = getComponentIdentifier(containerName);
 
@@ -116,4 +126,9 @@ function stop() {
   }
 }
 
-module.exports = { start, stop };
+module.exports = {
+  start,
+  stop,
+  // exposed for tests
+  handleContainerDie,
+};

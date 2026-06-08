@@ -56,6 +56,8 @@ describe('syncthingFolderStateMachine tests', () => {
     serviceHelperMock.delay.reset();
     serviceHelperMock.delay.resolves();
     nodecmdMock.run.reset();
+    appUninstallerMock.removeAppLocally.reset();
+    appUninstallerMock.removeAppLocally.resolves();
 
     // Mock successful file system operations for safety checks
     // This makes verifyFolderMountSafety return isSafe: true
@@ -347,7 +349,7 @@ describe('syncthingFolderStateMachine tests', () => {
         status: 'success',
         data: { folders: [{ id: 'test-app', type: 'receiveonly', devices: [{ deviceID: 'DEVICE123' }] }] },
       });
-      syncthingServiceMock.getDbCompletion.resolves({ status: 'success', data: { completion: 100 } });
+      syncthingServiceMock.getDbCompletion.resolves({ status: 'success', data: { completion: 100, globalBytes: 1000 } });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -471,7 +473,7 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.calledOnce(mockParams.appDockerStopFn);
     });
 
-    it('should use fallback time-based logic when sync status unavailable', async () => {
+    it('never force-starts when sync status is unavailable (stays receiveonly on unverified data)', async () => {
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
         numberOfExecutions: 1,
@@ -487,9 +489,31 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
+      // cannot verify the data is synced -> must not flip to sendreceive or start, and
+      // must not remove yet (well under the removal threshold on the first unreadable cycle)
+      sinon.assert.notCalled(mockParams.appDockerRestartFn);
+      sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
       expect(result.syncthingFolder.type).to.equal('receiveonly');
-      expect(result.cache.numberOfExecutionsRequired).to.be.a('number');
-      expect(result.cache.numberOfExecutions).to.equal(2);
+      expect(result.cache.restarted).to.not.equal(true);
+    });
+
+    it('removes locally (never starts) when sync status stays unreadable past the removal threshold', async () => {
+      // unreadable since well before the removal threshold (2h30)
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        statusUnreadableSince: Date.now() - (3 * 60 * 60 * 1000),
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({ status: 'error', data: null });
+
+      await stateMachine.manageFolderSyncState(mockParams);
+
+      // never started on unverified data, but cleaned up rather than stuck forever
+      sinon.assert.notCalled(mockParams.appDockerRestartFn);
+      sinon.assert.calledOnce(appUninstallerMock.removeAppLocally);
     });
 
     it('should stop Docker and restart Syncthing when sync is stalled with synced peers', async () => {
@@ -537,10 +561,10 @@ describe('syncthingFolderStateMachine tests', () => {
         },
       });
 
-      // Mock completion showing peer is synced
+      // Mock completion showing peer is synced (100% AND holds data)
       syncthingServiceMock.getDbCompletion = sinon.stub().resolves({
         status: 'success',
-        data: { completion: 100 },
+        data: { completion: 100, globalBytes: 1000 },
       });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
@@ -600,10 +624,10 @@ describe('syncthingFolderStateMachine tests', () => {
         },
       });
 
-      // Mock completion showing peer is synced
+      // Mock completion showing peer is synced (100% AND holds data)
       syncthingServiceMock.getDbCompletion = sinon.stub().resolves({
         status: 'success',
-        data: { completion: 100 },
+        data: { completion: 100, globalBytes: 1000 },
       });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
@@ -660,10 +684,10 @@ describe('syncthingFolderStateMachine tests', () => {
         },
       });
 
-      // Mock completion showing peer is synced
+      // Mock completion showing peer is synced (100% AND holds data)
       syncthingServiceMock.getDbCompletion = sinon.stub().resolves({
         status: 'success',
-        data: { completion: 100 },
+        data: { completion: 100, globalBytes: 1000 },
       });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
@@ -671,6 +695,53 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache.restarted).to.be.true;
       // Note: We can't easily test appUninstaller.removeAppLocally since it's required dynamically
       // In production, this would remove the app
+    });
+
+    it('should NOT remove app when stalled and the only peer reports 100% but holds no data (empty)', async () => {
+      // Same stalled + recovery-already-attempted setup as above, but the peer is
+      // empty: completion 100 with globalBytes 0. That must NOT count as a synced
+      // source, otherwise we would drop the good local copy in favour of an empty
+      // one (data loss). The correct action is to keep waiting, not remove.
+      const syncHistory = [];
+      for (let i = 0; i < 10; i++) {
+        syncHistory.push({
+          inSyncBytes: 500, // Same bytes - stalled
+          globalBytes: 1000,
+          syncPercentage: 50,
+          timestamp: Date.now() + i * 1000,
+        });
+      }
+
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        syncHistory,
+        syncthingRestartAttempted: true, // recovery already tried
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 900 },
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 1000, inSyncBytes: 500, state: 'syncing' },
+      });
+
+      syncthingServiceMock.getConfig = sinon.stub().resolves({
+        status: 'success',
+        data: { folders: [{ id: 'test-app', type: 'receiveonly', devices: [{ deviceID: 'DEVICE123' }] }] },
+      });
+
+      // Peer reports 100% but 0 bytes -> NOT a safe source
+      syncthingServiceMock.getDbCompletion = sinon.stub().resolves({
+        status: 'success',
+        data: { completion: 100, globalBytes: 0 },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      // No synced peer found -> we keep waiting, app is not removed (restarted stays false)
+      expect(result.cache.restarted).to.be.false;
     });
   });
 });

@@ -107,6 +107,17 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
     });
 
+    it('defers (does not drop) the reconcile when the local spec read fails transiently', async () => {
+      // a momentary DB read failure must not be mistaken for "not installed" - the
+      // reconcile defers and retries rather than silently dropping the recovery
+      stubs.dbHelper.findOneInDatabase.rejects(new Error('connection reset'));
+      await appReconciler.reconcile('www_App'); // must not throw
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(stubs.dockerService.appDockerStop.called).to.be.false;
+      const deferred = stubs.log.warn.getCalls().some((c) => /spec read failed, deferring/.test(c.args[0]));
+      expect(deferred, 'should log the transient defer, not silently no-op as not-installed').to.equal(true);
+    });
+
     it('stops a running container the operator has stopped', async () => {
       stubs.appsRuntimeState.isOperatorStopped.resolves(true);
       stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });

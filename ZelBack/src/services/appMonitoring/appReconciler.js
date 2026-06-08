@@ -83,8 +83,11 @@ async function getLocalComponentSpec(identifier) {
     const database = dbHelper.databaseConnection().db(config.database.appslocal.database);
     appSpec = await dbHelper.findOneInDatabase(database, localAppsInformation, { name: mainAppName }, { projection: { _id: 0 } });
   } catch (err) {
-    log.error(`appReconciler - failed to read local spec for ${identifier}: ${err.message}`);
-    return null;
+    // A DB read failure is transient, not "not installed". Throw a tagged error so
+    // reconcile defers + retries rather than silently dropping the recovery.
+    const error = new Error(`failed to read local spec for ${identifier}: ${err.message}`);
+    error.transient = true;
+    throw error;
   }
   if (!appSpec) return null;
   try {
@@ -215,7 +218,16 @@ async function reconcile(rawIdentifier) {
     return;
   }
 
-  const spec = await getLocalComponentSpec(identifier);
+  let spec;
+  try {
+    spec = await getLocalComponentSpec(identifier);
+  } catch (err) {
+    // transient failure reading the local spec (e.g. a momentary DB blip): defer and
+    // retry rather than dropping the component's recovery as if it were uninstalled.
+    log.warn(`appReconciler - ${identifier} spec read failed, deferring: ${err.message}`);
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
   if (!spec) return; // not installed here - nothing to enforce
 
   const actual = await dockerActual(identifier);
