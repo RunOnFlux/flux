@@ -457,7 +457,11 @@ async function startFluxFunctions() {
     setTimeout(() => {
       nodeStatusMonitor.monitorNodeStatus(appQueryService.installedApps, appUninstaller.removeAppLocally);
     }, bootDelay(1.5 * 60 * 1000));
-    setTimeout(() => {
+    // Start the syncthing/masterSlave deciders once boot container state has settled
+    // (the same AsyncGate the reconciler starts on), not after a fixed delay. Each
+    // decider self-gates per cycle on its own prerequisites (mounts, syncthing health,
+    // own-IP, FDM), so an early start is safe - it skips and retries until ready.
+    globalState.waitForBootContainerStateSettled().then(() => {
       syncthingMonitor.syncthingApps(
         globalState,
         appQueryService.installedApps,
@@ -473,22 +477,23 @@ async function startFluxFunctions() {
         async (id) => { appReconciler.setControllerDesired(id, 'running', 'syncthing synced'); },
         dockerOperations.appDeleteDataInMountPoint,
         appUninstaller.removeAppLocally,
-      ); // rechecks and possibly adjust syncthing configuration every 2 minutes
-      setTimeout(() => {
-        advancedWorkflows.masterSlaveApps(
-          globalState,
-          appQueryService.installedApps,
-          appQueryService.listRunningApps,
-          globalState.receiveOnlySyncthingAppsCache,
-          globalState.backupInProgress,
-          globalState.restoreInProgress,
-          https,
-        ); // stop and starts apps using syncthing g: when a new master is required or was changed.
-      }, config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000);
+      ); // rechecks syncthing configuration each cycle
+      // masterSlave self-gates on syncthingAppsFirstRun (the syncthing monitor's
+      // first-run mount-safety must complete before any g: election), so it starts
+      // concurrently rather than after a timed offset.
+      advancedWorkflows.masterSlaveApps(
+        globalState,
+        appQueryService.installedApps,
+        appQueryService.listRunningApps,
+        globalState.receiveOnlySyncthingAppsCache,
+        globalState.backupInProgress,
+        globalState.restoreInProgress,
+        https,
+      ); // stops and starts g: syncthing apps when a new master is required or changed.
       setTimeout(() => {
         appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally, globalState); // Monitor SharedDB Apps.
       }, 60 * 1000);
-    }, bootDelay(3 * 60 * 1000));
+    });
     // Hash sync and spawner startup are now managed by the AppSyncOrchestrator (event-driven)
     orchestrator.start(bootContext);
     log.info('AppSyncOrchestrator started');

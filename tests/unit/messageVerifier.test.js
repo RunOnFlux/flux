@@ -223,11 +223,9 @@ describe('messageVerifier tests', () => {
           isDaemonSynced: isDaemonSyncedStub,
           getBlock: sinon.stub().resolves({}),
         },
-        '../appLifecycle/advancedWorkflows': {
-          getPreviousAppSpecifications: getPreviousAppSpecsStub,
-        },
         '../appDatabase/registryManager': {
           updateAppSpecifications: updateAppSpecificationsStub,
+          getPreviousAppSpecifications: getPreviousAppSpecsStub,
         },
         './messageStore': {
           storeAppPermanentMessage: storeAppPermanentMessageStub,
@@ -436,6 +434,7 @@ describe('messageVerifier tests', () => {
         '../utils/chainUtilities': chainUtilitiesStub,
         '../appDatabase/registryManager': {
           updateAppSpecifications: sinon.stub().resolves(),
+          getPreviousAppSpecifications: sinon.stub().resolves(null),
         },
         '../fluxNetworkHelper': {
           getNumberOfPeers: sinon.stub().returns(10),
@@ -443,9 +442,6 @@ describe('messageVerifier tests', () => {
         '../utils/enterpriseHelper': enterpriseHelperStub,
         '../fluxService': fluxServiceStub,
         '../utils/globalState': {},
-        '../appLifecycle/advancedWorkflows': {
-          getPreviousAppSpecifications: sinon.stub().resolves(null),
-        },
       });
     });
 

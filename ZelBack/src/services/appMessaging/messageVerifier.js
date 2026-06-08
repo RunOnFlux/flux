@@ -12,8 +12,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { insertAppSpecifications, updateAppSpecifications } = require('../appDatabase/registryManager');
-const { getPreviousAppSpecifications } = require('../appLifecycle/advancedWorkflows');
+const { insertAppSpecifications, updateAppSpecifications, getPreviousAppSpecifications } = require('../appDatabase/registryManager');
 const {
   globalAppsMessages,
   globalAppsTempMessages,

@@ -1070,17 +1070,6 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   }
   options.Env.push(`FLUX_APP_NAME=${appName}`);
 
-  // Ensure all required mount paths (files and directories) exist before creating container
-  // This prevents Docker mount errors when files have been deleted or don't exist yet
-  try {
-    // eslint-disable-next-line global-require
-    const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
-    await advancedWorkflows.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
-  } catch (error) {
-    log.error(`Failed to ensure mount paths exist for ${identifier}: ${error.message}`);
-    throw error;
-  }
-
   const app = await docker.createContainer(options).catch((error) => {
     log.error(error);
     throw error;

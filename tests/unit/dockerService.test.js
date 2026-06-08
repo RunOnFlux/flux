@@ -849,7 +849,6 @@ describe('dockerService tests', () => {
 
   describe('appDockerCreate tests', () => {
     let dockerStub;
-    let advancedWorkflowsStub;
     const appName = 'fluxwebsite';
     // Use the same path that dockerService will compute at runtime
     const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
@@ -892,17 +891,10 @@ describe('dockerService tests', () => {
     };
     beforeEach(() => {
       dockerStub = sinon.stub(Dockerode.prototype, 'createContainer').returns(Promise.resolve('created'));
-      // Stub ensureMountPathsExist to prevent actual filesystem operations
-      // eslint-disable-next-line global-require
-      const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
-      advancedWorkflowsStub = sinon.stub(advancedWorkflows, 'ensureMountPathsExist').resolves();
     });
 
     afterEach(() => {
       dockerStub.restore();
-      if (advancedWorkflowsStub) {
-        advancedWorkflowsStub.restore();
-      }
     });
 
     it('should create an app given proper parameters for specs version > 1', async () => {

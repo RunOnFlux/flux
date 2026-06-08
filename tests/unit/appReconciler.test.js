@@ -37,6 +37,7 @@ describe('appReconciler tests', () => {
         waitForBootContainerStateSettled: () => Promise.resolve(),
       },
       appInspector: { startAppMonitoring: sinon.stub() },
+      volumeService: { ensureMountPathsExist: sinon.stub().resolves() },
       appsRuntimeState: {
         isOperatorStopped: sinon.stub().resolves(false),
         restartWaitMs: sinon.stub().resolves(0),
@@ -58,6 +59,7 @@ describe('appReconciler tests', () => {
       '../dockerService': stubs.dockerService,
       '../utils/globalState': stubs.globalState,
       '../appManagement/appInspector': stubs.appInspector,
+      '../utils/volumeService': stubs.volumeService,
       '../appManagement/appsRuntimeState': stubs.appsRuntimeState,
       '../appQuery/appQueryService': stubs.appQueryService,
       './containerHealthMonitor': stubs.containerHealthMonitor,
@@ -125,6 +127,33 @@ describe('appReconciler tests', () => {
       expect(stubs.appsRuntimeState.recordRestart.calledOnceWith('www_App')).to.be.true;
       expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
       expect(stubs.appInspector.startAppMonitoring.calledOnce).to.be.true;
+    });
+
+    it('ensures mount paths exist (recreating any syncthing-cleaned source) before starting', async () => {
+      await appReconciler.reconcile('www_App');
+      expect(stubs.volumeService.ensureMountPathsExist.calledOnce).to.be.true;
+      // called with (componentSpec, mainAppName, isComponent, fullAppSpecs)
+      const [comp, mainAppName, isComponent, fullAppSpecs] = stubs.volumeService.ensureMountPathsExist.firstCall.args;
+      expect(comp).to.deep.equal({ name: 'www', containerData: '/data' });
+      expect(mainAppName).to.equal('App');
+      expect(isComponent).to.be.true;
+      expect(fullAppSpecs).to.deep.equal(localSpec);
+      // and the ensure must happen before the docker start, or the start could fail on a missing mount
+      sinon.assert.callOrder(stubs.volumeService.ensureMountPathsExist, stubs.dockerService.appDockerStart);
+    });
+
+    it('does not start (or record a restart) when ensuring mount paths fails', async () => {
+      stubs.volumeService.ensureMountPathsExist.rejects(new Error('mkdir failed'));
+      let threw = false;
+      try {
+        await appReconciler.reconcile('www_App');
+      } catch (err) {
+        threw = true;
+        expect(err.message).to.equal('mkdir failed');
+      }
+      expect(threw).to.be.true;
+      expect(stubs.appsRuntimeState.recordRestart.called).to.be.false;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
     it('does nothing when the container is already running', async () => {
@@ -196,13 +225,24 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
-    // an un-elected g: container that is somehow running (e.g. stale from a prior
-    // election) must be stopped even with no explicit desired set.
-    it('stops a running g: component that no controller has elected', async () => {
+    // controllerDesired is in-memory, so a FluxOS restart wipes it while the
+    // container keeps running (Docker is independent of the FluxOS process). With
+    // no controller opinion yet the reconciler must leave a running g:/r: container
+    // alone - stopping it here would bounce every running syncthing app on every
+    // FluxOS restart. The decider re-derives intent within its next cycle.
+    it('leaves a running g: component alone when no controller has spoken yet', async () => {
       localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
       stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
       await appReconciler.reconcile('db_App'); // controllerDesired unset
-      expect(stubs.dockerService.appDockerStop.calledOnceWith('db_App')).to.be.true;
+      expect(stubs.dockerService.appDockerStop.called).to.be.false;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    it('leaves a running r: component alone when no controller has spoken yet (FluxOS-restart case)', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'web', containerData: 'r:/data' }] };
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      await appReconciler.reconcile('web_App'); // controllerDesired unset
+      expect(stubs.dockerService.appDockerStop.called).to.be.false;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 

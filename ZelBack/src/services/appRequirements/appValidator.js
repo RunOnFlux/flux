@@ -1454,7 +1454,7 @@ async function validateAppUpdate(appSpecification) {
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
   const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
-  const previousAppSpecs = await advancedWorkflows.getPreviousAppSpecifications(appSpecFormatted, timestamp);
+  const previousAppSpecs = await registryManager.getPreviousAppSpecifications(appSpecFormatted, timestamp);
   if (!previousAppSpecs) {
     throw new Error(`Flux App ${appSpecFormatted.name} does not exist and cannot be updated`);
   }

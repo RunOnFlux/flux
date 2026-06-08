@@ -3,6 +3,7 @@ const log = require('../../lib/log');
 const fluxEventBus = require('../utils/fluxEventBus');
 const dbHelper = require('../dbHelper');
 const dockerService = require('../dockerService');
+const volumeService = require('../utils/volumeService');
 const globalState = require('../utils/globalState');
 const appInspector = require('../appManagement/appInspector');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
@@ -166,7 +167,14 @@ function isManagedElsewhere(identifier) {
 async function effectiveDesiredRunning(identifier, spec, exitCode) {
   if (await appsRuntimeState.isOperatorStopped(identifier)) return { desired: false, reason: 'operatorStopped' };
   if (spec.isG || spec.isR) {
-    if (controllerDesired.get(identifier) !== 'running') return { desired: false, reason: 'controllerDesired' };
+    const cd = controllerDesired.get(identifier) ?? null;
+    // No controller opinion yet. controllerDesired is in-memory, so a FluxOS
+    // restart wipes it while the container keeps running (Docker is independent of
+    // the FluxOS process). Take no action - leave the container as-is until the
+    // masterSlave/syncthing decider re-derives intent. Treating "unset" as "stop"
+    // here would bounce every running syncthing app on every FluxOS restart.
+    if (cd === null) return { desired: null, reason: 'awaitingController' };
+    if (cd !== 'running') return { desired: false, reason: 'controllerDesired' };
   }
   const desired = policyAllowsRun(getRestartPolicy(spec), exitCode);
   return { desired, reason: desired ? 'running' : 'policy' };
@@ -223,6 +231,10 @@ async function reconcile(rawIdentifier) {
 
   const { desired, reason } = await effectiveDesiredRunning(identifier, spec, actual.exitCode);
 
+  // null = no controller opinion yet for a g:/r: component: neither start nor stop,
+  // leave the container in its current state until the decider speaks.
+  if (desired === null) return;
+
   if (!desired) {
     if (actual.running) {
       log.info(`appReconciler - ${identifier} desired stopped, stopping`);
@@ -248,6 +260,13 @@ async function reconcile(rawIdentifier) {
     scheduleRetry(identifier, wait);
     return;
   }
+
+  // Recreate any bind-mount paths removed while the container was stopped (e.g.
+  // Syncthing cleanup of a g:/r: data folder) before starting — otherwise the
+  // start fails on a missing mount source and the app backoff-loops forever.
+  const mainAppName = identifier.split('_')[1] || identifier;
+  const isComponent = spec.appSpec.version >= 4 && Array.isArray(spec.appSpec.compose);
+  await volumeService.ensureMountPathsExist(spec.comp, mainAppName, isComponent, isComponent ? spec.appSpec : null);
 
   await appsRuntimeState.recordRestart(identifier);
   await dockerService.appDockerStart(identifier);
