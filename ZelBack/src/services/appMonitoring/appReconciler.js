@@ -91,9 +91,15 @@ async function getLocalComponentSpec(identifier) {
   }
   if (!appSpec) return null;
   try {
-    [appSpec] = await appQueryService.decryptEnterpriseApps([appSpec], { formatSpecs: false });
+    [appSpec] = await appQueryService.decryptEnterpriseApps([appSpec], { formatSpecs: false, throwOnError: true });
   } catch (err) {
-    log.warn(`appReconciler - could not decrypt spec for ${identifier}: ${err.message}`);
+    // Decryption failed (e.g. the enterprise key isn't loaded yet at boot). Never
+    // proceed on still-encrypted data: containerData would be unreadable, so we'd
+    // misclassify g:/r: or start a container on garbage. Treat as transient like a
+    // DB read failure so reconcile defers and retries once the key is available.
+    const error = new Error(`failed to decrypt enterprise spec for ${identifier}: ${err.message}`);
+    error.transient = true;
+    throw error;
   }
 
   let comp;

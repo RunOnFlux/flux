@@ -21,7 +21,7 @@ const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
  * @returns {Promise<Array>} Array of decrypted app specifications
  */
 async function decryptEnterpriseApps(apps, options = {}) {
-  const { formatSpecs = true } = options;
+  const { formatSpecs = true, throwOnError = false } = options;
   const decryptedApps = [];
   const cache = fluxCaching.default.enterpriseAppDecryptionCache;
 
@@ -54,7 +54,11 @@ async function decryptEnterpriseApps(apps, options = {}) {
         decryptedApps.push(result);
       } catch (error) {
         log.error(`Failed to decrypt enterprise app ${spec.name}: ${error.message}`);
-        // If decryption fails, we still want to include the app but log the error
+        // Display/listing callers (default) keep the lenient behavior: include the
+        // still-encrypted spec so the rest of the list isn't lost. Callers that act
+        // on the spec (the reconciler) pass throwOnError so they can defer rather
+        // than operate on undecrypted data (wrong containerData, mis-typed g:/r:).
+        if (throwOnError) throw error;
         decryptedApps.push(spec);
       }
     } else {

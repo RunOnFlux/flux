@@ -291,6 +291,59 @@ describe('appReconciler tests', () => {
     });
   });
 
+  describe('component selection and enterprise decryption', () => {
+    // The reconciler is per-component: reconcile(<comp>_<app>) must resolve exactly the
+    // matching compose entry out of a multi-entry app, so a partial state (one component
+    // crashed while siblings run) is enforced on the right component with the right type.
+    it('selects the matching entry from a multi-component compose (partial state)', async () => {
+      localSpec = {
+        name: 'App',
+        version: 4,
+        compose: [
+          { name: 'www', containerData: '/data' },
+          { name: 'db', containerData: 'g:/data' }, // master/slave - needs a controller
+          { name: 'cache', containerData: '/cache' }, // plain - always policy
+        ],
+      };
+      // 'cache' is plain -> a stopped one is started (picked 'cache', not 'www' or g: 'db')
+      await appReconciler.reconcile('cache_App');
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('cache_App')).to.be.true;
+
+      // 'db' is g: -> NOT started without a controller (picked 'db', not plain 'cache'/'www')
+      stubs.dockerService.appDockerStart.resetHistory();
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(stubs.dockerService.appDockerStop.called).to.be.false;
+    });
+
+    it('acts on the decrypted spec, not the encrypted one, for an enterprise app', async () => {
+      // stored (encrypted) spec has no usable containerData; decryption reveals it is g:
+      localSpec = {
+        name: 'App', version: 8, enterprise: 'CIPHERTEXT', compose: [{ name: 'db', containerData: '' }],
+      };
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async () => [
+        { name: 'App', version: 8, compose: [{ name: 'db', containerData: 'g:/data' }] },
+      ]);
+      await appReconciler.reconcile('db_App');
+      // treated as g: from the DECRYPTED containerData -> not started without a controller.
+      // If it had acted on the encrypted spec (containerData '') it would be a plain start.
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    it('defers (does not act on encrypted data) when enterprise decryption fails', async () => {
+      localSpec = {
+        name: 'App', version: 8, enterprise: 'CIPHERTEXT', compose: [{ name: 'db', containerData: '' }],
+      };
+      // throwOnError path: decryption failing (e.g. key not loaded at boot) must propagate
+      stubs.appQueryService.decryptEnterpriseApps.rejects(new Error('enterpriseKey is mandatory'));
+      await appReconciler.reconcile('db_App'); // must not throw
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(stubs.dockerService.appDockerStop.called).to.be.false;
+      const deferred = stubs.log.warn.getCalls().some((c) => /spec read failed, deferring/.test(c.args[0]));
+      expect(deferred, 'should defer on decrypt failure, never act on still-encrypted data').to.equal(true);
+    });
+  });
+
   describe('workqueue', () => {
     it('enqueue runs a reconcile once the boot gate is open', async () => {
       // startAppMonitoring is the last step of a start-path reconcile
