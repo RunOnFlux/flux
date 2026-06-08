@@ -91,4 +91,22 @@ if [ -n "$FLUX_BOOT_ID" ]; then
   echo "$FLUX_BOOT_ID" > /tmp/flux-boot-id
 fi
 
-exec "$@"
+# Run FluxOS (CMD ["node","app.js"]) under a respawn watchdog instead of exec'ing it
+# as PID 1. This mirrors the dockerd watchdog above and production's systemd: the
+# entrypoint shell stays PID 1 and node runs as a child, so a test can kill+respawn
+# the FluxOS process (restartFluxos) WITHOUT restarting the container or the inner
+# dockerd - the app containers keep running, exactly like `systemctl restart fluxos`.
+# The child PID is written to /tmp/fluxos.pid so a test kills only the node process,
+# never PID 1. A SIGTERM/SIGINT (docker stop at teardown) stops the child and exits.
+set +e
+STOPPING=0
+trap 'STOPPING=1; kill -TERM "$(cat /tmp/fluxos.pid 2>/dev/null)" 2>/dev/null' TERM INT
+while [ "$STOPPING" = "0" ]; do
+  "$@" &
+  FLUXOS_PID=$!
+  echo "$FLUXOS_PID" > /tmp/fluxos.pid
+  wait "$FLUXOS_PID"
+  [ "$STOPPING" = "1" ] && break
+  echo "fluxos (node app.js) exited, respawning in 1s" >&2
+  sleep 1
+done
