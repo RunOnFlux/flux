@@ -209,10 +209,12 @@ describe('State sync: 3-peer ephemeral sync', function () {
       await dc.seedGlobalAppSpec(app.spec);
       await dc.seedPermanentMessage(app.permanentMessage);
       await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-      // Seed running locations on each source node so they have ephemeral data to sync
+      // Seed running locations on each source node so they have ephemeral data to sync.
+      // Distinct fake in-/24 app-location IPs (.100+ avoids gateway/.1, services/.2-.7,
+      // and node IPs/.10+); must stay in the FluxOS-accepted base or sync drops them.
       await dc.seedAppLocation({
         name: appName,
-        ip: `${subnet.base}.1.${i - 1}:16127`,
+        ip: `${subnet.base}.${100 + i}:16127`,
         hash: app.hash,
         broadcastedAt: Date.now(),
       });
