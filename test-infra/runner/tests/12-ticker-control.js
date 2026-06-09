@@ -4,7 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import {
   getState, startTicker, stopTicker, advanceBlock, setHeight,
   queueAppTx, setNodeStatus, clearNodeStatus, getNodeStatusOverrides,
-  enableRpcFailure, disableRpcFailure, removeFromNodeList, restoreToNodeList,
+  enableRpcFailure, disableRpcFailure, setNodeList, removeFromNodeList, restoreToNodeList,
   resetAll,
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -104,6 +104,13 @@ describe('Ticker and block control', function () {
   });
 
   it('should remove and restore nodes in deterministic list', async function () {
+    // nodes:0 leaves the stub's node list empty, so seed a known list to exercise
+    // remove/restore against (the feature under test).
+    await setNodeList([
+      { ip: subnet.nodeIp(1) },
+      { ip: subnet.nodeIp(2) },
+      { ip: subnet.nodeIp(3) },
+    ]);
     const before = await getState();
     await removeFromNodeList(subnet.nodeIp(3));
     let state = await getState();
