@@ -4,6 +4,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const dbHelper = require('../dbHelper');
 const dockerService = require('../dockerService');
 const volumeService = require('../utils/volumeService');
+const mountParser = require('../utils/mountParser');
 const globalState = require('../utils/globalState');
 const appInspector = require('../appManagement/appInspector');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
@@ -111,8 +112,26 @@ async function getLocalComponentSpec(identifier) {
     comp = appSpec; // v1-3: the app itself is the single component
   }
 
+  // Classify via the canonical parser (sync flags are valid only on the primary
+  // mount), NOT a loose substring: `'/data|g:/db'.includes('g:')` is true but the
+  // g: is in an invalid non-primary position, so it is NOT a g: component. Also flag
+  // an unparseable spec so reconcile can fail loud instead of looping (the container
+  // could never be created — volume construction would throw on the same spec).
   const cd = comp.containerData || '';
-  return { appSpec, comp, isG: cd.includes('g:'), isR: cd.includes('r:') };
+  const syncMode = mountParser.getComponentSyncMode(cd);
+  let invalidSpec = false;
+  let invalidReason = null;
+  if (cd) {
+    try {
+      mountParser.parseContainerData(cd);
+    } catch (err) {
+      invalidSpec = true;
+      invalidReason = err.message;
+    }
+  }
+  return {
+    appSpec, comp, isG: syncMode === 'g', isR: syncMode === 'r', invalidSpec, invalidReason,
+  };
 }
 
 /**
@@ -235,6 +254,17 @@ async function reconcile(rawIdentifier) {
     return;
   }
   if (!spec) return; // not installed here - nothing to enforce
+
+  // Invalid containerData (e.g. a sync flag on a non-primary mount, or an index-ref
+  // primary): the spec can never be actuated — volume construction would throw — so
+  // fail loud and stop. Do NOT scheduleRetry (retrying cannot fix an invalid spec)
+  // and do NOT attempt a start. The hourly sweep re-surfaces it, so it stays visible
+  // rather than silently looping "not ready".
+  if (spec.invalidSpec) {
+    log.error(`appReconciler - ${identifier} has invalid containerData, not reconciling: ${spec.invalidReason}`);
+    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'invalidSpec', reason: spec.invalidReason });
+    return;
+  }
 
   const actual = await dockerActual(identifier);
 

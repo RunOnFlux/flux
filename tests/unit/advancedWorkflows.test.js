@@ -593,7 +593,7 @@ describe('advancedWorkflows tests', () => {
           {
             name: appName,
             version: 3,
-            containerData: 'g:data',
+            containerData: 'g:/data',
           },
         ],
       });
@@ -633,7 +633,7 @@ describe('advancedWorkflows tests', () => {
           {
             name: appName,
             version: 3,
-            containerData: 'g:syncdata',
+            containerData: 'g:/syncdata',
           },
         ],
       });
@@ -705,7 +705,7 @@ describe('advancedWorkflows tests', () => {
           {
             name: appName,
             version: 3,
-            containerData: 'g:syncdata',
+            containerData: 'g:/syncdata',
           },
         ],
       });

@@ -29,6 +29,7 @@ const {
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const volumeService = require('../utils/volumeService');
+const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
@@ -3635,13 +3636,13 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled.data) {
       if (app.version <= 3) {
-        if (app.containerData && app.containerData.includes('g:')) {
+        if (app.containerData && mountParser.isGComponent(app.containerData)) {
           validIdentifiers.add(app.name);
         }
       } else if (app.compose) {
         // eslint-disable-next-line no-restricted-syntax
         for (const comp of app.compose) {
-          if (comp.containerData && comp.containerData.includes('g:')) {
+          if (comp.containerData && mountParser.isGComponent(comp.containerData)) {
             validIdentifiers.add(`${comp.name}_${app.name}`);
           }
         }
@@ -3684,9 +3685,9 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         appId = dockerService.getAppIdentifier(identifier);
         // Check all g: mode apps, not just those in cache with restarted flag
         // The cache tracks sync state, but shouldn't gate primary selection
-        needsToBeChecked = installedApp.containerData.includes('g:');
+        needsToBeChecked = mountParser.isGComponent(installedApp.containerData);
       } else {
-        const componentUsingMasterSlave = installedApp.compose.find((comp) => comp.containerData.includes('g:'));
+        const componentUsingMasterSlave = installedApp.compose.find((comp) => mountParser.isGComponent(comp.containerData));
         if (componentUsingMasterSlave) {
           identifier = `${componentUsingMasterSlave.name}_${installedApp.name}`;
           appId = dockerService.getAppIdentifier(identifier);

@@ -107,6 +107,18 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
     });
 
+    it('fails loud on invalid containerData (sync flag on a non-primary mount): no start/stop, no throw', async () => {
+      // '/data|g:/...' puts the sync flag on a non-primary mount -> unparseable per the
+      // mount model (real prod shape: roundcube). The reconciler must not attempt a start
+      // (volume construction would throw) and must surface it, not silently loop "not ready".
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'www', containerData: '/data|g:/var/roundcube/db' }] };
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(stubs.dockerService.appDockerStop.called).to.be.false;
+      const failedLoud = stubs.log.error.getCalls().some((c) => /invalid containerData/.test(c.args[0]));
+      expect(failedLoud, 'should log the invalid-spec error (fail loud), not silently loop').to.equal(true);
+    });
+
     it('defers (does not drop) the reconcile when the local spec read fails transiently', async () => {
       // a momentary DB read failure must not be mistaken for "not installed" - the
       // reconcile defers and retries rather than silently dropping the recovery
