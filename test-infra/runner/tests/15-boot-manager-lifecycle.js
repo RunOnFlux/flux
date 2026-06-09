@@ -10,6 +10,16 @@ import {
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // Suite 1: FluxOS-only restart (bootContext='running')
+//
+// The FluxOS process restarted but the machine did NOT reboot. There is no skip/fast-path:
+// reconcileAppsOnBoot runs on every boot (71588a001 removed the machineRebooted gate so a
+// container that exited while FluxOS was down still gets restarted), so the boot path here
+// is identical to a machine reboot and settles via the same daemon->confirm->db->reconcile
+// sequence (hence the same ~50s settle window as the 'rebooted' suite below). This suite
+// therefore only asserts what is UNIQUE to a FluxOS-only restart: the boot context is
+// detected as machineRebooted=false and, with near-zero downtime, locations are not expired
+// (apps are not removed) — the cleanShutdown=false branch that suite 19 doesn't cover.
+// Exited-container recovery / running-container-not-bounced is covered by suites 23 and 40.
 
 describe('Boot manager: FluxOS-only restart', function () {
   let env;
@@ -26,20 +36,11 @@ describe('Boot manager: FluxOS-only restart', function () {
     await env?.teardown();
   });
 
-  it('should detect machineRebooted=false', async function () {
-    this.timeout(30000);
-    await waitForBootSettled(env.clients[0], 20000);
+  it('detects machineRebooted=false and does not expire locations', async function () {
+    this.timeout(60000);
+    await waitForBootSettled(env.clients[0], 50000);
     expect(env.nodeHasLog(0, 'machineRebooted=false')).to.equal(true);
-  });
-
-  it('should skip container management', async function () {
-    expect(env.nodeHasLog(0, 'FluxOS-only restart')).to.equal(true);
-  });
-
-  it('should settle boot state immediately', async function () {
-    const settledEvents = env.clients[0].getEventBuffer()
-      .filter((e) => e.event === 'boot:settled');
-    expect(settledEvents.length).to.be.greaterThan(0);
+    expect(env.nodeHasLog(0, 'Locations expired')).to.equal(false);
   });
 });
 
