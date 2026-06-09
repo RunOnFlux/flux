@@ -21,27 +21,58 @@ SUITE_GLOB="${SUITE_GLOB:-tests/*.js}"
 SUITE_TIMEOUT_MS="${SUITE_TIMEOUT_MS:-300000}"
 mkdir -p "$LOG_DIR"
 
+# A label unique to THIS invocation, stamped onto every docker object the run
+# creates (see test-env.js runLabels()). The between-suite cleanup below scopes
+# removal to it, so concurrent run-all invocations never delete each other's
+# live fleets — the old `--filter name=e2e` cleanup matched all runs' containers.
+RUN_LABEL="${E2E_RUN_LABEL:-run-$$-$(date +%s)}"
+export E2E_RUN_LABEL="$RUN_LABEL"
+
 # Pick the /24 subnet base (three octets) all suites in this run will use. Each suite
 # creates+tears down its own /24 network; a single run defaults to 198.18.0 (back
 # compat), and parallel run-all.sh invocations auto-pick distinct free /24s so their
 # fleets don't collide. The pool is the 512 /24s of 198.18.0.0/15 (the RFC 2544 range
 # FluxOS accepts as public — see subnet-config.js). Override with TEST_SUBNET_BASE=a.b.c.
-pick_free_base() {
-  local used o2 o3 b
+#
+# A base is claimed by creating a lock directory (mkdir is atomic), so two run-all
+# processes scanning at once can never grab the same /24 — closing the read-then-create
+# race the old picker had (it read the in-use set, then created the network later, with
+# a window where a sibling picked the same base). flock serialises the scan so a stale
+# lock (dead owner) can be reclaimed without two processes racing the reclaim.
+LOCK_ROOT="${E2E_BASE_LOCK_DIR:-/tmp/e2e-base-locks}"
+mkdir -p "$LOCK_ROOT" 2>/dev/null
+CLAIMED_BASE=""
+_scan_and_claim() {            # sets CLAIMED_BASE ('' if the pool is exhausted)
+  local used o2 o3 b owner
   used="$(docker network ls -q | xargs -r docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null)"
   for o2 in 18 19; do
     for o3 in $(seq 0 255); do
       b="198.$o2.$o3"
-      case " $used " in
-        *" $b.0/24 "*) ;;     # already in use
-        *) echo "$b"; return 0;;
-      esac
+      case " $used " in *" $b.0/24 "*) continue;; esac   # a live network already owns it
+      if [ -d "$LOCK_ROOT/$b" ]; then
+        owner="$(cat "$LOCK_ROOT/$b/pid" 2>/dev/null)"
+        if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then continue; fi  # claimed by a live run
+        rm -rf "$LOCK_ROOT/$b"                            # stale claim from a dead run — reclaim
+      fi
+      if mkdir "$LOCK_ROOT/$b" 2>/dev/null; then
+        echo "$$" > "$LOCK_ROOT/$b/pid"; CLAIMED_BASE="$b"; return 0
+      fi
     done
   done
-  echo "198.18.0"             # pool exhausted; fall back (createNetwork will error on collision)
 }
+pick_free_base() {             # sets CLAIMED_BASE
+  CLAIMED_BASE=""
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$LOCK_ROOT/.pick.lock"; flock 9; _scan_and_claim; flock -u 9
+  else
+    _scan_and_claim            # mkdir-claim is atomic on its own; reclaim race is moot single-host
+  fi
+}
+release_base() { [ -n "${CLAIMED_BASE:-}" ] && rm -rf "${LOCK_ROOT:?}/$CLAIMED_BASE" 2>/dev/null; }
+trap release_base EXIT INT TERM
 if [ -z "${TEST_SUBNET_BASE:-}" ]; then
-  export TEST_SUBNET_BASE="$(pick_free_base)"
+  pick_free_base
+  export TEST_SUBNET_BASE="${CLAIMED_BASE:-198.18.0}"   # 198.18.0 fallback if pool exhausted
 fi
 echo "###SUBNET-BASE $TEST_SUBNET_BASE"
 
@@ -54,9 +85,11 @@ echo "###RUN-START total=$total $(date -u +%H:%M:%S)"
 for f in "${SUITES[@]}"; do
   i=$((i + 1)); name=$(basename "$f" .js)
 
-  # drop any orphaned e2e containers/networks so a leak in one suite can't fail the next
-  docker ps -aq --filter name=e2e | xargs -r docker rm -f >/dev/null 2>&1
-  docker network ls --filter name=e2e -q | xargs -r docker network rm >/dev/null 2>&1
+  # drop any orphaned objects THIS run leaked so a leak in one suite can't fail the
+  # next — scoped to our own run label so a concurrent run-all's live fleet is untouched
+  docker ps -aq --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker rm -f >/dev/null 2>&1
+  docker network ls -q --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker network rm >/dev/null 2>&1
+  docker volume ls -q --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker volume rm >/dev/null 2>&1
 
   echo "###SUITE-START [$i/$total] $name $(date -u +%H:%M:%S)"
   npx mocha "$f" --reporter tap --timeout "$SUITE_TIMEOUT_MS" 2>&1 | tee "$LOG_DIR/$name.tap"

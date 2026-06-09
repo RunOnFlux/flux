@@ -97,6 +97,14 @@ const EXTERNAL_STUB_IP = subnet.externalStub;
 const FDM_IP = subnet.fdm;
 const INITIAL_HEIGHT = 2100000;
 
+// Per-run-all label. run-all.sh exports E2E_RUN_LABEL (unique per invocation) and
+// scopes its between-suite cleanup to it, so concurrent run-all invocations only
+// ever remove their OWN docker objects — never another live run's fleet. Applied
+// to every container, network and volume this run creates. Empty when a suite is
+// run standalone (no run-all), in which case the cleanup never fires anyway.
+const RUN_LABEL = process.env.E2E_RUN_LABEL || '';
+const runLabels = () => (RUN_LABEL ? { 'flux-e2e-run': RUN_LABEL } : {});
+
 // masterSlaveApps resolves the FDM by hostname (getMasterIpFromFdm tries EU/USA/ASIA
 // regions, server index from getFdmIndex by the app name's first letter). Every
 // reachable FDM hostname must resolve to the stub for any app name, otherwise the
@@ -136,6 +144,9 @@ class StaticIpContainer extends GenericContainer {
   }
 
   async beforeContainerCreated() {
+    // Tag with this run's label so run-all.sh's between-suite cleanup can scope
+    // removal to its own fleet (see runLabels()).
+    this.createOpts.Labels = { ...(this.createOpts.Labels || {}), ...runLabels() };
     if (this.#staticIp && this.#networkName) {
       this.createOpts.NetworkingConfig = {
         EndpointsConfig: {
@@ -160,7 +171,7 @@ async function createNetwork() {
   await client.container.dockerode.createNetwork({
     Name: networkName,
     Driver: 'bridge',
-    Labels: { 'org.testcontainers.session-id': reaper.sessionId },
+    Labels: { 'org.testcontainers.session-id': reaper.sessionId, ...runLabels() },
     IPAM: {
       Driver: 'default',
       Config: [{ Subnet: SUBNET, Gateway: GATEWAY }],
@@ -432,7 +443,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     const volName = `${networkName}-node${i}`;
     await rtClient.container.dockerode.createVolume({
       Name: volName,
-      Labels: { 'org.testcontainers.session-id': reaper.sessionId },
+      Labels: { 'org.testcontainers.session-id': reaper.sessionId, ...runLabels() },
     });
     volumeNames.push(volName);
   }
