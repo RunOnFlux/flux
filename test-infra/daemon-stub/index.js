@@ -42,6 +42,9 @@ const fixturesDir = process.env.FIXTURES_DIR || path.join(__dirname, '..', 'fixt
 
 const NODE_COUNT = Number(process.env.NODE_COUNT) || 16;
 
+// Default-base baseline from the committed fixture. The harness assigns per-run
+// addresses and POSTs the rendered list to /set-node-list (which also resets this
+// baseline), so the IP convention lives only in runner/framework/subnet-config.js.
 try {
   const listPath = path.join(fixturesDir, 'deterministic-list.json');
   if (fs.existsSync(listPath)) {
@@ -520,7 +523,10 @@ control.post('/set-height', (req, res) => {
 });
 
 control.post('/set-node-list', (req, res) => {
+  // Update the restore/reset baseline too, so /node-list/restore and /reset stay
+  // consistent with the per-run addresses the harness assigns (not the 198.18 fixture).
   deterministicNodeList = req.body.nodes;
+  originalNodeList = [...req.body.nodes];
   res.json({ nodeCount: deterministicNodeList.length });
 });
 

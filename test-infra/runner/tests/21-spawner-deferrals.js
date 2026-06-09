@@ -10,12 +10,13 @@ import {
   waitForAppSpecStored, waitForAppInstalled, waitForSpawnerDeferred,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 
 function localRegistryCompose(appName) {
   return [{
     name: appName,
     description: 'test container',
-    repotag: `198.18.0.5:5000/${appName}:v1`,
+    repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
     ports: [31111],
     domains: [''],
     environmentParameters: [],

@@ -9,6 +9,9 @@ import {
   waitForBlockProcessed, waitForOrchestratorState, waitForSpawnerBlocked,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
 
 describe('Confirmation loss consequences', function () {
   let env;
@@ -27,13 +30,13 @@ describe('Confirmation loss consequences', function () {
 
   after(async function () {
     this.timeout(30000);
-    await clearNodeStatus('198.18.1.0');
+    await clearNodeStatus(subnet.nodeIp(1));
     await env?.teardown();
   });
 
   it('should block the spawner when node loses confirmation', async function () {
     this.timeout(60000);
-    await setNodeStatus('198.18.1.0', 'EXPIRED');
+    await setNodeStatus(subnet.nodeIp(1), 'EXPIRED');
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
     await env.clients[0].waitForEvent('spawner:paused', () => true, 30000);
     await waitForOrchestratorState(env.clients[0], 'SYNCING', 10000);

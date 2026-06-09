@@ -50,10 +50,12 @@ if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
       > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || :
 fi
 
-# Trust test registry CA for dockerd (Node.js uses NODE_EXTRA_CA_CERTS directly)
+# Trust test registry CA for dockerd (Node.js uses NODE_EXTRA_CA_CERTS directly).
+# The registry is reached by a stable network alias (fluxregistry), not an IP, so
+# this path is base-independent — dockerd pulls fluxregistry:5000/... under any subnet.
 if [ -f /usr/local/share/ca-certificates/test-registry.crt ]; then
-  mkdir -p "/etc/docker/certs.d/198.18.0.5:5000"
-  cp /usr/local/share/ca-certificates/test-registry.crt "/etc/docker/certs.d/198.18.0.5:5000/ca.crt"
+  mkdir -p "/etc/docker/certs.d/fluxregistry:5000"
+  cp /usr/local/share/ca-certificates/test-registry.crt "/etc/docker/certs.d/fluxregistry:5000/ca.crt"
 fi
 
 # Start dockerd under a tiny watchdog so it is respawned if it exits. Production

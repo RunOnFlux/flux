@@ -7,6 +7,9 @@ import {
   waitForPeersRemoved, waitFor,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
 
 async function bootAndPeer(env) {
   for (const client of env.clients) await waitForDaemonReady(client);
@@ -41,7 +44,7 @@ describe('Peers disconnect on confirmation loss (4019)', function () {
   it('should disconnect all peers when node loses confirmation', async function () {
     this.timeout(60000);
     const client = env.clients[0];
-    const nodeIp = '198.18.1.0';
+    const nodeIp = subnet.nodeIp(1);
 
     const peersBefore = await client.getPeers();
     expect(peersBefore.data.length).to.be.greaterThan(0);
@@ -65,7 +68,7 @@ describe('Inbound connections rejected when unconfirmed', function () {
     env = await createTestEnv({ nodes: 10, tickerAutostart: false });
     for (const client of env.clients) await waitForDaemonReady(client);
 
-    const nodeIp = '198.18.1.0';
+    const nodeIp = subnet.nodeIp(1);
     await setNodeStatus(nodeIp, 'EXPIRED');
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 30000);
 
@@ -119,7 +122,7 @@ describe('Full confirmation loss and regain lifecycle', function () {
     this.timeout(180000);
     const client = env.clients[0];
     const observer = env.clients[1];
-    const nodeIp = '198.18.1.0';
+    const nodeIp = subnet.nodeIp(1);
 
     const peersBefore = await client.getPeers();
     expect(peersBefore.data.length).to.be.greaterThan(0);

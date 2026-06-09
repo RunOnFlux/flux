@@ -4,6 +4,9 @@ import { createTestEnv } from '../framework/test-env.js';
 import { waitForDaemonReady } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
 
 let env;
 
@@ -52,7 +55,7 @@ describe('Boot: prerequisites', function () {
     const db = dbClient(1);
     const geo = await db.geolocation();
     expect(geo).to.not.be.null;
-    expect(geo.geolocation.ip).to.equal('198.18.1.0');
+    expect(geo.geolocation.ip).to.equal(subnet.nodeIp(1));
   });
 
   it('should start Docker daemon inside container', async function () {

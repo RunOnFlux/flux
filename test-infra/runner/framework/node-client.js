@@ -1,8 +1,9 @@
 import { EventEmitter } from 'node:events';
 import { EventSource } from 'eventsource';
+import { getSubnetConfig } from './subnet-config.js';
 
 export function nodeClient(nodeNum) {
-  const ip = `198.18.${nodeNum}.0`;
+  const ip = getSubnetConfig().nodeIp(nodeNum);
   const url = `http://${ip}:16127`;
 
   async function get(path) {

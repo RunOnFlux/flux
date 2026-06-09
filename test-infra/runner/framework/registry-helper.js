@@ -2,18 +2,26 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import https from 'node:https';
+import tls from 'node:tls';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import axios from 'axios';
+import { getSubnetConfig, REGISTRY_ALIAS } from './subnet-config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const caCert = readFileSync(join(__dirname, '..', '..', 'fixtures', 'registry-tls', 'ca.pem'));
 
-const REGISTRY = 'https://198.18.0.5:5000';
+// The host pushes to the registry's IP (it can't resolve the Docker network alias),
+// but the cert is bound to DNS:fluxregistry — so connect to the IP yet verify the
+// cert against the alias name. Nodes pull via the alias directly. Base-independent.
+const REGISTRY = `https://${getSubnetConfig().registry}:5000`;
 
 const registryClient = axios.create({
   baseURL: REGISTRY,
-  httpsAgent: new https.Agent({ ca: caCert }),
+  httpsAgent: new https.Agent({
+    ca: caCert,
+    checkServerIdentity: (host, cert) => tls.checkServerIdentity(REGISTRY_ALIAS, cert),
+  }),
   maxBodyLength: Infinity,
   maxContentLength: Infinity,
 });

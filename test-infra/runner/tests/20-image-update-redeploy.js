@@ -5,6 +5,7 @@ import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { pushImage, pushUpdatedImage } from '../framework/registry-helper.js';
 import { getContainerImageDigest } from '../framework/container.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { startTicker, advanceBlock, advanceBlocks } from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
@@ -17,7 +18,7 @@ function localRegistryCompose(appName) {
   return [{
     name: appName,
     description: 'test container',
-    repotag: `198.18.0.5:5000/${appName}:v1`,
+    repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
     ports: [31111],
     domains: [''],
     environmentParameters: [],

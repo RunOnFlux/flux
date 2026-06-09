@@ -10,6 +10,9 @@ import {
   waitForAppInstalled, waitForOrchestratorState,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
 
 async function bootAndPeer(env, nodeIndices) {
   const clients = nodeIndices.map((i) => env.clients[i]).filter(Boolean);
@@ -45,7 +48,7 @@ describe('State sync: app running state (0x21)', function () {
       compose: [{
         name: appName,
         description: 'sync test',
-        repotag: `198.18.0.5:5000/${appName}:v1`,
+        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
         ports: [31111],
         domains: [''],
         environmentParameters: [],
@@ -116,7 +119,7 @@ describe('State sync: hash resolution', function () {
       compose: [{
         name: appName,
         description: 'hash sync test',
-        repotag: `198.18.0.5:5000/${appName}:v1`,
+        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
         ports: [31112],
         domains: [''],
         environmentParameters: [],
@@ -189,7 +192,7 @@ describe('State sync: 3-peer ephemeral sync', function () {
       compose: [{
         name: appName,
         description: '3-peer sync test',
-        repotag: `198.18.0.5:5000/${appName}:v1`,
+        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
         ports: [31113],
         domains: [''],
         environmentParameters: [],
@@ -209,7 +212,7 @@ describe('State sync: 3-peer ephemeral sync', function () {
       // Seed running locations on each source node so they have ephemeral data to sync
       await dc.seedAppLocation({
         name: appName,
-        ip: `198.18.1.${i - 1}:16127`,
+        ip: `${subnet.base}.1.${i - 1}:16127`,
         hash: app.hash,
         broadcastedAt: Date.now(),
       });

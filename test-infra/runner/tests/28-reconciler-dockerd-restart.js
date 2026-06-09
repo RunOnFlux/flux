@@ -5,6 +5,7 @@ import { getAppContainerStatus, restartDockerd } from '../framework/container.js
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForAppInstalled, waitFor, waitForReconcileActuated,
@@ -39,7 +40,7 @@ async function seedAndWaitForInstall(env, appName) {
     compose: [{
       name: appName,
       description: 'test container',
-      repotag: `198.18.0.5:5000/${appName}:v1`,
+      repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
       ports: [31111],
       domains: [''],
       environmentParameters: [],

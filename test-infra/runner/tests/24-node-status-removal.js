@@ -4,6 +4,9 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { dbClient } from '../framework/db-client.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
+import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
 import {
   startTicker, advanceBlock, setNodeStatus, enableRpcFailure,
 } from '../framework/daemon-control.js';
@@ -36,7 +39,7 @@ async function seedAndWaitForInstall(env, appName) {
     compose: [{
       name: appName,
       description: 'test container',
-      repotag: `198.18.0.5:5000/${appName}:v1`,
+      repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
       ports: [31111],
       domains: [''],
       environmentParameters: [],
@@ -86,7 +89,7 @@ describe('Confirmation loss removes installed apps', function () {
 
   it('should remove app when node loses confirmation', async function () {
     this.timeout(120000);
-    const nodeIp = `198.18.${installedOnIndex + 1}.0`;
+    const nodeIp = subnet.nodeIp(installedOnIndex + 1);
     const client = env.clients[installedOnIndex];
 
     await setNodeStatus(nodeIp, 'EXPIRED');
@@ -119,7 +122,7 @@ describe('Daemon stale removes installed apps', function () {
 
   it('should remove app when daemon becomes stale', async function () {
     this.timeout(120000);
-    const nodeIp = `198.18.${installedOnIndex + 1}.0`;
+    const nodeIp = subnet.nodeIp(installedOnIndex + 1);
     const client = env.clients[installedOnIndex];
 
     await enableRpcFailure(nodeIp);

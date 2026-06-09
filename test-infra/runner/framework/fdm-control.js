@@ -1,6 +1,8 @@
 // Drives the FDM stub (test-infra/fdm-stub) that masterSlaveApps polls for the
 // elected g: primary. Default host matches test-env's FDM_IP/control port.
-const CONTROL = process.env.FDM_CONTROL || 'http://198.18.0.7:16131';
+import { getSubnetConfig } from './subnet-config.js';
+
+const CONTROL = process.env.FDM_CONTROL || `http://${getSubnetConfig().fdm}:16131`;
 
 async function post(path, body) {
   const res = await fetch(`${CONTROL}${path}`, {

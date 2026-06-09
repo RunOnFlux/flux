@@ -1,6 +1,7 @@
 import { MongoClient } from 'mongodb';
+import { getSubnetConfig } from './subnet-config.js';
 
-const MONGO_URL = process.env.MONGO_URL || 'mongodb://198.18.0.2:27017';
+const MONGO_URL = process.env.MONGO_URL || `mongodb://${getSubnetConfig().mongo}:27017`;
 
 let sharedClient = null;
 

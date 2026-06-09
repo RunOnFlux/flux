@@ -4,6 +4,9 @@ import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
 import { waitForDaemonReady, waitForNodeStatus, waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
 
 describe('Confirmation state: confirmed boot', function () {
   let env;
@@ -40,7 +43,7 @@ describe('Confirmation state: unconfirmed boot', function () {
     env = await createTestEnv({
       nodes: 1,
       tickerAutostart: false,
-      nodeStatusOverrides: { '198.18.1.0': 'EXPIRED' },
+      nodeStatusOverrides: { [subnet.nodeIp(1)]: 'EXPIRED' },
     });
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 60000);
   });
@@ -79,13 +82,13 @@ describe('Confirmation state: runtime loss', function () {
 
   after(async function () {
     this.timeout(30000);
-    await clearNodeStatus('198.18.1.0');
+    await clearNodeStatus(subnet.nodeIp(1));
     await env?.teardown();
   });
 
   it('should detect confirmation loss after status override', async function () {
     this.timeout(30000);
-    await setNodeStatus('198.18.1.0', 'EXPIRED');
+    await setNodeStatus(subnet.nodeIp(1), 'EXPIRED');
     const event = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
     expect(event.data.confirmed).to.equal(false);
   });

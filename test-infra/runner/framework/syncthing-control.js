@@ -3,7 +3,9 @@
 // (or pass '*') to drive every node's view of that folder. `folder` is the
 // syncthing folder id FluxOS assigns to the component (== the reconciler
 // identifier); read it from getSyncthingState() if unsure.
-const CONTROL = process.env.SYNCTHING_CONTROL || 'http://198.18.0.4:8385';
+import { getSubnetConfig } from './subnet-config.js';
+
+const CONTROL = process.env.SYNCTHING_CONTROL || `http://${getSubnetConfig().syncthing}:8385`;
 
 const GLOBAL_BYTES = 100000;
 

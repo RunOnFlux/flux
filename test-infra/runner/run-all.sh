@@ -21,6 +21,28 @@ SUITE_GLOB="${SUITE_GLOB:-tests/*.js}"
 SUITE_TIMEOUT_MS="${SUITE_TIMEOUT_MS:-300000}"
 mkdir -p "$LOG_DIR"
 
+# Pick the subnet base (two octets) all suites in this run will use. Each suite
+# creates+tears down its own /16 network; a single run defaults to 198.18 (back
+# compat), and parallel run-all.sh invocations auto-pick distinct free bases so
+# their fleets don't collide. Override explicitly with TEST_SUBNET_BASE=a.b.
+pick_free_base() {
+  local candidates=(198.18 198.19 10.150 10.151 10.152 10.153 10.154 10.155 10.160 10.161 10.162 10.163)
+  local used
+  used="$(docker network ls -q | xargs -r docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null)"
+  local b
+  for b in "${candidates[@]}"; do
+    case " $used " in
+      *" $b.0.0/16 "*) ;;     # already in use
+      *) echo "$b"; return 0;;
+    esac
+  done
+  echo "198.18"               # pool exhausted; fall back (createNetwork will error on collision)
+}
+if [ -z "${TEST_SUBNET_BASE:-}" ]; then
+  export TEST_SUBNET_BASE="$(pick_free_base)"
+fi
+echo "###SUBNET-BASE $TEST_SUBNET_BASE"
+
 # shellcheck disable=SC2206
 SUITES=( $(ls $SUITE_GLOB 2>/dev/null | sort) )
 total=${#SUITES[@]}

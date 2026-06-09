@@ -1,4 +1,6 @@
-const CONTROL = process.env.DAEMON_CONTROL || 'http://198.18.0.3:18232';
+import { getSubnetConfig } from './subnet-config.js';
+
+const CONTROL = process.env.DAEMON_CONTROL || `http://${getSubnetConfig().daemon}:18232`;
 
 async function post(path, body) {
   const res = await fetch(`${CONTROL}${path}`, {

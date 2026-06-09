@@ -8,6 +8,9 @@ import {
   clearAllNodeStatus,
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
 
 // Suite 1: FluxOS-only restart (bootContext='running')
 //
@@ -112,7 +115,7 @@ describe('Boot manager: daemon timeout', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'rebooted', rpcFailures: ['198.18.1.0'] });
+    env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'rebooted', rpcFailures: [subnet.nodeIp(1)] });
   });
 
   after(async function () {
@@ -142,7 +145,7 @@ describe('Boot manager: not confirmed', function () {
       nodes: 1,
       tickerAutostart: false,
       bootContext: 'rebooted',
-      nodeStatusOverrides: { '198.18.1.0': 'EXPIRED' },
+      nodeStatusOverrides: { [subnet.nodeIp(1)]: 'EXPIRED' },
     });
   });
 

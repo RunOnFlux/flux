@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
+import { REGISTRY_REPO_HOST } from './subnet-config.js';
 
 function sha256(data) {
   return createHash('sha256').update(data).digest('hex');
@@ -98,7 +99,7 @@ export async function buildSeedableApp({
 export async function buildSeedableSyncthingApp({
   name,
   mode = 'g',
-  repotag = `198.18.0.5:5000/${name}:v1`,
+  repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
   ports = [31111],
   containerPorts = [80],
   sibling = false,
@@ -157,7 +158,7 @@ export async function buildSeedableTestApp({
   const compose = [{
     name,
     description: 'configurable exit test container',
-    repotag: `198.18.0.5:5000/${name}:v1`,
+    repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
     ports: [port],
     domains: [''],
     environmentParameters,

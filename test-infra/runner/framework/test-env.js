@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { nodeClient } from './node-client.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
+import { getSubnetConfig, REGISTRY_ALIAS, REGISTRY_REPO_HOST } from './subnet-config.js';
 import { closeDb } from './db-client.js';
 import { stubPeerClient } from './stub-peer-helper.js';
 import { MongoClient } from 'mongodb';
@@ -78,15 +79,22 @@ function dumpBootFailureLogs(nodeConfigs) {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, '..', '..', 'fixtures');
 const manifest = JSON.parse(readFileSync(join(fixturesDir, 'node-manifest.json'), 'utf-8'));
+// Identity for the fake-blockchain node list (collateral/pubkey/tier). Base-independent;
+// the per-run IPs are assigned from subnet-config and POSTed to the daemon stub.
+const deterministicList = JSON.parse(readFileSync(join(fixturesDir, 'deterministic-list.json'), 'utf-8'));
 
-const SUBNET = '198.18.0.0/16';
-const GATEWAY = '198.18.0.1';
-const MONGO_IP = '198.18.0.2';
-const DAEMON_IP = '198.18.0.3';
-const SYNCTHING_IP = '198.18.0.4';
-const REGISTRY_IP = '198.18.0.5';
-const EXTERNAL_STUB_IP = '198.18.0.6';
-const FDM_IP = '198.18.0.7';
+// All infra/node addresses derive from the per-run subnet base (TEST_SUBNET_BASE,
+// default '198.18'); see subnet-config.js. The named constants below are kept so
+// downstream references are unchanged — only the base varies per run.
+const subnet = getSubnetConfig();
+const SUBNET = subnet.subnet;
+const GATEWAY = subnet.gateway;
+const MONGO_IP = subnet.mongo;
+const DAEMON_IP = subnet.daemon;
+const SYNCTHING_IP = subnet.syncthing;
+const REGISTRY_IP = subnet.registry;
+const EXTERNAL_STUB_IP = subnet.externalStub;
+const FDM_IP = subnet.fdm;
 const INITIAL_HEIGHT = 2100000;
 
 // masterSlaveApps resolves the FDM by hostname (getMasterIpFromFdm tries EU/USA/ASIA
@@ -189,7 +197,7 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
         {
           $set: {
             geolocation: {
-              ip: `198.18.${i}.0`,
+              ip: subnet.nodeIp(i),
               continent: 'Europe', continentCode: 'EU',
               country: 'Germany', countryCode: 'DE',
               region: 'HE', regionName: 'Hesse',
@@ -309,6 +317,17 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   started.push(daemonStub);
   containers.daemonStub = daemonStub;
 
+  // Render the deterministic node list for this run: identity from the committed
+  // fixture, addresses from subnet-config (the single source of truth for node IPs).
+  // POST before any node boots; /set-node-list also resets the stub's restore/reset
+  // baseline. A no-op-equivalent when base === '198.18'.
+  const runNodeList = deterministicList.slice(0, nodes).map((n, idx) => ({ ...n, ip: subnet.nodeIp(idx + 1) }));
+  await fetch(`http://${DAEMON_IP}:18232/set-node-list`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nodes: runNodeList }),
+  });
+
   for (const [ip, status] of Object.entries(nodeStatusOverrides)) {
     await fetch(`http://${DAEMON_IP}:18232/node-status/${ip}`, {
       method: 'POST',
@@ -323,7 +342,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
 
   if (nodeTiers) {
     for (const [index, tier] of Object.entries(nodeTiers)) {
-      const ip = `198.18.${Number(index) + 1}.0`;
+      const ip = subnet.nodeIp(Number(index) + 1);
       await fetch(`http://${DAEMON_IP}:18232/node-tier/${ip}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -376,7 +395,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
 
   if (!dataCenter) {
     for (let i = 1; i <= nodes; i++) {
-      await fetch(`http://${EXTERNAL_STUB_IP}:3001/geolocation/198.18.${i}.0`, {
+      await fetch(`http://${EXTERNAL_STUB_IP}:3001/geolocation/${subnet.nodeIp(i)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hosting: false }),
@@ -385,8 +404,11 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   }
 
   const registryTlsDir = join(fixturesDir, 'registry-tls');
+  // The registry is reached by a stable network alias (fluxregistry), not its IP:
+  // node dockerd pulls fluxregistry:5000/... and TLS verifies DNS:fluxregistry, so
+  // the registry works under any subnet base without regenerating the cert.
   const registry = await new StaticIpContainer('registry:2')
-    .withStaticIp(networkName, REGISTRY_IP)
+    .withStaticIp(networkName, REGISTRY_IP, [REGISTRY_ALIAS])
     .withBindMounts([{
       source: registryTlsDir,
       target: '/certs',
@@ -423,7 +445,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     if (stubPeerSet.has(i)) continue;
 
     const num = String(i + 1).padStart(2, '0');
-    const nodeIp = `198.18.${i + 1}.0`;
+    const nodeIp = subnet.nodeIp(i + 1);
     const nodeManifest = manifest.nodes[i];
 
     const logCollector = createLogCollector();
@@ -453,8 +475,21 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     };
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
     if (discoveryAutostart) nodeEnv.FLUX_DISCOVERY_AUTOSTART = 'true';
-    const nodeConfig = mergeConfigs(configOverrides, nodeConfigOverrides[i]);
-    if (nodeConfig) nodeEnv.NODE_CONFIG = JSON.stringify(nodeConfig);
+    // Point the node's config at the base-derived infra IPs. The mounted config
+    // files (shared.js / node-NN) carry the default 198.18 addresses; NODE_CONFIG
+    // is deep-merged over them by the `config` package, so under a non-default base
+    // these overrides take effect (and are a no-op when base === '198.18'). Explicit
+    // test overrides still win (merged on top of this).
+    const infraOverride = {
+      database: { url: MONGO_IP },
+      daemon: { host: DAEMON_IP },
+      benchmark: { host: DAEMON_IP },
+      syncthing: { ip: SYNCTHING_IP },
+      github: { rawBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, apiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      geolocation: { ipApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, statsApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+    };
+    const nodeConfig = mergeConfigs(infraOverride, mergeConfigs(configOverrides, nodeConfigOverrides[i]));
+    nodeEnv.NODE_CONFIG = JSON.stringify(nodeConfig);
 
     // Wait on an HTTP poll of the node's own /flux/version, not Docker's health
     // state machine: under a contended 10-node fleet boot, Wait.forHealthCheck()
@@ -497,7 +532,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   const stubPeerClientsMap = new Map();
 
   for (const stubIdx of stubPeers) {
-    const nodeIp = `198.18.${stubIdx + 1}.0`;
+    const nodeIp = subnet.nodeIp(stubIdx + 1);
     const key = nodeKey(stubIdx + 1);
 
     const stub = await new StaticIpContainer('flux-e2e-peer-stub')
@@ -528,7 +563,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   for (let i = 0; i < nodes; i++) {
     const cfg = fluxNodesByIndex.get(i);
     if (!cfg) {
-      fluxNodes.push({ container: null, ip: `198.18.${i + 1}.0`, num: i + 1, logCollector: null, bootIdDir: null });
+      fluxNodes.push({ container: null, ip: subnet.nodeIp(i + 1), num: i + 1, logCollector: null, bootIdDir: null });
       continue;
     }
     const s = startedByIndex.get(i);

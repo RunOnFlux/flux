@@ -12,8 +12,9 @@ import {
 } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 
-const REGISTRY = '198.18.0.5:5000';
+const REGISTRY = REGISTRY_REPO_HOST;
 
 async function bootToSpawnerReady(env) {
   for (const c of env.clients) await waitForDaemonReady(c);

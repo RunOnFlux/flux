@@ -14,6 +14,7 @@ import { fluxTeamKey } from './keys.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
 } from './wait.js';
+import { REGISTRY_REPO_HOST } from './subnet-config.js';
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install
 // can resolve it).
@@ -215,7 +216,7 @@ export async function seedSimpleApp(env, appName, { port = 31111 } = {}) {
     compose: [{
       name: appName,
       description: 'test container',
-      repotag: `198.18.0.5:5000/${appName}:v1`,
+      repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
       ports: [port],
       domains: [''],
       environmentParameters: [],
