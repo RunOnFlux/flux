@@ -2900,9 +2900,25 @@ async function updateAppGlobaly(params) {
   const isEnterprise = Boolean(appSpecObj.version >= 8 && appSpecObj.enterprise);
   const toVerify = isEnterprise ? specificationFormatter(appSpecObj) : appSpecFormatted;
 
+  // appInfo comes from globalAppsInformation, where enterprise specs are stored with
+  // compose/contacts stripped to []. verifyAppMessageUpdateSignature expects the previous
+  // spec already decrypted (callers own the decryption) so its usersToExtend expire-only
+  // comparison sees the real compose/contacts. Decrypt here, mirroring the broadcast path's
+  // getPreviousAppSpecifications. Without this, enterprise subscription renewals signed by a
+  // usersToExtend address are rejected on secure nodes.
+  let previousAppSpec = appInfo;
+  if (appInfo.version >= 8 && appInfo.enterprise) {
+    try {
+      const decryptedPreviousSpec = await checkAndDecryptAppSpecs(appInfo, { daemonHeight: appInfo.height });
+      previousAppSpec = specificationFormatter(decryptedPreviousSpec);
+    } catch {
+      previousAppSpec = specificationFormatter(appInfo);
+    }
+  }
+
   // eslint-disable-next-line global-require
   const appMessaging = require('../appMessaging/messageVerifier');
-  await appMessaging.verifyAppMessageUpdateSignature(cleanMessageType, cleanTypeVersion, toVerify, cleanTimestamp, cleanSignature, appOwner, daemonHeight, appInfo);
+  await appMessaging.verifyAppMessageUpdateSignature(cleanMessageType, cleanTypeVersion, toVerify, cleanTimestamp, cleanSignature, appOwner, daemonHeight, previousAppSpec);
 
   // Enforce version upgrade policy
   const { latestSupportedSpecVersion } = config.fluxapps;
