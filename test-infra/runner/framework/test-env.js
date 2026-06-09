@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { nodeClient } from './node-client.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
+import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
 import { getSubnetConfig, REGISTRY_ALIAS, REGISTRY_REPO_HOST } from './subnet-config.js';
 import { closeDb } from './db-client.js';
 import { stubPeerClient } from './stub-peer-helper.js';
@@ -289,7 +290,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   const mongo = await new StaticIpContainer('mongo:8')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
     .withStaticIp(networkName, MONGO_IP)
-    .withWaitStrategy(Wait.forHealthCheck())
+    .withWaitStrategy(new TcpPollWaitStrategy(MONGO_IP, 27017))
     .withHealthCheck({
       test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"],
       interval: 3000,
@@ -317,7 +318,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       target: '/fixtures',
       mode: 'ro',
     }])
-    .withWaitStrategy(Wait.forHealthCheck())
+    .withWaitStrategy(new HttpPollWaitStrategy(`http://${DAEMON_IP}:18232/state`))
     .withHealthCheck({
       test: ['CMD', 'node', '-e', "require('http').get('http://localhost:18232/state', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
       interval: 3000,
@@ -365,7 +366,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   const syncthingStub = await new StaticIpContainer('flux-e2e-syncthing-stub')
     .withStaticIp(networkName, SYNCTHING_IP)
     .withEnvironment({ SYNCTHING_PORT: '8384', CONTROL_PORT: '8385' })
-    .withWaitStrategy(Wait.forHealthCheck())
+    .withWaitStrategy(new HttpPollWaitStrategy(`http://${SYNCTHING_IP}:8384/rest/noauth/health`))
     .withHealthCheck({
       test: ['CMD', 'node', '-e', "require('http').get('http://localhost:8384/rest/noauth/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
       interval: 3000,
@@ -379,7 +380,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   const externalStub = await new StaticIpContainer('flux-e2e-external-http-stub')
     .withStaticIp(networkName, EXTERNAL_STUB_IP)
     .withEnvironment({ STUB_PORT: '3000', CONTROL_PORT: '3001' })
-    .withWaitStrategy(Wait.forHealthCheck())
+    .withWaitStrategy(new HttpPollWaitStrategy(`http://${EXTERNAL_STUB_IP}:3001/health`))
     .withHealthCheck({
       test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3001/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
       interval: 3000,
@@ -393,7 +394,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   const fdmStub = await new StaticIpContainer('flux-e2e-fdm-stub')
     .withStaticIp(networkName, FDM_IP, fdmHostnames())
     .withEnvironment({ FDM_PORT: '16130', CONTROL_PORT: '16131' })
-    .withWaitStrategy(Wait.forHealthCheck())
+    .withWaitStrategy(new HttpPollWaitStrategy(`http://${FDM_IP}:16131/health`))
     .withHealthCheck({
       test: ['CMD', 'node', '-e', "require('http').get('http://localhost:16131/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
       interval: 3000,
@@ -556,7 +557,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
         PUBLIC_KEY: key.pubkey,
         NODE_IP: nodeIp,
       })
-      .withWaitStrategy(Wait.forHealthCheck())
+      .withWaitStrategy(new HttpPollWaitStrategy(`http://${nodeIp}:16128/health`))
       .withHealthCheck({
         test: ['CMD', 'node', '-e', "require('http').get('http://localhost:16128/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
         interval: 3000,
