@@ -11,6 +11,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { nodeClient } from './node-client.js';
+import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { closeDb } from './db-client.js';
 import { stubPeerClient } from './stub-peer-helper.js';
 import { MongoClient } from 'mongodb';
@@ -455,6 +456,10 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     const nodeConfig = mergeConfigs(configOverrides, nodeConfigOverrides[i]);
     if (nodeConfig) nodeEnv.NODE_CONFIG = JSON.stringify(nodeConfig);
 
+    // Wait on an HTTP poll of the node's own /flux/version, not Docker's health
+    // state machine: under a contended 10-node fleet boot, Wait.forHealthCheck()
+    // tears the fleet down on a transient "unhealthy" even when FluxOS is up. See
+    // http-wait-strategy.js for the full rationale.
     const builder = new StaticIpContainer('flux-e2e-fluxos-01')
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
@@ -462,14 +467,7 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       .withBindMounts(bindMounts)
       .withLogConsumer(logCollector)
       .withEnvironment(nodeEnv)
-      .withWaitStrategy(Wait.forHealthCheck())
-      .withHealthCheck({
-        test: ['CMD', '/usr/bin/curl', '-sf', 'http://localhost:16127/flux/version'],
-        interval: 3000,
-        timeout: 2000,
-        retries: 30,
-        startPeriod: 15000,
-      });
+      .withWaitStrategy(new HttpPollWaitStrategy(`http://${nodeIp}:16127/flux/version`).withStartupTimeout(120000));
 
     nodeConfigs.push({ index: i, builder, ip: nodeIp, num: i + 1, logCollector, bootIdDir });
   }
@@ -582,30 +580,17 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       return client;
     },
 
-    // Docker's CloseMonitorChannel (moby/daemon/container/health.go:80) sets
-    // status to "unhealthy" during monitor teardown. On restart, there's a
-    // race between this and the reset to "starting" (different locks), so
-    // HealthCheckWaitStrategy can see a transient "unhealthy" and destroy
-    // the container. We swap in an HTTP-polling wait strategy for restarts
-    // to bypass Docker's health state machine entirely.
+    // Wait on an HTTP poll of /flux/version rather than Docker's health state
+    // machine: on restart Docker transiently reports "unhealthy" during monitor
+    // teardown (moby/daemon/container/health.go CloseMonitorChannel), which a
+    // health-coupled wait strategy would mistake for a dead container. This is
+    // the same HttpPollWaitStrategy the initial fleet build uses.
     async restartNode(index, { timeout = 15000 } = {}) {
       if (clients[index]) clients[index].disconnectEventStream();
       const container = fluxNodes[index].container;
       const saved = container.waitStrategy;
       const nodeUrl = `http://${fluxNodes[index].ip}:16127/flux/version`;
-      container.waitStrategy = {
-        waitUntilReady: async () => {
-          const deadline = Date.now() + 120000;
-          while (Date.now() < deadline) {
-            try {
-              const res = await fetch(nodeUrl, { signal: AbortSignal.timeout(2000) });
-              if (res.ok) return;
-            } catch {}
-            await new Promise((r) => setTimeout(r, 500));
-          }
-          console.warn('restartNode: container not responding after 120s, continuing');
-        },
-      };
+      container.waitStrategy = new HttpPollWaitStrategy(nodeUrl);
       try {
         await container.restart({ timeout });
       } finally {
