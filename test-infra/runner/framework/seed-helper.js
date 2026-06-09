@@ -174,6 +174,135 @@ export async function buildSeedableTestApp({
   return buildSeedableApp({ name, compose, ...rest });
 }
 
+/**
+ * A seedable app with a MIXED-mount component: a plain primary mount plus a synced
+ * (g:/r:/s:) mount in a LATER `|`-segment (e.g. `/data|g:/db`, like real roundcube).
+ * Exercises the case where the sync flag is NOT the first segment — the shape that
+ * deadlocks today because syncthingMonitor only inspects segment 0.
+ * See design-gapp-placement-and-coldstart.md (F1) and project_harness_gaps #2.
+ */
+export async function buildSeedableMixedMountApp({
+  name,
+  mode = 'g',
+  plainPath = '/data',
+  syncPath = '/db',
+  repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
+  ports = [31111],
+  containerPorts = [80],
+  ...rest
+}) {
+  const compose = [{
+    name,
+    description: `mixed plain + ${mode}: component`,
+    repotag,
+    ports: [ports[0]],
+    domains: [''],
+    environmentParameters: [],
+    commands: [],
+    containerPorts,
+    containerData: `${plainPath}|${mode}:${syncPath}`,
+    cpu: 0.1,
+    ram: 100,
+    hdd: 1,
+    repoauth: '',
+  }];
+
+  return buildSeedableApp({ name, compose, ...rest });
+}
+
+/**
+ * A seedable app with MULTIPLE synced (g:/r:) components — like real SimpleXxFTP
+ * (xftp + onion, both g:). Each component gets its own syncthing folder, exercising
+ * multi-folder masterSlave election/coordination. `components` controls the count.
+ * See project_harness_gaps #3.
+ */
+export async function buildSeedableMultiSyncthingApp({
+  name,
+  mode = 'g',
+  components = 2,
+  repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
+  basePort = 31111,
+  containerPorts = [80],
+  ...rest
+}) {
+  const compose = [];
+  for (let i = 0; i < components; i += 1) {
+    compose.push({
+      name: `${name}c${i}`,
+      description: `${mode}: component ${i}`,
+      repotag,
+      ports: [basePort + i],
+      domains: [''],
+      environmentParameters: [],
+      commands: [],
+      containerPorts,
+      containerData: `${mode}:/appdata${i}`,
+      cpu: 0.1,
+      ram: 100,
+      hdd: 1,
+      repoauth: '',
+    });
+  }
+
+  return buildSeedableApp({ name, compose, ...rest });
+}
+
+/**
+ * A seedable app exercising component index-ref mounts (`N:` references component
+ * N's volume). `selfRef:false` (default) builds a VALID two-component app whose
+ * second component references the first (index 1 -> 0, like real SimpleXxFTP's
+ * `…|0:/srv/xftp`). `selfRef:true` builds the INVALID single-component self-ref
+ * (`g:/data|0:/x`, like real baserow) that volumeConstructor must reject
+ * ("Component 0 cannot reference component 0"). See project_harness_gaps #1.
+ */
+export async function buildSeedableIndexRefApp({
+  name,
+  selfRef = false,
+  mode = 'g',
+  repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
+  containerPorts = [80],
+  ...rest
+}) {
+  const base = {
+    domains: [''],
+    environmentParameters: [],
+    commands: [],
+    containerPorts,
+    cpu: 0.1,
+    ram: 100,
+    hdd: 1,
+    repoauth: '',
+    repotag,
+  };
+
+  const compose = selfRef
+    ? [{
+      ...base,
+      name,
+      description: 'invalid self-referencing component (index 0 -> 0)',
+      ports: [31111],
+      containerData: `${mode}:/appdata|0:/selfref`,
+    }]
+    : [
+      {
+        ...base,
+        name: `${name}c0`,
+        description: `${mode}: base component (index 0)`,
+        ports: [31111],
+        containerData: `${mode}:/appdata`,
+      },
+      {
+        ...base,
+        name: `${name}c1`,
+        description: 'component referencing component 0 volume (index 1 -> 0)',
+        ports: [31112],
+        containerData: '/own|0:/shared',
+      },
+    ];
+
+  return buildSeedableApp({ name, compose, ...rest });
+}
+
 export function buildRunningState({ appName, nodeIps, hash, broadcastedAt = null }) {
   const ts = broadcastedAt ?? Date.now();
 
