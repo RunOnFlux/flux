@@ -64,9 +64,25 @@ fi
 free_mb(){ free -m | awk '/^Mem:/{print $7}'; }
 load_1m(){ cut -d' ' -f1 /proc/loadavg | cut -d. -f1; }   # integer part is enough for a gate
 
+# Gate-level sweep of harness-owned docker objects. run-all.sh disables ryuk
+# (see the comment there), so a crashed suite's leftovers are no longer reaped
+# automatically — and per-run labels are unique, so later runs' label-scoped
+# cleanup can't match them. Sweep before the gate (a dirty box makes every
+# suite instant-fail on subnet collisions) and after it (leave the box clean).
+# Scoped to harness names/labels only — never a blanket prune; assumes one gate
+# per box, which run-parallel has always required.
+sweep_harness_leftovers(){
+  docker ps -aq --filter label=org.testcontainers=true | xargs -r docker rm -f >/dev/null 2>&1
+  docker network ls --format '{{.ID}} {{.Name}}' | grep ' flux-test-' | awk '{print $1}' | xargs -r docker network rm >/dev/null 2>&1
+  docker volume ls -q --filter label=flux-e2e-run | xargs -r docker volume rm >/dev/null 2>&1
+  rm -rf /tmp/e2e-base-locks /tmp/e2e-boot-lock
+}
+
 rm -rf "$LOGROOT"; mkdir -p "$LOGROOT"
 DLOG="$LOGROOT/driver.log"
 log(){ echo "$(date -u +%H:%M:%S) $*" | tee -a "$DLOG"; }
+
+sweep_harness_leftovers
 
 # ---- capture sidecars (best-effort; killed on exit) ----
 ( sudo dmesg -wT 2>/dev/null | grep --line-buffered -iE 'oom|killed process' ) > "$LOGROOT/cap-dmesg.log" 2>&1 & CAP1=$!
@@ -121,6 +137,8 @@ for s in $SUITES; do
     fail=$((fail + 1)); failed="$failed $s"
   fi
 done
+sweep_harness_leftovers
+
 log "RESULT  suites_pass=$pass suites_fail=$fail FAILED:[$failed ]"
 log "###PAR-DONE"
 [ "$fail" -eq 0 ]

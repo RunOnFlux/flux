@@ -28,6 +28,18 @@ mkdir -p "$LOG_DIR"
 RUN_LABEL="${E2E_RUN_LABEL:-run-$$-$(date +%s)}"
 export E2E_RUN_LABEL="$RUN_LABEL"
 
+# No ryuk under run-all: testcontainers-node REUSES one ryuk container across
+# processes and every process ADOPTS its session id (reaper.ts getReaper →
+# useExistingReaper), so all concurrent suites' containers share ONE session
+# label. When ryuk's connection count touches zero for RYUK_RECONNECTION_TIMEOUT
+# (two suites exiting back-to-back), it force-removes EVERYTHING wearing that
+# label — including a sibling suite's live, mid-boot fleet — then exits.
+# Observed killing suite 41's 12 just-booted containers in a full gate run.
+# Cleanup is owned by the run-label scoping above + run-parallel.sh's gate-level
+# sweep instead. Manual `npx mocha` runs (no run-all) keep ryuk: solo runs have
+# no concurrency race and benefit from its crash safety.
+export TESTCONTAINERS_RYUK_DISABLED=true
+
 # Pick the /24 subnet base (three octets) all suites in this run will use. Each suite
 # creates+tears down its own /24 network; a single run defaults to 198.18.0 (back
 # compat), and parallel run-all.sh invocations auto-pick distinct free /24s so their
