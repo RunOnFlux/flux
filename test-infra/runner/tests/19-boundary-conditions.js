@@ -5,7 +5,7 @@ import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
   waitForPeerThreshold, waitForPeersBelowThreshold, waitForBootSettled,
-  waitForDosChanged, waitFor,
+  waitForBootSettledAndLogged, waitForDosChanged, waitFor,
 } from '../framework/wait.js';
 import {
   advanceBlock, advanceBlocks, startTicker, stopTicker,
@@ -170,7 +170,10 @@ describe('Boundary: clean shutdown within SIGTERM_EXPIRY', function () {
 
   it('should NOT remove apps when downtime within SIGTERM window', async function () {
     this.timeout(60000);
-    await waitForBootSettled(env.clients[0], 50000);
+    // anchor on the settle LOG line, not just the event: 'Locations expired'
+    // is written before the settle line, so behind the anchor this absence
+    // assert is FIFO-race-free (the instant form could false-pass)
+    await waitForBootSettledAndLogged(env);
     expect(env.nodeHasLog(0, 'Locations expired')).to.equal(false);
   });
 });
@@ -195,8 +198,10 @@ describe('Boundary: clean shutdown beyond SIGTERM_EXPIRY', function () {
   });
 
   it('should remove apps when downtime exceeds SIGTERM window', async function () {
-    this.timeout(30000);
-    await waitForBootSettled(env.clients[0], 20000);
+    this.timeout(40000);
+    // anchor on the settle LOG line so the presence assert below cannot race
+    // the log pipeline ('Locations expired' is written before the settle line)
+    await waitForBootSettledAndLogged(env, 0, { timeout: 20000 });
     expect(env.nodeHasLog(0, 'Locations expired')).to.equal(true);
   });
 });

@@ -30,7 +30,13 @@ describe('Confirmation state: confirmed boot', function () {
   });
 
   it('should start peer discovery', async function () {
-    expect(env.nodeHasLog(0, 'Flux Discovery started')).to.equal(true);
+    this.timeout(15000);
+    // discovery starts in the same instant the confirmation event fires —
+    // poll for the line instead of racing the docker log pipeline
+    await waitFor(
+      () => env.nodeHasLog(0, 'Flux Discovery started'),
+      { timeout: 10000, interval: 250, label: 'discovery started log' },
+    );
   });
 });
 
@@ -60,6 +66,12 @@ describe('Confirmation state: unconfirmed boot', function () {
   });
 
   it('should not start peer discovery', async function () {
+    this.timeout(40000);
+    // an absence can't be polled for — instead wait one further monitor cycle
+    // past the one already observed, so a wrongly-started discovery line has
+    // had a full cycle to traverse the log pipeline, THEN assert absence
+    const seen = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
+    await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 30000, { afterId: seen.id });
     expect(env.nodeHasLog(0, 'Flux Discovery started')).to.equal(false);
   });
 

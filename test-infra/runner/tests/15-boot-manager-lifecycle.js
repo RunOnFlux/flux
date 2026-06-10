@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
-  waitForDaemonReady, waitForBootSettled, waitFor,
+  waitForDaemonReady, waitForBootSettledAndLogged,
 } from '../framework/wait.js';
 import {
   clearAllNodeStatus,
@@ -11,6 +11,17 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 
 const subnet = getSubnetConfig();
+
+// Assertion conventions in this suite:
+// - Boot-context FACTS (firstBoot / machineRebooted / cleanShutdown) are
+//   asserted on the orchestrator:started event payload — the contract-grade
+//   observable — never via log substrings.
+// - Settle TIMING is bounded once per block by waitForBootSettledAndLogged in
+//   before(), which also anchors the log pipeline (FIFO: once the settle line
+//   has arrived, every earlier line has too). Tests are order-independent.
+// - LOG asserts are reserved for branch decisions that have no event (which
+//   removal/wait path the boot took) and run instantly behind the anchor,
+//   where they are race-free — including absence asserts.
 
 // Suite 1: FluxOS-only restart (bootContext='running')
 //
@@ -32,6 +43,7 @@ describe('Boot manager: FluxOS-only restart', function () {
     this.timeout(120000);
     env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'running' });
     await waitForDaemonReady(env.clients[0]);
+    await waitForBootSettledAndLogged(env);
   });
 
   after(async function () {
@@ -39,10 +51,13 @@ describe('Boot manager: FluxOS-only restart', function () {
     await env?.teardown();
   });
 
-  it('detects machineRebooted=false and does not expire locations', async function () {
-    this.timeout(60000);
-    await waitForBootSettled(env.clients[0], 50000);
-    expect(env.nodeHasLog(0, 'machineRebooted=false')).to.equal(true);
+  it('detects machineRebooted=false', async function () {
+    this.timeout(10000);
+    const event = await env.clients[0].waitForEvent('orchestrator:started', () => true, 5000);
+    expect(event.data.bootContext.machineRebooted).to.equal(false);
+  });
+
+  it('does not expire locations (near-zero downtime)', function () {
     expect(env.nodeHasLog(0, 'Locations expired')).to.equal(false);
   });
 });
@@ -57,6 +72,7 @@ describe('Boot manager: machine reboot with clean shutdown', function () {
     this.timeout(120000);
     env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
     await waitForDaemonReady(env.clients[0]);
+    await waitForBootSettledAndLogged(env);
   });
 
   after(async function () {
@@ -65,14 +81,14 @@ describe('Boot manager: machine reboot with clean shutdown', function () {
   });
 
   it('should detect machineRebooted=true with cleanShutdown=true', async function () {
-    this.timeout(60000);
-    await waitForBootSettled(env.clients[0], 50000);
-    expect(env.nodeHasLog(0, 'machineRebooted=true')).to.equal(true);
-    expect(env.nodeHasLog(0, 'cleanShutdown=true')).to.equal(true);
-    expect(env.nodeHasLog(0, 'firstBoot=false')).to.equal(true);
+    this.timeout(10000);
+    const event = await env.clients[0].waitForEvent('orchestrator:started', () => true, 5000);
+    expect(event.data.bootContext.machineRebooted).to.equal(true);
+    expect(event.data.bootContext.cleanShutdown).to.equal(true);
+    expect(event.data.bootContext.firstBoot).to.equal(false);
   });
 
-  it('should not report locations expired (downtime within SIGTERM window)', async function () {
+  it('should not report locations expired (downtime within SIGTERM window)', function () {
     expect(env.nodeHasLog(0, 'Locations expired')).to.equal(false);
   });
 });
@@ -87,6 +103,7 @@ describe('Boot manager: first boot', function () {
     this.timeout(120000);
     env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'firstBoot' });
     await waitForDaemonReady(env.clients[0]);
+    await waitForBootSettledAndLogged(env);
   });
 
   after(async function () {
@@ -95,27 +112,23 @@ describe('Boot manager: first boot', function () {
   });
 
   it('should detect firstBoot=true', async function () {
-    this.timeout(60000);
-    await waitForBootSettled(env.clients[0], 50000);
-    expect(env.nodeHasLog(0, 'firstBoot=true')).to.equal(true);
-    expect(env.nodeHasLog(0, 'machineRebooted=true')).to.equal(true);
+    this.timeout(10000);
+    const event = await env.clients[0].waitForEvent('orchestrator:started', () => true, 5000);
+    expect(event.data.bootContext.firstBoot).to.equal(true);
+    expect(event.data.bootContext.machineRebooted).to.equal(true);
   });
 
-  it('should wait for sync then settle', async function () {
-    this.timeout(15000);
+  it('should take the wait-for-sync branch', function () {
+    // branch decision has no event — the log line is the only observable
     expect(env.nodeHasLog(0, 'First boot')).to.equal(true);
-    // boot:settled (awaited by the previous test) is published immediately
-    // BEFORE this line is logged (appStartupManager.js finally block), and the
-    // SSE event beats the docker log pipeline by tens of ms — poll for the
-    // line instead of asserting instantly.
-    await waitFor(
-      () => env.nodeHasLog(0, 'Boot container state settled'),
-      { timeout: 10000, interval: 500, label: 'settled log' },
-    );
   });
 });
 
 // Suite 4: Daemon timeout during boot
+//
+// The daemon RPC fails for this node, so the boot path is: daemon wait times
+// out → removeAllApps('Daemon timeout') → settle (the finally block always
+// settles). Settle is anchored in before(); the test asserts the branch.
 
 describe('Boot manager: daemon timeout', function () {
   let env;
@@ -124,6 +137,7 @@ describe('Boot manager: daemon timeout', function () {
   before(async function () {
     this.timeout(120000);
     env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'rebooted', rpcFailures: [subnet.nodeIp(1)] });
+    await waitForBootSettledAndLogged(env, 0, { timeout: 60000 });
   });
 
   after(async function () {
@@ -131,17 +145,10 @@ describe('Boot manager: daemon timeout', function () {
     await env?.teardown();
   });
 
-  it('should remove all apps when daemon times out', async function () {
-    this.timeout(60000);
-    await waitFor(
-      () => env.nodeHasLog(0, 'Daemon not ready after') || env.nodeHasLog(0, 'daemon_timeout'),
-      { timeout: 50000, interval: 2000, label: 'daemon timeout log' },
-    );
-    // the settled line is logged after removeAllApps completes — poll, don't race
-    await waitFor(
-      () => env.nodeHasLog(0, 'Boot container state settled'),
-      { timeout: 10000, interval: 500, label: 'settled log' },
-    );
+  it('should remove all apps when daemon times out', function () {
+    expect(
+      env.nodeHasLog(0, 'Daemon not ready after') || env.nodeHasLog(0, 'daemon_timeout'),
+    ).to.equal(true);
   });
 });
 
@@ -159,6 +166,7 @@ describe('Boot manager: not confirmed', function () {
       bootContext: 'rebooted',
       nodeStatusOverrides: { [subnet.nodeIp(1)]: 'EXPIRED' },
     });
+    await waitForBootSettledAndLogged(env, 0, { timeout: 60000 });
   });
 
   after(async function () {
@@ -167,17 +175,8 @@ describe('Boot manager: not confirmed', function () {
     await env?.teardown();
   });
 
-  it('should remove all apps when node not confirmed at boot', async function () {
-    this.timeout(60000);
-    await waitFor(
-      () => env.nodeHasLog(0, 'Node not confirmed'),
-      { timeout: 50000, interval: 2000, label: 'not confirmed log' },
-    );
-    // the settled line is logged after removeAllApps completes — poll, don't race
-    await waitFor(
-      () => env.nodeHasLog(0, 'Boot container state settled'),
-      { timeout: 10000, interval: 500, label: 'settled log' },
-    );
+  it('should remove all apps when node not confirmed at boot', function () {
+    expect(env.nodeHasLog(0, 'Node not confirmed')).to.equal(true);
   });
 });
 
