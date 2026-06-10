@@ -102,8 +102,16 @@ describe('Boot manager: first boot', function () {
   });
 
   it('should wait for sync then settle', async function () {
+    this.timeout(15000);
     expect(env.nodeHasLog(0, 'First boot')).to.equal(true);
-    expect(env.nodeHasLog(0, 'Boot container state settled')).to.equal(true);
+    // boot:settled (awaited by the previous test) is published immediately
+    // BEFORE this line is logged (appStartupManager.js finally block), and the
+    // SSE event beats the docker log pipeline by tens of ms — poll for the
+    // line instead of asserting instantly.
+    await waitFor(
+      () => env.nodeHasLog(0, 'Boot container state settled'),
+      { timeout: 10000, interval: 500, label: 'settled log' },
+    );
   });
 });
 
@@ -129,7 +137,11 @@ describe('Boot manager: daemon timeout', function () {
       () => env.nodeHasLog(0, 'Daemon not ready after') || env.nodeHasLog(0, 'daemon_timeout'),
       { timeout: 50000, interval: 2000, label: 'daemon timeout log' },
     );
-    expect(env.nodeHasLog(0, 'Boot container state settled')).to.equal(true);
+    // the settled line is logged after removeAllApps completes — poll, don't race
+    await waitFor(
+      () => env.nodeHasLog(0, 'Boot container state settled'),
+      { timeout: 10000, interval: 500, label: 'settled log' },
+    );
   });
 });
 
@@ -161,7 +173,11 @@ describe('Boot manager: not confirmed', function () {
       () => env.nodeHasLog(0, 'Node not confirmed'),
       { timeout: 50000, interval: 2000, label: 'not confirmed log' },
     );
-    expect(env.nodeHasLog(0, 'Boot container state settled')).to.equal(true);
+    // the settled line is logged after removeAllApps completes — poll, don't race
+    await waitFor(
+      () => env.nodeHasLog(0, 'Boot container state settled'),
+      { timeout: 10000, interval: 500, label: 'settled log' },
+    );
   });
 });
 
