@@ -658,6 +658,21 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     if (client) await client.connectEventStream();
   }
 
+  // Boot is NOT complete when the nodes answer HTTP: FluxOS still runs its
+  // internal boot (mongo collection prep → daemon poll loop), and that is the
+  // phase that actually crawls under fleet contention (both observed
+  // daemon:polled gate failures — suites 22 and 01 — died there, post-HTTP).
+  // Wait for each node's first daemon:polled here so the boot semaphore in
+  // createTestEnv covers the whole boot, releasing only when the fleet is
+  // operational. Exempt: nodes whose daemon RPC is deliberately broken at
+  // creation (rpcFailures — they can never reach polling; their suites assert
+  // the timeout path) and legacy nodes (event-bus emission not guaranteed).
+  const rpcFailSet = new Set(rpcFailures);
+  const legacySet = new Set(legacyNodes);
+  await Promise.all(clients
+    .filter((c, i) => c && !legacySet.has(i) && !rpcFailSet.has(c.ip))
+    .map((c) => c.waitForEvent('daemon:polled', () => true, 90000)));
+
   return {
     networkName,
     containers,
