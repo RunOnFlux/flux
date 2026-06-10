@@ -2,7 +2,9 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus } from '../framework/daemon-control.js';
-import { waitForDaemonReady, waitForNodeStatus, waitFor } from '../framework/wait.js';
+import {
+  waitForDaemonReady, waitForDaemonPolled, waitForNodeStatus, waitFor,
+} from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 
@@ -67,11 +69,12 @@ describe('Confirmation state: unconfirmed boot', function () {
 
   it('should not start peer discovery', async function () {
     this.timeout(40000);
-    // an absence can't be polled for — instead wait one further monitor cycle
-    // past the one already observed, so a wrongly-started discovery line has
-    // had a full cycle to traverse the log pipeline, THEN assert absence
+    // an absence can't be polled for — give a wrongly-started discovery line a
+    // full daemon poll cycle (periodic, ~5s) past the unconfirmed observation
+    // to traverse the log pipeline, THEN assert absence. confirmation:changed
+    // cannot pace this: it only fires on state CHANGES, and the state holds.
     const seen = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
-    await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 30000, { afterId: seen.id });
+    await waitForDaemonPolled(env.clients[0], () => true, 30000, { afterId: seen.id });
     expect(env.nodeHasLog(0, 'Flux Discovery started')).to.equal(false);
   });
 
