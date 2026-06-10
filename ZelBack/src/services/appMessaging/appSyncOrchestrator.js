@@ -67,6 +67,7 @@ class AppSyncOrchestrator {
   #heartbeatInterval = null;
   #bootContext = null;
   #canSendMessages = false;
+  #peerCountIfAboveThreshold = () => 0;
 
   constructor(options = {}) {
     this.#blockEmitter = options.blockEmitter;
@@ -76,6 +77,7 @@ class AppSyncOrchestrator {
     this.#markSyncRequested = options.markSyncRequested ?? (() => {});
     this.#clearSyncRequested = options.clearSyncRequested ?? (() => {});
     this.#isEnterprise = options.isEnterprise ?? (() => false);
+    this.#peerCountIfAboveThreshold = options.peerCountIfAboveThreshold ?? (() => 0);
     this.#waitForNetworkState = options.networkStateReady ?? null;
     this.#fluxVersion = options.fluxVersion ?? null;
   }
@@ -117,6 +119,17 @@ class AppSyncOrchestrator {
     this.#onPeerEvent('peerThresholdReached', this.#peerThresholdHandler);
     this.#onPeerEvent('peersBelowThreshold', this.#peersBelowHandler);
 
+    // peerThresholdReached is edge-triggered and latched in FluxPeerManager:
+    // if peers connected fast enough that the threshold was crossed BEFORE the
+    // subscriptions above (e.g. inbound reconnects racing a restart), the edge
+    // has already fired and never re-fires, which would leave #peersReady
+    // false and stall ephemeral state sync until the block timer. Read the
+    // level after subscribing to the edge.
+    const peersAlready = this.#peerCountIfAboveThreshold();
+    if (peersAlready && !this.#peersReady) {
+      this.#peerThresholdHandler(peersAlready);
+    }
+
     this.#ephemeralSyncHandler = (syncType) => this.#onEphemeralSyncComplete(syncType);
     appSyncEvents.on(EVENTS.EPHEMERAL_SYNC_COMPLETE, this.#ephemeralSyncHandler);
 
@@ -137,10 +150,12 @@ class AppSyncOrchestrator {
       await this.#waitForNetworkState();
       this.#networkReady = true;
       log.info('AppSyncOrchestrator - Network state ready');
-      this.#tryStartSync();
     } else {
       this.#networkReady = true;
     }
+    // #peersReady may already be true here (live edge during the network-state
+    // wait, or the latched-level check above), so always attempt the start.
+    this.#tryStartSync();
   }
 
   #tryStartSync() {

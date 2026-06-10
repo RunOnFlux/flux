@@ -423,6 +423,14 @@ class FluxPeerManager extends EventEmitter {
 
   // --- Counts ---
 
+  // Level accessor for the latched peerThresholdReached edge: a subscriber that
+  // attaches after the threshold was crossed never sees the event, so it must
+  // be able to read the current state. Returns the peer count when the
+  // threshold has been reached, 0 otherwise.
+  peerCountIfAboveThreshold() {
+    return this.#aboveThreshold ? this.#peers.size : 0;
+  }
+
   get outboundCount() {
     return this.#outboundKeys.size;
   }

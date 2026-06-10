@@ -204,6 +204,24 @@ describe('AppSyncOrchestrator', () => {
       expect(checkAndNotifyStub.calledOnce).to.be.true;
     });
 
+    it('should start sync from the latched level when the threshold edge fired before start', async () => {
+      // peerThresholdReached is edge-triggered and latched in FluxPeerManager:
+      // if peers connected before start() subscribed, the edge never re-fires.
+      // start() must read the level after subscribing — no edge is emitted here.
+      const orchestrator = makeOrchestrator({ peerCountIfAboveThreshold: () => 12 });
+      orchestrator.start(defaultBootContext);
+      await clock.tickAsync(0);
+      expect(getEligibleSyncPeersStub.calledOnce).to.be.true;
+      expect(checkAndNotifyStub.calledOnce).to.be.true;
+    });
+
+    it('should not start sync from the level when the threshold has not been reached', async () => {
+      const orchestrator = makeOrchestrator({ peerCountIfAboveThreshold: () => 0 });
+      orchestrator.start(defaultBootContext);
+      await clock.tickAsync(0);
+      expect(getEligibleSyncPeersStub.called).to.be.false;
+    });
+
     it('should transition to DEGRADED on peersBelowThreshold when READY', async () => {
       const orchestrator = makeOrchestrator({ isEnterprise: () => true });
       orchestrator.start(defaultBootContext);

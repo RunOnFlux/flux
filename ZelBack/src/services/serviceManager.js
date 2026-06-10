@@ -307,6 +307,7 @@ async function startFluxFunctions() {
         .map((p) => ({ key: p.key, send: (msg) => p.send(msg) })),
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
+      peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
       markSyncRequested: (key) => peerManager.markSyncRequested(key),
       clearSyncRequested: () => peerManager.clearSyncRequested(),
       isEnterprise: () => enterpriseNetwork.getCachedEnterpriseIdentity(),
