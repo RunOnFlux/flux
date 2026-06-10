@@ -664,13 +664,15 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   // daemon:polled gate failures — suites 22 and 01 — died there, post-HTTP).
   // Wait for each node's first daemon:polled here so the boot semaphore in
   // createTestEnv covers the whole boot, releasing only when the fleet is
-  // operational. Exempt: nodes whose daemon RPC is deliberately broken at
+  // operational. Exempt only nodes whose daemon RPC is deliberately broken at
   // creation (rpcFailures — they can never reach polling; their suites assert
-  // the timeout path) and legacy nodes (event-bus emission not guaranteed).
+  // the timeout path). Legacy nodes are NOT exempt: they run the same image
+  // and emit daemon:polled (suite 21's waitForDaemonReady has always passed on
+  // them) — an earlier exemption left all-legacy fleets booting outside the
+  // lock and suite 21 failed on exactly the contention this wait prevents.
   const rpcFailSet = new Set(rpcFailures);
-  const legacySet = new Set(legacyNodes);
   await Promise.all(clients
-    .filter((c, i) => c && !legacySet.has(i) && !rpcFailSet.has(c.ip))
+    .filter((c) => c && !rpcFailSet.has(c.ip))
     .map((c) => c.waitForEvent('daemon:polled', () => true, 90000)));
 
   return {
