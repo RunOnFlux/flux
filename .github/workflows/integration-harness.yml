@@ -1,0 +1,123 @@
+name: Integration Harness (manual)
+
+# Manual-only run of the testcontainers integration harness (test-infra/) on the
+# self-hosted runonflux runner. The harness boots privileged FluxOS DinD nodes plus
+# stub fleets per suite, so it needs a runner with root Docker access — GitHub-hosted
+# runners would work but are slow (4 vCPU); the org runner is the target.
+#
+# Dispatch from any branch that contains this file:
+#   gh workflow run integration-harness.yml -R RunOnFlux/flux --ref <branch> \
+#     -f suites='22 12 41' -f maxn=2
+#
+# The runner is SHARED (fluxd release builds etc. use it too), so every docker
+# cleanup here is scoped to harness-owned objects (testcontainers label /
+# flux-test-* network names) — never a blanket prune.
+
+on:
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: 'Suite numbers, space-separated (e.g. "22 12 41"). Empty = all suites, heavy-first.'
+        type: string
+        required: false
+        default: ''
+      maxn:
+        description: 'Max concurrent suites (CPU-bound; 3 suits a 16-core host)'
+        type: choice
+        required: false
+        default: '2'
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+          - '5'
+
+# One harness run per runner at a time; a second dispatch queues instead of
+# colliding on the shared docker daemon.
+concurrency:
+  group: integration-harness
+  cancel-in-progress: false
+
+jobs:
+  harness:
+    runs-on: runonflux
+    timeout-minutes: 180
+
+    steps:
+      - name: Show runner specs
+        run: |
+          echo "host=$(hostname) kernel=$(uname -r) arch=$(uname -m)"
+          echo "cpus=$(nproc)"
+          free -h
+          df -h .
+          docker version --format 'docker server {{.Server.Version}}'
+          docker compose version
+
+      - name: Pre-run hygiene (scoped to harness leftovers only)
+        run: |
+          docker ps -aq --filter label=org.testcontainers=true | xargs -r docker rm -f
+          docker network ls --format '{{.Name}}' | grep '^flux-test-' | xargs -r docker network rm || true
+          rm -rf /tmp/e2e-base-locks
+          echo "leftover harness containers: $(docker ps -aq --filter label=org.testcontainers=true | wc -l)"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install runner dependencies
+        run: npm ci
+        working-directory: test-infra/runner
+
+      - name: Build harness images
+        run: |
+          docker compose -f test-infra/docker-compose.yml -p flux-e2e build \
+            fluxos-01 daemon-stub syncthing-stub fdm-stub peer-stub external-http-stub
+          docker pull mongo:8
+          docker pull registry:2
+
+      - name: Run integration suites
+        run: |
+          # The admit gate in run-parallel.sh requires free RAM above MIN_FREE_MB
+          # before launching a fleet. The cindy default (15000) deadlocks on a host
+          # with less than ~16 GB, so derive it: a quarter of total RAM, capped at
+          # the cindy default.
+          total_mb=$(free -m | awk '/^Mem:/{print $2}')
+          min_free=$(( total_mb / 4 ))
+          [ "$min_free" -gt 15000 ] && min_free=15000
+          echo "total_mb=${total_mb} MIN_FREE_MB=${min_free} MAXN=${{ inputs.maxn }}"
+
+          export E2E_LOG_DIR="${RUNNER_TEMP}/e2e-logs"
+          SUITES='${{ inputs.suites }}' MAXN='${{ inputs.maxn }}' MIN_FREE_MB="$min_free" \
+            bash test-infra/runner/run-parallel.sh
+
+      - name: Result summary
+        if: always()
+        run: |
+          {
+            echo '## Integration harness result'
+            echo '```'
+            grep -E 'RESULT|START' "${RUNNER_TEMP}/e2e-logs/driver.log" 2>/dev/null || echo 'no driver.log produced'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: ${{ runner.temp }}/e2e-logs
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Post-run cleanup (scoped)
+        if: always()
+        run: |
+          docker ps -aq --filter label=org.testcontainers=true | xargs -r docker rm -f
+          docker network ls --format '{{.Name}}' | grep '^flux-test-' | xargs -r docker network rm || true
+          docker volume ls -q --filter label=org.testcontainers=true | xargs -r docker volume rm || true
+          rm -rf /tmp/e2e-base-locks
