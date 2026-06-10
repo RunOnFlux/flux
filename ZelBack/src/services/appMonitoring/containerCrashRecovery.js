@@ -48,6 +48,11 @@ function getBackoffDelay(containerName) {
 function recordRestart(containerName) {
   const history = restartHistory.get(containerName) || [];
   history.push(nowMs());
+  // only the count (capped by the backoff ladder) and the last timestamp are
+  // ever read, so keep the array bounded for perpetually crashing containers
+  if (history.length > BACKOFF_DELAYS_MS.length) {
+    history.splice(0, history.length - BACKOFF_DELAYS_MS.length);
+  }
   restartHistory.set(containerName, history);
 }
 
@@ -63,8 +68,6 @@ async function handleContainerDie(event) {
     log.info(`containerCrashRecovery - ${containerName} was intentionally stopped (exit ${exitCode}), skipping`);
     return;
   }
-
-  if (exitCode === 0) return;
 
   if (!globalState.bootContainerStateSettled) {
     log.info(`containerCrashRecovery - ${containerName} died (exit ${exitCode}) during boot, queuing`);
@@ -85,6 +88,14 @@ async function handleContainerDie(event) {
       return;
     }
   } else {
+    // confirm the container still exists and is not already running before restarting.
+    // covers a container stopped+removed outside the appDockerStop chokepoint (its die
+    // event would otherwise trigger a doomed appDockerStart and a misleading error log).
+    const container = await dockerService.getDockerContainerOnly(identifier);
+    if (!container || container.State === 'running') {
+      log.info(`containerCrashRecovery - ${containerName} no longer exists or already running, skipping`);
+      return;
+    }
     log.warn(`containerCrashRecovery - ${containerName} crashed (exit ${exitCode}), restarting as ${identifier}`);
   }
 
@@ -184,4 +195,10 @@ function stop() {
   }
 }
 
-module.exports = { start, stop };
+// exposed for tests: lets a test assert the backoff history stays bounded by the ladder length
+function restartHistoryLength(containerName) {
+  const history = restartHistory.get(containerName);
+  return history ? history.length : 0;
+}
+
+module.exports = { start, stop, restartHistoryLength };
