@@ -56,7 +56,7 @@ describe('Non-enterprise image update redeploy', function () {
   before(async function () {
     this.timeout(300000);
 
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
 
     await pushImage(appName, 'v1');
@@ -154,7 +154,7 @@ describe('Enterprise image update redeploy', function () {
   before(async function () {
     this.timeout(300000);
 
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
 
     await pushImage(appName, 'v1');

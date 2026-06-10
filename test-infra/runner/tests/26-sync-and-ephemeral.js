@@ -36,7 +36,7 @@ describe('Signed sync completes on late-joining node', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({ nodes: 11, deferredNodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 11, deferredNodes: 1, tickerAutostart: false });
     const initial = Array.from({ length: 10 }, (_, i) => i);
     await bootAndPeer(env, initial);
 
@@ -91,7 +91,7 @@ describe('Ephemeral connections resolve hashes via stub peers', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({
+    env = await createTestEnv({ hookCtx: this,
       nodes: 16,
       stubPeers: stubIndices,
       tickerAutostart: false,

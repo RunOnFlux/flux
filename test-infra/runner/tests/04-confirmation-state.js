@@ -14,7 +14,7 @@ describe('Confirmation state: confirmed boot', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false, discoveryAutostart: true });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, discoveryAutostart: true });
     await waitForDaemonReady(env.clients[0]);
   });
 
@@ -40,7 +40,7 @@ describe('Confirmation state: unconfirmed boot', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({
+    env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
       nodeStatusOverrides: { [subnet.nodeIp(1)]: 'EXPIRED' },
@@ -75,7 +75,7 @@ describe('Confirmation state: runtime loss', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 30000);
   });

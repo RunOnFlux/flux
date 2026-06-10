@@ -27,7 +27,7 @@ describe('install handles component index-ref mounts', function () {
 
   before(async function () {
     this.timeout(360000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     await pushImage(okName, 'v1');
     await pushImage(badName, 'v1');

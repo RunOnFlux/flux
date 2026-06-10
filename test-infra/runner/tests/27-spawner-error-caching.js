@@ -41,7 +41,7 @@ describe('Spawner error caching: local install failure', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await pushBrokenImage(repoName, 'v1');
     await bootToSpawnerReady(env);
 
@@ -137,7 +137,7 @@ describe.skip('Spawner error caching: network-wide error skip', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await pushImage(goodRepoName, 'v1');
     await bootToSpawnerReady(env);
 

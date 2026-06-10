@@ -13,7 +13,7 @@ let env;
 describe('Boot: prerequisites', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false, discoveryAutostart: true });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, discoveryAutostart: true });
     await waitForDaemonReady(env.clients[0]);
   });
 

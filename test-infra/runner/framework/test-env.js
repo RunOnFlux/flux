@@ -5,7 +5,7 @@ process.env.TESTCONTAINERS_HOST_OVERRIDE ??= '127.0.0.1';
 process.env.TESTCONTAINERS_RYUK_RECONNECTION_TIMEOUT ??= '5s';
 
 import { GenericContainer, Network, Wait, getContainerRuntimeClient } from 'testcontainers';
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -252,7 +252,64 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
   }
 }
 
-export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
+// ---- host-wide boot semaphore ----
+// Fleet boot is the only CPU-heavy phase a suite has: every node in the fleet
+// starts its own dockerd and runs FluxOS DB prep at once. When two suites' boots
+// overlap under run-parallel.sh, they starve each other and a healthy node can
+// blow its event-wait budget while merely slow (observed in the 42-suite gate:
+// suite 22's second fleet booted at load ~15 on 16 cores and mongo collection
+// prep crawled at 7-17s a step). Running fleets are cheap, so serialise just the
+// boot phase host-wide and let everything else overlap. The claim protocol
+// mirrors the subnet claim in run-all.sh: an atomic mkdir holding the owner pid,
+// reclaimable by any waiter once the owner process is dead.
+const BOOT_LOCK_DIR = process.env.E2E_BOOT_LOCK_DIR ?? join(tmpdir(), 'e2e-boot-lock');
+
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+async function acquireBootLock() {
+  for (;;) {
+    try {
+      mkdirSync(BOOT_LOCK_DIR);
+      writeFileSync(join(BOOT_LOCK_DIR, 'pid'), String(process.pid));
+      return;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+    }
+    let owner = 0;
+    try {
+      owner = Number(readFileSync(join(BOOT_LOCK_DIR, 'pid'), 'utf-8'));
+    } catch {
+      // claimer is between mkdir and pid write — treat as live and wait
+    }
+    if (owner) {
+      try {
+        process.kill(owner, 0);
+      } catch {
+        // owner is dead — reclaim; if a sibling reclaims first, the next
+        // mkdir attempt just loses the race and waits
+        rmSync(BOOT_LOCK_DIR, { recursive: true, force: true });
+        continue;
+      }
+    }
+    await sleep(1000);
+  }
+}
+
+function releaseBootLock() {
+  try {
+    const owner = Number(readFileSync(join(BOOT_LOCK_DIR, 'pid'), 'utf-8'));
+    if (owner === process.pid) rmSync(BOOT_LOCK_DIR, { recursive: true, force: true });
+  } catch {
+    // already released or reclaimed
+  }
+}
+
+export async function createTestEnv({ hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
+  await acquireBootLock();
+  // The queue wait above must not count against the suite's hook budget. Mocha
+  // re-arms a running hook's watchdog from "now" when timeout() is set, so
+  // restart it with the suite's own declared value at the moment boot begins.
+  if (hookCtx && typeof hookCtx.timeout === 'function') hookCtx.timeout(hookCtx.timeout());
   const networkName = await createNetwork();
   const containers = {};
   const started = [];
@@ -265,6 +322,8 @@ export async function createTestEnv({ nodes = 1, deferredNodes = 0, legacyNodes 
     }
     await removeNetwork(networkName);
     throw err;
+  } finally {
+    releaseBootLock();
   }
 }
 

@@ -23,7 +23,7 @@ describe('reconciler restarts a cleanly-exited (exit 0) container by default', f
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     ({ index: idx, identifier } = await seedTestApp(env, { name: appName, exitCode: 0 }));
   });

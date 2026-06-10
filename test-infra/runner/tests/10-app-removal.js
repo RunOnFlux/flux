@@ -19,7 +19,7 @@ describe('Confirmation loss consequences', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 30000);
     await advanceBlock();
@@ -58,7 +58,7 @@ describe('DOS loginPhrase consequences', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
     fluxTeamAuth = await authenticate(env.clients[0].url, fluxTeamKey());
     const baseline = await env.clients[0].getLoginPhrase();

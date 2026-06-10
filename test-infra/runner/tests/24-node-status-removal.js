@@ -77,7 +77,7 @@ describe('Confirmation loss removes installed apps', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
@@ -110,7 +110,7 @@ describe('Daemon stale removes installed apps', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });

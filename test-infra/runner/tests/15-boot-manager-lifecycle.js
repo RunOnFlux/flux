@@ -30,7 +30,7 @@ describe('Boot manager: FluxOS-only restart', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'running' });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'running' });
     await waitForDaemonReady(env.clients[0]);
   });
 
@@ -55,7 +55,7 @@ describe('Boot manager: machine reboot with clean shutdown', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
     await waitForDaemonReady(env.clients[0]);
   });
 
@@ -85,7 +85,7 @@ describe('Boot manager: first boot', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'firstBoot' });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'firstBoot' });
     await waitForDaemonReady(env.clients[0]);
   });
 
@@ -115,7 +115,7 @@ describe('Boot manager: daemon timeout', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'rebooted', rpcFailures: [subnet.nodeIp(1)] });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'rebooted', rpcFailures: [subnet.nodeIp(1)] });
   });
 
   after(async function () {
@@ -141,7 +141,7 @@ describe('Boot manager: not confirmed', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({
+    env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
       bootContext: 'rebooted',
@@ -174,7 +174,7 @@ describe('Boot manager: shutdownReason sequence', function () {
 
     before(async function () {
       this.timeout(120000);
-      env = await createTestEnv({ nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
+      env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, bootContext: 'rebooted' });
       await waitForDaemonReady(env.clients[0]);
     });
 
@@ -197,7 +197,7 @@ describe('Boot manager: shutdownReason sequence', function () {
 
     before(async function () {
       this.timeout(120000);
-      env = await createTestEnv({
+      env = await createTestEnv({ hookCtx: this,
         nodes: 1,
         tickerAutostart: false,
         bootContext: { lastAlive: Date.now() - 60000, machineBootId: 'old-boot-id' },

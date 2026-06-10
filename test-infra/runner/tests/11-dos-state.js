@@ -12,7 +12,7 @@ let fluxTeamAuth;
 describe('DOS state management', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1 });
+    env = await createTestEnv({ hookCtx: this, nodes: 1 });
     await waitForDaemonReady(env.clients[0]);
     fluxTeamAuth = await authenticate(env.clients[0].url, fluxTeamKey());
     const baseline = await env.clients[0].getLoginPhrase();

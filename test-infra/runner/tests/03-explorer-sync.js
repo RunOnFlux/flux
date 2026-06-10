@@ -11,7 +11,7 @@ let env;
 describe('Boot: explorer sync', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 2 });
+    env = await createTestEnv({ hookCtx: this, nodes: 2 });
     await waitForDaemonReady(env.clients[0]);
     await advanceBlock();
     await waitForBlockProcessed(env.clients[0], (d) => d.height > 2100000, 50000);

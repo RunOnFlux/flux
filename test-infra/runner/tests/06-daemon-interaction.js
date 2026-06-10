@@ -32,7 +32,7 @@ async function directBenchRpc(method, params = []) {
 describe('Daemon interaction', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: NODE_COUNT, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: NODE_COUNT, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
   });
 

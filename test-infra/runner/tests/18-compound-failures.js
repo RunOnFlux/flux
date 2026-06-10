@@ -33,7 +33,7 @@ describe('Compound failures: peer loss + daemon failure during READY', function 
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootToReady(env);
   });
 
@@ -87,7 +87,7 @@ describe('Compound failures: rapid peer oscillation', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootToReady(env);
   });
 

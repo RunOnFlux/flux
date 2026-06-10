@@ -82,7 +82,7 @@ describe('Arcane: non-enterprise app deferred as non_enterprise_on_arcane', func
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     await registerApp(env, appName);
   });
@@ -113,7 +113,7 @@ describe('Arcane: enterprise app deferred for static_ip', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     await registerApp(env, appName, { enterprise: true, staticip: false });
   });
@@ -145,7 +145,7 @@ describe('Arcane: enterprise app deferred for datacenter', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     await registerApp(env, appName, { enterprise: true, staticip: true });
   });
@@ -179,7 +179,7 @@ describe('Legacy: non-enterprise app deferred for static_ip', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, legacyNodes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, legacyNodes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], tickerAutostart: false });
     await bootAndPeer(env);
     await registerApp(env, appName, { staticip: false });
   });
@@ -211,7 +211,7 @@ describe('Legacy: non-enterprise app deferred for datacenter', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, legacyNodes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, legacyNodes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], tickerAutostart: false });
     await bootAndPeer(env);
     await registerApp(env, appName, { staticip: true });
   });

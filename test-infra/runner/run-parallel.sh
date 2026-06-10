@@ -41,6 +41,13 @@ RUNNER="$PWD/run-all.sh"
 LOGROOT="${E2E_LOG_DIR:-/tmp/e2e-logs}"
 MAXN="${MAXN:-3}"
 MIN_FREE_MB="${MIN_FREE_MB:-15000}"
+# Don't admit a new suite while the box is already CPU-saturated. Memory never
+# binds on a big host (lesson from the first full gate: 3 fleets used ~3GB of
+# 61GB) — CPU does, and a fleet admitted onto a hot box boots so slowly it can
+# blow event-wait budgets while perfectly healthy. This is a launch-time backstop
+# only; the boot semaphore in test-env.js is what serialises the contended phase
+# itself (suites boot fleets mid-run too, which no admit gate can see).
+MAX_LOAD="${MAX_LOAD:-$(( $(nproc) * 3 / 4 ))}"
 
 # Default order: heavy reconciler/fleet suites first so the long pole starts ASAP;
 # everything else after. Derived from tests/ so new suites are picked up; override
@@ -55,6 +62,7 @@ if [ -z "${SUITES:-}" ]; then
 fi
 
 free_mb(){ free -m | awk '/^Mem:/{print $7}'; }
+load_1m(){ cut -d' ' -f1 /proc/loadavg | cut -d. -f1; }   # integer part is enough for a gate
 
 rm -rf "$LOGROOT"; mkdir -p "$LOGROOT"
 DLOG="$LOGROOT/driver.log"
@@ -90,11 +98,11 @@ reap(){
   done
 }
 
-log "START   MAXN=$MAXN MIN_FREE_MB=$MIN_FREE_MB suites=$(echo $SUITES | wc -w) head=$(git -C "$PWD" rev-parse --short HEAD 2>/dev/null)"
+log "START   MAXN=$MAXN MIN_FREE_MB=$MIN_FREE_MB MAX_LOAD=$MAX_LOAD suites=$(echo $SUITES | wc -w) head=$(git -C "$PWD" rev-parse --short HEAD 2>/dev/null)"
 for s in $SUITES; do
   while :; do
     reap
-    if [ "${#PID2SUITE[@]}" -lt "$MAXN" ] && [ "$(free_mb)" -gt "$MIN_FREE_MB" ]; then break; fi
+    if [ "${#PID2SUITE[@]}" -lt "$MAXN" ] && [ "$(free_mb)" -gt "$MIN_FREE_MB" ] && [ "$(load_1m)" -lt "$MAX_LOAD" ]; then break; fi
     sleep 3
   done
   launch "$s"

@@ -32,7 +32,7 @@ describe('Peers disconnect on confirmation loss (4019)', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
   });
 
@@ -65,7 +65,7 @@ describe('Inbound connections rejected when unconfirmed', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     for (const client of env.clients) await waitForDaemonReady(client);
 
     const nodeIp = subnet.nodeIp(1);
@@ -109,7 +109,7 @@ describe('Full confirmation loss and regain lifecycle', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
   });
 

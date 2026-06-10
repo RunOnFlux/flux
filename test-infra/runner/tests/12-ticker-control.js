@@ -17,7 +17,7 @@ let env;
 describe('Ticker and block control', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 0 });
+    env = await createTestEnv({ hookCtx: this, nodes: 0 });
   });
 
   afterEach(async function () {

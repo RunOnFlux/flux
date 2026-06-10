@@ -35,7 +35,7 @@ describe('reconciler never force-starts a stalled, un-synced r: app', function (
 
   before(async function () {
     this.timeout(420000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     await resetSyncState();
     // Gate both followers as stalled with no peer holding the data BEFORE they first

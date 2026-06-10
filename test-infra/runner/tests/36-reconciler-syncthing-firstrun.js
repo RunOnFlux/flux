@@ -32,7 +32,7 @@ describe('reconciler waits for syncthing r: sync before first start', function (
 
   before(async function () {
     this.timeout(360000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     await resetSyncState();
     ({ index: idx, folder, identifier } = await seedSyncthingApp(env, {

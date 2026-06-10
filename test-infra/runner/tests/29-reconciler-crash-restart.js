@@ -19,7 +19,7 @@ describe('reconciler restarts a crashed container', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     ({ index: installedOnIndex } = await seedSimpleApp(env, appName));
   });

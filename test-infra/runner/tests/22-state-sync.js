@@ -37,7 +37,7 @@ describe('State sync: app running state (0x21)', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({ nodes: 12, deferredNodes: 2, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 12, deferredNodes: 2, tickerAutostart: false });
     const initial = Array.from({ length: 10 }, (_, i) => i);
     await bootAndPeer(env, initial);
 
@@ -107,7 +107,7 @@ describe('State sync: hash resolution', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({ nodes: 12, deferredNodes: 2, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 12, deferredNodes: 2, tickerAutostart: false });
     const initial = Array.from({ length: 10 }, (_, i) => i);
     await bootAndPeer(env, initial);
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
@@ -174,7 +174,7 @@ describe('State sync: 3-peer ephemeral sync', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({
+    env = await createTestEnv({ hookCtx: this,
       nodes: 11,
       deferredNodes: 1,
       tickerAutostart: false,

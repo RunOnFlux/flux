@@ -22,7 +22,7 @@ describe('Boundary: peer thresholds', function () {
 
   before(async function () {
     this.timeout(180000);
-    env = await createTestEnv({ nodes: 3, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 3, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await env.startDiscovery();
@@ -74,7 +74,7 @@ describe('Boundary: DOS state', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 30000);
     fluxTeamAuth = await authenticate(env.clients[0].url, fluxTeamKey());
@@ -115,7 +115,7 @@ describe('Boundary: block timer', function () {
 
   before(async function () {
     this.timeout(180000);
-    env = await createTestEnv({ nodes: 2, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 2, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await waitForExplorerReady(env.clients[0]);
@@ -155,7 +155,7 @@ describe('Boundary: clean shutdown within SIGTERM_EXPIRY', function () {
   before(async function () {
     this.timeout(120000);
     // 300s ago with sigterm — within 420s SIGTERM_EXPIRY_MS
-    env = await createTestEnv({
+    env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
       bootContext: { lastAlive: Date.now() - 300000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
@@ -182,7 +182,7 @@ describe('Boundary: clean shutdown beyond SIGTERM_EXPIRY', function () {
   before(async function () {
     this.timeout(120000);
     // 500s ago with sigterm — exceeds 420s SIGTERM_EXPIRY_MS
-    env = await createTestEnv({
+    env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
       bootContext: { lastAlive: Date.now() - 500000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
