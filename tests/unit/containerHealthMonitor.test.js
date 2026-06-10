@@ -2,39 +2,44 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+// containerHealthMonitor's monitorAndRecoverApps (the old hourly restart
+// actuator) was removed by the reconciler rearchitecture — restart/start
+// decisions live in appReconciler now (see appReconciler.test.js). What
+// remains here is the recreate path: rebuilding a missing container from the
+// local spec, and the masterSlave wrapper that escalates to removal when
+// recreation is impossible.
+
 describe('containerHealthMonitor tests', () => {
   let containerHealthMonitor;
-  let globalStateStub;
   let dockerServiceStub;
   let dbHelperStub;
-  let registryManagerStub;
   let appInstallerStub;
   let appUninstallerStub;
-  let stoppedAppsCache;
+  let appInspectorStub;
+  let tamperingStub;
+  let volumeServiceStub;
+  let appSpec;
 
   beforeEach(() => {
-    globalStateStub = {
-      waitForBootContainerStateSettled: sinon.stub().resolves(),
-      isOperationInProgress: sinon.stub().returns(false),
-      backupInProgress: [],
-      restoreInProgress: [],
-      appsMonitored: new Map(),
+    appSpec = {
+      name: 'testapp',
+      compose: [
+        {
+          name: 'web', cpu: 1, ram: 1000, hdd: 10, cpucumulus: 2, ramcumulus: 2000, hddcumulus: 20,
+        },
+        {
+          name: 'db', cpu: 1, ram: 1000, hdd: 10,
+        },
+      ],
     };
 
     dockerServiceStub = {
       getDockerContainerOnly: sinon.stub().resolves(null),
-      appDockerStart: sinon.stub().resolves(),
-      dockerListContainers: sinon.stub().resolves([]),
     };
 
     dbHelperStub = {
       databaseConnection: sinon.stub().returns({ db: () => ({}) }),
-      findInDatabase: sinon.stub().resolves([]),
-      findOneInDatabase: sinon.stub().resolves(null),
-    };
-
-    registryManagerStub = {
-      getApplicationGlobalSpecifications: sinon.stub().resolves(null),
+      findOneInDatabase: sinon.stub().resolves(appSpec),
     };
 
     appInstallerStub = {
@@ -46,23 +51,28 @@ describe('containerHealthMonitor tests', () => {
       removeAppLocally: sinon.stub().resolves(),
     };
 
-    stoppedAppsCache = new Map();
+    appInspectorStub = { startAppMonitoring: sinon.stub() };
+
+    tamperingStub = {
+      recordEvent: sinon.stub().resolves(),
+      isNetworkMissingError: sinon.stub().returns(false),
+    };
+
+    volumeServiceStub = { verifyAppVolumeMount: sinon.stub().resolves(false) };
 
     containerHealthMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/containerHealthMonitor', {
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
       '../dbHelper': dbHelperStub,
       '../dockerService': dockerServiceStub,
       '../generalService': { nodeTier: sinon.stub().resolves('cumulus') },
-      '../appDatabase/registryManager': registryManagerStub,
       '../appLifecycle/appInstaller': appInstallerStub,
       '../appLifecycle/appUninstaller': appUninstallerStub,
-      '../appManagement/appInspector': { startAppMonitoring: sinon.stub() },
-      '../appTamperingDetectionService': { recordEvent: sinon.stub().resolves(), isNetworkMissingError: sinon.stub().returns(false) },
-      '../utils/globalState': globalStateStub,
-      '../utils/cacheManager': { default: { stoppedAppsCache } },
+      '../appManagement/appInspector': appInspectorStub,
+      '../appTamperingDetectionService': tamperingStub,
+      '../utils/globalState': { appsMonitored: new Map() },
       '../appQuery/appQueryService': { decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps) },
       '../utils/appConstants': { localAppsInformation: 'localAppsInformation' },
-      '../utils/volumeService': { verifyAppVolumeMount: sinon.stub().resolves(false) },
+      '../utils/volumeService': volumeServiceStub,
     });
   });
 
@@ -70,137 +80,109 @@ describe('containerHealthMonitor tests', () => {
     sinon.restore();
   });
 
-  describe('monitorAndRecoverApps', () => {
-    it('should wait for bootComplete before proceeding', async () => {
-      let monitorResolved = false;
-      globalStateStub.waitForBootContainerStateSettled = sinon.stub().returns(
-        new Promise((resolve) => { setTimeout(resolve, 50); }),
-      );
+  describe('recreateMissingContainers', () => {
+    it('throws when the app is not in the local database', async () => {
+      dbHelperStub.findOneInDatabase.resolves(null);
+      let err;
+      try {
+        await containerHealthMonitor.recreateMissingContainers('web_testapp');
+      } catch (e) { err = e; }
+      expect(err).to.be.an('error');
+      expect(err.message).to.include('not found in local database');
+      expect(appInstallerStub.installApplicationHard.called).to.be.false;
+    });
 
-      const promise = containerHealthMonitor.monitorAndRecoverApps('10.0.0.1', [], [])
-        .then(() => { monitorResolved = true; });
-      await new Promise((r) => setImmediate(r));
-      expect(monitorResolved).to.be.false;
-      await promise;
-      expect(monitorResolved).to.be.true;
-      expect(globalStateStub.waitForBootContainerStateSettled.calledOnce).to.be.true;
+    it('throws when the spec has no components', async () => {
+      dbHelperStub.findOneInDatabase.resolves({ name: 'testapp', compose: [] });
+      let err;
+      try {
+        await containerHealthMonitor.recreateMissingContainers('web_testapp');
+      } catch (e) { err = e; }
+      expect(err).to.be.an('error');
+      expect(err.message).to.include('no components');
+    });
+
+    it('throws when the component is not part of the app', async () => {
+      let err;
+      try {
+        await containerHealthMonitor.recreateMissingContainers('ghost_testapp');
+      } catch (e) { err = e; }
+      expect(err).to.be.an('error');
+      expect(err.message).to.include('Component ghost not found');
+    });
+
+    it('soft-installs a single component when its volume is still mounted', async () => {
+      volumeServiceStub.verifyAppVolumeMount.resolves(true);
+      await containerHealthMonitor.recreateMissingContainers('web_testapp');
+      expect(appInstallerStub.installApplicationSoft.calledOnce).to.be.true;
+      expect(appInstallerStub.installApplicationHard.called).to.be.false;
+      const [componentSpec, mainAppName] = appInstallerStub.installApplicationSoft.firstCall.args;
+      expect(componentSpec.name).to.equal('web');
+      expect(mainAppName).to.equal('testapp');
+    });
+
+    it('hard-installs a single component when its volume is gone', async () => {
+      volumeServiceStub.verifyAppVolumeMount.resolves(false);
+      await containerHealthMonitor.recreateMissingContainers('web_testapp');
+      expect(appInstallerStub.installApplicationHard.calledOnce).to.be.true;
+      expect(appInstallerStub.installApplicationSoft.called).to.be.false;
+    });
+
+    it('applies node-tier resource overrides to the component spec', async () => {
+      await containerHealthMonitor.recreateMissingContainers('web_testapp');
+      const [componentSpec] = appInstallerStub.installApplicationHard.firstCall.args;
+      expect(componentSpec.cpu).to.equal(2);
+      expect(componentSpec.ram).to.equal(2000);
+      expect(componentSpec.hdd).to.equal(20);
+    });
+
+    it('recreates every component for a whole-app identifier', async () => {
+      await containerHealthMonitor.recreateMissingContainers('testapp');
+      expect(appInstallerStub.installApplicationHard.callCount).to.equal(2);
+      const recreated = appInstallerStub.installApplicationHard.getCalls().map((c) => c.args[0].name);
+      expect(recreated).to.deep.equal(['web', 'db']);
     });
   });
 
-  describe('monitorAndRecoverApps - per-component g: handling', () => {
-    // Mixed compose app: n8n uses g: master/slave mode, pgcluster must run on all instances
-    const mixedSpec = {
-      version: 8,
-      name: 'MixedApp',
-      hash: 'mixhash',
-      compose: [
-        { name: 'n8n', containerData: 'g:/home/node/.n8n' },
-        { name: 'pgcluster', containerData: '/var/lib/postgresql/data' },
-      ],
-    };
-
-    const rOnlySpec = {
-      version: 8,
-      name: 'RApp',
-      hash: 'rhash',
-      compose: [
-        { name: 'web', containerData: 'r:/data' },
-      ],
-    };
-
-    it('auto-starts a stopped non-g component of a mixed compose app and leaves the g: sibling alone', async () => {
-      // Both components stopped (e.g. right after masterSlaveApps whole-app stop on a standby,
-      // or after a node reboot). The non-g component must auto-start; the g: component must be
-      // left for masterSlaveApps to manage.
-      registryManagerStub.getApplicationGlobalSpecifications.withArgs('MixedApp').resolves(mixedSpec);
-
-      // Both containers exist (created but stopped)
-      dockerServiceStub.getDockerContainerOnly.withArgs('n8n_MixedApp').resolves({ Id: 'n8n' });
-      dockerServiceStub.getDockerContainerOnly.withArgs('pgcluster_MixedApp').resolves({ Id: 'pg' });
-
-      // Pre-warm the stopped-apps cache so the auto-restart fires on this cycle
-      stoppedAppsCache.set('pgcluster_MixedApp', '');
-
-      await containerHealthMonitor.monitorAndRecoverApps('10.0.0.1:16127', [mixedSpec], []);
-
-      expect(dockerServiceStub.appDockerStart.calledWith('pgcluster_MixedApp')).to.equal(true);
-      expect(dockerServiceStub.appDockerStart.calledWith('n8n_MixedApp')).to.equal(false);
-      expect(appInstallerStub.installApplicationHard.called).to.equal(false);
-      expect(appUninstallerStub.removeAppLocally.called).to.equal(false);
+  describe('handleMissingMasterSlaveContainer', () => {
+    it('does nothing when the container actually exists', async () => {
+      dockerServiceStub.getDockerContainerOnly.resolves({ Id: 'abc' });
+      await containerHealthMonitor.handleMissingMasterSlaveContainer('web_testapp', 'testapp');
+      expect(appInstallerStub.installApplicationHard.called).to.be.false;
+      expect(appUninstallerStub.removeAppLocally.called).to.be.false;
     });
 
-    it('does not auto-start a stopped g: component (managed by masterSlaveApps)', async () => {
-      // Steady state on a standby node: pgcluster running, n8n (g:) stopped.
-      registryManagerStub.getApplicationGlobalSpecifications.withArgs('MixedApp').resolves(mixedSpec);
-
-      // The g: component's container exists - handleMissingMasterSlaveContainer must
-      // short-circuit and never start or recreate it.
-      dockerServiceStub.getDockerContainerOnly.withArgs('n8n_MixedApp').resolves({ Id: 'n8n' });
-
-      // Pre-warm cache to prove the cache warmup path is NOT what keeps the g: component stopped
-      stoppedAppsCache.set('n8n_MixedApp', '');
-
-      await containerHealthMonitor.monitorAndRecoverApps('10.0.0.1:16127', [mixedSpec], ['pgcluster_MixedApp']);
-
-      expect(dockerServiceStub.appDockerStart.called).to.equal(false);
-      expect(appInstallerStub.installApplicationHard.called).to.equal(false);
-      expect(appUninstallerStub.removeAppLocally.called).to.equal(false);
+    it('recreates a missing container and restarts monitoring', async () => {
+      await containerHealthMonitor.handleMissingMasterSlaveContainer('web_testapp', 'testapp');
+      expect(appInstallerStub.installApplicationHard.calledOnce).to.be.true;
+      expect(appInspectorStub.startAppMonitoring.calledOnceWith('web_testapp')).to.be.true;
+      expect(appUninstallerStub.removeAppLocally.called).to.be.false;
     });
 
-    it('does not apply the 30-minute syncthing grace to a non-syncthing sibling of a g: app', async () => {
-      // The non-g component was installed less than 30 minutes ago. The grace period is meant
-      // for syncthing data sync only - the non-g component must still start immediately.
-      registryManagerStub.getApplicationGlobalSpecifications.withArgs('MixedApp').resolves(mixedSpec);
-      dockerServiceStub.getDockerContainerOnly.withArgs('pgcluster_MixedApp').resolves({ Id: 'pg' });
-
-      // runningSince very recent -> inside the 30 min window
-      dbHelperStub.findOneInDatabase.resolves({ runningSince: new Date().toISOString() });
-
-      stoppedAppsCache.set('pgcluster_MixedApp', '');
-
-      await containerHealthMonitor.monitorAndRecoverApps('10.0.0.1:16127', [mixedSpec], ['n8n_MixedApp']);
-
-      expect(dockerServiceStub.appDockerStart.calledWith('pgcluster_MixedApp')).to.equal(true);
+    it('skips removal when recreation failed but another process created the container', async () => {
+      appInstallerStub.installApplicationHard.rejects(new Error('install boom'));
+      dockerServiceStub.getDockerContainerOnly
+        .onFirstCall().resolves(null)
+        .onSecondCall().resolves({ Id: 'raced' });
+      await containerHealthMonitor.handleMissingMasterSlaveContainer('web_testapp', 'testapp');
+      expect(appUninstallerStub.removeAppLocally.called).to.be.false;
+      expect(tamperingStub.recordEvent.called).to.be.false;
     });
 
-    it('applies the 30-minute grace to a stopped r: component installed less than 30m ago', async () => {
-      registryManagerStub.getApplicationGlobalSpecifications.withArgs('RApp').resolves(rOnlySpec);
-      dockerServiceStub.getDockerContainerOnly.withArgs('web_RApp').resolves({ Id: 'web' });
-
-      // runningSince very recent -> inside the 30 min window -> must NOT start yet
-      dbHelperStub.findOneInDatabase.resolves({ runningSince: new Date().toISOString() });
-
-      stoppedAppsCache.set('web_RApp', '');
-
-      await containerHealthMonitor.monitorAndRecoverApps('10.0.0.1:16127', [rOnlySpec], []);
-
-      expect(dockerServiceStub.appDockerStart.called).to.equal(false);
-      expect(appUninstallerStub.removeAppLocally.called).to.equal(false);
+    it('records the failure and removes the app when recreation truly fails', async () => {
+      appInstallerStub.installApplicationHard.rejects(new Error('install boom'));
+      await containerHealthMonitor.handleMissingMasterSlaveContainer('web_testapp', 'testapp');
+      expect(tamperingStub.recordEvent.calledWith('testapp', 'recreation_failed')).to.be.true;
+      expect(appUninstallerStub.removeAppLocally.calledOnce).to.be.true;
+      expect(appUninstallerStub.removeAppLocally.firstCall.args[0]).to.equal('testapp');
     });
 
-    it('starts a stopped r: component once the 30-minute grace has passed', async () => {
-      registryManagerStub.getApplicationGlobalSpecifications.withArgs('RApp').resolves(rOnlySpec);
-      dockerServiceStub.getDockerContainerOnly.withArgs('web_RApp').resolves({ Id: 'web' });
-
-      // runningSince 31 minutes ago -> grace passed
-      dbHelperStub.findOneInDatabase.resolves({ runningSince: new Date(Date.now() - 31 * 60 * 1000).toISOString() });
-
-      stoppedAppsCache.set('web_RApp', '');
-
-      await containerHealthMonitor.monitorAndRecoverApps('10.0.0.1:16127', [rOnlySpec], []);
-
-      expect(dockerServiceStub.appDockerStart.calledWith('web_RApp')).to.equal(true);
-    });
-
-    it('still includes g:/r: apps in masterSlaveAppsInstalled for broadcast even with stopped components', async () => {
-      registryManagerStub.getApplicationGlobalSpecifications.withArgs('MixedApp').resolves(mixedSpec);
-      dockerServiceStub.getDockerContainerOnly.resolves({ Id: 'x' });
-
-      const result = await containerHealthMonitor.monitorAndRecoverApps('10.0.0.1:16127', [mixedSpec], ['pgcluster_MixedApp']);
-
-      // The app must still be broadcast as installed-and-running so standby nodes
-      // stay in apps/location and remain promotion-eligible.
-      expect(result.masterSlaveAppsInstalled).to.deep.include(mixedSpec);
+    it('additionally records network_pruned when the failure is a missing docker network', async () => {
+      appInstallerStub.installApplicationHard.rejects(new Error('network fluxDockerNetwork_testapp not found'));
+      tamperingStub.isNetworkMissingError.returns(true);
+      await containerHealthMonitor.handleMissingMasterSlaveContainer('web_testapp', 'testapp');
+      expect(tamperingStub.recordEvent.calledWith('testapp', 'network_pruned')).to.be.true;
+      expect(appUninstallerStub.removeAppLocally.calledOnce).to.be.true;
     });
   });
 });
