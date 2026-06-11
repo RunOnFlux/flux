@@ -1163,14 +1163,18 @@ async function appDockerStop(idOrName, timeout) {
   }
 
   const dockerName = getDockerName(idOrName);
+  // Held for the duration of the stop operation (legitimately hours under a
+  // graceful shutdown) so the die handler swallows the deliberate stop and the
+  // reconciler defers. Cleared when the operation settles - never left for the
+  // die event to clean up: a lost event (stream outage) would leak the flag
+  // and permanently wedge the reconciler's actuation for this component.
   globalState.stoppingContainers.add(dockerName);
 
   try {
     const opts = timeout !== undefined ? { t: timeout } : {};
     await dockerContainer.stop(opts);
-  } catch (err) {
+  } finally {
     globalState.stoppingContainers.delete(dockerName);
-    throw err;
   }
   return `Flux App ${idOrName} successfully stopped.`;
 }
@@ -1216,13 +1220,13 @@ async function appDockerKill(idOrName) {
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   const dockerName = getDockerName(idOrName);
+  // same flag lifetime as appDockerStop: operation-scoped, never event-scoped
   globalState.stoppingContainers.add(dockerName);
 
   try {
     await dockerContainer.kill();
-  } catch (err) {
+  } finally {
     globalState.stoppingContainers.delete(dockerName);
-    throw err;
   }
   return `Flux App ${idOrName} successfully killed.`;
 }

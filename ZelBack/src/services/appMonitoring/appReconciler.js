@@ -13,6 +13,7 @@ const containerHealthMonitor = require('./containerHealthMonitor');
 const appUninstaller = require('../appLifecycle/appUninstaller');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const { localAppsInformation } = require('../utils/appConstants');
+const { AsyncGate } = require('../utils/asyncGate');
 
 // The single, level-based actuator for app containers. Every trigger (docker
 // die event, stream reconnect, hourly tick, boot, post-install, and the
@@ -34,6 +35,48 @@ const inFlight = new Set(); // ids currently reconciling (per-key single-flight)
 const dirty = new Set(); // ids re-requested while in flight -> reconcile again
 const bootPending = new Set(); // ids enqueued before the boot gate opened
 const backoffTimers = new Map(); // id -> scheduled retry timeout
+
+// The boot-drain gate: opens once every boot-held component has completed ONE
+// reconcile pass (started, backoff-deferred, awaiting-controller, or failed
+// loudly) - NOT "all containers running". The first apprunning broadcast waits
+// on it so the snapshot doesn't race the boot starts (rows the snapshot misses
+// expire on the ~7min sigterm TTL and the app respawns elsewhere). Capped so a
+// wedged reconcile can never suppress the node's network presence.
+const BOOT_DRAIN_SETTLE_CAP_MS = 2 * 60 * 1000;
+const bootDrainGate = new AsyncGate();
+const bootDraining = new Set(); // boot-held ids still on their first pass
+let bootDrainCapTimer = null;
+
+function settleBootDrain(reason) {
+  if (bootDrainGate.ready) return;
+  if (bootDrainCapTimer) {
+    clearTimeout(bootDrainCapTimer);
+    bootDrainCapTimer = null;
+  }
+  bootDraining.clear();
+  bootDrainGate.open();
+  log.info(`appReconciler - boot drain settled (${reason})`);
+}
+
+// A container start is information the network wants immediately: a backoff
+// straggler that starts minutes after boot must refresh its appsLocations row
+// inside the sigterm TTL window, not at the next hourly broadcast.
+// serviceManager wires this to the peer broadcast (which coalesces bursts),
+// mirroring appInstaller.setOnInstallComplete.
+let onContainerStarted = null;
+
+function setOnContainerStarted(callback) {
+  onContainerStarted = callback;
+}
+
+function notifyContainerStarted(identifier) {
+  if (!onContainerStarted) return;
+  try {
+    onContainerStarted(identifier);
+  } catch (err) {
+    log.error(`appReconciler - onContainerStarted callback failed for ${identifier}: ${err.message}`);
+  }
+}
 
 // while an install/remove/redeploy/backup/restore or a deliberate stop owns a
 // container, defer and re-check shortly (the operation also re-enqueues on
@@ -135,31 +178,23 @@ async function getLocalComponentSpec(identifier) {
 }
 
 /**
- * Whether the Docker daemon is reachable at all. A cheap list call: if it
- * answers, docker is up; if it throws (socket down, e.g. dockerd restarting),
- * it is not. Used to disambiguate an inspect failure — see dockerActual.
- */
-async function dockerReachable() {
-  try {
-    await dockerService.dockerListContainers(true);
-    return true;
-  } catch (err) {
-    return false;
-  }
-}
-
-/**
  * Reads the container's actual state from Docker. exitCode is null when the
  * container has never run (state 'created') so restart policies treat it as an
  * initial start.
  *
- * An inspect failure is ambiguous: the container may be genuinely gone, OR
- * docker may be unreachable (mid dockerd-restart). These surface as different,
- * version-dependent errors (a lookup TypeError vs a socket error), so rather
- * than pattern-match the error we probe the daemon directly: if docker is
- * reachable the container really is missing (recreate); if not, `reachable` is
- * false and the caller must defer rather than mistake a down daemon for a
- * vanished container (which would wrongly recreate then uninstall the app).
+ * An inspect failure is ambiguous: the container may be genuinely gone, docker
+ * may be unreachable (mid dockerd-restart), or the single inspect call failed
+ * transiently while docker is fine. These surface as different,
+ * version-dependent errors, so rather than pattern-match the error we probe
+ * the daemon with a list call and use its ANSWER, not just its success:
+ *   - list throws            -> docker is down: defer (reachable false)
+ *   - container IS listed    -> the inspect failure was transient; the
+ *                               container exists (indeterminate run-state):
+ *                               defer, the next inspect succeeds. Treating it
+ *                               as vanished here would falsely record
+ *                               tampering, then recreate -> 409 -> uninstall a
+ *                               healthy app.
+ *   - container NOT listed   -> docker itself confirms absence: vanished.
  */
 async function dockerActual(identifier) {
   try {
@@ -172,8 +207,20 @@ async function dockerActual(identifier) {
       exitCode: everRan ? (info.State.ExitCode ?? null) : null,
     };
   } catch (err) {
-    const reachable = await dockerReachable();
-    return { reachable, exists: false, running: false, exitCode: null };
+    let containers;
+    try {
+      containers = await dockerService.dockerListContainers(true);
+    } catch (probeErr) {
+      return { reachable: false, exists: false, running: false, exitCode: null };
+    }
+    const dockerName = dockerService.getAppDockerNameIdentifier(identifier);
+    const listed = containers.some((c) => Array.isArray(c.Names) && c.Names.includes(dockerName));
+    if (listed) {
+      return {
+        reachable: true, exists: true, running: false, exitCode: null, indeterminate: true,
+      };
+    }
+    return { reachable: true, exists: false, running: false, exitCode: null };
   }
 }
 
@@ -185,9 +232,13 @@ async function dockerActual(identifier) {
  */
 function isManagedElsewhere(identifier) {
   if (globalState.isOperationInProgress && globalState.isOperationInProgress()) return true;
+  // backup/restore hold a lease on the WHOLE app under its bare main name
+  // (appendBackupTask pushes req.appname), so a component reconcile must ask
+  // with the main app name, not the component identifier.
+  const mainAppName = identifier.split('_')[1] || identifier;
   const backup = globalState.backupInProgress || [];
   const restore = globalState.restoreInProgress || [];
-  if (backup.includes(identifier) || restore.includes(identifier)) return true;
+  if (backup.includes(mainAppName) || restore.includes(mainAppName)) return true;
   if (globalState.stoppingContainers.has(dockerService.getAppIdentifier(identifier))) return true;
   return false;
 }
@@ -222,7 +273,21 @@ async function recreateMissing(identifier) {
     appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
     log.info(`appReconciler - recreated missing container ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated' });
+    notifyContainerStarted(identifier);
   } catch (err) {
+    // Removal must be justified by the state of the world NOW, not at
+    // classification time: a whole recreate attempt (image pull - up to
+    // minutes) sits between them, during which a redeploy can legitimately
+    // create the container (isManagedElsewhere is only sampled at reconcile
+    // entry), or our own recreate can fail AFTER creating it (start/network
+    // step). If the container exists, the failure is moot: no tamper events,
+    // no removal - retry shortly and converge on the actual state.
+    const containerExistsNow = await dockerService.getDockerContainerOnly(identifier).catch(() => undefined);
+    if (containerExistsNow) {
+      log.info(`appReconciler - recreate of ${identifier} failed (${err.message}) but the container now exists; skipping removal`);
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
+    }
     log.error(`appReconciler - failed to recreate ${identifier}: ${err.message}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreateFailed', reason: err.message });
     await appTamperingDetectionService.recordEvent(mainAppName, 'recreation_failed', `Container recreation failure: ${err.message}`);
@@ -277,6 +342,15 @@ async function reconcile(rawIdentifier) {
     return;
   }
 
+  // inspect failed but docker's own list shows the container exists: transient
+  // inspect failure - defer, the next inspect succeeds (its run-state is
+  // unknown right now, so neither start nor stop can be justified)
+  if (actual.indeterminate) {
+    log.warn(`appReconciler - ${identifier} inspect failed but the container exists, deferring reconcile`);
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
+
   const { desired, reason } = await effectiveDesiredRunning(identifier, spec, actual.exitCode);
 
   // null = no controller opinion yet for a g:/r: component: neither start nor stop,
@@ -321,6 +395,7 @@ async function reconcile(rawIdentifier) {
   appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
   log.info(`appReconciler - ${identifier} restarted`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'started', exitCode: actual.exitCode });
+  notifyContainerStarted(identifier);
 }
 
 // --- workqueue (per-key single-flight, boot-gated) -----------------------
@@ -340,6 +415,10 @@ function runReconcile(identifier) {
     .catch((err) => log.error(`appReconciler - reconcile ${identifier} failed: ${err.message}`))
     .finally(() => {
       inFlight.delete(identifier);
+      // one completed pass (actuated or deferred) is all the boot drain needs
+      if (bootDraining.delete(identifier) && bootDraining.size === 0) {
+        settleBootDrain('all boot reconciles completed a pass');
+      }
       if (dirty.has(identifier)) {
         dirty.delete(identifier);
         setImmediate(() => enqueue(identifier));
@@ -368,13 +447,43 @@ function enqueue(rawIdentifier) {
 
 /**
  * Enqueue every installed component (hourly tick / reconnect / boot drift).
+ * Enterprise specs are stored encrypted (compose: []), so the sweep decrypts
+ * to enumerate components — leniently: one app failing to decrypt must not
+ * abort the sweep for the rest. An app that stays encrypted is still covered
+ * via its existing docker containers (see below); never silently skipped.
  */
 async function enqueueAll(reason = 'resync') {
   const res = await appQueryService.installedApps();
   if (!res || res.status !== 'success') return;
+  const apps = await appQueryService.decryptEnterpriseApps(res.data, { formatSpecs: false });
   let count = 0;
-  for (const app of res.data) {
-    if (app.version >= 4 && Array.isArray(app.compose)) {
+  let dockerNames = null; // fetched once, only if some app failed to decrypt
+  for (const app of apps) {
+    const stillEncrypted = app.version >= 8 && app.enterprise
+      && (!Array.isArray(app.compose) || app.compose.length === 0);
+    if (stillEncrypted) {
+      // Decryption failed (already logged by decryptEnterpriseApps). The component
+      // names live inside the blob, so enumerate the app's EXISTING docker
+      // containers instead: their reconciles defer on the same decrypt failure
+      // and converge the moment fluxbenchd answers again. A vanished container of
+      // an undecryptable app cannot be recovered anyway (recreation needs the
+      // spec); the next sweep retries, so coverage resumes with decryption.
+      if (dockerNames === null) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const containers = await dockerService.dockerListContainers(true);
+          dockerNames = containers.map((c) => (c.Names && c.Names[0] ? c.Names[0].slice(1) : ''));
+        } catch (err) {
+          log.warn(`appReconciler - enqueueAll cannot list containers for undecryptable apps: ${err.message}`);
+          dockerNames = [];
+        }
+      }
+      const suffix = `_${app.name}`;
+      dockerNames.filter((name) => name.endsWith(suffix)).forEach((name) => {
+        enqueue(name); // canonicalised to the bare component identifier by enqueue
+        count += 1;
+      });
+    } else if (app.version >= 4 && Array.isArray(app.compose)) {
       app.compose.forEach((c) => { enqueue(`${c.name}_${app.name}`); count += 1; });
     } else {
       enqueue(app.name);
@@ -415,6 +524,16 @@ async function start() {
   // drain everything enqueued during boot now that daemon/DB are ready
   const pending = [...bootPending];
   bootPending.clear();
+  if (pending.length === 0) {
+    settleBootDrain('nothing to drain');
+    return;
+  }
+  pending.forEach((id) => bootDraining.add(id));
+  bootDrainCapTimer = setTimeout(() => {
+    log.warn(`appReconciler - boot drain cap reached with ${bootDraining.size} reconcile(s) still in flight: ${[...bootDraining].join(', ')}`);
+    settleBootDrain('cap reached');
+  }, BOOT_DRAIN_SETTLE_CAP_MS);
+  if (bootDrainCapTimer.unref) bootDrainCapTimer.unref();
   pending.forEach((id) => enqueue(id));
 }
 
@@ -422,6 +541,11 @@ function stop() {
   started = false;
   backoffTimers.forEach((t) => clearTimeout(t));
   backoffTimers.clear();
+  if (bootDrainCapTimer) {
+    clearTimeout(bootDrainCapTimer);
+    bootDrainCapTimer = null;
+  }
+  bootDraining.clear();
   inFlight.clear();
   dirty.clear();
   bootPending.clear();
@@ -432,6 +556,8 @@ module.exports = {
   enqueueAll,
   setControllerDesired,
   clearControllerDesired,
+  setOnContainerStarted,
+  waitForBootDrainSettled: () => bootDrainGate.wait(),
   start,
   stop,
   // exposed for tests

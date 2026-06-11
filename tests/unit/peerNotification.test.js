@@ -6,7 +6,9 @@ describe('peerNotification tests', () => {
   let peerNotification;
   let logStub;
   let enqueueAllStub;
+  let waitForBootDrainSettledStub;
   let storeAppRunningMessageStub;
+  let broadcastMessageToAllStub;
   let installedAppsStub;
   let listRunningAppsStub;
 
@@ -18,7 +20,9 @@ describe('peerNotification tests', () => {
     };
 
     enqueueAllStub = sinon.stub().resolves();
+    waitForBootDrainSettledStub = sinon.stub().resolves();
     storeAppRunningMessageStub = sinon.stub().resolves();
+    broadcastMessageToAllStub = sinon.stub().resolves('signed');
     installedAppsStub = sinon.stub().resolves({
       status: 'success',
       data: [{ name: 'app1', version: 4, compose: [{ name: 'c1', containerData: '/data' }] }],
@@ -71,7 +75,7 @@ describe('peerNotification tests', () => {
       '../fluxCommunicationMessagesSender': {
         broadcastMessageToOutgoing: sinon.stub().resolves(),
         broadcastMessageToIncoming: sinon.stub().resolves(),
-        broadcastMessageToAll: sinon.stub().resolves(),
+        broadcastMessageToAll: broadcastMessageToAllStub,
       },
       './messageStore': {
         storeAppRunningMessage: storeAppRunningMessageStub,
@@ -93,6 +97,7 @@ describe('peerNotification tests', () => {
       },
       '../appMonitoring/appReconciler': {
         enqueueAll: enqueueAllStub,
+        waitForBootDrainSettled: waitForBootDrainSettledStub,
       },
       '../appQuery/appQueryService': {
         installedApps: installedAppsStub,
@@ -152,6 +157,48 @@ describe('peerNotification tests', () => {
       });
       // only app1's container is running
       await peerNotification.checkAndNotifyPeersOfRunningApps();
+      const [message] = storeAppRunningMessageStub.firstCall.args;
+      expect(message.apps.map((a) => a.name)).to.deep.equal(['app1']);
+    });
+
+    // An empty snapshot must NEVER be broadcast: on the receive side an empty v2
+    // message deletes every appsLocations row for the sender's IP - and the sender
+    // stores its own message first, so it erases its own network presence. The
+    // legitimate corrections all have targeted mechanisms (fluxappremoved on
+    // uninstall, sigterm/TTL row expiry for wiped or dead nodes).
+    it('never broadcasts an empty snapshot - reboot-race shape (installed apps, none running yet)', async () => {
+      listRunningAppsStub.resolves({ status: 'success', data: [] }); // containers not started yet
+      await peerNotification.checkAndNotifyPeersOfRunningApps(); // first run after boot
+      expect(storeAppRunningMessageStub.called, 'must not store an empty snapshot (self-wipe)').to.be.false;
+      expect(broadcastMessageToAllStub.called, 'must not broadcast an empty snapshot').to.be.false;
+    });
+
+    it('never broadcasts an empty snapshot - wiped-node shape (nothing installed)', async () => {
+      installedAppsStub.resolves({ status: 'success', data: [] });
+      listRunningAppsStub.resolves({ status: 'success', data: [] });
+      await peerNotification.checkAndNotifyPeersOfRunningApps(); // first run after boot
+      expect(storeAppRunningMessageStub.called, 'must not store an empty snapshot (self-wipe)').to.be.false;
+      expect(broadcastMessageToAllStub.called, 'must not broadcast an empty snapshot').to.be.false;
+    });
+
+    // The first broadcast after boot races the reconciler's container starts; a
+    // too-early snapshot misses apps whose rows then expire on the sigterm TTL.
+    // Every broadcast waits for the reconciler's boot drain to settle (the gate
+    // resolves immediately in steady state, and is capped reconciler-side so a
+    // wedged reconcile cannot suppress network presence).
+    it('waits for the reconciler boot drain before broadcasting', async () => {
+      let openDrainGate;
+      waitForBootDrainSettledStub.callsFake(() => new Promise((resolve) => { openDrainGate = resolve; }));
+
+      const callPromise = peerNotification.checkAndNotifyPeersOfRunningApps();
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      expect(storeAppRunningMessageStub.called, 'must not snapshot/broadcast before the boot drain settles').to.be.false;
+      expect(broadcastMessageToAllStub.called).to.be.false;
+
+      openDrainGate();
+      await callPromise;
+      expect(broadcastMessageToAllStub.calledOnce, 'broadcast proceeds once the drain settles').to.be.true;
       const [message] = storeAppRunningMessageStub.firstCall.args;
       expect(message.apps.map((a) => a.name)).to.deep.equal(['app1']);
     });

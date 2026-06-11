@@ -22,9 +22,12 @@ describe('appReconciler tests', () => {
         dockerContainerInspect: sinon.stub().resolves({ State: { Running: false, Status: 'exited', ExitCode: 1 } }),
         // reachability probe used by dockerActual on an inspect failure; resolves => docker up
         dockerListContainers: sinon.stub().resolves([]),
+        // final existence re-check before the remove-on-recreate-failure fallback
+        getDockerContainerOnly: sinon.stub().resolves(undefined),
         appDockerStart: sinon.stub().resolves(),
         appDockerStop: sinon.stub().resolves(),
         getAppIdentifier: (id) => `flux${id}`,
+        getAppDockerNameIdentifier: (id) => `/flux${id}`,
         getBaseAppName: (id) => (id.startsWith('flux') ? id.slice(4) : id),
       },
       globalState: {
@@ -205,6 +208,45 @@ describe('appReconciler tests', () => {
       expect(stubs.appUninstaller.removeAppLocally.calledOnceWith('App', null, false, true, true)).to.be.true;
     });
 
+    // "Vanished" requires docker to CONFIRM absence: the reachability probe
+    // already fetched the full container list, and if the container appears in
+    // it the inspect failure was transient (one-off timeout, dockerd finishing
+    // a restart between the two calls). Acting on it would falsely write a
+    // container_vanished tamper event and recreate->409->uninstall a healthy
+    // app. Defer instead - the next inspect succeeds.
+    it('defers when inspect fails but the container appears in the docker list (transient inspect failure)', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerListContainers.resolves([
+        { Names: ['/fluxwww_App'], State: 'running' }, // the "missing" container, alive
+        { Names: ['/fluxother_Other'], State: 'running' },
+      ]);
+      await appReconciler.reconcile('www_App');
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.called, 'must not recreate an existing container').to.be.false;
+      expect(stubs.appTamperingDetectionService.recordEvent.called, 'must not write tamper events on a transient failure').to.be.false;
+      expect(stubs.appUninstaller.removeAppLocally.called).to.be.false;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(stubs.dockerService.appDockerStop.called).to.be.false;
+      const deferred = stubs.log.warn.getCalls().some((c) => /deferring/.test(c.args[0]));
+      expect(deferred, 'should defer loudly, not silently drop the reconcile').to.equal(true);
+    });
+
+    // Removal must be justified by the state of the world at REMOVAL time, not
+    // at classification time: between them sits a whole recreate attempt (image
+    // pull - seconds to minutes), during which a redeploy can legitimately
+    // create the container (isManagedElsewhere is only sampled at entry), or
+    // our own recreate can fail AFTER creating it (start/network step failed).
+    it('does not remove the app when the container exists by the time recreation fails', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerListContainers.resolves([]); // genuinely missing at classification
+      stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('409 Conflict: name already in use'));
+      stubs.dockerService.getDockerContainerOnly.resolves({ Id: 'abc123' }); // exists at re-check
+      await appReconciler.reconcile('www_App');
+      expect(stubs.appUninstaller.removeAppLocally.called, 'must not remove - the container exists').to.be.false;
+      const recordedFailure = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .some((c) => c.args[1] === 'recreation_failed');
+      expect(recordedFailure, 'a moot recreate failure must not pollute the tamper ledger').to.be.false;
+    });
+
     it('defers (never recreates/uninstalls) when docker is unreachable', async () => {
       // dockerd is down (e.g. restarting): inspect throws AND the reachability
       // probe throws too -> must defer, not mistake it for a vanished container.
@@ -289,6 +331,49 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
     });
 
+    // The backup/restore lease: while an app appears in backupInProgress /
+    // restoreInProgress (bare MAIN APP name, exactly as appendBackupTask /
+    // appendRestoreTask write it), the operation owns the whole app's runtime.
+    // A reconcile of ANY component of that app must not actuate - not start,
+    // not stop, not recreate - while the lease is held; the next reconcile
+    // after release enforces desired state again.
+    describe('backup/restore lease', () => {
+      it('does not start a stopped component while its app is being backed up', async () => {
+        stubs.globalState.backupInProgress.push('App'); // bare main-app name (production format)
+        await appReconciler.reconcile('www_App');
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+        expect(stubs.appsRuntimeState.recordRestart.called).to.be.false;
+      });
+
+      it('does not stop a running operator-stopped component while its app is being restored', async () => {
+        stubs.globalState.restoreInProgress.push('App');
+        stubs.appsRuntimeState.isOperatorStopped.resolves(true);
+        stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+        await appReconciler.reconcile('www_App');
+        expect(stubs.dockerService.appDockerStop.called).to.be.false;
+      });
+
+      it('does not recreate or remove a missing container while its app is being restored', async () => {
+        stubs.globalState.restoreInProgress.push('App');
+        stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+        stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+        await appReconciler.reconcile('www_App');
+        expect(stubs.containerHealthMonitor.recreateMissingContainers.called).to.be.false;
+        expect(stubs.appUninstaller.removeAppLocally.called).to.be.false;
+        expect(stubs.appTamperingDetectionService.recordEvent.called).to.be.false;
+      });
+
+      it('enforces desired state again once the lease is released', async () => {
+        stubs.globalState.backupInProgress.push('App');
+        await appReconciler.reconcile('www_App');
+        expect(stubs.dockerService.appDockerStart.called).to.be.false; // held
+
+        stubs.globalState.backupInProgress.length = 0; // lease released
+        await appReconciler.reconcile('www_App');
+        expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
+      });
+    });
+
     it('defers while the container is in stoppingContainers (transient stop)', async () => {
       stubs.globalState.stoppingContainers.add('fluxwww_App');
       await appReconciler.reconcile('www_App');
@@ -353,6 +438,218 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
       const deferred = stubs.log.warn.getCalls().some((c) => /spec read failed, deferring/.test(c.args[0]));
       expect(deferred, 'should defer on decrypt failure, never act on still-encrypted data').to.equal(true);
+    });
+  });
+
+  // The sweep contract: enqueueAll must cover EVERY installed component -
+  // enterprise apps included. Enterprise specs are stored encrypted
+  // (compose: []), so the sweep decrypts (leniently - one failing app must not
+  // abort the sweep) to enumerate components; for an app whose decryption
+  // fails it falls back to the app's existing docker containers, so reconciles
+  // get queued and converge the moment decryption recovers (reconcile itself
+  // never acts on encrypted data - it defers). Assertions target the coverage
+  // contract (what got swept), not the mechanism.
+  describe('enqueueAll sweep coverage', () => {
+    // every reconcile chain here is built from immediately-resolving stubs
+    // (pure microtasks), so two macrotask turns deterministically drain all
+    // reconciles the sweep enqueued (the second covers the workqueue's one
+    // setImmediate hop for a coalesced re-run)
+    const flush = async () => {
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+    };
+
+    it('sweeps every component of an enterprise app when decryption succeeds', async () => {
+      const stored = {
+        name: 'EntApp', version: 8, enterprise: 'CIPHERTEXT', hash: 'h1', compose: [],
+      };
+      const decrypted = { ...stored, compose: [{ name: 'c1', containerData: '/data' }, { name: 'c2', containerData: '/data' }] };
+      stubs.appQueryService.installedApps.resolves({ status: 'success', data: [stored] });
+      stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => (query.name === 'EntApp' ? stored : null));
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => arr.map((a) => (a.enterprise ? decrypted : a)));
+
+      const started = [];
+      stubs.dockerService.appDockerStart.callsFake(async (id) => { started.push(id); });
+
+      await appReconciler.enqueueAll('test');
+      await flush();
+      expect(started, 'both enterprise components must be swept and reconciled to a start').to.have.members(['c1_EntApp', 'c2_EntApp']);
+    });
+
+    it('falls back to the app\'s docker containers when decryption fails - reconciles queue and defer', async () => {
+      const stored = {
+        name: 'EntApp', version: 8, enterprise: 'CIPHERTEXT', hash: 'h1', compose: [],
+      };
+      stubs.appQueryService.installedApps.resolves({ status: 'success', data: [stored] });
+      stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => (query.name === 'EntApp' ? stored : null));
+      // benchd unavailable: lenient calls return the spec still encrypted, strict callers get the throw
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr, opts) => {
+        if (opts && opts.throwOnError) throw new Error('benchd unavailable');
+        return arr;
+      });
+      // the app's existing containers, plus an unrelated app's container that
+      // this fallback must NOT sweep in (it is not part of the failed app)
+      stubs.dockerService.dockerListContainers.resolves([
+        { Names: ['/fluxc1_EntApp'] },
+        { Names: ['/fluxc2_EntApp'] },
+        { Names: ['/fluxweb_Other'] },
+      ]);
+
+      const defers = [];
+      stubs.log.warn.callsFake((msg) => {
+        if (/spec read failed, deferring/.test(msg)) defers.push(msg);
+      });
+
+      await appReconciler.enqueueAll('test');
+      await flush();
+      // both components reached reconcile and deferred on the failed decrypt
+      expect(defers.some((m) => m.includes('c1_EntApp')), 'c1_EntApp must be swept (docker-derived) and defer').to.be.true;
+      expect(defers.some((m) => m.includes('c2_EntApp')), 'c2_EntApp must be swept (docker-derived) and defer').to.be.true;
+      expect(defers.some((m) => m.includes('web_Other')), 'unrelated app must not be swept by the fallback').to.be.false;
+      // never actuate on encrypted data
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(stubs.dockerService.appDockerStop.called).to.be.false;
+    });
+
+    it('an undecryptable app does not abort the sweep for other apps', async () => {
+      const ent = {
+        name: 'EntApp', version: 8, enterprise: 'CIPHERTEXT', hash: 'h1', compose: [],
+      };
+      const plain = { name: 'Plain', version: 4, compose: [{ name: 'www', containerData: '/data' }] };
+      const byName = { EntApp: ent, Plain: plain };
+      // the failing app FIRST: a sweep that dies on it would never reach Plain
+      stubs.appQueryService.installedApps.resolves({ status: 'success', data: [ent, plain] });
+      stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => byName[query.name] ?? null);
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr, opts) => {
+        if (opts && opts.throwOnError && arr.some((a) => a.enterprise)) throw new Error('benchd unavailable');
+        return arr;
+      });
+      stubs.dockerService.dockerListContainers.resolves([{ Names: ['/fluxc1_EntApp'] }]);
+
+      const started = [];
+      stubs.dockerService.appDockerStart.callsFake(async (id) => { started.push(id); });
+      const defers = [];
+      stubs.log.warn.callsFake((msg) => {
+        if (/spec read failed, deferring/.test(msg)) defers.push(msg);
+      });
+
+      await appReconciler.enqueueAll('test');
+      await flush();
+      expect(started, 'the plain app must still reconcile and start').to.include('www_Plain');
+      expect(defers.some((m) => m.includes('c1_EntApp')), 'the failed app is still covered via its docker container').to.be.true;
+    });
+
+    // coverage guard (passes today): the legacy single-spec path must survive the fix
+    it('sweeps a legacy (v1-3) app under its app name', async () => {
+      const legacy = { name: 'Legacy', version: 3, containerData: '/data' };
+      stubs.appQueryService.installedApps.resolves({ status: 'success', data: [legacy] });
+      stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => (query.name === 'Legacy' ? legacy : null));
+
+      const started = [];
+      stubs.dockerService.appDockerStart.callsFake(async (id) => { started.push(id); });
+
+      await appReconciler.enqueueAll('test');
+      await flush();
+      expect(started).to.deep.equal(['Legacy']);
+    });
+  });
+
+  // The boot-drain gate: the first apprunning broadcast must not race the boot
+  // reconciles (a too-early snapshot misses apps whose rows then expire on the
+  // sigterm TTL). waitForBootDrainSettled() resolves once every boot-held
+  // component has completed ONE reconcile pass (started, backoff-deferred,
+  // awaiting-controller, or failed loudly) - NOT "all containers running" - and
+  // is capped so a wedged reconcile cannot suppress network presence forever.
+  describe('boot drain gate', () => {
+    const flush = async () => {
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await new Promise((resolve) => { setImmediate(resolve); });
+    };
+
+    it('opens only after every boot-held reconcile completes one pass', async () => {
+      stubs.globalState.bootContainerStateSettled = false;
+      let openBootGate;
+      stubs.globalState.waitForBootContainerStateSettled = () => new Promise((resolve) => { openBootGate = resolve; });
+      let finishInspect;
+      stubs.dockerService.dockerContainerInspect = sinon.stub().callsFake(() => new Promise((resolve) => {
+        finishInspect = () => resolve({ State: { Running: false, Status: 'exited', ExitCode: 1 } });
+      }));
+
+      appReconciler.enqueue('www_App'); // held in bootPending
+      const startPromise = appReconciler.start();
+      let drainSettled = false;
+      appReconciler.waitForBootDrainSettled().then(() => { drainSettled = true; });
+
+      stubs.globalState.bootContainerStateSettled = true;
+      openBootGate();
+      await startPromise;
+      await flush();
+      expect(drainSettled, 'gate must hold while a boot reconcile is still in flight').to.be.false;
+
+      finishInspect(); // the held reconcile completes its pass (start path runs on stubs)
+      await flush();
+      expect(drainSettled, 'gate opens once the drained reconciles complete one pass').to.be.true;
+    });
+
+    it('opens after the cap even if a boot reconcile wedges', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      try {
+        stubs.globalState.bootContainerStateSettled = false;
+        let openBootGate;
+        stubs.globalState.waitForBootContainerStateSettled = () => new Promise((resolve) => { openBootGate = resolve; });
+        stubs.dockerService.dockerContainerInspect = sinon.stub().callsFake(() => new Promise(() => {})); // wedged forever
+
+        appReconciler.enqueue('www_App');
+        const startPromise = appReconciler.start();
+        let drainSettled = false;
+        appReconciler.waitForBootDrainSettled().then(() => { drainSettled = true; });
+
+        stubs.globalState.bootContainerStateSettled = true;
+        openBootGate();
+        await startPromise;
+        await flush();
+        expect(drainSettled).to.be.false;
+
+        clock.tick(2 * 60 * 1000 + 1); // the cap (~2min) fires
+        await flush();
+        expect(drainSettled, 'the cap must open the gate despite a wedged reconcile').to.be.true;
+      } finally {
+        clock.restore();
+      }
+    });
+  });
+
+  // The started-nudge: a container start is information the network wants NOW
+  // (a backoff straggler that starts minutes after boot must refresh its
+  // appsLocations row inside the ~7min sigterm TTL window, not at the hourly
+  // tick). serviceManager wires this callback to the peer broadcast, mirroring
+  // appInstaller.setOnInstallComplete; the broadcast layer coalesces bursts.
+  describe('container-started notification', () => {
+    it('notifies the registered callback after a successful start', async () => {
+      const onStarted = sinon.stub();
+      appReconciler.setOnContainerStarted(onStarted);
+      await appReconciler.reconcile('www_App'); // stopped + always policy -> starts
+      expect(stubs.dockerService.appDockerStart.calledOnce).to.be.true;
+      expect(onStarted.calledOnceWith('www_App')).to.be.true;
+    });
+
+    it('does not notify on a stop or a failed start', async () => {
+      const onStarted = sinon.stub();
+      appReconciler.setOnContainerStarted(onStarted);
+
+      // reconcile that stops an operator-stopped running container
+      stubs.appsRuntimeState.isOperatorStopped.resolves(true);
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerStop.calledOnce).to.be.true;
+      expect(onStarted.called).to.be.false;
+
+      // reconcile whose docker start throws
+      stubs.appsRuntimeState.isOperatorStopped.resolves(false);
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 1 } });
+      stubs.dockerService.appDockerStart.rejects(new Error('boom'));
+      await appReconciler.reconcile('www_App').catch(() => {});
+      expect(onStarted.called).to.be.false;
     });
   });
 

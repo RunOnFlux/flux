@@ -16,7 +16,6 @@ const fluxEventBus = require('../utils/fluxEventBus');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
-let checkAndNotifyPeersOfRunningAppsFirstRun = true;
 let broadcastInterval = null;
 let broadcastInProgress = false;
 let rebroadcastNeeded = false;
@@ -56,6 +55,13 @@ async function checkAndNotifyPeersOfRunningApps() {
       log.info('checkAndNotifyPeersOfRunningApps - Node cannot send messages, skipping broadcast');
       return;
     }
+
+    // Never snapshot before the reconciler's boot drain settles: a too-early
+    // snapshot misses apps whose containers are still being started, and their
+    // unrefreshed rows expire on the ~7min sigterm TTL (respawn elsewhere).
+    // Resolves immediately in steady state; capped reconciler-side, so a wedged
+    // reconcile cannot block the node's network presence.
+    await appReconciler.waitForBootDrainSettled();
 
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddr) {
@@ -131,10 +137,14 @@ async function checkAndNotifyPeersOfRunningApps() {
           runningSince: runningOnMyNodeSince,
         });
       }
-      if (apps.length === 0 && !checkAndNotifyPeersOfRunningAppsFirstRun) {
+      // An empty snapshot is NEVER broadcast: the receive side treats an empty
+      // v2 message as "delete every appsLocations row for this IP" - and we
+      // store our own message first, so it would erase our own presence. Every
+      // legitimate correction has a targeted mechanism instead (fluxappremoved
+      // on uninstall, sigterm/TTL row expiry for wiped or dead nodes).
+      if (apps.length === 0) {
         return;
       }
-      checkAndNotifyPeersOfRunningAppsFirstRun = false;
       const appRunningMessage = {
         type: 'fluxapprunning',
         version: 2,

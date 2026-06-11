@@ -145,6 +145,67 @@ describe('appQueryService tests', () => {
       }
       expect(threw, 'should propagate the decrypt error so the caller can defer, not act on ciphertext').to.be.true;
     });
+
+    // Call-volume contract: with many components in defer loops, benchd must
+    // not be hammered. Concurrent decrypts of the same spec share one in-flight
+    // attempt, and a failure is remembered briefly so retries inside the window
+    // are answered from the failure cache (lenient callers get the encrypted
+    // spec back, strict callers get the rethrow) - one benchd attempt per app
+    // per window, regardless of component count. Successes are unaffected.
+    describe('benchd call volume under failure', () => {
+      it('shares one in-flight decryption across concurrent callers of the same spec', async () => {
+        const decrypted = { ...enterpriseApp, compose: [{ name: 'c1' }] };
+        let release;
+        const gate = new Promise((res) => { release = res; });
+        enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
+        enterpriseHelperStub.checkAndDecryptAppSpecs.callsFake(async () => {
+          await gate;
+          return decrypted;
+        });
+
+        const p1 = appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
+        const p2 = appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
+        release();
+        const [r1, r2] = await Promise.all([p1, p2]);
+
+        expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'concurrent callers must share one benchd attempt').to.equal(1);
+        expect(r1[0].compose).to.have.lengthOf(1);
+        expect(r2[0].compose).to.have.lengthOf(1);
+      });
+
+      it('remembers a decryption failure briefly - retries inside the window skip benchd', async () => {
+        enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
+        enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('benchd unavailable'));
+        const clock = sinon.useFakeTimers();
+        try {
+          await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
+          await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
+          expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'second call inside the window must not hit benchd').to.equal(1);
+
+          clock.tick(61 * 1000); // past the failure window - benchd may have recovered
+          await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
+          expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'after the window the decrypt is retried').to.equal(2);
+        } finally {
+          clock.restore();
+        }
+      });
+
+      it('a remembered failure still rejects strict callers without another benchd call', async () => {
+        enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
+        enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('benchd unavailable'));
+
+        await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false }); // seeds the failure window
+        let threw = false;
+        try {
+          await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false, throwOnError: true });
+        } catch (err) {
+          threw = true;
+          expect(err.message).to.match(/benchd unavailable/);
+        }
+        expect(threw, 'strict caller must still get the failure (reconcile defers on it)').to.be.true;
+        expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'the cached failure answers without re-hitting benchd').to.equal(1);
+      });
+    });
   });
 
   describe('installedApps', () => {
@@ -316,6 +377,35 @@ describe('appQueryService tests', () => {
 
       expect(result.status).to.equal('error');
       expect(logStub.error.calledWith(error)).to.be.true;
+    });
+
+    // listRunningApps must report an app under backup/restore as running even
+    // though its container is deliberately stopped, so the network (FDM, peers)
+    // does not react to the stop. The lease arrays hold bare MAIN APP names
+    // (exactly as appendBackupTask writes them); container names are component
+    // identifiers - the lookup must compare the main app name.
+    it('includes a stopped container of an app under backup as running', async () => {
+      // appQueryService lazy-requires globalState at call time, so proxyquire
+      // does not intercept it - manipulate the real singleton and clean up.
+      // eslint-disable-next-line global-require
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.backupInProgress.push('App'); // bare main-app name (production format)
+      try {
+        const stoppedContainer = {
+          Names: ['/fluxwww_App'], State: 'exited', HostConfig: {}, NetworkSettings: {}, Mounts: [],
+        };
+        dockerServiceStub.dockerListContainers.withArgs(false).resolves([]); // nothing running
+        dockerServiceStub.dockerListContainers.withArgs(true).resolves([stoppedContainer]);
+        messageHelperStub.createDataMessage.callsFake((data) => ({ status: 'success', data }));
+
+        const result = await appQueryService.listRunningApps();
+
+        expect(result.status).to.equal('success');
+        const names = result.data.map((app) => app.Names[0]);
+        expect(names, 'backed-up app must still be reported as running').to.include('/fluxwww_App');
+      } finally {
+        globalState.backupInProgress.length = 0;
+      }
     });
 
     it('should return running apps with response passed', async () => {

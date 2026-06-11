@@ -13,8 +13,26 @@ const appReconciler = require('./appReconciler');
 
 let eventStream = null;
 let stopped = false;
+let subscribing = false; // a subscribe is mid-await (its stream not yet assigned)
+let resubscribeTimer = null; // exactly one pending resubscribe, however many signals fired
 let lineBuf = '';
 let hasConnected = false;
+
+const RESUBSCRIBE_DELAY_MS = 10000;
+
+// Every way a stream can die ('error', 'end', a raw 'close', or a failed
+// subscribe) funnels here, and the timer guard collapses them: one outage
+// produces exactly one new stream. Unguarded, error+end firing together
+// doubled the stream - and every die event was then handled twice.
+function scheduleResubscribe(reason) {
+  if (stopped || resubscribeTimer || eventStream) return;
+  log.warn(`containerCrashRecovery - event stream ${reason}; resubscribing in ${RESUBSCRIBE_DELAY_MS / 1000}s`);
+  resubscribeTimer = setTimeout(() => {
+    resubscribeTimer = null;
+    // eslint-disable-next-line no-use-before-define
+    subscribe();
+  }, RESUBSCRIBE_DELAY_MS);
+}
 
 function isFluxContainer(name) {
   return name.startsWith('flux') || name.startsWith('zel');
@@ -31,12 +49,12 @@ async function handleContainerDie(event) {
   if (!containerName || !isFluxContainer(containerName)) return;
 
   // A deliberate FluxOS stop (appDockerStop/Kill/Restart) marks the container in
-  // stoppingContainers; its die needs no reconcile - the operation already set the
-  // desired state. Consume the flag and skip, mirroring the pre-reconciler watcher.
-  // This also avoids a perpetual 5s reconcile-defer loop for a stopped-and-staying-
-  // stopped container, whose flag would otherwise linger until the next start.
+  // stoppingContainers for the duration of the operation; its die needs no
+  // reconcile - the operation already recorded the desired state before acting.
+  // Skip to avoid churn. Best-effort only: the flag is cleared by the operation
+  // itself when it settles (never by this event), so a die that arrives after
+  // the operation resolved simply falls through to a desired-state no-op.
   if (globalState.stoppingContainers.has(containerName)) {
-    globalState.stoppingContainers.delete(containerName);
     return;
   }
 
@@ -50,16 +68,25 @@ async function handleContainerDie(event) {
 }
 
 async function subscribe() {
-  if (eventStream) return;
+  if (eventStream || subscribing) return;
+  subscribing = true;
   lineBuf = '';
 
   try {
-    eventStream = await dockerService.dockerGetEvents({
+    const stream = await dockerService.dockerGetEvents({
       filters: { type: ['container'], event: ['die'] },
     });
+    eventStream = stream;
 
-    eventStream.on('data', (buf) => {
-      if (stopped) return;
+    // handlers are scoped to THIS stream: a late signal from an already
+    // replaced stream must not retire its healthy successor
+    const onGone = (reason) => {
+      if (eventStream === stream) eventStream = null;
+      scheduleResubscribe(reason);
+    };
+
+    stream.on('data', (buf) => {
+      if (stopped || eventStream !== stream) return;
       lineBuf += buf.toString();
       const lines = lineBuf.split('\n');
       lineBuf = lines.pop();
@@ -76,21 +103,13 @@ async function subscribe() {
       }
     });
 
-    eventStream.on('error', (err) => {
+    stream.on('error', (err) => {
       log.error(`containerCrashRecovery - event stream error: ${err.message}`);
-      eventStream = null;
-      if (!stopped) {
-        setTimeout(() => subscribe(), 10000);
-      }
+      onGone('errored');
     });
-
-    eventStream.on('end', () => {
-      log.warn('containerCrashRecovery - event stream ended');
-      eventStream = null;
-      if (!stopped) {
-        setTimeout(() => subscribe(), 10000);
-      }
-    });
+    stream.on('end', () => onGone('ended'));
+    // a raw socket teardown can emit 'close' without 'error' or 'end'
+    stream.on('close', () => onGone('closed'));
 
     log.info('containerCrashRecovery - listening for container crash events');
 
@@ -105,10 +124,9 @@ async function subscribe() {
     hasConnected = true;
   } catch (err) {
     log.error(`containerCrashRecovery - failed to subscribe to docker events: ${err.message}`);
-    eventStream = null;
-    if (!stopped) {
-      setTimeout(() => subscribe(), 10000);
-    }
+    scheduleResubscribe('subscribe failed');
+  } finally {
+    subscribing = false;
   }
 }
 
@@ -120,6 +138,10 @@ async function start() {
 
 function stop() {
   stopped = true;
+  if (resubscribeTimer) {
+    clearTimeout(resubscribeTimer);
+    resubscribeTimer = null;
+  }
   if (eventStream) {
     eventStream.destroy();
     eventStream = null;

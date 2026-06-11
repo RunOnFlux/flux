@@ -377,6 +377,9 @@ async function appRestart(req, res) {
     let appRes;
 
     if (isComponent) {
+      // user-initiated restart means "make it run": clear the operator stop lock
+      // (before the docker op) so the reconciler keeps it running afterwards
+      await setAppOperatorStopped(appname, null, false);
       // For component restart, check if it uses g:syncthing mode
       const componentMainApp = appname.split('_')[1];
       const appSpecs = await registryManager.getApplicationSpecifications(componentMainApp);
@@ -406,6 +409,9 @@ async function appRestart(req, res) {
       if (!appSpecs) {
         throw new Error('Application not found');
       }
+      // user-initiated restart means "make it run": clear the operator stop lock
+      // for every component (before the docker ops), matching appStart
+      await setAppOperatorStopped(appname, appSpecs, false);
 
       if (appSpecs.version <= 3) {
         // For non-composed apps, check if it uses g:syncthing mode

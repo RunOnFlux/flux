@@ -318,6 +318,10 @@ async function startFluxFunctions() {
     peerNotification.initialize();
     appSpawner.initialize();
     appInstaller.setOnInstallComplete(() => peerNotification.checkAndNotifyPeersOfRunningApps());
+    // a reconciler start (incl. a backoff straggler after boot) must refresh the
+    // app's network presence inside the sigterm TTL window, not at the hourly tick;
+    // checkAndNotifyPeersOfRunningApps coalesces bursts
+    appReconciler.setOnContainerStarted(() => peerNotification.checkAndNotifyPeersOfRunningApps());
     log.info('App Spawner initialized');
 
     fluxNetworkHelper.adjustFirewall();
