@@ -6,10 +6,15 @@
 // the monitor to evaluate that folder's state now, through exactly the same logic
 // the poll runs. Every failure mode of the stream therefore costs latency, never
 // correctness:
-//   - the events buffer is finite and ids RESET when syncthing restarts, so an id
-//     gap or regression means events were lost -> signal a full resync and carry on;
-//   - a dead long-poll (socket teardown, API down) -> backoff and re-subscribe,
-//     behavior degrades to the poll cadence meanwhile.
+//   - the events buffer is finite, so an id gap means events were lost past us
+//     -> signal a full resync and carry on;
+//   - a dead long-poll (socket teardown, API down, syncthing restarting) is the
+//     ONLY observable shape of a syncthing restart: ids reset on restart but the
+//     API never returns events below a stale `since` (lib/events Since() just
+//     waits for the counter to catch up) -> the stream position is untrustworthy
+//     after ANY poll failure. Re-anchor at "now" (since=0), backoff, and announce
+//     one resync when the stream is healthy again - the blind window belongs to
+//     the level loop.
 // A filtered subscription starts from "now" (a fresh `since=0` query returns no
 // buffered history) - that is fine here, the poll owns history.
 //
@@ -35,6 +40,8 @@ const SUBSCRIBED_EVENTS = 'FolderSummary,FolderCompletion,FolderErrors,StateChan
 let running = false;
 let stopRequested = false;
 let since = 0;
+// set when a poll fails: the next SUCCESSFUL poll announces a single resync
+let recoveryPending = false;
 let callbacks = {};
 
 // folderId -> { time, errors } from the last FolderErrors event
@@ -52,6 +59,13 @@ async function pollOnce() {
 
   if (!response || response.status !== 'success' || !Array.isArray(response.data)) {
     throw new Error('syncthing events endpoint unavailable');
+  }
+
+  if (recoveryPending) {
+    recoveryPending = false;
+    log.warn('syncthingEventsConsumer - stream recovered after an outage; requesting full resync (the blind window belongs to the level loop)');
+    fluxEventBus.publish('syncthing:eventsResync', { reason: 'streamOutage', since });
+    if (callbacks.onResync) callbacks.onResync();
   }
 
   const events = response.data;
@@ -101,6 +115,11 @@ async function runLoop() {
       }
     } catch (error) {
       log.warn(`syncthingEventsConsumer - poll failed (${error.message}); retrying in ${EVENTS_RETRY_DELAY_MS / 1000}s (the periodic poll keeps covering meanwhile)`);
+      // a syncthing restart resets the event ids, and the API never returns
+      // events below a stale `since` - after any failure the position is
+      // untrustworthy, so start over from "now" and resync on recovery
+      since = 0;
+      recoveryPending = true;
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(EVENTS_RETRY_DELAY_MS);
     }
@@ -119,6 +138,7 @@ function start(handlers = {}) {
   running = true;
   stopRequested = false;
   since = 0;
+  recoveryPending = false;
   callbacks = handlers;
   runLoop();
 }

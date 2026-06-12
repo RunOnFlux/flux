@@ -8,9 +8,11 @@ const proxyquire = require('proxyquire').noCallThru();
 // The consumer is the EDGE half of the level-triggered architecture: syncthing's
 // events API accelerates reaction, but events never carry decisions - they only
 // trigger the same evaluation the periodic poll runs. The stream's failure modes
-// (finite buffer, ids reset on syncthing restart, dead long-poll) therefore cost
-// LATENCY only, never correctness; this suite pins the failure handling that
-// guarantees that property (gap/regression -> resync, error -> backoff retry).
+// (finite buffer, dead long-poll - the only observable shape of a syncthing
+// restart, since the API never returns events below a stale `since`) therefore
+// cost LATENCY only, never correctness; this suite pins the failure handling
+// that guarantees that property (id discontinuity -> resync; error -> re-anchor
+// at "now", backoff, one resync on recovery).
 const syncthingServiceMock = {
   getEvents: sinon.stub(),
 };
@@ -73,11 +75,12 @@ describe('syncthingEventsConsumer tests', () => {
     expect(secondCallQuery.since).to.equal(6);
   });
 
-  it('treats an id regression (syncthing restart) as a resync signal', async () => {
+  it('treats an id regression as a lost-events signal (defensive: a conforming server never returns ids below since)', async () => {
     syncthingServiceMock.getEvents.onFirstCall().resolves(eventsResponse([
       { id: 100, time: 't', type: 'FolderSummary', data: { folder: 'fluxa', summary: {} } },
     ]));
-    // ids reset: next batch starts at 1
+    // a batch below our position should be impossible (the API filters id >
+    // since) - if one ever arrives, something lost events somewhere: resync
     syncthingServiceMock.getEvents.onSecondCall().resolves(eventsResponse([
       { id: 1, time: 't', type: 'FolderSummary', data: { folder: 'fluxa', summary: {} } },
     ]));
@@ -107,6 +110,31 @@ describe('syncthingEventsConsumer tests', () => {
     await new Promise((resolve) => { setImmediate(() => { setImmediate(() => { setImmediate(resolve); }); }); });
 
     sinon.assert.calledOnce(onResync);
+  });
+
+  it('a failed poll resets the stream position and announces ONE resync on recovery (syncthing restart shape)', async () => {
+    // a syncthing restart is observable ONLY as transport errors: the server
+    // never returns events below a stale `since` (lib/events Since() waits for
+    // the counter to catch up instead), so recovery must re-anchor at "now"
+    // and hand the blind window to the level loop
+    syncthingServiceMock.getEvents.onCall(0).resolves(eventsResponse([
+      { id: 100, time: 't', type: 'FolderSummary', data: { folder: 'fluxa', summary: {} } },
+    ]));
+    syncthingServiceMock.getEvents.onCall(1).rejects(new Error('connect ECONNREFUSED'));
+    syncthingServiceMock.getEvents.onCall(2).resolves(eventsResponse([]));
+    syncthingServiceMock.getEvents.onCall(3).callsFake(parkForever);
+
+    consumer.start({ onFolderActivity, onResync });
+    await new Promise((resolve) => {
+      setImmediate(() => { setImmediate(() => { setImmediate(() => { setImmediate(() => { setImmediate(resolve); }); }); }); });
+    });
+
+    // the poll after the failure starts over from "now", not the stale position
+    const recoveryQuery = syncthingServiceMock.getEvents.thirdCall.args[0].query;
+    expect(recoveryQuery.since).to.equal(0);
+    // exactly one resync, announced once the stream is healthy again
+    sinon.assert.calledOnce(onResync);
+    sinon.assert.calledOnceWithExactly(fluxEventBusMock.publish, 'syncthing:eventsResync', sinon.match.object);
   });
 
   it('retries with a backoff delay when the events endpoint fails (degrades to the poll, never breaks)', async () => {
