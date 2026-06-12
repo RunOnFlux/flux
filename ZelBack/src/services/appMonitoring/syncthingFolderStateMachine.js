@@ -573,10 +573,14 @@ async function handleReceiveOnlyTransition(params) {
 
     if (nudgeCount >= STALL_REMOVE_MIN_NUDGES && now - cache.evidenceSince >= STALL_REMOVE_MIN_WINDOW_MS) {
       log.error(`handleReceiveOnlyTransition - ${appId}: ${nudgeCount} nudges over ${Math.round((now - cache.evidenceSince) / 60000)}m with zero progress and a connected synced peer; this node cannot ingest the data - removing locally (data preserved on peers)`);
+      // the whole app, by its bare main name: a component identifier here routes
+      // removeAppLocally into a component-scoped removal that leaves the app's
+      // installed-DB row behind (still broadcast as running, never re-evaluated)
+      const mainAppName = appId.split('_')[1] || appId;
       try {
-        await appUninstaller.removeAppLocally(appId, null, true, false, true);
+        await appUninstaller.removeAppLocally(mainAppName, null, true, false, true);
       } catch (error) {
-        log.error(`handleReceiveOnlyTransition - Failed to remove ${appId}: ${error.message}`);
+        log.error(`handleReceiveOnlyTransition - Failed to remove ${mainAppName}: ${error.message}`);
       }
       cache.restarted = true;
       return { syncthingFolder, cache };

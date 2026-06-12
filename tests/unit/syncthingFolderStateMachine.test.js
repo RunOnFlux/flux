@@ -712,10 +712,45 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
-      sinon.assert.calledOnce(appUninstallerMock.removeAppLocally);
+      sinon.assert.calledOnceWithExactly(appUninstallerMock.removeAppLocally, 'test-app', null, true, false, true);
       sinon.assert.notCalled(syncthingServiceMock.systemRestart);
       sinon.assert.notCalled(mockParams.appDockerStopFn);
       expect(result.cache.restarted).to.be.true;
+    });
+
+    it('should remove by the BARE app name when the folder belongs to a component - a component-scoped removal leaves the installed-DB row behind (zombie app)', async () => {
+      const componentId = 'component1_testapp';
+      mockParams.appId = componentId;
+      mockParams.installedAppName = 'testapp';
+      mockParams.syncthingFolder = { id: componentId, type: 'receiveonly' };
+      mockParams.receiveOnlySyncthingAppsCache.set(componentId, {
+        restarted: false,
+        lastProgressBytes: 500,
+        lastProgressAt: Date.now() - 30 * MIN,
+        nudgeCount: 3,
+        lastNudgeAt: Date.now() - 16 * MIN,
+        evidenceSince: Date.now() - 25 * MIN,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 900 },
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 1000, inSyncBytes: 500, state: 'idle' },
+      });
+      syncthingServiceMock.getConfig = sinon.stub().resolves({
+        status: 'success',
+        data: { folders: [{ id: componentId, type: 'receiveonly', devices: [{ deviceID: 'DEVICE123' }] }] },
+      });
+      syncthingServiceMock.getDbCompletion = sinon.stub().resolves({
+        status: 'success',
+        data: { completion: 100, globalBytes: 1000, remoteState: 'valid' },
+      });
+
+      await stateMachine.manageFolderSyncState(mockParams);
+
+      sinon.assert.calledOnceWithExactly(appUninstallerMock.removeAppLocally, 'testapp', null, true, false, true);
     });
 
     it('should keep nudging instead of removing while the evidence window has not elapsed', async () => {
