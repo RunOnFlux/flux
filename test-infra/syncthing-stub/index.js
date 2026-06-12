@@ -552,6 +552,10 @@ app.get('/rest/events', (req, res) => {
   const pending = () => eventsBuffer(ip).events.filter((e) => e.id > effSince && (!types || types.includes(e.type)));
 
   const attempt = () => {
+    // an outage kills HELD polls too - a real restart tears down open connections
+    if (eventsOutages.has(ip) || eventsOutages.has('*')) {
+      return res.status(503).json({ error: 'syncthing is restarting' });
+    }
     const matched = pending();
     if (matched.length > 0) return res.json(matched);
     if (Date.now() >= deadline) return res.json([]);
