@@ -201,7 +201,7 @@ function syncthingController() {
  * @returns {object} Message.
  */
 // eslint-disable-next-line default-param-last
-async function performRequest(method = 'get', urlpath = '', data) {
+async function performRequest(method = 'get', urlpath = '', data, config) {
   // now we cache the axios instance for 15 minutes. Means we don't have to create a new instance
   // on every call. It also means that if the syncthing api key changes, it will refetch it
   // after 15 minutes
@@ -211,7 +211,10 @@ async function performRequest(method = 'get', urlpath = '', data) {
   }
 
   try {
-    const response = await instance[method](urlpath, data);
+    // axios bodyless methods take the request config as their second argument
+    const response = ['post', 'put', 'patch'].includes(method)
+      ? await instance[method](urlpath, data, config)
+      : await instance[method](urlpath, config ?? data);
 
     const successResponse = messageHelper.createDataMessage(response.data);
     return successResponse;
@@ -2041,7 +2044,15 @@ async function getEvents(req, res) {
     };
     const qqStr = qs.stringify(qq);
     apiPath += `${qqStr}`;
-    const response = await performRequest('get', apiPath);
+    // the events endpoint long-polls: with a `timeout` hold requested, syncthing
+    // keeps the request open up to that many seconds before answering "nothing
+    // new" - the client-side abort must come strictly after the server-side hold,
+    // not at the shared instance's 5s default
+    const holdS = Number(timeout);
+    const requestConfig = Number.isFinite(holdS) && holdS > 0
+      ? { timeout: (holdS + 10) * 1000 }
+      : undefined;
+    const response = await performRequest('get', apiPath, undefined, requestConfig);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);

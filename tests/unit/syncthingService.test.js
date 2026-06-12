@@ -172,6 +172,42 @@ describe('syncthingService tests', () => {
     });
   });
 
+  describe('getEvents tests', () => {
+    let fakeGet;
+
+    beforeEach(() => {
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      fakeGet = sinon.stub().resolves({ data: [] });
+      sinon.stub(axios, 'create').returns({ get: fakeGet });
+    });
+
+    afterEach(() => {
+      syncthingService.getAxiosCache().reset();
+      sinon.restore();
+    });
+
+    it('long-poll request: the client-side timeout must exceed the requested server-side hold', async () => {
+      // the events endpoint holds the request open up to `timeout` seconds when
+      // nothing is pending; the shared instance's 5s default aborts every quiet
+      // poll before syncthing can answer
+      await syncthingService.getEvents({ params: {}, query: { since: 5, events: 'FolderSummary', timeout: 55 } });
+
+      sinon.assert.calledOnce(fakeGet);
+      const config = fakeGet.firstCall.args[1];
+      expect(config, 'axios per-request config').to.be.an('object');
+      expect(config.timeout, 'client timeout (ms)').to.be.greaterThan(55 * 1000);
+    });
+
+    it('plain request (no hold asked): keeps the instance default timeout', async () => {
+      await syncthingService.getEvents({ params: {}, query: { since: 5 } });
+
+      sinon.assert.calledOnce(fakeGet);
+      const config = fakeGet.firstCall.args[1];
+      expect(config?.timeout).to.equal(undefined);
+    });
+  });
+
   describe('installSyncthingIdempotently tests', () => {
     let runCmdStub;
     let infoSpy;
