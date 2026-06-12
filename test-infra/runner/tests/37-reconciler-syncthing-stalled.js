@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import {
-  setStalled, setActiveFlat, setSynced, setNoPeerData, setPeerHasData, setPeerDisconnected,
+  setStalled, setActiveFlat, setSynced, setSyncing, setNoPeerData, setPeerHasData, setPeerDisconnected,
   getNudges, resetSyncState,
 } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -54,8 +54,11 @@ describe('reconciler stall ladder: nudge with evidence, remove only with proof, 
     await setActiveFlat({ ip: subnet.nodeIp(1), folder: active.folder, percent: 60 });
     await setPeerHasData({ ip: subnet.nodeIp(1), folder: active.folder });
 
+    // seeded ACTIVE (healthy, ladder dormant): the walk to removal is started by
+    // leg 2 itself, so the app:removed lands after that leg's afterId - seeded
+    // stalled, the ~50s walk completes during leg 1's window and the event is lost
     ladder = await seedSyncthingApp(env, { name: ladderApp, mode: 'r', forceNonLeader: true, index: 1 });
-    await setStalled({ ip: subnet.nodeIp(2), folder: ladder.folder, percent: 60 });
+    await setSyncing({ ip: subnet.nodeIp(2), folder: ladder.folder, percent: 60 });
     await setPeerHasData({ ip: subnet.nodeIp(2), folder: ladder.folder });
 
     offline = await seedSyncthingApp(env, { name: offlineApp, mode: 'r', forceNonLeader: true, index: 2 });
@@ -87,6 +90,9 @@ describe('reconciler stall ladder: nudge with evidence, remove only with proof, 
     this.timeout(180000);
     const client = env.clients[ladder.index];
     const afterId = client.getLastEventId();
+
+    // start the ladder's clock NOW: flip the folder from active to idle+flat
+    await setStalled({ ip: subnet.nodeIp(2), folder: ladder.folder, percent: 60 });
 
     // the nudge: device pause/resume observed at the stub, well before any removal
     await waitFor(async () => {
