@@ -131,7 +131,8 @@ for f in "${SUITES[@]}"; do
   # foreground child runs, so an outer timeout on this script could never fire.
   # node_modules/.bin/mocha (not npx) so the TERM lands on the mocha node
   # process, not a wrapper; -k escalates to KILL if the event loop is wedged.
-  # A timed-out suite reports rc=124 (or 137 after the KILL) in SUITE-END.
+  # A timed-out suite reports a nonzero rc in SUITE-END (observed 125 when the
+  # TERM landed mid-boot; the exact code depends on how mocha dies).
   timeout -k 30s "${E2E_SUITE_WALL_SEC:-1800}s" node_modules/.bin/mocha "$f" --reporter tap --timeout "$SUITE_TIMEOUT_MS" 2>&1 | tee "$LOG_DIR/$name.tap"
   rc=${PIPESTATUS[0]}
 
