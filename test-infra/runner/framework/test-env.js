@@ -5,6 +5,7 @@ process.env.TESTCONTAINERS_HOST_OVERRIDE ??= '127.0.0.1';
 process.env.TESTCONTAINERS_RYUK_RECONNECTION_TIMEOUT ??= '5s';
 
 import { GenericContainer, Network, Wait, getContainerRuntimeClient } from 'testcontainers';
+import { randomBytes } from 'node:crypto';
 import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -55,26 +56,6 @@ function createLogCollector() {
   consumer.getLines = () => entries.map((e) => `${e.t} ${e.line}`);
 
   return consumer;
-}
-
-// Persist per-node boot logs when fleet startup fails (a container never goes
-// healthy). createTestEnv throws before `env` exists, so the normal failure dump
-// can't reach these — without this, a boot flake is undiagnosable.
-function dumpBootFailureLogs(nodeConfigs) {
-  try {
-    const dir = join(process.cwd(), 'test-logs', 'boot-failure');
-    mkdirSync(dir, { recursive: true });
-    for (const n of nodeConfigs) {
-      const lines = n.logCollector?.getLines?.() || [];
-      const file = join(dir, `node-${String(n.index).padStart(2, '0')}.log`);
-      writeFileSync(file, `=== node ${n.index} (ip ${n.ip}) — ${lines.length} captured boot lines ===\n${lines.join('\n')}\n`);
-    }
-    // eslint-disable-next-line no-console
-    console.log(`\n--- boot-failure: per-node boot logs written to ${dir} ---`);
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.log(`dumpBootFailureLogs failed: ${err.message}`);
-  }
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -148,6 +129,12 @@ class StaticIpContainer extends GenericContainer {
     // Tag with this run's label so run-all.sh's between-suite cleanup can scope
     // removal to its own fleet (see runLabels()).
     this.createOpts.Labels = { ...(this.createOpts.Labels || {}), ...runLabels() };
+    // Name with a flux prefix instead of dockerd's random name: a live FluxOS on
+    // the harness host stops every container NOT named zel*/flux* every 2 hours
+    // (appController stopAllNonFluxRunningApps) — it killed a fleet mid-boot in
+    // the 2026-06-12 gate. The prefix exempts harness containers from that sweep;
+    // cleanup scoping stays label-based, never name-based.
+    this.createOpts.name ??= `fluxe2e-${randomBytes(6).toString('hex')}`;
     if (this.#staticIp && this.#networkName) {
       this.createOpts.NetworkingConfig = {
         EndpointsConfig: {
@@ -185,6 +172,100 @@ async function removeNetwork(networkName) {
   const client = await getContainerRuntimeClient();
   const network = client.container.dockerode.getNetwork(networkName);
   await network.remove().catch(() => {});
+}
+
+// Every env this process ever booted, including partially-built ones whose boot
+// threw. log-on-failure falls back to this when the suite's own `env` variable
+// was never assigned (createTestEnv threw inside a before-hook) — the one case
+// where the suite-side getter cannot reach the resources holding the evidence.
+// Envs stay registered after teardown on purpose: the failure dump runs in an
+// after-all hook, i.e. potentially after teardown, and reads in-memory log lines
+// and event snapshots that outlive the containers. A module singleton is safe
+// because run-all gives each suite file its own mocha process.
+const activeEnvs = new Set();
+export function activeTestEnvs() {
+  return [...activeEnvs];
+}
+
+// The env is a handle that exists from the moment boot starts, not a reward for
+// a successful boot: _buildEnv registers resources onto it as they come up, so
+// any boot-phase failure can still reach them — for the evidence dump AND for
+// teardown (one idempotent path shared by the boot-failure catch and the suite's
+// own after-hook). Previously the env object was only assembled on successful
+// return: a boot-gate failure left the suite's `env` undefined, the after-all
+// dump empty-handed, and the SSE clients connected — open EventSource handles
+// that kept the mocha process alive forever (the 2026-06-12 gate wedge).
+function makeEnvShell(networkName) {
+  const started = []; // every started container, boot order (teardown stops in reverse)
+  const clients = []; // node SSE clients, index-aligned with fluxNodes (null gaps)
+  const nodeConfigs = []; // per real node: { index, ip, num, logCollector, bootIdDir, ... }
+  const volumeNames = [];
+  const eventSnapshots = new Map(); // node index -> SSE events captured at teardown
+  let tornDown = false;
+
+  const env = {
+    networkName,
+    containers: {},
+    started,
+    clients,
+    nodeConfigs,
+    volumeNames,
+    stubPeerClients: new Map(),
+    get nodeCount() { return clients.length; },
+    get lastNodeIndex() { return clients.length - 1; },
+
+    // Everything captured for each node so far: log lines (streaming since
+    // container create) and SSE events (live buffer, or the snapshot teardown
+    // takes before disconnect wipes it). Defined on the shell — unlike the
+    // post-boot accessors — because the failure dump needs it at ANY boot phase.
+    nodeDiagnostics() {
+      const byIndex = new Map();
+      for (const cfg of nodeConfigs) {
+        byIndex.set(cfg.index, {
+          index: cfg.index,
+          ip: cfg.ip,
+          lines: cfg.logCollector?.getLines() ?? [],
+          events: [],
+        });
+      }
+      clients.forEach((client, i) => {
+        if (!client) return;
+        const d = byIndex.get(i) ?? { index: i, ip: client.ip, lines: [], events: [] };
+        const live = client.getEventBuffer();
+        d.events = live.length ? live : (eventSnapshots.get(i) ?? []);
+        byIndex.set(i, d);
+      });
+      return [...byIndex.values()].sort((a, b) => a.index - b.index);
+    },
+
+    async teardown() {
+      if (tornDown) return;
+      tornDown = true;
+      const warn = (label, err) => console.warn(`teardown [${networkName}] ${label}: ${err.message}`);
+      // disconnectEventStream wipes the client's event buffer — snapshot first so
+      // a failure dump running after teardown still has the events
+      clients.forEach((client, i) => {
+        if (client) eventSnapshots.set(i, client.getEventBuffer());
+      });
+      for (const client of clients) {
+        if (client) client.disconnectEventStream();
+      }
+      for (const c of [...started].reverse()) {
+        await c.stop().catch((e) => warn('container stop', e));
+      }
+      await closeDb();
+      const cleanupClient = await getContainerRuntimeClient();
+      for (const volName of volumeNames) {
+        await cleanupClient.container.dockerode.getVolume(volName).remove().catch((e) => warn(`volume ${volName}`, e));
+      }
+      await removeNetwork(networkName);
+      for (const cfg of nodeConfigs) {
+        if (cfg.bootIdDir) rmSync(cfg.bootIdDir, { recursive: true, force: true });
+      }
+      http.globalAgent.destroy();
+    },
+  };
+  return env;
 }
 
 function getBootId(nodeNum) {
@@ -311,16 +392,19 @@ export async function createTestEnv({ hookCtx = null, nodes = 1, deferredNodes =
   // restart it with the suite's own declared value at the moment boot begins.
   if (hookCtx && typeof hookCtx.timeout === 'function') hookCtx.timeout(hookCtx.timeout());
   const networkName = await createNetwork();
-  const containers = {};
-  const started = [];
+  const env = makeEnvShell(networkName);
+  activeEnvs.add(env);
 
   try {
-    return await _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
+    return env;
   } catch (err) {
-    for (const c of started.reverse()) {
-      await c.stop().catch(() => {});
-    }
-    await removeNetwork(networkName);
+    // Boot failed: the env owns everything started so far. The shared teardown
+    // disconnects the SSE clients (so mocha can exit) and stops the containers;
+    // the log collectors and event snapshots stay reachable via activeTestEnvs()
+    // for the after-all failure dump. The boot error is what matters — teardown
+    // problems are warned, never allowed to mask it.
+    await env.teardown().catch((e) => console.warn(`boot-failure teardown [${networkName}]: ${e.message}`));
     throw err;
   } finally {
     releaseBootLock();
@@ -341,7 +425,13 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(networkName, containers, started, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
+  // Everything built here registers onto the env shell as it comes up, so a
+  // boot-phase throw leaves the partial state reachable (see makeEnvShell).
+  const {
+    networkName, containers, started, clients, volumeNames, nodeConfigs,
+    stubPeerClients: stubPeerClientsMap,
+  } = env;
   const stubPeerSet = new Set(stubPeers);
 
   // Health check timeout must be < interval — Docker's health state machine
@@ -498,7 +588,6 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   const rtClient = await getContainerRuntimeClient();
   const { getReaper: getReaperFn } = await import('testcontainers');
   const reaper = await getReaperFn(rtClient);
-  const volumeNames = [];
   for (let i = 0; i < nodes; i++) {
     const volName = `${networkName}-node${i}`;
     await rtClient.container.dockerode.createVolume({
@@ -510,7 +599,6 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
 
   const deferredBuilders = new Map();
   const firstDeferred = nodes - deferredNodes;
-  const nodeConfigs = [];
 
   for (let i = 0; i < nodes; i++) {
     if (stubPeerSet.has(i)) continue;
@@ -586,21 +674,8 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       return { ...n, container };
     });
 
-  let startedNodes;
-  try {
-    startedNodes = await Promise.all(startPromises);
-  } catch (err) {
-    // A boot/health-check failure throws here, before `env` is returned, so the
-    // normal per-node failure dump can't run and the boot logs would be lost.
-    // The log consumer streams container output before health passes, so persist
-    // whatever each node captured for diagnosis, then re-throw.
-    dumpBootFailureLogs(nodeConfigs);
-    throw err;
-  }
+  const startedNodes = await Promise.all(startPromises);
   const startedByIndex = new Map(startedNodes.map((n) => [n.index, n]));
-
-  const stubPeerContainers = [];
-  const stubPeerClientsMap = new Map();
 
   for (const stubIdx of stubPeers) {
     const nodeIp = subnet.nodeIp(stubIdx + 1);
@@ -625,7 +700,6 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
       })
       .start();
     started.push(stub);
-    stubPeerContainers.push(stub);
     stubPeerClientsMap.set(stubIdx, stubPeerClient(nodeIp));
   }
 
@@ -647,12 +721,15 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
   }
   containers.fluxNodes = fluxNodes;
 
-  const clients = fluxNodes.map((n) => {
-    if (!n.container) return null;
+  for (const n of fluxNodes) {
+    if (!n.container) {
+      clients.push(null);
+      continue;
+    }
     const client = nodeClient(n.num);
     client.container = n.container;
-    return client;
-  });
+    clients.push(client);
+  }
 
   for (const client of clients) {
     if (client) await client.connectEventStream();
@@ -675,13 +752,10 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     .filter((c) => c && !rpcFailSet.has(c.ip))
     .map((c) => c.waitForEvent('daemon:polled', () => true, 90000)));
 
-  return {
-    networkName,
-    containers,
-    clients,
-    stubPeerClients: stubPeerClientsMap,
-    get nodeCount() { return clients.length; },
-    get lastNodeIndex() { return clients.length - 1; },
+  // Post-boot methods join the shell here (they close over _buildEnv locals like
+  // deferredBuilders/fluxNodes); identity, registries and teardown live on the
+  // shell itself so they exist from boot start.
+  Object.assign(env, {
     daemonControl: `http://${DAEMON_IP}:18232`,
     stubControl: `http://${EXTERNAL_STUB_IP}:3001`,
     fdmControl: `http://${FDM_IP}:16131`,
@@ -769,36 +843,5 @@ async function _buildEnv(networkName, containers, started, nodes, deferredNodes,
     nodeLogLines(index) {
       return fluxNodes[index].logCollector.getLines();
     },
-
-    async teardown() {
-      const warn = (label, err) => console.warn(`teardown [${networkName}] ${label}: ${err.message}`);
-      for (const client of clients) {
-        if (client) client.disconnectEventStream();
-      }
-      for (const n of fluxNodes) {
-        if (n.container) await n.container.stop().catch((e) => warn('fluxNode stop', e));
-      }
-      for (const sc of stubPeerContainers) {
-        await sc.stop().catch((e) => warn('stubPeer stop', e));
-      }
-      await syncthingStub.stop().catch((e) => warn('syncthing stop', e));
-      await externalStub.stop().catch((e) => warn('external stop', e));
-      await fdmStub.stop().catch((e) => warn('fdm stop', e));
-      await registry.stop().catch((e) => warn('registry stop', e));
-      await daemonStub.stop().catch((e) => warn('daemon stop', e));
-      await mongo.stop().catch((e) => warn('mongo stop', e));
-      await closeDb();
-      const cleanupClient = await getContainerRuntimeClient();
-      for (const volName of volumeNames) {
-        await cleanupClient.container.dockerode.getVolume(volName).remove().catch((e) => warn(`volume ${volName}`, e));
-      }
-      await removeNetwork(networkName).catch((e) => warn('network remove', e));
-      for (const n of fluxNodes) {
-        if (!n.bootIdDir) continue;
-        const { rmSync } = await import('node:fs');
-        rmSync(n.bootIdDir, { recursive: true, force: true });
-      }
-      http.globalAgent.destroy();
-    },
-  };
+  });
 }

@@ -1,6 +1,7 @@
 import { afterEach, after } from 'mocha';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { activeTestEnvs } from './test-env.js';
 
 const LOG_ROOT = join(process.cwd(), 'test-logs');
 
@@ -16,8 +17,13 @@ export function dumpLogsOnFailure(getEnv) {
   let dumped = false;
 
   function dump(label) {
-    const env = getEnv();
-    if (!env) return;
+    // The suite's own env when it was assigned; otherwise every env this process
+    // booted (createTestEnv threw mid-boot — the suite's variable never existed,
+    // but the partially-built env still holds the log collectors and SSE buffers;
+    // see activeTestEnvs in test-env.js).
+    const own = getEnv();
+    const envs = own ? [own] : activeTestEnvs();
+    if (!envs.length) return;
     dumped = true;
     const dir = join(LOG_ROOT, sanitize(label));
     try {
@@ -29,22 +35,22 @@ export function dumpLogsOnFailure(getEnv) {
     }
 
     const written = [];
-    for (let i = 0; i < env.nodeCount; i++) {
-      const lines = env.containers?.fluxNodes?.[i]?.logCollector ? env.nodeLogLines(i) : [];
-      const client = env.clients[i];
-      const events = client ? client.getEventBuffer() : [];
-      if (!lines.length && !events.length) continue;
+    envs.forEach((env, e) => {
+      const prefix = envs.length > 1 ? `env${e + 1}-` : '';
+      for (const { index, ip, lines, events } of env.nodeDiagnostics()) {
+        if (!lines.length && !events.length) continue;
 
-      const parts = [`=== Node ${i} (ip ${env.clients?.[i]?.ip ?? '?'}) — ${lines.length} log lines ===`];
-      parts.push(...lines);
-      if (events.length) {
-        parts.push('', `=== Node ${i} SSE events (${events.length}) ===`);
-        events.forEach((e) => parts.push(`${e.event}: ${JSON.stringify(e.data)}`));
+        const parts = [`=== Node ${index} (ip ${ip ?? '?'}) — ${lines.length} log lines ===`];
+        parts.push(...lines);
+        if (events.length) {
+          parts.push('', `=== Node ${index} SSE events (${events.length}) ===`);
+          events.forEach((ev) => parts.push(`${ev.event}: ${JSON.stringify(ev.data)}`));
+        }
+        const file = join(dir, `${prefix}node-${String(index).padStart(2, '0')}.log`);
+        writeFileSync(file, `${parts.join('\n')}\n`);
+        written.push(`${file} (${lines.length} lines, ${events.length} events)`);
       }
-      const file = join(dir, `node-${String(i).padStart(2, '0')}.log`);
-      writeFileSync(file, `${parts.join('\n')}\n`);
-      written.push(`${file} (${lines.length} lines, ${events.length} events)`);
-    }
+    });
 
     if (written.length) {
       console.log(`\n--- per-node logs written to ${dir} ---`);
@@ -65,12 +71,16 @@ export function dumpLogsOnFailure(getEnv) {
   // afterEach never fires for a before/after-all HOOK failure, which is exactly
   // when setup blew up and the node logs matter most. As a backstop, dump in the
   // after-all hook when nothing passed and we haven't already dumped — a strong
-  // signal that a setup hook failed.
+  // signal that a setup hook failed. Tests are counted through nested describes
+  // so a top-level hook failure is caught even when every `it` lives in a child.
   after(function () {
     if (dumped) return;
-    const tests = this.test?.parent?.tests || [];
-    if (tests.length > 0 && !tests.some((t) => t.state === 'passed')) {
-      dump(this.test?.parent?.fullTitle?.() || this.test?.parent?.title || 'setup-hook');
+    const root = this.test?.parent;
+    if (!root) return;
+    const anyTests = (s) => s.tests.length > 0 || s.suites.some(anyTests);
+    const anyPassed = (s) => s.tests.some((t) => t.state === 'passed') || s.suites.some(anyPassed);
+    if (anyTests(root) && !anyPassed(root)) {
+      dump(root.fullTitle?.() || root.title || 'setup-hook');
     }
   });
 }

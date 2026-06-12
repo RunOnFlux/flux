@@ -104,7 +104,16 @@ for f in "${SUITES[@]}"; do
   docker volume ls -q --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker volume rm >/dev/null 2>&1
 
   echo "###SUITE-START [$i/$total] $name $(date -u +%H:%M:%S)"
-  npx mocha "$f" --reporter tap --timeout "$SUITE_TIMEOUT_MS" 2>&1 | tee "$LOG_DIR/$name.tap"
+  # Wall-clock backstop around mocha ITSELF: mocha deliberately runs without
+  # --exit, so a suite that finishes its run but holds one leaked handle hangs
+  # forever — and the gate driver waits on the pid, so one wedged suite stalls
+  # the whole gate (suite 28 in the 2026-06-12 gate sat 65 minutes until killed
+  # by hand). timeout must wrap mocha directly: bash defers traps while a
+  # foreground child runs, so an outer timeout on this script could never fire.
+  # node_modules/.bin/mocha (not npx) so the TERM lands on the mocha node
+  # process, not a wrapper; -k escalates to KILL if the event loop is wedged.
+  # A timed-out suite reports rc=124 (or 137 after the KILL) in SUITE-END.
+  timeout -k 30s "${E2E_SUITE_WALL_SEC:-1800}s" node_modules/.bin/mocha "$f" --reporter tap --timeout "$SUITE_TIMEOUT_MS" 2>&1 | tee "$LOG_DIR/$name.tap"
   rc=${PIPESTATUS[0]}
 
   # grep -c prints the count (0 when none) but exits 1 on zero matches; `|| true`
