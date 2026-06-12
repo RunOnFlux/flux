@@ -87,6 +87,7 @@ describe('syncthingEventsConsumer tests', () => {
     await new Promise((resolve) => { setImmediate(() => { setImmediate(() => { setImmediate(resolve); }); }); });
 
     sinon.assert.calledOnce(onResync);
+    sinon.assert.calledWith(fluxEventBusMock.publish, 'syncthing:eventsResync', sinon.match.object);
     // since continues from the new stream's last id
     const thirdCallQuery = syncthingServiceMock.getEvents.thirdCall.args[0].query;
     expect(thirdCallQuery.since).to.equal(1);

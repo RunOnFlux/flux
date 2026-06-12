@@ -66,6 +66,7 @@ async function pollOnce() {
   // stream's current position.
   if (since > 0 && (lastId < since || firstId > since + 1)) {
     log.warn(`syncthingEventsConsumer - event stream discontinuity (since ${since}, got ${firstId}..${lastId}); requesting full resync`);
+    fluxEventBus.publish('syncthing:eventsResync', { since, firstId, lastId });
     since = lastId;
     if (callbacks.onResync) callbacks.onResync();
     return;

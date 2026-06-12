@@ -203,6 +203,8 @@ app.get('/rest/system/browse', (req, res) => {
 // -- System Control --
 
 app.post('/rest/system/restart', (req, res) => {
+  // recorded so suites can assert the ladder NUDGED instead of restarting
+  nudgeLog(clientIp(req)).push({ action: 'restart', device: '*', at: Date.now() });
   reqState(req).restartRequired = false;
   res.json({ ok: 'restarting' });
 });
@@ -439,6 +441,7 @@ app.get('/rest/db/remoteneed', (req, res) => {
 app.get('/rest/db/status', (req, res) => {
   const folderId = req.query.folder;
   const ov = lookupSync(clientIp(req), folderId || '');
+  if (ov?.statusUnreadable) return res.status(500).json({ error: 'simulated unreadable folder status' });
   const globalBytes = ov?.globalBytes ?? 0;
   const inSyncBytes = ov?.inSyncBytes ?? 0;
   const state = ov?.state ?? 'idle';
@@ -490,6 +493,7 @@ app.post('/rest/db/revert', (req, res) => {
   // receiveOnlyChangedFiles override so the next status reads clean
   const folder = req.query.folder || '';
   const ip = clientIp(req);
+  nudgeLog(ip).push({ action: 'revert', device: folder, at: Date.now() });
   [`${ip}|${folder}`, `*|${folder}`].forEach((key) => {
     const ov = syncOverrides.get(key);
     if (ov && ov.receiveOnlyChangedFiles) syncOverrides.set(key, { ...ov, receiveOnlyChangedFiles: 0 });
@@ -615,11 +619,11 @@ control.get('/state', (req, res) => {
 // reads as a stall (the production stall detector needs N unchanged samples).
 control.post('/sync-state', (req, res) => {
   const {
-    ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0,
+    ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0, statusUnreadable = false,
   } = req.body;
   if (!folder) return res.status(400).json({ error: 'folder required' });
   syncOverrides.set(`${ip}|${folder}`, {
-    state, globalBytes, inSyncBytes, receiveOnlyChangedFiles,
+    state, globalBytes, inSyncBytes, receiveOnlyChangedFiles, statusUnreadable,
   });
   return res.json({ ok: true });
 });

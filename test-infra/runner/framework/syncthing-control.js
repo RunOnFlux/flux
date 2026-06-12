@@ -125,6 +125,18 @@ export async function resetSyncthingEventIds(ip) {
   return post('/events-reset-ids', { ip });
 }
 
+// The folder status endpoint errors for this folder - the node can verify
+// NOTHING (post-redesign contract: never remove without evidence; wait).
+export async function setStatusUnreadable({ ip = '*', folder }) {
+  return post('/sync-state', {
+    ip, folder, statusUnreadable: true,
+  });
+}
+
+export async function clearStatusUnreadable({ ip = '*', folder }) {
+  return post('/sync-state', { ip, folder }); // plain override, readable again
+}
+
 export async function resetSyncState() {
   return post('/sync-reset');
 }

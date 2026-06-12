@@ -72,6 +72,7 @@ export function nodeClient(nodeNum) {
         'peers:removed',
         'peers:thresholdReached',
         'syncthing:folderErrors',
+        'syncthing:eventsResync',
         'spawner:blocked',
         'spawner:deferred',
         'spawner:installFailed',
