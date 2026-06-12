@@ -242,6 +242,42 @@ describe('mountParser tests', () => {
     });
   });
 
+  describe('flag segment strictness', () => {
+    // Contract: a two-part primary's first segment is a flag segment only when it
+    // consists entirely of known flag letters (r, g, s). A word that merely CONTAINS
+    // flag letters (e.g. 'logs', 'config') is not a flag segment — it is invalid
+    // primary syntax and must fail loud, exactly like garbage without flag letters
+    // ('data:/x') always has. Misreading such a word as flags silently adopts the
+    // app into sync management (g:) that can never converge.
+    const garbageFlagSegments = [
+      { cd: 'logs:/var/log', desc: "'logs' contains g and s" },
+      { cd: 'config:/etc/app', desc: "'config' contains g" },
+      { cd: 'gx:/data', desc: "'gx' mixes a flag letter with a non-flag letter" },
+      { cd: 'data:/x', desc: "'data' contains no flag letters (existing behavior)" },
+      { cd: 'G:/data', desc: 'flags are lowercase only' },
+      { cd: ':/data', desc: 'empty first segment' },
+    ];
+
+    garbageFlagSegments.forEach(({ cd, desc }) => {
+      it(`rejects non-flag first segment: ${desc} (${cd})`, () => {
+        expect(() => mountParser.parseContainerData(cd)).to.throw('Invalid primary mount syntax');
+      });
+
+      it(`never classifies ${cd} as a synced component`, () => {
+        expect(mountParser.getComponentSyncMode(cd)).to.equal(null);
+        expect(mountParser.isGComponent(cd)).to.be.false;
+        expect(mountParser.isSyncedComponent(cd)).to.be.false;
+      });
+    });
+
+    it('still parses pure flag segments, including repeated letters', () => {
+      expect(mountParser.parseContainerData('rs:/data').primary.flags).to.have.members(['r', 's']);
+      expect(mountParser.parseContainerData('gs:/data').primary.flags).to.have.members(['g', 's']);
+      // repeated letters are valid flag segments; each flag is reported once
+      expect(mountParser.parseContainerData('gg:/data').primary.flags).to.deep.equal(['g']);
+    });
+  });
+
   describe('Backward compatibility tests', () => {
     it('should handle legacy simple mount', () => {
       const result = mountParser.parseContainerData('r:/data');

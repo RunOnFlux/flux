@@ -40,9 +40,12 @@ function parseMountFlags(segment) {
   const flags = [];
   let hasFlags = false;
 
-  // Only consider it as having flags if segment doesn't start with /
-  // Paths like /var, /usr, /nginx should not be treated as flag segments
-  if (!segment.startsWith('/')) {
+  // A flag segment consists ENTIRELY of known flag letters ('r', 'gs', 'rgs').
+  // A word that merely contains them ('logs', 'config') is NOT a flag segment —
+  // it falls through to the invalid-primary-syntax error like any other garbage,
+  // rather than being silently adopted as a synced (g:/r:/s:) component. Paths
+  // ('/var', '/usr') never match: '/' is not a flag letter.
+  if (/^[rgs]+$/.test(segment)) {
     // eslint-disable-next-line no-restricted-syntax
     for (const flag of knownFlags) {
       if (segment.includes(flag)) {
