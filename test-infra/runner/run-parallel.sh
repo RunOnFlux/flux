@@ -147,7 +147,12 @@ log "===== AGGREGATE ====="
 pass=0; fail=0; failed=""
 for s in $SUITES; do
   rd=$(grep -aoE '###RUN-DONE suites_pass=[0-9]+ suites_fail=[0-9]+' "$LOGROOT/$s.out" 2>/dev/null | tail -1)
-  if echo "$rd" | grep -q 'suites_pass=1 suites_fail=0'; then
+  sp=$(printf '%s' "$rd" | sed -nE 's/.*suites_pass=([0-9]+).*/\1/p')
+  sf=$(printf '%s' "$rd" | sed -nE 's/.*suites_fail=([0-9]+).*/\1/p')
+  # a slot passes when its run-all reported >=1 suite and zero failures. Never
+  # match 'suites_pass=1' literally: a slot's glob can run SEVERAL suite files
+  # (28 and 32 run two each), which a literal match miscounts as a failure.
+  if [ "${sp:-0}" -ge 1 ] && [ "${sf:-1}" -eq 0 ]; then
     pass=$((pass + 1))
   else
     fail=$((fail + 1)); failed="$failed $s"
