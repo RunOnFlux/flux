@@ -192,6 +192,25 @@ export function nodeClient(nodeNum) {
       const res = await fetch(`${url}/apps/installapplocally/${appname}`, { headers: { zelidauth } });
       return res.text();
     },
+    // Backup/restore drive the whole-app lease (B1). The endpoints stream chunked
+    // progress and the returned promise resolves when the task FINISHES - so a
+    // suite holds the lease window by simply not awaiting yet.
+    appendBackupTask: async (appname, components, zelidauth) => {
+      const res = await fetch(`${url}/apps/appendbackuptask`, {
+        method: 'POST',
+        headers: { zelidauth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appname, backup: components.map((component) => ({ component, backup: true })) }),
+      });
+      return res.text();
+    },
+    appendRestoreTask: async (appname, restore, type, zelidauth) => {
+      const res = await fetch(`${url}/apps/appendrestoretask`, {
+        method: 'POST',
+        headers: { zelidauth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appname, restore, type }),
+      });
+      return res.text();
+    },
   };
 }
 

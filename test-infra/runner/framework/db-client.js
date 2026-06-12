@@ -93,6 +93,18 @@ export function dbClient(nodeNum) {
       return localDb.collection('zelappsinformation').countDocuments({});
     },
 
+    // This node's view of where an app runs (the rows fluxapprunning messages
+    // upsert and the empty-broadcast bug used to wipe).
+    async getAppLocations(appName) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappslocation').find({ name: appName }).toArray();
+    },
+
+    async getAppLocationsByIp(ip) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappslocation').find({ ip }).toArray();
+    },
+
     async eventCounts() {
       const globalDb = await db('appsGlobal');
       const col = globalDb.collection('appstateevents');

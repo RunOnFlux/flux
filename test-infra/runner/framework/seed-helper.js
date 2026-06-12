@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { buildEnterpriseBlob } from './enterprise-helper.js';
 import { signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
 import { REGISTRY_REPO_HOST } from './subnet-config.js';
@@ -359,4 +360,33 @@ export async function seedAppWithRunningState(dbClients, nodeIps, { name, compos
   await Promise.all(seedPromises);
 
   return { ...app, locations: state.locations, stateEvents: state.stateEvents };
+}
+
+/**
+ * A seedable ENTERPRISE app in exactly the production storage shape: version 8,
+ * compose EMPTY, the real component list AES-encrypted into the enterprise blob
+ * (the daemon stub's decryptrsamessage hands FluxOS the known AES key, so the
+ * node decrypts it through the normal path). Pass the same `compose` you would
+ * give buildSeedableApp.
+ */
+export async function buildSeedableEnterpriseApp({ name, compose, contacts = [], ...rest }) {
+  const components = compose ?? [{
+    name,
+    description: 'seeded enterprise component',
+    repotag: 'nginx:alpine',
+    ports: [31131],
+    domains: [''],
+    environmentParameters: [],
+    commands: [],
+    containerPorts: [80],
+    containerData: '/tmp',
+    cpu: 0.1,
+    ram: 100,
+    hdd: 1,
+    repoauth: '',
+  }];
+  const enterprise = buildEnterpriseBlob(components, contacts);
+  return buildSeedableApp({
+    name, compose: [], enterprise, ...rest,
+  });
 }
