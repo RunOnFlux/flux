@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import {
-  setSyncing, setSynced, injectSyncthingEvent, resetSyncthingEventIds, resetSyncState,
+  setSyncing, setSynced, injectSyncthingEvent, setEventsOutage, resetSyncState,
 } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
@@ -12,9 +12,12 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // The events consumer is the EDGE half of the level-triggered design: it only
 // accelerates the same evaluation the periodic poll drives, so every stream
 // failure must cost latency, never correctness. This suite breaks the stream
-// the way a syncthing restart does (event ids regress to 1) and asserts:
-//   - the consumer detects the discontinuity and requests a resync
-//     (syncthing:eventsResync - lost events are handed to the level loop);
+// the way a syncthing restart actually LOOKS to a consumer - transport errors
+// for the restart window (the API never returns events below a stale `since`,
+// so a bare id reset is invisible; verified against lib/events Since()) - and
+// asserts:
+//   - one syncthing:eventsResync once the stream recovers (the blind window is
+//     handed to the level loop), not one per failed poll;
 //   - the scenario still converges afterwards (the follower starts once synced),
 //     i.e. behavior degraded to the poll cadence and nothing broke.
 
@@ -47,7 +50,7 @@ describe('syncthing events-stream outage degrades to the poll, never to wrong ac
     await env?.teardown();
   });
 
-  it('detects the id regression as lost events and requests a resync', async function () {
+  it('announces ONE resync when the stream recovers from an outage (syncthing restart shape)', async function () {
     this.timeout(120000);
     const client = env.clients[app.index];
     const nodeIp = subnet.nodeIp(1);
@@ -58,13 +61,22 @@ describe('syncthing events-stream outage degrades to the poll, never to wrong ac
     // give the long-poll a moment to deliver them (responds early on arrival)
     await new Promise((r) => { setTimeout(r, 8000); });
 
-    // "syncthing restarted": ids regress to 1 - the next delivered event is a
-    // discontinuity the consumer must surface as a resync, not silently absorb
+    // "syncthing restarting": the events endpoint dies for a window long enough
+    // for several failed polls (5s retry backoff) - events injected meanwhile
+    // are the blind window the resync must hand to the level loop
     const afterId = client.getLastEventId();
-    await resetSyncthingEventIds(nodeIp);
+    await setEventsOutage({ ip: nodeIp, enabled: true });
+    await new Promise((r) => { setTimeout(r, 12000); });
     await injectSyncthingEvent({ ip: nodeIp, type: 'FolderSummary', data: { folder: app.folder, summary: {} } });
+    await setEventsOutage({ ip: nodeIp, enabled: false });
 
     await client.waitForEvent('syncthing:eventsResync', () => true, 60000, { afterId });
+
+    // one resync per outage, not one per failed poll: let the stream settle,
+    // then count what actually arrived
+    await new Promise((r) => { setTimeout(r, 8000); });
+    const resyncs = client.getEventBuffer().filter((e) => e.id > afterId && e.event === 'syncthing:eventsResync');
+    expect(resyncs).to.have.lengthOf(1);
   });
 
   it('still converges after the outage (degraded to poll cadence, nothing broken)', async function () {

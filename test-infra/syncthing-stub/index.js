@@ -79,14 +79,17 @@ function nudgeLog(ip) {
 }
 
 // injectable /rest/events buffer per node ip (long-poll served below).
-// resetIds simulates a syncthing restart (ids restart from 1 - the consumer
-// must treat the regression as lost events and resync).
+// resetIds simulates the id reset of a syncthing restart; the OBSERVABLE shape
+// of a restart is the events-outage window (transport errors) - the real API
+// never returns events below a stale `since` (lib/events Since() just waits).
 const eventsBuffers = new Map(); // ip -> { nextId, events: [{id,time,type,data}] }
 function eventsBuffer(ip) {
   let b = eventsBuffers.get(ip);
   if (!b) { b = { nextId: 1, events: [] }; eventsBuffers.set(ip, b); }
   return b;
 }
+// ips whose /rest/events endpoint is "down" (syncthing restarting); '*' = all
+const eventsOutages = new Set();
 
 function lookupSync(ip, folder) {
   return syncOverrides.get(`${ip}|${folder}`) ?? syncOverrides.get(`*|${folder}`);
@@ -535,12 +538,18 @@ app.get('/rest/events', (req, res) => {
   // lapses (capped below the client's HTTP timeout). Type filtering matches the
   // real filtered-subscription behaviour closely enough for the consumer.
   const ip = clientIp(req);
+  if (eventsOutages.has(ip) || eventsOutages.has('*')) {
+    return res.status(503).json({ error: 'syncthing is restarting' });
+  }
   const since = Number(req.query.since) || 0;
   const types = req.query.events ? String(req.query.events).split(',') : null;
   const timeoutS = Math.min(Number(req.query.timeout) || 60, 25);
   const deadline = Date.now() + timeoutS * 1000;
 
-  const pending = () => eventsBuffer(ip).events.filter((e) => e.id > since && (!types || types.includes(e.type)));
+  // a FILTERED subscription with since=0 anchors at "now" (no backlog) - the
+  // live-verified v2 behaviour; only later events are delivered
+  const effSince = types && since === 0 ? eventsBuffer(ip).nextId - 1 : since;
+  const pending = () => eventsBuffer(ip).events.filter((e) => e.id > effSince && (!types || types.includes(e.type)));
 
   const attempt = () => {
     const matched = pending();
@@ -660,12 +669,21 @@ control.post('/events-inject', (req, res) => {
   return res.json({ ok: true });
 });
 
-// Simulate a syncthing restart for a node: event ids start again from 1. The
-// consumer must treat the id regression as lost events and request a resync.
+// Simulate the id reset of a syncthing restart: event ids start again from 1.
+// Note a restart's OBSERVABLE shape is the outage window below - a consumer
+// with a stale high `since` simply sees nothing after a bare id reset.
 control.post('/events-reset-ids', (req, res) => {
   const { ip } = req.body;
   if (!ip) return res.status(400).json({ error: 'ip required' });
   eventsBuffers.set(ip, { nextId: 1, events: [] });
+  return res.json({ ok: true });
+});
+
+// Take a node's /rest/events endpoint down/up (syncthing restarting - the
+// long-poll dies with transport errors for the duration).
+control.post('/events-outage', (req, res) => {
+  const { ip = '*', enabled = true } = req.body || {};
+  if (enabled) eventsOutages.add(ip); else eventsOutages.delete(ip);
   return res.json({ ok: true });
 });
 
@@ -675,6 +693,7 @@ control.post('/sync-reset', (req, res) => {
   completionOverrides.clear();
   nudgeLogs.clear();
   eventsBuffers.clear();
+  eventsOutages.clear();
   res.json({ ok: true });
 });
 

@@ -119,10 +119,19 @@ export async function injectSyncthingEvent({ ip = '*', type, data = {} }) {
   return post('/events-inject', { ip, type, data });
 }
 
-// Simulate a syncthing restart for a node: event ids regress to 1, which the
-// events consumer must treat as lost events (resync).
+// Reset a node's event-id counter to 1 (the id half of a syncthing restart).
+// Note: a consumer holding a stale high `since` observes NOTHING after a bare
+// id reset (the API never returns events below `since`) - the observable shape
+// of a restart is the outage window (setEventsOutage).
 export async function resetSyncthingEventIds(ip) {
   return post('/events-reset-ids', { ip });
+}
+
+// Take a node's /rest/events endpoint down/up - the long-poll dies with
+// transport errors for the duration, exactly how a syncthing restart looks
+// from the consumer's side.
+export async function setEventsOutage({ ip = '*', enabled = true }) {
+  return post('/events-outage', { ip, enabled });
 }
 
 // The folder status endpoint errors for this folder - the node can verify
