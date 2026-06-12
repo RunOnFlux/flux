@@ -1,3 +1,5 @@
+import { getAppContainerStatus } from './container.js';
+
 export async function waitFor(condition, { timeout = 60000, interval = 2000, label = '' } = {}) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -5,6 +7,21 @@ export async function waitFor(condition, { timeout = 60000, interval = 2000, lab
     await new Promise((r) => setTimeout(r, interval));
   }
   throw new Error(`Timeout after ${timeout}ms waiting for: ${label || 'condition'}`);
+}
+
+// Container-state wait helpers (docker-level, via the node's DinD)
+export async function waitForUp(client, appName, label, { timeout = 120000, interval = 2000 } = {}) {
+  await waitFor(async () => {
+    const status = await getAppContainerStatus(client.container, appName);
+    return !!(status && status.status.startsWith('Up'));
+  }, { timeout, interval, label });
+}
+
+export async function waitForDown(client, appName, label, { timeout = 60000, interval = 2000 } = {}) {
+  await waitFor(async () => {
+    const status = await getAppContainerStatus(client.container, appName, { all: true });
+    return !!(status && !status.status.startsWith('Up'));
+  }, { timeout, interval, label });
 }
 
 // Event-based wait helpers (use SSE event stream)
