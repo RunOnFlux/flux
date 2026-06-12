@@ -25,6 +25,10 @@ const fluxEventBus = require('../utils/fluxEventBus');
 // long-poll timeout (server side) and the retry delay after a failed poll
 const EVENTS_LONGPOLL_TIMEOUT_S = 55;
 const EVENTS_RETRY_DELAY_MS = 5 * 1000;
+// pacing floor: a real long-poll holds the request for the timeout, but a
+// fast-returning server (misconfiguration) must not turn this loop into a
+// tight spin - an iteration that completes faster than this is padded out
+const EVENTS_MIN_POLL_INTERVAL_MS = 1000;
 
 const SUBSCRIBED_EVENTS = 'FolderSummary,FolderCompletion,FolderErrors,StateChanged';
 
@@ -85,9 +89,15 @@ async function pollOnce() {
 
 async function runLoop() {
   while (!stopRequested) {
+    const startedAt = Date.now();
     try {
       // eslint-disable-next-line no-await-in-loop
       await pollOnce();
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < EVENTS_MIN_POLL_INTERVAL_MS) {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(EVENTS_MIN_POLL_INTERVAL_MS - elapsed);
+      }
     } catch (error) {
       log.warn(`syncthingEventsConsumer - poll failed (${error.message}); retrying in ${EVENTS_RETRY_DELAY_MS / 1000}s (the periodic poll keeps covering meanwhile)`);
       // eslint-disable-next-line no-await-in-loop

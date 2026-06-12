@@ -67,7 +67,26 @@ function reqState(req) {
 //   completionOverrides: `${ip}|${folder}|${device}`-> completion (0-100)
 // ip may be '*' (any node) and device may be '*' (any peer); exact keys win.
 const syncOverrides = new Map();
-const completionOverrides = new Map();
+const completionOverrides = new Map(); // value: number (completion) or { completion, remoteState }
+
+// device pause/resume calls per node ip - the production "nudge" (device
+// pause/resume forces an index re-exchange) is observable through this log
+const nudgeLogs = new Map(); // ip -> [{ action, device, at }]
+function nudgeLog(ip) {
+  let l = nudgeLogs.get(ip);
+  if (!l) { l = []; nudgeLogs.set(ip, l); }
+  return l;
+}
+
+// injectable /rest/events buffer per node ip (long-poll served below).
+// resetIds simulates a syncthing restart (ids restart from 1 - the consumer
+// must treat the regression as lost events and resync).
+const eventsBuffers = new Map(); // ip -> { nextId, events: [{id,time,type,data}] }
+function eventsBuffer(ip) {
+  let b = eventsBuffers.get(ip);
+  if (!b) { b = { nextId: 1, events: [] }; eventsBuffers.set(ip, b); }
+  return b;
+}
 
 function lookupSync(ip, folder) {
   return syncOverrides.get(`${ip}|${folder}`) ?? syncOverrides.get(`*|${folder}`);
@@ -193,6 +212,12 @@ app.post('/rest/system/shutdown', (req, res) => {
 });
 
 app.post('/rest/system/pause', (req, res) => {
+  nudgeLog(clientIp(req)).push({ action: 'pause', device: req.query.device || '*', at: Date.now() });
+  res.json({});
+});
+
+app.post('/rest/system/resume', (req, res) => {
+  nudgeLog(clientIp(req)).push({ action: 'resume', device: req.query.device || '*', at: Date.now() });
   res.json({});
 });
 
@@ -375,11 +400,15 @@ app.get('/rest/db/browse', (req, res) => {
 });
 
 app.get('/rest/db/completion', (req, res) => {
-  const completion = lookupCompletion(clientIp(req), req.query.folder || '', req.query.device || '') ?? 100;
+  const override = lookupCompletion(clientIp(req), req.query.folder || '', req.query.device || '');
+  const completion = (typeof override === 'object' ? override?.completion : override) ?? 100;
+  // 'valid' = connected peer (the production trust rule only believes those);
+  // overridable to 'unknown' to model a disconnected peer's stale index
+  const remoteState = (typeof override === 'object' ? override?.remoteState : undefined) ?? 'valid';
   const globalBytes = 100000;
   const needBytes = Math.round((globalBytes * (100 - completion)) / 100);
   res.json({
-    completion, globalBytes, needBytes, globalItems: 0, needItems: 0, needDeletes: 0,
+    completion, globalBytes, needBytes, globalItems: 0, needItems: 0, needDeletes: 0, remoteState, sequence: 1,
   });
 });
 
@@ -413,6 +442,7 @@ app.get('/rest/db/status', (req, res) => {
   const globalBytes = ov?.globalBytes ?? 0;
   const inSyncBytes = ov?.inSyncBytes ?? 0;
   const state = ov?.state ?? 'idle';
+  const receiveOnlyChangedFiles = ov?.receiveOnlyChangedFiles ?? 0;
   const needBytes = Math.max(0, globalBytes - inSyncBytes);
   res.json({
     errors: 0,
@@ -439,10 +469,10 @@ app.get('/rest/db/status', (req, res) => {
     needSymlinks: 0,
     needTotalItems: 0,
     pullErrors: 0,
-    receiveOnlyChangedBytes: 0,
+    receiveOnlyChangedBytes: receiveOnlyChangedFiles > 0 ? 1024 : 0,
     receiveOnlyChangedDeletes: 0,
     receiveOnlyChangedDirectories: 0,
-    receiveOnlyChangedFiles: 0,
+    receiveOnlyChangedFiles,
     receiveOnlyChangedSymlinks: 0,
     receiveOnlyTotalItems: 0,
     sequence: 0,
@@ -455,7 +485,17 @@ app.get('/rest/db/status', (req, res) => {
 
 app.post('/rest/db/override', (req, res) => res.json({}));
 app.post('/rest/db/prio', (req, res) => res.json({}));
-app.post('/rest/db/revert', (req, res) => res.json({}));
+app.post('/rest/db/revert', (req, res) => {
+  // revert undoes local changes in a receiveonly folder: clear the
+  // receiveOnlyChangedFiles override so the next status reads clean
+  const folder = req.query.folder || '';
+  const ip = clientIp(req);
+  [`${ip}|${folder}`, `*|${folder}`].forEach((key) => {
+    const ov = syncOverrides.get(key);
+    if (ov && ov.receiveOnlyChangedFiles) syncOverrides.set(key, { ...ov, receiveOnlyChangedFiles: 0 });
+  });
+  res.json({});
+});
 app.post('/rest/db/scan', (req, res) => res.json({}));
 
 // -- Folder --
@@ -491,7 +531,25 @@ app.get('/rest/stats/folder', (req, res) => {
 // -- Events --
 
 app.get('/rest/events', (req, res) => {
-  res.json([]);
+  // long-poll like the real API: respond immediately when events newer than
+  // `since` exist, otherwise hold the request until one arrives or the timeout
+  // lapses (capped below the client's HTTP timeout). Type filtering matches the
+  // real filtered-subscription behaviour closely enough for the consumer.
+  const ip = clientIp(req);
+  const since = Number(req.query.since) || 0;
+  const types = req.query.events ? String(req.query.events).split(',') : null;
+  const timeoutS = Math.min(Number(req.query.timeout) || 60, 25);
+  const deadline = Date.now() + timeoutS * 1000;
+
+  const pending = () => eventsBuffer(ip).events.filter((e) => e.id > since && (!types || types.includes(e.type)));
+
+  const attempt = () => {
+    const matched = pending();
+    if (matched.length > 0) return res.json(matched);
+    if (Date.now() >= deadline) return res.json([]);
+    return setTimeout(attempt, 250);
+  };
+  attempt();
 });
 
 app.get('/rest/events/disk', (req, res) => {
@@ -557,10 +615,12 @@ control.get('/state', (req, res) => {
 // reads as a stall (the production stall detector needs N unchanged samples).
 control.post('/sync-state', (req, res) => {
   const {
-    ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0,
+    ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0,
   } = req.body;
   if (!folder) return res.status(400).json({ error: 'folder required' });
-  syncOverrides.set(`${ip}|${folder}`, { state, globalBytes, inSyncBytes });
+  syncOverrides.set(`${ip}|${folder}`, {
+    state, globalBytes, inSyncBytes, receiveOnlyChangedFiles,
+  });
   return res.json({ ok: true });
 });
 
@@ -568,10 +628,45 @@ control.post('/sync-state', (req, res) => {
 // Omit device to cover every peer ('*'). completion < 100 => "no peer has the data".
 control.post('/peer-completion', (req, res) => {
   const {
-    ip = '*', folder, device = '*', completion,
+    ip = '*', folder, device = '*', completion, remoteState,
   } = req.body;
   if (!folder || completion == null) return res.status(400).json({ error: 'folder and completion required' });
-  completionOverrides.set(`${ip}|${folder}|${device}`, completion);
+  // remoteState 'valid' (default) = connected peer; 'unknown' models a
+  // disconnected peer whose last-known index still reports the completion
+  completionOverrides.set(`${ip}|${folder}|${device}`, remoteState !== undefined ? { completion, remoteState } : completion);
+  return res.json({ ok: true });
+});
+
+// Device pause/resume calls observed for a node ip - how suites assert that the
+// stall ladder NUDGED (and did not restart syncthing or stop the container).
+control.get('/nudges', (req, res) => {
+  const ip = req.query.ip;
+  if (ip) return res.json({ nudges: nudgeLogs.get(ip) || [] });
+  return res.json({ nudges: Object.fromEntries(Array.from(nudgeLogs.entries())) });
+});
+
+// Inject an event into a node's /rest/events buffer (ip '*' = every known node).
+control.post('/events-inject', (req, res) => {
+  const { ip = '*', type, data = {} } = req.body;
+  if (!type) return res.status(400).json({ error: 'type required' });
+  const targets = ip === '*' ? Array.from(new Set([...nodeStates.keys(), ...eventsBuffers.keys()])) : [ip];
+  targets.forEach((target) => {
+    const buf = eventsBuffer(target);
+    buf.events.push({
+      id: buf.nextId, globalID: buf.nextId, time: new Date().toISOString(), type, data,
+    });
+    buf.nextId += 1;
+    if (buf.events.length > 500) buf.events.splice(0, buf.events.length - 500);
+  });
+  return res.json({ ok: true });
+});
+
+// Simulate a syncthing restart for a node: event ids start again from 1. The
+// consumer must treat the id regression as lost events and request a resync.
+control.post('/events-reset-ids', (req, res) => {
+  const { ip } = req.body;
+  if (!ip) return res.status(400).json({ error: 'ip required' });
+  eventsBuffers.set(ip, { nextId: 1, events: [] });
   return res.json({ ok: true });
 });
 
@@ -579,6 +674,8 @@ control.post('/peer-completion', (req, res) => {
 control.post('/sync-reset', (req, res) => {
   syncOverrides.clear();
   completionOverrides.clear();
+  nudgeLogs.clear();
+  eventsBuffers.clear();
   res.json({ ok: true });
 });
 

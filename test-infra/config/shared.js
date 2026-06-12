@@ -8,7 +8,15 @@ module.exports = {
   // compressed decider cadence: the syncthing readiness/stall loop runs every 3s
   // and a stall is declared after 4 no-progress cycles (~12s) instead of ~5min.
   syncthing: {
-    ip: '198.18.0.4', port: 8384, monitorIntervalMs: 3000, stalledSyncCheckCount: 4,
+    ip: '198.18.0.4',
+    port: 8384,
+    monitorIntervalMs: 3000,
+    // stall ladder compressed for suite time: first nudge ~6s after flat-idle,
+    // removal after 2 failed nudges over >=30s with a CONNECTED synced peer
+    stallNudgeAfterMs: 6000,
+    stallNudgeMaxIntervalMs: 12000,
+    stallRemoveMinWindowMs: 30000,
+    stallRemoveMinNudges: 2,
   },
   system: {
     bootIdPath: '/tmp/flux-boot-config/boot-id',

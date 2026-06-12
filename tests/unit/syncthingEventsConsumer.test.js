@@ -137,6 +137,21 @@ describe('syncthingEventsConsumer tests', () => {
     sinon.assert.calledWith(fluxEventBusMock.publish, 'syncthing:folderErrors', sinon.match({ folder: 'fluxcomp_app1' }));
   });
 
+  it('paces itself when the events endpoint returns empty instantly (never hot-loops)', async () => {
+    // a real syncthing long-poll holds the request for the timeout; a fast-
+    // returning server (misconfiguration, harness stub) must not turn the loop
+    // into a tight spin - an empty poll that returns immediately is followed by
+    // a pacing delay before the next poll
+    syncthingServiceMock.getEvents.onFirstCall().resolves(eventsResponse([]));
+    syncthingServiceMock.getEvents.onSecondCall().callsFake(parkForever);
+
+    consumer.start({ onFolderActivity, onResync });
+    await new Promise((resolve) => { setImmediate(() => { setImmediate(resolve); }); });
+
+    sinon.assert.calledOnce(serviceHelperMock.delay);
+    sinon.assert.calledTwice(syncthingServiceMock.getEvents);
+  });
+
   it('stop() halts the loop and start() is idempotent while running', async () => {
     syncthingServiceMock.getEvents.callsFake(parkForever);
 

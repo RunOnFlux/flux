@@ -29,10 +29,10 @@ export async function getSyncthingState() {
 
 // Raw setter for /rest/db/status.
 export async function setSyncState({
-  ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0,
+  ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0,
 }) {
   return post('/sync-state', {
-    ip, folder, state, globalBytes, inSyncBytes,
+    ip, folder, state, globalBytes, inSyncBytes, receiveOnlyChangedFiles,
   });
 }
 
@@ -50,21 +50,42 @@ export async function setSyncing({ ip = '*', folder, percent = 50 }) {
   });
 }
 
-// Stalled: state 'syncing' with frozen inSyncBytes. Because the override is
-// sticky, every poll returns the same bytes, so the production stall detector
-// trips after stalledSyncCheckCount unchanged samples.
+// Stalled: IDLE with frozen inSyncBytes - no blocks arriving and syncthing not
+// working. (An ACTIVE state with flat bytes is healthy under the stall ladder -
+// e.g. a long sync-preparing phase - so 'syncing' would never stall.) The
+// override is sticky, so every poll returns the same bytes; the ladder nudges
+// after stallNudgeAfterMs and escalates from there.
 export async function setStalled({ ip = '*', folder, percent = 50 }) {
   return setSyncState({
-    ip, folder, state: 'syncing', globalBytes: GLOBAL_BYTES, inSyncBytes: Math.round((GLOBAL_BYTES * percent) / 100),
+    ip, folder, state: 'idle', globalBytes: GLOBAL_BYTES, inSyncBytes: Math.round((GLOBAL_BYTES * percent) / 100),
+  });
+}
+
+// Active-but-flat: syncthing reports it is WORKING (sync-preparing) while bytes
+// stay frozen - the shape that must NEVER count toward the stall verdict.
+export async function setActiveFlat({ ip = '*', folder, percent = 50 }) {
+  return setSyncState({
+    ip, folder, state: 'sync-preparing', globalBytes: GLOBAL_BYTES, inSyncBytes: Math.round((GLOBAL_BYTES * percent) / 100),
+  });
+}
+
+// Local foreign files in a receiveonly folder (invisible to completion metrics;
+// the promotion gate must revert them before flipping to sendreceive).
+export async function setLocalChanges({ ip = '*', folder, files = 1 }) {
+  return setSyncState({
+    ip, folder, state: 'idle', globalBytes: GLOBAL_BYTES, inSyncBytes: GLOBAL_BYTES, receiveOnlyChangedFiles: files,
   });
 }
 
 // Raw setter for /rest/db/completion (a peer's view of the folder).
+// remoteState 'valid' (default) = connected peer; 'unknown' = disconnected peer
+// whose last-known index still reports the completion (the production trust
+// rule must not believe it).
 export async function setPeerCompletion({
-  ip = '*', folder, device = '*', completion,
+  ip = '*', folder, device = '*', completion, remoteState,
 }) {
   return post('/peer-completion', {
-    ip, folder, device, completion,
+    ip, folder, device, completion, remoteState,
   });
 }
 
@@ -73,9 +94,35 @@ export async function setNoPeerData({ ip = '*', folder }) {
   return setPeerCompletion({ ip, folder, completion: 0 });
 }
 
-// A peer holds the full data (100%).
+// A peer holds the full data (100%) and is CONNECTED (trusted source).
 export async function setPeerHasData({ ip = '*', folder }) {
-  return setPeerCompletion({ ip, folder, completion: 100 });
+  return setPeerCompletion({
+    ip, folder, completion: 100, remoteState: 'valid',
+  });
+}
+
+// A peer reports 100% from its last-known index but is DISCONNECTED - the
+// source-offline shape (stale completion must not bless nudges or removal).
+export async function setPeerDisconnected({ ip = '*', folder }) {
+  return setPeerCompletion({
+    ip, folder, completion: 100, remoteState: 'unknown',
+  });
+}
+
+// Device pause/resume calls the node has issued (the stall ladder's nudge).
+export async function getNudges(ip) {
+  return get(`/nudges${ip ? `?ip=${ip}` : ''}`);
+}
+
+// Inject an event into a node's /rest/events buffer (edge accelerator input).
+export async function injectSyncthingEvent({ ip = '*', type, data = {} }) {
+  return post('/events-inject', { ip, type, data });
+}
+
+// Simulate a syncthing restart for a node: event ids regress to 1, which the
+// events consumer must treat as lost events (resync).
+export async function resetSyncthingEventIds(ip) {
+  return post('/events-reset-ids', { ip });
 }
 
 export async function resetSyncState() {
