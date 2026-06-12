@@ -89,13 +89,12 @@ async function setFields(rawIdentifier, fields) {
  * @param {boolean} stopped
  */
 async function setOperatorStopped(identifier, stopped) {
-  try {
-    const fields = { operatorStopped: stopped };
-    if (!stopped) fields.restartHistory = [];
-    await setFields(identifier, fields);
-  } catch (err) {
-    log.error(`appsRuntimeState - failed to set operatorStopped=${stopped} for ${identifier}: ${err.message}`);
-  }
+  // No catch: the lock is the contract that the reconciler will not restart the
+  // app. Swallowing a write failure would let the API report success while the
+  // lock never persisted - the caller must surface the failure instead.
+  const fields = { operatorStopped: stopped };
+  if (!stopped) fields.restartHistory = [];
+  await setFields(identifier, fields);
 }
 
 /**

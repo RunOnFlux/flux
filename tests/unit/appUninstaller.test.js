@@ -558,6 +558,19 @@ describe('appUninstaller tests', () => {
       expect(runtimeStateStub.remove.args.map((a) => a[0])).to.deep.equal(onRemoved.args.map((a) => a[0]));
     });
 
+    it('clears runtime state and fires the seam on SOFT removal too (redeploy clears the lock)', async () => {
+      // user decision: a redeploy of any kind is an explicit "make it run" - the
+      // operator lock (and the stale controller verdict) must not survive it
+      const uninstaller = buildUninstaller(composedSpec);
+      const onRemoved = sinon.stub();
+      uninstaller.setOnComponentRemoved(onRemoved);
+
+      await uninstaller.softRemoveAppLocally('testapp', null, { removalInProgress: false, installationInProgress: false }, sinon.stub());
+
+      expect(runtimeStateStub.remove.args.map((a) => a[0])).to.have.members(['comp1_testapp', 'comp2_testapp']);
+      expect(onRemoved.args.map((a) => a[0])).to.have.members(['comp1_testapp', 'comp2_testapp']);
+    });
+
     it('completes removal when no seam callback is registered', async () => {
       const uninstaller = buildUninstaller(v2Spec);
 

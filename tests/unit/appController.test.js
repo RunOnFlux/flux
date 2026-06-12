@@ -240,6 +240,21 @@ describe('appController tests', () => {
       sinon.assert.calledOnce(dockerService.appDockerStop);
       sinon.assert.calledWith(dockerService.appDockerStop, 'Component_TestApp');
     });
+
+    it('sets the operator lock BEFORE the docker stop on the component path (crash-safe ordering)', async () => {
+      // the whole-app path already locks first; lock-after means a crash between
+      // the docker stop and the lock write leaves a stopped container the
+      // reconciler will restart against the operator's intent
+      verificationHelperStub.resolves(true);
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+      const req = { params: { appname: 'Component_TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop(req, res);
+
+      sinon.assert.calledOnceWithExactly(setOperatorStopped, 'Component_TestApp', true);
+      sinon.assert.callOrder(setOperatorStopped, dockerService.appDockerStop);
+    });
   });
 
   describe('appRestart tests', () => {
@@ -401,6 +416,18 @@ describe('appController tests', () => {
   describe('appKill tests', () => {
     beforeEach(() => {
       sinon.stub(dockerService, 'appDockerKill').resolves('Flux App TestApp successfully killed.');
+    });
+
+    it('sets the operator lock BEFORE the docker kill on the component path (crash-safe ordering)', async () => {
+      verificationHelperStub.resolves(true);
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+      const req = { params: { appname: 'Component_TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appKill(req, res);
+
+      sinon.assert.calledOnceWithExactly(setOperatorStopped, 'Component_TestApp', true);
+      sinon.assert.callOrder(setOperatorStopped, dockerService.appDockerKill);
     });
 
     it('should kill app and return success message', async () => {

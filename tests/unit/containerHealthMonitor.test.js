@@ -144,45 +144,4 @@ describe('containerHealthMonitor tests', () => {
     });
   });
 
-  describe('handleMissingMasterSlaveContainer', () => {
-    it('does nothing when the container actually exists', async () => {
-      dockerServiceStub.getDockerContainerOnly.resolves({ Id: 'abc' });
-      await containerHealthMonitor.handleMissingMasterSlaveContainer('web_testapp', 'testapp');
-      expect(appInstallerStub.installApplicationHard.called).to.be.false;
-      expect(appUninstallerStub.removeAppLocally.called).to.be.false;
-    });
-
-    it('recreates a missing container and restarts monitoring', async () => {
-      await containerHealthMonitor.handleMissingMasterSlaveContainer('web_testapp', 'testapp');
-      expect(appInstallerStub.installApplicationHard.calledOnce).to.be.true;
-      expect(appInspectorStub.startAppMonitoring.calledOnceWith('web_testapp')).to.be.true;
-      expect(appUninstallerStub.removeAppLocally.called).to.be.false;
-    });
-
-    it('skips removal when recreation failed but another process created the container', async () => {
-      appInstallerStub.installApplicationHard.rejects(new Error('install boom'));
-      dockerServiceStub.getDockerContainerOnly
-        .onFirstCall().resolves(null)
-        .onSecondCall().resolves({ Id: 'raced' });
-      await containerHealthMonitor.handleMissingMasterSlaveContainer('web_testapp', 'testapp');
-      expect(appUninstallerStub.removeAppLocally.called).to.be.false;
-      expect(tamperingStub.recordEvent.called).to.be.false;
-    });
-
-    it('records the failure and removes the app when recreation truly fails', async () => {
-      appInstallerStub.installApplicationHard.rejects(new Error('install boom'));
-      await containerHealthMonitor.handleMissingMasterSlaveContainer('web_testapp', 'testapp');
-      expect(tamperingStub.recordEvent.calledWith('testapp', 'recreation_failed')).to.be.true;
-      expect(appUninstallerStub.removeAppLocally.calledOnce).to.be.true;
-      expect(appUninstallerStub.removeAppLocally.firstCall.args[0]).to.equal('testapp');
-    });
-
-    it('additionally records network_pruned when the failure is a missing docker network', async () => {
-      appInstallerStub.installApplicationHard.rejects(new Error('network fluxDockerNetwork_testapp not found'));
-      tamperingStub.isNetworkMissingError.returns(true);
-      await containerHealthMonitor.handleMissingMasterSlaveContainer('web_testapp', 'testapp');
-      expect(tamperingStub.recordEvent.calledWith('testapp', 'network_pruned')).to.be.true;
-      expect(appUninstallerStub.removeAppLocally.calledOnce).to.be.true;
-    });
-  });
 });

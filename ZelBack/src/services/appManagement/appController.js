@@ -295,9 +295,12 @@ async function appStop(req, res) {
     let appRes;
 
     if (isComponent) {
+      // lock BEFORE the docker op (matching the whole-app path): a crash between
+      // the stop and the lock write would leave a stopped container the
+      // reconciler restarts against the operator's intent
+      await setAppOperatorStopped(appname, null, true);
       appInspector.stopAppMonitoring(appname, false);
       appRes = await dockerService.appDockerStop(appname);
-      await setAppOperatorStopped(appname, null, true);
     } else {
       // Check if app exists before stopping
       const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
@@ -501,8 +504,9 @@ async function appKill(req, res) {
     let appRes;
 
     if (isComponent) {
-      appRes = await dockerService.appDockerKill(appname);
+      // lock BEFORE the docker op (matching the whole-app path) - crash-safe direction
       await setAppOperatorStopped(appname, null, true);
+      appRes = await dockerService.appDockerKill(appname);
     } else {
       // eslint-disable-next-line no-restricted-syntax
       // Check if app exists before killing

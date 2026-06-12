@@ -1114,6 +1114,24 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
       await softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring);
     }
 
+    // node-local controller state dies with the components on the soft path too:
+    // a (soft) redeploy is an explicit "make it run", so neither the operator
+    // lock nor a stale controller verdict may survive it
+    let removedIdentifiers;
+    if (appSpecifications.version >= 4 && appSpecifications.compose) {
+      removedIdentifiers = isComponent
+        ? [`${appComponent}_${appSpecifications.name}`]
+        : appSpecifications.compose.map((c) => `${c.name}_${appSpecifications.name}`);
+    } else {
+      removedIdentifiers = [appName];
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const identifier of removedIdentifiers) {
+      // eslint-disable-next-line no-await-in-loop
+      await appsRuntimeState.remove(identifier);
+      if (onComponentRemoved) onComponentRemoved(identifier);
+    }
+
     if (!isComponent) {
       const databaseStatus = {
         status: 'Cleaning up database...',

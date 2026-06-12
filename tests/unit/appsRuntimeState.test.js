@@ -274,24 +274,40 @@ describe('appsRuntimeState tests', () => {
       sinon.assert.notCalled(logStub.error);
     });
 
-    it('gives up after one retry on a persistent duplicate-key failure', async () => {
+    it('gives up after one retry on a persistent duplicate-key failure and surfaces it', async () => {
       const dup = new Error('E11000 duplicate key error');
       dup.code = 11000;
       updateStub.rejects(dup);
 
-      await retryState.setOperatorStopped('www_App', true); // logs, must not throw
+      let thrown = null;
+      await retryState.setOperatorStopped('www_App', true).catch((e) => { thrown = e; });
 
-      expect(updateStub.callCount).to.equal(2);
-      sinon.assert.called(logStub.error);
+      expect(updateStub.callCount).to.equal(2); // exactly one retry, no loop
+      expect(thrown).to.be.an('error');
     });
 
     it('does not retry non-duplicate errors', async () => {
       updateStub.rejects(new Error('network blip'));
 
-      await retryState.setOperatorStopped('www_App', true); // logs, must not throw
+      let thrown = null;
+      await retryState.setOperatorStopped('www_App', true).catch((e) => { thrown = e; });
 
       expect(updateStub.callCount).to.equal(1);
-      sinon.assert.called(logStub.error);
+      expect(thrown).to.be.an('error');
+    });
+
+    it('propagates a lock-write failure to the caller (API must not report success)', async () => {
+      // The stop lock is the contract that the reconciler will not restart the
+      // app. Swallowing the write failure makes the API report success while the
+      // lock silently never persisted - the reconciler then restarts the app the
+      // operator just stopped.
+      updateStub.rejects(new Error('db unavailable'));
+
+      let thrown = null;
+      await retryState.setOperatorStopped('www_App', true).catch((e) => { thrown = e; });
+
+      expect(thrown).to.be.an('error');
+      expect(thrown.message).to.include('db unavailable');
     });
   });
 

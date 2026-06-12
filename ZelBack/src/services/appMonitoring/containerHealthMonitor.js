@@ -1,13 +1,8 @@
 const config = require('config');
 const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
-const dockerService = require('../dockerService');
 const generalService = require('../generalService');
 const appInstaller = require('../appLifecycle/appInstaller');
-const appUninstaller = require('../appLifecycle/appUninstaller');
-const appInspector = require('../appManagement/appInspector');
-const appTamperingDetectionService = require('../appTamperingDetectionService');
-const globalState = require('../utils/globalState');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const { localAppsInformation } = require('../utils/appConstants');
 const { verifyAppVolumeMount } = require('../utils/volumeService');
@@ -88,32 +83,6 @@ async function recreateMissingContainers(componentIdentifier) {
   log.info(`Successfully recreated missing containers for ${componentIdentifier}`);
 }
 
-async function handleMissingMasterSlaveContainer(stoppedApp, mainAppName) {
-  const containerExists = await dockerService.getDockerContainerOnly(stoppedApp);
-  if (containerExists) return;
-
-  log.warn(`Container for master/slave app ${stoppedApp} doesn't exist, recreating...`);
-  try {
-    await recreateMissingContainers(stoppedApp);
-    log.info(`Successfully recreated master/slave app container ${stoppedApp}`);
-    appInspector.startAppMonitoring(stoppedApp, globalState.appsMonitored);
-  } catch (recreateErr) {
-    const containerExistsNow = await dockerService.getDockerContainerOnly(stoppedApp);
-    if (containerExistsNow) {
-      log.info(`Container for ${stoppedApp} was created by another process, skipping removal`);
-      return;
-    }
-    log.error(`Failed to recreate master/slave app ${stoppedApp}: ${recreateErr.message}`);
-    log.warn(`REMOVAL REASON: Master/slave container recreation failure - ${mainAppName} (containerHealthMonitor)`);
-    await appTamperingDetectionService.recordEvent(mainAppName, 'recreation_failed', `Master/slave container recreation failure: ${recreateErr.message}`);
-    if (appTamperingDetectionService.isNetworkMissingError(recreateErr.message)) {
-      await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Docker network missing during recreation: ${recreateErr.message}`);
-    }
-    await appUninstaller.removeAppLocally(mainAppName, null, false, true, true);
-  }
-}
-
 module.exports = {
   recreateMissingContainers,
-  handleMissingMasterSlaveContainer,
 };

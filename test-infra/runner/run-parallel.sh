@@ -72,7 +72,9 @@ load_1m(){ cut -d' ' -f1 /proc/loadavg | cut -d. -f1; }   # integer part is enou
 # Scoped to harness names/labels only — never a blanket prune; assumes one gate
 # per box, which run-parallel has always required.
 sweep_harness_leftovers(){
-  docker ps -aq --filter label=org.testcontainers=true | xargs -r docker rm -f >/dev/null 2>&1
+  # scope to OUR label (key presence, any run id) - org.testcontainers=true would
+  # also kill unrelated testcontainers projects sharing the box
+  docker ps -aq --filter label=flux-e2e-run | xargs -r docker rm -f >/dev/null 2>&1
   docker network ls --format '{{.ID}} {{.Name}}' | grep ' flux-test-' | awk '{print $1}' | xargs -r docker network rm >/dev/null 2>&1
   docker volume ls -q --filter label=flux-e2e-run | xargs -r docker volume rm >/dev/null 2>&1
   rm -rf /tmp/e2e-base-locks /tmp/e2e-boot-lock

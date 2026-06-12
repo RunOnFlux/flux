@@ -56,10 +56,12 @@ jobs:
 
       - name: Pre-run hygiene (scoped to harness leftovers only)
         run: |
-          docker ps -aq --filter label=org.testcontainers=true | xargs -r docker rm -f
+          # scope to our own label (key presence, any run id) - org.testcontainers=true
+          # would also kill unrelated testcontainers projects sharing the runner
+          docker ps -aq --filter label=flux-e2e-run | xargs -r docker rm -f
           docker network ls --format '{{.Name}}' | grep '^flux-test-' | xargs -r docker network rm || true
           rm -rf /tmp/e2e-base-locks /tmp/e2e-boot-lock
-          echo "leftover harness containers: $(docker ps -aq --filter label=org.testcontainers=true | wc -l)"
+          echo "leftover harness containers: $(docker ps -aq --filter label=flux-e2e-run | wc -l)"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,6 +83,11 @@ jobs:
           docker pull registry:2
 
       - name: Run integration suites
+        env:
+          # workflow-dispatch inputs flow via env, not inline interpolation into the
+          # script body (an input containing shell metacharacters must stay data)
+          SUITES: ${{ inputs.suites }}
+          MAXN: ${{ inputs.maxn }}
         run: |
           # The admit gate in run-parallel.sh requires free RAM above MIN_FREE_MB
           # before launching a fleet. The cindy default (15000) deadlocks on a host
@@ -89,11 +96,10 @@ jobs:
           total_mb=$(free -m | awk '/^Mem:/{print $2}')
           min_free=$(( total_mb / 4 ))
           [ "$min_free" -gt 15000 ] && min_free=15000
-          echo "total_mb=${total_mb} MIN_FREE_MB=${min_free} MAXN=${{ inputs.maxn }}"
+          echo "total_mb=${total_mb} MIN_FREE_MB=${min_free} MAXN=${MAXN}"
 
           export E2E_LOG_DIR="${RUNNER_TEMP}/e2e-logs"
-          SUITES='${{ inputs.suites }}' MAXN='${{ inputs.maxn }}' MIN_FREE_MB="$min_free" \
-            bash test-infra/runner/run-parallel.sh
+          MIN_FREE_MB="$min_free" bash test-infra/runner/run-parallel.sh
 
       - name: Result summary
         if: always()
