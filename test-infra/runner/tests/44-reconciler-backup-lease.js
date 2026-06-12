@@ -43,10 +43,14 @@ describe('backup leases the whole app against the reconciler', function () {
     await setSynced({ ip: subnet.nodeIp(1), folder: app.folder });
     await waitForUp(env.clients[0], appName, 'app running before backup');
     // bulk up appdata so the tar phase gives a real lease window
-    await execInContainer(
+    // (FLUX_APPS_FOLDER relocates the apps dir in the harness image)
+    const bulk = await execInContainer(
       env.clients[0].container,
-      `sh -c "dd if=/dev/urandom of=$(ls -d /root/zelflux/ZelApps/flux${appName}* | head -1)/appdata/bulk.bin bs=1M count=200 2>/dev/null || true"`,
+      `sh -c "d=\\$(ls -d /mnt/appdata/flux-apps/flux${appName}* | head -1) && dd if=/dev/urandom of=\\$d/appdata/bulk.bin bs=1M count=200 && ls -l \\$d/appdata/bulk.bin"`,
     );
+    if (bulk.exitCode !== 0) {
+      throw new Error(`appdata bulk-up failed (lease window would be too small): ${bulk.stderr || bulk.output}`);
+    }
   });
 
   after(async function () {

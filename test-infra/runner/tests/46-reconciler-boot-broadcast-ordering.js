@@ -66,7 +66,8 @@ describe('first post-boot broadcast: complete, never empty, never destructive', 
 
     // (b): at no point did ANY node emit an empty v2 snapshot (the peer's SSE
     // buffer holds every apprunning it received across the reboot window)
-    const received = peerClient.getEventBuffer().filter((e) => e.id > afterId && (e.type === 'network:apprunning' || e.name === 'network:apprunning'));
+    const received = peerClient.getEventBuffer().filter((e) => e.id > afterId && e.event === 'network:apprunning');
+    expect(received.length, 'buffer must hold the apprunning waitForEvent just matched (filter shape drift)').to.be.greaterThan(0);
     const empty = received.filter((e) => Array.isArray(e.data?.apps) && e.data.apps.length === 0);
     expect(empty, 'no empty fluxapprunning v2 snapshots').to.have.lengthOf(0);
 
