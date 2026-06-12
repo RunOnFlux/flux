@@ -481,7 +481,6 @@ async function startFluxFunctions() {
         // permissions are already fixed by the state machine before this point
         async (id) => { appReconciler.setControllerDesired(id, 'running', 'syncthing synced'); },
         dockerOperations.appDeleteDataInMountPoint,
-        appUninstaller.removeAppLocally,
       ); // rechecks syncthing configuration each cycle
       // masterSlave self-gates on syncthingAppsFirstRun (the syncthing monitor's
       // first-run mount-safety must complete before any g: election), so it starts

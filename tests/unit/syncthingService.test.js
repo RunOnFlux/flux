@@ -248,6 +248,45 @@ describe('syncthingService tests', () => {
     });
   });
 
+  describe('systemPause / systemResume endpoint paths', () => {
+    // Contract: pause posts to /rest/system/pause, resume posts to /rest/system/resume.
+    // Resume is load-bearing for stuck-folder recovery (device pause/resume nudge): a
+    // resume that actually pauses would wedge the device permanently.
+    let fakePost;
+    const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
+
+    beforeEach(() => {
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      sinon.stub(fs, 'readFile').resolves(syncthingFixtures.configFile);
+      fakePost = sinon.fake.resolves({ data: '' });
+      sinon.stub(axios, 'create').returns({ post: fakePost });
+    });
+
+    afterEach(async () => {
+      await syncthingService.syncthingController().abort();
+      syncthingService.getAxiosCache().reset();
+      sinon.restore();
+    });
+
+    it('systemPause posts to /rest/system/pause with the device', async () => {
+      await syncthingService.systemPause({ params: { device: deviceId }, query: {} }, null);
+      sinon.assert.calledOnce(fakePost);
+      expect(fakePost.firstCall.args[0]).to.equal(`/rest/system/pause?device=${deviceId}`);
+    });
+
+    it('systemResume posts to /rest/system/resume with the device', async () => {
+      await syncthingService.systemResume({ params: { device: deviceId }, query: {} }, null);
+      sinon.assert.calledOnce(fakePost);
+      expect(fakePost.firstCall.args[0]).to.equal(`/rest/system/resume?device=${deviceId}`);
+    });
+
+    it('systemResume posts to /rest/system/resume for all devices when none given', async () => {
+      await syncthingService.systemResume({ params: {}, query: {} }, null);
+      sinon.assert.calledOnce(fakePost);
+      expect(fakePost.firstCall.args[0]).to.equal('/rest/system/resume');
+    });
+  });
+
   describe('stopSyncthing tests', () => {
     let runCmdStub;
     let infoSpy;

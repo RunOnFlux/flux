@@ -387,7 +387,13 @@ module.exports = {
     ip: '127.0.0.1',
     port: 8384,
     monitorIntervalMs: 30000, // syncthingApps reconfiguration/sync-readiness cycle
-    stalledSyncCheckCount: 10, // consecutive no-progress cycles before a sync is "stalled" (~5min at 30s)
+    // stall ladder (receive-only convergence): wait -> device pause/resume nudge with
+    // doubling backoff -> removal only with a connected synced peer, repeated nudges
+    // and zero progress over the minimum window
+    stallNudgeAfterMs: 180000, // 3min idle with no byte progress before the first nudge
+    stallNudgeMaxIntervalMs: 900000, // nudge backoff cap (15min)
+    stallRemoveMinWindowMs: 1200000, // 20min minimum evidence window before removal
+    stallRemoveMinNudges: 3, // nudges that must have failed before removal
   },
   // enterpriseAppOwners moved to helpers/enterprisenodes.json (synced from github every 6h, see enterpriseConfig)
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.

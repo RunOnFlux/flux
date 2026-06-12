@@ -375,7 +375,10 @@ module.exports = {
     ip: '127.0.0.1', // local
     port: 8384, // local
     monitorIntervalMs: 30000,
-    stalledSyncCheckCount: 10,
+    stallNudgeAfterMs: 180000,
+    stallNudgeMaxIntervalMs: 900000,
+    stallRemoveMinWindowMs: 1200000,
+    stallRemoveMinNudges: 3,
   },
   cpuBurst: {
     enabled: true,

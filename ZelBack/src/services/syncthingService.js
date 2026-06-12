@@ -603,7 +603,7 @@ async function systemRestart(req, res) {
 async function systemResume(req, res) {
   let { device } = req.params;
   device = device || req.query.device;
-  let apiPath = '/rest/system/pause';
+  let apiPath = '/rest/system/resume';
   if (device) {
     apiPath += `?device=${device}`;
   }

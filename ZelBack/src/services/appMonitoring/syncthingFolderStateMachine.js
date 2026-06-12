@@ -11,12 +11,15 @@ const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const {
-  STALLED_SYNC_CHECK_COUNT,
   LEADER_CONFIRM_COUNT,
   SYNC_COMPLETE_PERCENTAGE,
   OPERATION_DELAY_MS,
   CLOCK_SKEW_TOLERANCE_MS,
-  HEALTH_REMOVE_THRESHOLD_MS,
+  STALL_NUDGE_AFTER_MS,
+  STALL_NUDGE_MAX_INTERVAL_MS,
+  STALL_REMOVE_MIN_WINDOW_MS,
+  STALL_REMOVE_MIN_NUDGES,
+  ACTIVE_FOLDER_STATES,
 } = require('./syncthingMonitorConstants');
 
 const cmdAsync = util.promisify(nodecmd.run);
@@ -159,7 +162,9 @@ async function getFolderSyncCompletion(folderId) {
     }, null);
 
     if (statusResponse && statusResponse.status === 'success') {
-      const { globalBytes = 0, inSyncBytes = 0, state } = statusResponse.data;
+      const {
+        globalBytes = 0, inSyncBytes = 0, state, receiveOnlyChangedFiles = 0,
+      } = statusResponse.data;
 
       const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
 
@@ -168,6 +173,9 @@ async function getFolderSyncCompletion(folderId) {
         globalBytes,
         inSyncBytes,
         state,
+        // local additions/modifications in a receiveonly folder; invisible to the
+        // completion metrics above (they only count cluster data)
+        receiveOnlyChangedFiles,
         isSynced: syncPercentage === SYNC_COMPLETE_PERCENTAGE,
       };
     }
@@ -359,17 +367,25 @@ async function checkIfPeersAreSynced(folderId) {
         }, null);
 
         if (completionResponse?.status === 'success' && completionResponse.data) {
-          const { completion = 0, globalBytes = 0 } = completionResponse.data;
-          // A peer is a safe source only if it reports 100% AND actually holds data.
-          // Syncthing reports completion 100 for an empty folder (globalBytes 0) too, so
-          // without the globalBytes check a peer that synced empty/wrong data from a bad
-          // seed would falsely satisfy "peers are synced" and we would remove the good
-          // local copy in favour of an empty one (data loss).
-          if (completion === 100 && globalBytes > 0) {
-            log.info(`checkIfPeersAreSynced - Found synced peer for ${folderId}: device ${device.deviceID.substring(0, 7)}... at ${completion}% (${globalBytes} bytes)`);
+          const { completion = 0, globalBytes = 0, remoteState = 'unknown' } = completionResponse.data;
+          // A peer is a safe source only if it is CONNECTED (remoteState 'valid'),
+          // reports 100%, AND actually holds data:
+          // - db/completion is computed from the peer's last-known index, so a dead or
+          //   offline peer still reports completion 100. Trusting that stale figure
+          //   turns a source-node reboot into followers deleting their partial copies.
+          //   remoteState is the connectivity discriminator ('valid' iff connected);
+          //   when absent, there is no evidence and the peer must not be trusted.
+          // - Syncthing reports completion 100 for an empty folder (globalBytes 0) too,
+          //   so without the globalBytes check a peer that synced empty/wrong data from
+          //   a bad seed would falsely satisfy "peers are synced" and we would remove
+          //   the good local copy in favour of an empty one (data loss).
+          if (remoteState === 'valid' && completion === 100 && globalBytes > 0) {
+            log.info(`checkIfPeersAreSynced - Found synced peer for ${folderId}: device ${device.deviceID.substring(0, 7)}... at ${completion}% (${globalBytes} bytes, connected)`);
             return true;
           }
-          if (completion === 100) {
+          if (completion === 100 && remoteState !== 'valid') {
+            log.warn(`checkIfPeersAreSynced - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but is not connected (remoteState ${remoteState}); stale index, not a synced source`);
+          } else if (completion === 100) {
             log.warn(`checkIfPeersAreSynced - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but 0 bytes (empty); not treating it as a synced source`);
           }
         }
@@ -386,28 +402,36 @@ async function checkIfPeersAreSynced(folderId) {
 }
 
 /**
- * Check if sync is stalled (no progress for STALLED_SYNC_CHECK_COUNT checks)
- * @param {Array} syncHistory - Array of recent sync statuses
- * @returns {boolean} True if sync appears stalled
+ * Nudge a folder's devices: pause then resume each device the folder is shared
+ * with. The reconnect forces a fresh index exchange, which re-arms a dormant
+ * puller (failed-pull retry backoff, or the inert no-retry state where a failed
+ * pull never retries again - verified live; recovery takes ~30s). This is the
+ * surgical version of the only useful thing a syncthing process restart did,
+ * without dropping every other folder's transfers node-wide.
+ * @param {string} folderId - Syncthing folder ID
  */
-function isSyncStalled(syncHistory, appId = 'unknown') {
-  if (!syncHistory || syncHistory.length < STALLED_SYNC_CHECK_COUNT) {
-    return false;
+async function nudgeFolderDevices(folderId) {
+  try {
+    const configResponse = await syncthingService.getConfig({}, null);
+    if (!configResponse || configResponse.status !== 'success') return;
+    const folder = configResponse.data.folders?.find((f) => f.id === folderId);
+    if (!folder) return;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const device of folder.devices || []) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await syncthingService.systemPause({ params: { device: device.deviceID }, query: {} }, null);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(OPERATION_DELAY_MS);
+        // eslint-disable-next-line no-await-in-loop
+        await syncthingService.systemResume({ params: { device: device.deviceID }, query: {} }, null);
+      } catch (error) {
+        log.warn(`nudgeFolderDevices - ${folderId}: pause/resume of device ${device.deviceID.substring(0, 7)} failed: ${error.message}`);
+      }
+    }
+  } catch (error) {
+    log.warn(`nudgeFolderDevices - ${folderId}: ${error.message}`);
   }
-
-  // Get last N statuses
-  const recentStatuses = syncHistory.slice(-STALLED_SYNC_CHECK_COUNT);
-
-  // Check if inSyncBytes hasn't changed
-  const firstBytes = recentStatuses[0].inSyncBytes;
-  const allSameBytes = recentStatuses.every((status) => status.inSyncBytes === firstBytes);
-
-  if (allSameBytes) {
-    log.warn(`isSyncStalled - ${appId} detected stalled sync: ${firstBytes} bytes unchanged for ${STALLED_SYNC_CHECK_COUNT} checks`);
-    return true;
-  }
-
-  return false;
 }
 
 /**
@@ -428,17 +452,14 @@ async function handleReceiveOnlyTransition(params) {
 
   log.info(`handleReceiveOnlyTransition - ${appId} in cache and not restarted, processing receive-only logic`);
 
-  // Designated-leader election, with two guards:
-  //  - Never let leadership hijack an in-progress stall recovery: once we've
-  //    restarted Syncthing to recover (syncthingRestartAttempted), our container
-  //    is stopped and we're about to remove locally; a transient drop of the
-  //    peer's running-location must not flip us into self-promoting and starting.
-  //  - Require leadership to hold for LEADER_CONFIRM_COUNT consecutive cycles, so
-  //    a single transient peer-visibility blip doesn't flip a follower to leader.
-  const recoveryInProgress = cache.syncthingRestartAttempted === true;
+  // Designated-leader election, debounced: require leadership to hold for
+  // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility
+  // blip doesn't flip a follower to leader. (The stall ladder below never stops the
+  // container before its atomic removal decision, so leadership needs no recovery
+  // suppression - a confirmed leader simply starts; that is the cold-start fallback.)
   const electedLeader = isDesignatedLeader(runningAppList, localSocketAddr);
   cache.leaderStreak = electedLeader ? (cache.leaderStreak || 0) + 1 : 0;
-  const isLeader = !recoveryInProgress && electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
+  const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
 
   // KNOWN LIMITATION (pre-existing, intentionally not addressed here): the designated
   // leader is the cold-start seed source, so it starts and flips to sendreceive WITHOUT
@@ -472,20 +493,6 @@ async function handleReceiveOnlyTransition(params) {
 
   if (syncStatus) {
     cache.statusUnreadableSince = null; // status readable again - reset the unreadable timer
-    // Track sync history for stall detection
-    if (!cache.syncHistory) {
-      cache.syncHistory = [];
-    }
-    cache.syncHistory.push({
-      inSyncBytes: syncStatus.inSyncBytes,
-      globalBytes: syncStatus.globalBytes,
-      syncPercentage: syncStatus.syncPercentage,
-      timestamp: Date.now(),
-    });
-    // Keep only last 15 statuses to avoid memory bloat (need at least 10 for stall detection)
-    if (cache.syncHistory.length > 15) {
-      cache.syncHistory = cache.syncHistory.slice(-15);
-    }
 
     log.info(
       `handleReceiveOnlyTransition - ${appId} sync status: ${syncStatus.syncPercentage.toFixed(2)}% `
@@ -493,7 +500,21 @@ async function handleReceiveOnlyTransition(params) {
       + `state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`,
     );
 
-    // Synced -> safe to switch to sendreceive and start.
+    // Synced -> candidate for sendreceive. But completion metrics only count CLUSTER
+    // data: local additions in a receiveonly folder leave needBytes 0 / completion 100,
+    // and promoting would broadcast those local changes cluster-wide. Verify the folder
+    // is clean first; if not, revert the local changes (db/revert undoes local edits in
+    // a receiveonly folder) and promote on a later cycle once verifiably clean. The
+    // leader path above is exempt by design - the leader's local data IS the seed.
+    if (syncStatus.isSynced && syncStatus.receiveOnlyChangedFiles > 0) {
+      log.warn(`handleReceiveOnlyTransition - ${appId} is synced but the receive-only folder has ${syncStatus.receiveOnlyChangedFiles} locally changed item(s); reverting local changes instead of promoting (promotion would propagate them to the cluster)`);
+      try {
+        await syncthingService.dbRevert(appId);
+      } catch (error) {
+        log.error(`handleReceiveOnlyTransition - revert of local changes for ${appId} failed: ${error.message}`);
+      }
+      return { syncthingFolder, cache };
+    }
     if (syncStatus.isSynced) {
       log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
       await fixAppdataPermissions(appId);
@@ -507,71 +528,74 @@ async function handleReceiveOnlyTransition(params) {
     }
 
     // Not synced. We must NEVER start on unsynced data: going sendreceive would
-    // propagate an inconsistent state to peers. Only intervene once sync has
-    // actually stalled (no byte progress) — while it's still progressing, wait.
-    if (!isSyncStalled(cache.syncHistory, appId)) {
+    // propagate an inconsistent state to peers. While bytes are moving (block-
+    // granular accounting) or the folder state is active (e.g. a long
+    // sync-preparing phase), syncthing is working - wait. Flat bytes while idle
+    // means no blocks are arriving; the causes need DIFFERENT responses:
+    //   - no CONNECTED synced source (offline source, partition): wait - syncthing
+    //     resumes by itself when the source returns; acting destroys a healthy copy.
+    //   - source available but the puller is dormant (failed-pull retry backoff up
+    //     to ~1h, or the inert no-retry state): nudge - device pause/resume forces
+    //     a reconnect + index re-exchange, which re-arms the puller in seconds.
+    //   - sustained evidence (connected synced source, repeated nudges over a
+    //     minimum window, zero progress): this node provably cannot ingest the
+    //     data - remove locally, the data is preserved on the synced peer.
+    const now = Date.now();
+    if (cache.lastProgressBytes === undefined || syncStatus.inSyncBytes !== cache.lastProgressBytes) {
+      cache.lastProgressBytes = syncStatus.inSyncBytes;
+      cache.lastProgressAt = now;
+      cache.nudgeCount = 0;
+      cache.evidenceSince = null;
+      return { syncthingFolder, cache };
+    }
+
+    if (ACTIVE_FOLDER_STATES.includes(syncStatus.state)) {
+      return { syncthingFolder, cache };
+    }
+
+    if (now - cache.lastProgressAt < STALL_NUDGE_AFTER_MS) {
       return { syncthingFolder, cache };
     }
 
     const peersAreSynced = await checkIfPeersAreSynced(appId);
     if (!peersAreSynced) {
-      // Stalled but no peer holds the full data — there is no safe action, the
-      // only correct option is to keep waiting (an operator can intervene).
-      log.warn(`handleReceiveOnlyTransition - ${appId} sync stalled and no synced peer found, continuing to wait`);
+      log.warn(`handleReceiveOnlyTransition - ${appId} idle with no sync progress and no CONNECTED synced peer; waiting (syncthing auto-resumes when a source returns)`);
       return { syncthingFolder, cache };
     }
 
-    // Stalled and a peer has the full data. Try a one-shot recovery (stop the
-    // container, restart Syncthing); if that doesn't unstick it, give up safely
-    // by removing locally — the data is preserved on the synced peer.
-    if (!cache.syncthingRestartAttempted) {
-      log.warn(`handleReceiveOnlyTransition - ${appId} sync stalled but peers are synced, stopping app and restarting Syncthing to recover`);
-      const { appDockerStopFn } = params;
-      try {
-        await appDockerStopFn(appId);
-        await serviceHelper.delay(OPERATION_DELAY_MS);
-      } catch (error) {
-        log.warn(`handleReceiveOnlyTransition - Could not stop ${appId}: ${error.message}`);
-      }
-      try {
-        await syncthingService.systemRestart();
-        log.info('handleReceiveOnlyTransition - Syncthing restarted to recover from stalled sync');
-      } catch (error) {
-        log.error(`handleReceiveOnlyTransition - Failed to restart Syncthing: ${error.message}`);
-      }
-      cache.syncHistory = [];
-      cache.syncthingRestartAttempted = true; // one attempt only
-      delete cache.previousGlobalBytes;
+    cache.evidenceSince = cache.evidenceSince || now;
+    const nudgeCount = cache.nudgeCount || 0;
+    const nudgeInterval = Math.min(STALL_NUDGE_AFTER_MS * 2 ** nudgeCount, STALL_NUDGE_MAX_INTERVAL_MS);
+    const nudgeDue = !cache.lastNudgeAt || now - cache.lastNudgeAt >= nudgeInterval;
+    if (!nudgeDue) {
       return { syncthingFolder, cache };
     }
 
-    log.error(`handleReceiveOnlyTransition - ${appId} still stalled after Syncthing restart and peers hold the data; removing locally (data preserved on peers)`);
-    try {
-      await appUninstaller.removeAppLocally(appId, null, true, false, true);
-    } catch (error) {
-      log.error(`handleReceiveOnlyTransition - Failed to remove ${appId}: ${error.message}`);
+    if (nudgeCount >= STALL_REMOVE_MIN_NUDGES && now - cache.evidenceSince >= STALL_REMOVE_MIN_WINDOW_MS) {
+      log.error(`handleReceiveOnlyTransition - ${appId}: ${nudgeCount} nudges over ${Math.round((now - cache.evidenceSince) / 60000)}m with zero progress and a connected synced peer; this node cannot ingest the data - removing locally (data preserved on peers)`);
+      try {
+        await appUninstaller.removeAppLocally(appId, null, true, false, true);
+      } catch (error) {
+        log.error(`handleReceiveOnlyTransition - Failed to remove ${appId}: ${error.message}`);
+      }
+      cache.restarted = true;
+      return { syncthingFolder, cache };
     }
-    cache.restarted = true;
+
+    log.warn(`handleReceiveOnlyTransition - ${appId} idle with no sync progress for ${Math.round((now - cache.lastProgressAt) / 60000)}m and a connected synced peer; nudging the folder devices (pause/resume #${nudgeCount + 1})`);
+    await nudgeFolderDevices(appId);
+    cache.nudgeCount = nudgeCount + 1;
+    cache.lastNudgeAt = now;
     return { syncthingFolder, cache };
   } else {
-    // Could not read the folder's sync status, so we cannot verify the data is synced.
-    // Never start on unverified data: flipping to sendreceive on an un-synced folder
-    // makes this node an authoritative source and propagates an inconsistent state to
-    // peers. But don't leave it stuck forever - if the status stays unreadable past the
-    // removal threshold, remove it locally. A node that never started was only ever a
-    // follower (it never became an authoritative source), so dropping its partial copy
-    // is safe: the canonical data lives on the running source/peers and the app will
-    // re-deploy and re-sync from scratch. (A restart of syncthing is not attempted - it
-    // does not fix a wedged folder index; a fresh re-sync via removal is the real fix.)
+    // Could not read the folder's sync status, so we can verify NOTHING - neither
+    // that the local data is synced nor that any peer holds it. Never start on
+    // unverified data, and never remove without positive evidence either: removal
+    // justified by blindness would delete a possibly-good copy. Alert and wait -
+    // an operator, or recovery of the status endpoint, resolves it.
     cache.statusUnreadableSince = cache.statusUnreadableSince || Date.now();
     const unreadableMs = Date.now() - cache.statusUnreadableSince;
-    if (unreadableMs >= HEALTH_REMOVE_THRESHOLD_MS) {
-      log.warn(`handleReceiveOnlyTransition - ${appId} sync status unreadable for ${Math.round(unreadableMs / 60000)}m; removing locally (never started, canonical data is on the source/peers)`);
-      await appUninstaller.removeAppLocally(appId, null, true, false, true);
-      cache.restarted = true;
-    } else {
-      log.warn(`handleReceiveOnlyTransition - ${appId} sync status unavailable; staying receiveonly (will not start on unverified data; ${Math.round(unreadableMs / 60000)}m of ${Math.round(HEALTH_REMOVE_THRESHOLD_MS / 60000)}m before removal)`);
-    }
+    log.warn(`handleReceiveOnlyTransition - ${appId} sync status unreadable for ${Math.round(unreadableMs / 60000)}m; staying receiveonly (will not start on unverified data, will not remove without evidence)`);
   }
 
   return { syncthingFolder, cache };
@@ -779,4 +803,5 @@ module.exports = {
   verifyFolderMountSafety,
   isPathMounted,
   checkDirectoryHasContent,
+  nudgeFolderDevices,
 };

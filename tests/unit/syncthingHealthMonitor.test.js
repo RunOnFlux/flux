@@ -20,11 +20,13 @@ const logMock = {
 
 // Mock constants
 const constantsMock = {
-  HEALTH_STOP_THRESHOLD_MS: 10 * 60 * 1000, // 10 minutes
-  HEALTH_RESTART_SYNCTHING_THRESHOLD_MS: 20 * 60 * 1000, // 20 minutes
-  HEALTH_REMOVE_THRESHOLD_MS: 30 * 60 * 1000, // 30 minutes
+  HEALTH_NUDGE_THRESHOLD_MS: 10 * 60 * 1000, // 10 minutes
   HEALTH_WARNING_THRESHOLD_MS: 5 * 60 * 1000, // 5 minutes
-  HEALTH_PEERS_BEHIND_THRESHOLD_MS: 15 * 60 * 1000, // 15 minutes
+};
+
+const stateMachineMock = {
+  isPathMounted: sinon.stub().resolves(false),
+  nudgeFolderDevices: sinon.stub().resolves(),
 };
 
 // Load module with mocked dependencies
@@ -32,6 +34,7 @@ const healthMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/synct
   '../syncthingService': syncthingServiceMock,
   '../../lib/log': logMock,
   './syncthingMonitorConstants': constantsMock,
+  './syncthingFolderStateMachine': stateMachineMock,
 });
 
 describe('syncthingHealthMonitor tests', () => {
@@ -40,32 +43,14 @@ describe('syncthingHealthMonitor tests', () => {
     // behaviour set up at module load by other test files in the same run)
     syncthingServiceMock.getPeerSyncDiagnostics.reset();
     syncthingServiceMock.systemRestart.reset();
+    stateMachineMock.nudgeFolderDevices.reset();
+    stateMachineMock.nudgeFolderDevices.resolves();
+    stateMachineMock.isPathMounted.reset();
+    stateMachineMock.isPathMounted.resolves(false);
     logMock.info.reset();
     logMock.warn.reset();
     logMock.error.reset();
     logMock.debug.reset();
-  });
-
-  describe('extractAppNameFromFolderId', () => {
-    it('should extract app name from simple folder id', () => {
-      const result = healthMonitor.extractAppNameFromFolderId('fluxmyapp');
-      expect(result).to.equal('myapp');
-    });
-
-    it('should extract app name from component folder id', () => {
-      const result = healthMonitor.extractAppNameFromFolderId('fluxweb_myapp');
-      expect(result).to.equal('myapp');
-    });
-
-    it('should handle multiple underscores in app name', () => {
-      const result = healthMonitor.extractAppNameFromFolderId('fluxweb_my_app_name');
-      expect(result).to.equal('my_app_name');
-    });
-
-    it('should handle empty folder id after flux prefix', () => {
-      const result = healthMonitor.extractAppNameFromFolderId('flux');
-      expect(result).to.equal('');
-    });
   });
 
   describe('getOrCreateHealthStatus', () => {
@@ -78,7 +63,7 @@ describe('syncthingHealthMonitor tests', () => {
         cannotSyncSince: null,
         peersBehindSince: null,
         lastAction: 'none',
-        appWasStopped: false,
+        lastNudgeAt: null,
       });
       expect(result.lastHealthyTimestamp).to.be.a('number');
       expect(cache.has('fluxtest')).to.be.true;
@@ -92,7 +77,7 @@ describe('syncthingHealthMonitor tests', () => {
         peersBehindSince: null,
         lastHealthyTimestamp: 3000,
         lastAction: 'warning',
-        appWasStopped: true,
+        lastNudgeAt: 123,
       };
       cache.set('fluxtest', existingStatus);
 
@@ -108,8 +93,8 @@ describe('syncthingHealthMonitor tests', () => {
         cannotSyncSince: 2000,
         peersBehindSince: 3000,
         lastHealthyTimestamp: 4000,
-        lastAction: 'stopped',
-        appWasStopped: true,
+        lastAction: 'nudged',
+        lastNudgeAt: Date.now(),
         lastSyncPercentage: 75,
       };
 
@@ -119,62 +104,10 @@ describe('syncthingHealthMonitor tests', () => {
       expect(status.cannotSyncSince).to.be.null;
       expect(status.peersBehindSince).to.be.null;
       expect(status.lastAction).to.equal('none');
-      expect(status.appWasStopped).to.be.false;
+      expect(status.lastNudgeAt).to.equal(null);
       expect(status.lastHealthyTimestamp).to.be.a('number');
       // Sync tracking fields should persist for future stall detection
       expect(status.lastSyncPercentage).to.equal(75);
-    });
-  });
-
-  describe('shouldRemoveFolder', () => {
-    it('should return false when folder not in cache', () => {
-      const cache = new Map();
-      const result = healthMonitor.shouldRemoveFolder('fluxtest', cache);
-      expect(result).to.be.false;
-    });
-
-    it('should return false when no issues', () => {
-      const cache = new Map();
-      cache.set('fluxtest', {
-        cannotSyncSince: null,
-        peersBehindSince: null,
-      });
-
-      const result = healthMonitor.shouldRemoveFolder('fluxtest', cache);
-      expect(result).to.be.false;
-    });
-
-    it('should return true when cannotSyncSince exceeds threshold', () => {
-      const cache = new Map();
-      cache.set('fluxtest', {
-        cannotSyncSince: Date.now() - constantsMock.HEALTH_REMOVE_THRESHOLD_MS - 1000,
-        peersBehindSince: null,
-      });
-
-      const result = healthMonitor.shouldRemoveFolder('fluxtest', cache);
-      expect(result).to.be.true;
-    });
-
-    it('should return true when peersBehindSince exceeds threshold', () => {
-      const cache = new Map();
-      cache.set('fluxtest', {
-        cannotSyncSince: null,
-        peersBehindSince: Date.now() - constantsMock.HEALTH_REMOVE_THRESHOLD_MS - 1000,
-      });
-
-      const result = healthMonitor.shouldRemoveFolder('fluxtest', cache);
-      expect(result).to.be.true;
-    });
-
-    it('should return false when issues are below threshold', () => {
-      const cache = new Map();
-      cache.set('fluxtest', {
-        cannotSyncSince: Date.now() - 1000,
-        peersBehindSince: Date.now() - 2000,
-      });
-
-      const result = healthMonitor.shouldRemoveFolder('fluxtest', cache);
-      expect(result).to.be.false;
     });
   });
 
@@ -187,8 +120,7 @@ describe('syncthingHealthMonitor tests', () => {
         totalFolders: 0,
         healthy: 0,
         warning: 0,
-        stopped: 0,
-        removed: 0,
+        nudged: 0,
         issues: [],
       });
     });
@@ -226,19 +158,18 @@ describe('syncthingHealthMonitor tests', () => {
         isolatedSince: null,
         cannotSyncSince: null,
         peersBehindSince: null,
-        lastAction: 'stopped',
+        lastAction: 'nudged',
       });
       cache.set('fluxtest3', {
         isolatedSince: null,
         cannotSyncSince: null,
         peersBehindSince: null,
-        lastAction: 'removed',
+        lastAction: 'warning',
       });
 
       const result = healthMonitor.getHealthSummary(cache);
-      expect(result.warning).to.equal(1);
-      expect(result.stopped).to.equal(1);
-      expect(result.removed).to.equal(1);
+      expect(result.warning).to.equal(2);
+      expect(result.nudged).to.equal(1);
     });
 
     it('should track folders with issues', () => {
@@ -907,16 +838,18 @@ describe('syncthingHealthMonitor tests', () => {
       expect(result.foldersHealthy).to.equal(1);
     });
 
-    it('should restart syncthing after restart threshold', async () => {
+    it('should never restart syncthing however long a folder cannot sync', async () => {
+      // A process restart drops every folder's transfers node-wide and fixes
+      // nothing a device-level nudge doesn't (verified live); with all the folder's
+      // peers DISCONNECTED there is nothing to nudge either - alert and wait.
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
       mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
-        cannotSyncSince: Date.now() - constantsMock.HEALTH_RESTART_SYNCTHING_THRESHOLD_MS - 1000,
+        cannotSyncSince: Date.now() - 24 * 60 * 60 * 1000, // a full day
         peersBehindSince: null,
-        lastHealthyTimestamp: Date.now() - constantsMock.HEALTH_RESTART_SYNCTHING_THRESHOLD_MS - 1000,
-        lastAction: 'stopped',
-        appWasStopped: true,
+        lastHealthyTimestamp: Date.now() - 24 * 60 * 60 * 1000,
+        lastAction: 'warning',
         lastSyncPercentage: null,
       });
 
@@ -933,118 +866,90 @@ describe('syncthingHealthMonitor tests', () => {
         summary: { connectedPeers: ['peer1'], totalFolders: 1 },
       });
 
-      syncthingServiceMock.systemRestart.resolves();
-
-      const result = await healthMonitor.monitorFolderHealth({
+      await healthMonitor.monitorFolderHealth({
         foldersConfiguration: mockFoldersConfiguration,
         folderHealthCache: mockFolderHealthCache,
-        appDockerStopFn,
-        appDockerStartFn,
-        removeAppLocallyFn,
         state: mockState,
         receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
       });
 
-      expect(result.actions).to.have.length(1);
-      expect(result.actions[0].action).to.equal('restart_syncthing');
-      expect(syncthingServiceMock.systemRestart.calledOnce).to.be.true;
+      sinon.assert.notCalled(syncthingServiceMock.systemRestart);
+      sinon.assert.notCalled(stateMachineMock.nudgeFolderDevices);
     });
 
-    it('should only restart syncthing once when multiple folders need restart', async () => {
-      mockFoldersConfiguration = [{ id: 'fluxapp1' }, { id: 'fluxapp2' }, { id: 'fluxapp3' }];
-      mockReceiveOnlySyncthingAppsCache.set('fluxapp1', { restarted: true });
-      mockReceiveOnlySyncthingAppsCache.set('fluxapp2', { restarted: true });
-      mockReceiveOnlySyncthingAppsCache.set('fluxapp3', { restarted: true });
-
-      // All three folders have issues exceeding restart threshold
-      const restartTime = Date.now() - constantsMock.HEALTH_RESTART_SYNCTHING_THRESHOLD_MS - 1000;
-      mockFolderHealthCache.set('fluxapp1', {
+    it('should nudge the folder devices when peers are ahead and we make no progress', async () => {
+      mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
+      mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
-        cannotSyncSince: restartTime,
-        peersBehindSince: null,
-        lastHealthyTimestamp: restartTime,
-        lastAction: 'stopped',
-        appWasStopped: false,
-        lastSyncPercentage: null,
-      });
-      mockFolderHealthCache.set('fluxapp2', {
-        isolatedSince: null,
-        cannotSyncSince: restartTime,
-        peersBehindSince: null,
-        lastHealthyTimestamp: restartTime,
-        lastAction: 'stopped',
-        appWasStopped: false,
-        lastSyncPercentage: null,
-      });
-      mockFolderHealthCache.set('fluxapp3', {
-        isolatedSince: null,
-        cannotSyncSince: restartTime,
-        peersBehindSince: null,
-        lastHealthyTimestamp: restartTime,
-        lastAction: 'stopped',
-        appWasStopped: false,
-        lastSyncPercentage: null,
+        cannotSyncSince: null,
+        peersBehindSince: Date.now() - constantsMock.HEALTH_NUDGE_THRESHOLD_MS - 1000,
+        lastHealthyTimestamp: Date.now() - constantsMock.HEALTH_NUDGE_THRESHOLD_MS - 1000,
+        lastAction: 'warning',
+        lastSyncPercentage: 50,
       });
 
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
         folders: {
-          fluxapp1: {
-            canSync: false,
-            peersAreMoreUpdated: false,
-            peerStatuses: [{ connected: false }],
+          fluxmyapp: {
+            canSync: true,
+            peersAreMoreUpdated: true,
+            peerStatuses: [{ connected: true }],
             localStatus: { syncPercentage: 50, state: 'idle' },
-            issues: [{ message: 'disconnected' }],
-          },
-          fluxapp2: {
-            canSync: false,
-            peersAreMoreUpdated: false,
-            peerStatuses: [{ connected: false }],
-            localStatus: { syncPercentage: 50, state: 'idle' },
-            issues: [{ message: 'disconnected' }],
-          },
-          fluxapp3: {
-            canSync: false,
-            peersAreMoreUpdated: false,
-            peerStatuses: [{ connected: false }],
-            localStatus: { syncPercentage: 50, state: 'idle' },
-            issues: [{ message: 'disconnected' }],
+            issues: [],
           },
         },
-        summary: { connectedPeers: ['peer1'], totalFolders: 3 },
+        summary: { connectedPeers: ['peer1'], totalFolders: 1 },
       });
-
-      syncthingServiceMock.systemRestart.resolves();
 
       const result = await healthMonitor.monitorFolderHealth({
         foldersConfiguration: mockFoldersConfiguration,
         folderHealthCache: mockFolderHealthCache,
-        appDockerStopFn,
-        appDockerStartFn,
-        removeAppLocallyFn,
         state: mockState,
         receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
       });
 
-      // Should have 3 actions (one restart, two skipped)
-      expect(result.actions).to.have.length(3);
+      sinon.assert.calledOnceWithExactly(stateMachineMock.nudgeFolderDevices, 'fluxmyapp');
+      sinon.assert.notCalled(syncthingServiceMock.systemRestart);
+      expect(result.actions).to.have.length(1);
+      expect(result.actions[0].action).to.equal('nudge');
+      expect(mockFolderHealthCache.get('fluxmyapp').lastAction).to.equal('nudged');
+    });
 
-      // First folder should trigger actual restart
-      expect(result.actions[0].action).to.equal('restart_syncthing');
-      expect(result.actions[0].folderId).to.equal('fluxapp1');
+    it('should not nudge again before the nudge interval elapses', async () => {
+      mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
+      mockFolderHealthCache.set('fluxmyapp', {
+        isolatedSince: null,
+        cannotSyncSince: null,
+        peersBehindSince: Date.now() - constantsMock.HEALTH_NUDGE_THRESHOLD_MS - 1000,
+        lastHealthyTimestamp: Date.now() - constantsMock.HEALTH_NUDGE_THRESHOLD_MS - 1000,
+        lastAction: 'nudged',
+        lastNudgeAt: Date.now() - 60 * 1000, // nudged a minute ago
+        lastSyncPercentage: 50,
+      });
 
-      // Second and third should be skipped
-      expect(result.actions[1].action).to.equal('restart_syncthing_skipped');
-      expect(result.actions[1].folderId).to.equal('fluxapp2');
-      expect(result.actions[2].action).to.equal('restart_syncthing_skipped');
-      expect(result.actions[2].folderId).to.equal('fluxapp3');
+      syncthingServiceMock.getPeerSyncDiagnostics.resolves({
+        folders: {
+          fluxmyapp: {
+            canSync: true,
+            peersAreMoreUpdated: true,
+            peerStatuses: [{ connected: true }],
+            localStatus: { syncPercentage: 50, state: 'idle' },
+            issues: [],
+          },
+        },
+        summary: { connectedPeers: ['peer1'], totalFolders: 1 },
+      });
 
-      // systemRestart should only be called once, not three times
-      expect(syncthingServiceMock.systemRestart.calledOnce).to.be.true;
+      await healthMonitor.monitorFolderHealth({
+        foldersConfiguration: mockFoldersConfiguration,
+        folderHealthCache: mockFolderHealthCache,
+        state: mockState,
+        receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
+      });
 
-      // All folders should be marked as restarted
-      expect(mockFolderHealthCache.get('fluxapp1').lastAction).to.equal('restarted_syncthing');
-      expect(mockFolderHealthCache.get('fluxapp2').lastAction).to.equal('restarted_syncthing');
-      expect(mockFolderHealthCache.get('fluxapp3').lastAction).to.equal('restarted_syncthing');
+      sinon.assert.notCalled(stateMachineMock.nudgeFolderDevices);
     });
 
     it('should skip soft redeploy in progress', async () => {
@@ -1118,16 +1023,18 @@ describe('syncthingHealthMonitor tests', () => {
       expect(result.actions[0].action).to.equal('warning');
     });
 
-    it('should take stop action after stop threshold', async () => {
+    it('should never stop the app container (container actuation is not the sync watchdog\'s job)', async () => {
+      // Stopping here is also unrecorded drift the reconciler would immediately
+      // undo (it restarts containers whose desired state is running) - the two
+      // actors would fight. Alert instead.
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
       mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
-        cannotSyncSince: Date.now() - constantsMock.HEALTH_STOP_THRESHOLD_MS - 1000,
+        cannotSyncSince: Date.now() - constantsMock.HEALTH_NUDGE_THRESHOLD_MS - 1000,
         peersBehindSince: null,
-        lastHealthyTimestamp: Date.now() - constantsMock.HEALTH_STOP_THRESHOLD_MS - 1000,
+        lastHealthyTimestamp: Date.now() - constantsMock.HEALTH_NUDGE_THRESHOLD_MS - 1000,
         lastAction: 'warning',
-        appWasStopped: false,
       });
 
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
@@ -1143,7 +1050,7 @@ describe('syncthingHealthMonitor tests', () => {
         summary: { connectedPeers: ['peer1'], totalFolders: 1 },
       });
 
-      const result = await healthMonitor.monitorFolderHealth({
+      await healthMonitor.monitorFolderHealth({
         foldersConfiguration: mockFoldersConfiguration,
         folderHealthCache: mockFolderHealthCache,
         appDockerStopFn,
@@ -1153,12 +1060,10 @@ describe('syncthingHealthMonitor tests', () => {
         receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
       });
 
-      expect(result.actions).to.have.length(1);
-      expect(result.actions[0].action).to.equal('stop');
-      expect(appDockerStopFn.calledOnce).to.be.true;
+      sinon.assert.notCalled(appDockerStopFn);
     });
 
-    it('should restart app when issues resolve after being stopped', async () => {
+    it('should not start containers when issues resolve (nothing was stopped)', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
       mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       mockFolderHealthCache.set('fluxmyapp', {
@@ -1166,8 +1071,8 @@ describe('syncthingHealthMonitor tests', () => {
         cannotSyncSince: null,
         peersBehindSince: null,
         lastHealthyTimestamp: Date.now() - 10000,
-        lastAction: 'stopped',
-        appWasStopped: true,
+        lastAction: 'nudged',
+        lastNudgeAt: Date.now() - 10000,
       });
 
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
@@ -1193,21 +1098,23 @@ describe('syncthingHealthMonitor tests', () => {
         receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
       });
 
-      expect(result.actions).to.have.length(1);
-      expect(result.actions[0].action).to.equal('restart_app');
-      expect(appDockerStartFn.calledOnce).to.be.true;
+      sinon.assert.notCalled(appDockerStartFn);
+      expect(result.foldersHealthy).to.equal(1);
+      expect(mockFolderHealthCache.get('fluxmyapp').lastAction).to.equal('none');
     });
 
-    it('should remove app after remove threshold', async () => {
+    it('should never remove an app however long the issue persists (removal is not the sync watchdog\'s call)', async () => {
+      // Removing a RUNNING app because its peers are unreachable destroys the
+      // healthiest copy of the data. Rebalancing decisions belong to the
+      // election/reconciler designs, with evidence - never to a timeout here.
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
       mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
-        cannotSyncSince: Date.now() - constantsMock.HEALTH_REMOVE_THRESHOLD_MS - 1000,
+        cannotSyncSince: Date.now() - 7 * 24 * 60 * 60 * 1000, // a week
         peersBehindSince: null,
-        lastHealthyTimestamp: Date.now() - constantsMock.HEALTH_REMOVE_THRESHOLD_MS - 1000,
-        lastAction: 'restarted_syncthing',
-        appWasStopped: false,
+        lastHealthyTimestamp: Date.now() - 7 * 24 * 60 * 60 * 1000,
+        lastAction: 'warning',
       });
 
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
@@ -1223,7 +1130,7 @@ describe('syncthingHealthMonitor tests', () => {
         summary: { connectedPeers: ['peer1'], totalFolders: 1 },
       });
 
-      const result = await healthMonitor.monitorFolderHealth({
+      await healthMonitor.monitorFolderHealth({
         foldersConfiguration: mockFoldersConfiguration,
         folderHealthCache: mockFolderHealthCache,
         appDockerStopFn,
@@ -1233,10 +1140,7 @@ describe('syncthingHealthMonitor tests', () => {
         receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
       });
 
-      expect(result.actions).to.have.length(1);
-      expect(result.actions[0].action).to.equal('remove');
-      expect(removeAppLocallyFn.calledOnce).to.be.true;
-      expect(removeAppLocallyFn.calledWith('myapp', null, true, false, true)).to.be.true;
+      sinon.assert.notCalled(removeAppLocallyFn);
     });
 
     it('should clean up cache for folders that no longer exist', async () => {
