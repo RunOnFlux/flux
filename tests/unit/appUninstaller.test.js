@@ -401,6 +401,173 @@ describe('appUninstaller tests', () => {
     });
   });
 
+  describe('component-removed seam (controller-state cleanup)', () => {
+    // Contract: when a component is removed locally, ALL its node-local controller
+    // state dies with it - the durable runtime state (appsRuntimeState.remove,
+    // already wired) AND the reconciler's in-memory controllerDesired verdict.
+    // The verdict clear flows through a callback seam (setOnComponentRemoved,
+    // wired in serviceManager) because appReconciler already requires
+    // appUninstaller - a back-require would capture a stale partial export.
+    // The seam fires over exactly the identifier list the uninstaller computes:
+    // after successful teardown only (failed removals clear nothing), on forced
+    // and unforced paths alike.
+    let runtimeStateStub;
+
+    function buildUninstaller(spec) {
+      runtimeStateStub = { remove: sinon.stub().resolves() };
+      return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        config: configStub,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../serviceHelper': {
+          ensureString: sinon.stub().returnsArg(0),
+          ensureBoolean: sinon.stub().returnsArg(0),
+          ensureNumber: sinon.stub().returnsArg(0),
+          delay: sinon.stub().resolves(),
+        },
+        '../dbHelper': {
+          databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+          findOneInDatabase: sinon.stub().resolves(spec),
+          findInDatabase: sinon.stub().resolves([]),
+          findOneAndDeleteInDatabase: sinon.stub().resolves(),
+        },
+        '../dockerService': {
+          appDockerKill: sinon.stub().resolves(),
+          appDockerStop: sinon.stub().resolves(),
+          appDockerRemove: sinon.stub().resolves(),
+          appDockerForceRemove: sinon.stub().resolves(),
+          appDockerImageRemove: sinon.stub().resolves(),
+          getAppIdentifier: sinon.stub().callsFake((id) => `flux${id}`),
+          getBaseAppName: sinon.stub().callsFake((id) => id),
+          removeFluxAppDockerNetwork: sinon.stub().resolves(),
+          forceRemoveFluxAppDockerNetwork: sinon.stub().resolves(),
+        },
+        '../../lib/log': logStub,
+        '../utils/globalState': {
+          removalInProgress: false,
+          runningAppsCache: new Map(),
+        },
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
+          config: configStub,
+        }),
+        './advancedWorkflows': {
+          reindexGlobalAppsInformation: sinon.stub().resolves(),
+          updateAppSpecsForRestoredNode: sinon.stub().resolves(),
+          checkAndNotifyPeersOfRunningApps: sinon.stub().resolves(),
+          stopSyncthingApp: sinon.stub().resolves(),
+        },
+        '../upnpService': {
+          removeMapUpnpPort: sinon.stub().resolves(),
+          isUPNP: sinon.stub().returns(false),
+        },
+        '../fluxNetworkHelper': {
+          closeConnection: sinon.stub().resolves(),
+          isFirewallActive: sinon.stub().resolves(false),
+          allowPort: sinon.stub().resolves(true),
+          deleteAllowPortRule: sinon.stub().resolves(true),
+          getLocalSocketAddress: sinon.stub().resolves(null),
+        },
+        '../fluxCommunicationMessagesSender': {
+          broadcastMessageToOutgoing: sinon.stub().resolves(),
+          broadcastMessageToIncoming: sinon.stub().resolves(),
+          broadcastMessageToAll: sinon.stub().resolves(),
+        },
+        '../appDatabase/registryManager': {
+          availableApps: sinon.stub().resolves([]),
+        },
+        '../utils/enterpriseHelper': {
+          checkAndDecryptAppSpecs: sinon.stub().returnsArg(0),
+        },
+        '../utils/appSpecHelpers': {
+          specificationFormatter: sinon.stub().returnsArg(0),
+        },
+        '../appManagement/appInspector': {
+          stopAppMonitoring: sinon.stub().resolves(),
+        },
+        '../appManagement/appsRuntimeState': runtimeStateStub,
+        'node-cmd': { run: sinon.stub().callsFake((cmd, cb) => cb(null, '', '')) },
+      });
+    }
+
+    const v2Spec = {
+      version: 2,
+      name: 'testapp',
+      repotag: 'test/app',
+      ports: [30000],
+      containerPorts: [7396],
+      domains: [''],
+      cpu: 0.5,
+      ram: 500,
+      hdd: 5,
+    };
+
+    const composedSpec = {
+      version: 6,
+      name: 'testapp',
+      compose: [
+        {
+          name: 'comp1', repotag: 'test/one', ports: [30001], containerPorts: [3001], domains: [''], cpu: 0.5, ram: 500, hdd: 5,
+        },
+        {
+          name: 'comp2', repotag: 'test/two', ports: [30002], containerPorts: [3002], domains: [''], cpu: 0.5, ram: 500, hdd: 5,
+        },
+      ],
+    };
+
+    const res = null; // exercised without a response stream
+
+    it('notifies the seam with the bare name for a v1-3 app', async () => {
+      const uninstaller = buildUninstaller(v2Spec);
+      const onRemoved = sinon.stub();
+      uninstaller.setOnComponentRemoved(onRemoved);
+
+      await uninstaller.removeAppLocally('testapp', res, true);
+
+      sinon.assert.calledOnceWithExactly(onRemoved, 'testapp');
+    });
+
+    it('notifies the seam once per component for a whole composed app', async () => {
+      const uninstaller = buildUninstaller(composedSpec);
+      const onRemoved = sinon.stub();
+      uninstaller.setOnComponentRemoved(onRemoved);
+
+      await uninstaller.removeAppLocally('testapp', res, true);
+
+      sinon.assert.calledTwice(onRemoved);
+      sinon.assert.calledWithExactly(onRemoved, 'comp1_testapp');
+      sinon.assert.calledWithExactly(onRemoved, 'comp2_testapp');
+    });
+
+    it('scopes the seam to the one component on a component-scoped removal', async () => {
+      const uninstaller = buildUninstaller(composedSpec);
+      const onRemoved = sinon.stub();
+      uninstaller.setOnComponentRemoved(onRemoved);
+
+      await uninstaller.removeAppLocally('comp1_testapp', res, true);
+
+      sinon.assert.calledOnceWithExactly(onRemoved, 'comp1_testapp');
+    });
+
+    it('pairs the seam with the durable runtime-state clear (same identifiers)', async () => {
+      const uninstaller = buildUninstaller(composedSpec);
+      const onRemoved = sinon.stub();
+      uninstaller.setOnComponentRemoved(onRemoved);
+
+      await uninstaller.removeAppLocally('testapp', res, true);
+
+      expect(runtimeStateStub.remove.args.map((a) => a[0])).to.deep.equal(onRemoved.args.map((a) => a[0]));
+    });
+
+    it('completes removal when no seam callback is registered', async () => {
+      const uninstaller = buildUninstaller(v2Spec);
+
+      await uninstaller.removeAppLocally('testapp', res, true);
+
+      sinon.assert.calledOnceWithExactly(runtimeStateStub.remove, 'testapp');
+      sinon.assert.notCalled(logStub.error);
+    });
+  });
+
   describe('softRemoveAppLocally tests', () => {
     it('should throw error if app name is not specified', async () => {
       const res = {

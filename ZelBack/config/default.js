@@ -124,6 +124,10 @@ module.exports = {
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
     latestSupportedSpecVersion: 8, // version changes on app updates must target this version
+    // reconciler crash-recovery backoff: ladder of waits between restart attempts,
+    // and the run length that counts as stable (resets the ladder)
+    crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
+    crashBackoffStableRunMs: 600000,
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.

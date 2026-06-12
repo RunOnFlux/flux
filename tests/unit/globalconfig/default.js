@@ -113,6 +113,8 @@ module.exports = {
   deterministicNodesStart: 558000,
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
+    crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
+    crashBackoffStableRunMs: 600000,
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.

@@ -200,11 +200,17 @@ async function dockerActual(identifier) {
   try {
     const info = await dockerService.dockerContainerInspect(identifier);
     const everRan = info.State && info.State.Status !== 'created';
+    // docker's record of the last death - the truth even when the die event was
+    // missed (reboot, FluxOS restart, stream gap). Zero value (0001-01-01) means
+    // the container never finished.
+    const finishedParsed = Date.parse(info.State?.FinishedAt ?? '');
+    const finishedAt = Number.isFinite(finishedParsed) && finishedParsed > 0 ? finishedParsed : null;
     return {
       reachable: true,
       exists: true,
       running: !!(info.State && info.State.Running),
       exitCode: everRan ? (info.State.ExitCode ?? null) : null,
+      finishedAt,
     };
   } catch (err) {
     let containers;
@@ -375,7 +381,7 @@ async function reconcile(rawIdentifier) {
 
   // exists but stopped, should run -> backoff-paced restart (no sleeping; the
   // worker re-enqueues when the backoff window elapses)
-  const wait = await appsRuntimeState.restartWaitMs(identifier);
+  const wait = await appsRuntimeState.restartWaitMs(identifier, actual.finishedAt);
   if (wait > 0) {
     log.warn(`appReconciler - ${identifier} stopped, backing off ${Math.round(wait / 1000)}s before restart`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'backoff', waitMs: wait });
@@ -390,8 +396,29 @@ async function reconcile(rawIdentifier) {
   const isComponent = spec.appSpec.version >= 4 && Array.isArray(spec.appSpec.compose);
   await volumeService.ensureMountPathsExist(spec.comp, mainAppName, isComponent, isComponent ? spec.appSpec : null);
 
+  // The controller verdict was sampled at reconcile entry, but the syncthing
+  // decider's stop wrapper runs OUTSIDE this single-flight and may have flipped
+  // it (stop + data wipe) during the awaits above. Re-read at actuation time:
+  // starting onto a folder mid-wipe corrupts the fresh sync. The decider's own
+  // enqueue drives the follow-up reconcile, so aborting here needs no retry.
+  if ((spec.isG || spec.isR) && controllerDesired.get(identifier) !== 'running') {
+    log.info(`appReconciler - ${identifier} controller verdict changed during reconcile, aborting start`);
+    return;
+  }
+
   await appsRuntimeState.recordRestart(identifier);
-  await dockerService.appDockerStart(identifier);
+  try {
+    await dockerService.appDockerStart(identifier);
+  } catch (err) {
+    // No die event fires for a failed start (the container never ran), so a
+    // dropped throw here leaves the component down until the hourly sweep.
+    // Schedule our own retry; pacing is free - the attempt was recorded above,
+    // so a persistent failure walks the backoff ladder instead of hammering.
+    log.error(`appReconciler - failed to start ${identifier}: ${err.message}; retrying`);
+    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'startFailed', reason: err.message });
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
   appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
   log.info(`appReconciler - ${identifier} restarted`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'started', exitCode: actual.exitCode });

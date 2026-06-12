@@ -277,6 +277,50 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.calledOnceWith('db_App')).to.be.true;
     });
 
+    // The controller verdict is sampled at reconcile entry, but the syncthing
+    // decider's stop wrapper runs OUTSIDE the reconciler's single-flight: it can
+    // flip the verdict and begin a data wipe while this reconcile is awaiting
+    // (mount-path recreation, DB reads). The verdict must therefore be re-read at
+    // actuation time - starting onto a folder mid-wipe corrupts the fresh sync.
+    it('aborts the start when the controller verdict flips to stopped mid-reconcile', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'running', 'test');
+      stubs.globalState.bootContainerStateSettled = true;
+      // decider stop+wipe lands during the mount-path await
+      stubs.volumeService.ensureMountPathsExist.callsFake(async () => {
+        appReconciler.setControllerDesired('db_App', 'stopped', 'decider stop+wipe');
+      });
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    it('aborts the start when the controller verdict is cleared mid-reconcile (uninstall seam)', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'running', 'test');
+      stubs.globalState.bootContainerStateSettled = true;
+      stubs.volumeService.ensureMountPathsExist.callsFake(async () => {
+        appReconciler.clearControllerDesired('db_App');
+      });
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    it('does NOT act on a cleared controller verdict (removal seam wipes it)', async () => {
+      // uninstall fires appUninstaller's component-removed seam -> serviceManager
+      // wires it to clearControllerDesired: a reinstalled g: component must await a
+      // fresh election rather than inherit the pre-uninstall verdict
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.setControllerDesired('db_App', 'running', 'test');
+      stubs.globalState.bootContainerStateSettled = true;
+      appReconciler.clearControllerDesired('db_App');
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(stubs.dockerService.appDockerStop.called).to.be.false;
+    });
+
     // the actuation half of the masterSlave standby path: the decider sets a running
     // g: component desired-stopped, the reconciler is what actually stops Docker.
     it('stops a running g: component a controller has set stopped (masterSlave standby)', async () => {
@@ -385,6 +429,58 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
       expect(stubs.appsRuntimeState.recordRestart.called).to.be.false;
+    });
+
+    // No die event fires for a FAILED start (the container never ran), so a start
+    // throw that is merely logged leaves the component down until the hourly
+    // sweep. The failure must schedule its own retry; pacing is free because the
+    // attempt was recorded before the start - the retry walks the ladder.
+    it('schedules its own retry when the start fails (not the hourly sweep)', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      stubs.dockerService.appDockerStart.rejects(new Error('failed to attach network'));
+
+      await appReconciler.reconcile('www_App'); // must not throw
+
+      expect(stubs.dockerService.appDockerStart.callCount).to.equal(1);
+      clock.tick(6000); // past the near-term retry
+      await new Promise((resolve) => { setImmediate(() => { setImmediate(resolve); }); });
+      expect(stubs.dockerService.appDockerStart.callCount).to.equal(2);
+      // each attempt was recorded, so the follow-ups pace via the backoff ladder
+      expect(stubs.appsRuntimeState.recordRestart.callCount).to.equal(2);
+      clock.restore();
+    });
+
+    it('does not schedule a retry after a successful start', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStart.callCount).to.equal(1);
+      clock.tick(60 * 1000);
+      await new Promise((resolve) => { setImmediate(() => { setImmediate(resolve); }); });
+      expect(stubs.dockerService.appDockerStart.callCount).to.equal(1);
+      clock.restore();
+    });
+
+    it('hands docker FinishedAt to the backoff decision (true death time even when the die event was missed)', async () => {
+      const finishedAt = '2026-06-12T08:00:00.000Z';
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: false, Status: 'exited', ExitCode: 1, FinishedAt: finishedAt,
+        },
+      });
+      await appReconciler.reconcile('www_App');
+      sinon.assert.calledWithExactly(stubs.appsRuntimeState.restartWaitMs, 'www_App', Date.parse(finishedAt));
+    });
+
+    it('passes no death evidence for a container that never ran (docker zero FinishedAt)', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: false, Status: 'created', ExitCode: 0, FinishedAt: '0001-01-01T00:00:00Z',
+        },
+      });
+      await appReconciler.reconcile('www_App');
+      sinon.assert.calledWithExactly(stubs.appsRuntimeState.restartWaitMs, 'www_App', null);
     });
   });
 

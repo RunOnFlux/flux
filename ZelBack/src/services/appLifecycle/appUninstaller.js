@@ -29,6 +29,17 @@ const appsFolder = `${appsFolderPath}/`;
 const cmdAsync = util.promisify(nodecmd.run);
 const crontabLoad = util.promisify(systemcrontab.load);
 
+// Fired once per component identifier after a successful local removal, beside
+// the durable runtime-state clear (mirrors appInstaller.setOnInstallComplete).
+// serviceManager wires it to appReconciler.clearControllerDesired so the
+// reconciler's in-memory controller verdict dies with the component - a
+// back-require of appReconciler here would capture a stale partial export
+// (appReconciler already requires this module and both replace module.exports).
+let onComponentRemoved = null;
+function setOnComponentRemoved(callback) {
+  onComponentRemoved = callback;
+}
+
 /**
  * Stop Syncthing app and clean up cache
  * @param {string} monitoredName - Monitored app name
@@ -893,6 +904,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     for (const identifier of removedIdentifiers) {
       // eslint-disable-next-line no-await-in-loop
       await appsRuntimeState.remove(identifier);
+      if (onComponentRemoved) onComponentRemoved(identifier);
     }
 
     fluxEventBus.publish('app:removed', { name: appName });
@@ -1227,4 +1239,5 @@ module.exports = {
   removeAppLocally,
   softRemoveAppLocally,
   removeAppLocallyApi,
+  setOnComponentRemoved,
 };
