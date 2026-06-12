@@ -256,10 +256,13 @@ app.put('/rest/config', (req, res) => {
     state.devices.clear();
     req.body.devices.forEach((d) => state.devices.set(d.deviceID, d));
   }
-  state.restartRequired = true;
   res.json({});
 });
 
+// syncthing v2 applies folder/device/config changes live, so config mutations
+// never flip this flag here — a true would make FluxOS's config-apply path
+// restart syncthing during install, polluting the nudge logs with restarts
+// that real v2 never produces.
 app.get('/rest/config/restart-required', (req, res) => {
   res.json({ requiresRestart: reqState(req).restartRequired });
 });
@@ -277,7 +280,6 @@ app.put('/rest/config/folders', (req, res) => {
   const state = reqState(req);
   const arr = Array.isArray(req.body) ? req.body : [req.body];
   arr.forEach((f) => state.folders.set(f.id, f));
-  state.restartRequired = true;
   res.json({});
 });
 
@@ -290,7 +292,6 @@ app.get('/rest/config/folders/:id', (req, res) => {
 app.put('/rest/config/folders/:id', (req, res) => {
   const state = reqState(req);
   state.folders.set(req.params.id, { ...req.body, id: req.params.id });
-  state.restartRequired = true;
   res.json({});
 });
 
@@ -298,14 +299,12 @@ app.patch('/rest/config/folders/:id', (req, res) => {
   const state = reqState(req);
   const existing = state.folders.get(req.params.id) || { id: req.params.id };
   state.folders.set(req.params.id, { ...existing, ...req.body });
-  state.restartRequired = true;
   res.json({});
 });
 
 app.delete('/rest/config/folders/:id', (req, res) => {
   const state = reqState(req);
   state.folders.delete(req.params.id);
-  state.restartRequired = true;
   res.json({});
 });
 
@@ -320,7 +319,6 @@ app.put('/rest/config/devices', (req, res) => {
   const state = reqState(req);
   const arr = Array.isArray(req.body) ? req.body : [req.body];
   arr.forEach((d) => state.devices.set(d.deviceID, d));
-  state.restartRequired = true;
   res.json({});
 });
 
@@ -333,7 +331,6 @@ app.get('/rest/config/devices/:id', (req, res) => {
 app.put('/rest/config/devices/:id', (req, res) => {
   const state = reqState(req);
   state.devices.set(req.params.id, { ...req.body, deviceID: req.params.id });
-  state.restartRequired = true;
   res.json({});
 });
 
@@ -341,14 +338,12 @@ app.patch('/rest/config/devices/:id', (req, res) => {
   const state = reqState(req);
   const existing = state.devices.get(req.params.id) || { deviceID: req.params.id };
   state.devices.set(req.params.id, { ...existing, ...req.body });
-  state.restartRequired = true;
   res.json({});
 });
 
 app.delete('/rest/config/devices/:id', (req, res) => {
   const state = reqState(req);
   state.devices.delete(req.params.id);
-  state.restartRequired = true;
   res.json({});
 });
 
