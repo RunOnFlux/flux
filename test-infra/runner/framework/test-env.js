@@ -128,13 +128,6 @@ class StaticIpContainer extends GenericContainer {
     // Tag with this run's label so run-all.sh's between-suite cleanup can scope
     // removal to its own fleet (see runLabels()).
     this.createOpts.Labels = { ...(this.createOpts.Labels || {}), ...runLabels() };
-    // Container names stay random (dockerd's choice) ON PURPOSE. A live FluxOS
-    // on the harness host owns BOTH name spaces: containers NOT named zel*/flux*
-    // are stopped by its 2-hourly stopAllNonFluxRunningApps sweep (killed a
-    // fleet mid-boot in the 2026-06-12 gate), and flux*/zel* names are adopted
-    // by its crash recovery (observed restarting a deliberately stopped fleet
-    // node within 1.3s and racing suite teardowns). No name escapes both, so
-    // run-all.sh refuses to start while a host FluxOS is active instead.
     if (this.#staticIp && this.#networkName) {
       this.createOpts.NetworkingConfig = {
         EndpointsConfig: {
