@@ -16,6 +16,25 @@ set -uo pipefail
 
 cd "$(dirname "$0")" || exit 99
 
+# A live FluxOS on this host owns BOTH container-name spaces: anything NOT
+# named zel*/flux* is stopped by its 2-hourly stopAllNonFluxRunningApps sweep
+# (killed suite 28's fleet mid-boot in the 2026-06-12 gate), and flux*/zel*
+# names are adopted by its containerCrashRecovery (observed restarting a
+# deliberately stopped fleet node within 1.3s). No container name escapes
+# both, so refuse to run beside it. The watchdog must be down too or it just
+# restarts fluxos mid-run:
+#   sudo systemctl stop flux-watchdog.timer flux-watchdog.service fluxos.service
+if [ -z "${E2E_ALLOW_HOST_FLUXOS:-}" ]; then
+  for unit in fluxos.service flux-watchdog.timer flux-watchdog.service; do
+    if systemctl is-active --quiet "$unit" 2>/dev/null; then
+      echo "###ABORT host FluxOS is running ($unit is active) - it stops/adopts harness containers."
+      echo "Stop it for the run:  sudo systemctl stop flux-watchdog.timer flux-watchdog.service fluxos.service"
+      echo "Or set E2E_ALLOW_HOST_FLUXOS=1 to run anyway."
+      exit 97
+    fi
+  done
+fi
+
 LOG_DIR="${E2E_LOG_DIR:-/tmp/e2e-logs}"
 SUITE_GLOB="${SUITE_GLOB:-tests/*.js}"
 SUITE_TIMEOUT_MS="${SUITE_TIMEOUT_MS:-300000}"

@@ -38,6 +38,20 @@ set -o pipefail   # NOTE: deliberately NOT `set -u` — empty associative-array
 cd "$(dirname "$0")" || exit 99
 RUNNER="$PWD/run-all.sh"
 
+# Same host-FluxOS guard as run-all.sh (which every suite also runs through) -
+# checked here too so the gate fails in one second instead of launching 48
+# suites that each abort individually. See run-all.sh for the full rationale.
+if [ -z "${E2E_ALLOW_HOST_FLUXOS:-}" ]; then
+  for unit in fluxos.service flux-watchdog.timer flux-watchdog.service; do
+    if systemctl is-active --quiet "$unit" 2>/dev/null; then
+      echo "###ABORT host FluxOS is running ($unit is active) - it stops/adopts harness containers."
+      echo "Stop it for the run:  sudo systemctl stop flux-watchdog.timer flux-watchdog.service fluxos.service"
+      echo "Or set E2E_ALLOW_HOST_FLUXOS=1 to run anyway."
+      exit 97
+    fi
+  done
+fi
+
 LOGROOT="${E2E_LOG_DIR:-/tmp/e2e-logs}"
 MAXN="${MAXN:-3}"
 MIN_FREE_MB="${MIN_FREE_MB:-15000}"

@@ -5,7 +5,6 @@ process.env.TESTCONTAINERS_HOST_OVERRIDE ??= '127.0.0.1';
 process.env.TESTCONTAINERS_RYUK_RECONNECTION_TIMEOUT ??= '5s';
 
 import { GenericContainer, Network, Wait, getContainerRuntimeClient } from 'testcontainers';
-import { randomBytes } from 'node:crypto';
 import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -129,12 +128,13 @@ class StaticIpContainer extends GenericContainer {
     // Tag with this run's label so run-all.sh's between-suite cleanup can scope
     // removal to its own fleet (see runLabels()).
     this.createOpts.Labels = { ...(this.createOpts.Labels || {}), ...runLabels() };
-    // Name with a flux prefix instead of dockerd's random name: a live FluxOS on
-    // the harness host stops every container NOT named zel*/flux* every 2 hours
-    // (appController stopAllNonFluxRunningApps) — it killed a fleet mid-boot in
-    // the 2026-06-12 gate. The prefix exempts harness containers from that sweep;
-    // cleanup scoping stays label-based, never name-based.
-    this.createOpts.name ??= `fluxe2e-${randomBytes(6).toString('hex')}`;
+    // Container names stay random (dockerd's choice) ON PURPOSE. A live FluxOS
+    // on the harness host owns BOTH name spaces: containers NOT named zel*/flux*
+    // are stopped by its 2-hourly stopAllNonFluxRunningApps sweep (killed a
+    // fleet mid-boot in the 2026-06-12 gate), and flux*/zel* names are adopted
+    // by its crash recovery (observed restarting a deliberately stopped fleet
+    // node within 1.3s and racing suite teardowns). No name escapes both, so
+    // run-all.sh refuses to start while a host FluxOS is active instead.
     if (this.#staticIp && this.#networkName) {
       this.createOpts.NetworkingConfig = {
         EndpointsConfig: {
