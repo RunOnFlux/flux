@@ -48,30 +48,30 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     await bootAndPeer(env);
     await resetSyncState();
 
+    // Seed each app and IMMEDIATELY pin its settle state (BEFORE seeding the
+    // next), so the monitor's first promote-eligible cycle sees not-synced + no
+    // source (waits) rather than the stub default (0/0 -> vacuous synced ->
+    // premature promote). Batching the state after both seeds races the promote.
+    //
+    // The settle state: not synced (needBytes>0), no connected source. A fresh
+    // app's first pass runs handleNewApp (cleans the folder to sync from
+    // scratch); once in cache every cycle is handleReceiveOnlyTransition, which
+    // here only waits. The legs plant data AFTER this — present at revert time,
+    // preserved across the FluxOS restart by handleFirstRun (the production B1
+    // state: a node holding the only copy whose peers haven't reconnected).
     aEmpty = await seedSyncthingApp(env, {
       name: appEmpty, mode: 'r', forceNonLeader: true, index: 0,
     });
+    await setSyncState({ ip: subnet.nodeIp(aEmpty.index + 1), folder: aEmpty.folder, state: 'idle', globalBytes: 100000, inSyncBytes: 40000, receiveOnlyChangedFiles: 0 });
+    await setPeerDisconnected({ ip: subnet.nodeIp(aEmpty.index + 1), folder: aEmpty.folder });
+
     aPart = await seedSyncthingApp(env, {
       name: appPart, mode: 'r', forceNonLeader: true, index: 1,
     });
+    await setSyncState({ ip: subnet.nodeIp(aPart.index + 1), folder: aPart.folder, state: 'idle', globalBytes: 100000, inSyncBytes: 40000, receiveOnlyChangedFiles: 0 });
+    await setPeerDisconnected({ ip: subnet.nodeIp(aPart.index + 1), folder: aPart.folder });
 
-    // Settle each subject into the in-cache, receive-only WAITING state first:
-    // not synced (needBytes>0) with NO connected source. A fresh app's first
-    // monitor pass runs handleNewApp, which CLEANS the folder to sync from
-    // scratch — so planting before that would just be wiped. Once in cache,
-    // every cycle is handleReceiveOnlyTransition, which here only waits (no
-    // promote: not synced; no revert: revert is on the isSynced branch). The
-    // legs plant data AFTER this, so it is present at revert time — the
-    // handleFirstRun preserve-state B1 hits in production (reboot holding the
-    // only copy), reproduced without a full node restart.
-    for (const a of [aEmpty, aPart]) {
-      const ip = subnet.nodeIp(a.index + 1);
-      // eslint-disable-next-line no-await-in-loop
-      await setSyncState({ ip, folder: a.folder, state: 'idle', globalBytes: 100000, inSyncBytes: 40000, receiveOnlyChangedFiles: 0 });
-      // eslint-disable-next-line no-await-in-loop
-      await setPeerDisconnected({ ip, folder: a.folder });
-    }
-    // let handleNewApp clean + the FSM reach the waiting state (≈6 monitor cycles)
+    // let handleNewApp clean + the FSM reach the receiveonly waiting state
     await new Promise((r) => setTimeout(r, 18000)); // eslint-disable-line no-promise-executor-return
   });
 
