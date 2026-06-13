@@ -485,6 +485,37 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
     });
 
+    // B1 guard on the cold-start seed: a node holding its OWN data (preserved local
+    // changes) on an empty global must WAIT for a connected source - never seed. Seeding
+    // would promote unverified data, and a db/revert would delete the only copy. Even as
+    // the lowest IP (which would win the seed election) and with a running peer present,
+    // holding local data forces it to defer and take no action.
+    it('does not seed on an empty global when it holds local data, even as the lowest IP', async () => {
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5, // leadership would be confirmed if it elected itself
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }, // self, lowest IP
+        { ip: '10.0.0.2:16127', runningSince: 2000, broadcastedAt: 1000 }, // a running peer
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 2,
+        },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      // never seeds/promotes, never reverts the only copy - just waits, receiveonly
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
+      sinon.assert.notCalled(syncthingServiceMock.dbRevert);
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted).to.not.equal(true);
+    });
+
     it('should NOT promote when the revert of local changes fails', async () => {
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,

@@ -203,21 +203,21 @@ async function getFolderSyncCompletion(folderId) {
  * @param {string} localSocketAddr - The current node's IP address
  * @returns {boolean} True if this node is the designated leader
  */
-function isDesignatedLeader(allPeersList, localSocketAddr, aPeerHasData = true) {
+function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers = true) {
   if (!allPeersList || allPeersList.length === 0) {
     return false; // Be conservative - wait for peers to broadcast
   }
 
-  // Defer to a peer that is ALREADY serving the data - but only when one genuinely
-  // holds it (aPeerHasData). runningSince is broadcast on PLACEMENT, not liveness, so
-  // on a fresh multi-node deploy every holder carries it before anyone has started;
-  // deferring on runningSince alone would make every node defer to every other and
-  // NOBODY would seed (the cold-start standoff - the app never starts). When no peer
-  // actually holds the data this is a true cold start, so fall through to the
-  // deterministic election below and let exactly one node (the tiebreaker winner) seed.
+  // Defer to a peer that is ALREADY running rather than seed - UNLESS this is a safe
+  // cold start (deferToRunningPeers=false: no peer serves the data AND this node holds
+  // none of its own). runningSince is broadcast on PLACEMENT, not liveness, so on a fresh
+  // multi-node deploy every holder carries it before anyone has started; deferring on
+  // runningSince alone would make every node defer to every other and NOBODY would seed
+  // (the cold-start standoff - the app never starts). On a true cold start we fall through
+  // to the deterministic election below and let exactly one node (lowest IP) seed.
   const runningPeers = allPeersList.filter((peer) => peer.runningSince && !socketAddressesMatch(peer.ip, localSocketAddr));
-  if (aPeerHasData && runningPeers.length > 0) {
-    return false; // a real source is serving - sync from it instead of seeding
+  if (deferToRunningPeers && runningPeers.length > 0) {
+    return false; // defer - a real source is serving, or we hold data to protect
   }
 
   // Special case: single peer deployment
@@ -472,22 +472,32 @@ async function handleReceiveOnlyTransition(params) {
   // cold start - nobody serving - must still elect one seed instead of standing off)
   // and is reused by the stall ladder below, so it is computed once per cycle here.
   const aPeerHasData = await checkIfPeersAreSynced(appId);
+  // Read the local sync status once here (reused by the stall ladder below). A node may
+  // only cold-start SEED - promote an empty folder without a sync check - when it holds
+  // NOTHING: no global, no synced bytes, no receive-only local changes. A node holding
+  // ANY data must instead wait for a connected source; seeding/promoting it on an empty
+  // global is the B1 hazard (promote unverified data, or db/revert deletes the only
+  // copy). An unreadable status (null) counts as "holds data" - never seed without
+  // positive evidence the folder is empty.
+  const syncStatus = await getFolderSyncCompletion(appId);
+  const folderIsEmpty = !!syncStatus && syncStatus.globalBytes === 0
+    && syncStatus.inSyncBytes === 0 && (syncStatus.receiveOnlyChangedFiles || 0) === 0;
   // Designated-leader election, debounced: require leadership to hold for
-  // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility
-  // blip doesn't flip a follower to leader. (The stall ladder below never stops the
-  // container before its atomic removal decision, so leadership needs no recovery
-  // suppression - a confirmed leader simply starts; that is the cold-start fallback.)
-  const electedLeader = isDesignatedLeader(runningAppList, localSocketAddr, aPeerHasData);
+  // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility blip
+  // doesn't flip a follower to leader. Defer to a running peer UNLESS this is a true,
+  // safe cold start (no peer serving AND this node holds no data) - then elect one seed.
+  const electedLeader = isDesignatedLeader(runningAppList, localSocketAddr, aPeerHasData || !folderIsEmpty);
   cache.leaderStreak = electedLeader ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
 
   // RESIDUAL LIMITATION: a confirmed leader is the cold-start seed and flips to
   // sendreceive WITHOUT a sync check - it cannot verify against a source because it IS
-  // the source. The aPeerHasData gate above means we only seed when NO connected peer
-  // serves the data, so we never overwrite a reachable source; but a peer holding newer
-  // data while DISCONNECTED is not "serving", so the elected seed can still become
-  // authoritative and overwrite that peer's data when it returns. Fully closing this
-  // needs version-aware selection (or FDM for g:) - a separate change, out of scope here.
+  // the source. The gate above only seeds when NO connected peer serves the data AND
+  // this node holds no data of its own, so we never overwrite a reachable source nor
+  // promote a node's own preserved copy; but a peer holding newer data while DISCONNECTED
+  // is not "serving" and an empty local folder cannot know of it, so a fresh seed could
+  // still win over that peer's data when it returns. Fully closing this needs
+  // version-aware selection (or FDM for g:) - a separate change, out of scope here.
   if (isLeader) {
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers, confirmed ${cache.leaderStreak}x), starting immediately`);
 
@@ -505,8 +515,7 @@ async function handleReceiveOnlyTransition(params) {
     return { syncthingFolder, cache };
   }
 
-  // Not the leader - check sync status
-  const syncStatus = await getFolderSyncCompletion(appId);
+  // Not the leader - syncStatus already read above
   syncthingFolder.type = 'receiveonly';
   cache.numberOfExecutions = (cache.numberOfExecutions || 0) + 1;
 
