@@ -289,9 +289,6 @@ async function recreateMissing(identifier) {
   const mainAppName = identifier.split('_')[1] || identifier;
 
   await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
-  // record the bring-up attempt on the shared ladder so a repeated vanish paces
-  // exactly like a repeated crash (see the missing-path backoff in reconcile)
-  await appsRuntimeState.recordRestart(identifier);
   try {
     await containerHealthMonitor.recreateMissingContainers(identifier);
     appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
@@ -417,16 +414,6 @@ async function reconcile(rawIdentifier) {
   if (actual.running) return; // already where we want it
 
   if (!actual.exists) {
-    // a repeatedly-vanishing container draws from the SAME backoff ladder as a
-    // crashing one, so neither path can recreate/restart faster than the ladder
-    // allows (first vanish: empty history -> 0 wait -> recreate immediately)
-    const recreateWait = await appsRuntimeState.restartWaitMs(identifier, actual.finishedAt);
-    if (recreateWait > 0) {
-      log.warn(`appReconciler - ${identifier} missing, backing off ${Math.round(recreateWait / 1000)}s before recreate`);
-      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'backoff', waitMs: recreateWait });
-      scheduleRetry(identifier, recreateWait);
-      return;
-    }
     await recreateMissing(identifier);
     return;
   }

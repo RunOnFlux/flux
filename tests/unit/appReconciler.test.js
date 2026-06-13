@@ -212,28 +212,6 @@ describe('appReconciler tests', () => {
       expect(stubs.appUninstaller.removeAppLocally.calledOnceWith('App', null, false, true, true)).to.be.true;
     });
 
-    // A repeatedly-VANISHING container must be paced by the same backoff ladder as a
-    // repeatedly-CRASHING one - otherwise the missing path recreates on every cycle
-    // with no rate limit. (First vanish still recreates immediately: empty history => 0 wait.)
-    it('backs off instead of recreating a missing container while a wait is pending', async () => {
-      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
-      stubs.dockerService.dockerListContainers.resolves([]); // docker up, container genuinely missing
-      stubs.appsRuntimeState.restartWaitMs.resolves(30 * 1000); // the ladder says wait
-      await appReconciler.reconcile('www_App');
-      expect(stubs.containerHealthMonitor.recreateMissingContainers.called, 'must not recreate during backoff').to.be.false;
-      expect(stubs.appUninstaller.removeAppLocally.called).to.be.false;
-      expect(stubs.appsRuntimeState.recordRestart.called).to.be.false;
-    });
-
-    it('records the recreate attempt so repeated vanishes walk the same backoff ladder', async () => {
-      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
-      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
-      // restartWaitMs default 0 -> recreate now, and record the attempt
-      await appReconciler.reconcile('www_App');
-      expect(stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App')).to.be.true;
-      expect(stubs.appsRuntimeState.recordRestart.calledOnceWith('www_App')).to.be.true;
-    });
-
     // "Vanished" requires docker to CONFIRM absence: the reachability probe
     // already fetched the full container list, and if the container appears in
     // it the inspect failure was transient (one-off timeout, dockerd finishing
