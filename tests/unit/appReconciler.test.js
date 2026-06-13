@@ -54,6 +54,8 @@ describe('appReconciler tests', () => {
       containerHealthMonitor: { recreateMissingContainers: sinon.stub().resolves() },
       appUninstaller: { removeAppLocally: sinon.stub().resolves() },
       appTamperingDetectionService: { recordEvent: sinon.stub().resolves(), isNetworkMissingError: () => false },
+      dockerOperations: { appDeleteDataInMountPoint: sinon.stub().resolves() },
+      serviceHelper: { delay: sinon.stub().resolves() },
     };
 
     appReconciler = proxyquire('../../ZelBack/src/services/appMonitoring/appReconciler', {
@@ -68,6 +70,8 @@ describe('appReconciler tests', () => {
       './containerHealthMonitor': stubs.containerHealthMonitor,
       '../appLifecycle/appUninstaller': stubs.appUninstaller,
       '../appTamperingDetectionService': stubs.appTamperingDetectionService,
+      '../appManagement/dockerOperations': stubs.dockerOperations,
+      '../serviceHelper': stubs.serviceHelper,
       '../utils/appConstants': { localAppsInformation: 'zelappsinformation' },
     });
   });
@@ -206,6 +210,28 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'recreation_failed')).to.be.true;
       expect(stubs.appUninstaller.removeAppLocally.calledOnceWith('App', null, false, true, true)).to.be.true;
+    });
+
+    // A repeatedly-VANISHING container must be paced by the same backoff ladder as a
+    // repeatedly-CRASHING one - otherwise the missing path recreates on every cycle
+    // with no rate limit. (First vanish still recreates immediately: empty history => 0 wait.)
+    it('backs off instead of recreating a missing container while a wait is pending', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerListContainers.resolves([]); // docker up, container genuinely missing
+      stubs.appsRuntimeState.restartWaitMs.resolves(30 * 1000); // the ladder says wait
+      await appReconciler.reconcile('www_App');
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.called, 'must not recreate during backoff').to.be.false;
+      expect(stubs.appUninstaller.removeAppLocally.called).to.be.false;
+      expect(stubs.appsRuntimeState.recordRestart.called).to.be.false;
+    });
+
+    it('records the recreate attempt so repeated vanishes walk the same backoff ladder', async () => {
+      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+      // restartWaitMs default 0 -> recreate now, and record the attempt
+      await appReconciler.reconcile('www_App');
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App')).to.be.true;
+      expect(stubs.appsRuntimeState.recordRestart.calledOnceWith('www_App')).to.be.true;
     });
 
     // "Vanished" requires docker to CONFIRM absence: the reachability probe
@@ -481,6 +507,81 @@ describe('appReconciler tests', () => {
       });
       await appReconciler.reconcile('www_App');
       sinon.assert.calledWithExactly(stubs.appsRuntimeState.restartWaitMs, 'www_App', null);
+    });
+  });
+
+  // The sync layer's first-run / new-app reset was previously an imperative
+  // stop+rm-rf done OUTSIDE the reconciler's single-flight, so a backoff-elapsed
+  // start could land in the wipe window and corrupt fresh data (the S1 data-loss
+  // race). The wipe is now declared as desired data-state and actuated by the
+  // reconciler - the sole container/data actuator - inside the per-key single-
+  // flight, which makes start-into-wipe structurally impossible.
+  describe('data-clear (sync-layer wipe via the reconciler)', () => {
+    // requestStopAndClearData is wired with the flux-prefixed docker name (the form
+    // the syncthing flow uses); the reconciler keys state by the bare component id
+    // and re-prefixes for the on-disk wipe path.
+    it('wipes local appdata (prefixed path) and does not start, on a clear request', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
+      stubs.globalState.bootContainerStateSettled = true;
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnceWith('fluxdb_App')).to.be.true;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    // The structural guarantee: even with a contradictory running verdict, the
+    // pending clear is resolved before the run decision in the SAME single-flight,
+    // so a start can never race the wipe.
+    it('never starts while a clear is pending, even if the controller says running', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
+      appReconciler.setControllerDesired('fluxdb_App', 'running', 'contrived contradiction');
+      stubs.globalState.bootContainerStateSettled = true;
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.true;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    it('stops a running container before wiping (no rm -rf under a live container)', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing reset');
+      stubs.globalState.bootContainerStateSettled = true;
+      await appReconciler.reconcile('db_App');
+      expect(stubs.dockerService.appDockerStop.calledWith('db_App')).to.be.true;
+      sinon.assert.callOrder(stubs.dockerService.appDockerStop, stubs.dockerOperations.appDeleteDataInMountPoint);
+    });
+
+    it('is one-shot: wipes first, then the next reconcile starts once the verdict is running', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
+      // sync layer has already confirmed a source and elected running; the pending
+      // clear must still win the first pass
+      appReconciler.setControllerDesired('fluxdb_App', 'running', 'syncthing synced');
+      stubs.globalState.bootContainerStateSettled = true;
+
+      await appReconciler.reconcile('db_App'); // clear wins -> wipes, no start
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnce).to.be.true;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+
+      await appReconciler.reconcile('db_App'); // flag cleared -> now starts
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('db_App')).to.be.true;
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnce).to.be.true; // no second wipe
+    });
+
+    it('keys the clear per-component (clearing one app does not wipe another)', async () => {
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.requestStopAndClearData('fluxdb_App', 'reset db');
+      appReconciler.setControllerDesired('fluxweb_Other', 'running', 'synced');
+      stubs.globalState.bootContainerStateSettled = true;
+      localSpec = { name: 'Other', version: 4, compose: [{ name: 'web', containerData: 'r:/data' }] };
+      await appReconciler.reconcile('web_Other');
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('web_Other')).to.be.true;
     });
   });
 

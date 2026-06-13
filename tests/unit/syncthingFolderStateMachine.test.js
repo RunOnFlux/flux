@@ -30,7 +30,11 @@ const nodecmdMock = {
   run: sinon.stub(),
 };
 
-const appReconcilerMock = { setControllerDesired: sinon.stub(), enqueue: sinon.stub() };
+const appReconcilerMock = {
+  setControllerDesired: sinon.stub(),
+  requestStopAndClearData: sinon.stub(),
+  enqueue: sinon.stub(),
+};
 const appUninstallerMock = { removeAppLocally: sinon.stub().resolves() };
 
 // Load module with mocked dependencies
@@ -67,6 +71,9 @@ describe('syncthingFolderStateMachine tests', () => {
     nodecmdMock.run.reset();
     appUninstallerMock.removeAppLocally.reset();
     appUninstallerMock.removeAppLocally.resolves();
+    appReconcilerMock.setControllerDesired.reset();
+    appReconcilerMock.requestStopAndClearData.reset();
+    appReconcilerMock.enqueue.reset();
 
     // Mock successful file system operations for safety checks
     // This makes verifyFolderMountSafety return isSafe: true
@@ -268,9 +275,6 @@ describe('syncthingFolderStateMachine tests', () => {
         receiveOnlySyncthingAppsCache: new Map(),
         appLocation: sinon.stub().resolves([]),
         localSocketAddr: '10.0.0.1:16127',
-        appDockerStopFn: sinon.stub().resolves(),
-        appDockerRestartFn: sinon.stub().resolves(),
-        appDeleteDataInMountPointFn: sinon.stub().resolves(),
         syncthingFolder: {
           id: 'test-app',
           type: 'sendreceive',
@@ -298,8 +302,9 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.numberOfExecutions).to.equal(1);
-      sinon.assert.calledOnce(mockParams.appDockerStopFn);
-      sinon.assert.calledOnce(mockParams.appDeleteDataInMountPointFn);
+      // the stop+wipe is now declared to the reconciler (the sole actuator), not done
+      // imperatively here - so a start can never race the wipe (S1)
+      sinon.assert.calledOnceWithExactly(appReconcilerMock.requestStopAndClearData, 'test-app', sinon.match.string);
     });
 
     it('should handle first run with existing receiveonly folder', async () => {
@@ -329,7 +334,8 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('sendreceive');
       expect(result.cache.restarted).to.be.true;
-      sinon.assert.calledOnce(mockParams.appDockerRestartFn);
+      // the start is now declared to the reconciler, not done imperatively here
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
     });
 
     it('should not self-promote to leader on a single observation (debounce)', async () => {
@@ -350,7 +356,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
-      sinon.assert.notCalled(mockParams.appDockerRestartFn);
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
       expect(result.cache.restarted).to.not.equal(true);
       expect(result.cache.leaderStreak).to.equal(1);
     });
@@ -375,7 +381,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
-      sinon.assert.calledOnce(mockParams.appDockerRestartFn);
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
       expect(result.syncthingFolder.type).to.equal('sendreceive');
       expect(result.cache.restarted).to.be.true;
       sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
@@ -428,7 +434,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('sendreceive');
       expect(result.cache.restarted).to.be.true;
-      sinon.assert.calledOnce(mockParams.appDockerRestartFn);
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
     });
 
     // Contract: a receive-only folder with LOCAL changes must never be promoted to
@@ -463,7 +469,7 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.calledOnceWithExactly(syncthingServiceMock.dbRevert, 'test-app');
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.be.false;
-      sinon.assert.notCalled(mockParams.appDockerRestartFn);
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
     });
 
     it('should NOT promote when the revert of local changes fails', async () => {
@@ -491,7 +497,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.be.false;
-      sinon.assert.notCalled(mockParams.appDockerRestartFn);
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
     });
 
     it('should let the leader promote without reverting (its local data is the seed)', async () => {
@@ -519,7 +525,7 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.syncthingFolder.type).to.equal('sendreceive');
       expect(result.cache.restarted).to.be.true;
       sinon.assert.notCalled(syncthingServiceMock.dbRevert);
-      sinon.assert.calledOnce(mockParams.appDockerRestartFn);
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
     });
 
     it('should NOT start on unsynced data while sync is still progressing (no force-start)', async () => {
@@ -547,7 +553,7 @@ describe('syncthingFolderStateMachine tests', () => {
       // unsynced data to peers
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.not.equal(true);
-      sinon.assert.notCalled(mockParams.appDockerRestartFn);
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
     });
 
     it('should skip processing on first encounter when not first run and syncFolder exists', async () => {
@@ -569,8 +575,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.numberOfExecutions).to.equal(1);
-      sinon.assert.calledOnce(mockParams.appDockerStopFn);
-      sinon.assert.calledOnce(mockParams.appDeleteDataInMountPointFn);
+      sinon.assert.calledOnceWithExactly(appReconcilerMock.requestStopAndClearData, 'test-app', sinon.match.string);
     });
 
     it('should process skipped app on second encounter', async () => {
@@ -582,7 +587,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.numberOfExecutions).to.equal(1);
-      sinon.assert.calledOnce(mockParams.appDockerStopFn);
+      sinon.assert.calledOnceWithExactly(appReconcilerMock.requestStopAndClearData, 'test-app', sinon.match.string);
     });
 
     it('never force-starts when sync status is unavailable (stays receiveonly on unverified data)', async () => {
@@ -603,7 +608,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       // cannot verify the data is synced -> must not flip to sendreceive or start, and
       // must not remove yet (well under the removal threshold on the first unreadable cycle)
-      sinon.assert.notCalled(mockParams.appDockerRestartFn);
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
       sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.not.equal(true);
@@ -657,7 +662,7 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.calledOnce(syncthingServiceMock.systemResume);
       expect(syncthingServiceMock.systemResume.firstCall.args[0].params.device).to.equal('DEVICE123');
       sinon.assert.notCalled(syncthingServiceMock.systemRestart);
-      sinon.assert.notCalled(mockParams.appDockerStopFn);
+      sinon.assert.notCalled(appReconcilerMock.requestStopAndClearData);
       sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
       expect(result.cache.nudgeCount).to.equal(1);
       expect(result.syncthingFolder.type).to.equal('receiveonly');
@@ -680,6 +685,9 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache.nudgeCount).to.equal(0);
       expect(result.cache.evidenceSince).to.equal(null);
       expect(result.cache.lastProgressBytes).to.equal(500);
+      // lastNudgeAt is part of the stall state machine and must reset with its
+      // siblings on progress - leaving it stale is an incoherent half-reset
+      expect(result.cache.lastNudgeAt).to.equal(null);
     });
 
     it('should take no action while the folder state is active, even with flat bytes', async () => {
@@ -693,7 +701,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       sinon.assert.notCalled(syncthingServiceMock.systemPause);
       sinon.assert.notCalled(syncthingServiceMock.systemRestart);
-      sinon.assert.notCalled(mockParams.appDockerStopFn);
+      sinon.assert.notCalled(appReconcilerMock.requestStopAndClearData);
       sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
       expect(result.syncthingFolder.type).to.equal('receiveonly');
     });
@@ -736,7 +744,7 @@ describe('syncthingFolderStateMachine tests', () => {
 
       sinon.assert.calledOnceWithExactly(appUninstallerMock.removeAppLocally, 'test-app', null, true, false, true);
       sinon.assert.notCalled(syncthingServiceMock.systemRestart);
-      sinon.assert.notCalled(mockParams.appDockerStopFn);
+      sinon.assert.notCalled(appReconcilerMock.requestStopAndClearData);
       expect(result.cache.restarted).to.be.true;
     });
 
@@ -867,6 +875,76 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.notCalled(appUninstallerMock.removeAppLocally);
       expect(result.cache.restarted).to.be.false;
       expect(result.syncthingFolder.type).to.equal('receiveonly');
+    });
+  });
+
+  // The nudge pauses then resumes each DEVICE the folder shares with (source-
+  // confirmed device-level pause: /rest/system/pause?device= drops that device's
+  // connection - so the pause briefly affects every folder shared with that peer).
+  // The resume MUST therefore always run once a pause succeeded: a device left
+  // paused stays disconnected, silently degrading its folders until some unrelated
+  // later nudge happens to resume it. (Folder-level pause cannot substitute - our
+  // POC proved it does not cure the inert no-retry stall; only device pause does.)
+  describe('nudgeFolderDevices', () => {
+    function folderWithDevices(...deviceIds) {
+      syncthingServiceMock.getConfig.resolves({
+        status: 'success',
+        data: { folders: [{ id: 'test-app', devices: deviceIds.map((deviceID) => ({ deviceID })) }] },
+      });
+    }
+
+    it('pauses then resumes each device the folder shares with', async () => {
+      folderWithDevices('DEVICE_A', 'DEVICE_B');
+
+      await stateMachine.nudgeFolderDevices('test-app');
+
+      sinon.assert.calledTwice(syncthingServiceMock.systemPause);
+      sinon.assert.calledTwice(syncthingServiceMock.systemResume);
+      sinon.assert.callOrder(syncthingServiceMock.systemPause, syncthingServiceMock.systemResume);
+    });
+
+    // The fix: resume must run even when something between the pause and the resume
+    // throws (here the inter-step delay). Without the finally, a paused device is
+    // never resumed - it stays disconnected.
+    it('still resumes the device when the inter-step delay throws', async () => {
+      folderWithDevices('DEVICE_A');
+      serviceHelperMock.delay.rejects(new Error('interrupted'));
+
+      await stateMachine.nudgeFolderDevices('test-app');
+
+      sinon.assert.calledOnce(syncthingServiceMock.systemPause);
+      sinon.assert.calledOnce(syncthingServiceMock.systemResume);
+    });
+
+    it('does not throw when the resume itself fails (it was still attempted)', async () => {
+      folderWithDevices('DEVICE_A');
+      syncthingServiceMock.systemResume.rejects(new Error('syncthing api down'));
+
+      await stateMachine.nudgeFolderDevices('test-app'); // must not reject
+
+      sinon.assert.calledOnce(syncthingServiceMock.systemResume);
+    });
+
+    it('does not resume a device whose pause failed (nothing to undo)', async () => {
+      folderWithDevices('DEVICE_A');
+      syncthingServiceMock.systemPause.rejects(new Error('pause failed'));
+
+      await stateMachine.nudgeFolderDevices('test-app');
+
+      sinon.assert.notCalled(syncthingServiceMock.systemResume);
+    });
+
+    it('resumes a later device even if an earlier device resume throws', async () => {
+      folderWithDevices('DEVICE_A', 'DEVICE_B');
+      // first resume (DEVICE_A) throws; DEVICE_B must still be paused AND resumed
+      syncthingServiceMock.systemResume.onFirstCall().rejects(new Error('blip'));
+      syncthingServiceMock.systemResume.resolves({ status: 'success' });
+
+      await stateMachine.nudgeFolderDevices('test-app');
+
+      sinon.assert.calledTwice(syncthingServiceMock.systemPause);
+      sinon.assert.calledTwice(syncthingServiceMock.systemResume);
+      expect(syncthingServiceMock.systemResume.secondCall.args[0].params.device).to.equal('DEVICE_B');
     });
   });
 });

@@ -120,9 +120,6 @@ async function processContainerData(params) {
     folderIds,
     foldersConfiguration,
     newFoldersConfiguration,
-    appDockerStopFn,
-    appDockerRestartFn,
-    appDeleteDataInMountPointFn,
   } = params;
 
   const containersData = containerData.split('|');
@@ -176,9 +173,6 @@ async function processContainerData(params) {
       receiveOnlySyncthingAppsCache: state.receiveOnlySyncthingAppsCache,
       appLocation,
       localSocketAddr,
-      appDockerStopFn,
-      appDockerRestartFn,
-      appDeleteDataInMountPointFn,
       syncthingFolder,
       installedAppName,
     });
@@ -278,12 +272,9 @@ async function logSyncState(foldersConfiguration) {
  * @param {object} state - State object
  * @param {Function} installedAppsFn - Get installed apps function
  * @param {Function} getGlobalStateFn - Get global state function
- * @param {Function} appDockerStopFn - Stop docker function
- * @param {Function} appDockerRestartFn - Restart docker function
- * @param {Function} appDeleteDataInMountPointFn - Delete data function
  * @returns {Promise<void>}
  */
-async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDockerStopFn, appDockerRestartFn, appDeleteDataInMountPointFn) {
+async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
   // Sync global state before checking
   getGlobalStateFn();
 
@@ -414,9 +405,6 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
       folderIds,
       foldersConfiguration,
       newFoldersConfiguration,
-      appDockerStopFn,
-      appDockerRestartFn,
-      appDeleteDataInMountPointFn,
     };
 
     // Process all installed apps
@@ -578,12 +566,9 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
  * @param {object} state - State object
  * @param {Function} installedAppsFn - Get installed apps function
  * @param {Function} getGlobalStateFn - Get global state function
- * @param {Function} appDockerStopFn - Stop docker function
- * @param {Function} appDockerRestartFn - Restart docker function
- * @param {Function} appDeleteDataInMountPointFn - Delete data function
  * @returns {Object} Control object with stop() method
  */
-function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDockerStopFn, appDockerRestartFn, appDeleteDataInMountPointFn) {
+function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
   let intervalId = null;
   let isRunning = false;
 
@@ -599,9 +584,6 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDockerStopFn
         state,
         installedAppsFn,
         getGlobalStateFn,
-        appDockerStopFn,
-        appDockerRestartFn,
-        appDeleteDataInMountPointFn,
       );
     } catch (error) {
       log.error(`syncthingApps - Unexpected error in monitoring loop: ${error.message}`);

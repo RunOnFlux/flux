@@ -14,7 +14,6 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
 const appController = require('./appManagement/appController');
-const dockerOperations = require('./appManagement/dockerOperations');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
 const appInspector = require('./appManagement/appInspector');
@@ -474,20 +473,14 @@ async function startFluxFunctions() {
     // decider self-gates per cycle on its own prerequisites (mounts, syncthing health,
     // own-IP, FDM), so an early start is safe - it skips and retries until ready.
     globalState.waitForBootContainerStateSettled().then(() => {
+      // The syncthing decider is declare-only: it writes desired run-state and
+      // data-state (via appReconciler) and enqueues; the reconciler is the sole
+      // actuator that stops, starts, and wipes - inside its per-key single-flight,
+      // so a start can never race a data wipe.
       syncthingMonitor.syncthingApps(
         globalState,
         appQueryService.installedApps,
         () => globalState,
-        // stop: record the desired run-state, then really stop synchronously so
-        // the folder data wipe that follows happens on a stopped container
-        async (id) => {
-          appReconciler.setControllerDesired(id, 'stopped', 'syncthing sync');
-          await dockerService.appDockerStop(id);
-        },
-        // start: hand the run-state to the reconciler (the single actuator);
-        // permissions are already fixed by the state machine before this point
-        async (id) => { appReconciler.setControllerDesired(id, 'running', 'syncthing synced'); },
-        dockerOperations.appDeleteDataInMountPoint,
       ); // rechecks syncthing configuration each cycle
       // masterSlave self-gates on syncthingAppsFirstRun (the syncthing monitor's
       // first-run mount-safety must complete before any g: election), so it starts

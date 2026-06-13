@@ -250,26 +250,23 @@ async function handleFirstRun(params) {
   const {
     appId,
     syncFolder,
-    containerDataFlags,
-    appDockerStopFn,
-    appDeleteDataInMountPointFn,
     syncthingFolder,
     receiveOnlySyncthingAppsCache,
   } = params;
 
   if (!syncFolder) {
-    // No sync folder exists - clean install
-    log.info(`handleFirstRun - First run, no sync folder - stopping and cleaning ${appId}`);
+    // No sync folder exists - clean install. Declare the stop + local appdata clear
+    // to the reconciler (the sole container/data actuator) so the wipe runs inside
+    // its per-key single-flight and a start can never race it (the S1 data-loss
+    // window the old imperative stop+rm-rf left open).
+    log.info(`handleFirstRun - First run, no sync folder - requesting stop + clean of ${appId}`);
     syncthingFolder.type = 'receiveonly';
     const cache = { numberOfExecutions: 1 };
 
-    // Set cache BEFORE stopping/deleting to prevent race condition
+    // Set cache BEFORE requesting the reset to prevent re-processing as "new"
     receiveOnlySyncthingAppsCache.set(appId, cache);
 
-    await appDockerStopFn(appId);
-    await serviceHelper.delay(OPERATION_DELAY_MS);
-    await appDeleteDataInMountPointFn(appId);
-    await serviceHelper.delay(OPERATION_DELAY_MS);
+    appReconciler.requestStopAndClearData(appId, 'syncthing first-run clean install');
 
     return { syncthingFolder, cache };
   }
@@ -314,8 +311,6 @@ async function handleFirstRun(params) {
 async function handleSkippedAppSecondEncounter(params) {
   const {
     appId,
-    appDockerStopFn,
-    appDeleteDataInMountPointFn,
     syncthingFolder,
     receiveOnlySyncthingAppsCache,
   } = params;
@@ -324,13 +319,11 @@ async function handleSkippedAppSecondEncounter(params) {
   syncthingFolder.type = 'receiveonly';
   const cache = { numberOfExecutions: 1 };
 
-  // Set cache BEFORE stopping/deleting to prevent race condition
+  // Set cache BEFORE requesting the reset to prevent re-processing as "new"
   receiveOnlySyncthingAppsCache.set(appId, cache);
 
-  await appDockerStopFn(appId);
-  await serviceHelper.delay(OPERATION_DELAY_MS);
-  await appDeleteDataInMountPointFn(appId);
-  await serviceHelper.delay(OPERATION_DELAY_MS);
+  // stop + local appdata clear is declared to the reconciler (the sole actuator)
+  appReconciler.requestStopAndClearData(appId, 'syncthing skipped-app second encounter');
 
   return { syncthingFolder, cache };
 }
@@ -426,15 +419,29 @@ async function nudgeFolderDevices(folderId) {
     if (!folder) return;
     // eslint-disable-next-line no-restricted-syntax
     for (const device of folder.devices || []) {
+      let paused = false;
       try {
         // eslint-disable-next-line no-await-in-loop
         await syncthingService.systemPause({ params: { device: device.deviceID }, query: {} }, null);
+        paused = true;
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(OPERATION_DELAY_MS);
-        // eslint-disable-next-line no-await-in-loop
-        await syncthingService.systemResume({ params: { device: device.deviceID }, query: {} }, null);
       } catch (error) {
-        log.warn(`nudgeFolderDevices - ${folderId}: pause/resume of device ${device.deviceID.substring(0, 7)} failed: ${error.message}`);
+        log.warn(`nudgeFolderDevices - ${folderId}: pause of device ${device.deviceID.substring(0, 7)} failed: ${error.message}`);
+      } finally {
+        // Resume is mandatory once a pause landed: the pause dropped this device's
+        // connection (device-level, source-confirmed), so leaving it paused keeps
+        // it disconnected and silently degrades every folder shared with it until
+        // some unrelated later nudge happens to resume it. A failed resume is the
+        // genuinely dangerous outcome - log it loudly.
+        if (paused) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await syncthingService.systemResume({ params: { device: device.deviceID }, query: {} }, null);
+          } catch (error) {
+            log.error(`nudgeFolderDevices - ${folderId}: RESUME of device ${device.deviceID.substring(0, 7)} FAILED - device left paused (its connection stays suspended): ${error.message}`);
+          }
+        }
       }
     }
   } catch (error) {
@@ -454,7 +461,6 @@ async function handleReceiveOnlyTransition(params) {
     runningAppList,
     localSocketAddr,
     containerDataFlags,
-    appDockerRestartFn,
     syncthingFolder,
   } = params;
 
@@ -486,8 +492,8 @@ async function handleReceiveOnlyTransition(params) {
     syncthingFolder.type = 'sendreceive';
 
     if (containerDataFlags.includes('r')) {
-      log.info(`handleReceiveOnlyTransition - starting ${appId}`);
-      await appDockerRestartFn(appId);
+      log.info(`handleReceiveOnlyTransition - requesting start of ${appId} (leader)`);
+      appReconciler.setControllerDesired(appId, 'running', 'syncthing leader start');
     }
 
     cache.restarted = true;
@@ -528,8 +534,8 @@ async function handleReceiveOnlyTransition(params) {
       await fixAppdataPermissions(appId);
       syncthingFolder.type = 'sendreceive';
       if (containerDataFlags.includes('r')) {
-        log.info(`handleReceiveOnlyTransition - starting ${appId}`);
-        await appDockerRestartFn(appId);
+        log.info(`handleReceiveOnlyTransition - requesting start of ${appId} (synced)`);
+        appReconciler.setControllerDesired(appId, 'running', 'syncthing synced start');
       }
       cache.restarted = true;
       return { syncthingFolder, cache };
@@ -554,6 +560,7 @@ async function handleReceiveOnlyTransition(params) {
       cache.lastProgressAt = now;
       cache.nudgeCount = 0;
       cache.evidenceSince = null;
+      cache.lastNudgeAt = null;
       return { syncthingFolder, cache };
     }
 
@@ -621,25 +628,20 @@ async function handleReceiveOnlyTransition(params) {
 async function handleNewApp(params) {
   const {
     appId,
-    appDockerStopFn,
-    appDeleteDataInMountPointFn,
     syncthingFolder,
     receiveOnlySyncthingAppsCache,
   } = params;
 
-  log.info(`handleNewApp - ${appId} NOT in cache. stopping and cleaning ${appId}`);
+  log.info(`handleNewApp - ${appId} NOT in cache. requesting stop + clean of ${appId}`);
   syncthingFolder.type = 'receiveonly';
   const cache = { numberOfExecutions: 1 };
 
-  // Set cache BEFORE stopping/deleting to prevent race condition
-  // This matches the old code behavior and ensures subsequent monitoring
-  // cycles don't re-process this app as "new"
+  // Set cache BEFORE requesting the reset so subsequent monitoring cycles don't
+  // re-process this app as "new"
   receiveOnlySyncthingAppsCache.set(appId, cache);
 
-  await appDockerStopFn(appId);
-  await serviceHelper.delay(OPERATION_DELAY_MS);
-  await appDeleteDataInMountPointFn(appId);
-  await serviceHelper.delay(OPERATION_DELAY_MS);
+  // stop + local appdata clear is declared to the reconciler (the sole actuator)
+  appReconciler.requestStopAndClearData(appId, 'syncthing new app clean install');
 
   return { syncthingFolder, cache };
 }
@@ -679,9 +681,6 @@ async function manageFolderSyncState(params) {
     receiveOnlySyncthingAppsCache,
     appLocation,
     localSocketAddr,
-    appDockerStopFn,
-    appDockerRestartFn,
-    appDeleteDataInMountPointFn,
     syncthingFolder,
     installedAppName,
   } = params;
@@ -728,9 +727,6 @@ async function manageFolderSyncState(params) {
     const result = await handleFirstRun({
       appId,
       syncFolder,
-      containerDataFlags,
-      appDockerStopFn,
-      appDeleteDataInMountPointFn,
       syncthingFolder,
       receiveOnlySyncthingAppsCache,
     });
@@ -743,8 +739,6 @@ async function manageFolderSyncState(params) {
   if (cache?.firstEncounterSkipped) {
     const result = await handleSkippedAppSecondEncounter({
       appId,
-      appDockerStopFn,
-      appDeleteDataInMountPointFn,
       syncthingFolder,
       receiveOnlySyncthingAppsCache,
     });
@@ -760,9 +754,6 @@ async function manageFolderSyncState(params) {
       runningAppList,
       localSocketAddr,
       containerDataFlags,
-      appDockerRestartFn,
-      appDockerStopFn,
-      appDeleteDataInMountPointFn,
       syncthingFolder,
     });
     return result;
@@ -776,8 +767,6 @@ async function manageFolderSyncState(params) {
       log.info(`manageFolderSyncState - ${appId} NOT in cache but syncFolder doesn't exist, treating as new app installation`);
       const result = await handleNewApp({
         appId,
-        appDockerStopFn,
-        appDeleteDataInMountPointFn,
         syncthingFolder,
         receiveOnlySyncthingAppsCache,
       });
@@ -795,8 +784,6 @@ async function manageFolderSyncState(params) {
     // First run and not in cache - clean install
     const result = await handleNewApp({
       appId,
-      appDockerStopFn,
-      appDeleteDataInMountPointFn,
       syncthingFolder,
       receiveOnlySyncthingAppsCache,
     });
