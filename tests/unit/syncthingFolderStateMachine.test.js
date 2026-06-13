@@ -120,6 +120,32 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result).to.be.false;
     });
 
+    it('elects the deterministic winner on a cold start when peers carry placement runningSince but none serves data', () => {
+      // Every holder broadcasts runningSince on placement (not liveness). With no peer
+      // actually serving the data (aPeerHasData=false) the election must NOT defer on
+      // runningSince - else every node defers to every other and nobody seeds. It falls
+      // through to the deterministic tiebreaker so EXACTLY ONE node (lowest IP) seeds.
+      const peers = [
+        { ip: '10.0.0.1:16127', runningSince: 2000, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: 2000, broadcastedAt: 1000 },
+        { ip: '10.0.0.3:16127', runningSince: 2000, broadcastedAt: 1000 },
+      ];
+
+      expect(stateMachine.isDesignatedLeader(peers, '10.0.0.1:16127', false)).to.be.true;
+      expect(stateMachine.isDesignatedLeader(peers, '10.0.0.2:16127', false)).to.be.false;
+      expect(stateMachine.isDesignatedLeader(peers, '10.0.0.3:16127', false)).to.be.false;
+    });
+
+    it('still defers to a running peer that genuinely serves the data (aPeerHasData=true)', () => {
+      const peers = [
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: 2000, broadcastedAt: 1000 },
+      ];
+
+      // a real source is serving - never seed, sync from it (even as the lowest IP)
+      expect(stateMachine.isDesignatedLeader(peers, '10.0.0.1:16127', true)).to.be.false;
+    });
+
     it('should return true for single peer deployment', () => {
       const peers = [{ ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }];
 
