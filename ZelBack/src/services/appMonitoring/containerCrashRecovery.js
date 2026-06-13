@@ -38,12 +38,6 @@ function isFluxContainer(name) {
   return name.startsWith('flux') || name.startsWith('zel');
 }
 
-function getComponentIdentifier(containerName) {
-  if (containerName.startsWith('flux')) return containerName.substring(4);
-  if (containerName.startsWith('zel')) return containerName.substring(3);
-  return containerName;
-}
-
 async function handleContainerDie(event) {
   const containerName = event.Actor?.Attributes?.name;
   if (!containerName || !isFluxContainer(containerName)) return;
@@ -59,12 +53,13 @@ async function handleContainerDie(event) {
   }
 
   const exitCode = parseInt(event.Actor?.Attributes?.exitCode, 10);
-  const identifier = getComponentIdentifier(containerName);
 
+  // Pass the raw docker name; recordExit and enqueue both canonicalise to the bare
+  // component id (single strip, one place), exactly like every other enqueue caller.
   // best-effort diagnostics; the reconciler reads the authoritative exit code
   // from Docker, so a failure here (e.g. DB not ready during boot) is harmless
-  await appsRuntimeState.recordExit(identifier, Number.isNaN(exitCode) ? null : exitCode);
-  appReconciler.enqueue(identifier);
+  await appsRuntimeState.recordExit(containerName, Number.isNaN(exitCode) ? null : exitCode);
+  appReconciler.enqueue(containerName);
 }
 
 async function subscribe() {

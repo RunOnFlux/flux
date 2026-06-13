@@ -30,10 +30,12 @@ describe('containerCrashRecovery die bridge', () => {
 
   const dieEvent = (name, exitCode = 1) => ({ Actor: { Attributes: { name, exitCode: String(exitCode) } } });
 
-  it('enqueues a reconcile for a flux container crash die', async () => {
+  it('enqueues a reconcile for a flux container crash die (raw name; the reconciler canonicalises)', async () => {
     await containerCrashRecovery.handleContainerDie(dieEvent('fluxwww_app', 137));
-    expect(stubs.appReconciler.enqueue.calledOnceWith('www_app')).to.be.true;
-    expect(stubs.appsRuntimeState.recordExit.calledOnce).to.be.true;
+    // pass the RAW container name - enqueue/recordExit canonicalise to the bare
+    // component id (one strip, in one place), exactly like every other enqueue caller
+    expect(stubs.appReconciler.enqueue.calledOnceWith('fluxwww_app')).to.be.true;
+    expect(stubs.appsRuntimeState.recordExit.calledOnceWith('fluxwww_app')).to.be.true;
   });
 
   it('does NOT reconcile a deliberate-stop die while the stop operation holds the flag', async () => {
