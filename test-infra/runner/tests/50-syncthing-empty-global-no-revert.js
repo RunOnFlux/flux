@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
-  getAppContainerStatus, plantAppdata, countAppdataFiles, appdataFileExists,
+  getAppContainerStatus, plantAppdata, countAppdataFiles, appdataFileExists, restartFluxos,
 } from '../framework/container.js';
 import {
   setSyncState, setLocalChangesEmptyGlobal, setLocalChanges, setLocalOnlyFiles,
@@ -96,7 +96,7 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
       { name: 'keep.txt', content: 'precious-only-copy' },
       { name: 'blob.bin', sizeMB: 3 },
     ]);
-    await env.restartNode(idx);
+    await restartFluxos(env.clients[idx].container);
     await setLocalChangesEmptyGlobal({ ip, folder: aEmpty.folder, files: 2 });
     // peer stays disconnected (from before): no valid source
     const client = env.clients[idx];
@@ -147,7 +147,7 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
       { name: 'synced.bin', sizeMB: 2 },
       { name: 'pollution.txt', content: 'local-only-must-be-reverted' },
     ]);
-    await env.restartNode(idx);
+    await restartFluxos(env.clients[idx].container);
     await setLocalOnlyFiles({ ip, folder: aPart.folder, paths: ['appdata/pollution.txt'] });
     await setLocalChanges({ ip, folder: aPart.folder, files: 1 });
     await setPeerHasData({ ip, folder: aPart.folder });
