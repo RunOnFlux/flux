@@ -13,12 +13,12 @@ const proxyquire = require('proxyquire').noCallThru();
 // cost LATENCY only, never correctness; this suite pins the failure handling
 // that guarantees that property (id discontinuity -> resync; error -> re-anchor
 // at "now", backoff, one resync on recovery).
+// the real lifecycle controller (abort signal + cancellable sleeps + work lock);
+// its sleep is stubbed per-test so pacing/backoff waits don't run in real time
+const { FluxController } = require('../../ZelBack/src/services/utils/fluxController');
+
 const syncthingServiceMock = {
   getEvents: sinon.stub(),
-};
-
-const serviceHelperMock = {
-  delay: sinon.stub().resolves(),
 };
 
 const fluxEventBusMock = {
@@ -27,13 +27,29 @@ const fluxEventBusMock = {
 
 const consumer = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingEventsConsumer', {
   '../syncthingService': syncthingServiceMock,
-  '../serviceHelper': serviceHelperMock,
   '../utils/fluxEventBus': fluxEventBusMock,
 });
 
-// park the long-poll forever so a test can stop the loop deterministically
-function parkForever() {
-  return new Promise(() => {});
+// park the long-poll until the request is aborted (a real long-poll holds until
+// timeout or abort); stop() aborts the in-flight request so the loop can exit
+function parkForever(req) {
+  return new Promise((resolve, reject) => {
+    req?.signal?.addEventListener('abort', () => reject(new Error('request aborted')), { once: true });
+  });
+}
+
+// a long-poll the test resolves by hand, and that also rejects if aborted (stop)
+function abortableDeferred() {
+  let resolveFn;
+  let rejectFn;
+  const promise = new Promise((res, rej) => { resolveFn = res; rejectFn = rej; });
+  return {
+    attach(req) {
+      req?.signal?.addEventListener('abort', () => rejectFn(new Error('request aborted')), { once: true });
+      return promise;
+    },
+    resolve: (v) => resolveFn(v),
+  };
 }
 
 function eventsResponse(events) {
@@ -43,11 +59,13 @@ function eventsResponse(events) {
 describe('syncthingEventsConsumer tests', () => {
   let onFolderActivity;
   let onResync;
+  let sleepStub;
 
   beforeEach(() => {
     syncthingServiceMock.getEvents.reset();
-    serviceHelperMock.delay.reset();
-    serviceHelperMock.delay.resolves();
+    // inter-poll waits are cancellable controller.sleep calls - stub instant so
+    // the suite never waits out pacing/backoff in real time
+    sleepStub = sinon.stub(FluxController.prototype, 'sleep').resolves();
     fluxEventBusMock.publish.reset();
     onFolderActivity = sinon.stub();
     onResync = sinon.stub();
@@ -55,6 +73,7 @@ describe('syncthingEventsConsumer tests', () => {
 
   afterEach(async () => {
     await consumer.stop();
+    sleepStub.restore();
   });
 
   it('long-polls with a persistent filtered subscription and tracks since', async () => {
@@ -144,7 +163,7 @@ describe('syncthingEventsConsumer tests', () => {
     consumer.start({ onFolderActivity, onResync });
     await new Promise((resolve) => { setImmediate(() => { setImmediate(resolve); }); });
 
-    sinon.assert.calledOnce(serviceHelperMock.delay);
+    sinon.assert.calledOnce(sleepStub);
     sinon.assert.calledTwice(syncthingServiceMock.getEvents);
     sinon.assert.notCalled(onFolderActivity);
   });
@@ -177,7 +196,7 @@ describe('syncthingEventsConsumer tests', () => {
     consumer.start({ onFolderActivity, onResync });
     await new Promise((resolve) => { setImmediate(() => { setImmediate(resolve); }); });
 
-    sinon.assert.calledOnce(serviceHelperMock.delay);
+    sinon.assert.calledOnce(sleepStub);
     sinon.assert.calledTwice(syncthingServiceMock.getEvents);
   });
 
@@ -192,5 +211,69 @@ describe('syncthingEventsConsumer tests', () => {
 
     await consumer.stop();
     expect(consumer.isRunning()).to.equal(false);
+  });
+
+  // --- lifecycle: stop() must actually stop the loop (not just flag it), so a
+  // later start() can never leave a second loop racing the first on shared state.
+
+  it('passes an abort signal so stop() can interrupt the long-poll', async () => {
+    syncthingServiceMock.getEvents.callsFake(parkForever);
+
+    consumer.start({ onFolderActivity, onResync });
+    await new Promise((resolve) => { setImmediate(resolve); });
+
+    const req = syncthingServiceMock.getEvents.firstCall.args[0];
+    expect(req.signal, 'getEvents must receive an AbortSignal').to.exist;
+    expect(req.signal.aborted).to.equal(false);
+  });
+
+  it('stop() aborts the in-flight long-poll and resolves (does not block for the timeout)', async () => {
+    let aborted = false;
+    syncthingServiceMock.getEvents.callsFake((req) => new Promise((resolve, reject) => {
+      req?.signal?.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); }, { once: true });
+    }));
+
+    consumer.start({ onFolderActivity, onResync });
+    await new Promise((resolve) => { setImmediate(resolve); });
+
+    await consumer.stop(); // must resolve, not hang on the parked long-poll
+    expect(aborted).to.equal(true);
+    expect(consumer.isRunning()).to.equal(false);
+  });
+
+  it('a restart does not leave the old loop racing the new one (no zombie, no double-processing)', async () => {
+    const oldPoll = abortableDeferred();
+    syncthingServiceMock.getEvents.onCall(0).callsFake((req) => oldPoll.attach(req));
+    syncthingServiceMock.getEvents.onCall(1).callsFake(parkForever);
+
+    consumer.start({ onFolderActivity, onResync });
+    await new Promise((resolve) => { setImmediate(resolve); });
+
+    await consumer.stop(); // aborts the old loop's poll and awaits its true exit
+    consumer.start({ onFolderActivity, onResync });
+    await new Promise((resolve) => { setImmediate(resolve); });
+
+    // resolve the OLD (pre-stop) poll late: a surviving zombie loop would process it
+    oldPoll.resolve(eventsResponse([
+      { id: 1, time: 't', type: 'FolderSummary', data: { folder: 'zombie', summary: {} } },
+    ]));
+    await new Promise((resolve) => { setImmediate(() => { setImmediate(resolve); }); });
+
+    sinon.assert.neverCalledWith(onFolderActivity, 'zombie', sinon.match.any);
+  });
+
+  it('stop() is idempotent and a clean start() follows', async () => {
+    syncthingServiceMock.getEvents.callsFake(parkForever);
+
+    consumer.start({ onFolderActivity, onResync });
+    await new Promise((resolve) => { setImmediate(resolve); });
+
+    await consumer.stop();
+    await consumer.stop(); // second stop is a no-op, must not throw
+    expect(consumer.isRunning()).to.equal(false);
+
+    consumer.start({ onFolderActivity, onResync });
+    await new Promise((resolve) => { setImmediate(resolve); });
+    expect(consumer.isRunning()).to.equal(true);
   });
 });

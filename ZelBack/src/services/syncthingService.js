@@ -2049,9 +2049,12 @@ async function getEvents(req, res) {
     // new" - the client-side abort must come strictly after the server-side hold,
     // not at the shared instance's 5s default
     const holdS = Number(timeout);
-    const requestConfig = Number.isFinite(holdS) && holdS > 0
-      ? { timeout: (holdS + 10) * 1000 }
-      : undefined;
+    const requestConfig = {};
+    if (Number.isFinite(holdS) && holdS > 0) requestConfig.timeout = (holdS + 10) * 1000;
+    // a caller (e.g. the events consumer) may pass an AbortSignal to interrupt the
+    // long-poll on shutdown; axios honours config.signal
+    if (req.signal) requestConfig.signal = req.signal;
+    // 3rd arg is the request body (none for GET); 4th is the axios config
     const response = await performRequest('get', apiPath, undefined, requestConfig);
     return res ? res.json(response) : response;
   } catch (error) {

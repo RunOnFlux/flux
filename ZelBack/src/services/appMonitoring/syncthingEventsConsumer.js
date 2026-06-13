@@ -24,8 +24,8 @@
 // survive long enough to be diagnosed.
 const log = require('../../lib/log');
 const syncthingService = require('../syncthingService');
-const serviceHelper = require('../serviceHelper');
 const fluxEventBus = require('../utils/fluxEventBus');
+const { FluxController } = require('../utils/fluxController');
 
 // long-poll timeout (server side) and the retry delay after a failed poll
 const EVENTS_LONGPOLL_TIMEOUT_S = 55;
@@ -37,12 +37,15 @@ const EVENTS_MIN_POLL_INTERVAL_MS = 1000;
 
 const SUBSCRIBED_EVENTS = 'FolderSummary,FolderCompletion,FolderErrors,StateChanged';
 
-let running = false;
-let stopRequested = false;
 let since = 0;
 // set when a poll fails: the next SUCCESSFUL poll announces a single resync
 let recoveryPending = false;
 let callbacks = {};
+// Owns the lifecycle: an abort signal that interrupts the in-flight long-poll,
+// cancellable sleeps for the inter-poll waits, and a lock stop() awaits so it
+// returns only once the loop has truly finished its current iteration. This is
+// why start()/stop() are a correct idempotent pair - stop() actually stops.
+const controller = new FluxController();
 
 // folderId -> { time, errors } from the last FolderErrors event
 const folderErrorsByFolder = new Map();
@@ -55,6 +58,7 @@ async function pollOnce() {
   const response = await syncthingService.getEvents({
     params: {},
     query: { since, events: SUBSCRIBED_EVENTS, timeout: EVENTS_LONGPOLL_TIMEOUT_S },
+    signal: controller.signal,
   }, null);
 
   if (!response || response.status !== 'success' || !Array.isArray(response.data)) {
@@ -102,18 +106,27 @@ async function pollOnce() {
   }
 }
 
+// The loop runs as a single long-lived runner under the controller. It holds the
+// controller's lock for each iteration so stop() (controller.abort()) returns only
+// after the in-flight iteration finishes; the long-poll is aborted via the signal
+// and every inter-poll wait is a cancellable controller.sleep, so stop() is prompt.
 async function runLoop() {
-  while (!stopRequested) {
+  while (!controller.aborted) {
     const startedAt = Date.now();
+    // eslint-disable-next-line no-await-in-loop
+    await controller.lock.enable();
     try {
       // eslint-disable-next-line no-await-in-loop
       await pollOnce();
       const elapsed = Date.now() - startedAt;
       if (elapsed < EVENTS_MIN_POLL_INTERVAL_MS) {
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(EVENTS_MIN_POLL_INTERVAL_MS - elapsed);
+        await controller.sleep(EVENTS_MIN_POLL_INTERVAL_MS - elapsed);
       }
     } catch (error) {
+      // a deliberate stop() aborts the in-flight long-poll (or the sleep above),
+      // which surfaces here - exit rather than re-anchoring and backing off
+      if (controller.aborted) break;
       log.warn(`syncthingEventsConsumer - poll failed (${error.message}); retrying in ${EVENTS_RETRY_DELAY_MS / 1000}s (the periodic poll keeps covering meanwhile)`);
       // a syncthing restart resets the event ids, and the API never returns
       // events below a stale `since` - after any failure the position is
@@ -121,37 +134,38 @@ async function runLoop() {
       since = 0;
       recoveryPending = true;
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(EVENTS_RETRY_DELAY_MS);
+      await controller.sleep(EVENTS_RETRY_DELAY_MS).catch(() => {});
+    } finally {
+      controller.lock.disable();
     }
   }
-  running = false;
 }
 
 /**
- * Start the consumer.
+ * Start the consumer. Idempotent: a no-op if already running.
  * @param {Object} handlers
  * @param {Function} handlers.onFolderActivity - (folderId, eventType) called per folder event
  * @param {Function} handlers.onResync - called when events were lost and a full evaluation is needed
  */
 function start(handlers = {}) {
-  if (running) return;
-  running = true;
-  stopRequested = false;
+  if (controller.running) return;
   since = 0;
   recoveryPending = false;
   callbacks = handlers;
-  runLoop();
+  controller.startLoop(runLoop);
 }
 
-/** Stop the consumer. The loop may be parked inside a long-poll; it is not
- * awaited - the stopRequested flag retires it on its next iteration. */
+/**
+ * Stop the consumer. Idempotent and awaitable: aborts the in-flight long-poll,
+ * waits for the current iteration to unwind, and resets the controller so a later
+ * start() begins one clean loop (never a second loop racing the first).
+ */
 async function stop() {
-  stopRequested = true;
-  running = false;
+  await controller.abort();
 }
 
 function isRunning() {
-  return running;
+  return controller.running;
 }
 
 /**
