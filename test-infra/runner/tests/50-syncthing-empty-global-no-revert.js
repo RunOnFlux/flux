@@ -5,7 +5,7 @@ import {
   getAppContainerStatus, plantAppdata, countAppdataFiles, appdataFileExists,
 } from '../framework/container.js';
 import {
-  setLocalChangesEmptyGlobal, setLocalChanges, setLocalOnlyFiles,
+  setSyncState, setLocalChangesEmptyGlobal, setLocalChanges, setLocalOnlyFiles,
   setPeerDisconnected, setPeerHasData, getNudges, resetSyncState,
 } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -48,29 +48,31 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
     await bootAndPeer(env);
     await resetSyncState();
 
-    // Leg 1 subject: a non-leader follower holding the only copy, empty global.
     aEmpty = await seedSyncthingApp(env, {
       name: appEmpty, mode: 'r', forceNonLeader: true, index: 0,
     });
-    await plantAppdata(env.clients[aEmpty.index].container, appEmpty, [
-      { name: 'keep.txt', content: 'precious-only-copy' },
-      { name: 'blob.bin', sizeMB: 3 },
-    ]);
-    // empty global (globalBytes 0) + local-only data, and NO connected source
-    await setLocalChangesEmptyGlobal({ ip: subnet.nodeIp(aEmpty.index + 1), folder: aEmpty.folder, files: 2 });
-    await setPeerDisconnected({ ip: subnet.nodeIp(aEmpty.index + 1), folder: aEmpty.folder });
-
-    // Leg 2 subject: populated global, one local-only pollution file, synced peer.
     aPart = await seedSyncthingApp(env, {
       name: appPart, mode: 'r', forceNonLeader: true, index: 1,
     });
-    await plantAppdata(env.clients[aPart.index].container, appPart, [
-      { name: 'synced.bin', sizeMB: 2 },
-      { name: 'pollution.txt', content: 'local-only-must-be-reverted' },
-    ]);
-    await setLocalOnlyFiles({ ip: subnet.nodeIp(aPart.index + 1), folder: aPart.folder, paths: ['appdata/pollution.txt'] });
-    await setLocalChanges({ ip: subnet.nodeIp(aPart.index + 1), folder: aPart.folder, files: 1 });
-    await setPeerHasData({ ip: subnet.nodeIp(aPart.index + 1), folder: aPart.folder });
+
+    // Settle each subject into the in-cache, receive-only WAITING state first:
+    // not synced (needBytes>0) with NO connected source. A fresh app's first
+    // monitor pass runs handleNewApp, which CLEANS the folder to sync from
+    // scratch — so planting before that would just be wiped. Once in cache,
+    // every cycle is handleReceiveOnlyTransition, which here only waits (no
+    // promote: not synced; no revert: revert is on the isSynced branch). The
+    // legs plant data AFTER this, so it is present at revert time — the
+    // handleFirstRun preserve-state B1 hits in production (reboot holding the
+    // only copy), reproduced without a full node restart.
+    for (const a of [aEmpty, aPart]) {
+      const ip = subnet.nodeIp(a.index + 1);
+      // eslint-disable-next-line no-await-in-loop
+      await setSyncState({ ip, folder: a.folder, state: 'idle', globalBytes: 100000, inSyncBytes: 40000, receiveOnlyChangedFiles: 0 });
+      // eslint-disable-next-line no-await-in-loop
+      await setPeerDisconnected({ ip, folder: a.folder });
+    }
+    // let handleNewApp clean + the FSM reach the waiting state (≈6 monitor cycles)
+    await new Promise((r) => setTimeout(r, 18000)); // eslint-disable-line no-promise-executor-return
   });
 
   after(async function () {
@@ -80,9 +82,24 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
   });
 
   it('Leg 1: empty global — never reverts/promotes; the only copy survives', async function () {
-    this.timeout(90000);
-    const client = env.clients[aEmpty.index];
-    const ip = subnet.nodeIp(aEmpty.index + 1);
+    this.timeout(180000);
+    const idx = aEmpty.index;
+    const ip = subnet.nodeIp(idx + 1);
+
+    // Pre-existing appdata on disk (the only copy this node holds), THEN a machine
+    // reboot: handleFirstRun must PRESERVE it into receiveonly — the only
+    // production path to "real data in a receiveonly folder facing an empty
+    // global" (a fresh app is cleaned by handleNewApp; synced data implies
+    // globalBytes>0). After the reboot, peers have not reconnected, so the global
+    // is empty with no source — the exact B1 data-loss trap.
+    await plantAppdata(env.clients[idx].container, appEmpty, [
+      { name: 'keep.txt', content: 'precious-only-copy' },
+      { name: 'blob.bin', sizeMB: 3 },
+    ]);
+    await env.restartNode(idx);
+    await setLocalChangesEmptyGlobal({ ip, folder: aEmpty.folder, files: 2 });
+    // peer stays disconnected (from before): no valid source
+    const client = env.clients[idx];
 
     // a start would be the promote-on-empty-global regression; flag it if it fires
     let startedSeen = false;
@@ -118,9 +135,23 @@ describe('syncthing promotion gate never reverts/promotes against an empty globa
   });
 
   it('Leg 2: populated global — reverts only the pollution, keeps synced data, then promotes', async function () {
-    this.timeout(120000);
-    const client = env.clients[aPart.index];
-    const ip = subnet.nodeIp(aPart.index + 1);
+    this.timeout(210000);
+    const idx = aPart.index;
+    const ip = subnet.nodeIp(idx + 1);
+
+    // Pre-existing data (synced + one local-only pollution file), THEN reboot:
+    // handleFirstRun preserves it into receiveonly (same production path as Leg 1).
+    // With a populated global and a connected synced peer, the gate must revert
+    // ONLY the pollution, keep the synced data, then promote and start.
+    await plantAppdata(env.clients[idx].container, appPart, [
+      { name: 'synced.bin', sizeMB: 2 },
+      { name: 'pollution.txt', content: 'local-only-must-be-reverted' },
+    ]);
+    await env.restartNode(idx);
+    await setLocalOnlyFiles({ ip, folder: aPart.folder, paths: ['appdata/pollution.txt'] });
+    await setLocalChanges({ ip, folder: aPart.folder, files: 1 });
+    await setPeerHasData({ ip, folder: aPart.folder });
+    const client = env.clients[idx];
 
     await waitFor(async () => {
       const { nudges } = await getNudges(ip);
