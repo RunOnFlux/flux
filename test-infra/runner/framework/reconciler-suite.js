@@ -14,7 +14,8 @@ import { fluxTeamKey } from './keys.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
 } from './wait.js';
-import { REGISTRY_REPO_HOST } from './subnet-config.js';
+import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
+import { setSynced } from './syncthing-control.js';
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install
 // can resolve it).
@@ -171,6 +172,16 @@ export async function waitForInstanceCount(env, appName, target, {
 // running peer and takes the sync-gated follower path. No fabricated DB rows — the
 // alternative (seeding a location) is reaped by nodeStatusMonitor unless it points
 // at a real node, and even then misrepresents an instance that isn't running.
+//
+// The peer's stub must report a genuinely synced source (setSynced) so it PROMOTES
+// to sendreceive and keeps running for the whole test. On stub defaults the peer
+// reports an empty global (globalBytes 0) plus a phantom connected synced peer:
+// once an empty global is correctly no longer treated as synced, that node sits as
+// an un-synced follower with a "connected synced peer" and the stall ladder removes
+// it (broadcasting fluxappremoved) ~40s in — which collapses the SUBJECT's running-
+// peer list to itself and makes the subject win a spurious single-peer election and
+// cold-start. Pinning the peer synced keeps it the stable running source the subject
+// must defer to.
 export async function seedSyncthingApp(env, {
   name, mode = 'r', forceNonLeader = false, index = 0,
 }) {
@@ -185,6 +196,7 @@ export async function seedSyncthingApp(env, {
     // leader-election sees a running peer and takes the sync-gated follower path.
     const afterId = env.clients[index].getLastEventId();
     await installOnNodes(env, app, [peerIndex]);
+    await setSynced({ ip: getSubnetConfig().nodeIp(peerIndex + 1), folder: `flux${name}_${name}` });
     await env.clients[index].waitForEvent(
       'network:apprunning', (d) => d.apps?.some((a) => a.name === name), 60000, { afterId },
     );
