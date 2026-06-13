@@ -153,33 +153,20 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result).to.be.true;
     });
 
-    it('should elect node with earliest broadcastedAt', () => {
-      const peers = [
-        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
-        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 10000 },
-        { ip: '10.0.0.3:16127', runningSince: null, broadcastedAt: 20000 },
-      ];
-
-      const result1 = stateMachine.isDesignatedLeader(peers, '10.0.0.1:16127');
-      const result2 = stateMachine.isDesignatedLeader(peers, '10.0.0.2:16127');
-
-      expect(result1).to.be.true;
-      expect(result2).to.be.false;
-    });
-
-    it('should use IP as tiebreaker when broadcastedAt within tolerance', () => {
+    it('elects the lowest IP regardless of broadcastedAt (consistent across nodes - no split-brain)', () => {
+      // broadcastedAt is the latest re-broadcast time and propagates with per-node delay,
+      // so it is NOT a safe election key - each node could order the timestamps differently
+      // and elect itself. IP is the only globally-consistent key. Here the EARLIEST
+      // broadcaster has the HIGHEST IP: it must NOT win; the lowest IP is the agreed seed.
       const peers = [
         { ip: '10.0.0.3:16127', runningSince: null, broadcastedAt: 1000 },
-        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1001 },
-        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1002 },
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 50000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 25000 },
       ];
 
-      // Within 5 second tolerance, should use IP
-      const result1 = stateMachine.isDesignatedLeader(peers, '10.0.0.1:16127');
-      const result2 = stateMachine.isDesignatedLeader(peers, '10.0.0.3:16127');
-
-      expect(result1).to.be.true;
-      expect(result2).to.be.false;
+      expect(stateMachine.isDesignatedLeader(peers, '10.0.0.1:16127')).to.be.true;
+      expect(stateMachine.isDesignatedLeader(peers, '10.0.0.2:16127')).to.be.false;
+      expect(stateMachine.isDesignatedLeader(peers, '10.0.0.3:16127')).to.be.false;
     });
 
     it('should return false when current node not in peer list', () => {

@@ -14,7 +14,6 @@ const {
   LEADER_CONFIRM_COUNT,
   SYNC_COMPLETE_PERCENTAGE,
   OPERATION_DELAY_MS,
-  CLOCK_SKEW_TOLERANCE_MS,
   STALL_NUDGE_AFTER_MS,
   STALL_NUDGE_MAX_INTERVAL_MS,
   STALL_REMOVE_MIN_WINDOW_MS,
@@ -226,16 +225,13 @@ function isDesignatedLeader(allPeersList, localSocketAddr, aPeerHasData = true) 
     return true;
   }
 
-  // Deterministic leader election
+  // Deterministic leader election by IP only. IP is globally consistent - every node
+  // sees every peer's IP identically - and clock-free, so all nodes independently agree
+  // on the same lowest-IP seed. broadcastedAt is NOT a safe key here: it is the latest
+  // re-broadcast time and propagates with per-node delay, so on a fresh cluster each
+  // node can momentarily order the timestamps differently and every node elects itself
+  // (split-brain). The lowest IP is the single, agreed cold-start seed.
   const sortedPeers = [...allPeersList].sort((a, b) => {
-    if (a.broadcastedAt && b.broadcastedAt) {
-      const timeDiff = a.broadcastedAt - b.broadcastedAt;
-      // Only consider significant time differences to avoid clock skew issues
-      if (Math.abs(timeDiff) > CLOCK_SKEW_TOLERANCE_MS) {
-        return timeDiff;
-      }
-    }
-    // Use IP as deterministic tie-breaker
     if (a.ip < b.ip) return -1;
     if (a.ip > b.ip) return 1;
     return 0;
