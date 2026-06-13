@@ -529,6 +529,9 @@ function revertModelOnDisk(ip, folder) {
   if (!inNodePath.startsWith(NODE_APPDATA_MOUNT)) return; // unknown layout — never guess a path to delete
   const sandboxRoot = path.join(PEER_APPDATA_ROOT, ip);
   const folderRoot = path.resolve(sandboxRoot, path.relative(NODE_APPDATA_MOUNT, inNodePath));
+  // DIAGNOSTIC: what does the stub actually see through the mounted volume?
+  const safels = (p) => { try { return fs.readdirSync(p).join(','); } catch (e) { return `ERR:${e.code}`; } };
+  console.log(`db/revert fs-view: PEER_ROOT=[${safels(PEER_APPDATA_ROOT)}] sandbox(${sandboxRoot})=[${safels(sandboxRoot)}] folderRoot(${folderRoot})=[${safels(folderRoot)}]`);
   // HARD SANDBOX: the folder root must resolve under this node's mounted appdata.
   if (folderRoot !== sandboxRoot && !folderRoot.startsWith(`${sandboxRoot}${path.sep}`)) {
     console.error(`db/revert SANDBOX VIOLATION: refusing to act on ${folderRoot} (outside ${sandboxRoot})`);
@@ -561,8 +564,9 @@ function revertModelOnDisk(ip, folder) {
       console.error(`db/revert SANDBOX VIOLATION: declared local-only path '${rel}' escapes ${folderRoot}`);
       continue;
     }
+    const existed = fs.existsSync(target);
     fs.rmSync(target, { recursive: true, force: true });
-    n += 1;
+    if (existed) n += 1; else console.log(`db/revert: declared local-only '${rel}' NOT present at ${target} (nothing deleted)`);
   }
   if (n) console.log(`db/revert: receiveonly ${folder}@${ip} — deleted ${n} declared local-only file(s) under ${folderRoot} (modelled pollution revert)`);
 }
