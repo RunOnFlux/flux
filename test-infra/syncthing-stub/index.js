@@ -520,8 +520,12 @@ app.post('/rest/db/prio', (req, res) => res.json({}));
 // that is trivially correct and the one the data-safety contracts hinge on.
 function revertModelOnDisk(ip, folder) {
   const fcfg = nodeState(ip).folders.get(folder);
-  if (!fcfg || fcfg.type !== 'receiveonly') return; // revert only acts on receiveonly folders
-  const inNodePath = fcfg.path || '';
+  // The folder id IS the appId (flux<component>_<app>), and FluxOS roots the
+  // syncthing folder at `${appsFolder}${appId}` — so derive the path from the id
+  // when the stored config lacks one (a receiveonly PATCH carries only `type`).
+  const inNodePath = (fcfg && fcfg.path) || `${NODE_APPDATA_MOUNT}/flux-apps/${folder}`;
+  console.log(`db/revert decision: folder=${folder} ip=${ip} hasFcfg=${!!fcfg} type=${fcfg ? fcfg.type : 'n/a'} path=${inNodePath} gb=${lookupSync(ip, folder)?.globalBytes ?? 0}`);
+  if (fcfg && fcfg.type && fcfg.type !== 'receiveonly') return; // revert only acts on receiveonly folders
   if (!inNodePath.startsWith(NODE_APPDATA_MOUNT)) return; // unknown layout — never guess a path to delete
   const sandboxRoot = path.join(PEER_APPDATA_ROOT, ip);
   const folderRoot = path.resolve(sandboxRoot, path.relative(NODE_APPDATA_MOUNT, inNodePath));
