@@ -1,5 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
@@ -7,6 +9,15 @@ app.use(express.json());
 const PORT = Number(process.env.SYNCTHING_PORT) || 8384;
 const CONTROL_PORT = Number(process.env.CONTROL_PORT) || 8385;
 const API_KEY = process.env.SYNCTHING_API_KEY || 'stub-syncthing-api-key';
+
+// Data-safety fidelity: each node's appdata volume is mounted into this stub at
+// `${PEER_APPDATA_ROOT}/<node-ip>` (test-env wires this), and the node itself
+// mounts the same volume at NODE_APPDATA_MOUNT. That lets db/revert model real
+// syncthing's DESTRUCTIVE behaviour on disk (not just a metadata flag), so suites
+// assert "the bytes survived", not "a call wasn't made". If PEER_APPDATA_ROOT is
+// absent/unmounted the model degrades gracefully to the old metadata-only clear.
+const PEER_APPDATA_ROOT = process.env.PEER_APPDATA_ROOT || '/peer-appdata';
+const NODE_APPDATA_MOUNT = process.env.NODE_APPDATA_MOUNT || '/mnt/appdata';
 
 // the node's source IP as Docker presents it (strip the IPv4-mapped ::ffff: form)
 function clientIp(req) {
@@ -68,6 +79,12 @@ function reqState(req) {
 // ip may be '*' (any node) and device may be '*' (any peer); exact keys win.
 const syncOverrides = new Map();
 const completionOverrides = new Map(); // value: number (completion) or { completion, remoteState }
+
+// `${ip}|${folder}` -> [paths relative to the folder root] that a suite declares
+// LOCAL-ONLY (receive-only pollution). When the global is populated, db/revert
+// deletes exactly these (the synced data survives) — the faithful partial revert
+// the promotion gate relies on. An empty global deletes everything regardless.
+const localOnlyFiles = new Map();
 
 // device pause/resume calls per node ip - the production "nudge" (device
 // pause/resume forces an index re-exchange) is observable through this log
@@ -486,12 +503,74 @@ app.get('/rest/db/status', (req, res) => {
 
 app.post('/rest/db/override', (req, res) => res.json({}));
 app.post('/rest/db/prio', (req, res) => res.json({}));
+
+// Model real syncthing's destructive db/revert on a receiveonly folder. The
+// case this harness must reproduce faithfully is the data-loss one (verified
+// live on v2.0.15 + v2.0.16): against an EMPTY global index (globalBytes===0)
+// every on-disk file is a local-only addition, so revert physically DELETES
+// them all (preserving the .stfolder marker). We mirror that by deleting the
+// folder's real contents in the node's appdata volume, which is mounted here at
+// `${PEER_APPDATA_ROOT}/<ip>`.
+//
+// HARD SANDBOX (non-negotiable): we only ever delete under
+// `${PEER_APPDATA_ROOT}/<ip>/`. Any resolved path outside that aborts the delete
+// — a stub that deletes real files must never be able to touch anything but the
+// node's own mounted appdata. globalBytes>0 (partial pollution) is NOT modelled
+// on disk yet (metadata-only clear); the empty-global total-loss case is the one
+// that is trivially correct and the one the data-safety contracts hinge on.
+function revertModelOnDisk(ip, folder) {
+  const fcfg = nodeState(ip).folders.get(folder);
+  if (!fcfg || fcfg.type !== 'receiveonly') return; // revert only acts on receiveonly folders
+  const inNodePath = fcfg.path || '';
+  if (!inNodePath.startsWith(NODE_APPDATA_MOUNT)) return; // unknown layout — never guess a path to delete
+  const sandboxRoot = path.join(PEER_APPDATA_ROOT, ip);
+  const folderRoot = path.resolve(sandboxRoot, path.relative(NODE_APPDATA_MOUNT, inNodePath));
+  // HARD SANDBOX: the folder root must resolve under this node's mounted appdata.
+  if (folderRoot !== sandboxRoot && !folderRoot.startsWith(`${sandboxRoot}${path.sep}`)) {
+    console.error(`db/revert SANDBOX VIOLATION: refusing to act on ${folderRoot} (outside ${sandboxRoot})`);
+    return;
+  }
+  const globalBytes = lookupSync(ip, folder)?.globalBytes ?? 0;
+  if (globalBytes === 0) {
+    // Empty global index: real syncthing marks EVERY on-disk file as a local-only
+    // change (verified live v2.0.15/v2.0.16), so revert deletes them all — the B1
+    // data-loss vector. Preserve only the .stfolder marker, like real revert.
+    let entries;
+    try { entries = fs.readdirSync(folderRoot); } catch (err) { return; } // not mounted / not present yet
+    let n = 0;
+    for (const name of entries) {
+      if (name === '.stfolder') continue;
+      fs.rmSync(path.join(folderRoot, name), { recursive: true, force: true });
+      n += 1;
+    }
+    if (n) console.log(`db/revert: empty-global receiveonly ${folder}@${ip} — deleted ${n} entr(ies) under ${folderRoot} (modelled TOTAL data loss)`);
+    return;
+  }
+  // Populated global: revert removes ONLY the local-only (pollution) files the
+  // suite declared via /local-only-files; the synced data is kept. Each declared
+  // path is re-sandboxed so it can't escape the folder root.
+  const rels = localOnlyFiles.get(`${ip}|${folder}`) ?? localOnlyFiles.get(`*|${folder}`) ?? [];
+  let n = 0;
+  for (const rel of rels) {
+    const target = path.resolve(folderRoot, rel);
+    if (!target.startsWith(`${folderRoot}${path.sep}`)) {
+      console.error(`db/revert SANDBOX VIOLATION: declared local-only path '${rel}' escapes ${folderRoot}`);
+      continue;
+    }
+    fs.rmSync(target, { recursive: true, force: true });
+    n += 1;
+  }
+  if (n) console.log(`db/revert: receiveonly ${folder}@${ip} — deleted ${n} declared local-only file(s) under ${folderRoot} (modelled pollution revert)`);
+}
+
 app.post('/rest/db/revert', (req, res) => {
-  // revert undoes local changes in a receiveonly folder: clear the
-  // receiveOnlyChangedFiles override so the next status reads clean
+  // revert undoes local changes in a receiveonly folder. Model the real on-disk
+  // effect (empty-global => total deletion), then clear the
+  // receiveOnlyChangedFiles override so the next status reads clean.
   const folder = req.query.folder || '';
   const ip = clientIp(req);
   nudgeLog(ip).push({ action: 'revert', device: folder, at: Date.now() });
+  revertModelOnDisk(ip, folder);
   [`${ip}|${folder}`, `*|${folder}`].forEach((key) => {
     const ov = syncOverrides.get(key);
     if (ov && ov.receiveOnlyChangedFiles) syncOverrides.set(key, { ...ov, receiveOnlyChangedFiles: 0 });
@@ -649,6 +728,18 @@ control.post('/peer-completion', (req, res) => {
   return res.json({ ok: true });
 });
 
+// Declare which files in a folder are LOCAL-ONLY (receive-only pollution),
+// relative to the folder root (e.g. 'appdata/pollution.txt'). When the global is
+// populated, db/revert deletes exactly these and keeps the synced data — so a
+// suite can assert the partial-revert property, not just that revert was called.
+// (An empty global deletes everything regardless of this list.)
+control.post('/local-only-files', (req, res) => {
+  const { ip = '*', folder, paths = [] } = req.body || {};
+  if (!folder) return res.status(400).json({ error: 'folder required' });
+  localOnlyFiles.set(`${ip}|${folder}`, Array.isArray(paths) ? paths : [paths]);
+  return res.json({ ok: true });
+});
+
 // Device pause/resume calls observed for a node ip - how suites assert that the
 // stall ladder NUDGED (and did not restart syncthing or stop the container).
 control.get('/nudges', (req, res) => {
@@ -695,6 +786,7 @@ control.post('/events-outage', (req, res) => {
 control.post('/sync-reset', (req, res) => {
   syncOverrides.clear();
   completionOverrides.clear();
+  localOnlyFiles.clear();
   nudgeLogs.clear();
   eventsBuffers.clear();
   eventsOutages.clear();

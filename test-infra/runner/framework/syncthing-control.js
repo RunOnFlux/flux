@@ -77,6 +77,25 @@ export async function setLocalChanges({ ip = '*', folder, files = 1 }) {
   });
 }
 
+// EMPTY global index (globalBytes 0) with local files present — the data-loss
+// trap: completion metrics read vacuously 100% (needBytes 0), so the production
+// FSM's percentage-based isSynced is true, while receiveOnlyChangedFiles reveals
+// the local-only data. A node holding the only copy before peers connect (reboot,
+// redeploy, partition) sits exactly here; db/revert here deletes the only copy.
+export async function setLocalChangesEmptyGlobal({ ip = '*', folder, files = 1 }) {
+  return setSyncState({
+    ip, folder, state: 'idle', globalBytes: 0, inSyncBytes: 0, receiveOnlyChangedFiles: files,
+  });
+}
+
+// Declare which files (relative to the folder root, e.g. 'appdata/pollution.bin')
+// are local-only pollution, so the stub's db/revert deletes exactly those when the
+// global is populated and leaves the synced data intact (an empty global deletes
+// everything regardless). Lets a suite assert the partial-revert PROPERTY.
+export async function setLocalOnlyFiles({ ip = '*', folder, paths }) {
+  return post('/local-only-files', { ip, folder, paths });
+}
+
 // Raw setter for /rest/db/completion (a peer's view of the folder).
 // remoteState 'valid' (default) = connected peer; 'unknown' = disconnected peer
 // whose last-known index still reports the completion (the production trust

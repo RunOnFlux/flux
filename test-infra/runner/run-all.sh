@@ -100,7 +100,22 @@ pick_free_base() {             # sets CLAIMED_BASE
   fi
 }
 release_base() { [ -n "${CLAIMED_BASE:-}" ] && rm -rf "${LOCK_ROOT:?}/$CLAIMED_BASE" 2>/dev/null; }
-trap release_base EXIT INT TERM
+# On ANY trapped exit (normal completion, INT, TERM, or an unwinding crash) reap
+# THIS run's docker objects, so a hard stop never strands its containers,
+# networks, or volumes. The syncthing-stub now mounts each node's appdata volume,
+# so a stranded stub would also pin those volumes — clean both. Scoped to our own
+# RUN_LABEL and guarded non-empty (never a blanket sweep), so a concurrent run-all
+# is untouched; a true SIGKILL/power-loss still falls through to run-parallel's
+# bare-key pre-gate sweep or the manual pre-run clean.
+cleanup_on_exit() {
+  if [ -n "${RUN_LABEL:-}" ]; then
+    docker ps -aq --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker rm -f >/dev/null 2>&1
+    docker network ls -q --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker network rm >/dev/null 2>&1
+    docker volume ls -q --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker volume rm >/dev/null 2>&1
+  fi
+  release_base
+}
+trap cleanup_on_exit EXIT INT TERM
 if [ -z "${TEST_SUBNET_BASE:-}" ]; then
   pick_free_base
   export TEST_SUBNET_BASE="${CLAIMED_BASE:-198.18.0}"   # 198.18.0 fallback if pool exhausted

@@ -50,6 +50,55 @@ export async function crashAppContainer(container, appName, componentName) {
   return execInContainer(container, `docker kill ${appContainerName(appName, componentName)}`);
 }
 
+// --- appdata data-safety helpers -----------------------------------------
+// The syncthing folder FluxOS configures for a g:/r: app is the WHOLE app
+// folder (/mnt/appdata/flux-apps/flux<comp>_<app>) — all subdirs synced
+// together (syncthingMonitor.js). These let a suite plant real bytes and later
+// assert they survived (or were destroyed): the data-safety contracts under
+// test (e.g. db/revert against an empty global must NOT delete the only copy).
+
+// Resolve the app's on-disk folder inside a node, robust to the exact id form.
+async function appFolderPath(container, appName) {
+  const { stdout } = await execInContainer(container,
+    `sh -c "ls -d /mnt/appdata/flux-apps/flux${appName}* 2>/dev/null | head -1"`);
+  return stdout.trim();
+}
+
+// Plant files under <appFolder>/appdata. files: [{ name, sizeMB?, content? }].
+// Returns the appdata dir. Throws if the app folder isn't present yet.
+export async function plantAppdata(container, appName, files) {
+  const base = await appFolderPath(container, appName);
+  if (!base) throw new Error(`plantAppdata: no app folder for ${appName} under /mnt/appdata/flux-apps`);
+  const dir = `${base}/appdata`;
+  await execInContainer(container, `sh -c "mkdir -p '${dir}'"`);
+  for (const f of files) {
+    if (f.sizeMB) {
+      await execInContainer(container, `sh -c "dd if=/dev/urandom of='${dir}/${f.name}' bs=1M count=${f.sizeMB} 2>/dev/null"`);
+    } else {
+      await execInContainer(container, `sh -c "printf %s '${(f.content ?? 'x').replace(/'/g, '')}' > '${dir}/${f.name}'"`);
+    }
+  }
+  return dir;
+}
+
+// Count regular files under <appFolder>/appdata (0 if the folder is gone).
+export async function countAppdataFiles(container, appName) {
+  const base = await appFolderPath(container, appName);
+  if (!base) return 0;
+  const { stdout } = await execInContainer(container,
+    `sh -c "find '${base}/appdata' -type f 2>/dev/null | wc -l"`);
+  return Number(stdout.trim()) || 0;
+}
+
+// Whether a specific planted file still exists under <appFolder>/appdata.
+export async function appdataFileExists(container, appName, name) {
+  const base = await appFolderPath(container, appName);
+  if (!base) return false;
+  const { stdout } = await execInContainer(container,
+    `sh -c "[ -f '${base}/appdata/${name}' ] && echo yes || echo no"`);
+  return stdout.trim() === 'yes';
+}
+
 // the actual exit code the reconciler reads from Docker (null if container absent)
 export async function getAppContainerExitCode(container, appName, componentName) {
   const { stdout } = await execInContainer(container,

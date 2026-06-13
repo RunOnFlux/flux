@@ -505,9 +505,35 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     }
   }
 
+  // Pre-create each node's appdata volume now (before the stub) so the stub can
+  // mount them and model real syncthing's on-disk effects (e.g. the destructive
+  // db/revert). The nodes mount the same volumes at /mnt/appdata in the node loop.
+  const rtClient = await getContainerRuntimeClient();
+  const { getReaper: getReaperFn } = await import('testcontainers');
+  const reaper = await getReaperFn(rtClient);
+  for (let i = 0; i < nodes; i++) {
+    const volName = `${networkName}-node${i}`;
+    await rtClient.container.dockerode.createVolume({
+      Name: volName,
+      Labels: { 'org.testcontainers.session-id': reaper.sessionId, ...runLabels() },
+    });
+    volumeNames.push(volName);
+  }
+  // Mount every node's appdata volume into the stub, keyed by the node's IP, so
+  // db/revert can act on the real bytes under a hard sandbox (/peer-appdata/<ip>).
+  const peerAppdataMounts = volumeNames.map((source, i) => ({
+    source, target: `/peer-appdata/${subnet.nodeIp(i + 1)}`,
+  }));
+
   const syncthingStub = await new StaticIpContainer('flux-e2e-syncthing-stub')
     .withStaticIp(networkName, SYNCTHING_IP)
-    .withEnvironment({ SYNCTHING_PORT: '8384', CONTROL_PORT: '8385' })
+    .withBindMounts(peerAppdataMounts)
+    .withEnvironment({
+      SYNCTHING_PORT: '8384',
+      CONTROL_PORT: '8385',
+      PEER_APPDATA_ROOT: '/peer-appdata',
+      NODE_APPDATA_MOUNT: '/mnt/appdata',
+    })
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${SYNCTHING_IP}:8384/rest/noauth/health`))
     .withHealthCheck({
       test: ['CMD', 'node', '-e', "require('http').get('http://localhost:8384/rest/noauth/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
@@ -577,18 +603,6 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .start();
   started.push(registry);
   containers.registry = registry;
-
-  const rtClient = await getContainerRuntimeClient();
-  const { getReaper: getReaperFn } = await import('testcontainers');
-  const reaper = await getReaperFn(rtClient);
-  for (let i = 0; i < nodes; i++) {
-    const volName = `${networkName}-node${i}`;
-    await rtClient.container.dockerode.createVolume({
-      Name: volName,
-      Labels: { 'org.testcontainers.session-id': reaper.sessionId, ...runLabels() },
-    });
-    volumeNames.push(volName);
-  }
 
   const deferredBuilders = new Map();
   const firstDeferred = nodes - deferredNodes;
