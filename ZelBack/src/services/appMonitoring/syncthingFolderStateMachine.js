@@ -176,7 +176,15 @@ async function getFolderSyncCompletion(folderId) {
         // local additions/modifications in a receiveonly folder; invisible to the
         // completion metrics above (they only count cluster data)
         receiveOnlyChangedFiles,
-        isSynced: syncPercentage === SYNC_COMPLETE_PERCENTAGE,
+        // An EMPTY global index (globalBytes 0) means "unknown / not yet synced",
+        // never "done": a node holding the only copy before its peers reconnect
+        // reads globalBytes 0, and syncPercentage defaults to 100 there (vacuous).
+        // Gating on globalBytes > 0 stops the promotion gate from reverting (which
+        // would delete the only copy) or promoting unverified data against an empty
+        // global; such a folder falls through to the wait branch instead. The
+        // leader/cold-start path (the legitimate empty-folder seed) is exempt and
+        // handled separately above.
+        isSynced: globalBytes > 0 && syncPercentage === SYNC_COMPLETE_PERCENTAGE,
       };
     }
 

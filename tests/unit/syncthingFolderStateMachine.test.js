@@ -182,7 +182,12 @@ describe('syncthingFolderStateMachine tests', () => {
       });
     });
 
-    it('should return 100% for empty folder', async () => {
+    it('should NOT treat an empty/unknown global (globalBytes 0) as synced', async () => {
+      // An empty global index is "unknown / not yet synced", never "done": a node
+      // holding the only copy before peers reconnect reads globalBytes 0. Treating
+      // that as synced lets the promotion gate revert (delete the only copy) or
+      // promote on unverified data (B1). syncPercentage stays 100 for display, but
+      // isSynced must be false so the gate waits.
       syncthingServiceMock.getDbStatus.resolves({
         status: 'success',
         data: {
@@ -195,7 +200,24 @@ describe('syncthingFolderStateMachine tests', () => {
       const result = await stateMachine.getFolderSyncCompletion('test-folder');
 
       expect(result.syncPercentage).to.equal(100);
-      expect(result.isSynced).to.be.true;
+      expect(result.isSynced).to.be.false;
+    });
+
+    it('should NOT treat an empty global with local changes as synced (the B1 trap)', async () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0,
+          inSyncBytes: 0,
+          state: 'idle',
+          receiveOnlyChangedFiles: 2,
+        },
+      });
+
+      const result = await stateMachine.getFolderSyncCompletion('test-folder');
+
+      expect(result.receiveOnlyChangedFiles).to.equal(2);
+      expect(result.isSynced).to.be.false;
     });
 
     it('should mark as synced when 100% complete', async () => {
