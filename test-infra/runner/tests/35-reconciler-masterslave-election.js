@@ -7,11 +7,15 @@ import { appOwnerKey } from '../framework/keys.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, resetFdm } from '../framework/fdm-control.js';
+import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
   waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged, assertNoEvent,
 } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+
+const subnet = getSubnetConfig();
 
 // MUST-PASS gate. masterSlave (g:) election now WRITES desired state and the
 // reconciler actuates: the FDM-elected primary runs, every standby stays stopped,
@@ -44,10 +48,18 @@ describe('reconciler enforces masterSlave g: election', function () {
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     await resetFdm();
+    await resetSyncState();
     await pushImage(appName, 'v1');
     const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g' });
     // targeted install on two specific nodes — deterministic g: holders
     holders = await installOnNodes(env, app, [0, 1]);
+    // This suite exercises the FDM election/failover of a READY g: app, so pin both
+    // holders' folders to a genuinely synced state (they promote to sendreceive and
+    // become election-eligible). An empty global is correctly no longer treated as
+    // synced, so without real data neither holder would ever become ready — that
+    // sourceless cold-start path is covered separately by suite 51.
+    const folder = `flux${appName}_${appName}`;
+    await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));
   });
 
   after(async function () {
