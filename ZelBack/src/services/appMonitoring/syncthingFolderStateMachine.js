@@ -472,13 +472,14 @@ async function handleReceiveOnlyTransition(params) {
   // cold start - nobody serving - must still elect one seed instead of standing off)
   // and is reused by the stall ladder below, so it is computed once per cycle here.
   const aPeerHasData = await checkIfPeersAreSynced(appId);
-  // Read the local sync status once here (reused by the stall ladder below). A node may
-  // only cold-start SEED - promote an empty folder without a sync check - when it holds
-  // NOTHING: no global, no synced bytes, no receive-only local changes. A node holding
-  // ANY data must instead wait for a connected source; seeding/promoting it on an empty
-  // global is the B1 hazard (promote unverified data, or db/revert deletes the only
-  // copy). An unreadable status (null) counts as "holds data" - never seed without
-  // positive evidence the folder is empty.
+  // Read the local sync status once here (reused by the stall ladder below). The intent,
+  // folded into deferToRunningPeers below, is that only a node holding NOTHING - no
+  // global, no synced bytes, no receive-only local changes - cold-start SEEDs (promotes
+  // an empty folder without a sync check); a node holding ANY data instead defers to a
+  // connected source, and an unreadable status (null) counts as "holds data". Seeding or
+  // promoting an empty global otherwise is the B1 hazard (promote unverified data, or
+  // db/revert deletes the only copy). NOTE this intent holds only while a running peer
+  // exists to defer to - see the RESIDUAL LIMITATION on the seed below for where it stops.
   const syncStatus = await getFolderSyncCompletion(appId);
   const folderIsEmpty = !!syncStatus && syncStatus.globalBytes === 0
     && syncStatus.inSyncBytes === 0 && (syncStatus.receiveOnlyChangedFiles || 0) === 0;
@@ -490,14 +491,21 @@ async function handleReceiveOnlyTransition(params) {
   cache.leaderStreak = electedLeader ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
 
-  // RESIDUAL LIMITATION: a confirmed leader is the cold-start seed and flips to
-  // sendreceive WITHOUT a sync check - it cannot verify against a source because it IS
-  // the source. The gate above only seeds when NO connected peer serves the data AND
-  // this node holds no data of its own, so we never overwrite a reachable source nor
-  // promote a node's own preserved copy; but a peer holding newer data while DISCONNECTED
-  // is not "serving" and an empty local folder cannot know of it, so a fresh seed could
-  // still win over that peer's data when it returns. Fully closing this needs
-  // version-aware selection (or FDM for g:) - a separate change, out of scope here.
+  // RESIDUAL LIMITATION (architectural - this election is a heuristic, not consensus):
+  // a confirmed leader is the cold-start seed and flips to sendreceive WITHOUT a sync
+  // check - it cannot verify against a source because it IS the source. The
+  // "hold data -> don't seed" protection is enforced ONLY through the running-peer proxy:
+  // deferToRunningPeers makes us defer just when a peer carries runningSince (broadcast on
+  // placement). So with NO running peer, a node holding data can still win the IP election
+  // and seed; and a peer holding NEWER data while DISCONNECTED is not "serving" and an
+  // empty local folder cannot know of it, so a fresh seed can win over that peer's data
+  // when it returns. The root cause is that electing by gossip + lowest-IP guarantees
+  // neither a single master under partition (split-brain - the reason this path is now
+  // IP-only) nor that the seed holds the newest data. Reachability is low - every running
+  // node broadcasts runningSince, so an empty runningPeers means this node is effectively
+  // alone. Properly closing it needs a consensus-grounded election (a deterministic
+  // candidate over the on-chain confirmed node set + a data-aware quorum lease that
+  // subsumes the data-version check) - a separate, proposed redesign, out of scope here.
   if (isLeader) {
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers, confirmed ${cache.leaderStreak}x), starting immediately`);
 
