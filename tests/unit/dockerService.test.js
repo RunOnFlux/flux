@@ -7,6 +7,7 @@ const Dockerode = require('dockerode');
 const sinon = require('sinon');
 const path = require('path');
 const dockerService = require('../../ZelBack/src/services/dockerService');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -73,6 +74,26 @@ describe('dockerService tests', () => {
       const result = dockerService.getAppIdentifier(appName);
 
       expect(result).to.equal(expected);
+    });
+  });
+
+  describe('getBaseAppName tests', () => {
+    it('should strip the "flux" prefix', async () => {
+      expect(dockerService.getBaseAppName('fluxdb_App')).to.equal('db_App');
+    });
+
+    it('should strip the "zel" prefix', async () => {
+      expect(dockerService.getBaseAppName('zelKadenaChainWebNode')).to.equal('KadenaChainWebNode');
+    });
+
+    it('should return a bare identifier unchanged', async () => {
+      expect(dockerService.getBaseAppName('db_App')).to.equal('db_App');
+    });
+
+    it('should round-trip getAppIdentifier for compose and zel-legacy names', async () => {
+      ['db_App', 'testing1234', 'KadenaChainWebNode', 'FoldingAtHomeB'].forEach((bare) => {
+        expect(dockerService.getBaseAppName(dockerService.getAppIdentifier(bare))).to.equal(bare);
+      });
     });
   });
 
@@ -393,6 +414,34 @@ describe('dockerService tests', () => {
     it('should throw error if app name is not correct or app does not exist', async () => {
       await expect(dockerService.appDockerStop('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
     });
+
+    // The stopping flag's lifetime is the STOP OPERATION's lifetime - held while
+    // container.stop() is in flight (legitimately hours under v9 graceful
+    // shutdown) and cleared when the operation settles. Clearing must never
+    // depend on the docker die event being delivered: a lost event (stream down)
+    // would otherwise leak the flag forever and permanently wedge the
+    // reconciler's actuation for that component.
+    it('holds the stopping flag during the stop and clears it on completion', async () => {
+      globalState.stoppingContainers.clear();
+      let flaggedDuringStop = false;
+      dockerStopStub.callsFake(async () => {
+        flaggedDuringStop = globalState.stoppingContainers.size === 1;
+        return 'stopped';
+      });
+
+      await dockerService.appDockerStop(appName);
+
+      expect(flaggedDuringStop, 'flag must be set while the stop operation is in flight').to.be.true;
+      expect(globalState.stoppingContainers.size, 'flag must clear when the operation settles - the die event must not be its only janitor').to.equal(0);
+    });
+
+    it('clears the stopping flag when the stop operation throws', async () => {
+      globalState.stoppingContainers.clear();
+      dockerStopStub.rejects(new Error('socket hang up'));
+
+      await expect(dockerService.appDockerStop(appName)).to.eventually.be.rejected;
+      expect(globalState.stoppingContainers.size).to.equal(0);
+    });
   });
 
   describe('appDockerRestart tests', () => {
@@ -501,6 +550,22 @@ describe('dockerService tests', () => {
 
     it('should throw error if app name is not correct or app does not exist', async () => {
       await expect(dockerService.appDockerKill('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+    });
+
+    // same flag-lifetime contract as appDockerStop: held during the kill
+    // operation, cleared when it settles, never reliant on the die event
+    it('holds the stopping flag during the kill and clears it on completion', async () => {
+      globalState.stoppingContainers.clear();
+      let flaggedDuringKill = false;
+      dockerStub.callsFake(async () => {
+        flaggedDuringKill = globalState.stoppingContainers.size === 1;
+        return 'killed';
+      });
+
+      await dockerService.appDockerKill(appName);
+
+      expect(flaggedDuringKill, 'flag must be set while the kill operation is in flight').to.be.true;
+      expect(globalState.stoppingContainers.size, 'flag must clear when the operation settles').to.equal(0);
     });
   });
 
@@ -829,7 +894,6 @@ describe('dockerService tests', () => {
 
   describe('appDockerCreate tests', () => {
     let dockerStub;
-    let advancedWorkflowsStub;
     const appName = 'fluxwebsite';
     // Use the same path that dockerService will compute at runtime
     const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
@@ -872,17 +936,10 @@ describe('dockerService tests', () => {
     };
     beforeEach(() => {
       dockerStub = sinon.stub(Dockerode.prototype, 'createContainer').returns(Promise.resolve('created'));
-      // Stub ensureMountPathsExist to prevent actual filesystem operations
-      // eslint-disable-next-line global-require
-      const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
-      advancedWorkflowsStub = sinon.stub(advancedWorkflows, 'ensureMountPathsExist').resolves();
     });
 
     afterEach(() => {
       dockerStub.restore();
-      if (advancedWorkflowsStub) {
-        advancedWorkflowsStub.restore();
-      }
     });
 
     it('should create an app given proper parameters for specs version > 1', async () => {

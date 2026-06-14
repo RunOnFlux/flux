@@ -36,7 +36,7 @@ describe('Spawner gate conditions', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootToReady(env);
     fluxTeamAuth = await authenticate(env.clients[0].url, fluxTeamKey());
   });

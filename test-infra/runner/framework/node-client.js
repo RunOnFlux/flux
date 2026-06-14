@@ -1,8 +1,9 @@
 import { EventEmitter } from 'node:events';
 import { EventSource } from 'eventsource';
+import { getSubnetConfig } from './subnet-config.js';
 
 export function nodeClient(nodeNum) {
-  const ip = `198.18.${nodeNum}.0`;
+  const ip = getSubnetConfig().nodeIp(nodeNum);
   const url = `http://${ip}:16127`;
 
   async function get(path) {
@@ -70,6 +71,8 @@ export function nodeClient(nodeNum) {
         'peers:belowThreshold',
         'peers:removed',
         'peers:thresholdReached',
+        'syncthing:folderErrors',
+        'syncthing:eventsResync',
         'spawner:blocked',
         'spawner:deferred',
         'spawner:installFailed',
@@ -92,6 +95,9 @@ export function nodeClient(nodeNum) {
         'hashRequest:received',
         'hashRequest:responded',
         'message:dispatched',
+        'reconciler:actuated',
+        'reconciler:desiredChanged',
+        'reconciler:swept',
       ]) {
         eventSource.addEventListener(name, (e) => {
           const entry = {
@@ -178,6 +184,33 @@ export function nodeClient(nodeNum) {
     getRunningApps: () => get('/apps/runningapps'),
     getLoginPhrase: () => get('/id/loginphrase'),
     verifyLogin: (body) => post('/id/verifylogin', body, { 'Content-Type': 'text/plain' }),
+    // Trigger a real local install on THIS node. The endpoint streams install
+    // progress as concatenated JSON chunks (not a single JSON doc), so drain the
+    // body as text; resolves when the install stream ends. Confirm completion via
+    // the app:installed event (waitForAppInstalled).
+    installAppLocally: async (appname, zelidauth) => {
+      const res = await fetch(`${url}/apps/installapplocally/${appname}`, { headers: { zelidauth } });
+      return res.text();
+    },
+    // Backup/restore drive the whole-app lease (B1). The endpoints stream chunked
+    // progress and the returned promise resolves when the task FINISHES - so a
+    // suite holds the lease window by simply not awaiting yet.
+    appendBackupTask: async (appname, components, zelidauth) => {
+      const res = await fetch(`${url}/apps/appendbackuptask`, {
+        method: 'POST',
+        headers: { zelidauth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appname, backup: components.map((component) => ({ component, backup: true })) }),
+      });
+      return res.text();
+    },
+    appendRestoreTask: async (appname, restore, type, zelidauth) => {
+      const res = await fetch(`${url}/apps/appendrestoretask`, {
+        method: 'POST',
+        headers: { zelidauth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appname, restore, type }),
+      });
+      return res.text();
+    },
   };
 }
 

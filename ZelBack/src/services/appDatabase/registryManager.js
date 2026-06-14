@@ -2069,8 +2069,94 @@ async function rescanGlobalAppsInformationAPI(req, res) {
   }
 }
 
+/**
+ * To get previous app specifications from the permanent message log. Used when
+ * verifying an app update message: the prior registration/update spec may no
+ * longer be in global apps (e.g. the app expired), so the message log is the
+ * accurate source. Lives here (not in advancedWorkflows) so message verification
+ * does not depend on the lifecycle layer — that was a require cycle.
+ * @param {object} specifications App specifications.
+ * @param {object} verificationTimestamp Message timestamp.
+ * @returns {object|null} App specifications or null if not found.
+ */
+async function getPreviousAppSpecifications(specifications, verificationTimestamp) {
+  // we may not have the application in global apps. This can happen when we receive the message
+  // after the app has already expired AND we need to get message right before our message.
+  // Thus using messages system that is accurate
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  const appsQuery = {
+    'appSpecifications.name': specifications.name,
+  };
+  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  let latestPermanentRegistrationMessage;
+  permanentAppMessage.forEach((foundMessage) => {
+    // has to be registration message
+    const validTypes = ['zelappregister', 'fluxappregister', 'zelappupdate', 'fluxappupdate'];
+    if (validTypes.includes(foundMessage.type)) {
+      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) {
+        // no message and found message is not newer than our message
+        latestPermanentRegistrationMessage = foundMessage;
+      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) {
+        // we have some message and the message is quite new
+        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp
+          && foundMessage.timestamp <= verificationTimestamp) {
+          // but our message is newer. foundMessage has to have lower timestamp than our new message
+          latestPermanentRegistrationMessage = foundMessage;
+        }
+      }
+    }
+  });
+  // some early app have zelAppSepcifications
+  const appsQueryB = {
+    'zelAppSpecifications.name': specifications.name,
+  };
+  const permanentAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+  permanentAppMessageB.forEach((foundMessage) => {
+    // has to be registration message
+    const validTypes = ['zelappregister', 'fluxappregister', 'zelappupdate', 'fluxappupdate'];
+    if (validTypes.includes(foundMessage.type)) {
+      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) {
+        // no message and found message is not newer than our message
+        latestPermanentRegistrationMessage = foundMessage;
+      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) {
+        // we have some message and the message is quite new
+        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp
+          && foundMessage.timestamp <= verificationTimestamp) {
+          // but our message is newer. foundMessage has to have lower timestamp than our new message
+          latestPermanentRegistrationMessage = foundMessage;
+        }
+      }
+    }
+  });
+  if (!latestPermanentRegistrationMessage) {
+    return null;
+  }
+  const appSpecs = latestPermanentRegistrationMessage.appSpecifications
+    || latestPermanentRegistrationMessage.zelAppSpecifications;
+  if (!appSpecs) {
+    throw new Error(`Previous specifications for ${specifications.name} update message does not exists! This should not happen.`);
+  }
+  if (appSpecs.version >= 8 && appSpecs.enterprise) {
+    try {
+      const heightForDecrypt = latestPermanentRegistrationMessage.height;
+      const decryptedPrev = await checkAndDecryptAppSpecs(appSpecs, { daemonHeight: heightForDecrypt });
+      return specificationFormatter(decryptedPrev);
+    } catch {
+      return specificationFormatter(appSpecs);
+    }
+  }
+  return specificationFormatter(appSpecs);
+}
+
 module.exports = {
   getAppHashes,
+  getPreviousAppSpecifications,
   appLocation,
   appLocationFromEvents,
   appInstallingLocation,

@@ -9,7 +9,7 @@ let env;
 describe('Peering', function () {
   before(async function () {
     this.timeout(180000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await env.startDiscovery();

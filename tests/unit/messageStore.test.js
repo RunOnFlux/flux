@@ -74,10 +74,10 @@ describe('messageStore tests', () => {
       },
       '../appDatabase/registryManager': {
         checkApplicationRegistrationNameConflicts: sinon.stub().resolves(),
+        getPreviousAppSpecifications: sinon.stub().resolves({ owner: 'owner1' }),
       },
       '../appLifecycle/advancedWorkflows': {
         validateApplicationUpdateCompatibility: sinon.stub().resolves(),
-        getPreviousAppSpecifications: sinon.stub().resolves({ owner: 'owner1' }),
       },
       '../utils/enterpriseHelper': {
         checkAndDecryptAppSpecs: sinon.stub().resolves({}),
@@ -244,10 +244,10 @@ describe('messageStore tests', () => {
         },
         '../appDatabase/registryManager': {
           checkApplicationRegistrationNameConflicts: sinon.stub().resolves(),
+          getPreviousAppSpecifications: sinon.stub().resolves({ owner: 'owner1', version: 5 }),
         },
         '../appLifecycle/advancedWorkflows': {
           validateApplicationUpdateCompatibility: sinon.stub().resolves(),
-          getPreviousAppSpecifications: sinon.stub().resolves({ owner: 'owner1', version: 5 }),
         },
         '../utils/enterpriseHelper': {
           checkAndDecryptAppSpecs: sinon.stub().resolves({}),

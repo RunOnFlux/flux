@@ -18,7 +18,7 @@ describe('Confirmation service: CONFIRMED detection', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
   });
 
@@ -40,7 +40,7 @@ describe('Confirmation service: node list removal → message capability lost', 
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 3, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 3, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await advanceBlock();
@@ -68,7 +68,7 @@ describe('Confirmation service: RPC failure windows', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 30000);
   });

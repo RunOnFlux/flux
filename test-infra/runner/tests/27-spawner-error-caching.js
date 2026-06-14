@@ -12,8 +12,9 @@ import {
 } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 
-const REGISTRY = '198.18.0.5:5000';
+const REGISTRY = REGISTRY_REPO_HOST;
 
 async function bootToSpawnerReady(env) {
   for (const c of env.clients) await waitForDaemonReady(c);
@@ -40,7 +41,7 @@ describe('Spawner error caching: local install failure', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await pushBrokenImage(repoName, 'v1');
     await bootToSpawnerReady(env);
 
@@ -136,7 +137,7 @@ describe.skip('Spawner error caching: network-wide error skip', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await pushImage(goodRepoName, 'v1');
     await bootToSpawnerReady(env);
 

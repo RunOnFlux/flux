@@ -6,6 +6,7 @@ const appController = require('../../ZelBack/src/services/appManagement/appContr
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
+const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const { requireMongo } = require('./dbTestHelper');
 
@@ -239,6 +240,21 @@ describe('appController tests', () => {
       sinon.assert.calledOnce(dockerService.appDockerStop);
       sinon.assert.calledWith(dockerService.appDockerStop, 'Component_TestApp');
     });
+
+    it('sets the operator lock BEFORE the docker stop on the component path (crash-safe ordering)', async () => {
+      // the whole-app path already locks first; lock-after means a crash between
+      // the docker stop and the lock write leaves a stopped container the
+      // reconciler will restart against the operator's intent
+      verificationHelperStub.resolves(true);
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+      const req = { params: { appname: 'Component_TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop(req, res);
+
+      sinon.assert.calledOnceWithExactly(setOperatorStopped, 'Component_TestApp', true);
+      sinon.assert.callOrder(setOperatorStopped, dockerService.appDockerStop);
+    });
   });
 
   describe('appRestart tests', () => {
@@ -311,11 +327,107 @@ describe('appController tests', () => {
       expect(result.status).to.equal('error');
       expect(result.data.code).to.equal(401);
     });
+
+    // A user-initiated restart is an explicit "make it run": it must clear the
+    // durable operator stop lock (same semantics and scope as appStart), and
+    // BEFORE the docker operation - if FluxOS dies mid-restart the worst case
+    // is then lock-cleared+stopped, which the reconciler converges to running
+    // (user intent). Without this, stop -> restart leaves the lock set and the
+    // reconciler silently re-stops the app at its next trigger.
+    it('clears the operator stop lock before restarting (v1-3 app)', async () => {
+      verificationHelperStub.resolves(true);
+      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+        name: 'TestApp',
+        version: 3,
+      });
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+      const req = { params: { appname: 'TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appRestart(req, res);
+
+      sinon.assert.calledOnceWithExactly(setOperatorStopped, 'TestApp', false);
+      sinon.assert.callOrder(setOperatorStopped, dockerService.appDockerRestart);
+    });
+
+    it('clears every component lock before restarting a composed app', async () => {
+      verificationHelperStub.resolves(true);
+      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+        name: 'ComposedApp',
+        version: 4,
+        compose: [
+          { name: 'Component1', containerData: '/data' },
+          { name: 'Component2', containerData: '/data' },
+        ],
+      });
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+      const req = { params: { appname: 'ComposedApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appRestart(req, res);
+
+      sinon.assert.calledWith(setOperatorStopped, 'Component1_ComposedApp', false);
+      sinon.assert.calledWith(setOperatorStopped, 'Component2_ComposedApp', false);
+      sinon.assert.callOrder(setOperatorStopped, dockerService.appDockerRestart);
+    });
+
+    it('clears only the named component lock on a component restart', async () => {
+      verificationHelperStub.resolves(true);
+      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+        name: 'ComposedApp',
+        version: 4,
+        compose: [
+          { name: 'Component1', containerData: '/data' },
+          { name: 'Component2', containerData: '/data' },
+        ],
+      });
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+      const req = { params: { appname: 'Component1_ComposedApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appRestart(req, res);
+
+      sinon.assert.calledOnceWithExactly(setOperatorStopped, 'Component1_ComposedApp', false);
+      sinon.assert.callOrder(setOperatorStopped, dockerService.appDockerRestart);
+    });
+
+    // The g:-skip path avoids a direct docker restart of a not-running g:
+    // component (the election governs it), but the user's stop-veto must still
+    // be lifted so the election MAY start it - appStart's existing semantics.
+    it('still clears the lock when a g: component restart is skipped', async () => {
+      verificationHelperStub.resolves(true);
+      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+        name: 'ComposedApp',
+        version: 4,
+        compose: [{ name: 'Gcomp', containerData: 'g:/data' }],
+      });
+      sinon.stub(dockerService, 'dockerListContainers').resolves([]); // g: component not running
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+      const req = { params: { appname: 'Gcomp_ComposedApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appRestart(req, res);
+
+      sinon.assert.calledOnceWithExactly(setOperatorStopped, 'Gcomp_ComposedApp', false);
+      sinon.assert.notCalled(dockerService.appDockerRestart); // skip preserved
+    });
   });
 
   describe('appKill tests', () => {
     beforeEach(() => {
       sinon.stub(dockerService, 'appDockerKill').resolves('Flux App TestApp successfully killed.');
+    });
+
+    it('sets the operator lock BEFORE the docker kill on the component path (crash-safe ordering)', async () => {
+      verificationHelperStub.resolves(true);
+      const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+
+      const req = { params: { appname: 'Component_TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appKill(req, res);
+
+      sinon.assert.calledOnceWithExactly(setOperatorStopped, 'Component_TestApp', true);
+      sinon.assert.callOrder(setOperatorStopped, dockerService.appDockerKill);
     });
 
     it('should kill app and return success message', async () => {

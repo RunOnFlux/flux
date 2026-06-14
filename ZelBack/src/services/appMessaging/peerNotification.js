@@ -10,13 +10,12 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
 const appQueryService = require('../appQuery/appQueryService');
-const containerHealthMonitor = require('../appMonitoring/containerHealthMonitor');
+const appReconciler = require('../appMonitoring/appReconciler');
 
 const fluxEventBus = require('../utils/fluxEventBus');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
-let checkAndNotifyPeersOfRunningAppsFirstRun = true;
 let broadcastInterval = null;
 let broadcastInProgress = false;
 let rebroadcastNeeded = false;
@@ -57,6 +56,13 @@ async function checkAndNotifyPeersOfRunningApps() {
       return;
     }
 
+    // Never snapshot before the reconciler's boot drain settles: a too-early
+    // snapshot misses apps whose containers are still being started, and their
+    // unrefreshed rows expire on the ~7min sigterm TTL (respawn elsewhere).
+    // Resolves immediately in steady state; capped reconciler-side, so a wedged
+    // reconcile cannot block the node's network presence.
+    await appReconciler.waitForBootDrainSettled();
+
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddr) {
       throw new Error('Unable to detect Flux IP address');
@@ -80,8 +86,17 @@ async function checkAndNotifyPeersOfRunningApps() {
       return app.Names[0].slice(5);
     });
 
-    const { masterSlaveAppsInstalled, startedApps } = await containerHealthMonitor.monitorAndRecoverApps(localSocketAddr, appsInstalled, runningAppsNames);
-    runningAppsNames.push(...startedApps);
+    // hourly resync trigger: let the reconciler bring any drifted containers
+    // (crashed, orphaned, missed events) back to their desired state
+    appReconciler.enqueueAll('hourly').catch((err) => log.error(`peerNotification - reconcile sweep failed: ${err.message}`));
+
+    // apps using g:/r: syncthing are advertised as installed-and-running even when
+    // some components are intentionally stopped (e.g. slaves), so derive them
+    // directly from the specs rather than from container run-state
+    const masterSlaveAppsInstalled = appsInstalled.filter((app) => {
+      const comps = app.version >= 4 && Array.isArray(app.compose) ? app.compose : [app];
+      return comps.some((c) => c.containerData && (c.containerData.includes('g:') || c.containerData.includes('r:')));
+    });
 
     const installedAndRunning = [];
     appsInstalled.forEach((app) => {
@@ -122,10 +137,14 @@ async function checkAndNotifyPeersOfRunningApps() {
           runningSince: runningOnMyNodeSince,
         });
       }
-      if (apps.length === 0 && !checkAndNotifyPeersOfRunningAppsFirstRun) {
+      // An empty snapshot is NEVER broadcast: the receive side treats an empty
+      // v2 message as "delete every appsLocations row for this IP" - and we
+      // store our own message first, so it would erase our own presence. Every
+      // legitimate correction has a targeted mechanism instead (fluxappremoved
+      // on uninstall, sigterm/TTL row expiry for wiped or dead nodes).
+      if (apps.length === 0) {
         return;
       }
-      checkAndNotifyPeersOfRunningAppsFirstRun = false;
       const appRunningMessage = {
         type: 'fluxapprunning',
         version: 2,

@@ -1,4 +1,6 @@
-const CONTROL = process.env.DAEMON_CONTROL || 'http://198.18.0.3:18232';
+import { getSubnetConfig } from './subnet-config.js';
+
+const CONTROL = process.env.DAEMON_CONTROL || `http://${getSubnetConfig().daemon}:18232`;
 
 async function post(path, body) {
   const res = await fetch(`${CONTROL}${path}`, {
@@ -77,6 +79,14 @@ export async function getNodeStatusOverrides() {
 }
 
 // -- Deterministic list --
+
+// Seed the stub's node list with a known set (each entry needs at least an `ip`),
+// updating the restore/reset baseline too — mirrors the harness's setup POST. Use
+// in nodes:0 suites that exercise the node-list endpoints, which otherwise start
+// from an empty list.
+export async function setNodeList(nodes) {
+  return post('/set-node-list', { nodes });
+}
 
 export async function removeFromNodeList(ip) {
   return post(`/node-list/remove/${ip}`);

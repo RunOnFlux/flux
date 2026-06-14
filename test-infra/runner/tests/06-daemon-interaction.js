@@ -4,12 +4,15 @@ import { createTestEnv } from '../framework/test-env.js';
 import { setNodeStatus, clearNodeStatus, removeFromNodeList, restoreToNodeList, resetNodeList, enableRpcFailure, disableRpcFailure } from '../framework/daemon-control.js';
 import { waitForDaemonReady, waitForDaemonPolled, waitForNodeStatus, waitForDaemonUnreachable, waitForDaemonRecovered } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
 
 let env;
 const NODE_COUNT = 4;
 
 async function directRpc(method, params = []) {
-  const res = await fetch(`http://198.18.0.3:16124/`, {
+  const res = await fetch(`http://${subnet.daemon}:16124/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ method, params, id: 1 }),
@@ -18,7 +21,7 @@ async function directRpc(method, params = []) {
 }
 
 async function directBenchRpc(method, params = []) {
-  const res = await fetch(`http://198.18.0.3:16224/`, {
+  const res = await fetch(`http://${subnet.daemon}:16224/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ method, params, id: 1 }),
@@ -29,7 +32,7 @@ async function directBenchRpc(method, params = []) {
 describe('Daemon interaction', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: NODE_COUNT, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: NODE_COUNT, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
   });
 
@@ -77,21 +80,21 @@ describe('Daemon interaction', function () {
 
   describe('per-node status override', function () {
     afterEach(async function () {
-      await clearNodeStatus('198.18.1.0');
+      await clearNodeStatus(subnet.nodeIp(1));
     });
 
     it('should detect EXPIRED via monitor after override set', async function () {
       this.timeout(30000);
-      await setNodeStatus('198.18.1.0', 'EXPIRED');
+      await setNodeStatus(subnet.nodeIp(1), 'EXPIRED');
       const event = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
       expect(event.data.confirmed).to.equal(false);
     });
 
     it('should detect CONFIRMED via monitor after override cleared', async function () {
       this.timeout(30000);
-      await setNodeStatus('198.18.1.0', 'EXPIRED');
+      await setNodeStatus(subnet.nodeIp(1), 'EXPIRED');
       await waitForNodeStatus(env.clients[0], (d) => d.confirmed === false, 20000);
-      await clearNodeStatus('198.18.1.0');
+      await clearNodeStatus(subnet.nodeIp(1));
       const event = await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 20000);
       expect(event.data.confirmed).to.equal(true);
     });
@@ -103,39 +106,39 @@ describe('Daemon interaction', function () {
     });
 
     it('should reflect node removal from list', async function () {
-      await removeFromNodeList('198.18.3.0');
+      await removeFromNodeList(subnet.nodeIp(3));
       const rpc = await directRpc('viewdeterministiczelnodelist');
       const ips = rpc.result.map((n) => n.ip);
-      expect(ips).to.not.include('198.18.3.0');
+      expect(ips).to.not.include(subnet.nodeIp(3));
       expect(rpc.result).to.have.length(NODE_COUNT - 1);
     });
 
     it('should reflect node restoration to list', async function () {
-      await removeFromNodeList('198.18.3.0');
-      await restoreToNodeList('198.18.3.0');
+      await removeFromNodeList(subnet.nodeIp(3));
+      await restoreToNodeList(subnet.nodeIp(3));
       const rpc = await directRpc('viewdeterministiczelnodelist');
       const ips = rpc.result.map((n) => n.ip);
-      expect(ips).to.include('198.18.3.0');
+      expect(ips).to.include(subnet.nodeIp(3));
       expect(rpc.result).to.have.length(NODE_COUNT);
     });
   });
 
   describe('RPC failure simulation', function () {
     afterEach(async function () {
-      await disableRpcFailure('198.18.1.0');
+      await disableRpcFailure(subnet.nodeIp(1));
     });
 
     it('should emit daemon:unreachable when RPC fails', async function () {
       this.timeout(20000);
-      await enableRpcFailure('198.18.1.0');
+      await enableRpcFailure(subnet.nodeIp(1));
       await waitForDaemonUnreachable(env.clients[0], 15000);
     });
 
     it('should emit daemon:recovered when RPC resumes', async function () {
       this.timeout(20000);
-      await enableRpcFailure('198.18.1.0');
+      await enableRpcFailure(subnet.nodeIp(1));
       await waitForDaemonUnreachable(env.clients[0], 15000);
-      await disableRpcFailure('198.18.1.0');
+      await disableRpcFailure(subnet.nodeIp(1));
       const event = await waitForDaemonRecovered(env.clients[0], 10000);
       expect(event.data).to.exist;
     });

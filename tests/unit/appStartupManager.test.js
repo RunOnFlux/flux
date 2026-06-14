@@ -11,6 +11,7 @@ describe('appStartupManager tests', () => {
   let fluxNetworkHelperStub;
   let registryManagerStub;
   let advancedWorkflowsStub;
+  let appReconcilerStub;
   let appUninstallerStub;
   let globalStateStub;
   let appQueryServiceStub;
@@ -42,6 +43,12 @@ describe('appStartupManager tests', () => {
 
     advancedWorkflowsStub = {
       appDockerStart: sinon.stub().resolves(),
+    };
+
+    // boot reconcile hands each component to the reconciler (the single actuator);
+    // it no longer calls appDockerStart directly
+    appReconcilerStub = {
+      enqueue: sinon.stub(),
     };
 
     appUninstallerStub = {
@@ -81,6 +88,7 @@ describe('appStartupManager tests', () => {
       '../fluxNetworkHelper': fluxNetworkHelperStub,
       '../appDatabase/registryManager': registryManagerStub,
       './advancedWorkflows': advancedWorkflowsStub,
+      '../appMonitoring/appReconciler': appReconcilerStub,
       './appUninstaller': appUninstallerStub,
       '../utils/globalState': globalStateStub,
       '../appQuery/appQueryService': appQueryServiceStub,
@@ -223,7 +231,8 @@ describe('appStartupManager tests', () => {
 
       expect(results.appsStarted).to.deep.equal(['AppA']);
       expect(results.appsRemoved).to.deep.equal([]);
-      expect(advancedWorkflowsStub.appDockerStart.calledWith('AppA')).to.equal(true);
+      expect(appReconcilerStub.enqueue.calledWith('AppA')).to.equal(true);
+      expect(advancedWorkflowsStub.appDockerStart.called).to.equal(false);
     });
 
     it('should remove app when location record has expired', async () => {
@@ -241,7 +250,7 @@ describe('appStartupManager tests', () => {
       expect(results.appsRemoved).to.deep.equal(['AppA']);
       expect(results.appsStarted).to.deep.equal([]);
       expect(appUninstallerStub.removeAppLocally.calledWith('AppA', null, true, true, false)).to.equal(true);
-      expect(advancedWorkflowsStub.appDockerStart.called).to.equal(false);
+      expect(appReconcilerStub.enqueue.called).to.equal(false);
     });
 
     it('should remove app when location record is missing', async () => {
@@ -391,10 +400,10 @@ describe('appStartupManager tests', () => {
       expect(results.appsPartiallyStarted).to.deep.equal(['MixedApp']);
       expect(results.appsStarted).to.deep.equal([]);
       expect(results.appsSkippedGMode).to.deep.equal([]);
-      // Non-g component started
-      expect(advancedWorkflowsStub.appDockerStart.calledWith('web_MixedApp')).to.equal(true);
-      // g: component NOT started here (left for masterSlaveApps)
-      expect(advancedWorkflowsStub.appDockerStart.calledWith('db_MixedApp')).to.equal(false);
+      // Non-g component enqueued for the reconciler
+      expect(appReconcilerStub.enqueue.calledWith('web_MixedApp')).to.equal(true);
+      // g: component NOT enqueued here (left for masterSlaveApps)
+      expect(appReconcilerStub.enqueue.calledWith('db_MixedApp')).to.equal(false);
     });
 
     it('should skip a compose app where every component is g:', async () => {
@@ -418,7 +427,7 @@ describe('appStartupManager tests', () => {
       expect(results.appsSkippedGMode).to.deep.equal(['AllGApp']);
       expect(results.appsStarted).to.deep.equal([]);
       expect(results.appsPartiallyStarted).to.deep.equal([]);
-      expect(advancedWorkflowsStub.appDockerStart.called).to.equal(false);
+      expect(appReconcilerStub.enqueue.called).to.equal(false);
     });
   });
 

@@ -5,7 +5,7 @@ import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
   waitForPeerThreshold, waitForPeersBelowThreshold, waitForBootSettled,
-  waitForDosChanged, waitFor,
+  waitForBootSettledAndLogged, waitForDosChanged, waitFor,
 } from '../framework/wait.js';
 import {
   advanceBlock, advanceBlocks, startTicker, stopTicker,
@@ -22,7 +22,7 @@ describe('Boundary: peer thresholds', function () {
 
   before(async function () {
     this.timeout(180000);
-    env = await createTestEnv({ nodes: 3, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 3, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await env.startDiscovery();
@@ -74,7 +74,7 @@ describe('Boundary: DOS state', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
     await waitForDaemonReady(env.clients[0]);
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 30000);
     fluxTeamAuth = await authenticate(env.clients[0].url, fluxTeamKey());
@@ -115,7 +115,7 @@ describe('Boundary: block timer', function () {
 
   before(async function () {
     this.timeout(180000);
-    env = await createTestEnv({ nodes: 2, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 2, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await waitForExplorerReady(env.clients[0]);
@@ -155,7 +155,7 @@ describe('Boundary: clean shutdown within SIGTERM_EXPIRY', function () {
   before(async function () {
     this.timeout(120000);
     // 300s ago with sigterm — within 420s SIGTERM_EXPIRY_MS
-    env = await createTestEnv({
+    env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
       bootContext: { lastAlive: Date.now() - 300000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
@@ -170,7 +170,10 @@ describe('Boundary: clean shutdown within SIGTERM_EXPIRY', function () {
 
   it('should NOT remove apps when downtime within SIGTERM window', async function () {
     this.timeout(60000);
-    await waitForBootSettled(env.clients[0], 50000);
+    // anchor on the settle LOG line, not just the event: 'Locations expired'
+    // is written before the settle line, so behind the anchor this absence
+    // assert is FIFO-race-free (the instant form could false-pass)
+    await waitForBootSettledAndLogged(env);
     expect(env.nodeHasLog(0, 'Locations expired')).to.equal(false);
   });
 });
@@ -182,7 +185,7 @@ describe('Boundary: clean shutdown beyond SIGTERM_EXPIRY', function () {
   before(async function () {
     this.timeout(120000);
     // 500s ago with sigterm — exceeds 420s SIGTERM_EXPIRY_MS
-    env = await createTestEnv({
+    env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
       bootContext: { lastAlive: Date.now() - 500000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
@@ -195,8 +198,10 @@ describe('Boundary: clean shutdown beyond SIGTERM_EXPIRY', function () {
   });
 
   it('should remove apps when downtime exceeds SIGTERM window', async function () {
-    this.timeout(30000);
-    await waitForBootSettled(env.clients[0], 20000);
+    this.timeout(40000);
+    // anchor on the settle LOG line so the presence assert below cannot race
+    // the log pipeline ('Locations expired' is written before the settle line)
+    await waitForBootSettledAndLogged(env, 0, { timeout: 20000 });
     expect(env.nodeHasLog(0, 'Locations expired')).to.equal(true);
   });
 });

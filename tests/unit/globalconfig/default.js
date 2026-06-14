@@ -54,6 +54,7 @@ module.exports = {
       database: 'localzelappstest',
       collections: {
         appsInformation: 'zelappsinformation',
+        appsRuntimeState: 'zelappsruntimestate',
       },
     },
     appsglobal: {
@@ -112,6 +113,8 @@ module.exports = {
   deterministicNodesStart: 558000,
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
+    crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
+    crashBackoffStableRunMs: 600000,
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.
@@ -287,6 +290,10 @@ module.exports = {
     imageComplianceIntervalMs: 3600000,
     forceRemovalIntervalMs: 7200000,
     installCollisionWaitMs: 90000,
+    portTestBindDelayMs: 5000,
+    portTestPropagationDelayMs: 10000,
+    portTestPeerTimeoutMs: 30000,
+    portTestMaxAttempts: 5,
     spawnReconfirmDelayMs: 7500000,
     nonEnterpriseSpawnDelayMs: 120000,
     globalCmdDelayMs: 500,
@@ -333,6 +340,7 @@ module.exports = {
     imageUpdateDelayBetweenAppsMs: 5000,
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
+    masterSlaveIntervalMs: 30000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -368,6 +376,11 @@ module.exports = {
   syncthing: { // operates on apiPort + 2
     ip: '127.0.0.1', // local
     port: 8384, // local
+    monitorIntervalMs: 30000,
+    stallNudgeAfterMs: 180000,
+    stallNudgeMaxIntervalMs: 900000,
+    stallRemoveMinWindowMs: 1200000,
+    stallRemoveMinNudges: 3,
   },
   cpuBurst: {
     enabled: true,

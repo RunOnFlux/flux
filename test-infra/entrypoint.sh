@@ -3,6 +3,17 @@ set -e
 
 ip addr add 169.254.43.43/32 dev lo 2>/dev/null || true
 
+# App installs mount each app's FLUXFSVOL via `mount -o loop`. Loop devices are a
+# shared host-kernel resource (not namespaced); the kernel default pool (max_loop,
+# typically 8) is small and on-demand creation races under concurrent installs, so a
+# fleet installing at once (e.g. instances == nodeCount) exhausts it and installs
+# fail with "failed to setup loop device". Pre-create a generous pool so each
+# concurrent mount finds a free device. /dev is shared across the privileged nodes,
+# so this is idempotent fleet-wide (existing devices are skipped).
+for i in $(seq 0 63); do
+  [ -e "/dev/loop$i" ] || mknod -m660 "/dev/loop$i" b 7 "$i" 2>/dev/null || true
+done
+
 mkdir -p /dat/var/lib/fluxd \
          /dat/usr/lib/syncthing \
          /dat/usr/lib/fluxbenchd \
@@ -39,24 +50,32 @@ if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
       > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || :
 fi
 
-# Trust test registry CA for dockerd (Node.js uses NODE_EXTRA_CA_CERTS directly)
+# Trust test registry CA for dockerd (Node.js uses NODE_EXTRA_CA_CERTS directly).
+# The registry is reached by a stable network alias (fluxregistry), not an IP, so
+# this path is base-independent — dockerd pulls fluxregistry:5000/... under any subnet.
 if [ -f /usr/local/share/ca-certificates/test-registry.crt ]; then
-  mkdir -p "/etc/docker/certs.d/198.18.0.5:5000"
-  cp /usr/local/share/ca-certificates/test-registry.crt "/etc/docker/certs.d/198.18.0.5:5000/ca.crt"
+  mkdir -p "/etc/docker/certs.d/fluxregistry:5000"
+  cp /usr/local/share/ca-certificates/test-registry.crt "/etc/docker/certs.d/fluxregistry:5000/ca.crt"
 fi
 
-# Start dockerd (FluxOS expects Docker on the local socket)
+# Start dockerd under a tiny watchdog so it is respawned if it exits. Production
+# nodes run dockerd under systemd (which restarts it); this mirrors that and lets
+# tests bounce dockerd (kill it) to exercise the reconciler's reconnect/orphan
+# recovery without bricking the node. node app.js stays PID 1 (via exec below).
 rm -f /var/run/docker.pid
-dockerd --data-root /mnt/appdata/docker &
-DOCKERD_PID=$!
+(
+  set +e
+  while true; do
+    rm -f /var/run/docker.pid
+    dockerd --data-root /mnt/appdata/docker
+    echo "dockerd exited (rc=$?), respawning in 1s" >&2
+    sleep 1
+  done
+) &
 
 TIMEOUT=30
 ELAPSED=0
 until docker info > /dev/null 2>&1; do
-  if ! kill -0 "$DOCKERD_PID" 2>/dev/null; then
-    echo "ERROR: dockerd exited unexpectedly" >&2
-    exit 1
-  fi
   if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
     echo "ERROR: dockerd failed to start within ${TIMEOUT}s" >&2
     exit 1
@@ -74,4 +93,22 @@ if [ -n "$FLUX_BOOT_ID" ]; then
   echo "$FLUX_BOOT_ID" > /tmp/flux-boot-id
 fi
 
-exec "$@"
+# Run FluxOS (CMD ["node","app.js"]) under a respawn watchdog instead of exec'ing it
+# as PID 1. This mirrors the dockerd watchdog above and production's systemd: the
+# entrypoint shell stays PID 1 and node runs as a child, so a test can kill+respawn
+# the FluxOS process (restartFluxos) WITHOUT restarting the container or the inner
+# dockerd - the app containers keep running, exactly like `systemctl restart fluxos`.
+# The child PID is written to /tmp/fluxos.pid so a test kills only the node process,
+# never PID 1. A SIGTERM/SIGINT (docker stop at teardown) stops the child and exits.
+set +e
+STOPPING=0
+trap 'STOPPING=1; kill -TERM "$(cat /tmp/fluxos.pid 2>/dev/null)" 2>/dev/null' TERM INT
+while [ "$STOPPING" = "0" ]; do
+  "$@" &
+  FLUXOS_PID=$!
+  echo "$FLUXOS_PID" > /tmp/fluxos.pid
+  wait "$FLUXOS_PID"
+  [ "$STOPPING" = "1" ] && break
+  echo "fluxos (node app.js) exited, respawning in 1s" >&2
+  sleep 1
+done

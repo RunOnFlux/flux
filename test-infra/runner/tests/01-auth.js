@@ -12,7 +12,7 @@ let node;
 describe('Authentication', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1 });
+    env = await createTestEnv({ hookCtx: this, nodes: 1 });
     node = env.clients[0];
     await waitForDaemonReady(node);
   });
@@ -86,7 +86,7 @@ describe('Privilege enforcement', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1 });
+    env = await createTestEnv({ hookCtx: this, nodes: 1 });
     node = env.clients[0];
     await waitForDaemonReady(node);
     fluxTeamAuth = await authenticate(node.url, fluxTeamKey());

@@ -1,17 +1,28 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { waitForDaemonReady } from '../framework/wait.js';
+import { waitForDaemonReady, waitFor } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
 
 let env;
 
 describe('Boot: prerequisites', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 1, tickerAutostart: false, discoveryAutostart: true });
+    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false, discoveryAutostart: true });
     await waitForDaemonReady(env.clients[0]);
+    // 'Daemon Sync status' is logged in the same instant the daemon:polled
+    // event fires, so anchor on the LINE too: the log stream is FIFO, which
+    // makes every instant log assert below (all written earlier in boot)
+    // race-free against the docker log pipeline.
+    await waitFor(
+      () => env.nodeHasLog(0, 'Daemon Sync status'),
+      { timeout: 10000, interval: 250, label: 'daemon sync status log line' },
+    );
   });
 
   after(async function () {
@@ -52,7 +63,7 @@ describe('Boot: prerequisites', function () {
     const db = dbClient(1);
     const geo = await db.geolocation();
     expect(geo).to.not.be.null;
-    expect(geo.geolocation.ip).to.equal('198.18.1.0');
+    expect(geo.geolocation.ip).to.equal(subnet.nodeIp(1));
   });
 
   it('should start Docker daemon inside container', async function () {

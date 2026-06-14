@@ -139,7 +139,7 @@ async function storeAppTemporaryMessage(message, options = {}) {
     // For updates, fetch previous app specs first - if registration doesn't exist yet, queue the update
     let previousAppSpecs = null;
     if (!appRegistration) {
-      previousAppSpecs = await advancedWorkflows.getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
+      previousAppSpecs = await registryManager.getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
       if (!previousAppSpecs) {
         // Registration doesn't exist yet - queue this update for later processing
         const appName = appSpecFormatted.name;

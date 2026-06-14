@@ -10,6 +10,9 @@ import {
   waitForAppInstalled, waitForOrchestratorState,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
 
 async function bootAndPeer(env, nodeIndices) {
   const clients = nodeIndices.map((i) => env.clients[i]).filter(Boolean);
@@ -34,7 +37,7 @@ describe('State sync: app running state (0x21)', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({ nodes: 12, deferredNodes: 2, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 12, deferredNodes: 2, tickerAutostart: false });
     const initial = Array.from({ length: 10 }, (_, i) => i);
     await bootAndPeer(env, initial);
 
@@ -45,7 +48,7 @@ describe('State sync: app running state (0x21)', function () {
       compose: [{
         name: appName,
         description: 'sync test',
-        repotag: `198.18.0.5:5000/${appName}:v1`,
+        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
         ports: [31111],
         domains: [''],
         environmentParameters: [],
@@ -104,7 +107,7 @@ describe('State sync: hash resolution', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({ nodes: 12, deferredNodes: 2, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 12, deferredNodes: 2, tickerAutostart: false });
     const initial = Array.from({ length: 10 }, (_, i) => i);
     await bootAndPeer(env, initial);
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
@@ -116,7 +119,7 @@ describe('State sync: hash resolution', function () {
       compose: [{
         name: appName,
         description: 'hash sync test',
-        repotag: `198.18.0.5:5000/${appName}:v1`,
+        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
         ports: [31112],
         domains: [''],
         environmentParameters: [],
@@ -171,7 +174,7 @@ describe('State sync: 3-peer ephemeral sync', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({
+    env = await createTestEnv({ hookCtx: this,
       nodes: 11,
       deferredNodes: 1,
       tickerAutostart: false,
@@ -189,7 +192,7 @@ describe('State sync: 3-peer ephemeral sync', function () {
       compose: [{
         name: appName,
         description: '3-peer sync test',
-        repotag: `198.18.0.5:5000/${appName}:v1`,
+        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
         ports: [31113],
         domains: [''],
         environmentParameters: [],
@@ -206,10 +209,12 @@ describe('State sync: 3-peer ephemeral sync', function () {
       await dc.seedGlobalAppSpec(app.spec);
       await dc.seedPermanentMessage(app.permanentMessage);
       await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-      // Seed running locations on each source node so they have ephemeral data to sync
+      // Seed running locations on each source node so they have ephemeral data to sync.
+      // Distinct fake in-/24 app-location IPs (.100+ avoids gateway/.1, services/.2-.7,
+      // and node IPs/.10+); must stay in the FluxOS-accepted base or sync drops them.
       await dc.seedAppLocation({
         name: appName,
-        ip: `198.18.1.${i - 1}:16127`,
+        ip: `${subnet.base}.${100 + i}:16127`,
         hash: app.hash,
         broadcastedAt: Date.now(),
       });

@@ -13,7 +13,7 @@ const dockerService = require('../dockerService');
 const serviceHelper = require('../serviceHelper');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const registryManager = require('../appDatabase/registryManager');
-const advancedWorkflows = require('./advancedWorkflows');
+const appReconciler = require('../appMonitoring/appReconciler');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
 const globalState = require('../utils/globalState');
@@ -209,32 +209,18 @@ async function reconcileAppsOnBoot() {
         log.info(`appStartupManager - App ${appName} has valid location, starting app`);
       }
 
-      let anyComponentFailed = false;
+      // hand each component to the reconciler; it actuates once the boot gate
+      // opens (daemon/DB ready) and applies desired-state + restart policy
       // eslint-disable-next-line no-restricted-syntax
       for (const identifier of componentsToStart) {
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          await advancedWorkflows.appDockerStart(identifier);
-          log.info(`appStartupManager - Successfully started ${identifier}`);
-          // Add small delay between starts to avoid overwhelming the system
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(2000);
-        } catch (startError) {
-          anyComponentFailed = true;
-          log.error(`appStartupManager - Failed to start ${identifier}: ${startError.message}`);
-          results.appsFailed.push({
-            app: identifier,
-            error: startError.message,
-          });
-        }
+        appReconciler.enqueue(identifier);
+        log.info(`appStartupManager - Queued ${identifier} for reconcile`);
       }
 
-      if (!anyComponentFailed) {
-        if (isPartial) {
-          results.appsPartiallyStarted.push(appName);
-        } else {
-          results.appsStarted.push(appName);
-        }
+      if (isPartial) {
+        results.appsPartiallyStarted.push(appName);
+      } else {
+        results.appsStarted.push(appName);
       }
     }
 

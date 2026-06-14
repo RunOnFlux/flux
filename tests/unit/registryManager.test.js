@@ -25,6 +25,19 @@ describe('registryManager tests', () => {
     sinon.restore();
   });
 
+  describe('getPreviousAppSpecifications tests', () => {
+    it('should return null if no previous message found', async () => {
+      const specifications = { name: 'NewApp' };
+      const verificationTimestamp = Date.now();
+
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+
+      const result = await registryManager.getPreviousAppSpecifications(specifications, verificationTimestamp);
+      expect(result).to.be.null;
+    });
+  });
+
   describe('getApplicationOwner tests', () => {
     beforeEach(async () => {
       const collection = config.database.appsglobal.collections.appsInformation;

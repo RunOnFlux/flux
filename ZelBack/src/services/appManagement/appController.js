@@ -6,6 +6,7 @@ const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('./appInspector');
+const appsRuntimeState = require('./appsRuntimeState');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const log = require('../../lib/log');
@@ -102,6 +103,26 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
  * @param {object} res - Response object
  * @returns {object} Response message
  */
+/**
+ * Records the operator's desired run-state for an app (or single component) so
+ * the reconciler honours a deliberate stop/kill and resumes on start. Spreads
+ * to every component for a whole composed-app command.
+ *
+ * @param {string} appname app or component identifier
+ * @param {object|null} appSpecs full app spec (null for a component command)
+ * @param {boolean} stopped
+ */
+async function setAppOperatorStopped(appname, appSpecs, stopped) {
+  const ids = (!appname.includes('_') && appSpecs && appSpecs.version > 3)
+    ? appSpecs.compose.map((c) => `${c.name}_${appSpecs.name}`)
+    : [appname];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    await appsRuntimeState.setOperatorStopped(id, stopped);
+  }
+}
+
 async function appStart(req, res) {
   try {
     let { appname } = req.params;
@@ -136,6 +157,8 @@ async function appStart(req, res) {
     let appRes;
 
     if (isComponent) {
+      // user-initiated start clears the operator stop lock so the reconciler keeps it running
+      await setAppOperatorStopped(appname, null, false);
       // For component start, check if it uses g:syncthing mode
       const componentMainApp = appname.split('_')[1];
       const appSpecs = await registryManager.getApplicationSpecifications(componentMainApp);
@@ -165,6 +188,8 @@ async function appStart(req, res) {
       if (!appSpecs) {
         throw new Error('Application not found');
       }
+      // user-initiated start clears the operator stop lock so the reconciler keeps it running
+      await setAppOperatorStopped(appname, appSpecs, false);
 
       if (appSpecs.version <= 3) {
         // For non-composed apps, check if it uses g:syncthing mode
@@ -270,6 +295,10 @@ async function appStop(req, res) {
     let appRes;
 
     if (isComponent) {
+      // lock BEFORE the docker op (matching the whole-app path): a crash between
+      // the stop and the lock write would leave a stopped container the
+      // reconciler restarts against the operator's intent
+      await setAppOperatorStopped(appname, null, true);
       appInspector.stopAppMonitoring(appname, false);
       appRes = await dockerService.appDockerStop(appname);
     } else {
@@ -278,6 +307,8 @@ async function appStop(req, res) {
       if (!appSpecs) {
         throw new Error('Application not found');
       }
+      // operator stop persists so the reconciler does not restart it
+      await setAppOperatorStopped(appname, appSpecs, true);
 
       // eslint-disable-next-line no-restricted-syntax
       if (appSpecs.version <= 3) {
@@ -349,6 +380,9 @@ async function appRestart(req, res) {
     let appRes;
 
     if (isComponent) {
+      // user-initiated restart means "make it run": clear the operator stop lock
+      // (before the docker op) so the reconciler keeps it running afterwards
+      await setAppOperatorStopped(appname, null, false);
       // For component restart, check if it uses g:syncthing mode
       const componentMainApp = appname.split('_')[1];
       const appSpecs = await registryManager.getApplicationSpecifications(componentMainApp);
@@ -378,6 +412,9 @@ async function appRestart(req, res) {
       if (!appSpecs) {
         throw new Error('Application not found');
       }
+      // user-initiated restart means "make it run": clear the operator stop lock
+      // for every component (before the docker ops), matching appStart
+      await setAppOperatorStopped(appname, appSpecs, false);
 
       if (appSpecs.version <= 3) {
         // For non-composed apps, check if it uses g:syncthing mode
@@ -467,6 +504,8 @@ async function appKill(req, res) {
     let appRes;
 
     if (isComponent) {
+      // lock BEFORE the docker op (matching the whole-app path) - crash-safe direction
+      await setAppOperatorStopped(appname, null, true);
       appRes = await dockerService.appDockerKill(appname);
     } else {
       // eslint-disable-next-line no-restricted-syntax
@@ -475,6 +514,8 @@ async function appKill(req, res) {
       if (!appSpecs) {
         throw new Error('Application not found');
       }
+      // operator kill persists so the reconciler does not restart it
+      await setAppOperatorStopped(appname, appSpecs, true);
 
       if (appSpecs.version <= 3) {
         appRes = await dockerService.appDockerKill(appname);

@@ -34,7 +34,7 @@ describe('Orchestrator: INITIALIZING to SYNCING', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 3, deferredNodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 3, deferredNodes: 1, tickerAutostart: false });
     await Promise.all(env.clients.filter(Boolean).map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.filter(Boolean).map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await waitForExplorerReady(env.clients[0]);
@@ -81,7 +81,7 @@ describe('Orchestrator: SYNCING to READY', function () {
 
     before(async function () {
       this.timeout(300000);
-      env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+      env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
       await bootNodes(env, { discover: true });
     });
 
@@ -111,7 +111,7 @@ describe('Orchestrator: SYNCING to READY', function () {
       // 2 nodes: node 0 can never reach peer threshold of 2 by itself
       // (it has at most 1 peer), so ephemeral sync won't complete via peers.
       // Block timer at 250 blocks (125 * 2) should kick in.
-      env = await createTestEnv({ nodes: 2, tickerAutostart: false });
+      env = await createTestEnv({ hookCtx: this, nodes: 2, tickerAutostart: false });
       await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
       await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
       await waitForExplorerReady(env.clients[0]);
@@ -157,7 +157,7 @@ describe('Orchestrator: READY to DEGRADED', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootNodes(env, { discover: true });
     await startTicker();
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
@@ -189,7 +189,7 @@ describe('Orchestrator: peer drop during SYNCING', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await waitForExplorerReady(env.clients[0]);
@@ -227,7 +227,7 @@ describe('Orchestrator: DEGRADED recovery cycle', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootNodes(env, { discover: true });
     await startTicker();
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
@@ -270,7 +270,7 @@ describe('Orchestrator: block timer during RESYNCING', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootNodes(env, { discover: true });
     await startTicker();
     await waitForOrchestratorState(env.clients[0], 'READY', 120000);
@@ -308,7 +308,7 @@ describe('Orchestrator: message capability loss', function () {
 
     before(async function () {
       this.timeout(300000);
-      env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+      env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
       await bootNodes(env, { discover: true });
       await startTicker();
       await waitForOrchestratorState(env.clients[0], 'READY', 120000);
@@ -346,7 +346,7 @@ describe('Orchestrator: message capability loss', function () {
 
     before(async function () {
       this.timeout(120000);
-      env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+      env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
       await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
       await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
       await waitForExplorerReady(env.clients[0]);

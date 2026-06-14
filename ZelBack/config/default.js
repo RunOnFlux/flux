@@ -62,6 +62,7 @@ module.exports = {
       database: `${dbPrefix}localzelapps`,
       collections: {
         appsInformation: 'zelappsinformation',
+        appsRuntimeState: 'zelappsruntimestate', // node-local per-component controller state: desiredState, restartHistory (crash backoff), last exit
       },
     },
     appsglobal: {
@@ -123,6 +124,10 @@ module.exports = {
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
     latestSupportedSpecVersion: 8, // version changes on app updates must target this version
+    // reconciler crash-recovery backoff: ladder of waits between restart attempts,
+    // and the run length that counts as stable (resets the ladder)
+    crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
+    crashBackoffStableRunMs: 600000,
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.
@@ -299,6 +304,10 @@ module.exports = {
     imageComplianceIntervalMs: 3600000,
     forceRemovalIntervalMs: 7200000,
     installCollisionWaitMs: 90000,
+    portTestBindDelayMs: 5000,
+    portTestPropagationDelayMs: 10000,
+    portTestPeerTimeoutMs: 30000,
+    portTestMaxAttempts: 5,
     spawnReconfirmDelayMs: 7500000,
     nonEnterpriseSpawnDelayMs: 120000,
     globalCmdDelayMs: 500,
@@ -345,6 +354,7 @@ module.exports = {
     imageUpdateDelayBetweenAppsMs: 5000,
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
+    masterSlaveIntervalMs: 30000, // masterSlave (g:) FDM election cycle
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
@@ -380,6 +390,14 @@ module.exports = {
   syncthing: { // operates on apiPort + 2
     ip: '127.0.0.1',
     port: 8384,
+    monitorIntervalMs: 30000, // syncthingApps reconfiguration/sync-readiness cycle
+    // stall ladder (receive-only convergence): wait -> device pause/resume nudge with
+    // doubling backoff -> removal only with a connected synced peer, repeated nudges
+    // and zero progress over the minimum window
+    stallNudgeAfterMs: 180000, // 3min idle with no byte progress before the first nudge
+    stallNudgeMaxIntervalMs: 900000, // nudge backoff cap (15min)
+    stallRemoveMinWindowMs: 1200000, // 20min minimum evidence window before removal
+    stallRemoveMinNudges: 3, // nudges that must have failed before removal
   },
   // enterpriseAppOwners moved to helpers/enterprisenodes.json (synced from github every 6h, see enterpriseConfig)
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
