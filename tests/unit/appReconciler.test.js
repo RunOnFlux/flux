@@ -561,6 +561,45 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
       expect(stubs.dockerService.appDockerStart.calledOnceWith('web_Other')).to.be.true;
     });
+
+    // A failed stop/wipe (busy mount, fs error, docker blip) is the one actuation
+    // path that otherwise just drops to the hourly sweep (~1h down). It must arm its
+    // own quick retry like the start path does.
+    it('schedules its own retry when the wipe fails (not the hourly sweep)', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.dockerOperations.appDeleteDataInMountPoint.rejects(new Error('mount busy'));
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
+      stubs.globalState.bootContainerStateSettled = true;
+
+      await appReconciler.reconcile('db_App'); // must not throw
+
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.callCount).to.equal(1);
+      clock.tick(6000); // past the near-term retry (MANAGED_RETRY_MS)
+      await new Promise((resolve) => { setImmediate(() => { setImmediate(resolve); }); });
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.callCount).to.equal(2);
+      clock.restore();
+    });
+
+    // The data-safety invariant must survive a failed wipe: the clear stays pending so
+    // a later reconcile re-runs the (idempotent) wipe and can NEVER start the container
+    // on un-wiped data, even when the controller already says running.
+    it('keeps the clear pending on a failed wipe — never starts on un-wiped data', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      stubs.dockerOperations.appDeleteDataInMountPoint.rejects(new Error('mount busy'));
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing first-run');
+      appReconciler.setControllerDesired('fluxdb_App', 'running', 'contrived contradiction');
+      stubs.globalState.bootContainerStateSettled = true;
+
+      await appReconciler.reconcile('db_App'); // first attempt: wipe throws, caught
+
+      stubs.dockerOperations.appDeleteDataInMountPoint.resetHistory();
+      await appReconciler.reconcile('db_App'); // flag still 'clear' -> re-wipes, no start
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.true;
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
   });
 
   describe('component selection and enterprise decryption', () => {

@@ -380,13 +380,25 @@ async function reconcile(rawIdentifier) {
   // wipe, then drop the flag. The wipe path is keyed by the on-disk (flux-prefixed)
   // folder name, while the stop takes the bare id (dockerService re-prefixes).
   if (dataDesired.get(identifier) === 'clear') {
-    if (actual.running) {
-      log.info(`appReconciler - ${identifier} stopping before local appdata clear`);
-      await dockerService.appDockerStop(identifier);
-      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'dataClear' });
+    try {
+      if (actual.running) {
+        log.info(`appReconciler - ${identifier} stopping before local appdata clear`);
+        await dockerService.appDockerStop(identifier);
+        fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'dataClear' });
+      }
+      await serviceHelper.delay(DATA_CLEAR_SETTLE_MS);
+      await dockerOperations.appDeleteDataInMountPoint(dockerService.getAppIdentifier(identifier));
+    } catch (err) {
+      // A failed stop/wipe is the only actuation path here that would otherwise drop
+      // to the hourly sweep (~1h down). Leave dataDesired 'clear' - so the retried
+      // reconcile re-runs the idempotent wipe AND a start can never proceed onto
+      // un-wiped data (this block still wins the next pass) - and arm our own paced
+      // retry, mirroring the failed-start path below.
+      log.error(`appReconciler - failed to clear local appdata for ${identifier}: ${err.message}; retrying`);
+      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'dataClearFailed', reason: err.message });
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
     }
-    await serviceHelper.delay(DATA_CLEAR_SETTLE_MS);
-    await dockerOperations.appDeleteDataInMountPoint(dockerService.getAppIdentifier(identifier));
     dataDesired.delete(identifier);
     log.info(`appReconciler - ${identifier} local appdata cleared`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'dataCleared' });
