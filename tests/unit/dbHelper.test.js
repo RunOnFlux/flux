@@ -60,6 +60,23 @@ describe('dbHelper tests', () => {
     });
   });
 
+  describe('getMongoDbVersion tests', () => {
+    it('should return null when no connection is established', async () => {
+      await dbHelper.closeDbConnection();
+
+      expect(await dbHelper.getMongoDbVersion()).to.be.null;
+    });
+
+    it('should return the connected server version string', async () => {
+      await dbHelper.initiateDB();
+
+      const version = await dbHelper.getMongoDbVersion();
+
+      expect(version).to.be.a('string');
+      expect(version).to.match(/^\d+\.\d+\.\d+/);
+    });
+  });
+
   describe('distinctDatabase tests', () => {
     let database;
     let collection;
