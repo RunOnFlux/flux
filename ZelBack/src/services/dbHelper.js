@@ -18,6 +18,12 @@ const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 let openDBConnection = null;
 
 /**
+ * Cached MongoDB server version, populated once per connection.
+ * @type {string | null}
+ */
+let mongoDbVersion = null;
+
+/**
  * Returns MongoDB connection, if it was initiated before, otherwise returns null.
  *
  * @returns {mongodb.MongoClient | null}
@@ -47,8 +53,35 @@ async function connectMongoDb(url) {
  * @returns true
  */
 async function initiateDB() {
-  if (!openDBConnection) openDBConnection = await connectMongoDb();
+  if (!openDBConnection) {
+    openDBConnection = await connectMongoDb();
+    // Read the server version once, on the initial connect. It is informational
+    // and the getter swallows its own errors, so this cannot fail the connect.
+    await getMongoDbVersion();
+  }
   return true;
+}
+
+/**
+ * Returns the connected MongoDB server version, fetching and caching it on
+ * first use. The driver handshake only exposes the wire-protocol version, so
+ * the human-readable version is read once via a buildInfo command and reused.
+ * The version is informational: on any failure this resolves to null rather
+ * than throwing, so a transient read never sinks its callers, and a later
+ * call retries.
+ *
+ * @returns {Promise<string | null>} Server version, or null if unavailable.
+ */
+async function getMongoDbVersion() {
+  if (mongoDbVersion) return mongoDbVersion;
+  if (!openDBConnection) return null;
+  try {
+    const { version } = await openDBConnection.db('admin').command({ buildInfo: 1 });
+    mongoDbVersion = version;
+  } catch (error) {
+    log.warn(`Unable to read MongoDB version: ${error.message}`);
+  }
+  return mongoDbVersion;
 }
 
 /**
@@ -86,6 +119,7 @@ async function closeDbConnection() {
   if (openDBConnection) {
     await openDBConnection.close();
     openDBConnection = null;
+    mongoDbVersion = null;
   }
 }
 
@@ -962,6 +996,7 @@ module.exports = {
   findOneAndDeleteInDatabase,
   findOneAndUpdateInDatabase,
   findOneInDatabase,
+  getMongoDbVersion,
   initiateDB,
   insertManyToDatabase,
   insertOneToDatabase,
