@@ -847,7 +847,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
           const projection = { projection: { _id: 0 } };
           const messages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
           const appMessages = messages.filter((message) => {
-            const specifications = message.appSpecifications || message.zelAppSpecifications;
+            const specifications = message.appSpecifications;
             return specifications.name === appName;
           });
           let currentSpecifications;
@@ -857,7 +857,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
             }
           });
           if (currentSpecifications && currentSpecifications.height) {
-            appSpecifications = currentSpecifications.appSpecifications || currentSpecifications.zelAppSpecifications;
+            ({ appSpecifications } = currentSpecifications);
           }
         }
       }

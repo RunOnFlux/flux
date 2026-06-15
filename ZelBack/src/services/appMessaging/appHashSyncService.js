@@ -270,7 +270,7 @@ async function processMessages(messages, onProgress) {
     const updateNames = new Set();
     for (const msg of newMessages) {
       if (msg.type === 'fluxappupdate' || msg.type === 'zelappupdate') {
-        const specs = msg.appSpecifications || msg.zelAppSpecifications;
+        const specs = msg.appSpecifications;
         if (specs) updateNames.add(specs.name);
       }
     }
@@ -295,7 +295,7 @@ async function processMessages(messages, onProgress) {
 
     for (const appMessage of newMessages) {
       try {
-        const specifications = appMessage.appSpecifications || appMessage.zelAppSpecifications;
+        const specifications = appMessage.appSpecifications;
         if (!specifications) continue;
 
         const appSpecFormatted = specificationFormatter(specifications);
@@ -345,7 +345,7 @@ async function processMessages(messages, onProgress) {
             failed += 1;
             continue;
           }
-          const prevSpecs = prevMsg.appSpecifications || prevMsg.zelAppSpecifications;
+          const prevSpecs = prevMsg.appSpecifications;
           let prevSpecsForVerification = prevSpecs;
           if (prevSpecs.version >= 8 && prevSpecs.enterprise) {
             try {
