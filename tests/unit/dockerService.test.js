@@ -442,6 +442,37 @@ describe('dockerService tests', () => {
       await expect(dockerService.appDockerStop(appName)).to.eventually.be.rejected;
       expect(globalState.stoppingContainers.size).to.equal(0);
     });
+
+    // v8 enterprise graceful-shutdown hack: the per-container grace window is
+    // carried on the flux.graceful.stop-s label and honored when no caller
+    // passes an explicit timeout. Remove with the feature at v9.
+    it('uses the flux.graceful.stop-s label as the stop timeout when no explicit timeout is passed', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: true }, Config: { Labels: { 'flux.graceful.stop-s': '300' } } }));
+
+      await dockerService.appDockerStop(appName);
+
+      sinon.assert.calledOnceWithExactly(dockerStopStub, { t: 300 });
+    });
+
+    it('lets an explicit timeout override the graceful label (e.g. node shutdown 9s)', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: true }, Config: { Labels: { 'flux.graceful.stop-s': '300' } } }));
+
+      await dockerService.appDockerStop(appName, 9);
+
+      sinon.assert.calledOnceWithExactly(dockerStopStub, { t: 9 });
+    });
+
+    it('passes empty options when there is no label and no explicit timeout', async () => {
+      await dockerService.appDockerStop(appName);
+
+      sinon.assert.calledOnceWithExactly(dockerStopStub, {});
+    });
+
+    it('ignores a malformed or non-positive graceful label', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: true }, Config: { Labels: { 'flux.graceful.stop-s': 'abc' } } }));
+      await dockerService.appDockerStop(appName);
+      sinon.assert.calledOnceWithExactly(dockerStopStub, {});
+    });
   });
 
   describe('appDockerRestart tests', () => {
@@ -522,6 +553,22 @@ describe('dockerService tests', () => {
 
     it('should throw error if app name is not correct or app does not exist', async () => {
       await expect(dockerService.appDockerRestart('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
+    });
+
+    // v8 enterprise graceful-shutdown hack: restart() is a stop+start, so the
+    // stop half must honor the per-container window too. Remove at v9.
+    it('passes the flux.graceful.stop-s window to restart when present', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: true }, Config: { Labels: { 'flux.graceful.stop-s': '300' } } }));
+
+      await dockerService.appDockerRestart(appName);
+
+      sinon.assert.calledOnceWithExactly(dockerRestartStub, { t: 300 });
+    });
+
+    it('passes empty options to restart when there is no graceful label', async () => {
+      await dockerService.appDockerRestart(appName);
+
+      sinon.assert.calledOnceWithExactly(dockerRestartStub, {});
     });
   });
 
@@ -1036,6 +1083,99 @@ describe('dockerService tests', () => {
       };
 
       await expect(dockerService.appDockerCreate(nodeApp, appName, true)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'forEach\')');
+    });
+
+    // v8 enterprise stop-gaps: per-component opt-in via the component description,
+    // gated on enterprise owner + v8. Remove with the feature at v9.
+    describe('v8 enterprise hacks (telemetry + graceful shutdown)', () => {
+      // eslint-disable-next-line global-require
+      const cpuBurstHelper = require('../../ZelBack/src/services/utils/cpuBurstHelper');
+      const enterpriseOwner = '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH';
+      let isEnterpriseOwnerStub;
+      let isBurstSupportedStub;
+
+      beforeEach(() => {
+        isEnterpriseOwnerStub = sinon.stub(cpuBurstHelper, 'isEnterpriseOwner').returns(true);
+        // keep CPU burst out of these assertions and avoid host fs reads
+        isBurstSupportedStub = sinon.stub(cpuBurstHelper, 'isCpuBurstSupported').resolves(false);
+      });
+
+      afterEach(() => {
+        isEnterpriseOwnerStub.restore();
+        isBurstSupportedStub.restore();
+      });
+
+      // component (1st arg) carries the per-component token; full app spec (4th
+      // arg) carries owner + version for the gate.
+      const makeSpecs = (description, { version = 8, owner = enterpriseOwner } = {}) => {
+        const component = {
+          ...baseNodeApp, name: 'website', description, containerPorts: ['30333'], ports: ['31113'],
+        };
+        const full = {
+          name: 'website', owner, version, description: 'app-level description', compose: [component],
+        };
+        return { component, full };
+      };
+
+      const hostMountSources = ['/var/run/docker.sock', '/proc', '/sys/fs/cgroup', '/etc/passwd'];
+
+      it('stamps flux.graceful.stop-s from the component description when gated', async () => {
+        const { component, full } = makeSpecs('db tier; gracefulShutdownSec:300');
+        await dockerService.appDockerCreate(component, appName, true, full);
+        const cfg = dockerStub.firstCall.args[0];
+        expect(cfg.Labels).to.have.property('flux.graceful.stop-s', '300');
+      });
+
+      it('clamps the graceful label to 6h', async () => {
+        const { component, full } = makeSpecs('gracefulShutdownSec:99999');
+        await dockerService.appDockerCreate(component, appName, true, full);
+        const cfg = dockerStub.firstCall.args[0];
+        expect(cfg.Labels['flux.graceful.stop-s']).to.equal('21600');
+      });
+
+      it('injects the read-only host metric mounts + CgroupnsMode=host on hostMetrics:on, with no privileged/pid-host', async () => {
+        const { component, full } = makeSpecs('datadog agent; hostMetrics:on');
+        await dockerService.appDockerCreate(component, appName, true, full);
+        const cfg = dockerStub.firstCall.args[0];
+        const sources = cfg.HostConfig.Mounts.map((m) => m.Source);
+        expect(sources).to.include.members(hostMountSources);
+        cfg.HostConfig.Mounts
+          .filter((m) => hostMountSources.includes(m.Source))
+          .forEach((m) => expect(m.ReadOnly).to.equal(true));
+        expect(cfg.HostConfig.CgroupnsMode).to.equal('host');
+        expect(cfg.HostConfig.Privileged).to.equal(undefined);
+        expect(cfg.HostConfig.PidMode).to.equal(undefined);
+      });
+
+      it('does nothing for a non-enterprise owner', async () => {
+        isEnterpriseOwnerStub.returns(false);
+        const { component, full } = makeSpecs('gracefulShutdownSec:300; hostMetrics:on');
+        await dockerService.appDockerCreate(component, appName, true, full);
+        const cfg = dockerStub.firstCall.args[0];
+        expect(cfg.Labels == null || !('flux.graceful.stop-s' in cfg.Labels)).to.equal(true);
+        expect(cfg.HostConfig.CgroupnsMode).to.equal(undefined);
+        expect(cfg.HostConfig.Mounts.map((m) => m.Source)).to.not.include('/var/run/docker.sock');
+      });
+
+      it('does nothing for a non-v8 spec', async () => {
+        const { component, full } = makeSpecs('gracefulShutdownSec:300; hostMetrics:on', { version: 7 });
+        await dockerService.appDockerCreate(component, appName, true, full);
+        const cfg = dockerStub.firstCall.args[0];
+        expect(cfg.Labels == null || !('flux.graceful.stop-s' in cfg.Labels)).to.equal(true);
+        expect(cfg.HostConfig.CgroupnsMode).to.equal(undefined);
+        expect(cfg.HostConfig.Mounts.map((m) => m.Source)).to.not.include('/var/run/docker.sock');
+      });
+
+      it('does not duplicate a host mount target the app already declares', async () => {
+        const { component, full } = makeSpecs('datadog; hostMetrics:on');
+        component.containerData = '/etc/passwd'; // app already binds this target
+        await dockerService.appDockerCreate(component, appName, true, full);
+        const cfg = dockerStub.firstCall.args[0];
+        // the colliding telemetry bind is dropped, leaving exactly one /etc/passwd mount
+        expect(cfg.HostConfig.Mounts.filter((m) => m.Target === '/etc/passwd')).to.have.lengthOf(1);
+        // the remaining telemetry binds are still injected
+        expect(cfg.HostConfig.Mounts.map((m) => m.Source)).to.include.members(['/var/run/docker.sock', '/proc', '/sys/fs/cgroup']);
+      });
     });
   });
 });

@@ -11,6 +11,9 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const { extractIp } = require('./utils/socketAddressUtils');
 const log = require('../lib/log');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
+// TEMP v8 enterprise stop-gaps (remove at v9) — pure helpers, no requires, cycle-safe.
+const appGracefulShutdown = require('./appLifecycle/appGracefulShutdown');
+const appTelemetryHost = require('./appLifecycle/appTelemetryHost');
 
 const globalState = require('./utils/globalState');
 
@@ -938,8 +941,29 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       'flux.burst.cores': String(appSpecifications.cpu),
     }
     : null;
-  const containerLabels = (labels || burstLabels)
-    ? { ...(labels || {}), ...(burstLabels || {}) }
+  // --- TEMP v8 enterprise stop-gaps: telemetry + graceful shutdown ----------
+  // Gated to enterprise owners (helpers/enterprisenodes.json) on v8 specs, with
+  // per-component opt-in via tokens in the component `description`. Remove when
+  // v9 lands. See design-v8-enterprise-telemetry-and-graceful-shutdown.md.
+  const enterpriseV8 = Boolean(
+    fullAppSpecs?.owner
+    && Number(fullAppSpecs?.version) === 8
+    && cpuBurstHelper.isEnterpriseOwner(fullAppSpecs.owner),
+  );
+  // Graceful shutdown: stamp the per-component grace window as a label that
+  // appDockerStop reads, so every local stop path honors it without plumbing.
+  const gracefulSeconds = enterpriseV8
+    ? appGracefulShutdown.parseGracefulShutdownSec(appSpecifications.description)
+    : null;
+  const gracefulLabels = gracefulSeconds
+    ? { 'flux.graceful.stop-s': String(gracefulSeconds) }
+    : null;
+  if (gracefulSeconds) {
+    log.info(`Graceful shutdown: ${identifier} stop window = ${gracefulSeconds}s`);
+  }
+
+  const containerLabels = (labels || burstLabels || gracefulLabels)
+    ? { ...(labels || {}), ...(burstLabels || {}), ...(gracefulLabels || {}) }
     : null;
   if (burstEligible) {
     log.info(`CPU burst: marking ${identifier} as burst-eligible (cores=${appSpecifications.cpu})`);
@@ -992,6 +1016,25 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       },
     }),
   };
+
+  // Telemetry (datadog host access): give the opted-in component the read-only
+  // host mounts a standard Datadog agent uses on AWS — NO privileged, NO pid
+  // host. TEMP v8 enterprise hack; remove at v9.
+  if (enterpriseV8 && appTelemetryHost.wantsHostMetrics(appSpecifications.description)) {
+    // Skip any telemetry bind whose target the app already declares — docker
+    // rejects duplicate mount destinations, which would otherwise redeploy-loop.
+    const existingTargets = new Set(options.HostConfig.Mounts.map((mount) => mount.Target));
+    const hostMounts = appTelemetryHost.HOST_METRIC_MOUNTS.filter((mount) => {
+      if (existingTargets.has(mount.Target)) {
+        log.warn(`Telemetry: ${identifier} already mounts ${mount.Target}; skipping telemetry bind for it`);
+        return false;
+      }
+      return true;
+    });
+    options.HostConfig.Mounts = options.HostConfig.Mounts.concat(hostMounts);
+    options.HostConfig.CgroupnsMode = 'host';
+    log.info(`Telemetry: ${identifier} granted read-only host metric access (docker.sock, /host/proc, cgroup, passwd)`);
+  }
 
   // get docker info about Backing Filesystem
   // eslint-disable-next-line no-use-before-define
@@ -1146,6 +1189,20 @@ async function appDockerStart(idOrName) {
 }
 
 /**
+ * The per-container graceful-shutdown window (seconds) stamped on the
+ * `flux.graceful.stop-s` label at create by the v8 enterprise hack, or undefined
+ * when absent/malformed. Honored by both stop and restart when no caller passes
+ * an explicit timeout. TEMP v8 enterprise hack — remove at v9.
+ *
+ * @param {object} containerInfo - docker inspect result
+ * @returns {number|undefined}
+ */
+function gracefulStopSecondsFromLabels(containerInfo) {
+  const labelSeconds = Number(containerInfo?.Config?.Labels?.['flux.graceful.stop-s']);
+  return Number.isInteger(labelSeconds) && labelSeconds > 0 ? labelSeconds : undefined;
+}
+
+/**
  * Stops app's docker.
  *
  * @param {string} idOrName
@@ -1171,7 +1228,10 @@ async function appDockerStop(idOrName, timeout) {
   globalState.stoppingContainers.add(dockerName);
 
   try {
-    const opts = timeout !== undefined ? { t: timeout } : {};
+    // An explicit timeout wins; otherwise honor a per-container graceful-shutdown
+    // window stamped at create (flux.graceful.stop-s) — TEMP v8 enterprise hack.
+    const effectiveTimeout = timeout !== undefined ? timeout : gracefulStopSecondsFromLabels(containerInfo);
+    const opts = effectiveTimeout !== undefined ? { t: effectiveTimeout } : {};
     await dockerContainer.stop(opts);
   } finally {
     globalState.stoppingContainers.delete(dockerName);
@@ -1202,7 +1262,11 @@ async function appDockerRestart(idOrName) {
   const dockerName = getDockerName(idOrName);
   globalState.stoppingContainers.add(dockerName);
   try {
-    await dockerContainer.restart();
+    // restart() is a stop+start; honor the per-container graceful-shutdown window
+    // for the stop half so every local stop path is consistent — TEMP v8 hack.
+    const gracefulSeconds = gracefulStopSecondsFromLabels(containerInfo);
+    const opts = gracefulSeconds !== undefined ? { t: gracefulSeconds } : {};
+    await dockerContainer.restart(opts);
   } finally {
     globalState.stoppingContainers.delete(dockerName);
   }
