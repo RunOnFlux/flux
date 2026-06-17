@@ -13,8 +13,7 @@
  * `HostConfig.CgroupnsMode = 'host'` on THAT component only.
  *
  * This deliberately does NOT grant privileged mode or a shared PID namespace —
- * the standard Datadog agent needs neither (researched; see
- * RESEARCH-datadog-agent-requirements.md):
+ * the standard Datadog agent needs neither:
  *   - docker.sock  → container identity, autodiscovery, Container Map, docker.*
  *   - /host/proc   → host + sibling-container processes (Live Processes), host metrics
  *   - cgroup       → per-container resource metrics (with CgroupnsMode=host)

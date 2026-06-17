@@ -944,7 +944,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   // --- TEMP v8 enterprise stop-gaps: telemetry + graceful shutdown ----------
   // Gated to enterprise owners (helpers/enterprisenodes.json) on v8 specs, with
   // per-component opt-in via tokens in the component `description`. Remove when
-  // v9 lands. See design-v8-enterprise-telemetry-and-graceful-shutdown.md.
+  // v9 lands.
   const enterpriseV8 = Boolean(
     fullAppSpecs?.owner
     && Number(fullAppSpecs?.version) === 8
