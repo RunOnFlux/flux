@@ -15,6 +15,7 @@ const config = require('config');
 const upnpService = require('../upnpService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const { availableApps } = require('../appDatabase/registryManager');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -905,6 +906,27 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       // eslint-disable-next-line no-await-in-loop
       await appsRuntimeState.remove(identifier);
       if (onComponentRemoved) onComponentRemoved(identifier);
+    }
+
+    // A node-pinned app removed via the operator/customer path (force=false) stays
+    // globally registered and still targets this node, so the spawner is obliged to
+    // reinstall it. The spawn-throttle cache (trySpawningGlobalAppCache, default 12h),
+    // set when the app first spawned here, is never cleared on the spawner's success
+    // path and suppresses reselection at appSpawner.js:285 - up to a 12h silent outage
+    // for a single-instance pinned app. Clear it so the next scan reinstalls. Scoped to
+    // whole-app removal of an app that pins THIS node: non-pinned apps keep the throttle
+    // (the network re-places them on another node), and force=true paths are left as-is
+    // (e.g. the over-instance self-removal already clears it; expiry/cancel must not).
+    if (!force && !isComponent && Array.isArray(appSpecifications.nodes) && appSpecifications.nodes.length > 0) {
+      const localSocketAddress = await fluxNetworkHelper.getLocalSocketAddress();
+      if (localSocketAddress && appSpecifications.nodes.some((ip) => socketAddressesMatch(ip, localSocketAddress))) {
+        const globalSpec = await dbHelper.findOneInDatabase(database, globalAppsInformation, { name: appName }, { projection: { _id: 0, hash: 1 } });
+        const { trySpawningGlobalAppCache } = globalState;
+        if (globalSpec && globalSpec.hash && trySpawningGlobalAppCache && trySpawningGlobalAppCache.has(globalSpec.hash)) {
+          trySpawningGlobalAppCache.delete(globalSpec.hash);
+          log.info(`Cleared spawn-throttle cache for node-pinned app ${appName} (hash ${globalSpec.hash}) so the spawner can reinstall it`);
+        }
+      }
     }
 
     fluxEventBus.publish('app:removed', { name: appName });
