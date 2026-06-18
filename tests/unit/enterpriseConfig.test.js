@@ -255,4 +255,22 @@ describe('enterpriseConfig', () => {
       expect(third).to.deep.equal(['ownerD']);
     });
   });
+
+  describe('isEnterpriseOwner', () => {
+    it('is true for an owner in the whitelist union, false otherwise', async () => {
+      const { module: m } = loadModule();
+      await m.startSync();
+      expect(m.isEnterpriseOwner('ownerA')).to.equal(true);
+      expect(m.isEnterpriseOwner('ownerB')).to.equal(true);
+      expect(m.isEnterpriseOwner('ownerUnknown')).to.equal(false);
+      m.stopSync();
+    });
+
+    it('is false for null/undefined, and before any sync (empty whitelist)', () => {
+      const { module: m } = loadModule();
+      expect(m.isEnterpriseOwner('ownerA')).to.equal(false); // not seeded yet
+      expect(m.isEnterpriseOwner(null)).to.equal(false);
+      expect(m.isEnterpriseOwner(undefined)).to.equal(false);
+    });
+  });
 });

@@ -11,6 +11,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const { extractIp } = require('./utils/socketAddressUtils');
 const log = require('../lib/log');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
+const enterpriseConfig = require('./utils/enterpriseConfig');
 // TEMP v8 enterprise stop-gaps (remove at v9) — pure helpers, no requires, cycle-safe.
 const appGracefulShutdown = require('./appLifecycle/appGracefulShutdown');
 const appTelemetryHost = require('./appLifecycle/appTelemetryHost');
@@ -933,7 +934,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   // labels in appDockerStart and reapplies burst — no per-caller plumbing.
   const burstOwner = fullAppSpecs?.owner || null;
   const burstEligible = burstOwner
-    && cpuBurstHelper.isEnterpriseOwner(burstOwner)
+    && enterpriseConfig.isEnterpriseOwner(burstOwner)
     && await cpuBurstHelper.isCpuBurstSupported();
   const burstLabels = burstEligible
     ? {
@@ -948,7 +949,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   const enterpriseV8 = Boolean(
     fullAppSpecs?.owner
     && Number(fullAppSpecs?.version) === 8
-    && cpuBurstHelper.isEnterpriseOwner(fullAppSpecs.owner),
+    && enterpriseConfig.isEnterpriseOwner(fullAppSpecs.owner),
   );
   // Graceful shutdown: stamp the per-component grace window as a label that
   // appDockerStop reads, so every local stop path honors it without plumbing.

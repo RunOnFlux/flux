@@ -1158,12 +1158,14 @@ describe('dockerService tests', () => {
     describe('v8 enterprise hacks (telemetry + graceful shutdown)', () => {
       // eslint-disable-next-line global-require
       const cpuBurstHelper = require('../../ZelBack/src/services/utils/cpuBurstHelper');
+      // eslint-disable-next-line global-require
+      const enterpriseConfig = require('../../ZelBack/src/services/utils/enterpriseConfig');
       const enterpriseOwner = '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH';
       let isEnterpriseOwnerStub;
       let isBurstSupportedStub;
 
       beforeEach(() => {
-        isEnterpriseOwnerStub = sinon.stub(cpuBurstHelper, 'isEnterpriseOwner').returns(true);
+        isEnterpriseOwnerStub = sinon.stub(enterpriseConfig, 'isEnterpriseOwner').returns(true);
         // keep CPU burst out of these assertions and avoid host fs reads
         isBurstSupportedStub = sinon.stub(cpuBurstHelper, 'isCpuBurstSupported').resolves(false);
       });

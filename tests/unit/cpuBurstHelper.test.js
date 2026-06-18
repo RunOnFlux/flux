@@ -14,33 +14,12 @@ describe('cpuBurstHelper tests', () => {
 
   beforeEach(() => {
     // Fresh require each time to reset the cache
-    cpuBurstHelper = proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {
-      './enterpriseConfig': {
-        getEnterpriseAppOwners: () => ['16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW'],
-      },
-    });
+    cpuBurstHelper = proxyquire('../../ZelBack/src/services/utils/cpuBurstHelper', {});
     cpuBurstHelper.resetBurstSupportCache();
   });
 
   afterEach(() => {
     sinon.restore();
-  });
-
-  describe('isEnterpriseOwner', () => {
-    it('should return true for an owner in enterpriseAppOwners config', () => {
-      const result = cpuBurstHelper.isEnterpriseOwner('16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW');
-      expect(result).to.be.true;
-    });
-
-    it('should return false for an unknown owner', () => {
-      const result = cpuBurstHelper.isEnterpriseOwner('1UnknownAddress123');
-      expect(result).to.be.false;
-    });
-
-    it('should return false for null/undefined owner', () => {
-      expect(cpuBurstHelper.isEnterpriseOwner(null)).to.be.false;
-      expect(cpuBurstHelper.isEnterpriseOwner(undefined)).to.be.false;
-    });
   });
 
   describe('calculateBurstParams', () => {

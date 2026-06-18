@@ -126,9 +126,22 @@ function getEnterpriseAppOwners() {
   return ownersUnionCache;
 }
 
+/**
+ * Whether an app owner is in the enterprise app owners whitelist (the deduped
+ * union of every node's allowed owners). A convenience predicate over
+ * getEnterpriseAppOwners(); called by the CPU-burst eligibility gate and the v8
+ * enterprise stop-gaps (telemetry + graceful shutdown) in dockerService.appDockerCreate.
+ * @param {string} owner - app owner address
+ * @returns {boolean}
+ */
+function isEnterpriseOwner(owner) {
+  return getEnterpriseAppOwners().includes(owner);
+}
+
 module.exports = {
   getAllowedOwnersForNode,
   getEnterpriseAppOwners,
+  isEnterpriseOwner,
   getEnterpriseNodeOwnerMap,
   getEnterpriseNodesPublicKeys,
   startSync,
