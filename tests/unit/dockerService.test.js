@@ -475,6 +475,74 @@ describe('dockerService tests', () => {
     });
   });
 
+  // v8 enterprise graceful-shutdown hack: the cancel/expiry path drains a component
+  // that declared a window (flux.graceful.stop-s >= 1) and force-kills the rest, so a
+  // cancelled/expired app can flush. The owner's gracefulShutdownSec token is the switch.
+  describe('appDockerStopGracefulOrKill tests', () => {
+    const appName = 'website';
+    let dockerStopStub;
+    let dockerKillStub;
+    let dockerInspectStub;
+    let getContainerSpy;
+
+    beforeEach(() => {
+      dockerStopStub = sinon.stub(Dockerode.Container.prototype, 'stop').returns(Promise.resolve('stopped'));
+      dockerKillStub = sinon.stub(Dockerode.Container.prototype, 'kill').returns(Promise.resolve('killed'));
+      dockerInspectStub = sinon.stub(Dockerode.Container.prototype, 'inspect').returns(Promise.resolve({ State: { Running: true } }));
+      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
+    });
+
+    afterEach(() => {
+      dockerStopStub.restore();
+      dockerKillStub.restore();
+      dockerInspectStub.restore();
+      getContainerSpy.restore();
+    });
+
+    it('drains via docker stop with the label window when flux.graceful.stop-s is present', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: true }, Config: { Labels: { 'flux.graceful.stop-s': '300' } } }));
+
+      const result = await dockerService.appDockerStopGracefulOrKill(appName);
+
+      sinon.assert.calledOnceWithExactly(dockerStopStub, { t: 300 });
+      sinon.assert.notCalled(dockerKillStub);
+      expect(result).to.equal('Flux App website successfully stopped.');
+    });
+
+    it('force-kills when there is no graceful label', async () => {
+      const result = await dockerService.appDockerStopGracefulOrKill(appName);
+
+      sinon.assert.calledOnce(dockerKillStub);
+      sinon.assert.notCalled(dockerStopStub);
+      expect(result).to.equal('Flux App website successfully killed.');
+    });
+
+    it('force-kills when the graceful label is non-positive (0) or malformed', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: true }, Config: { Labels: { 'flux.graceful.stop-s': '0' } } }));
+
+      await dockerService.appDockerStopGracefulOrKill(appName);
+
+      sinon.assert.calledOnce(dockerKillStub);
+      sinon.assert.notCalled(dockerStopStub);
+    });
+
+    it('does nothing when the container is already stopped', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: false } }));
+
+      const result = await dockerService.appDockerStopGracefulOrKill(appName);
+
+      sinon.assert.notCalled(dockerStopStub);
+      sinon.assert.notCalled(dockerKillStub);
+      expect(result).to.equal('Flux App website is already stopped.');
+    });
+
+    it('clears the stopping flag after the operation settles', async () => {
+      globalState.stoppingContainers.clear();
+      await dockerService.appDockerStopGracefulOrKill(appName);
+      expect(globalState.stoppingContainers.size).to.equal(0);
+    });
+  });
+
   describe('appDockerRestart tests', () => {
     const appName = 'website';
     let dockerRestartStub;

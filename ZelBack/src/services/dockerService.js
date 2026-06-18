@@ -1296,6 +1296,43 @@ async function appDockerKill(idOrName) {
 }
 
 /**
+ * Cancel/expiry uninstall: drain a component that declared a graceful-shutdown
+ * window (flux.graceful.stop-s >= 1), force-kill the rest. The owner's
+ * per-component gracefulShutdownSec token is the switch — set it to drain on
+ * cancel, omit it (or set 0) to kill. Lets expireGlobalApplications honor the
+ * declared window without surrendering force semantics (guard bypass /
+ * global-spec fallback) that the expiry sweep relies on. TEMP v8 enterprise hack.
+ *
+ * @param {string} idOrName
+ * @returns {string} message
+ */
+async function appDockerStopGracefulOrKill(idOrName) {
+  // container ID or name
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
+  const containerInfo = await dockerContainer.inspect();
+  if (!containerInfo.State.Running) {
+    return `Flux App ${idOrName} is already stopped.`;
+  }
+
+  const dockerName = getDockerName(idOrName);
+  // same operation-scoped flag lifetime as appDockerStop/appDockerKill
+  globalState.stoppingContainers.add(dockerName);
+
+  try {
+    const gracefulSeconds = gracefulStopSecondsFromLabels(containerInfo);
+    if (gracefulSeconds !== undefined) {
+      await dockerContainer.stop({ t: gracefulSeconds });
+      return `Flux App ${idOrName} successfully stopped.`;
+    }
+    await dockerContainer.kill();
+    return `Flux App ${idOrName} successfully killed.`;
+  } finally {
+    globalState.stoppingContainers.delete(dockerName);
+  }
+}
+
+/**
  * Removes app's docker.
  *
  * @param {string} idOrName
@@ -1827,6 +1864,7 @@ module.exports = {
   appDockerRestart,
   appDockerStart,
   appDockerStop,
+  appDockerStopGracefulOrKill,
   appDockerTop,
   appDockerUnpause,
   createFluxAppDockerNetwork,

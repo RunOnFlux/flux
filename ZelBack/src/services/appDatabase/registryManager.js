@@ -1488,7 +1488,9 @@ async function expireGlobalApplications() {
       log.warn(`Application ${appName} is expired, removing`);
       log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (registryManager)`);
       // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(appName, null, true, false, true);
+      // cancelGraceful=true: drain components that declared a graceful window before
+      // removing (force-kill the rest) so a cancelled/expired app can flush. TEMP v8 hack.
+      await appUninstaller.removeAppLocally(appName, null, true, false, true, true);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(1 * 60 * 1000); // wait for 1 min
     }
@@ -1592,7 +1594,9 @@ async function reindexGlobalAppsInformation() {
         log.warn(`Application ${appName} is expired, removing`);
         log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (reindex)`);
         // eslint-disable-next-line no-await-in-loop
-        await appUninstaller.removeAppLocally(appName, null, true, false, true);
+        // cancelGraceful=true: drain components that declared a graceful window before
+      // removing (force-kill the rest) so a cancelled/expired app can flush. TEMP v8 hack.
+      await appUninstaller.removeAppLocally(appName, null, true, false, true, true);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(60_000);
       }

@@ -247,7 +247,7 @@ async function cleanupVolumePath(volumepath, entityName, res) {
  * @returns {Promise<void>}
  */
 // eslint-disable-next-line no-shadow
-async function hardUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring, force = false) {
+async function hardUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring, force = false, cancelGraceful = false) {
   const componentName = componentSpecifications.name;
 
   // Stop monitoring and container
@@ -262,8 +262,18 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
     stopAppMonitoring(monitoredName, true);
   }
 
-  // Use kill instead of stop for forced removals
-  if (force) {
+  // Cancel/expiry: drain components that declared a graceful window (force-kill the
+  // rest). Otherwise: kill on forced removals, graceful stop on normal removals.
+  if (cancelGraceful) {
+    await dockerService.appDockerStopGracefulOrKill(appId).catch((error) => {
+      log.warn(`Failed to stop/kill container ${appId}: ${error.message}`);
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+      if (res) {
+        res.write(serviceHelper.ensureString(errorResponse));
+        if (res.flush) res.flush();
+      }
+    });
+  } else if (force) {
     await dockerService.appDockerKill(appId).catch((error) => {
       log.warn(`Failed to kill container ${appId}: ${error.message}`);
       const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
@@ -398,7 +408,7 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
  // eslint-disable-next-line no-shadow
  */
 // eslint-disable-next-line no-shadow
-async function hardUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, force = false) {
+async function hardUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, force = false, cancelGraceful = false) {
   // Stop monitoring and container
   log.info(`Stopping Flux App ${appName}...`);
   if (res) {
@@ -410,8 +420,18 @@ async function hardUninstallApplication(appName, appId, appSpecifications, res, 
     stopAppMonitoring(appName, true);
   }
 
-  // Use kill instead of stop for forced removals
-  if (force) {
+  // Cancel/expiry: drain if the app declared a graceful window (force-kill otherwise).
+  // Otherwise: kill on forced removals, graceful stop on normal removals.
+  if (cancelGraceful) {
+    await dockerService.appDockerStopGracefulOrKill(appId).catch((error) => {
+      log.warn(`Failed to stop/kill container ${appId}: ${error.message}`);
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+      if (res) {
+        res.write(serviceHelper.ensureString(errorResponse));
+        if (res.flush) res.flush();
+      }
+    });
+  } else if (force) {
     await dockerService.appDockerKill(appId).catch((error) => {
       log.warn(`Failed to kill container ${appId}: ${error.message}`);
       const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
@@ -774,7 +794,7 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  * @param {boolean} sendMessage - Whether to send message to network
  * @returns {Promise<void>}
  */
-async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
+async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, cancelGraceful = false) {
   try {
     // Normalise to the bare identifier this function reasons about: a caller may
     // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
@@ -881,14 +901,14 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
         const appComponentSpecifications = appComposedComponent;
         // eslint-disable-next-line no-await-in-loop
-        await hardUninstallComponent(appName, appId, appComponentSpecifications, res, stopAppMonitoring, force);
+        await hardUninstallComponent(appName, appId, appComponentSpecifications, res, stopAppMonitoring, force, cancelGraceful);
       }
     } else if (isComponent) {
       const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
       appId = dockerService.getAppIdentifier(`${componentSpecifications.name}_${appSpecifications.name}`);
-      await hardUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring, force);
+      await hardUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring, force, cancelGraceful);
     } else {
-      await hardUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, force);
+      await hardUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, force, cancelGraceful);
     }
 
     // clear node-local runtime state (operator stop lock, crash backoff) for the
