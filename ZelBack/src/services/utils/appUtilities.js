@@ -9,11 +9,19 @@ const dockerService = require('../dockerService');
 const geolocationService = require('../geolocationService');
 const { getChainParamsPriceUpdates } = require('./chainUtilities');
 const mountParser = require('./mountParser');
+const appTelemetryHost = require('../appLifecycle/appTelemetryHost');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 const cmdAsync = util.promisify(nodecmd.run);
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
+
+// Host/pseudo-fs sources injected into telemetry components (e.g. /proc, cgroup,
+// docker.sock) are not app storage and must not be counted as disk usage. `du` on
+// /proc also races with transient PIDs, failing non-zero and spamming the log.
+const hostMetricMountSources = new Set(
+  appTelemetryHost.HOST_METRIC_MOUNTS.map((mount) => mount.Source),
+);
 
 /**
  * Calculate app price per month
@@ -184,8 +192,11 @@ async function getContainerStorage(appName) {
     let volumeMountsSize = 0;
     const containerRootFsSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
     if (containerInfo?.Mounts?.length) {
-      // Collect all mount sources and filter out nested mounts to avoid double-counting
-      const allMounts = containerInfo.Mounts.filter((m) => m?.Source);
+      // Collect all mount sources and filter out nested mounts to avoid double-counting.
+      // Drop host-metric mounts (telemetry stop-gap) — they are host paths, not app storage.
+      const allMounts = containerInfo.Mounts.filter(
+        (m) => m?.Source && !hostMetricMountSources.has(m.Source),
+      );
       const mountsToCount = [];
 
       // For each mount, check if it's a child of another mount
