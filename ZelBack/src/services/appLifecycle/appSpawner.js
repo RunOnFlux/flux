@@ -33,6 +33,10 @@ let appsCountAvailableToInstallOnMyNode = 0;
 const collisionWaitMs = config.fluxapps.installCollisionWaitMs;
 const spawnReconfirmDelayMs = config.fluxapps.spawnReconfirmDelayMs;
 const nonEnterpriseSpawnDelayMs = config.fluxapps.nonEnterpriseSpawnDelayMs ?? 2 * 60 * 1000;
+// How long to wait before retrying an app whose networkWith dependency is not
+// installed yet - a transient ordering condition, kept short so the app spawns
+// as soon as its dependency (e.g. a stats collector) comes up.
+const spawnDependencyRetryMs = config.fluxapps.spawnDependencyRetryMs ?? 60 * 1000;
 
 let spawnLoopRunning = false;
 
@@ -760,6 +764,31 @@ async function trySpawningGlobalApplication() {
     }
 
     // install the app
+    // Dependency readiness gate: if a networkWith dependency is not installed yet,
+    // that is a transient ordering condition (e.g. the stats collector this app
+    // links to has not come up here yet). Defer for a short retry instead of
+    // letting registerAppLocally fail it into the 7-day error cache - this makes
+    // placement order-independent (register the apps in any order). Any other
+    // failure (e.g. owner mismatch) falls through to registerAppLocally, which
+    // re-checks and fails it through the normal path.
+    try {
+      await appNetworkLinker.checkAppNetworkRequirements(appSpecifications);
+    } catch (error) {
+      if (error && error.code === 'NETWORK_DEPENDENCY_NOT_READY') {
+        log.info(`trySpawningGlobalApplication - ${appToRun} is waiting on a networkWith dependency; deferring ~${Math.round(spawnDependencyRetryMs / 1000)}s for it to come up`);
+        globalState.trySpawningGlobalAppCache.delete(appHash);
+        appsToBeCheckedLater.push({
+          appName: appToRun,
+          hash: appHash,
+          required: minInstances,
+          timeToCheck: Date.now() + spawnDependencyRetryMs,
+        });
+        fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'dependency_not_ready', delayMs: spawnDependencyRetryMs });
+        return shortDelayTime;
+      }
+      log.warn(`trySpawningGlobalApplication - dependency precheck for ${appToRun} raised a non-deferrable error: ${error.message}`);
+    }
+
     let registerOk = false;
     try {
       registerOk = await appInstaller.registerAppLocally(appSpecifications, null, null, false); // can throw

@@ -122,16 +122,32 @@ describe('appNetworkLinker tests', () => {
       sinon.assert.notCalled(dbHelperStub.findOneInDatabase);
     });
 
-    it('throws when a linked app is not installed locally', async () => {
+    it('throws a NETWORK_DEPENDENCY_NOT_READY error when a linked app is not installed locally', async () => {
       dbHelperStub.findOneInDatabase.resolves(null);
-      await expect(appNetworkLinker.checkAppNetworkRequirements({ name: 'appB', description: 'networkWith:[appA]', owner: 'owner1' }))
-        .to.be.rejectedWith(/is not installed on this node/);
+      let thrown = null;
+      try {
+        await appNetworkLinker.checkAppNetworkRequirements({ name: 'appB', description: 'networkWith:[appA]', owner: 'owner1' });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.an('error');
+      expect(thrown.message).to.match(/is not installed on this node/);
+      // tagged so the spawner short-retries instead of hard-failing (order-independent)
+      expect(thrown.code).to.equal('NETWORK_DEPENDENCY_NOT_READY');
     });
 
-    it('throws when a linked app is owned by a different owner', async () => {
+    it('throws a hard (untagged) error when a linked app is owned by a different owner', async () => {
       dbHelperStub.findOneInDatabase.resolves({ name: 'appA', owner: 'owner2' });
-      await expect(appNetworkLinker.checkAppNetworkRequirements({ name: 'appB', description: 'networkWith:[appA]', owner: 'owner1' }))
-        .to.be.rejectedWith(/owned by a different owner/);
+      let thrown = null;
+      try {
+        await appNetworkLinker.checkAppNetworkRequirements({ name: 'appB', description: 'networkWith:[appA]', owner: 'owner1' });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.an('error');
+      expect(thrown.message).to.match(/owned by a different owner/);
+      // a misconfiguration, not a timing issue - must NOT be short-retried
+      expect(thrown.code).to.not.equal('NETWORK_DEPENDENCY_NOT_READY');
     });
 
     it('resolves true when every linked app is installed with the same owner', async () => {
