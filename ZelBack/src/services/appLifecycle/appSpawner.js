@@ -310,11 +310,14 @@ async function trySpawningGlobalApplication() {
       // to this node requires - they only install while an app networkWith-links
       // to them, and must not be respawned after a teardown. Best-effort: on a
       // registry-read failure, fall back to not suppressing rather than aborting.
-      try {
-        const requiredDependencyNames = await appNetworkLinker.getRequiredDependencyNamesForNode(localSocketAddr);
-        globalAppNamesLocation = globalAppNamesLocation.filter((app) => !appNetworkLinker.parseDependencyOnly(app.description) || requiredDependencyNames.has(app.name));
-      } catch (error) {
-        log.error(`trySpawningGlobalApplication - could not compute required dependencies, not suppressing collectors this cycle: ${error.message}`);
+      // Gated off in production: flux console owns the dependency lifecycle.
+      if (config.fluxapps.manageDependencyOnlyLifecycle) {
+        try {
+          const requiredDependencyNames = await appNetworkLinker.getRequiredDependencyNamesForNode(localSocketAddr);
+          globalAppNamesLocation = globalAppNamesLocation.filter((app) => !appNetworkLinker.parseDependencyOnly(app.description) || requiredDependencyNames.has(app.name));
+        } catch (error) {
+          log.error(`trySpawningGlobalApplication - could not compute required dependencies, not suppressing collectors this cycle: ${error.message}`);
+        }
       }
 
       appsCountAvailableToInstallOnMyNode = globalAppNamesLocation.length + appsSyncthingToBeCheckedLater.length + appsToBeCheckedLater.length;
@@ -387,7 +390,7 @@ async function trySpawningGlobalApplication() {
     // selection path is covered too, and clear the spawn throttle set above so it
     // is reconsidered promptly once a workload that needs it arrives. Best-effort:
     // a registry-read failure falls back to allowing the spawn.
-    if (appNetworkLinker.parseDependencyOnly(appSpecifications.description)) {
+    if (config.fluxapps.manageDependencyOnlyLifecycle && appNetworkLinker.parseDependencyOnly(appSpecifications.description)) {
       let requiredDeps = null;
       try {
         requiredDeps = await appNetworkLinker.getRequiredDependencyNamesForNode(localSocketAddr);

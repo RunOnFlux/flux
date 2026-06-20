@@ -1128,8 +1128,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     // Removing a workload may orphan a dependencyOnly app (stats collector) that
     // linked to it. Defer to after this removal's lock clears (the finally below),
     // and never chain off a collector's own removal. Deferred direct call, not an
-    // event subscription - the event bus is test-observability only.
-    if (!isComponent && !appNetworkLinker.parseDependencyOnly(appSpecifications.description)) {
+    // event subscription - the event bus is test-observability only. Gated off in
+    // production: flux console removes the dependencies when the node empties.
+    if (config.fluxapps.manageDependencyOnlyLifecycle && !isComponent && !appNetworkLinker.parseDependencyOnly(appSpecifications.description)) {
       setImmediate(() => {
         removeUnrequiredDependencies().catch((error) => log.error(`Dependency cleanup trigger failed: ${error.message}`));
       });

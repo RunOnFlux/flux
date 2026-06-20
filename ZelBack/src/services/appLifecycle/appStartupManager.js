@@ -243,7 +243,10 @@ async function reconcileAppsOnBoot() {
     // Drop any dependencyOnly app (stats collector) left orphaned if its last
     // workload was removed while this node was down. Based on the local DB, which
     // still lists the workloads, so collectors with a surviving workload stay.
-    await appUninstaller.removeUnrequiredDependencies();
+    // Gated off in production: flux console owns the dependency lifecycle.
+    if (config.fluxapps.manageDependencyOnlyLifecycle) {
+      await appUninstaller.removeUnrequiredDependencies();
+    }
 
     return results;
   } catch (error) {

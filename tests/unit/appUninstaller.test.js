@@ -31,6 +31,9 @@ describe('appUninstaller tests', () => {
           database: 'globalapps',
         },
       },
+      fluxapps: {
+        manageDependencyOnlyLifecycle: true,
+      },
     };
 
     verificationHelperStub = {
