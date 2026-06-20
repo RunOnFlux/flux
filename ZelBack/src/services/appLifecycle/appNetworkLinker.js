@@ -134,6 +134,68 @@ function computeRequiredDependencyNames(apps) {
 }
 
 /**
+ * Whether a workload transitively `networkWith`-depends on `depNameLower`,
+ * following same-owner links only. Breadth-first over the link graph.
+ *
+ * @param {object} workload - root app spec
+ * @param {string} depNameLower - lowercased dependency name to look for
+ * @param {Map<string, object>} byName - lowercased-name -> app spec
+ * @returns {boolean}
+ */
+function appTransitivelyRequires(workload, depNameLower, byName) {
+  const visited = new Set([workload.name.toLowerCase()]);
+  const queue = [workload];
+  while (queue.length) {
+    const current = queue.shift();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const linkedName of getLinkedApps(current)) {
+      const key = linkedName.toLowerCase();
+      const dep = byName.get(key);
+      // Only same-owner links to installed apps are real dependencies (mirrors
+      // computeRequiredDependencyNames); a cross-owner/dangling link is ignored.
+      if (!dep || dep.owner !== workload.owner) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      if (key === depNameLower) {
+        return true;
+      }
+      if (!visited.has(key)) {
+        visited.add(key);
+        queue.push(dep);
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Locally-installed workloads (apps NOT marked `dependencyOnly`) that
+ * transitively `networkWith`-require the given dependency, same-owner only. The
+ * inverse of `computeRequiredDependencyNames`: used to uninstall the consumers
+ * before the dependency they rely on is torn down.
+ *
+ * @param {string} depName - dependency app name
+ * @returns {Promise<Array<object>>} requiring workload specs (name, owner, description)
+ */
+async function findInstalledWorkloadsRequiring(depName) {
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+  const projection = { projection: { _id: 0, name: 1, owner: 1, description: 1 } };
+  const installed = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, {}, projection);
+  if (!installed || !installed.length) {
+    return [];
+  }
+  const byName = new Map();
+  installed.forEach((app) => {
+    if (app && app.name) byName.set(app.name.toLowerCase(), app);
+  });
+  const target = depName.toLowerCase();
+  return installed.filter((app) => app && app.name && !parseDependencyOnly(app.description)
+    && appTransitivelyRequires(app, target, byName));
+}
+
+/**
  * The dependency-app names that should be present on this node, computed from
  * every app the global registry assigns to this node (pinned via `nodes`). Used
  * by the spawner to suppress a `dependencyOnly` app that nothing here requires.
@@ -175,8 +237,26 @@ async function findUnrequiredInstalledDependencies() {
 }
 
 /**
- * Verifies every app this app is linked to is installed locally and owned by
- * the same owner. Throws otherwise, aborting the install/redeploy.
+ * Whether every container belonging to an installed app is currently running.
+ * Docker-listing based (the local DB blanks enterprise compose, so iterating the
+ * spec would miss components), so it works for enterprise apps too. False when
+ * the app has no containers.
+ *
+ * @param {string} appName
+ * @returns {Promise<boolean>}
+ */
+async function isAppRunning(appName) {
+  const containers = await dockerService.getAppContainerObjects(appName);
+  if (!containers || !containers.length) {
+    return false;
+  }
+  return containers.every((container) => container && container.State === 'running');
+}
+
+/**
+ * Verifies every app this app is linked to is installed locally and owned by the
+ * same owner; when the node-managed lifecycle is enabled, also that each linked
+ * app is actually running. Throws otherwise, aborting/deferring the install.
  *
  * @param {object} appSpecs - full app specification
  * @returns {Promise<boolean>} true when all network links are satisfied
@@ -205,6 +285,19 @@ async function checkAppNetworkRequirements(appSpecs) {
     }
     if (installed.owner !== appSpecs.owner) {
       throw new Error(`App '${linkedApp}' that '${appSpecs.name}' must be networked with is owned by a different owner. Installation aborted.`);
+    }
+    // When the node-managed lifecycle is on, require the dependency to be actually
+    // running - not merely installed - so this app's docker-network attach and log
+    // routing land on a live container. Tagged transient so the spawner defers and
+    // retries rather than hard-failing.
+    if (config.fluxapps.manageDependencyOnlyLifecycle) {
+      // eslint-disable-next-line no-await-in-loop
+      const running = await isAppRunning(linkedApp);
+      if (!running) {
+        const error = new Error(`App '${linkedApp}' that '${appSpecs.name}' must be networked with is installed but not running yet. Installation deferred.`);
+        error.code = 'NETWORK_DEPENDENCY_NOT_READY';
+        throw error;
+      }
     }
   }
   log.info(`App network links satisfied for ${appSpecs.name}: ${linkedApps.join(', ')}`);
@@ -384,6 +477,8 @@ module.exports = {
   computeRequiredDependencyNames,
   getRequiredDependencyNamesForNode,
   findUnrequiredInstalledDependencies,
+  findInstalledWorkloadsRequiring,
+  isAppRunning,
   checkAppNetworkRequirements,
   connectComponentToLinkedApps,
   reconnectLinkedApps,

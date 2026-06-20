@@ -839,6 +839,36 @@ async function removeUnrequiredDependencies() {
 }
 
 /**
+ * Reverse dependency cascade: before a dependencyOnly app (a stats collector) is
+ * removed, gracefully uninstall every installed workload that transitively
+ * requires it, so a consumer is never left attached to a torn-down dependency.
+ * No-op for components and non-dependencyOnly apps. The caller runs this before
+ * acquiring the removal lock so each nested workload removal can acquire it.
+ *
+ * @param {string} appName - bare app name being removed
+ * @returns {Promise<void>}
+ */
+async function removeRequiringWorkloadsFirst(appName) {
+  if (!appName || appName.includes('_')) {
+    return; // components don't carry the marker
+  }
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+  const spec = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, { name: appName }, { projection: { _id: 0, description: 1 } });
+  if (!spec || !appNetworkLinker.parseDependencyOnly(spec.description)) {
+    return;
+  }
+  const workloads = await appNetworkLinker.findInstalledWorkloadsRequiring(appName);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const workload of workloads) {
+    log.info(`Reverse dependency cascade: uninstalling workload ${workload.name} before its dependency ${appName}`);
+    // force=false honours gracefulShutdownSec; sendMessage=true tells the network.
+    // eslint-disable-next-line no-await-in-loop
+    await removeAppLocally(workload.name, null, false, false, true);
+  }
+}
+
+/**
  * Remove application completely from local node
  * @param {string} app - Application name
  * @param {object} res - Response object for streaming
@@ -885,6 +915,14 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         }
         return;
       }
+    }
+
+    // Reverse dependency cascade: before tearing down a dependencyOnly app (a
+    // stats collector), gracefully uninstall any installed workload that still
+    // requires it - a consumer must never outlive its dependency. Run before the
+    // lock below so each workload removal can acquire it. Gated off in production.
+    if (!force && config.fluxapps.manageDependencyOnlyLifecycle) {
+      await removeRequiringWorkloadsFirst(app);
     }
 
     globalState.removalInProgress = true;

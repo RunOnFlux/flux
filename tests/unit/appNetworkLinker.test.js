@@ -18,6 +18,7 @@ describe('appNetworkLinker tests', () => {
       appslocal: { database: 'localapps' },
       appsglobal: { database: 'globalapps' },
     },
+    fluxapps: { manageDependencyOnlyLifecycle: true },
   };
 
   const appConstantsStub = {
@@ -35,6 +36,7 @@ describe('appNetworkLinker tests', () => {
     dockerServiceStub = {
       appDockerNetworkConnect: sinon.stub().resolves(),
       getAppContainerNames: sinon.stub().resolves([]),
+      getAppContainerObjects: sinon.stub().resolves([{ State: 'running' }]),
     };
     registryManagerStub = {
       getApplicationSpecifications: sinon.stub(),
@@ -150,10 +152,24 @@ describe('appNetworkLinker tests', () => {
       expect(thrown.code).to.not.equal('NETWORK_DEPENDENCY_NOT_READY');
     });
 
-    it('resolves true when every linked app is installed with the same owner', async () => {
+    it('resolves true when every linked app is installed, same owner, and running', async () => {
       dbHelperStub.findOneInDatabase.resolves({ name: 'appA', owner: 'owner1' });
       const result = await appNetworkLinker.checkAppNetworkRequirements({ name: 'appB', description: 'networkWith:[appA]', owner: 'owner1' });
       expect(result).to.equal(true);
+    });
+
+    it('defers (NETWORK_DEPENDENCY_NOT_READY) when a linked app is installed but not running', async () => {
+      dbHelperStub.findOneInDatabase.resolves({ name: 'appA', owner: 'owner1' });
+      dockerServiceStub.getAppContainerObjects.resolves([{ State: 'exited' }]);
+      let thrown = null;
+      try {
+        await appNetworkLinker.checkAppNetworkRequirements({ name: 'appB', description: 'networkWith:[appA]', owner: 'owner1' });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.an('error');
+      expect(thrown.message).to.match(/installed but not running/);
+      expect(thrown.code).to.equal('NETWORK_DEPENDENCY_NOT_READY');
     });
   });
 
@@ -370,6 +386,64 @@ describe('appNetworkLinker tests', () => {
       dbHelperStub.findInDatabase.resolves([game]);
       const orphans = await appNetworkLinker.findUnrequiredInstalledDependencies();
       expect(orphans).to.deep.equal([]);
+    });
+  });
+
+  describe('findInstalledWorkloadsRequiring', () => {
+    const owner = 'owner1';
+    const alloy = { name: 'alloy', owner, description: 'alloy dependencyOnly=true' };
+    const datadog = { name: 'datadog', owner, description: 'datadog dependencyOnly=true networkWith:[alloy]' };
+    const gameA = { name: 'game-a', owner, description: 'game networkWith:[alloy,datadog]' };
+    const gameB = { name: 'game-b', owner, description: 'game networkWith:[datadog]' };
+
+    it('finds workloads that directly require a dependency', async () => {
+      dbHelperStub.findInDatabase.resolves([alloy, datadog, gameA, gameB]);
+      const workloads = await appNetworkLinker.findInstalledWorkloadsRequiring('datadog');
+      expect(workloads.map((a) => a.name).sort()).to.deep.equal(['game-a', 'game-b']);
+    });
+
+    it('finds workloads that require a dependency transitively (game -> datadog -> alloy)', async () => {
+      dbHelperStub.findInDatabase.resolves([alloy, datadog, gameA, gameB]);
+      const workloads = await appNetworkLinker.findInstalledWorkloadsRequiring('alloy');
+      expect(workloads.map((a) => a.name).sort()).to.deep.equal(['game-a', 'game-b']);
+    });
+
+    it('never returns a dependencyOnly app, only workloads', async () => {
+      dbHelperStub.findInDatabase.resolves([alloy, datadog, gameA]);
+      const workloads = await appNetworkLinker.findInstalledWorkloadsRequiring('alloy');
+      expect(workloads.map((a) => a.name)).to.not.include('datadog');
+      expect(workloads.map((a) => a.name)).to.deep.equal(['game-a']);
+    });
+
+    it('does not follow links across owners', async () => {
+      const foreignGame = { name: 'g', owner: 'owner2', description: 'game networkWith:[alloy]' };
+      dbHelperStub.findInDatabase.resolves([alloy, foreignGame]);
+      const workloads = await appNetworkLinker.findInstalledWorkloadsRequiring('alloy');
+      expect(workloads).to.deep.equal([]);
+    });
+
+    it('returns [] when nothing requires the dependency, and when nothing is installed', async () => {
+      dbHelperStub.findInDatabase.resolves([alloy, datadog]);
+      expect(await appNetworkLinker.findInstalledWorkloadsRequiring('alloy')).to.deep.equal([]);
+      dbHelperStub.findInDatabase.resolves([]);
+      expect(await appNetworkLinker.findInstalledWorkloadsRequiring('alloy')).to.deep.equal([]);
+    });
+  });
+
+  describe('isAppRunning', () => {
+    it('true when every container is running', async () => {
+      dockerServiceStub.getAppContainerObjects.resolves([{ State: 'running' }, { State: 'running' }]);
+      expect(await appNetworkLinker.isAppRunning('app')).to.equal(true);
+    });
+
+    it('false when any container is not running', async () => {
+      dockerServiceStub.getAppContainerObjects.resolves([{ State: 'running' }, { State: 'exited' }]);
+      expect(await appNetworkLinker.isAppRunning('app')).to.equal(false);
+    });
+
+    it('false when the app has no containers', async () => {
+      dockerServiceStub.getAppContainerObjects.resolves([]);
+      expect(await appNetworkLinker.isAppRunning('app')).to.equal(false);
     });
   });
 
