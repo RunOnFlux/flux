@@ -21,6 +21,7 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
+const appNetworkLinker = require('./appNetworkLinker');
 const imageManager = require('../appSecurity/imageManager');
 const fluxEventBus = require('../utils/fluxEventBus');
 
@@ -785,6 +786,58 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
   }
 }
 
+// Guards removeUnrequiredDependencies against overlapping runs (it removes apps,
+// which can re-trigger it).
+let dependencyCleanupInProgress = false;
+
+/**
+ * Removes any locally-installed `dependencyOnly` app (e.g. a stats collector)
+ * that no installed workload still requires via `networkWith`. Triggered after a
+ * workload is removed and at boot. Loops until the set is stable so a chain
+ * unwinds fully: removing the datadog that linked to alloy then orphans the alloy.
+ * Each removal is a normal (non-forced) removeAppLocally, so the collector's own
+ * `gracefulShutdownSec` drain window is honoured; by the time this runs the
+ * workload that depended on it has already finished draining and been removed.
+ *
+ * @returns {Promise<void>}
+ */
+async function removeUnrequiredDependencies() {
+  if (dependencyCleanupInProgress) {
+    return;
+  }
+  dependencyCleanupInProgress = true;
+  try {
+    const attempted = new Set();
+    // Bounded: each pass either removes one app or stops. The cap is a backstop.
+    for (let pass = 0; pass < 50; pass += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const orphans = await appNetworkLinker.findUnrequiredInstalledDependencies();
+      // Remove a consumer before the app it consumes (datadog before the alloy it
+      // links to) so the network/log wiring tears down in dependency order.
+      orphans.sort((a, b) => {
+        if (appNetworkLinker.getLinkedApps(a).some((n) => n.toLowerCase() === b.name.toLowerCase())) return -1;
+        if (appNetworkLinker.getLinkedApps(b).some((n) => n.toLowerCase() === a.name.toLowerCase())) return 1;
+        return 0;
+      });
+      const target = orphans.find((app) => !attempted.has(app.name.toLowerCase()));
+      if (!target) {
+        return;
+      }
+      attempted.add(target.name.toLowerCase());
+      log.info(`Dependency cleanup: removing ${target.name} - no installed app requires it any more`);
+      // force=false honours gracefulShutdownSec; sendMessage=true tells the
+      // network this node dropped it. removeAppLocally swallows its own errors.
+      // eslint-disable-next-line no-await-in-loop
+      await removeAppLocally(target.name, null, false, false, true);
+    }
+    log.warn('Dependency cleanup: reached pass limit, will retry on next trigger');
+  } catch (error) {
+    log.error(`Dependency cleanup failed: ${error.message}`);
+  } finally {
+    dependencyCleanupInProgress = false;
+  }
+}
+
 /**
  * Remove application completely from local node
  * @param {string} app - Application name
@@ -1071,6 +1124,16 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.end();
       }
     }
+
+    // Removing a workload may orphan a dependencyOnly app (stats collector) that
+    // linked to it. Defer to after this removal's lock clears (the finally below),
+    // and never chain off a collector's own removal. Deferred direct call, not an
+    // event subscription - the event bus is test-observability only.
+    if (!isComponent && !appNetworkLinker.parseDependencyOnly(appSpecifications.description)) {
+      setImmediate(() => {
+        removeUnrequiredDependencies().catch((error) => log.error(`Dependency cleanup trigger failed: ${error.message}`));
+      });
+    }
   } catch (error) {
     log.error(`Error removing app ${app}: ${error.message}`);
     const errorResponse = messageHelper.createErrorMessage(
@@ -1297,6 +1360,7 @@ module.exports = {
   softUninstallApplication,
   cleanupPorts,
   removeAppLocally,
+  removeUnrequiredDependencies,
   softRemoveAppLocally,
   removeAppLocallyApi,
   setOnComponentRemoved,

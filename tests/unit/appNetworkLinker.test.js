@@ -16,11 +16,13 @@ describe('appNetworkLinker tests', () => {
   const configStub = {
     database: {
       appslocal: { database: 'localapps' },
+      appsglobal: { database: 'globalapps' },
     },
   };
 
   const appConstantsStub = {
     localAppsInformation: 'localAppsInformation',
+    globalAppsInformation: 'globalAppsInformation',
     APP_NAME_REGEX: /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/,
   };
 
@@ -280,6 +282,112 @@ describe('appNetworkLinker tests', () => {
     it('does not throw when the database read fails', async () => {
       dbHelperStub.findInDatabase.rejects(new Error('db down'));
       await expect(appNetworkLinker.reconcileAllAppNetworkLinks()).to.not.be.rejected;
+    });
+  });
+
+  describe('parseDependencyOnly', () => {
+    it('returns true for dependencyOnly=true and dependencyOnly:true', () => {
+      expect(appNetworkLinker.parseDependencyOnly('collector dependencyOnly=true')).to.equal(true);
+      expect(appNetworkLinker.parseDependencyOnly('collector dependencyOnly:true')).to.equal(true);
+      expect(appNetworkLinker.parseDependencyOnly('DEPENDENCYONLY = TRUE')).to.equal(true);
+    });
+
+    it('returns false when absent, malformed, or only mentioned in prose', () => {
+      expect(appNetworkLinker.parseDependencyOnly('plain app')).to.equal(false);
+      expect(appNetworkLinker.parseDependencyOnly('this is dependencyOnly a note')).to.equal(false);
+      expect(appNetworkLinker.parseDependencyOnly('dependencyOnly=false')).to.equal(false);
+      expect(appNetworkLinker.parseDependencyOnly('')).to.equal(false);
+      expect(appNetworkLinker.parseDependencyOnly(undefined)).to.equal(false);
+    });
+  });
+
+  describe('computeRequiredDependencyNames', () => {
+    const owner = 'owner1';
+    const alloy = { name: 'alloy', owner, description: 'alloy dependencyOnly=true' };
+    const datadog = { name: 'datadog', owner, description: 'datadog dependencyOnly=true networkWith:[alloy]' };
+    const game = (suffix) => ({ name: `game-${suffix}`, owner, description: 'game networkWith:[alloy,datadog]' });
+    const req = (apps) => [...appNetworkLinker.computeRequiredDependencyNames(apps)].sort();
+
+    it('requires nothing when only collectors are present (no workload)', () => {
+      expect(req([alloy])).to.deep.equal([]);
+      expect(req([alloy, datadog])).to.deep.equal([]);
+    });
+
+    it('pulls collectors transitively from a workload (game -> datadog -> alloy)', () => {
+      expect(req([alloy, datadog, game('a')])).to.deep.equal(['alloy', 'datadog']);
+    });
+
+    it('keeps collectors while at least one workload remains', () => {
+      expect(req([alloy, datadog, game('a'), game('b')])).to.deep.equal(['alloy', 'datadog']);
+      expect(req([alloy, datadog, game('a')])).to.deep.equal(['alloy', 'datadog']);
+    });
+
+    it('requires nothing once the last workload is gone', () => {
+      expect(req([alloy, datadog])).to.deep.equal([]);
+    });
+
+    it('does not follow links across owners', () => {
+      const foreignGame = { name: 'g', owner: 'owner2', description: 'game networkWith:[alloy]' };
+      expect(req([alloy, foreignGame])).to.deep.equal([]);
+    });
+  });
+
+  describe('findUnrequiredInstalledDependencies', () => {
+    const owner = 'owner1';
+    const alloy = { name: 'alloy', owner, description: 'alloy dependencyOnly=true' };
+    const datadog = { name: 'datadog', owner, description: 'datadog dependencyOnly=true networkWith:[alloy]' };
+    const game = { name: 'game-a', owner, description: 'game networkWith:[alloy,datadog]' };
+
+    it('returns orphaned collectors when no workload remains', async () => {
+      dbHelperStub.findInDatabase.resolves([alloy, datadog]);
+      const orphans = await appNetworkLinker.findUnrequiredInstalledDependencies();
+      expect(orphans.map((a) => a.name).sort()).to.deep.equal(['alloy', 'datadog']);
+    });
+
+    it('returns nothing while a workload still requires them', async () => {
+      dbHelperStub.findInDatabase.resolves([alloy, datadog, game]);
+      const orphans = await appNetworkLinker.findUnrequiredInstalledDependencies();
+      expect(orphans).to.deep.equal([]);
+    });
+
+    it('never returns a workload (non dependencyOnly app)', async () => {
+      dbHelperStub.findInDatabase.resolves([game]);
+      const orphans = await appNetworkLinker.findUnrequiredInstalledDependencies();
+      expect(orphans).to.deep.equal([]);
+    });
+  });
+
+  describe('getRequiredDependencyNamesForNode', () => {
+    const owner = 'owner1';
+    const ip = '1.2.3.4';
+    const alloy = {
+      name: 'alloy', owner, description: 'alloy dependencyOnly=true', nodes: [ip],
+    };
+    const datadog = {
+      name: 'datadog', owner, description: 'datadog dependencyOnly=true networkWith:[alloy]', nodes: [ip],
+    };
+    const game = {
+      name: 'game-a', owner, description: 'game networkWith:[alloy,datadog]', nodes: [ip],
+    };
+
+    it('returns empty when no node address is provided', async () => {
+      const result = await appNetworkLinker.getRequiredDependencyNamesForNode(null);
+      expect([...result]).to.deep.equal([]);
+    });
+
+    it('computes the required set from apps assigned to this node', async () => {
+      dbHelperStub.findInDatabase.resolves([alloy, datadog, game]);
+      const result = await appNetworkLinker.getRequiredDependencyNamesForNode(ip);
+      expect([...result].sort()).to.deep.equal(['alloy', 'datadog']);
+    });
+
+    it('ignores apps assigned to other nodes', async () => {
+      const otherGame = {
+        name: 'game-x', owner, description: 'game networkWith:[alloy]', nodes: ['9.9.9.9'],
+      };
+      dbHelperStub.findInDatabase.resolves([alloy, otherGame]);
+      const result = await appNetworkLinker.getRequiredDependencyNamesForNode(ip);
+      expect([...result]).to.deep.equal([]);
     });
   });
 });

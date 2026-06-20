@@ -24,6 +24,7 @@ const enterpriseNetwork = require('../utils/enterpriseNetwork');
 const { FluxCacheManager } = require('../utils/cacheManager');
 const appInstaller = require('./appInstaller');
 const appUninstaller = require('./appUninstaller');
+const appNetworkLinker = require('./appNetworkLinker');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 const fluxEventBus = require('../utils/fluxEventBus');
 
@@ -235,6 +236,7 @@ async function trySpawningGlobalApplication() {
           version: '$version',
           enterprise: '$enterprise',
           owner: '$owner',
+          description: { $ifNull: ['$description', ''] },
         },
       },
       { $sort: { name: 1 } },
@@ -300,6 +302,17 @@ async function trySpawningGlobalApplication() {
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('ac')).length === 0 || app.geolocation.find((loc) => loc.startsWith('ac') && `ac${myNodeLocation}`.startsWith(loc))));
       globalAppNamesLocation = enterpriseNetwork.filterAppsByOwnership(globalAppNamesLocation, isEnterprise);
 
+      // Suppress dependencyOnly apps (stats collectors) that no workload assigned
+      // to this node requires - they only install while an app networkWith-links
+      // to them, and must not be respawned after a teardown. Best-effort: on a
+      // registry-read failure, fall back to not suppressing rather than aborting.
+      try {
+        const requiredDependencyNames = await appNetworkLinker.getRequiredDependencyNamesForNode(localSocketAddr);
+        globalAppNamesLocation = globalAppNamesLocation.filter((app) => !appNetworkLinker.parseDependencyOnly(app.description) || requiredDependencyNames.has(app.name));
+      } catch (error) {
+        log.error(`trySpawningGlobalApplication - could not compute required dependencies, not suppressing collectors this cycle: ${error.message}`);
+      }
+
       appsCountAvailableToInstallOnMyNode = globalAppNamesLocation.length + appsSyncthingToBeCheckedLater.length + appsToBeCheckedLater.length;
       ({ shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(isEnterprise, appsCountAvailableToInstallOnMyNode));
 
@@ -363,6 +376,25 @@ async function trySpawningGlobalApplication() {
     const appSpecifications = await registryManager.getApplicationGlobalSpecifications(appToRun);
     if (!appSpecifications) {
       throw new Error(`trySpawningGlobalApplication - Specifications for application ${appToRun} were not found!`);
+    }
+
+    // A dependencyOnly app (stats collector) installs only while a workload
+    // assigned to this node networkWith-links to it. Re-check here so the deferred
+    // selection path is covered too, and clear the spawn throttle set above so it
+    // is reconsidered promptly once a workload that needs it arrives. Best-effort:
+    // a registry-read failure falls back to allowing the spawn.
+    if (appNetworkLinker.parseDependencyOnly(appSpecifications.description)) {
+      let requiredDeps = null;
+      try {
+        requiredDeps = await appNetworkLinker.getRequiredDependencyNamesForNode(localSocketAddr);
+      } catch (error) {
+        log.error(`trySpawningGlobalApplication - could not check dependency requirement for ${appSpecifications.name}: ${error.message}`);
+      }
+      if (requiredDeps && !requiredDeps.has(appSpecifications.name)) {
+        log.info(`trySpawningGlobalApplication - ${appSpecifications.name} is dependency-only and nothing on this node requires it; skipping spawn`);
+        globalState.trySpawningGlobalAppCache.delete(appHash);
+        return shortDelayTime;
+      }
     }
 
     // eslint-disable-next-line no-restricted-syntax

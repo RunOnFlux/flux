@@ -53,6 +53,7 @@ describe('appStartupManager tests', () => {
 
     appUninstallerStub = {
       removeAppLocally: sinon.stub().resolves(),
+      removeUnrequiredDependencies: sinon.stub().resolves(),
     };
 
     const mockDb = { db: sinon.stub().returns('mockDatabase') };

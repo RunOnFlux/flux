@@ -24,7 +24,8 @@ const config = require('config');
 const dbHelper = require('../dbHelper');
 const dockerService = require('../dockerService');
 const log = require('../../lib/log');
-const { localAppsInformation, APP_NAME_REGEX } = require('../utils/appConstants');
+const { socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { localAppsInformation, globalAppsInformation, APP_NAME_REGEX } = require('../utils/appConstants');
 
 /**
  * Parses the `networkWith:[...]` token out of an app description.
@@ -66,6 +67,111 @@ function getLinkedApps(appSpecs) {
   }
   const selfName = String(appSpecs.name).toLowerCase();
   return parseNetworkWith(appSpecs.description).filter((linked) => linked.toLowerCase() !== selfName);
+}
+
+/**
+ * Whether an app opts out of standalone spawning via `dependencyOnly=true` in its
+ * description. Such an app (e.g. a stats collector) is the *target* of other
+ * apps' `networkWith` links: it is installed only while at least one app that
+ * links to it is present, and removed once nothing links to it any more. The
+ * literal `:true`/`=true` is required so the marker can't be tripped by the word
+ * appearing in prose.
+ *
+ * @param {string} description - app description text
+ * @returns {boolean}
+ */
+function parseDependencyOnly(description) {
+  if (typeof description !== 'string' || !description) {
+    return false;
+  }
+  return /\bdependencyOnly\s*[:=]\s*true\b/i.test(description);
+}
+
+/**
+ * Given a set of app specs (each at least `{ name, owner, description }`), returns
+ * the set of dependency-app names that are *required*: the transitive
+ * `networkWith` closure starting from the workload apps (those NOT marked
+ * `dependencyOnly`). Links are only followed between apps of the same owner.
+ * Original-cased names are returned; matching is case-insensitive.
+ *
+ * Starting the closure from workloads only (not every app in the set) is what
+ * lets a dependency-only app fall out of the required set once nothing links to
+ * it — otherwise a collector, being present itself, would keep itself alive.
+ *
+ * @param {Array<object>} apps - app specs to reason over
+ * @returns {Set<string>} required dependency app names
+ */
+function computeRequiredDependencyNames(apps) {
+  const required = new Set();
+  if (!Array.isArray(apps) || !apps.length) {
+    return required;
+  }
+  const byName = new Map();
+  apps.forEach((app) => {
+    if (app && app.name) byName.set(app.name.toLowerCase(), app);
+  });
+
+  const roots = apps.filter((app) => app && app.name && !parseDependencyOnly(app.description));
+  const queue = [...roots];
+  const visited = new Set(roots.map((app) => app.name.toLowerCase()));
+
+  while (queue.length) {
+    const current = queue.shift();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const linkedName of getLinkedApps(current)) {
+      const dep = byName.get(linkedName.toLowerCase());
+      if (dep && dep.owner === current.owner) {
+        required.add(dep.name);
+        const key = dep.name.toLowerCase();
+        if (!visited.has(key)) {
+          visited.add(key);
+          queue.push(dep);
+        }
+      }
+    }
+  }
+  return required;
+}
+
+/**
+ * The dependency-app names that should be present on this node, computed from
+ * every app the global registry assigns to this node (pinned via `nodes`). Used
+ * by the spawner to suppress a `dependencyOnly` app that nothing here requires.
+ *
+ * @param {string} localSocketAddr - this node's socket address
+ * @returns {Promise<Set<string>>}
+ */
+async function getRequiredDependencyNamesForNode(localSocketAddr) {
+  if (!localSocketAddr) {
+    return new Set();
+  }
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  const projection = { projection: { _id: 0, name: 1, owner: 1, description: 1, nodes: 1 } };
+  const apps = await dbHelper.findInDatabase(database, globalAppsInformation, {}, projection);
+  const assigned = (apps || []).filter((app) => Array.isArray(app.nodes)
+    && app.nodes.some((ip) => socketAddressesMatch(ip, localSocketAddr)));
+  return computeRequiredDependencyNames(assigned);
+}
+
+/**
+ * Locally-installed apps that are `dependencyOnly` but no longer required by any
+ * installed workload (transitive `networkWith`). These should be removed. Based
+ * on what is actually installed here now, so removing the last workload orphans
+ * the collectors it linked to.
+ *
+ * @returns {Promise<Array<object>>} orphaned dependency app specs
+ */
+async function findUnrequiredInstalledDependencies() {
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+  const projection = { projection: { _id: 0, name: 1, owner: 1, description: 1 } };
+  const installed = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, {}, projection);
+  if (!installed || !installed.length) {
+    return [];
+  }
+  const required = computeRequiredDependencyNames(installed);
+  return installed.filter((app) => parseDependencyOnly(app.description) && !required.has(app.name));
 }
 
 /**
@@ -269,6 +375,10 @@ async function findLinkedAppLogCollector(fullAppSpecs) {
 module.exports = {
   parseNetworkWith,
   getLinkedApps,
+  parseDependencyOnly,
+  computeRequiredDependencyNames,
+  getRequiredDependencyNamesForNode,
+  findUnrequiredInstalledDependencies,
   checkAppNetworkRequirements,
   connectComponentToLinkedApps,
   reconnectLinkedApps,
