@@ -388,6 +388,11 @@ async function signCheckAppData(message) {
  * @returns {Promise<boolean>} True if ports are available, false otherwise
  */
 async function checkInstallingAppPortAvailable(portsToTest = []) {
+  // No ports to verify -> nothing to probe. A portless app's install must not
+  // hinge on reaching a random peer (which can time out and falsely fail it).
+  if (!Array.isArray(portsToTest) || portsToTest.length === 0) {
+    return true;
+  }
   const beforeAppInstallTestingServers = [];
   const isUPNP = upnpService.isUPNP();
   let portsStatus = false;

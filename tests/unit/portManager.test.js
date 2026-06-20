@@ -535,4 +535,16 @@ describe('portManager tests', () => {
       expect(result).to.equal('test-signature-string');
     });
   });
+
+  describe('checkInstallingAppPortAvailable tests', () => {
+    it('returns true immediately for a portless app (no peer probe)', async () => {
+      // A spy that would throw if any network/socket work were attempted.
+      const localSocket = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
+
+      expect(await portManager.checkInstallingAppPortAvailable([])).to.equal(true);
+      expect(await portManager.checkInstallingAppPortAvailable()).to.equal(true);
+
+      sinon.assert.notCalled(localSocket);
+    });
+  });
 });
