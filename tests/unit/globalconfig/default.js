@@ -296,6 +296,8 @@ module.exports = {
     portTestMaxAttempts: 5,
     spawnReconfirmDelayMs: 7500000,
     nonEnterpriseSpawnDelayMs: 120000,
+    spawnDependencyRetryMs: 60000, // retry an app whose networkWith dependency is not installed yet
+
     globalCmdDelayMs: 500,
     discoveryAutostart: true,
     discoveryRetryMs: 60000,
