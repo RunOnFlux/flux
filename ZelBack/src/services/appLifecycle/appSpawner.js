@@ -320,6 +320,26 @@ async function trySpawningGlobalApplication() {
         }
       }
 
+      // Readiness-ordered selection: drop candidates whose networkWith dependencies
+      // are not yet installed + running, so a linked group installs root-first (a
+      // dependency before its consumers) instead of a consumer being selected ahead
+      // of its dependency and then starving it from the deferred-retry queue. A
+      // not-ready app is simply skipped this cycle and reconsidered once its deps
+      // come up - no priority deferral, so it can never monopolise the loop.
+      if (config.fluxapps.manageDependencyOnlyLifecycle && globalAppNamesLocation.length > 0) {
+        const readiness = await Promise.all(globalAppNamesLocation.map(async (app) => {
+          try {
+            await appNetworkLinker.checkAppNetworkRequirements({ name: app.name, description: app.description, owner: app.owner });
+            return true;
+          } catch (error) {
+            // Dependency not installed/running yet -> skip this cycle. Any other
+            // error (e.g. owner mismatch) is a real misconfig handled at install.
+            return error.code !== 'NETWORK_DEPENDENCY_NOT_READY';
+          }
+        }));
+        globalAppNamesLocation = globalAppNamesLocation.filter((_, i) => readiness[i]);
+      }
+
       appsCountAvailableToInstallOnMyNode = globalAppNamesLocation.length + appsSyncthingToBeCheckedLater.length + appsToBeCheckedLater.length;
       ({ shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(isEnterprise, appsCountAvailableToInstallOnMyNode));
 
