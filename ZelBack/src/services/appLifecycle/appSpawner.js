@@ -33,10 +33,6 @@ let appsCountAvailableToInstallOnMyNode = 0;
 const collisionWaitMs = config.fluxapps.installCollisionWaitMs;
 const spawnReconfirmDelayMs = config.fluxapps.spawnReconfirmDelayMs;
 const nonEnterpriseSpawnDelayMs = config.fluxapps.nonEnterpriseSpawnDelayMs ?? 2 * 60 * 1000;
-// How long to wait before retrying an app whose networkWith dependency is not
-// installed yet - a transient ordering condition, kept short so the app spawns
-// as soon as its dependency (e.g. a stats collector) comes up.
-const spawnDependencyRetryMs = config.fluxapps.spawnDependencyRetryMs ?? 60 * 1000;
 
 let spawnLoopRunning = false;
 
@@ -321,19 +317,24 @@ async function trySpawningGlobalApplication() {
       }
 
       // Readiness-ordered selection: drop candidates whose networkWith dependencies
-      // are not yet installed + running, so a linked group installs root-first (a
-      // dependency before its consumers) instead of a consumer being selected ahead
-      // of its dependency and then starving it from the deferred-retry queue. A
-      // not-ready app is simply skipped this cycle and reconsidered once its deps
-      // come up - no priority deferral, so it can never monopolise the loop.
-      if (config.fluxapps.manageDependencyOnlyLifecycle && globalAppNamesLocation.length > 0) {
+      // are not ready, so a linked group installs root-first (a dependency before
+      // its consumers) instead of a consumer being selected ahead of its dependency
+      // and then starving the loop from the deferred-retry queue. A not-ready app is
+      // simply skipped this cycle and reconsidered once its deps come up - no
+      // priority deferral, so it can never monopolise the loop, and no error cache,
+      // so it installs the instant its dependency appears (e.g. a dependency that is
+      // registered later). This skip is intentionally ungated: it is general spawner
+      // robustness, not part of the node-managed lifecycle. Only the strictness of
+      // "ready" is flag-gated, inside checkAppNetworkRequirements - lifecycle off:
+      // the dependency must be installed locally; on: also actually running.
+      if (globalAppNamesLocation.length > 0) {
         const readiness = await Promise.all(globalAppNamesLocation.map(async (app) => {
           try {
             await appNetworkLinker.checkAppNetworkRequirements({ name: app.name, description: app.description, owner: app.owner });
             return true;
           } catch (error) {
-            // Dependency not installed/running yet -> skip this cycle. Any other
-            // error (e.g. owner mismatch) is a real misconfig handled at install.
+            // Dependency not ready yet -> skip this cycle. Any other error (e.g.
+            // owner mismatch) is a real misconfig handled at install.
             return error.code !== 'NETWORK_DEPENDENCY_NOT_READY';
           }
         }));
@@ -787,26 +788,26 @@ async function trySpawningGlobalApplication() {
     }
 
     // install the app
-    // Dependency readiness gate: if a networkWith dependency is not installed yet,
-    // that is a transient ordering condition (e.g. the stats collector this app
-    // links to has not come up here yet). Defer for a short retry instead of
-    // letting registerAppLocally fail it into the 7-day error cache - this makes
-    // placement order-independent (register the apps in any order). Any other
-    // failure (e.g. owner mismatch) falls through to registerAppLocally, which
-    // re-checks and fails it through the normal path.
+    // Dependency readiness gate: if a networkWith dependency is not ready (not
+    // installed yet, or - with the managed lifecycle on - not yet running), this app
+    // cannot install this cycle. Skip it and reconsider on the next pass; crucially
+    // do NOT push it into appsToBeCheckedLater, which is drained ahead of fresh
+    // selection - an app whose dependency never appears would otherwise re-defer
+    // every cycle and starve all other apps from being selected. Skipping keeps the
+    // loop free and is self-correcting: the app is retried the moment its dependency
+    // comes up, with no error cache to expire (so a dependency registered later is
+    // picked up immediately). This reaches an app processed from the deferred queue
+    // too (which bypasses the selection-time readiness filter): it is spliced out
+    // above and, by not being re-pushed here, leaves the queue. Any other failure
+    // (e.g. owner mismatch) falls through to registerAppLocally, which re-checks and
+    // fails it through the normal path.
     try {
       await appNetworkLinker.checkAppNetworkRequirements(appSpecifications);
     } catch (error) {
       if (error && error.code === 'NETWORK_DEPENDENCY_NOT_READY') {
-        log.info(`trySpawningGlobalApplication - ${appToRun} is waiting on a networkWith dependency; deferring ~${Math.round(spawnDependencyRetryMs / 1000)}s for it to come up`);
+        log.info(`trySpawningGlobalApplication - ${appToRun} is waiting on a networkWith dependency; skipping this cycle until it comes up`);
         globalState.trySpawningGlobalAppCache.delete(appHash);
-        appsToBeCheckedLater.push({
-          appName: appToRun,
-          hash: appHash,
-          required: minInstances,
-          timeToCheck: Date.now() + spawnDependencyRetryMs,
-        });
-        fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'dependency_not_ready', delayMs: spawnDependencyRetryMs });
+        fluxEventBus.publish('spawner:deferred', { appName: appToRun, reason: 'dependency_not_ready', delayMs: 0 });
         return shortDelayTime;
       }
       log.warn(`trySpawningGlobalApplication - dependency precheck for ${appToRun} raised a non-deferrable error: ${error.message}`);

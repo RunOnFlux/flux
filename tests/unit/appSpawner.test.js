@@ -158,6 +158,14 @@ describe('appSpawner tests', () => {
       './appUninstaller': {
         removeAppLocally: sinon.stub().resolves(),
       },
+      './appNetworkLinker': {
+        // Default: every app's network links are satisfied (matches the real
+        // module's behaviour for apps with no networkWith token). Tests that
+        // exercise the readiness filter / dependency gate override this stub.
+        checkAppNetworkRequirements: opts.checkAppNetworkRequirements ?? sinon.stub().resolves(true),
+        parseDependencyOnly: opts.parseDependencyOnly ?? sinon.stub().returns(false),
+        getRequiredDependencyNamesForNode: opts.getRequiredDependencyNamesForNode ?? sinon.stub().resolves(new Set()),
+      },
     });
   }
 
@@ -250,6 +258,102 @@ describe('appSpawner tests', () => {
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       expect(infoLogged('selected to try to spawn')).to.be.true;
+    });
+  });
+
+  describe('networkWith readiness filter (ungated) + dependency skip', () => {
+    function makeApp(overrides = {}) {
+      return {
+        name: 'wrkapp',
+        hash: 'hash-wrkapp',
+        actual: 0,
+        required: 3,
+        nodes: [],
+        geolocation: [],
+        version: 8,
+        // enterprise:true short-circuits at the ArcaneOS check right after
+        // selection, so a kept app is provably "selected" without installing.
+        enterprise: true,
+        owner: 'owner1',
+        description: 'networkWith:[collector]',
+        ...overrides,
+      };
+    }
+
+    function infoLogged(substr) {
+      return logStub.info.getCalls().some((c) => typeof c.args[0] === 'string' && c.args[0].includes(substr));
+    }
+
+    function notReadyError() {
+      return Object.assign(new Error("App 'collector' is not installed on this node"), { code: 'NETWORK_DEPENDENCY_NOT_READY' });
+    }
+
+    it('flag-OFF: drops a candidate whose networkWith dependency is not ready (filter is no longer gated)', async () => {
+      buildModule({
+        // manageDependencyOnlyLifecycle defaults off here - the skip must work anyway
+        aggregateResult: [makeApp()],
+        checkAppNetworkRequirements: sinon.stub().rejects(notReadyError()),
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('No app currently to be processed')).to.be.true;
+      expect(infoLogged('selected to try to spawn')).to.be.false;
+    });
+
+    it('flag-OFF: keeps a candidate whose networkWith dependency is ready', async () => {
+      buildModule({
+        aggregateResult: [makeApp()],
+        checkAppNetworkRequirements: sinon.stub().resolves(true),
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.true;
+    });
+
+    it('keeps a candidate whose dependency check throws a non-NOT_READY error (real misconfig handled at install)', async () => {
+      buildModule({
+        aggregateResult: [makeApp()],
+        checkAppNetworkRequirements: sinon.stub().rejects(new Error('owned by a different owner')),
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.true;
+    });
+
+    it('flag-ON: also drops a not-ready candidate (symmetry)', async () => {
+      buildModule({
+        configOverrides: { manageDependencyOnlyLifecycle: true },
+        aggregateResult: [makeApp()],
+        checkAppNetworkRequirements: sinon.stub().rejects(notReadyError()),
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('No app currently to be processed')).to.be.true;
+      expect(infoLogged('selected to try to spawn')).to.be.false;
+    });
+
+    it('a queued dependency-not-ready app drains from appsToBeCheckedLater instead of re-deferring', async () => {
+      const queued = {
+        appName: 'depapp', hash: 'hash-depapp', required: 3, timeToCheck: Date.now() - 1000,
+      };
+      buildModule({
+        // a placeholder keeps numberOfGlobalApps > 0 so the deferred-queue branch is reached;
+        // the queued entry (not the placeholder) is what gets processed via appIndex >= 0
+        aggregateResult: [makeApp({ name: 'placeholder', hash: 'hash-placeholder' })],
+        globalStateOverrides: { appsToBeCheckedLater: [queued] },
+        appSpec: {
+          name: 'depapp',
+          version: 8,
+          owner: 'owner1',
+          enterprise: false,
+          description: 'networkWith:[collector]',
+          compose: [{
+            name: 'c0', repotag: 'img:latest', containerData: '/data', environmentParameters: [], ports: [],
+          }],
+        },
+        checkAppNetworkRequirements: sinon.stub().rejects(notReadyError()),
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      // spliced out when picked, and NOT re-pushed -> queue ends empty (cannot monopolise the loop)
+      expect(globalStateStub.appsToBeCheckedLater).to.have.lengthOf(0);
+      // the in-flight throttle was cleared so it is reconsidered cleanly next cycle
+      expect(globalStateStub.trySpawningGlobalAppCache.has('hash-depapp')).to.be.false;
     });
   });
 

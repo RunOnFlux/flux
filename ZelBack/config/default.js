@@ -310,7 +310,6 @@ module.exports = {
     portTestMaxAttempts: 5,
     spawnReconfirmDelayMs: 7500000,
     nonEnterpriseSpawnDelayMs: 120000,
-    spawnDependencyRetryMs: 60000, // retry an app whose networkWith dependency is not installed yet
     manageDependencyOnlyLifecycle: false, // node-managed install-gate + teardown for dependencyOnly apps. Off: flux console owns this lifecycle (installs dependencies first, removes them when the node empties). Flip on only if that ownership ever moves to FluxOS.
 
     globalCmdDelayMs: 500,

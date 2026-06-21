@@ -296,7 +296,6 @@ module.exports = {
     portTestMaxAttempts: 5,
     spawnReconfirmDelayMs: 7500000,
     nonEnterpriseSpawnDelayMs: 120000,
-    spawnDependencyRetryMs: 60000, // retry an app whose networkWith dependency is not installed yet
     manageDependencyOnlyLifecycle: true, // exercise the node-managed dependencyOnly lifecycle in unit tests (production default is false)
 
     globalCmdDelayMs: 500,
