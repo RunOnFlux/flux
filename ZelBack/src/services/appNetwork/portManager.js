@@ -387,6 +387,117 @@ async function signCheckAppData(message) {
  * @param {Array} portsToTest Array of ports to test
  * @returns {Promise<boolean>} True if ports are available, false otherwise
  */
+/**
+ * Bind a throwaway HTTP listener on a port to prove this node can currently hold it
+ * (the local half of the port check, before asking peers about public reachability).
+ * Resolves once the socket is listening; rejects on a bind error (e.g. EADDRINUSE).
+ * The server is pushed onto `trackingServers` SYNCHRONOUSLY - before listen() and
+ * before this returns - so the caller's cleanup closes it even when a sibling port's
+ * bind rejects first and fail-fasts the concurrent Promise.all.
+ * @param {number} portToTest
+ * @param {Array} trackingServers - collector the caller closes during cleanup
+ * @returns {Promise<null>}
+ */
+function bindPortTestServer(portToTest, trackingServers) {
+  return new Promise((resolve, reject) => {
+    const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
+    trackingServers.push(testHttpServer);
+    // Tested: the 'error' handler catches EADDRINUSE. Previously this crashed the app.
+    // note - if you kill the port with `ss --kill state listening src :<the port>`
+    // nodeJS does not raise an error.
+    testHttpServer
+      .once('error', (err) => {
+        testHttpServer.removeAllListeners('listening');
+        reject(err.message);
+      })
+      .once('listening', () => {
+        testHttpServer.removeAllListeners('error');
+        resolve(null);
+      });
+    testHttpServer.listen(portToTest);
+  });
+}
+
+/**
+ * Ask a single remote node to connect back to our IP:port(s) and report whether
+ * they are publicly reachable.
+ *   answered=false  -> the peer itself did not respond (says nothing about our port)
+ *   reachable=true  -> the peer reached our port(s) (proves public reachability)
+ *   reachable=false -> the peer answered but could not reach a port (failedPort set)
+ * @param {string} peerSocketAddress - 'ip:port' of the node to ask
+ * @param {string} payload - signed, JSON-stringified port-test request body
+ * @param {object} axiosConfig - axios config (carries the per-peer timeout)
+ * @returns {Promise<{answered: boolean, reachable?: boolean, failedPort?: number}>}
+ */
+async function askPeerPortReachability(peerSocketAddress, payload, axiosConfig) {
+  const askingIP = extractIp(peerSocketAddress);
+  const askingIpPort = extractPort(peerSocketAddress);
+  const res = await axios
+    .post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, payload, axiosConfig)
+    .catch(() => {
+      // peer unreachable from us -> says nothing about OUR port; it is just a non-answer
+      log.info(`askPeerPortReachability - peer ${askingIP}:${askingIpPort} did not answer port test`);
+      return null;
+    });
+  if (!res || !res.data) return { answered: false };
+  if (res.data.status === 'success') return { answered: true, reachable: true };
+  if (res.data.status === 'error') {
+    let failedPort = null;
+    const msg = res.data.data && res.data.data.message;
+    if (msg && msg.includes('Failed port: ')) {
+      failedPort = serviceHelper.ensureNumber(msg.split('Failed port: ')[1]);
+    }
+    return { answered: true, reachable: false, failedPort };
+  }
+  return { answered: false };
+}
+
+/**
+ * Verify the given ports are publicly reachable by asking remote nodes to connect
+ * back. Reachability is external, so the peer round-trip is the only real signal -
+ * there is nothing local to wait for (firewall/UPnP are already applied by the
+ * caller). Each round queries portTestPeerQueryCount nodes from DISTINCT /16s (and
+ * never our own /16) concurrently:
+ *   - the first peer that reaches us proves reachability -> true;
+ *   - >=2 distinct-subnet peers agreeing it is unreachable -> false;
+ *   - an inconclusive round (peers did not answer) retries with fresh diverse peers,
+ *     bounded by portTestMaxRounds rounds.
+ * Same-network peers are excluded because a local-path connect-back can give a false
+ * pass and same-subnet peers share fate (their votes are not independent). Never
+ * confirmed reachable -> false (fail-closed: do not install an unverifiable port).
+ * @param {object} data - signed port-test request body
+ * @param {string} localSocketAddress - our own socket address (excluded from peers)
+ * @returns {Promise<boolean>}
+ */
+async function arePortsReachableViaPeers(data, localSocketAddress) {
+  const axiosConfig = { timeout: config.fluxapps.portTestPeerTimeoutMs };
+  const peerQueryCount = config.fluxapps.portTestPeerQueryCount;
+  const payload = JSON.stringify(data);
+  let failVotes = 0;
+
+  for (let round = 0; round < config.fluxapps.portTestMaxRounds; round += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const peers = await networkStateService.getRandomSocketAddresses(peerQueryCount, {
+      excludeSocketAddress: localSocketAddress,
+      distinctPrefixes: true,
+    });
+    if (!peers || peers.length === 0) {
+      // no eligible peers this round (tiny / just-booted network state) - retry
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const results = await Promise.all(
+      peers.map((peer) => askPeerPortReachability(peer, payload, axiosConfig)),
+    );
+    if (results.some((r) => r.reachable)) return true;
+    failVotes += results.filter((r) => r.answered && r.reachable === false).length;
+    if (failVotes >= 2) return false;
+    // else inconclusive (peers did not answer) -> next round of fresh diverse peers
+  }
+  return false;
+}
+
 async function checkInstallingAppPortAvailable(portsToTest = []) {
   // No ports to verify -> nothing to probe. A portless app's install must not
   // hinge on reaching a random peer (which can time out and falsely fail it).
@@ -396,9 +507,6 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
   const beforeAppInstallTestingServers = [];
   const isUPNP = upnpService.isUPNP();
   let portsStatus = false;
-  const portsNotWorking = new Set();
-  let originalPortFailed = null;
-  let nextTestingPort = 0;
 
   try {
     const localSocketAddress = await fluxNetworkHelper.getLocalSocketAddress();
@@ -432,9 +540,13 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
     }
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    // Open the firewall + UPnP mapping for every port (sequentially - avoids ufw/UPnP
+    // lock races), then bind a test listener on every port concurrently. allowPort /
+    // mapUpnpPort are awaited (the rule/mapping is live the moment they resolve) and
+    // each bind is confirmed by its 'listening' event, so there is nothing to "settle"
+    // - no blind bind delay, and a multi-port app is no longer bound one port at a time.
     // eslint-disable-next-line no-restricted-syntax
     for (const portToTest of portsToTest) {
-      // now open this port properly and launch listening on it
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
         await fluxNetworkHelper.allowPort(portToTest);
@@ -446,41 +558,14 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
           throw new Error('Failed to create map UPNP port');
         }
       }
-      const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
-
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(config.fluxapps.portTestBindDelayMs);
-
-      beforeAppInstallTestingServers.push(testHttpServer);
-
-      // Tested: This catches EADDRINUSE. Previously, this was crashing the entire app
-      // note - if you kill the port with:
-      //    ss --kill state listening src :<the port>
-      // nodeJS does not raise an error.
-      const listening = new Promise((resolve, reject) => {
-        testHttpServer
-          .once('error', (err) => {
-            testHttpServer.removeAllListeners('listening');
-            reject(err.message);
-          })
-          .once('listening', () => {
-            testHttpServer.removeAllListeners('error');
-            resolve(null);
-          });
-        testHttpServer.listen(portToTest);
-      });
-
-      // eslint-disable-next-line no-await-in-loop
-      const error = await listening.catch((err) => err);
-
-      if (error) throw error;
     }
+    // Bind a throwaway listener on each port concurrently to prove this node can hold
+    // them. Each server is tracked synchronously (see bindPortTestServer) so a sibling
+    // bind failure still tears every one of them down via the catch below.
+    await Promise.all(
+      portsToTest.map((portToTest) => bindPortTestServer(portToTest, beforeAppInstallTestingServers)),
+    );
 
-    await serviceHelper.delay(config.fluxapps.portTestPropagationDelayMs);
-    const timeout = config.fluxapps.portTestPeerTimeoutMs;
-    const axiosConfig = {
-      timeout,
-    };
     const data = {
       ip: localIp,
       port: localPort,
@@ -488,53 +573,9 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       ports: portsToTest,
       pubKey,
     };
-    const stringData = JSON.stringify(data);
-    // eslint-disable-next-line no-await-in-loop
-    const signature = await signCheckAppData(stringData);
+    const signature = await signCheckAppData(JSON.stringify(data));
     data.signature = signature;
-    let i = 0;
-    let finished = false;
-    while (!finished && i < config.fluxapps.portTestMaxAttempts) {
-      i += 1;
-      // eslint-disable-next-line no-await-in-loop
-      const randomSocketAddress = await networkStateService.getRandomSocketAddress(
-        localSocketAddress,
-      );
-
-      // this should never happen as the list should be populated here
-      if (!randomSocketAddress) {
-        throw new Error('Unable to get random test connection');
-      }
-
-      const askingIP = extractIp(randomSocketAddress);
-      const askingIpPort = extractPort(randomSocketAddress);
-
-      // first check against our IP address
-      // eslint-disable-next-line no-await-in-loop
-      const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
-        log.error(`${askingIP} for app availability is not reachable`);
-        log.error(error);
-      });
-      if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-        if (resMyAppAvailability.data.data && resMyAppAvailability.data.data.message && resMyAppAvailability.data.data.message.includes('Failed port: ')) {
-          const portToRetest = serviceHelper.ensureNumber(resMyAppAvailability.data.data.message.split('Failed port: ')[1]);
-          if (portToRetest > 0) {
-            portsNotWorking.add(portToRetest);
-            // if we aren't already testing ports, we set it here, otherwise, just continue
-            if (!originalPortFailed) {
-              originalPortFailed = portToRetest;
-              // eslint-disable-next-line no-unused-vars
-              nextTestingPort = portToRetest < 65535 ? portToRetest + 1 : portToRetest - 1;
-            }
-          }
-        }
-        portsStatus = false;
-        finished = true;
-      } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
-        portsStatus = true;
-        finished = true;
-      }
-    }
+    portsStatus = await arePortsReachableViaPeers(data, localSocketAddress);
     // stop listening on the port, close the port
     // eslint-disable-next-line no-restricted-syntax
     for (const portToTest of portsToTest) {
@@ -706,6 +747,8 @@ module.exports = {
   isPortAvailable,
   findNextAvailablePort,
   signCheckAppData,
+  askPeerPortReachability,
+  arePortsReachableViaPeers,
   checkInstallingAppPortAvailable,
   callOtherNodeToKeepUpnpPortsOpen,
   failedNodesTestPortsCache,

@@ -290,10 +290,9 @@ module.exports = {
     imageComplianceIntervalMs: 3600000,
     forceRemovalIntervalMs: 7200000,
     installCollisionWaitMs: 90000,
-    portTestBindDelayMs: 5000,
-    portTestPropagationDelayMs: 10000,
-    portTestPeerTimeoutMs: 30000,
-    portTestMaxAttempts: 5,
+    portTestPeerTimeoutMs: 5000,
+    portTestPeerQueryCount: 3,
+    portTestMaxRounds: 3,
     spawnReconfirmDelayMs: 7500000,
     nonEnterpriseSpawnDelayMs: 120000,
     manageDependencyOnlyLifecycle: true, // exercise the node-managed dependencyOnly lifecycle in unit tests (production default is false)

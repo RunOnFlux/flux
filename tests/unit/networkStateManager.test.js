@@ -727,4 +727,46 @@ describe('networkStateManager tests', () => {
     await nsm.waitIndexesReady;
     expect(nsm.indexesReady).to.be.true;
   });
+
+  describe('getRandomSocketAddresses', () => {
+    const blockEmitter = new EventEmitter();
+    const options = { stateEvent: 'blocksProcessed', stateEmitter: blockEmitter };
+    const slash16 = (sa) => sa.split(':')[0].split('.').slice(0, 2).join('.');
+
+    let nsm;
+
+    beforeEach(async () => {
+      fetcher.resolves(defaultNetworkState);
+      nsm = new NetworkStateManager(fetcher, options);
+      await nsm.start();
+    });
+
+    it('returns one address per distinct /16 when distinctPrefixes is set', async () => {
+      // defaultNetworkState /16s: 47.199 (x2) and 44.192 (x1) -> 2 distinct
+      const res = await nsm.getRandomSocketAddresses(3, { distinctPrefixes: true });
+      expect(res).to.have.lengthOf(2);
+      expect(new Set(res.map(slash16)).size).to.equal(2);
+    });
+
+    it('excludes the given socketAddress and its entire /16', async () => {
+      const res = await nsm.getRandomSocketAddresses(3, {
+        excludeSocketAddress: '47.199.51.61:16137',
+        distinctPrefixes: true,
+      });
+      expect(res).to.deep.equal(['44.192.51.11:16147']);
+    });
+
+    it('returns at most count addresses', async () => {
+      expect(await nsm.getRandomSocketAddresses(1, { distinctPrefixes: true })).to.have.lengthOf(1);
+    });
+
+    it('returns an empty array for count 0', async () => {
+      expect(await nsm.getRandomSocketAddresses(0)).to.deep.equal([]);
+    });
+
+    it('may include same-/16 addresses when distinctPrefixes is not set', async () => {
+      const res = await nsm.getRandomSocketAddresses(3);
+      expect(res).to.have.lengthOf(3);
+    });
+  });
 });

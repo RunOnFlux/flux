@@ -7,6 +7,8 @@ const upnpService = require('../../ZelBack/src/services/upnpService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const { requireMongo } = require('./dbTestHelper');
+const axios = require('axios');
+const networkStateService = require('../../ZelBack/src/services/networkStateService');
 
 describe('portManager tests', () => {
   before(requireMongo);
@@ -545,6 +547,80 @@ describe('portManager tests', () => {
       expect(await portManager.checkInstallingAppPortAvailable()).to.equal(true);
 
       sinon.assert.notCalled(localSocket);
+    });
+  });
+});
+
+// Pure-logic probe helpers - no mongo, so a separate top-level describe (the block
+// above gates on requireMongo and would otherwise skip these when mongo is absent).
+describe('portManager port-reachability probe', () => {
+  afterEach(() => sinon.restore());
+
+  describe('askPeerPortReachability', () => {
+    it('reports reachable when the peer answers success', async () => {
+      sinon.stub(axios, 'post').resolves({ data: { status: 'success' } });
+      const r = await portManager.askPeerPortReachability('5.5.5.5:16127', '{}', {});
+      expect(r).to.deep.equal({ answered: true, reachable: true });
+    });
+
+    it('reports unreachable + failedPort when the peer answers error', async () => {
+      sinon.stub(axios, 'post').resolves({ data: { status: 'error', data: { message: 'Failed port: 30000' } } });
+      const r = await portManager.askPeerPortReachability('5.5.5.5:16127', '{}', {});
+      expect(r).to.deep.equal({ answered: true, reachable: false, failedPort: 30000 });
+    });
+
+    it('reports not-answered when the peer itself is unreachable', async () => {
+      sinon.stub(axios, 'post').rejects(new Error('ECONNREFUSED'));
+      const r = await portManager.askPeerPortReachability('5.5.5.5:16127', '{}', {});
+      expect(r).to.deep.equal({ answered: false });
+    });
+  });
+
+  describe('arePortsReachableViaPeers', () => {
+    const data = { ip: '9.9.9.9', port: 16127, ports: [30000] };
+
+    it('returns true on the first peer that reaches us (single round)', async () => {
+      const peers = sinon.stub(networkStateService, 'getRandomSocketAddresses').resolves(['1.1.1.1:16127', '2.2.2.2:16127', '3.3.3.3:16127']);
+      sinon.stub(axios, 'post').resolves({ data: { status: 'success' } });
+
+      expect(await portManager.arePortsReachableViaPeers(data, 'me:16127')).to.equal(true);
+      sinon.assert.calledOnce(peers);
+    });
+
+    it('returns false when >=2 distinct peers agree it is unreachable', async () => {
+      sinon.stub(networkStateService, 'getRandomSocketAddresses').resolves(['1.1.1.1:16127', '2.2.2.2:16127', '3.3.3.3:16127']);
+      sinon.stub(axios, 'post').resolves({ data: { status: 'error', data: { message: 'Failed port: 30000' } } });
+
+      expect(await portManager.arePortsReachableViaPeers(data, 'me:16127')).to.equal(false);
+    });
+
+    it('retries a fresh round when a round is inconclusive (no peer answered)', async () => {
+      const peers = sinon.stub(networkStateService, 'getRandomSocketAddresses').resolves(['1.1.1.1:16127', '2.2.2.2:16127', '3.3.3.3:16127']);
+      const post = sinon.stub(axios, 'post');
+      post.onCall(0).rejects(new Error('x'));
+      post.onCall(1).rejects(new Error('x'));
+      post.onCall(2).rejects(new Error('x'));
+      post.resolves({ data: { status: 'success' } });
+
+      expect(await portManager.arePortsReachableViaPeers(data, 'me:16127')).to.equal(true);
+      sinon.assert.calledTwice(peers);
+    });
+
+    it('fails closed after portTestMaxRounds when no peer ever answers', async () => {
+      const peers = sinon.stub(networkStateService, 'getRandomSocketAddresses').resolves(['1.1.1.1:16127', '2.2.2.2:16127', '3.3.3.3:16127']);
+      sinon.stub(axios, 'post').rejects(new Error('unreachable'));
+
+      expect(await portManager.arePortsReachableViaPeers(data, 'me:16127')).to.equal(false);
+      expect(peers.callCount).to.equal(config.fluxapps.portTestMaxRounds);
+    });
+
+    it('retries without crashing when a round yields no eligible peers', async () => {
+      const peers = sinon.stub(networkStateService, 'getRandomSocketAddresses').resolves([]);
+      const post = sinon.stub(axios, 'post');
+
+      expect(await portManager.arePortsReachableViaPeers(data, 'me:16127')).to.equal(false);
+      expect(peers.callCount).to.equal(config.fluxapps.portTestMaxRounds);
+      sinon.assert.notCalled(post);
     });
   });
 });

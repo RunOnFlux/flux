@@ -853,4 +853,31 @@ describe('appSpawner tests', () => {
       expect(filtered).to.have.lengthOf(2); // Bug: nothing filtered
     });
   });
+
+  describe('isSoleRequiredInstaller', () => {
+    beforeEach(() => buildModule());
+
+    it('is true when pinned to exactly as many nodes as required instances', () => {
+      expect(appSpawner.isSoleRequiredInstaller({ nodes: ['1.2.3.4:16127'] }, 1)).to.equal(true);
+      expect(appSpawner.isSoleRequiredInstaller({ nodes: ['a', 'b'] }, 2)).to.equal(true);
+    });
+
+    it('is true when pinned to fewer nodes than required instances', () => {
+      expect(appSpawner.isSoleRequiredInstaller({ nodes: ['1.2.3.4:16127'] }, 3)).to.equal(true);
+    });
+
+    it('is false when pinned to more nodes than required instances (real contention)', () => {
+      expect(appSpawner.isSoleRequiredInstaller({ nodes: ['a', 'b', 'c'] }, 2)).to.equal(false);
+    });
+
+    it('is false for an unpinned app (empty or missing nodes)', () => {
+      expect(appSpawner.isSoleRequiredInstaller({ nodes: [] }, 1)).to.equal(false);
+      expect(appSpawner.isSoleRequiredInstaller({ nodes: null }, 1)).to.equal(false);
+      expect(appSpawner.isSoleRequiredInstaller({}, 1)).to.equal(false);
+    });
+
+    it('is false when the spec is missing', () => {
+      expect(appSpawner.isSoleRequiredInstaller(undefined, 1)).to.equal(false);
+    });
+  });
 });
