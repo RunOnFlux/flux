@@ -1359,6 +1359,35 @@ async function getAllGlobalApplications(proj = []) {
 }
 
 /**
+ * The block height at which an app's registration expires, applying the PON-fork
+ * 4x-speed adjustment for apps registered before the fork that expire after it.
+ * @param {{height: number, expire?: number}} app - app spec (registration height + expire)
+ * @param {number} explorerHeight - current scanned height (for the fork-active check)
+ * @returns {number} the effective expiration height
+ */
+function expirationHeightOf(app, explorerHeight) {
+  // Determine default expire based on whether app was registered after PON fork
+  const defaultExpire = app.height >= config.fluxapps.daemonPONFork
+    ? config.fluxapps.blocksLasting * 4
+    : config.fluxapps.blocksLasting;
+  const expireIn = app.expire || defaultExpire;
+  let actualExpirationHeight = app.height + expireIn;
+
+  // If app was registered before fork block and we are past fork block the chain
+  // moves 4x faster, so adjust the expiration accordingly.
+  if (app.height < config.fluxapps.daemonPONFork && explorerHeight >= config.fluxapps.daemonPONFork) {
+    const originalExpirationHeight = app.height + expireIn;
+    if (originalExpirationHeight > config.fluxapps.daemonPONFork) {
+      const blocksAfterFork = originalExpirationHeight - config.fluxapps.daemonPONFork;
+      const adjustedBlocksAfterFork = blocksAfterFork * 4;
+      actualExpirationHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
+    }
+  }
+
+  return actualExpirationHeight;
+}
+
+/**
  * Remove expired applications from global database and local installations
  * @returns {Promise<void>} Completion status
  */
@@ -1391,28 +1420,8 @@ async function expireGlobalApplications() {
     const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
     const appsToExpire = [];
     results.forEach((appSpecs) => {
-      // Determine default expire based on whether app was registered after PON fork
-      const defaultExpire = appSpecs.height >= config.fluxapps.daemonPONFork
-        ? config.fluxapps.blocksLasting * 4
-        : config.fluxapps.blocksLasting;
-      const expireIn = appSpecs.expire || defaultExpire;
-      let actualExpirationHeight = appSpecs.height + expireIn;
-
-      // If app was registered before fork block and we are past fork block
-      // the chain moves 4x faster, so we need to adjust the expiration
-      if (appSpecs.height < config.fluxapps.daemonPONFork && explorerHeight >= config.fluxapps.daemonPONFork) {
-        const originalExpirationHeight = appSpecs.height + expireIn;
-        if (originalExpirationHeight > config.fluxapps.daemonPONFork) {
-          // Calculate blocks that were supposed to live after fork block
-          const blocksAfterFork = originalExpirationHeight - config.fluxapps.daemonPONFork;
-          // Multiply by 4 to account for 4x faster chain
-          const adjustedBlocksAfterFork = blocksAfterFork * 4;
-          // New expiration = fork block + adjusted blocks
-          actualExpirationHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
-        }
-      }
-
-      if (actualExpirationHeight < explorerHeight) { // registered/updated on height, expires in expireIn is lower than current height
+      // registered/updated on height, expires in expireIn is lower than current height
+      if (expirationHeightOf(appSpecs, explorerHeight) < explorerHeight) {
         appsToExpire.push(appSpecs);
       }
     });
@@ -1445,39 +1454,22 @@ async function expireGlobalApplications() {
     const appsToRemove = [];
     appsInstalled.forEach((app) => {
       if (appNamesToExpire.includes(app.name)) {
-        appsToRemove.push(app);
+        appsToRemove.push({ app, expirationHeight: app.height ? expirationHeightOf(app, explorerHeight) : 0 });
       } else if (!app.height) {
-        appsToRemove.push(app);
+        appsToRemove.push({ app, expirationHeight: 0 });
       } else if (app.height === 0) {
         // do nothing, forever lasting local app
       } else {
-        // Determine default expire based on whether app was registered after PON fork
-        const defaultExpire = app.height >= config.fluxapps.daemonPONFork
-          ? config.fluxapps.blocksLasting * 4
-          : config.fluxapps.blocksLasting;
-        const expireIn = app.expire || defaultExpire;
-        let actualExpirationHeight = app.height + expireIn;
-
-        // If app was registered before fork block and we are past fork block
-        // the chain moves 4x faster, so we need to adjust the expiration
-        if (app.height < config.fluxapps.daemonPONFork && explorerHeight >= config.fluxapps.daemonPONFork) {
-          const originalExpirationHeight = app.height + expireIn;
-          if (originalExpirationHeight > config.fluxapps.daemonPONFork) {
-            // Calculate blocks that were supposed to live after fork block
-            const blocksAfterFork = originalExpirationHeight - config.fluxapps.daemonPONFork;
-            // Multiply by 4 to account for 4x faster chain
-            const adjustedBlocksAfterFork = blocksAfterFork * 4;
-            // New expiration = fork block + adjusted blocks
-            actualExpirationHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
-          }
-        }
-
-        if (actualExpirationHeight < explorerHeight) {
-          appsToRemove.push(app);
+        const expirationHeight = expirationHeightOf(app, explorerHeight);
+        if (expirationHeight < explorerHeight) {
+          appsToRemove.push({ app, expirationHeight });
         }
       }
     });
-    const appsToRemoveNames = appsToRemove.map((app) => app.name);
+    // Remove earliest-expired first - the iteration order is otherwise the DB's,
+    // unrelated to how long each app has actually been expired.
+    appsToRemove.sort((a, b) => a.expirationHeight - b.expirationHeight);
+    const appsToRemoveNames = appsToRemove.map((entry) => entry.app.name);
 
     // remove appsToRemoveNames apps from locally running
     // Use dynamic require to avoid circular dependency
@@ -1491,8 +1483,6 @@ async function expireGlobalApplications() {
       // cancelGraceful=true: drain components that declared a graceful window before
       // removing (force-kill the rest) so a cancelled/expired app can flush. TEMP v8 hack.
       await appUninstaller.removeAppLocally(appName, null, true, false, true, true);
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(1 * 60 * 1000); // wait for 1 min
     }
   } catch (error) {
     log.error(error);
@@ -2167,6 +2157,7 @@ module.exports = {
   registrationInformation,
   getAllGlobalApplications,
   expireGlobalApplications,
+  expirationHeightOf,
   reindexGlobalAppsInformation,
   reindexGlobalAppsLocation,
   rescanGlobalAppsInformation,

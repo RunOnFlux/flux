@@ -962,3 +962,37 @@ describe('registryManager tests', () => {
     });
   });
 });
+
+// Pure expiration math - no mongo, so a separate top-level describe (the block above
+// gates on requireMongo and would otherwise skip these when mongo is absent).
+describe('registryManager expirationHeightOf', () => {
+  const fork = config.fluxapps.daemonPONFork; // 2020000
+  const blocks = config.fluxapps.blocksLasting; // 22000
+
+  it('adds the explicit expire to the registration height for a post-fork app', () => {
+    expect(registryManager.expirationHeightOf({ height: fork + 80000, expire: 8000 }, fork + 180000))
+      .to.equal(fork + 88000);
+  });
+
+  it('uses blocksLasting*4 as the default expire for a post-fork app', () => {
+    expect(registryManager.expirationHeightOf({ height: fork + 80000 }, fork + 180000))
+      .to.equal(fork + 80000 + blocks * 4);
+  });
+
+  it('does not adjust a pre-fork app whose expiration is also before the fork', () => {
+    expect(registryManager.expirationHeightOf({ height: 1000000, expire: 5000 }, fork + 180000))
+      .to.equal(1005000);
+  });
+
+  it('applies the 4x adjustment for a pre-fork app expiring after the fork', () => {
+    // height fork-20000 (< fork), expire 100000 -> original expiry fork+80000 (> fork)
+    // blocksAfterFork = 80000 -> *4 = 320000 -> fork + 320000
+    expect(registryManager.expirationHeightOf({ height: fork - 20000, expire: 100000 }, fork + 180000))
+      .to.equal(fork + 320000);
+  });
+
+  it('does not adjust until the explorer height has reached the fork', () => {
+    expect(registryManager.expirationHeightOf({ height: fork - 20000, expire: 100000 }, fork - 10000))
+      .to.equal(fork + 80000);
+  });
+});
