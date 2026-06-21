@@ -404,6 +404,120 @@ describe('appUninstaller tests', () => {
     });
   });
 
+  describe('dependency cascade gating (predicates)', () => {
+    it('shouldReverseCascade: graceful or cancel cascades, a plain force-kill does not', () => {
+      expect(appUninstaller.shouldReverseCascade(false, false)).to.equal(true); // graceful removal
+      expect(appUninstaller.shouldReverseCascade(false, true)).to.equal(true); // graceful + cancel
+      expect(appUninstaller.shouldReverseCascade(true, true)).to.equal(true); // cancel/expiry (the fix)
+      expect(appUninstaller.shouldReverseCascade(true, false)).to.equal(false); // plain force-kill
+    });
+
+    it('shouldSweepUnrequiredDependencies: workloads always, a dependency only when the reverse cascade ran, never a component', () => {
+      const dep = 'collector. dependencyOnly=true';
+      const workload = 'a normal workload';
+      // a component never carries the marker
+      expect(appUninstaller.shouldSweepUnrequiredDependencies(true, dep, false, false)).to.equal(false);
+      // a workload removal always sweeps (any force/cancel combo)
+      expect(appUninstaller.shouldSweepUnrequiredDependencies(false, workload, true, false)).to.equal(true);
+      expect(appUninstaller.shouldSweepUnrequiredDependencies(false, workload, false, false)).to.equal(true);
+      // a dependencyOnly app sweeps siblings only when the reverse cascade ran
+      expect(appUninstaller.shouldSweepUnrequiredDependencies(false, dep, false, false)).to.equal(true); // graceful
+      expect(appUninstaller.shouldSweepUnrequiredDependencies(false, dep, true, true)).to.equal(true); // cancel (the fix)
+      expect(appUninstaller.shouldSweepUnrequiredDependencies(false, dep, true, false)).to.equal(false); // plain force-kill of a collector
+    });
+  });
+
+  describe('reverse cascade wiring on cancel vs force', () => {
+    // Build appUninstaller with a controllable appNetworkLinker so we can assert
+    // whether the reverse cascade actually runs (findInstalledWorkloadsRequiring is
+    // the first action inside removeRequiringWorkloadsFirst) for a given
+    // (force, cancelGraceful). The target app is presented as dependencyOnly.
+    function buildUninstaller(lifecycleFlag = true) {
+      const cfg = { ...configStub, fluxapps: { manageDependencyOnlyLifecycle: lifecycleFlag } };
+      const appNetworkLinkerStub = {
+        parseDependencyOnly: sinon.stub().returns(true),
+        findInstalledWorkloadsRequiring: sinon.stub().resolves([]),
+        findUnrequiredInstalledDependencies: sinon.stub().resolves([]),
+        getLinkedApps: sinon.stub().returns([]),
+      };
+      const collectorSpec = {
+        version: 2,
+        name: 'colla',
+        description: 'collA collector. dependencyOnly=true',
+        repotag: 'traefik/whoami',
+        owner: '1ownerAddressForTestingPurposesXYZ',
+        ports: [],
+        containerPorts: [],
+        domains: [''],
+        cpu: 0.1,
+        ram: 100,
+        hdd: 1,
+      };
+      const dbHelperStub = {
+        databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+        findOneInDatabase: sinon.stub().resolves(collectorSpec),
+        findInDatabase: sinon.stub().resolves([]),
+        removeDocumentFromDatabase: sinon.stub().resolves(),
+        updateOneInDatabase: sinon.stub().resolves(),
+      };
+      const mod = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        config: cfg,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../serviceHelper': { ensureString: sinon.stub().returnsArg(0), ensureBoolean: sinon.stub().returnsArg(0), delay: sinon.stub().resolves() },
+        '../dbHelper': dbHelperStub,
+        './appNetworkLinker': appNetworkLinkerStub,
+        '../dockerService': {
+          appDockerStop: sinon.stub().resolves(),
+          appDockerKill: sinon.stub().resolves(),
+          appDockerStopGracefulOrKill: sinon.stub().resolves(),
+          appDockerRemove: sinon.stub().resolves(),
+          appDockerImageRemove: sinon.stub().resolves(),
+          getAppIdentifier: sinon.stub().returns('colla'),
+          getBaseAppName: sinon.stub().returnsArg(0),
+        },
+        '../../lib/log': logStub,
+        '../utils/globalState': { removalInProgress: false, installationInProgress: false },
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: cfg }),
+        './advancedWorkflows': { reindexGlobalAppsInformation: sinon.stub().resolves(), updateAppSpecsForRestoredNode: sinon.stub().resolves(), checkAndNotifyPeersOfRunningApps: sinon.stub().resolves() },
+        '../upnpService': { removeMapUpnpPort: sinon.stub().resolves(), isUPNP: sinon.stub().returns(false) },
+        '../fluxNetworkHelper': { closeConnection: sinon.stub().resolves(), isFirewallActive: sinon.stub().resolves(false), allowPort: sinon.stub().resolves(true), deleteAllowPortRule: sinon.stub().resolves() },
+        '../fluxCommunicationMessagesSender': { broadcastMessageToOutgoing: sinon.stub().resolves(), broadcastMessageToIncoming: sinon.stub().resolves() },
+        '../appDatabase/registryManager': { availableApps: sinon.stub().resolves([]) },
+        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: sinon.stub().returnsArg(0) },
+        '../utils/appSpecHelpers': { specificationFormatter: sinon.stub().returnsArg(0) },
+        '../appManagement/appInspector': { stopAppMonitoring: sinon.stub().resolves() },
+      });
+      return { mod, appNetworkLinkerStub };
+    }
+
+    const mkRes = () => ({ write: sinon.stub(), end: sinon.stub() });
+
+    it('fires the reverse cascade when a dependency is cancelled (force=true, cancelGraceful=true)', async () => {
+      const { mod, appNetworkLinkerStub } = buildUninstaller();
+      await mod.removeAppLocally('colla', mkRes(), true, false, true, true);
+      expect(appNetworkLinkerStub.findInstalledWorkloadsRequiring.calledWith('colla')).to.equal(true);
+    });
+
+    it('skips the reverse cascade on a plain force-kill (force=true, cancelGraceful=false)', async () => {
+      const { mod, appNetworkLinkerStub } = buildUninstaller();
+      await mod.removeAppLocally('colla', mkRes(), true, false, true, false);
+      expect(appNetworkLinkerStub.findInstalledWorkloadsRequiring.called).to.equal(false);
+    });
+
+    it('still fires the reverse cascade on a graceful (force=false) removal', async () => {
+      const { mod, appNetworkLinkerStub } = buildUninstaller();
+      await mod.removeAppLocally('colla', mkRes(), false, false, true);
+      expect(appNetworkLinkerStub.findInstalledWorkloadsRequiring.calledWith('colla')).to.equal(true);
+    });
+
+    it('does not fire the reverse cascade when the lifecycle flag is off', async () => {
+      const { mod, appNetworkLinkerStub } = buildUninstaller(false);
+      await mod.removeAppLocally('colla', mkRes(), true, false, true, true);
+      expect(appNetworkLinkerStub.findInstalledWorkloadsRequiring.called).to.equal(false);
+    });
+  });
+
   describe('component-removed seam (controller-state cleanup)', () => {
     // Contract: when a component is removed locally, ALL its node-local controller
     // state dies with it - the durable runtime state (appsRuntimeState.remove,

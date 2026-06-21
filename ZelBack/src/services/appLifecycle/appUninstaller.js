@@ -869,6 +869,40 @@ async function removeRequiringWorkloadsFirst(appName) {
 }
 
 /**
+ * Whether a removal should run the reverse dependency cascade (uninstall the
+ * workloads that require a dependencyOnly app before the dependency itself).
+ * Fires on a graceful removal (force=false) and on a cancel/expiry, where the
+ * expiry sweep sets cancelGraceful=true even though force=true. A plain
+ * force-kill (force=true, cancelGraceful=false) does not cascade.
+ *
+ * @param {boolean} force
+ * @param {boolean} cancelGraceful
+ * @returns {boolean}
+ */
+function shouldReverseCascade(force, cancelGraceful) {
+  return !force || cancelGraceful;
+}
+
+/**
+ * Whether a whole-app removal warrants a forward-cascade sweep of now-unrequired
+ * dependencyOnly apps. A workload removal stops requiring its deps; a removal that
+ * ran the reverse cascade removed workloads that may have required sibling deps.
+ * Components never carry the dependency marker, so they are skipped.
+ *
+ * @param {boolean} isComponent
+ * @param {string} description - app-level description (carries the dependencyOnly marker)
+ * @param {boolean} force
+ * @param {boolean} cancelGraceful
+ * @returns {boolean}
+ */
+function shouldSweepUnrequiredDependencies(isComponent, description, force, cancelGraceful) {
+  if (isComponent) {
+    return false;
+  }
+  return !appNetworkLinker.parseDependencyOnly(description) || shouldReverseCascade(force, cancelGraceful);
+}
+
+/**
  * Remove application completely from local node
  * @param {string} app - Application name
  * @param {object} res - Response object for streaming
@@ -917,11 +951,12 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       }
     }
 
-    // Reverse dependency cascade: before tearing down a dependencyOnly app (a
-    // stats collector), gracefully uninstall any installed workload that still
-    // requires it - a consumer must never outlive its dependency. Run before the
-    // lock below so each workload removal can acquire it. Gated off in production.
-    if (!force && config.fluxapps.manageDependencyOnlyLifecycle) {
+    // Reverse dependency cascade: before tearing down a dependencyOnly app,
+    // gracefully uninstall any installed workload that still requires it - a
+    // consumer must never outlive its dependency (see shouldReverseCascade for when
+    // this fires). Run before the lock below so each nested workload removal can
+    // acquire it. Gated off in production.
+    if (shouldReverseCascade(force, cancelGraceful) && config.fluxapps.manageDependencyOnlyLifecycle) {
       await removeRequiringWorkloadsFirst(app);
     }
 
@@ -1164,11 +1199,13 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     }
 
     // Removing a workload may orphan a dependencyOnly app (stats collector) that
-    // linked to it. Defer to after this removal's lock clears (the finally below),
-    // and never chain off a collector's own removal. Deferred direct call, not an
-    // event subscription - the event bus is test-observability only. Gated off in
-    // production: flux console removes the dependencies when the node empties.
-    if (config.fluxapps.manageDependencyOnlyLifecycle && !isComponent && !appNetworkLinker.parseDependencyOnly(appSpecifications.description)) {
+    // linked to it; likewise, cancelling a dependencyOnly app reverse-cascades its
+    // workloads above, which can orphan its sibling collectors. Sweep orphans after
+    // this removal's lock clears (the finally below) - see shouldSweepUnrequiredDependencies.
+    // Deferred direct call, not an event subscription - the event bus is
+    // test-observability only. Gated off in production.
+    if (config.fluxapps.manageDependencyOnlyLifecycle
+      && shouldSweepUnrequiredDependencies(isComponent, appSpecifications.description, force, cancelGraceful)) {
       setImmediate(() => {
         removeUnrequiredDependencies().catch((error) => log.error(`Dependency cleanup trigger failed: ${error.message}`));
       });
@@ -1400,6 +1437,9 @@ module.exports = {
   cleanupPorts,
   removeAppLocally,
   removeUnrequiredDependencies,
+  removeRequiringWorkloadsFirst,
+  shouldReverseCascade,
+  shouldSweepUnrequiredDependencies,
   softRemoveAppLocally,
   removeAppLocallyApi,
   setOnComponentRemoved,
