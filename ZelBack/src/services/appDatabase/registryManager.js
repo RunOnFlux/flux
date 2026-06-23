@@ -25,6 +25,37 @@ const {
 
 let reindexRunning = false;
 
+// Control-plane hook fired after an app spec is committed to
+// globalAppsInformation. Wired by serviceManager to the spawner so a spec this
+// node must install can wake the spawn loop immediately instead of waiting for
+// the next poll. Distinct from the fluxEventBus 'app:specStored' event beside
+// each call site, which is test-observability only (a no-op in production).
+let onSpecStored = null;
+
+/**
+ * Register the spec-stored control hook. Single-slot (last wins), matching the
+ * setOn* idiom used by appInstaller/appReconciler/appUninstaller.
+ * @param {(spec: object) => void} callback
+ */
+function setOnSpecStored(callback) {
+  onSpecStored = callback;
+}
+
+/**
+ * Fire the spec-stored hook with the full committed spec. Best-effort and
+ * synchronous; a throwing hook is logged and swallowed so it can never break
+ * the spec-store path.
+ * @param {object} spec - the app spec just written to globalAppsInformation
+ */
+function emitSpecStored(spec) {
+  if (!onSpecStored) return;
+  try {
+    onSpecStored(spec);
+  } catch (error) {
+    log.error(`emitSpecStored callback error: ${error.message}`);
+  }
+}
+
 /**
  * Get all app hashes from the blockchain
  * @param {object} _req - Request object (unused)
@@ -1160,10 +1191,12 @@ async function updateAppSpecsForRescanReindex(appSpecs) {
     if (appInfo.height < appSpecs.height) {
       await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
       fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
+      emitSpecStored(appSpecs);
     }
   } else {
     await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, options);
     fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
+    emitSpecStored(appSpecs);
   }
   return true;
 }
@@ -1181,6 +1214,7 @@ async function storeAppSpecificationInPermanentStorage(appSpec) {
     await dbHelper.insertOneToDatabase(database, globalAppsInformation, appSpec);
 
     fluxEventBus.publish('app:specStored', { name: appSpec.name, hash: appSpec.hash });
+    emitSpecStored(appSpec);
     log.info(`App specification stored permanently for ${appSpec.name}`);
     return { status: 'success', message: 'App specification stored' };
   } catch (error) {
@@ -1502,6 +1536,7 @@ async function insertAppSpecifications(appSpecs) {
     if (existing && existing.height >= appSpecs.height) return true;
     await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, { upsert: true });
     fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
+    emitSpecStored(appSpecs);
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
     return true;
@@ -1521,6 +1556,7 @@ async function updateAppSpecifications(appSpecs) {
     if (!appInfo || appInfo.height >= appSpecs.height) return true;
     await dbHelper.replaceOneInDatabase(database, globalAppsInformation, query, appSpecs, { upsert: false });
     fluxEventBus.publish('app:specStored', { name: appSpecs.name, hash: appSpecs.hash });
+    emitSpecStored(appSpecs);
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, { name: appSpecs.name });
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsBroadcasts, { 'data.name': appSpecs.name });
     return true;
@@ -2121,6 +2157,7 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
 }
 
 module.exports = {
+  setOnSpecStored,
   getAppHashes,
   getPreviousAppSpecifications,
   appLocation,

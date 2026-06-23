@@ -996,3 +996,95 @@ describe('registryManager expirationHeightOf', () => {
       .to.equal(fork + 80000);
   });
 });
+
+// Spec-stored control hook - dbHelper is stubbed so no mongo is needed; kept as a
+// separate top-level describe outside the requireMongo gate.
+describe('registryManager setOnSpecStored', () => {
+  const spec = {
+    name: 'edingoa', owner: 'eOwner', nodes: ['1.2.3.4:16127'], instances: 1, hash: 'h1', height: 200,
+  };
+
+  beforeEach(() => {
+    sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+    sinon.stub(dbHelper, 'replaceOneInDatabase').resolves();
+    sinon.stub(dbHelper, 'insertOneToDatabase').resolves();
+    sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves();
+  });
+
+  afterEach(() => {
+    registryManager.setOnSpecStored(null);
+    sinon.restore();
+  });
+
+  it('invokes the hook with the committed spec on updateAppSpecifications', async () => {
+    sinon.stub(dbHelper, 'findOneInDatabase').resolves({ height: 100 }); // lower -> update proceeds
+    const hook = sinon.stub();
+    registryManager.setOnSpecStored(hook);
+
+    const result = await registryManager.updateAppSpecifications(spec);
+
+    expect(result).to.equal(true);
+    expect(hook.calledOnceWithExactly(spec)).to.equal(true);
+  });
+
+  it('invokes the hook with the committed spec on insertAppSpecifications', async () => {
+    sinon.stub(dbHelper, 'findOneInDatabase').resolves(null); // no existing -> insert proceeds
+    const hook = sinon.stub();
+    registryManager.setOnSpecStored(hook);
+
+    const result = await registryManager.insertAppSpecifications(spec);
+
+    expect(result).to.equal(true);
+    expect(hook.calledOnceWithExactly(spec)).to.equal(true);
+  });
+
+  it('invokes the hook on updateAppSpecsForRescanReindex when the spec is (re)stored', async () => {
+    sinon.stub(dbHelper, 'findOneInDatabase').resolves(null); // no existing -> stores
+    const hook = sinon.stub();
+    registryManager.setOnSpecStored(hook);
+
+    const result = await registryManager.updateAppSpecsForRescanReindex(spec);
+
+    expect(result).to.equal(true);
+    expect(hook.calledOnceWithExactly(spec)).to.equal(true);
+  });
+
+  it('invokes the hook on storeAppSpecificationInPermanentStorage', async () => {
+    const hook = sinon.stub();
+    registryManager.setOnSpecStored(hook);
+
+    const result = await registryManager.storeAppSpecificationInPermanentStorage(spec);
+
+    expect(result.status).to.equal('success');
+    expect(hook.calledOnceWithExactly(spec)).to.equal(true);
+  });
+
+  it('does NOT invoke the hook when the update is skipped (height not higher)', async () => {
+    sinon.stub(dbHelper, 'findOneInDatabase').resolves({ height: 999 }); // higher -> skipped
+    const hook = sinon.stub();
+    registryManager.setOnSpecStored(hook);
+
+    const result = await registryManager.updateAppSpecifications(spec);
+
+    expect(result).to.equal(true);
+    expect(hook.called).to.equal(false);
+  });
+
+  it('swallows a throwing hook so the store path still succeeds', async () => {
+    sinon.stub(dbHelper, 'findOneInDatabase').resolves({ height: 100 });
+    registryManager.setOnSpecStored(() => { throw new Error('hook boom'); });
+
+    const result = await registryManager.updateAppSpecifications(spec);
+
+    expect(result).to.equal(true); // emitSpecStored caught the throw, store path unaffected
+  });
+
+  it('is a no-op when no hook is registered', async () => {
+    sinon.stub(dbHelper, 'findOneInDatabase').resolves({ height: 100 });
+    registryManager.setOnSpecStored(null);
+
+    const result = await registryManager.updateAppSpecifications(spec);
+
+    expect(result).to.equal(true);
+  });
+});

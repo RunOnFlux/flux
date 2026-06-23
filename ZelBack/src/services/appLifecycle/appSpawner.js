@@ -36,6 +36,16 @@ const nonEnterpriseSpawnDelayMs = config.fluxapps.nonEnterpriseSpawnDelayMs ?? 2
 
 let spawnLoopRunning = false;
 
+// Last node socket address resolved by a spawn cycle. Cached at module scope
+// so notifySpecStored - which runs outside a spawn cycle, from the spec-store
+// path - can do the pinned-to-this-node check without re-querying benchmark.
+let lastKnownLocalSocketAddr = null;
+
+// One-shot resolver for the inter-cycle idle delay. Set only while the loop is
+// parked in that delay; calling it ends the delay early. Null at every other
+// time, so a wake outside the idle window is a harmless no-op.
+let idleWakeResolve = null;
+
 /**
  * A node-pinned app whose pin set is no larger than its required instance count has
  * no installation contention: every pinned node is a mandatory installer, so the
@@ -75,7 +85,18 @@ async function spawnLoop() {
   try {
     while (!globalState.spawnerPaused) {
       const delayMs = await trySpawningGlobalApplication();
-      if (delayMs > 0) await serviceHelper.delay(delayMs);
+      // Race the inter-cycle delay against a one-shot wake so an app spec this
+      // node must install, landing mid-delay, is picked up now instead of on
+      // the next poll tick. serviceHelper.delay still runs every idle iteration;
+      // the wake stays pending (inert) unless notifySpecStored fires.
+      if (delayMs > 0) {
+        const wake = new Promise((resolve) => { idleWakeResolve = resolve; });
+        try {
+          await Promise.race([serviceHelper.delay(delayMs), wake]);
+        } finally {
+          idleWakeResolve = null;
+        }
+      }
     }
   } finally {
     spawnLoopRunning = false;
@@ -158,6 +179,7 @@ async function trySpawningGlobalApplication() {
     if (localSocketAddr === null) {
       throw new Error('Unable to detect Flux IP address');
     }
+    lastKnownLocalSocketAddr = localSocketAddr;
 
     const runningApps = await appQueryService.listRunningApps();
     if (runningApps.status !== 'success') {
@@ -898,8 +920,59 @@ async function trySpawningGlobalApplication() {
   }
 }
 
+/**
+ * Wake the spawn loop if it is currently parked in its inter-cycle idle delay.
+ * No-op when the loop is mid-cycle (no pending delay) or paused.
+ */
+function wakeIdleLoop() {
+  if (idleWakeResolve) {
+    const resolve = idleWakeResolve;
+    idleWakeResolve = null;
+    resolve();
+  }
+}
+
+/**
+ * React to a freshly-stored global app spec by waking the spawn loop early -
+ * but ONLY for the contention-free enterprise case where this node is a
+ * mandatory installer, so reacting instantly cannot cause an install race:
+ *   1. this is an enterprise node,
+ *   2. the app is enterprise-owned,
+ *   3. its pin set is no larger than its required instances
+ *      (isSoleRequiredInstaller - no overshoot, so no install race), and
+ *   4. it is pinned to THIS node.
+ * Every other spec is left to the normal poll cadence; public/global apps keep
+ * their deliberate collision-avoidance latency untouched. Fully synchronous and
+ * best-effort: it only ever ends an idle wait early, never installs directly,
+ * and never throws into the caller (the spec-store path).
+ * @param {object} spec - full app spec just written to globalAppsInformation
+ */
+function notifySpecStored(spec) {
+  try {
+    if (!spec || globalState.spawnerPaused) return;
+    // 1. enterprise node only (null = identity not yet resolved -> skip)
+    if (enterpriseNetwork.getCachedEnterpriseIdentity() !== true) return;
+    // 2. enterprise-owned app only
+    if (!enterpriseNetwork.isEnterpriseAppOwner(spec.owner)) return;
+    // 3. contention-free: pinned, with pin set <= required instances. The
+    //    instances default mirrors the globalAppsInformation aggregation's
+    //    `$ifNull: ['$instances', 3]` used to derive required.
+    if (!isSoleRequiredInstaller(spec, spec.instances ?? 3)) return;
+    // 4. pinned to THIS node. lastKnownLocalSocketAddr is null until the first
+    //    spawn cycle resolves this node's address; until then the match yields
+    //    false and the spec simply rides the normal poll cadence.
+    const { nodes } = spec;
+    if (!Array.isArray(nodes) || !nodes.some((ip) => socketAddressesMatch(ip, lastKnownLocalSocketAddr))) return;
+    log.info(`notifySpecStored - ${spec.name} is pinned to this node and contention-free; waking spawn loop`);
+    wakeIdleLoop();
+  } catch (error) {
+    log.error(`notifySpecStored - ${error.message}`);
+  }
+}
+
 module.exports = {
   initialize,
   trySpawningGlobalApplication,
   isSoleRequiredInstaller,
+  notifySpecStored,
 };

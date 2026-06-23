@@ -10,6 +10,7 @@ describe('appSpawner tests', () => {
   let aggregateStub;
   let delayStub;
   let daemonSyncStub;
+  let enterpriseNetworkStub;
 
   function createConfigStub(overrides = {}) {
     return {
@@ -58,6 +59,12 @@ describe('appSpawner tests', () => {
     daemonSyncStub = sinon.stub().returns({
       data: { height: opts.daemonHeight || 2555563, synced: true },
     });
+    enterpriseNetworkStub = {
+      getCachedEnterpriseIdentity: sinon.stub().returns(opts.getCachedEnterpriseIdentity === undefined ? false : opts.getCachedEnterpriseIdentity),
+      getSpawnDelays: sinon.stub().returns({ shortDelayTime: 60000, delayTime: 60000 }),
+      filterAppsByOwnership: sinon.stub().callsFake((apps) => apps),
+      isEnterpriseAppOwner: opts.isEnterpriseAppOwner || sinon.stub().returns(false),
+    };
 
     appSpawner = proxyquire('../../ZelBack/src/services/appLifecycle/appSpawner', {
       config: configStub,
@@ -140,12 +147,7 @@ describe('appSpawner tests', () => {
         globalAppsInformation: 'appsInformation',
         localAppsInformation: 'localAppsInformation',
       },
-      '../utils/enterpriseNetwork': {
-        getCachedEnterpriseIdentity: sinon.stub().returns(false),
-        getSpawnDelays: sinon.stub().returns({ shortDelayTime: 60000, delayTime: 60000 }),
-        filterAppsByOwnership: sinon.stub().callsFake((apps) => apps),
-        isEnterpriseAppOwner: opts.isEnterpriseAppOwner || sinon.stub().returns(false),
-      },
+      '../utils/enterpriseNetwork': enterpriseNetworkStub,
       '../utils/cacheManager': {
         FluxCacheManager: { oneHour: 3600000 },
       },
@@ -878,6 +880,192 @@ describe('appSpawner tests', () => {
 
     it('is false when the spec is missing', () => {
       expect(appSpawner.isSoleRequiredInstaller(undefined, 1)).to.equal(false);
+    });
+  });
+
+  describe('notifySpecStored - spec-stored wake gate', () => {
+    const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
+    // normalized form of the harness benchmark IP (192.168.1.1 -> :16127)
+    const MY_ADDR = '192.168.1.1:16127';
+
+    afterEach(() => {
+      appSyncEvents.removeAllListeners();
+    });
+
+    function waitUntil(predicate, timeoutMs = 2000) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('waitUntil timed out')), timeoutMs);
+        const check = () => {
+          if (predicate()) { clearTimeout(timer); resolve(); } else { setTimeout(check, 5); }
+        };
+        check();
+      });
+    }
+
+    function loopExits(n = 1) {
+      return waitUntil(() => logStub.info.getCalls().filter(
+        (c) => c.args[0] === 'Spawn loop exited (paused)',
+      ).length >= n);
+    }
+
+    // Run one spawn cycle so the module caches this node's socket address
+    // (notifySpecStored's pin-match reads that cache).
+    async function primeNodeAddr() {
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+    }
+
+    function woke() {
+      return logStub.info.getCalls().some(
+        (c) => typeof c.args[0] === 'string' && c.args[0].includes('waking spawn loop'),
+      );
+    }
+
+    const passingSpec = (overrides = {}) => ({
+      name: 'edingoa', owner: 'enterpriseOwnerX', nodes: [MY_ADDR], instances: 1, ...overrides,
+    });
+
+    it('wakes for an enterprise-owned app pinned to this node with pins <= instances', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      await primeNodeAddr();
+      appSpawner.notifySpecStored(passingSpec());
+      expect(woke()).to.equal(true);
+    });
+
+    it('wakes when pinned to fewer nodes than required instances', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      await primeNodeAddr();
+      appSpawner.notifySpecStored(passingSpec({ instances: 3 }));
+      expect(woke()).to.equal(true);
+    });
+
+    it('wakes when pinned to exactly as many nodes as required instances (mandatory installer, no contention)', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      await primeNodeAddr();
+      // 2 pins, 2 instances -> every pinned node must install, no overshoot
+      appSpawner.notifySpecStored(passingSpec({ nodes: [MY_ADDR, '10.0.0.1:16127'], instances: 2 }));
+      expect(woke()).to.equal(true);
+    });
+
+    it('wakes when instances is omitted (defaults to 3, mirroring the spawner aggregation)', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      await primeNodeAddr();
+      appSpawner.notifySpecStored(passingSpec({ instances: undefined }));
+      expect(woke()).to.equal(true);
+    });
+
+    it('does NOT wake when instances is 0 (no overshoot headroom)', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      await primeNodeAddr();
+      appSpawner.notifySpecStored(passingSpec({ instances: 0 }));
+      expect(woke()).to.equal(false);
+    });
+
+    it('does NOT wake before the first spawn cycle (node address not yet resolved)', () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      // no primeNodeAddr() -> lastKnownLocalSocketAddr is still null
+      appSpawner.notifySpecStored(passingSpec());
+      expect(woke()).to.equal(false);
+    });
+
+    it('does NOT wake on a non-enterprise node', async () => {
+      buildModule({ getCachedEnterpriseIdentity: false, isEnterpriseAppOwner: () => true });
+      await primeNodeAddr();
+      appSpawner.notifySpecStored(passingSpec());
+      expect(woke()).to.equal(false);
+    });
+
+    it('does NOT wake while enterprise identity is unresolved (null)', async () => {
+      buildModule({ getCachedEnterpriseIdentity: null, isEnterpriseAppOwner: () => true });
+      await primeNodeAddr();
+      appSpawner.notifySpecStored(passingSpec());
+      expect(woke()).to.equal(false);
+    });
+
+    it('does NOT wake for a non-enterprise-owned app', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => false });
+      await primeNodeAddr();
+      appSpawner.notifySpecStored(passingSpec());
+      expect(woke()).to.equal(false);
+    });
+
+    it('does NOT wake when pinned to a different node', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      await primeNodeAddr();
+      appSpawner.notifySpecStored(passingSpec({ nodes: ['10.0.0.99:16127'] }));
+      expect(woke()).to.equal(false);
+    });
+
+    it('does NOT wake when pinned to more nodes than required instances (contention)', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      await primeNodeAddr();
+      appSpawner.notifySpecStored(passingSpec({ nodes: [MY_ADDR, '10.0.0.1:16127', '10.0.0.2:16127'], instances: 2 }));
+      expect(woke()).to.equal(false);
+    });
+
+    it('does NOT wake for an unpinned (general global) app', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      await primeNodeAddr();
+      appSpawner.notifySpecStored(passingSpec({ nodes: [] }));
+      expect(woke()).to.equal(false);
+    });
+
+    it('does NOT wake when the spawner is paused', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      await primeNodeAddr();
+      globalStateStub.spawnerPaused = true;
+      appSpawner.notifySpecStored(passingSpec());
+      expect(woke()).to.equal(false);
+    });
+
+    it('does not throw on a missing/empty spec', () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      expect(() => appSpawner.notifySpecStored(undefined)).to.not.throw();
+      expect(() => appSpawner.notifySpecStored(null)).to.not.throw();
+      expect(woke()).to.equal(false);
+    });
+
+    it('ends the idle delay early and re-scans when a pinned spec is stored', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true, aggregateResult: [] });
+      delayStub.resetBehavior();
+      let delayCalls = 0;
+      delayStub.callsFake(() => {
+        delayCalls += 1;
+        // 1st idle wait parks until woken; 2nd ends the loop so the test finishes
+        if (delayCalls >= 2) { globalStateStub.spawnerPaused = true; return Promise.resolve(); }
+        return new Promise(() => {});
+      });
+
+      appSpawner.initialize();
+      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+      await waitUntil(() => aggregateStub.callCount === 1 && delayCalls === 1);
+
+      // Causality guard: the first delay never resolves on its own, so the loop
+      // is parked at exactly one scan. Only the wake can advance it - if it
+      // didn't, this test would time out in loopExits rather than false-pass.
+      expect(aggregateStub.callCount).to.equal(1);
+      appSpawner.notifySpecStored(passingSpec());
+      await loopExits(1);
+
+      expect(aggregateStub.callCount).to.equal(2);
+    });
+
+    it('leaves the idle cadence intact when no relevant spec is stored', async () => {
+      // regression: the wake is inert; serviceHelper.delay still drives the loop
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true, aggregateResult: [] });
+      delayStub.resetBehavior();
+      let delayCalls = 0;
+      delayStub.callsFake(() => {
+        delayCalls += 1;
+        globalStateStub.spawnerPaused = true;
+        return Promise.resolve();
+      });
+
+      appSpawner.initialize();
+      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+      await loopExits(1);
+
+      expect(delayCalls).to.equal(1);
+      expect(aggregateStub.callCount).to.equal(1);
     });
   });
 });
