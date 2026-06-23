@@ -32,6 +32,7 @@ const globalState = require('../utils/globalState');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { findCommonArchitectures } = require('../utils/appUtilities');
+const { withHostMutationLock } = require('../utils/hostMutationLock');
 const log = require('../../lib/log');
 const { localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
 const messageVerifier = require('../appMessaging/messageVerifier');
@@ -116,7 +117,8 @@ async function performDockerCleanup(res) {
     res.write(serviceHelper.ensureString(dockerImages));
     if (res.flush) res.flush();
   }
-  await dockerService.pruneImages();
+  // serialize the system-wide image prune against concurrent teardown image-removes / pulls
+  await withHostMutationLock(() => dockerService.pruneImages());
   const dockerImages2 = {
     status: 'Docker images cleaned.',
   };
@@ -151,7 +153,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
+        const portResponse = await withHostMutationLock(() => fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port)));
         if (portResponse.status === true) {
           const portStatus = {
             status: `Port ${port} OK`,
@@ -174,7 +176,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
       // eslint-disable-next-line no-restricted-syntax
       for (const port of appSpecifications.ports) {
         // eslint-disable-next-line no-await-in-loop
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
+        const portResponse = await withHostMutationLock(() => upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`));
         if (portResponse === true) {
           const portStatus = {
             status: `Port ${port} mapped OK`,
@@ -193,7 +195,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
     // v1 compatibility
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
-      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
+      const portResponse = await withHostMutationLock(() => fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port)));
       if (portResponse.status === true) {
         const portStatus = {
           status: `Port ${appSpecifications.port} OK`,
@@ -212,7 +214,7 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
     const isUPNP = upnpService.isUPNP();
     if (isUPNP) {
       log.info('Custom port specified, mapping ports');
-      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
+      const portResponse = await withHostMutationLock(() => upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`));
       if (portResponse === true) {
         const portStatus = {
           status: `Port ${appSpecifications.port} mapped OK`,

@@ -31,36 +31,14 @@ const appsFolder = `${appsFolderPath}/`;
 const cmdAsync = util.promisify(nodecmd.run);
 const crontabLoad = util.promisify(systemcrontab.load);
 
-const { AsyncLock } = require('../utils/asyncLock');
-
-// Node-wide serial lock guarding the genuinely cross-app-unsafe host mutations performed
-// during app teardown: ufw rule deletes + UPnP DeletePortMapping (cleanupPorts), the shared
-// host crontab rewrite (cleanupCrontab), and the content-addressed docker image store
-// (appDockerImageRemove) — the single host firewall, IGD client, crontab file and image
-// store that two concurrent removals must not race. The per-app filesystem ops inside the
-// same wrap (unmountVolume, cleanupAppData, cleanupVolumePath) are concurrency-safe on their
-// own and are merely along for the ride. Deliberately NOT covered: (1) the graceful drain
-// (appDockerStopGracefulOrKill, window up to 3900s) — kept OUTSIDE so one app's drain can
-// never head-of-line-block every other removal's cleanup; (2) the docker network removal
-// (per-app fluxDockerNetwork_<name>, daemon-serialized, so cross-app-safe).
-// SCOPE: this serializes the removal teardown path only. The same ufw/UPnP/image resources
-// are also mutated by portManager prelaunch, availabilityChecker, and imageUpdateService,
-// which do NOT yet take this lock — tracked follow-up: promote to a shared host-mutation lock.
-// Invariant: acquire only via withHostTeardownLock (one enable() paired with exactly one
-// disable() in its finally). Regions are sequential, NEVER nested, and the lock is never
-// held across a graceful drain or a hardUninstall*/softUninstall* return. maxConcurrent=1 is
-// load-bearing: AsyncLock.disable() resolves the HEAD of the queue, correct ONLY while
-// acquisition is strictly serial (single holder) — raising it would corrupt serialization.
-const hostTeardownLock = new AsyncLock(1);
-
-async function withHostTeardownLock(fn) {
-  await hostTeardownLock.enable();
-  try {
-    return await fn();
-  } finally {
-    hostTeardownLock.disable();
-  }
-}
+// Serialize the cross-app-unsafe host mutations (ufw/UPnP, the image store, the host crontab)
+// performed during teardown — the graceful drain stays OUTSIDE the wrap. This is the SAME
+// node-wide lock the install port-open, prelaunch probe, availability self-test and watchtower
+// prune take, so a teardown can never race them on the shared firewall/IGD/image store. The
+// per-app fs ops inside the wrap (unmountVolume, cleanupAppData, cleanupVolumePath) are
+// concurrency-safe on their own and are merely along for the ride. See hostMutationLock.js for
+// the invariant (leaf-only, never across a wait, never nested).
+const { withHostMutationLock } = require('../utils/hostMutationLock');
 
 // Fired once per component identifier after a successful local removal, beside
 // the durable runtime-state clear (mirrors appInstaller.setOnInstallComplete).
@@ -381,7 +359,7 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
 
   // Serialize the shared host mutations (ufw/UPnP, umount, crontab, image store) under
   // hostTeardownLock. The graceful drain already ran above, OUTSIDE the lock.
-  await withHostTeardownLock(async () => {
+  await withHostMutationLock(async () => {
     // Cleanup ports
     // eslint-disable-next-line no-use-before-define
     await cleanupPorts(componentSpecifications, appName, res, `component ${componentName}`);
@@ -543,7 +521,7 @@ async function hardUninstallApplication(appName, appId, appSpecifications, res, 
 
   // Serialize the shared host mutations (ufw/UPnP, umount, crontab, image store) under
   // hostTeardownLock. The graceful drain already ran above, OUTSIDE the lock.
-  await withHostTeardownLock(async () => {
+  await withHostMutationLock(async () => {
     // Cleanup ports
     // eslint-disable-next-line no-use-before-define
     await cleanupPorts(appSpecifications, appName, res, appName);
@@ -710,7 +688,7 @@ async function softUninstallComponent(appName, appId, componentSpecifications, r
   // Serialize the shared host mutations (image store, ufw/UPnP) under hostTeardownLock.
   // The soft path uses a plain appDockerStop (no graceful drain), so there is no long
   // wait to keep outside the lock here.
-  await withHostTeardownLock(async () => {
+  await withHostMutationLock(async () => {
     // Remove image
     log.info(`Removing Flux App component ${componentName} image...`);
     if (res) {
@@ -802,7 +780,7 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
   // Serialize the shared host mutations (image store, ufw/UPnP) under hostTeardownLock.
   // The soft path uses a plain appDockerStop (no graceful drain), so there is no long
   // wait to keep outside the lock here.
-  await withHostTeardownLock(async () => {
+  await withHostMutationLock(async () => {
     log.info(`Removing Flux App ${appName} image...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `Removing Flux App ${appName} image...` }));

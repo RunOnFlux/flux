@@ -12,6 +12,7 @@ const dockerService = require('./dockerService');
 const appQueryService = require('./appQuery/appQueryService');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const registryCredentialHelper = require('./utils/registryCredentialHelper');
+const { withHostMutationLock } = require('./utils/hostMutationLock');
 const { ImageVerifier } = require('./utils/imageVerifier');
 const serviceHelper = require('./serviceHelper');
 const globalState = require('./utils/globalState');
@@ -89,7 +90,7 @@ async function removeWatchtowerContainer() {
         (img) => img.RepoTags && img.RepoTags.some((tag) => tag.startsWith('containrrr/watchtower')),
       );
       if (watchtowerImage) {
-        await dockerService.appDockerImageRemove(watchtowerImage.Id);
+        await withHostMutationLock(() => dockerService.appDockerImageRemove(watchtowerImage.Id));
         log.info('containrrr/watchtower image removed');
       }
     } catch (imageError) {

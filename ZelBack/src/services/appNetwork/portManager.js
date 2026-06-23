@@ -11,6 +11,7 @@ const serviceHelper = require('../serviceHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
+const { withHostMutationLock } = require('../utils/hostMutationLock');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
 
 // Global cache for failed nodes
@@ -549,11 +550,11 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     for (const portToTest of portsToTest) {
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.allowPort(portToTest);
+        await withHostMutationLock(() => fluxNetworkHelper.allowPort(portToTest));
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        const upnpMapResult = await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
+        const upnpMapResult = await withHostMutationLock(() => upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`));
         if (!upnpMapResult) {
           throw new Error('Failed to create map UPNP port');
         }
@@ -581,11 +582,11 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     for (const portToTest of portsToTest) {
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.deleteAllowPortRule(portToTest);
+        await withHostMutationLock(() => fluxNetworkHelper.deleteAllowPortRule(portToTest));
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
+        await withHostMutationLock(() => upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`));
       }
     }
     // Close all test servers and wait for them to finish
@@ -608,11 +609,11 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     for (const portToTest of portsToTest) {
       if (firewallActive) {
         // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.deleteAllowPortRule(portToTest).catch((e) => log.error(e));
+        await withHostMutationLock(() => fluxNetworkHelper.deleteAllowPortRule(portToTest).catch((e) => log.error(e)));
       }
       if (isUPNP) {
         // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`).catch((e) => log.error(e));
+        await withHostMutationLock(() => upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`).catch((e) => log.error(e)));
       }
     }
     // Close all test servers and wait for them to finish
