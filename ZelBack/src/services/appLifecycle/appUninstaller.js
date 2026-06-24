@@ -1267,7 +1267,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     // owed cleanup is never lost.
     const components = buildTeardownComponents(appSpecifications, isComponent, appComponent, appName);
 
-    await pendingTeardownStore.writeTeardown({
+    const teardownPersisted = await pendingTeardownStore.writeTeardown({
       key: app,
       name: appName,
       networkName: appName,
@@ -1279,6 +1279,16 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         identifier: c.identifier, appId: c.appId, componentName: c.componentName, label: c.label, ports: c.ports, repotag: c.repotag,
       })),
     });
+    if (!teardownPersisted) {
+      // The durable doc is the SOLE record of owed cleanup once the local row is gone.
+      // If it could not be persisted, abort BEFORE condemning + deleting the row: a crash
+      // during the about-to-start teardown would otherwise leak the app's
+      // volume/ufw/UPnP/image/network with no doc for boot recovery to heal. Nothing
+      // destructive has run yet, so the app stays installed + uncondemned for a clean retry
+      // (the every-8-block expiry sweep re-fires a cancel; a redeploy's awaited remove
+      // rejects and rolls back). Throw so the outer catch logs + the finally releases the gate.
+      throw new Error(`Aborting removal of ${appName}: could not persist the durable teardown record`);
+    }
 
     // eslint-disable-next-line no-restricted-syntax
     for (const descriptor of components) {

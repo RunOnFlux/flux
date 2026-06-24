@@ -31,8 +31,12 @@ function collection() {
 }
 
 /**
- * Upsert the owed-teardown doc for one removal.
+ * Upsert the owed-teardown doc for one removal. Returns whether it was PERSISTED:
+ * this doc becomes the SOLE record of owed cleanup once the local row is deleted, so
+ * the removal prelude must NOT proceed to delete the row if this returns false (it
+ * would leak every host resource with no record for boot recovery to heal).
  * @param {object} doc - { key, name, networkName, isComponent, createdAt, attempts, components: [...] }
+ * @returns {Promise<boolean>} true if the doc was written, false on a DB failure
  */
 async function writeTeardown(doc) {
   try {
@@ -44,8 +48,10 @@ async function writeTeardown(doc) {
       { $set: doc },
       { upsert: true },
     );
+    return true;
   } catch (err) {
     log.error(`pendingTeardownStore - failed to write teardown ${doc && doc.key}: ${err.message}`);
+    return false;
   }
 }
 

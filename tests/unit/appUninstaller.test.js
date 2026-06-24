@@ -498,7 +498,7 @@ describe('appUninstaller tests', () => {
         '../utils/appSpecHelpers': { specificationFormatter: sinon.stub().returnsArg(0) },
         '../appManagement/appInspector': { stopAppMonitoring: sinon.stub().resolves() },
         './pendingTeardownStore': {
-          writeTeardown: sinon.stub().resolves(),
+          writeTeardown: sinon.stub().resolves(true),
           clearTeardown: sinon.stub().resolves(),
           bumpAttempts: sinon.stub().resolves(),
           readAllTeardowns: sinon.stub().resolves([]),
@@ -628,7 +628,7 @@ describe('appUninstaller tests', () => {
         },
         '../appManagement/appsRuntimeState': runtimeStateStub,
         './pendingTeardownStore': {
-          writeTeardown: sinon.stub().resolves(),
+          writeTeardown: sinon.stub().resolves(true),
           clearTeardown: sinon.stub().resolves(),
           bumpAttempts: sinon.stub().resolves(),
           readAllTeardowns: sinon.stub().resolves([]),
@@ -768,7 +768,7 @@ describe('appUninstaller tests', () => {
         isCondemned: sinon.stub().resolves(false),
       };
       pendingStoreStub = {
-        writeTeardown: sinon.stub().resolves(),
+        writeTeardown: sinon.stub().resolves(true),
         clearTeardown: sinon.stub().resolves(),
         bumpAttempts: sinon.stub().resolves(),
         readAllTeardowns: sinon.stub().resolves([]),
@@ -918,6 +918,16 @@ describe('appUninstaller tests', () => {
       const uninstaller = buildUninstaller();
       runtimeStateStub.remove.resolves(false); // remove swallowed a DB error — stamp may survive
       await uninstaller.removeAppLocally('redapp', null, true);
+      expect(pendingStoreStub.clearTeardown.called).to.equal(false);
+    });
+
+    it('ABORTS the removal (no condemn, no row delete) if the durable doc cannot be persisted', async () => {
+      const uninstaller = buildUninstaller();
+      pendingStoreStub.writeTeardown.resolves(false); // DB failed to persist the SOLE recovery record
+      await uninstaller.removeAppLocally('redapp', null, true);
+      // nothing destructive ran: the app stays installed + uncondemned for a clean retry
+      expect(runtimeStateStub.setCondemned.calledWith('redapp', true)).to.equal(false);
+      expect(dbHelperStub.findOneAndDeleteInDatabase.called).to.equal(false);
       expect(pendingStoreStub.clearTeardown.called).to.equal(false);
     });
 
