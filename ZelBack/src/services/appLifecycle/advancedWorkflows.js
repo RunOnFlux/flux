@@ -1104,6 +1104,9 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
       res.end();
     }
     globalState.installationInProgress = false;
+    // Signal success so a redeploy caller can reconcile its port delta only when the
+    // reinstall actually completed (returning here is the ONLY true-returning path).
+    return true;
   } catch (error) {
     globalState.installationInProgress = false;
     const errorResponse = messageHelper.createErrorMessage(
@@ -1125,7 +1128,12 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
     }
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
-    appUninstaller.removeAppLocally(appSpecs.name, res, true);
+    // Await the failure cleanup so the new spec's ports are closed before a redeploy
+    // caller decides what to do with the old ports (was fire-and-forget, which let the
+    // cleanup's close race a reconcile's open). Return non-true so the caller does NOT
+    // reconcile (open) ports for an app whose reinstall just failed.
+    await appUninstaller.removeAppLocally(appSpecs.name, res, true);
+    return false;
   }
 }
 
@@ -1320,6 +1328,8 @@ async function softRedeploy(appSpecs, res) {
   // fails (the skipPorts soft teardown closed nothing - see the failure handler below).
   let portsToOpen = [];
   let portsToClose = [];
+  // Full old port set (see hardRedeploy): closed if the reinstall does not complete.
+  let oldPortsFull = [];
   let skipPorts = false;
   try {
     if (globalState.removalInProgress) {
@@ -1403,6 +1413,7 @@ async function softRedeploy(appSpecs, res) {
         const oldSpec = resolveInstalledAppForStructureComparison(appSpecs, installedApp, 'softRedeploy');
         if (oldSpec) {
           ({ toOpen: portsToOpen, toClose: portsToClose } = specDiff.portDelta(oldSpec, appSpecs));
+          oldPortsFull = [...specDiff.appPortSet(oldSpec)];
           skipPorts = true;
         }
       } catch (error) {
@@ -1429,12 +1440,30 @@ async function softRedeploy(appSpecs, res) {
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
     // register (skipPorts: the reinstall does not open ports - we reconcile the delta below)
-    await softRegisterAppLocally(appSpecs, undefined, res, { skipPorts });
-    if (skipPorts) {
-      // res was already ended by softRegisterAppLocally on success; reconcile with res=null.
-      await reconcileRedeployPorts(appSpecs.name, portsToClose, portsToOpen, null);
+    // Only reconcile (open the added ports) when the reinstall actually succeeded;
+    // softRegisterAppLocally now returns true on success and a non-true status otherwise
+    // (it never throws - it cleans up internally), so a failed reinstall must not leave
+    // freshly-opened ports for an app that is gone (see hardRedeploy for the same logic).
+    const installed = await softRegisterAppLocally(appSpecs, undefined, res, { skipPorts });
+    if (installed === true) {
+      if (skipPorts) {
+        // res was already ended by softRegisterAppLocally on success; reconcile with res=null.
+        await reconcileRedeployPorts(appSpecs.name, portsToClose, portsToOpen, null);
+      }
+      log.info('Application softly redeployed');
+    } else {
+      // The reinstall did not complete: close the full old port set so nothing leaks
+      // (skipPorts=false redeploys already full-flapped, leaving oldPortsFull empty) -
+      // but ONLY if the app is confirmed gone, never stripping a row a concurrent
+      // same-name install may have re-adopted.
+      log.warn(`softRedeploy: reinstall of ${appSpecs.name} did not complete (status: ${installed}); closing old ports`);
+      if (skipPorts && oldPortsFull.length && await localAppRowConfirmedAbsent(appSpecs.name)) {
+        // eslint-disable-next-line global-require
+        const appUninstaller = require('./appUninstaller');
+        await withHostMutationLock(() => appUninstaller.cleanupPorts({ ports: oldPortsFull }, appSpecs.name, null, appSpecs.name))
+          .catch((portErr) => log.error(`softRedeploy: closing old ports after incomplete reinstall failed: ${portErr.message}`));
+      }
     }
-    log.info('Application softly redeployed');
     globalState.softRedeployInProgress = false;
   } catch (error) {
     log.info('Error on softRedeploy');
@@ -1452,6 +1481,29 @@ async function softRedeploy(appSpecs, res) {
         .catch((portErr) => log.error(`softRedeploy failure cleanup: closing removed ports failed: ${portErr.message}`));
     }
     log.info(`Cleanup completed for ${appSpecs.name} after soft redeploy failure`);
+  }
+}
+
+/**
+ * Whether the app's local DB row is confirmed ABSENT - the precondition for closing
+ * its leftover ports after an incomplete redeploy reinstall. A normal redeploy deleted
+ * the row in its teardown, so an incomplete reinstall leaves the app gone and we close
+ * its old ports. But if a row EXISTS again (a concurrent same-name install re-adopted
+ * the app in the teardown->reinstall delay window), closing would strip a LIVE app's
+ * ufw/UPnP rules - so this returns false on a present row OR a read error, leaving the
+ * ports to that install. Only a confirmed-gone app gets the full-old close.
+ * @param {string} appName
+ * @returns {Promise<boolean>}
+ */
+async function localAppRowConfirmedAbsent(appName) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const row = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, { name: appName }, { projection: { _id: 0, name: 1 } });
+    return !row;
+  } catch (error) {
+    log.error(`redeploy: could not read local row for ${appName}; leaving its ports as-is: ${error.message}`);
+    return false;
   }
 }
 
@@ -1494,6 +1546,11 @@ async function hardRedeploy(appSpecs, res) {
   // fails (the skipPorts teardown closed nothing - see the failure handler below).
   let portsToOpen = [];
   let portsToClose = [];
+  // The app's full old port set, captured alongside the delta. If the reinstall does
+  // NOT complete (registerAppLocally returns a non-true status rather than throwing -
+  // e.g. 'deferred' on a concurrent same-name cancel, or false), the skipPorts teardown
+  // left ALL old ports open and the app is now gone, so we close the whole set.
+  let oldPortsFull = [];
   let skipPorts = false;
   try {
     if (globalState.removalInProgress) {
@@ -1552,6 +1609,7 @@ async function hardRedeploy(appSpecs, res) {
         const oldSpec = resolveInstalledAppForStructureComparison(appSpecs, installedApp, 'hardRedeploy');
         if (oldSpec) {
           ({ toOpen: portsToOpen, toClose: portsToClose } = specDiff.portDelta(oldSpec, appSpecs));
+          oldPortsFull = [...specDiff.appPortSet(oldSpec)];
           skipPorts = true;
         }
       } catch (error) {
@@ -1572,13 +1630,30 @@ async function hardRedeploy(appSpecs, res) {
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
     // register (skipPorts: the reinstall does not open ports - we reconcile the delta below)
-    await appInstaller.registerAppLocally(appSpecs, undefined, res, false, true, { skipPorts }); // can throw
-    if (skipPorts) {
-      // res was already ended by registerAppLocally on success; reconcile with res=null so
-      // the port-status writes don't hit an ended response (ERR_STREAM_WRITE_AFTER_END).
-      await reconcileRedeployPorts(appSpecs.name, portsToClose, portsToOpen, null);
+    // registerAppLocally returns true on success, or a non-true status ('deferred' on a
+    // transient gate, false on a real failure it already cleaned up) WITHOUT throwing - so
+    // capture it: only reconcile (which OPENS the added ports) when the reinstall actually
+    // succeeded, else the open would orphan ufw/UPnP rules for an app that is no longer here.
+    const installed = await appInstaller.registerAppLocally(appSpecs, undefined, res, false, true, { skipPorts }); // can throw
+    if (installed === true) {
+      if (skipPorts) {
+        // res was already ended by registerAppLocally on success; reconcile with res=null so
+        // the port-status writes don't hit an ended response (ERR_STREAM_WRITE_AFTER_END).
+        await reconcileRedeployPorts(appSpecs.name, portsToClose, portsToOpen, null);
+      }
+      log.info('Application redeployed');
+    } else {
+      // The reinstall did not complete. The skipPorts teardown left the OLD ports open and
+      // the app is gone, so close the full old set (idempotent: any new-spec ports a failed
+      // install already cleaned up are simply closed again). v1-7/undecryptable redeploys run
+      // skipPorts=false (full flap already closed the old ports) so oldPortsFull stays empty.
+      // Gated on a confirmed-absent row so a concurrent same-name reinstall is never stripped.
+      log.warn(`hardRedeploy: reinstall of ${appSpecs.name} did not complete (status: ${installed}); closing old ports`);
+      if (skipPorts && oldPortsFull.length && await localAppRowConfirmedAbsent(appSpecs.name)) {
+        await withHostMutationLock(() => appUninstaller.cleanupPorts({ ports: oldPortsFull }, appSpecs.name, null, appSpecs.name))
+          .catch((portErr) => log.error(`hardRedeploy: closing old ports after incomplete reinstall failed: ${portErr.message}`));
+      }
     }
-    log.info('Application redeployed');
     globalState.hardRedeployInProgress = false;
   } catch (error) {
     log.error(error);

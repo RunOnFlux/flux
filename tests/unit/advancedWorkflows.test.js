@@ -1495,6 +1495,184 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  describe('redeploy port reconcile-on-register-success (C3) tests', () => {
+    let globalState;
+    let appUninstaller;
+    let appInstaller;
+    let serviceHelper;
+    let res;
+
+    // Same component count + names so no escalation to hard; ports differ so a delta exists.
+    // old ports {31000, 31001}; new ports {31001, 31002}; delta toOpen [31002], toClose [31000].
+    const installedApp = {
+      name: 'TestApp',
+      version: 8,
+      compose: [{ name: 'c1', repotag: 'repo/c1:1.0', ports: [31000, 31001] }],
+    };
+    const newAppSpecs = {
+      name: 'TestApp',
+      version: 8,
+      compose: [{ name: 'c1', repotag: 'repo/c1:2.0', ports: [31001, 31002] }],
+    };
+
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.removalInProgressReset();
+      globalState.installationInProgress = false;
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      // getInstalledAppsFromDb (delta lookup) reads via findInDatabase
+      sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
+      // localAppRowConfirmedAbsent reads via findOneInDatabase; default: row absent
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+
+      // eslint-disable-next-line global-require
+      appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appUninstaller, 'cleanupPorts').resolves(); // observe port CLOSES
+
+      // eslint-disable-next-line global-require
+      appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      sinon.stub(appInstaller, 'setupApplicationPorts').resolves(); // observe port OPENS (reconcile)
+
+      // eslint-disable-next-line global-require
+      serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(serviceHelper, 'delay').resolves();
+
+      res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('hardRedeploy reconciles the port DELTA when the reinstall SUCCEEDS (true)', async () => {
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(true);
+
+      await advancedWorkflows.hardRedeploy(newAppSpecs, res);
+
+      // opened only the added ports (new-old)
+      expect(appInstaller.setupApplicationPorts.calledOnce).to.be.true;
+      expect(appInstaller.setupApplicationPorts.firstCall.args[0].ports).to.deep.equal([31002]);
+      // closed only the removed ports (old-new) via reconcile - NOT the full old set
+      expect(appUninstaller.cleanupPorts.calledOnce).to.be.true;
+      expect(appUninstaller.cleanupPorts.firstCall.args[0].ports).to.deep.equal([31000]);
+      expect(globalState.hardRedeployInProgress).to.be.false;
+    });
+
+    it('hardRedeploy does NOT open ports and closes the FULL old set when the reinstall DEFERS', async () => {
+      sinon.stub(appInstaller, 'registerAppLocally').resolves('deferred');
+
+      await advancedWorkflows.hardRedeploy(newAppSpecs, res);
+
+      // no open for an app that is gone
+      expect(appInstaller.setupApplicationPorts.called).to.be.false;
+      // closed the full old set (row confirmed absent)
+      expect(appUninstaller.cleanupPorts.calledOnce).to.be.true;
+      expect(appUninstaller.cleanupPorts.firstCall.args[0].ports).to.deep.equal([31000, 31001]);
+      expect(globalState.hardRedeployInProgress).to.be.false;
+    });
+
+    it('hardRedeploy does NOT open ports and closes the FULL old set when the reinstall FAILS (false)', async () => {
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(false);
+
+      await advancedWorkflows.hardRedeploy(newAppSpecs, res);
+
+      expect(appInstaller.setupApplicationPorts.called).to.be.false;
+      expect(appUninstaller.cleanupPorts.calledOnce).to.be.true;
+      expect(appUninstaller.cleanupPorts.firstCall.args[0].ports).to.deep.equal([31000, 31001]);
+    });
+
+    it('hardRedeploy does NOT strip ports when a local row still exists (concurrent reinstall re-adopted the app)', async () => {
+      sinon.stub(appInstaller, 'registerAppLocally').resolves('deferred');
+      dbHelper.findOneInDatabase.resolves({ name: 'TestApp' }); // row PRESENT -> not confirmed-absent
+
+      await advancedWorkflows.hardRedeploy(newAppSpecs, res);
+
+      expect(appInstaller.setupApplicationPorts.called).to.be.false;
+      // skipped: closing would strip a live app's ports
+      expect(appUninstaller.cleanupPorts.called).to.be.false;
+    });
+  });
+
+  describe('softRegisterAppLocally return contract (C3) tests', () => {
+    let globalState;
+
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.removalInProgressReset();
+      globalState.installationInProgress = false;
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('returns true on a successful soft reinstall', async () => {
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null); // not already installed
+      sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'x' });
+
+      // eslint-disable-next-line global-require
+      const generalService = require('../../ZelBack/src/services/generalService');
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      // eslint-disable-next-line global-require
+      const appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appNetworkLinker, 'reconnectLinkedApps').resolves();
+      // eslint-disable-next-line global-require
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+      sinon.stub(dockerService, 'createFluxAppDockerNetwork').resolves({ id: 'net' });
+      sinon.stub(dockerService, 'getFluxDockerNetworkPhysicalInterfaceNames').resolves(['br-x']);
+      // eslint-disable-next-line global-require
+      const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+      sinon.stub(fluxNetworkHelper, 'removeDockerContainerAccessToNonRoutable').resolves(true);
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+      const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', repotag: 'repo/c1:1.0', ports: [31000] }] };
+
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
+      expect(result).to.equal(true);
+    });
+
+    it('returns false AND awaits the cleanup removeAppLocally on a reinstall failure', async () => {
+      // databaseConnection returns a stub whose db() has no collection() -> findOneInDatabase
+      // throws inside the try, driving softRegisterAppLocally into its catch.
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      // eslint-disable-next-line global-require
+      const generalService = require('../../ZelBack/src/services/generalService');
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      const removeStub = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+      const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', repotag: 'repo/c1:1.0', ports: [31000] }] };
+
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
+      expect(result).to.equal(false);
+      // the failure cleanup is now AWAITED (was fire-and-forget), so it has run by return
+      expect(removeStub.calledOnce).to.be.true;
+    });
+
+    it('returns a non-true status (does not reconcile) when a removal of any app is in progress', async () => {
+      globalState.markRemovalInProgress('SomeOtherApp');
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+      const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', ports: [31000] }] };
+
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, {});
+      expect(result).to.not.equal(true);
+    });
+  });
+
   // Note: verifyAppUpdateParameters, createAppVolume,
   // getPeerAppsInstallingErrorMessages, and stopSyncthingApp are
   // complex integration functions or HTTP request handlers that require extensive
