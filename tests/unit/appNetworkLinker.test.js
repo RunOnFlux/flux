@@ -12,6 +12,7 @@ describe('appNetworkLinker tests', () => {
   let dockerServiceStub;
   let registryManagerStub;
   let logStub;
+  let hostMutationLockStub;
 
   const configStub = {
     database: {
@@ -42,6 +43,10 @@ describe('appNetworkLinker tests', () => {
       getApplicationSpecifications: sinon.stub(),
     };
     logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
+    // spy that calls through, so we can assert the cross-app attach is serialized
+    // under the node-wide host-mutation lock (it races the linked app's Phase-B
+    // network removal, which holds the same lock)
+    hostMutationLockStub = { withHostMutationLock: sinon.stub().callsFake((fn) => fn()) };
 
     appNetworkLinker = proxyquire('../../ZelBack/src/services/appLifecycle/appNetworkLinker', {
       config: configStub,
@@ -49,6 +54,7 @@ describe('appNetworkLinker tests', () => {
       '../dockerService': dockerServiceStub,
       '../appDatabase/registryManager': registryManagerStub,
       '../../lib/log': logStub,
+      '../utils/hostMutationLock': hostMutationLockStub,
       '../utils/appConstants': appConstantsStub,
     });
   });
@@ -183,6 +189,13 @@ describe('appNetworkLinker tests', () => {
       await appNetworkLinker.connectComponentToLinkedApps('fluxweb_appB', { name: 'appB', description: 'networkWith:[appA,appC]' });
       sinon.assert.calledWith(dockerServiceStub.appDockerNetworkConnect, 'fluxweb_appB', 'fluxDockerNetwork_appA');
       sinon.assert.calledWith(dockerServiceStub.appDockerNetworkConnect, 'fluxweb_appB', 'fluxDockerNetwork_appC');
+    });
+
+    it('serializes each cross-app attach under the host-mutation lock (vs the linked app Phase-B network removal)', async () => {
+      await appNetworkLinker.connectComponentToLinkedApps('fluxweb_appB', { name: 'appB', description: 'networkWith:[appA,appC]' });
+      // one lock acquisition per attach, and the connect runs INSIDE the lock fn
+      sinon.assert.calledTwice(hostMutationLockStub.withHostMutationLock);
+      sinon.assert.callOrder(hostMutationLockStub.withHostMutationLock, dockerServiceStub.appDockerNetworkConnect);
     });
 
     it('propagates a connection failure so the install is rolled back', async () => {

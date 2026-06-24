@@ -504,8 +504,13 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       }
       let fluxNet = null;
       for (let i = 0; i <= 20; i += 1) {
+        // Take the same host-mutation lock that Phase-B removeAppDockerNetwork holds:
+        // create and removal both touch the one fluxDockerNetwork_<app> host resource, so
+        // they must not run concurrently (a stale same-name removal must not delete a
+        // freshly-created network, nor vice versa). Leaf/per-attempt - a single bounded
+        // docker create, no unbounded wait; neither call site is reached holding the lock.
         // eslint-disable-next-line no-await-in-loop
-        fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+        fluxNet = await withHostMutationLock(() => dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue)).catch((error) => log.error(error));
         if (fluxNet || appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
           break;
         }

@@ -35,6 +35,7 @@ const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
+const { withHostMutationLock } = require('../utils/hostMutationLock');
 const appNetworkLinker = require('./appNetworkLinker');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -958,8 +959,11 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       }
       let fluxNet = null;
       for (let i = 0; i <= 20; i += 1) {
+        // Same host-mutation lock as Phase-B removeAppDockerNetwork: create + removal
+        // both touch the one fluxDockerNetwork_<app> host resource, so serialize them
+        // (a stale same-name removal must not delete a freshly-created network).
         // eslint-disable-next-line no-await-in-loop
-        fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+        fluxNet = await withHostMutationLock(() => dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue)).catch((error) => log.error(error));
         if (fluxNet || appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
           break;
         }
