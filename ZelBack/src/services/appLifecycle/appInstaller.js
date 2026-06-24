@@ -12,6 +12,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
+const pendingTeardownStore = require('./pendingTeardownStore');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const { storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
@@ -405,6 +406,26 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       log.error(rStatus);
       if (res) {
         res.write(rStatus);
+        res.end();
+      }
+      return false;
+    }
+
+    // Install-side interlock (cancel-vs-install): refuse to start while a teardown
+    // of this name is still owed (its pendingAppTeardowns doc has not cleared). A
+    // forced cancel runs background=true, so it deletes the local row + clears
+    // removalInProgress in its prelude while the drain + Phase B host teardown
+    // (umount, rm -rf the volume, ufw/UPnP, network) keep running detached - the
+    // "already installed" check above misses it because the row is already gone.
+    // Without this gate a re-registration of the same name would create a fresh
+    // volume that the still-running teardown then rm -rf's. Bail; the spawner
+    // retries on its next cycle, by which time the teardown has cleared the doc.
+    if (await pendingTeardownStore.teardownOwedFor(appName)) {
+      globalState.installationInProgress = false;
+      const rStatus = messageHelper.createWarningMessage(`Flux App ${appName} is still being torn down; deferring installation until teardown completes.`);
+      log.warn(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
       return false;

@@ -92,12 +92,36 @@ async function readAllTeardowns() {
 }
 
 /**
- * Ensure the unique index on `key` (called at boot, beside the other prepares).
+ * Whether a teardown is still owed for an app NAME (a whole-app doc keyed by the
+ * name, or a component doc keyed by component_app but carrying name=appName). The
+ * install-side interlock uses this to refuse starting an install while a teardown
+ * of the same name is still draining (the cancel-vs-install race). A read failure
+ * returns false (fail-open) - an install must not be blocked by a transient DB
+ * blip; the narrow race that re-opens is the same one the per-app gate closes.
+ *
+ * @param {string} name - bare app name
+ * @returns {Promise<boolean>}
+ */
+async function teardownOwedFor(name) {
+  try {
+    const database = collection();
+    const doc = await dbHelper.findOneInDatabase(database, pendingAppTeardowns, { name }, { projection: { _id: 0, key: 1 } });
+    return Boolean(doc);
+  } catch (err) {
+    log.error(`pendingTeardownStore - failed to check owed teardown for ${name}: ${err.message}`);
+    return false;
+  }
+}
+
+/**
+ * Ensure the unique indexes (called at boot, beside the other prepares): one on
+ * `key` (one doc per teardown target) and one on `name` (fast install-side lookup).
  */
 async function prepareCollection() {
   try {
     const database = collection();
     await database.collection(pendingAppTeardowns).createIndex({ key: 1 }, { unique: true, name: 'key_unique' });
+    await database.collection(pendingAppTeardowns).createIndex({ name: 1 }, { name: 'name_lookup' });
   } catch (err) {
     log.error(`pendingTeardownStore - failed to prepare collection: ${err.message}`);
   }
@@ -108,5 +132,6 @@ module.exports = {
   clearTeardown,
   bumpAttempts,
   readAllTeardowns,
+  teardownOwedFor,
   prepareCollection,
 };
