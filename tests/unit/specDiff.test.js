@@ -61,4 +61,34 @@ describe('specDiff tests', () => {
       expect(toClose).to.have.members([30000]);
     });
   });
+
+  describe('specsDiffer', () => {
+    it('is false when only the non-runtime fields differ (re-registration with no real change)', () => {
+      const a = { name: 'x', repotag: 'r', ports: [1], description: 'old', expire: 8000, hash: 'h1', height: 1, instances: 3, owner: 'o' };
+      const b = { name: 'x', repotag: 'r', ports: [1], description: 'new', expire: 4, hash: 'h2', height: 2, instances: 5, owner: 'o' };
+      expect(specDiff.specsDiffer(a, b)).to.equal(false);
+    });
+
+    it('is true when a runtime field changes (repotag/ports/cpu/...)', () => {
+      const base = { name: 'x', repotag: 'r', ports: [1] };
+      expect(specDiff.specsDiffer(base, { ...base, repotag: 'r2' })).to.equal(true);
+      expect(specDiff.specsDiffer(base, { ...base, ports: [2] })).to.equal(true);
+      expect(specDiff.specsDiffer(base, { ...base, cpu: 2 })).to.equal(true);
+    });
+
+    it('does not mutate its inputs', () => {
+      const a = { name: 'x', owner: 'o', repotag: 'r' };
+      const b = { name: 'x', owner: 'p', repotag: 'r' };
+      specDiff.specsDiffer(a, b);
+      expect(a.owner).to.equal('o');
+      expect(b.owner).to.equal('p');
+    });
+  });
+
+  describe('volumeSpecChanged', () => {
+    it('is true iff hdd differs', () => {
+      expect(specDiff.volumeSpecChanged({ hdd: 5 }, { hdd: 5 })).to.equal(false);
+      expect(specDiff.volumeSpecChanged({ hdd: 5 }, { hdd: 10 })).to.equal(true);
+    });
+  });
 });

@@ -3165,24 +3165,8 @@ async function reinstallOldApplications() {
             continue;
           }
 
-          // check if the app spec was changed
-          const auxAppSpecifications = JSON.parse(JSON.stringify(appSpecifications));
-          const auxInstalledApp = JSON.parse(JSON.stringify(installedApp));
-          delete auxAppSpecifications.description;
-          delete auxAppSpecifications.expire;
-          delete auxAppSpecifications.hash;
-          delete auxAppSpecifications.height;
-          delete auxAppSpecifications.instances;
-          delete auxAppSpecifications.owner;
-
-          delete auxInstalledApp.description;
-          delete auxInstalledApp.expire;
-          delete auxInstalledApp.hash;
-          delete auxInstalledApp.height;
-          delete auxInstalledApp.instances;
-          delete auxInstalledApp.owner;
-
-          if (JSON.stringify(auxAppSpecifications) === JSON.stringify(auxInstalledApp)) {
+          // check if the app spec was changed (mask out non-runtime fields - see specDiff)
+          if (!specDiff.specsDiffer(installedApp, appSpecifications)) {
             log.info(`Application ${installedApp.name} was updated without any change on the specifications, updating localAppsInformation db information.`);
             // connect to mongodb
             const dbopen = dbHelper.databaseConnection();
@@ -3323,7 +3307,7 @@ async function reinstallOldApplications() {
             // eslint-disable-next-line global-require
             const appInstaller = require('./appInstaller');
 
-            if (appSpecifications.hdd === installedApp.hdd) {
+            if (!specDiff.volumeSpecChanged(installedApp, appSpecifications)) {
               log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
               // soft redeployment
               // eslint-disable-next-line no-await-in-loop
@@ -3424,7 +3408,7 @@ async function reinstallOldApplications() {
 
                 if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
                   log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
-                } else if (appComponent.hdd === installedComponent.hdd) {
+                } else if (!specDiff.volumeSpecChanged(installedComponent, appComponent)) {
                   log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // soft redeployment
                   const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
@@ -3498,7 +3482,7 @@ async function reinstallOldApplications() {
 
                 if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
                   log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
-                } else if (appComponent.hdd === installedComponent.hdd) {
+                } else if (!specDiff.volumeSpecChanged(installedComponent, appComponent)) {
                   log.warn(`Continuing Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);

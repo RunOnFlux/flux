@@ -83,8 +83,46 @@ function portDelta(oldSpec, newSpec) {
   return { toOpen, toClose };
 }
 
+// Fields that are NOT part of an app's runtime shape: they change on every
+// re-registration/renewal without changing what the node must run. The update
+// handler masks them out before deciding whether anything actually changed.
+const NON_RUNTIME_FIELDS = ['description', 'expire', 'hash', 'height', 'instances', 'owner'];
+
+/**
+ * Whether two specs differ in any RUNTIME-relevant field (everything except the
+ * non-runtime fields above). Byte-identical to the inline mask the on-chain update
+ * handler used: deep-clone both, delete the non-runtime fields, JSON.stringify-compare.
+ * NOTE: like that original, this is key-order sensitive and compares the RAW (not
+ * tier-normalised) specs - kept that way deliberately to preserve existing behaviour.
+ *
+ * @param {object} oldSpec
+ * @param {object} newSpec
+ * @returns {boolean} true if a runtime field changed
+ */
+function specsDiffer(oldSpec, newSpec) {
+  const a = JSON.parse(JSON.stringify(oldSpec || {}));
+  const b = JSON.parse(JSON.stringify(newSpec || {}));
+  NON_RUNTIME_FIELDS.forEach((f) => { delete a[f]; delete b[f]; });
+  return JSON.stringify(a) !== JSON.stringify(b);
+}
+
+/**
+ * Whether the volume (FLUXFSVOL) must be reset: the hdd size changed. The on-chain
+ * update handler uses this to choose hard (volume reset) vs soft (volume kept) for a
+ * spec/component. Direct hdd inequality, matching the original inline checks.
+ *
+ * @param {object} oldSpec - installed spec/component
+ * @param {object} newSpec - target spec/component
+ * @returns {boolean} true if hdd changed
+ */
+function volumeSpecChanged(oldSpec, newSpec) {
+  return oldSpec.hdd !== newSpec.hdd;
+}
+
 module.exports = {
   mustRecreateNetwork,
   appPortSet,
   portDelta,
+  specsDiffer,
+  volumeSpecChanged,
 };
