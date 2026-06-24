@@ -12,7 +12,9 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const { appPricePerMonth, specificationFormatter } = require('../utils/appUtilities');
 const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { insertAppSpecifications, updateAppSpecifications, getPreviousAppSpecifications } = require('../appDatabase/registryManager');
+const {
+  insertAppSpecifications, updateAppSpecifications, getPreviousAppSpecifications, expireSingleApplication,
+} = require('../appDatabase/registryManager');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
@@ -837,33 +839,42 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           }
           return true;
         } else {
-          // App has expired (actualExpirationHeight <= daemonHeight)
-          // Clean up stale data from both global and local databases
-          // This handles the case where an update message was received after the app expired
+          // App has expired (actualExpirationHeight <= daemonHeight; the <= catches a
+          // same-block collapse the strict-< periodic sweep misses for one block).
           log.warn(`App ${specifications.name} has expired (expiration height ${actualExpirationHeight} <= daemon height ${daemonHeight}). Cleaning up stale data.`);
 
-          const db = dbHelper.databaseConnection();
-
-          // Remove from global apps information if it exists with stale data
-          const databaseGlobal = db.db(config.database.appsglobal.database);
-          const queryDeleteApp = { name: specifications.name };
-          const projectionApps = { projection: { _id: 0, name: 1 } };
-          const existingGlobalApp = await dbHelper.findOneInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
-          if (existingGlobalApp) {
-            log.warn(`Removing expired app ${specifications.name} from global apps database`);
-            await dbHelper.findOneAndDeleteInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
-          }
-
-          // Check if app is installed locally and remove it
-          const databaseLocal = db.db(config.database.appslocal.database);
-          const existingLocalApp = await dbHelper.findOneInDatabase(databaseLocal, localAppsInformation, queryDeleteApp, projectionApps);
-          if (existingLocalApp) {
-            log.warn(`REMOVAL REASON: App expired - ${specifications.name} update received after expiration (messageVerifier)`);
-            // Use dynamic require to avoid circular dependency
-            // eslint-disable-next-line global-require
-            const appUninstaller = require('../appLifecycle/appUninstaller');
-            // force=true to bypass removalInProgress checks, endResponse=false since no res, sendMessage=true to notify peers
-            await appUninstaller.removeAppLocally(specifications.name, null, true, false, true);
+          if (syncStatus.data.synced) {
+            // Detect-at-tip: at the chain tip, enforce the cancel/expiry IMMEDIATELY
+            // on THIS message (event-driven) instead of waiting 0-4 min for the next
+            // periodic %8 sweep tick. expireSingleApplication deletes the global row +
+            // installing-errors and, if installed here, drains+removes locally
+            // (graceful drain, backgrounded). The periodic sweep + reindex remain the
+            // deterministic backstop.
+            log.warn(`REMOVAL REASON: App expired - ${specifications.name} detected at tip (messageVerifier)`);
+            await expireSingleApplication(specifications.name, { async: true });
+          } else {
+            // During IBD/catch-up: clean up the global spec inline, and force-remove
+            // locally if installed - but do NOT drive a backgrounded graceful drain
+            // mid-sync. The periodic sweep + reindex are the at-tip backstop.
+            const db = dbHelper.databaseConnection();
+            const databaseGlobal = db.db(config.database.appsglobal.database);
+            const queryDeleteApp = { name: specifications.name };
+            const projectionApps = { projection: { _id: 0, name: 1 } };
+            const existingGlobalApp = await dbHelper.findOneInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
+            if (existingGlobalApp) {
+              log.warn(`Removing expired app ${specifications.name} from global apps database`);
+              await dbHelper.findOneAndDeleteInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
+            }
+            const databaseLocal = db.db(config.database.appslocal.database);
+            const existingLocalApp = await dbHelper.findOneInDatabase(databaseLocal, localAppsInformation, queryDeleteApp, projectionApps);
+            if (existingLocalApp) {
+              log.warn(`REMOVAL REASON: App expired - ${specifications.name} update received after expiration during sync (messageVerifier)`);
+              // Use dynamic require to avoid circular dependency
+              // eslint-disable-next-line global-require
+              const appUninstaller = require('../appLifecycle/appUninstaller');
+              // force=true to bypass removalInProgress checks, endResponse=false since no res, sendMessage=true to notify peers
+              await appUninstaller.removeAppLocally(specifications.name, null, true, false, true);
+            }
           }
 
           return true;

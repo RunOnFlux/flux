@@ -632,6 +632,11 @@ async function processBlock(blockHeight, isInsightExplorer) {
       blockEmitter.emit('blocksProcessed', scannedHeight);
 
       if (globalState.dbReady && blockDataVerbose.height >= config.fluxapps.epochstart) {
+        // Every block at tip: prompt-enforce expiry of this node's installed apps
+        // (cheap, local-only) so a cancel is torn down ~the instant it is eligible
+        // instead of waiting for the next %8 global sweep. The %8 sweep below stays
+        // the global-collection cleanup + the deterministic backstop.
+        await registryManager.expireInstalledApplications(blockHeight);
         if (blockHeight % (2 * speedMultiplier) === 0) {
           await registryManager.expireGlobalApplications();
         }
