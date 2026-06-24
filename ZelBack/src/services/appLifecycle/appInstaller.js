@@ -336,23 +336,27 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
   // check if hash is in blockchain
   // register and launch according to specifications in message
   try {
-    if (globalState.removalInProgress) {
-      const rStatus = messageHelper.createWarningMessage('Another application is undergoing removal. Installation not possible.');
-      log.error(rStatus);
+    // Per-app: only this app being removed blocks its own (re)install - a removal of a
+    // DIFFERENT app no longer blocks this one (the host-mutation lock serializes the shared
+    // ufw/UPnP/image edits). Returns 'deferred', NOT false: this is a transient "try again"
+    // state, and the spawner must NOT poison its 7-day error cache for it (see appSpawner).
+    if (globalState.hasRemovalInProgress(appSpecs.name)) {
+      const rStatus = messageHelper.createWarningMessage(`Flux App ${appSpecs.name} is undergoing removal. Installation deferred.`);
+      log.warn(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return false;
+      return 'deferred';
     }
     if (globalState.installationInProgress) {
-      const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation not possible');
-      log.error(rStatus);
+      const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation deferred.');
+      log.warn(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return false;
+      return 'deferred';
     }
     globalState.installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
@@ -431,8 +435,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     // (umount, rm -rf the volume, ufw/UPnP, network) keep running detached - the
     // "already installed" check above misses it because the row is already gone.
     // Without this gate a re-registration of the same name would create a fresh
-    // volume that the still-running teardown then rm -rf's. Bail; the spawner
-    // retries on its next cycle, by which time the teardown has cleared the doc.
+    // volume that the still-running teardown then rm -rf's. Return 'deferred' (NOT
+    // false): the spawner must treat this as a transient retry, not a 7-day error -
+    // it re-selects on its next cycle/wake, by which time the teardown cleared the doc.
     if (await pendingTeardownStore.teardownOwedFor(appName)) {
       globalState.installationInProgress = false;
       const rStatus = messageHelper.createWarningMessage(`Flux App ${appName} is still being torn down; deferring installation until teardown completes.`);
@@ -441,7 +446,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return false;
+      return 'deferred';
     }
 
     // Register this install's AbortController by app name so a concurrent

@@ -58,6 +58,7 @@ describe('appInstaller tests', () => {
       installationInProgress: false,
       masterSlaveAppsRunning: false,
       installingApps: new Map(),
+      hasRemovalInProgress: () => false,
     };
 
     // Stubs
@@ -785,21 +786,22 @@ describe('appInstaller tests', () => {
       globalStateStub.installationInProgress = false;
     });
 
-    it('should return error if removal is in progress', async () => {
+    it('defers (not fails) if THIS app is being removed (per-app gate)', async () => {
       const componentSpecs = false;
       const res = {
         write: sinon.stub(),
         end: sinon.stub(),
       };
-      globalStateStub.removalInProgress = true;
+      // per-app: only this app's own removal blocks its install
+      globalStateStub.hasRemovalInProgress = (name) => name === appSpec.name;
 
       const result = await appInstaller.registerAppLocally(appSpec, componentSpecs, res);
 
-      expect(logStub.error.called).to.be.true;
-      expect(result).to.be.false;
+      // 'deferred', NOT false - the spawner must not 7-day-cache this transient state
+      expect(result).to.equal('deferred');
     });
 
-    it('should return error if another installation is in progress', async () => {
+    it('defers (not fails) if another installation is in progress', async () => {
       const componentSpecs = false;
       const res = {
         write: sinon.stub(),
@@ -809,8 +811,8 @@ describe('appInstaller tests', () => {
 
       const result = await appInstaller.registerAppLocally(appSpec, componentSpecs, res);
 
-      expect(logStub.error.called).to.be.true;
-      expect(result).to.be.false;
+      // transient -> 'deferred', so the spawner retries instead of 7-day-caching it
+      expect(result).to.equal('deferred');
     });
 
     it('should return false if node tier does not return anything', async () => {
@@ -1242,7 +1244,7 @@ describe('appInstaller tests', () => {
         '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
         '../utils/enterpriseHelper': enterpriseHelperStub,
         '../utils/appSpecHelpers': appSpecHelpersStub,
-        '../utils/globalState': { removalInProgress: false, installationInProgress: false, masterSlaveAppsRunning: false, installingApps: new Map() },
+        '../utils/globalState': { removalInProgress: false, installationInProgress: false, masterSlaveAppsRunning: false, installingApps: new Map(), hasRemovalInProgress: () => false },
         '../../lib/log': logStub,
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
         '../appMessaging/messageVerifier': messageVerifierStub,

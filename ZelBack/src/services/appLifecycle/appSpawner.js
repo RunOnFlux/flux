@@ -866,6 +866,15 @@ async function trySpawningGlobalApplication() {
       log.error(error);
       registerOk = false;
     }
+    if (registerOk === 'deferred') {
+      // Transient: this app (or another) is mid-removal/install, or a same-name teardown
+      // is still owed. NOT a failure - re-select on the next cycle/wake. Crucially do NOT
+      // poison the 7-day spawnErrorsLongerAppCache, which would suppress this pinned app
+      // for up to 7 days (it is never delete()d) - the bug a register->cancel->re-register
+      // cycle hits directly.
+      log.info(`trySpawningGlobalApplication - Install of ${appToRun} deferred (transient), will retry`);
+      return shortDelayTime;
+    }
     if (!registerOk) {
       log.info(`trySpawningGlobalApplication - Install failed for ${appToRun}, adding to local error cache`);
       globalState.spawnErrorsLongerAppCache.set(appHash, '');
