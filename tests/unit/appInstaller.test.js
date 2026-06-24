@@ -57,6 +57,7 @@ describe('appInstaller tests', () => {
       removalInProgress: false,
       installationInProgress: false,
       masterSlaveAppsRunning: false,
+      installingApps: new Map(),
     };
 
     // Stubs
@@ -1241,7 +1242,7 @@ describe('appInstaller tests', () => {
         '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
         '../utils/enterpriseHelper': enterpriseHelperStub,
         '../utils/appSpecHelpers': appSpecHelpersStub,
-        '../utils/globalState': { removalInProgress: false, installationInProgress: false, masterSlaveAppsRunning: false },
+        '../utils/globalState': { removalInProgress: false, installationInProgress: false, masterSlaveAppsRunning: false, installingApps: new Map() },
         '../../lib/log': logStub,
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
         '../appMessaging/messageVerifier': messageVerifierStub,

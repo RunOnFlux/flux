@@ -42,6 +42,12 @@ const runningAppsCache = new Set();
 // Containers intentionally stopped by FluxOS — crash recovery skips die events for these
 const stoppingContainers = new Set();
 
+// In-flight installs by bare app name -> AbortController, so a cancel/removal of the
+// same app can abort an in-progress image pull (cancel-during-install) instead of
+// downloading gigabytes only to tear them down. Registered in registerAppLocally,
+// cleared in its finally; the pull threads the controller's signal to docker.pull.
+const installingApps = new Map();
+
 
 // Cache references - these will be initialized from cacheManager
 let spawnErrorsLongerAppCache = null;
@@ -124,6 +130,7 @@ module.exports = {
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },
   get stoppingContainers() { return stoppingContainers; },
+  get installingApps() { return installingApps; },
 
   get spawnErrorsLongerAppCache() { return spawnErrorsLongerAppCache; },
   set spawnErrorsLongerAppCache(value) { spawnErrorsLongerAppCache = value; },

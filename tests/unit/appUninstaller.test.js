@@ -75,6 +75,7 @@ describe('appUninstaller tests', () => {
       },
       '../../lib/log': logStub,
       '../utils/globalState': {
+        installingApps: new Map(),
         removalInProgress: false,
         setRemovalInProgress: sinon.stub(),
         resetRemovalInProgress: sinon.stub(),
@@ -268,6 +269,7 @@ describe('appUninstaller tests', () => {
         },
         '../../lib/log': logStub,
         '../utils/globalState': {
+        installingApps: new Map(),
           removalInProgress: false,
           setRemovalInProgress: sinon.stub(),
           resetRemovalInProgress: sinon.stub(),
@@ -354,6 +356,7 @@ describe('appUninstaller tests', () => {
         },
         '../../lib/log': logStub,
         '../utils/globalState': {
+        installingApps: new Map(),
           removalInProgress: false,
         },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
@@ -477,7 +480,8 @@ describe('appUninstaller tests', () => {
           getBaseAppName: sinon.stub().returnsArg(0),
         },
         '../../lib/log': logStub,
-        '../utils/globalState': { removalInProgress: false, installationInProgress: false },
+        '../utils/globalState': {
+        installingApps: new Map(), removalInProgress: false, installationInProgress: false },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: cfg }),
         './advancedWorkflows': { reindexGlobalAppsInformation: sinon.stub().resolves(), updateAppSpecsForRestoredNode: sinon.stub().resolves(), checkAndNotifyPeersOfRunningApps: sinon.stub().resolves() },
         '../upnpService': { removeMapUpnpPort: sinon.stub().resolves(), isUPNP: sinon.stub().returns(false) },
@@ -572,6 +576,7 @@ describe('appUninstaller tests', () => {
         },
         '../../lib/log': logStub,
         '../utils/globalState': {
+        installingApps: new Map(),
           removalInProgress: false,
           runningAppsCache: new Map(),
         },
@@ -763,6 +768,7 @@ describe('appUninstaller tests', () => {
         },
         '../../lib/log': logStub,
         '../utils/globalState': {
+        installingApps: new Map(),
           removalInProgress: false,
           setRemovalInProgress: sinon.stub(),
           resetRemovalInProgress: sinon.stub(),
@@ -861,6 +867,7 @@ describe('appUninstaller tests', () => {
         },
         '../../lib/log': logStub,
         '../utils/globalState': {
+        installingApps: new Map(),
           removalInProgress: false,
           setRemovalInProgress: sinon.stub(),
           resetRemovalInProgress: sinon.stub(),
@@ -993,7 +1000,8 @@ describe('appUninstaller tests', () => {
         '../dbHelper': dbHelperStub,
         '../dockerService': dockerStub,
         '../../lib/log': logStub,
-        '../utils/globalState': { removalInProgress: false, installationInProgress: false, runningAppsCache: new Map() },
+        '../utils/globalState': {
+        installingApps: new Map(), removalInProgress: false, installationInProgress: false, runningAppsCache: new Map() },
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
         './advancedWorkflows': { stopSyncthingApp: sinon.stub().resolves() },
         '../upnpService': { removeMapUpnpPort: sinon.stub().resolves(), isUPNP: sinon.stub().returns(false) },

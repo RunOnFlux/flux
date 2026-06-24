@@ -295,6 +295,14 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
   pullConfig.provider = imgVerifier.provider;
 
+  // Abortable pull: thread this install's AbortController signal (registered by
+  // registerAppLocally, keyed by app name) so a concurrent cancel/removal of the
+  // same app aborts the in-flight pull instead of finishing the download.
+  const inFlightInstall = globalState.installingApps.get(appName);
+  if (inFlightInstall) {
+    pullConfig.abortSignal = inFlightInstall.signal;
+  }
+
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(pullConfig, res);
 
@@ -430,6 +438,13 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       }
       return false;
     }
+
+    // Register this install's AbortController by app name so a concurrent
+    // cancel/removal of the same app can abort the in-flight image pull
+    // (cancel-during-install). verifyAndPullImage threads its signal into
+    // docker.pull; the finally below clears the entry. Last-writer-wins is fine -
+    // installs of a given name are gated serial by installationInProgress.
+    globalState.installingApps.set(appName, new AbortController());
 
     // Lazy-load appQueryService to avoid circular dependency issues
     // eslint-disable-next-line global-require
@@ -709,6 +724,8 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
 
     return false;
   } finally {
+    // Drop this install's AbortController (no-op if we bailed before registering).
+    if (appSpecs && appSpecs.name) globalState.installingApps.delete(appSpecs.name);
     if (test) {
       try {
         await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);

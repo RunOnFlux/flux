@@ -1148,6 +1148,15 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     const appName = isComponent ? app.split('_')[1] : app;
     const appComponent = app.split('_')[0];
 
+    // Cancel-during-install: if this app's install is mid-pull, abort it now so we
+    // don't finish downloading gigabytes we are about to tear down (and so the
+    // install unwinds via its own rollback rather than racing this teardown).
+    const inFlightInstall = globalState.installingApps.get(appName);
+    if (inFlightInstall) {
+      log.info(`Aborting in-flight install of ${appName} due to removal`);
+      inFlightInstall.abort();
+    }
+
     // Find app specifications in database
     const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
