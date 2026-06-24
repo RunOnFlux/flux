@@ -95,9 +95,17 @@ async function readAllTeardowns() {
  * Whether a teardown is still owed for an app NAME (a whole-app doc keyed by the
  * name, or a component doc keyed by component_app but carrying name=appName). The
  * install-side interlock uses this to refuse starting an install while a teardown
- * of the same name is still draining (the cancel-vs-install race). A read failure
- * returns false (fail-open) - an install must not be blocked by a transient DB
- * blip; the narrow race that re-opens is the same one the per-app gate closes.
+ * of the same name is still draining (the cancel-vs-install race).
+ *
+ * A read failure FAILS CLOSED (returns true = "assume a teardown is still owed"):
+ * admitting an install that races a live rm -rf of the same volume is the
+ * irreversible outcome the interlock exists to prevent, and on the background
+ * cancel path the per-app removalsInProgress gate is already released (in the
+ * prelude finally) BEFORE Phase B's rm -rf runs - so it does NOT cover the drain
+ * window and this read is the only thing that does. A transient blip defers the
+ * install one cycle (the spawner re-selects on its next wake); a persistent DB
+ * failure defers it until the DB recovers, but a node that cannot read its own
+ * teardown state must not be creating volumes anyway.
  *
  * @param {string} name - bare app name
  * @returns {Promise<boolean>}
@@ -109,7 +117,7 @@ async function teardownOwedFor(name) {
     return Boolean(doc);
   } catch (err) {
     log.error(`pendingTeardownStore - failed to check owed teardown for ${name}: ${err.message}`);
-    return false;
+    return true;
   }
 }
 

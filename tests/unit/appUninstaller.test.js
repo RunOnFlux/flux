@@ -941,6 +941,23 @@ describe('appUninstaller tests', () => {
       expect(pendingStoreStub.clearTeardown.calledWith('liveapp')).to.equal(true);
     });
 
+    it('boot recovery KEEPS the durable doc when a row-present un-condemn FAILS (no orphan stamp)', async () => {
+      const docPresent = {
+        key: 'liveapp', name: 'liveapp', isComponent: false, components: [{ identifier: 'liveapp', appId: 'fluxliveapp', componentName: 'liveapp', label: 'liveapp', ports: [2], repotag: 'r' }],
+      };
+      const uninstaller = buildUninstaller({ rowForName: (name) => (name === 'liveapp' ? { name } : null) });
+      pendingStoreStub.readAllTeardowns.resolves([docPresent]);
+      // the un-condemn write fails (DB blip); setCondemned has no internal catch, so it throws
+      runtimeStateStub.setCondemned.withArgs('liveapp', false).rejects(new Error('db blip'));
+
+      const owed = await uninstaller.stampCondemnedForPendingTeardowns();
+
+      // not replayed (row present), but the doc is KEPT so the next boot retries the
+      // un-condemn instead of orphaning a condemned=true stamp with no record to heal it
+      expect(owed).to.deep.equal([]);
+      expect(pendingStoreStub.clearTeardown.calledWith('liveapp')).to.equal(false);
+    });
+
     it('boot recovery defers (does not tear down or drop) a doc whose row read fails', async () => {
       const doc = {
         key: 'blipapp', name: 'blipapp', isComponent: false, components: [{ identifier: 'blipapp', appId: 'fluxblipapp', componentName: 'blipapp', label: 'blipapp', ports: [1], repotag: 'r' }],

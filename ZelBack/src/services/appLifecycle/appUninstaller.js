@@ -1440,21 +1440,34 @@ async function localAppRowState(appName) {
 }
 
 /**
- * Clears the condemned stamp for every component of a doc (best-effort), so
- * dropping a stale/owed-elsewhere teardown record also lets the reconciler
- * re-adopt a still-installed app. Without this, a component condemned before the
- * doc was dropped stays condemned forever and the reconciler early-bails on it.
+ * Clears the condemned stamp for every component of a doc, so dropping a
+ * stale/owed-elsewhere teardown record also lets the reconciler re-adopt a
+ * still-installed app. Without this, a component condemned before the doc was
+ * dropped stays condemned forever and the reconciler early-bails on it.
+ *
+ * Returns whether EVERY un-condemn was confirmed. setCondemned throws on a DB
+ * write failure (it has no internal catch); a swallowed failure here would leave
+ * a component condemned=true while the caller deletes the SOLE recovery record,
+ * wedging a live re-installed component out of reconciliation forever - so the
+ * caller must gate clearTeardown on this return (mirrors the FINISH path's
+ * allDropped gate) and keep the doc for the next boot if any un-condemn failed.
  *
  * @param {Array<object>} comps
+ * @returns {Promise<boolean>} true only if every condemned stamp was cleared
  */
 async function unCondemnComponents(comps) {
+  let allCleared = true;
   // eslint-disable-next-line no-restricted-syntax
   for (const comp of comps) {
-    // eslint-disable-next-line no-await-in-loop
-    await appsRuntimeState.setCondemned(comp.identifier, false).catch((error) => {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await appsRuntimeState.setCondemned(comp.identifier, false);
+    } catch (error) {
+      allCleared = false;
       log.error(`Boot recovery: failed to clear condemned for ${comp.identifier}: ${error.message}`);
-    });
+    }
   }
+  return allCleared;
 }
 
 /**
@@ -1493,9 +1506,17 @@ async function stampCondemnedForPendingTeardowns() {
       if (rowState === 'present') {
         log.warn(`Boot recovery: ${doc.name} is installed again (row present) - dropping stale teardown record + un-condemning, NOT tearing it down`);
         // eslint-disable-next-line no-await-in-loop
-        await unCondemnComponents(comps);
-        // eslint-disable-next-line no-await-in-loop
-        await pendingTeardownStore.clearTeardown(doc.key);
+        const allCleared = await unCondemnComponents(comps);
+        if (allCleared) {
+          // eslint-disable-next-line no-await-in-loop
+          await pendingTeardownStore.clearTeardown(doc.key);
+        } else {
+          // A swallowed un-condemn would orphan a condemned=true stamp while deleting the
+          // SOLE recovery record - wedging the live re-installed component out of
+          // reconciliation forever. Keep the doc so the next boot retries the un-condemn
+          // (mirrors the FINISH path's allDropped gate).
+          log.warn(`Boot recovery: ${doc.name} - not every condemned stamp cleared; keeping the teardown record for the next boot`);
+        }
         // eslint-disable-next-line no-continue
         continue;
       }
