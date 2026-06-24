@@ -38,6 +38,7 @@ const globalState = require('../utils/globalState');
 const { withHostMutationLock } = require('../utils/hostMutationLock');
 const appNetworkLinker = require('./appNetworkLinker');
 const specDiff = require('./specDiff');
+const pendingTeardownStore = require('./pendingTeardownStore');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -947,6 +948,32 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
       return;
     }
 
+    // Install-side interlock (cancel-vs-install), mirrored from registerAppLocally: refuse
+    // to (re)install while a teardown of this name is still owed (its pendingAppTeardowns
+    // doc has not cleared). A forced cancel runs background=true, deleting the local row +
+    // clearing removalInProgress in its prelude while the drain + Phase B host teardown
+    // (umount, rm -rf the volume, ufw/UPnP, network) keep running detached - the
+    // "already installed" check above misses it because the row is already gone. Without
+    // this gate a soft redeploy concurrent with a same-name cancel could create a container
+    // on the volume being rm -rf'd. Return 'deferred' (a non-true status) so a redeploy
+    // caller skips the port reconcile and does not reinstall on top.
+    if (await pendingTeardownStore.teardownOwedFor(appName)) {
+      globalState.installationInProgress = false;
+      const rStatus = messageHelper.createWarningMessage(`Flux App ${appName} is still being torn down; deferring soft registration until teardown completes.`);
+      log.warn(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        res.end();
+      }
+      return 'deferred';
+    }
+
+    // Register this install's AbortController by app name so a concurrent cancel/removal of
+    // the same app can abort the in-flight image pull (verifyAndPullImage threads its signal
+    // into docker.pull). The finally below clears it. Mirrors registerAppLocally; without it
+    // the soft pull was non-abortable.
+    globalState.installingApps.set(appName, new AbortController());
+
     // Verify the apps this app must be networked with (networkWith token in the
     // description) are installed locally and owned by the same owner before any
     // side effects.
@@ -1045,6 +1072,9 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
 
     // eslint-disable-next-line global-require
     const appInstaller = require('./appInstaller');
+    // Clear any condemned stamp for what we are installing (shared with registerAppLocally),
+    // so the reconciler does not early-bail on the just-(re)installed component forever.
+    await appInstaller.clearCondemnedStampsForInstall(appSpecifications, isComponent ? appComponent : null);
     if (specificationsToInstall.version >= 4) { // version is undefined for component
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponentSpecs of specificationsToInstall.compose) {
@@ -1138,6 +1168,9 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
     // reconcile (open) ports for an app whose reinstall just failed.
     await appUninstaller.removeAppLocally(appSpecs.name, res, true);
     return false;
+  } finally {
+    // Drop this install's AbortController (no-op if we bailed before registering it).
+    if (appSpecs && appSpecs.name) globalState.installingApps.delete(appSpecs.name);
   }
 }
 

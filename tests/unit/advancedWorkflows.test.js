@@ -1692,4 +1692,94 @@ describe('advancedWorkflows tests', () => {
   // These should be tested in integration tests rather than unit tests.
   // masterSlaveApps is included above with basic tests, but full integration testing
   // is recommended for comprehensive coverage of the master-slave coordination logic.
+
+  describe('softRegisterAppLocally cancel-vs-install guards (C1) tests', () => {
+    let globalState;
+    let pendingTeardownStore;
+    let appInstaller;
+    let appNetworkLinker;
+    let dockerService;
+    let fluxNetworkHelper;
+    let generalService;
+    let res;
+
+    const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', repotag: 'repo/c1:1.0', ports: [31000] }] };
+
+    // Stub the whole soft-install success path so a test can observe the guards. Each test
+    // overrides one piece (teardownOwedFor, or what installApplicationSoft captures).
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.removalInProgressReset();
+      globalState.installationInProgress = false;
+      globalState.installingApps.clear();
+
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null); // not already installed
+      sinon.stub(dbHelper, 'insertOneToDatabase').resolves({ insertedId: 'x' });
+
+      // eslint-disable-next-line global-require
+      pendingTeardownStore = require('../../ZelBack/src/services/appLifecycle/pendingTeardownStore');
+      sinon.stub(pendingTeardownStore, 'teardownOwedFor').resolves(false); // default: no teardown owed
+
+      // eslint-disable-next-line global-require
+      generalService = require('../../ZelBack/src/services/generalService');
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      // eslint-disable-next-line global-require
+      appNetworkLinker = require('../../ZelBack/src/services/appLifecycle/appNetworkLinker');
+      sinon.stub(appNetworkLinker, 'checkAppNetworkRequirements').resolves();
+      sinon.stub(appNetworkLinker, 'reconnectLinkedApps').resolves();
+      // eslint-disable-next-line global-require
+      dockerService = require('../../ZelBack/src/services/dockerService');
+      sinon.stub(dockerService, 'createFluxAppDockerNetwork').resolves({ id: 'net' });
+      sinon.stub(dockerService, 'getFluxDockerNetworkPhysicalInterfaceNames').resolves(['br-x']);
+      // eslint-disable-next-line global-require
+      fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+      sinon.stub(fluxNetworkHelper, 'removeDockerContainerAccessToNonRoutable').resolves(true);
+      // eslint-disable-next-line global-require
+      appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      sinon.stub(appInstaller, 'clearCondemnedStampsForInstall').resolves();
+
+      res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('DEFERS (returns deferred, no install) when a teardown of the app is still owed', async () => {
+      pendingTeardownStore.teardownOwedFor.resolves(true); // a cancel is still draining
+
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, {});
+
+      expect(result).to.equal('deferred');
+      expect(appInstaller.installApplicationSoft.called).to.be.false; // never reached the install
+    });
+
+    it('registers an AbortController for the app during the install, and clears it after', async () => {
+      let controllerDuringInstall;
+      appInstaller.installApplicationSoft.callsFake(() => {
+        controllerDuringInstall = globalState.installingApps.get('TestApp');
+        return Promise.resolve();
+      });
+
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
+
+      expect(result).to.equal(true);
+      // the in-flight install was registered so a concurrent cancel can abort its pull
+      expect(controllerDuringInstall).to.be.instanceOf(AbortController);
+      // and cleared in the finally
+      expect(globalState.installingApps.has('TestApp')).to.be.false;
+    });
+
+    it('clears the condemned stamp for the installed app (componentSpecs null for a whole-app install)', async () => {
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
+
+      expect(result).to.equal(true);
+      expect(appInstaller.clearCondemnedStampsForInstall.calledOnce).to.be.true;
+      expect(appInstaller.clearCondemnedStampsForInstall.firstCall.args[0]).to.equal(spec);
+      expect(appInstaller.clearCondemnedStampsForInstall.firstCall.args[1]).to.equal(null);
+    });
+  });
 });

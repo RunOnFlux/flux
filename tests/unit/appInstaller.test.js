@@ -1284,4 +1284,104 @@ describe('appInstaller tests', () => {
       expect(pruneContainersStub.called).to.be.false;
     });
   });
+
+  describe('installApplicationHard cancel-during-install re-check (C2) tests', () => {
+    // Drive the real installApplicationHard (skipPorts) through the real verifyAndPullImage
+    // up to the post-pull condemned re-check, so this exercises the actual call site - not a
+    // stand-in for throwIfCondemnedMidInstall.
+    const appSpec = {
+      name: 'testapp', repotag: 'repo/test:1', containerData: '/data', ports: [30000], version: 2,
+    };
+
+    function build(isCondemnedValue) {
+      const dockerStub = {
+        dockerPullStream: sinon.stub().resolves('pulled'),
+        appDockerCreate: sinon.stub().resolves(),
+        appDockerStart: sinon.stub().resolves('started'),
+        getAppIdentifier: sinon.stub().returns('fluxtestapp'),
+      };
+      const advancedWorkflowsStub = { createAppVolume: sinon.stub().resolves() };
+      const volumeServiceStub = { verifyAppVolumeMount: sinon.stub().resolves(), ensureMountPathsExist: sinon.stub().resolves() };
+      const appsRuntimeStateStub = { isCondemned: sinon.stub().resolves(isCondemnedValue), setCondemned: sinon.stub().resolves() };
+      const mod = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
+        './appNetworkLinker': { checkAppNetworkRequirements: sinon.stub().resolves(), connectComponentToLinkedApps: sinon.stub().resolves() },
+        '../appSystem/systemIntegration': { systemArchitecture: sinon.stub().resolves('amd64') },
+        '../appSecurity/imageManager': { checkApplicationImagesCompliance: sinon.stub().resolves() },
+        '../utils/imageVerifier': {
+          ImageVerifier: sinon.stub().returns({
+            addCredentials: sinon.stub(), verifyImage: sinon.stub().resolves(), throwIfError: sinon.stub(), supported: true, provider: 'docker.io',
+          }),
+        },
+        '../dockerService': dockerStub,
+        './advancedWorkflows': advancedWorkflowsStub,
+        '../utils/volumeService': volumeServiceStub,
+        '../utils/globalState': { installingApps: new Map() },
+        '../appManagement/appsRuntimeState': appsRuntimeStateStub,
+        '../appManagement/appInspector': { startAppMonitoring: sinon.stub() },
+        util: { promisify: (fn) => fn },
+      });
+      return {
+        mod, dockerStub, advancedWorkflowsStub,
+      };
+    }
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('ABORTS before creating the volume/starting the container when condemned mid-install', async () => {
+      const { mod, dockerStub, advancedWorkflowsStub } = build(true);
+      const res = { write: sinon.stub(), flush: sinon.stub() };
+
+      let threw = false;
+      try {
+        await mod.installApplicationHard(appSpec, 'testapp', false, res, appSpec, false, true); // skipPorts=true
+      } catch (e) {
+        threw = true;
+        expect(e.message).to.match(/aborted/);
+      }
+
+      expect(threw, 'install should abort when condemned mid-install').to.be.true;
+      expect(advancedWorkflowsStub.createAppVolume.called, 'must NOT create the volume').to.be.false;
+      expect(dockerStub.appDockerStart.called, 'must NOT start the container').to.be.false;
+    });
+
+    it('PROCEEDS past the re-check when not condemned (no spurious abort)', async () => {
+      const { mod, dockerStub, advancedWorkflowsStub } = build(false);
+      const res = { write: sinon.stub(), flush: sinon.stub() };
+
+      await mod.installApplicationHard(appSpec, 'testapp', false, res, appSpec, false, true);
+
+      expect(advancedWorkflowsStub.createAppVolume.calledOnce, 'volume created').to.be.true;
+      expect(dockerStub.appDockerStart.calledOnce, 'container started').to.be.true;
+    });
+
+    it('installApplicationSoft ABORTS before creating/starting the container when condemned mid-install', async () => {
+      const { mod, dockerStub } = build(true);
+      const res = { write: sinon.stub(), flush: sinon.stub() };
+
+      let threw = false;
+      try {
+        await mod.installApplicationSoft(appSpec, 'testapp', false, res, appSpec, true); // skipPorts=true
+      } catch (e) {
+        threw = true;
+        expect(e.message).to.match(/aborted/);
+      }
+
+      expect(threw, 'soft install should abort when condemned mid-install').to.be.true;
+      expect(dockerStub.appDockerCreate.called, 'must NOT create the container').to.be.false;
+      expect(dockerStub.appDockerStart.called, 'must NOT start the container').to.be.false;
+    });
+
+    it('installApplicationSoft PROCEEDS past the re-check when not condemned', async () => {
+      const { mod, dockerStub } = build(false);
+      const res = { write: sinon.stub(), flush: sinon.stub() };
+
+      await mod.installApplicationSoft(appSpec, 'testapp', false, res, appSpec, true);
+
+      expect(dockerStub.appDockerCreate.calledOnce, 'container created').to.be.true;
+      expect(dockerStub.appDockerStart.calledOnce, 'container started').to.be.true;
+    });
+  });
 });

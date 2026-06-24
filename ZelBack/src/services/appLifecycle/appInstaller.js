@@ -317,6 +317,59 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
 }
 
 /**
+ * Clear the condemned stamp for every component this install will (re)create. Installing
+ * a component is the inverse of condemning it: an installed component must NEVER carry a
+ * condemned stamp or the reconciler's entry gate early-bails on it forever. A prior
+ * teardown of the same identifier may have left a stamp set (e.g. a swallowed DB error
+ * during its finish kept the durable doc for boot recovery); clear it here so this install
+ * is not wedged out of reconciliation until the next reboot. Best-effort per id. Shared by
+ * both register paths (registerAppLocally + softRegisterAppLocally) so they cannot drift.
+ * @param {object} appSpecs - whole-app spec
+ * @param {object} componentSpecs - component spec when installing a single component, else falsy
+ * @returns {Promise<void>}
+ */
+async function clearCondemnedStampsForInstall(appSpecs, componentSpecs) {
+  const appName = appSpecs.name;
+  let identifiers;
+  if (componentSpecs) {
+    identifiers = [`${componentSpecs.name}_${appName}`];
+  } else if (appSpecs.version >= 4 && Array.isArray(appSpecs.compose)) {
+    identifiers = appSpecs.compose.map((c) => `${c.name}_${appName}`);
+  } else {
+    identifiers = [appName];
+  }
+  // eslint-disable-next-line no-restricted-syntax
+  for (const identifier of identifiers) {
+    // eslint-disable-next-line no-await-in-loop
+    await appsRuntimeState.setCondemned(identifier, false).catch((error) => {
+      log.error(`Failed to clear condemned stamp for ${identifier} on install: ${error.message}`);
+    });
+  }
+}
+
+/**
+ * Cancel-during-install backstop. The install registers an AbortController that aborts an
+ * in-flight image PULL, but a cancel that lands AFTER the pull completed (the abort is then
+ * a no-op) would otherwise let createAppVolume/appDockerCreate/appDockerStart run on a
+ * volume the cancel's Phase B is about to rm -rf, leaking a container/volume. Re-check the
+ * condemned stamp the cancel set (per component, in its prelude, BEFORE Phase B); if this
+ * component is now condemned, throw so the caller's catch rolls back the partial state via
+ * the idempotent teardown. isCondemned fails OPEN (a DB blip returns false), so this never
+ * spuriously aborts an install. This SHRINKS the cancel-during-install window (the pull
+ * abort remains the primary closer); it does not fully eliminate it.
+ * @param {object} appSpecifications - component (or whole-app) spec being installed
+ * @param {string} appName - parent app name
+ * @param {boolean} isComponent - whether installing a compose component
+ * @returns {Promise<void>}
+ */
+async function throwIfCondemnedMidInstall(appSpecifications, appName, isComponent) {
+  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+  if (await appsRuntimeState.isCondemned(identifier)) {
+    throw new Error(`Install of ${identifier} aborted: a removal/cancel of ${appName} arrived mid-install`);
+  }
+}
+
+/**
  * To register an app locally. Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs hard install. If registration fails, the app is removed locally.
  * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications.
@@ -606,27 +659,8 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
 
-    // Installing a component is the inverse of condemning it: an installed
-    // component must NEVER carry a condemned stamp, or the reconciler's entry gate
-    // would early-bail on it forever. A prior teardown of the same identifier may
-    // have left a stamp set (e.g. a swallowed DB error during its finish, so the
-    // durable doc kept it for boot recovery); clear it here so this install is not
-    // wedged out of reconciliation until the next reboot. Best-effort per id.
-    let installedIdentifiers;
-    if (isComponent) {
-      installedIdentifiers = [`${appComponent.name}_${appName}`];
-    } else if (appSpecifications.version >= 4 && Array.isArray(appSpecifications.compose)) {
-      installedIdentifiers = appSpecifications.compose.map((c) => `${c.name}_${appName}`);
-    } else {
-      installedIdentifiers = [appName];
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const identifier of installedIdentifiers) {
-      // eslint-disable-next-line no-await-in-loop
-      await appsRuntimeState.setCondemned(identifier, false).catch((error) => {
-        log.error(`Failed to clear condemned stamp for ${identifier} on install: ${error.message}`);
-      });
-    }
+    // Clear any condemned stamp for what we are installing (shared with softRegisterAppLocally).
+    await clearCondemnedStampsForInstall(appSpecifications, isComponent ? appComponent : null);
 
     try {
       // Validate database entry exists before creating Docker containers (atomic transaction check)
@@ -864,6 +898,10 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // Verify and pull Docker image
   await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
 
+  // Cancel-during-install backstop: a cancel that landed during the (long) pull condemned
+  // this component; bail before creating a volume the cancel's Phase B is about to rm -rf.
+  await throwIfCondemnedMidInstall(appSpecifications, appName, isComponent);
+
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
   const advancedWorkflows = require('./advancedWorkflows');
@@ -919,6 +957,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   }
   if (test || (!appSpecifications.containerData.includes('r:') && !appSpecifications.containerData.includes('g:'))) {
     const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+    // Final cancel-during-install re-check before starting a container the cancel won't clean up.
+    await throwIfCondemnedMidInstall(appSpecifications, appName, isComponent);
     const app = await dockerService.appDockerStart(identifier);
     if (!app) {
       throw new Error(`Failed to start ${identifier} container`);
@@ -969,6 +1009,9 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   // Verify and pull Docker image
   await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
 
+  // Cancel-during-install backstop: bail if a cancel condemned this component during the pull.
+  await throwIfCondemnedMidInstall(appSpecifications, appName, isComponent);
+
   const createApp = {
     status: isComponent ? `Creating component ${appSpecifications.name} of local Flux App ${appName}` : `Creating local Flux App ${appName}`,
   };
@@ -998,6 +1041,8 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   }
   if (!appSpecifications.containerData.includes('g:')) {
     const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+    // Final cancel-during-install re-check before starting a container the cancel won't clean up.
+    await throwIfCondemnedMidInstall(appSpecifications, appName, isComponent);
     const app = await dockerService.appDockerStart(identifier);
     if (!app) {
       throw new Error(`Failed to start ${identifier} container`);
@@ -1324,4 +1369,5 @@ module.exports = {
   checkAppRequirements,
   testAppInstall,
   setOnInstallComplete,
+  clearCondemnedStampsForInstall,
 };
