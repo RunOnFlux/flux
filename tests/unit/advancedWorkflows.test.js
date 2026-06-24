@@ -1588,15 +1588,30 @@ describe('advancedWorkflows tests', () => {
       expect(appUninstaller.cleanupPorts.firstCall.args[0].ports).to.deep.equal([31000, 31001]);
     });
 
-    it('hardRedeploy does NOT strip ports when a local row still exists (concurrent reinstall re-adopted the app)', async () => {
+    it('hardRedeploy does NOT strip ports when a local row was re-adopted during the redeploy (concurrent reinstall)', async () => {
       sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallResult.DEFERRED);
-      dbHelper.findOneInDatabase.resolves({ name: 'TestApp' }); // row PRESENT -> not confirmed-absent
+      // The redeploy's own remove cleared the row (the F-F check sees ABSENT), then a concurrent
+      // reinstall re-adds it before the C3 port-guard runs (sees PRESENT).
+      dbHelper.findOneInDatabase.onFirstCall().resolves(null); // F-F check: removal completed
+      dbHelper.findOneInDatabase.resolves({ name: 'TestApp' }); // C3 port-guard: row re-adopted
 
       await advancedWorkflows.hardRedeploy(newAppSpecs, res);
 
       expect(appInstaller.setupApplicationPorts.called).to.be.false;
       // skipped: closing would strip a live app's ports
       expect(appUninstaller.cleanupPorts.called).to.be.false;
+    });
+
+    it('hardRedeploy ABORTS (no reinstall) when removeAppLocally silently failed (row still present) - F-F', async () => {
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallResult.INSTALLED);
+      // removeAppLocally resolved (it swallows its own errors) but the row is STILL present at
+      // the F-F check -> the removal did not complete -> abort; do NOT reinstall on top.
+      dbHelper.findOneInDatabase.resolves({ name: 'TestApp' });
+
+      await advancedWorkflows.hardRedeploy(newAppSpecs, res);
+
+      expect(appInstaller.registerAppLocally.called, 'must NOT reinstall on a failed removal').to.be.false;
+      expect(globalState.hardRedeployInProgress).to.be.false; // cleared via the catch
     });
   });
 

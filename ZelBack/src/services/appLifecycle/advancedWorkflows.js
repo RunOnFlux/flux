@@ -1664,6 +1664,16 @@ async function hardRedeploy(appSpecs, res) {
     }
 
     await appUninstaller.removeAppLocally(appSpecs.name, res, false, false, false, false, false, { keepNetwork, skipPorts });
+    // removeAppLocally swallows its own errors and resolves normally even when its prelude
+    // aborts (e.g. the durable teardown doc could not be persisted - C5). Confirm the local
+    // row is actually GONE before claiming "removed" + reinstalling; a present row means the
+    // removal did not complete, so throw and let the catch clean up honestly rather than
+    // streaming a false success and trying to reinstall on top of the still-present app.
+    // (softRemoveAppLocally, used by softRedeploy, propagates its errors, so it needs no such
+    // check.)
+    if (!await localAppRowConfirmedAbsent(appSpecs.name)) {
+      throw new Error(`hardRedeploy: removal of ${appSpecs.name} did not complete (local row still present); aborting redeploy`);
+    }
     const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
     log.info(appRedeployResponse);
     if (res) {
@@ -3493,6 +3503,16 @@ async function reinstallOldApplications() {
 
               // eslint-disable-next-line no-await-in-loop
               await appUninstaller.removeAppLocally(appSpecifications.name, null, false, false);
+              // removeAppLocally swallows its own errors and resolves normally even when its
+              // prelude aborts (C5); confirm the row is gone before claiming "removed" +
+              // reinstalling. If it is still present the removal did not complete - skip this
+              // app's reinstall this pass (don't report a false success or reinstall on top).
+              // eslint-disable-next-line no-await-in-loop
+              if (!await localAppRowConfirmedAbsent(appSpecifications.name)) {
+                log.error(`reinstallOldApplications: removal of ${appSpecifications.name} did not complete (local row still present); skipping its reinstall this pass`);
+                // eslint-disable-next-line no-continue
+                continue;
+              }
               const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
               log.info(appRedeployResponse);
 
