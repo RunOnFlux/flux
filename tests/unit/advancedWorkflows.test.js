@@ -1671,6 +1671,18 @@ describe('advancedWorkflows tests', () => {
       const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, {});
       expect(result).to.not.equal(true);
     });
+
+    it('clears installationInProgress when nodeTier fails (no install-lock wedge)', async () => {
+      // eslint-disable-next-line global-require
+      const generalService = require('../../ZelBack/src/services/generalService');
+      sinon.stub(generalService, 'nodeTier').resolves(null);
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+      const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', ports: [31000] }] };
+
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, {});
+      expect(result).to.not.equal(true);
+      expect(globalState.installationInProgress).to.be.false;
+    });
   });
 
   // Note: verifyAppUpdateParameters, createAppVolume,

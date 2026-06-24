@@ -930,6 +930,10 @@ describe('appInstaller tests', () => {
 
       expect(res.write.called).to.be.true;
       expect(result).to.be.false;
+      // The install lock must be released on the no-tier bail (a plain return bypasses
+      // the catch that clears it) - else a transient nodeTier() failure wedges all
+      // future installs with installationInProgress stuck true.
+      expect(globalStateStub.installationInProgress).to.be.false;
     });
 
     it('should return false if app already installed', async () => {

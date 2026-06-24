@@ -361,6 +361,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     globalState.installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
+      // Clear the install lock we just set: a normal `return` here bypasses the
+      // catch (which clears it), so a transient nodeTier() failure would otherwise
+      // wedge installationInProgress=true forever and block all future installs.
+      globalState.installationInProgress = false;
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
       log.error(rStatus);
       if (res) {

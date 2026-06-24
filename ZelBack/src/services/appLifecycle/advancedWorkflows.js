@@ -882,6 +882,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
     globalState.installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
+      // Clear the install lock we just set: this `return` bypasses the catch (which
+      // clears it), so a transient nodeTier() failure would otherwise wedge
+      // installationInProgress=true forever and block all future installs.
+      globalState.installationInProgress = false;
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
       log.error(rStatus);
       if (res) {
