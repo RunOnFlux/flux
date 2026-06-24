@@ -37,6 +37,7 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
 const { withHostMutationLock } = require('../utils/hostMutationLock');
 const appNetworkLinker = require('./appNetworkLinker');
+const specDiff = require('./specDiff');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -1460,7 +1461,12 @@ async function hardRedeploy(appSpecs, res) {
     }
     globalState.hardRedeployInProgress = true;
     log.warn(`REMOVAL REASON: Hard redeploy initiated - ${appSpecs.name} being removed as part of hard redeploy process (hardRedeploy)`);
-    await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
+    // Keep the app's own docker network across the redeploy (it is unchanged for a
+    // same-app redeploy and its networkWith consumers must stay attached - the cascade
+    // flap). Legacy gateway-IP apps must still recreate it. Soft redeploy already keeps
+    // the network; this brings hard into line for everything but the volume.
+    const keepNetwork = !specDiff.mustRecreateNetwork(appSpecs);
+    await appUninstaller.removeAppLocally(appSpecs.name, res, false, false, false, false, false, { keepNetwork });
     const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
     log.info(appRedeployResponse);
     if (res) {

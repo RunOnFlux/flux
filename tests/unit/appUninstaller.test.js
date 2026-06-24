@@ -874,6 +874,23 @@ describe('appUninstaller tests', () => {
       sinon.assert.calledWith(runtimeStateStub.setCondemned, 'redapp', true);
     });
 
+    it('redeploy keepNetwork: does NOT tear down the app docker network', async () => {
+      const uninstaller = buildUninstaller();
+      // a hard redeploy passes opts.keepNetwork=true (8th arg)
+      await uninstaller.removeAppLocally('redapp', null, false, true, false, false, false, { keepNetwork: true });
+      sinon.assert.notCalled(dockerStub.removeFluxAppDockerNetwork);
+      sinon.assert.notCalled(dockerStub.forceRemoveFluxAppDockerNetwork);
+      // and the durable doc records keepNetwork so a crashed-mid-redeploy boot recovery keeps it too
+      expect(pendingStoreStub.writeTeardown.calledWithMatch({ key: 'redapp', keepNetwork: true })).to.equal(true);
+    });
+
+    it('a normal removal DOES tear down the app docker network (keepNetwork defaults false)', async () => {
+      const uninstaller = buildUninstaller();
+      await uninstaller.removeAppLocally('redapp', null, true); // force, no opts
+      sinon.assert.calledWith(dockerStub.forceRemoveFluxAppDockerNetwork, 'redapp');
+      expect(pendingStoreStub.writeTeardown.calledWithMatch({ key: 'redapp', keepNetwork: false })).to.equal(true);
+    });
+
     it('drops the condemned stamp BEFORE clearing the durable doc, and clears it when no stamp survives', async () => {
       const uninstaller = buildUninstaller();
       await uninstaller.removeAppLocally('redapp', null, true);

@@ -1019,7 +1019,7 @@ function shouldSweepUnrequiredDependencies(isComponent, description, force, canc
  */
 async function runTeardown(ctx) {
   const {
-    key, appName, isComponent, components, force, cancelGraceful, res,
+    key, appName, isComponent, components, force, cancelGraceful, keepNetwork, res,
   } = ctx;
 
   // Phase A — drain (no lock). Many apps can drain at once. The container-removed
@@ -1046,7 +1046,11 @@ async function runTeardown(ctx) {
         log.error(`Host teardown of ${descriptor.identifier} failed (continuing): ${error.message}`);
       }
     }
-    if (!isComponent) {
+    // A whole-app teardown removes the per-owner docker network UNLESS a redeploy
+    // asked to keep it (the network is unchanged across a same-app redeploy and its
+    // networkWith consumers must stay attached). Removal/cancel/expiry pass keepNetwork
+    // false and tear it down as before.
+    if (!isComponent && !keepNetwork) {
       await removeAppDockerNetwork(appName, force, res);
     }
   });
@@ -1104,7 +1108,11 @@ async function runTeardown(ctx) {
  * @param {boolean} background - Fire the teardown and return (the design's `async`)
  * @returns {Promise<void>}
  */
-async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, cancelGraceful = false, background = false) {
+async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, cancelGraceful = false, background = false, opts = {}) {
+  // opts.keepNetwork: a redeploy keeps the app's own docker network (it is unchanged
+  // across a same-app redeploy and networkWith consumers stay attached - see specDiff).
+  // Defaults false so removal/cancel/expiry tear the network down as before.
+  const keepNetwork = opts.keepNetwork === true;
   let weSetRemovalFlag = false;
   // the bare app name we claimed in removalsInProgress, captured outside the try so
   // the finally can release exactly that entry (appName is block-scoped to the try)
@@ -1252,6 +1260,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       name: appName,
       networkName: appName,
       isComponent,
+      keepNetwork,
       createdAt: Date.now(),
       attempts: 0,
       components: components.map((c) => ({
@@ -1337,7 +1346,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
 
     // --- teardown (Phase A drain + Phase B host cleanup) --------------------
     const teardownCtx = {
-      key: app, appName, isComponent, components, force, cancelGraceful, res,
+      key: app, appName, isComponent, components, force, cancelGraceful, keepNetwork, res,
     };
     if (background) {
       // cancel/expiry: don't block the caller on the drain + host cleanup. A
@@ -1528,6 +1537,7 @@ async function resumePendingTeardowns(docs) {
       components,
       force: true,
       cancelGraceful: false,
+      keepNetwork: doc.keepNetwork === true,
       res: null,
     }).catch((error) => log.error(`Boot recovery: teardown of ${doc.name} failed, will retry next boot: ${error.message}`));
   }
