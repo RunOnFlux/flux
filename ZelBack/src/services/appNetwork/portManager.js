@@ -264,14 +264,16 @@ async function restoreAppsPortsSupport() {
     const isUPNP = upnpService.isUPNP();
 
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    // setup UFW for apps
+    // setup UFW for apps. Each ufw allow is a leaf host mutation taken under the
+    // node-wide host-mutation lock per port (matching the install port-open loop), so
+    // it serializes with concurrent install/removal ufw edits without head-of-lining.
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
       for (const application of currentAppsPorts) {
         // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
           // eslint-disable-next-line no-await-in-loop
-          await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
+          await withHostMutationLock(() => fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port)));
         }
       }
     }
@@ -283,8 +285,12 @@ async function restoreAppsPortsSupport() {
       for (const application of currentAppsPorts) {
         // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
+          // Lock wraps ONLY the leaf UPnP map. The removeAppLocally + delay(3min)
+          // below MUST stay OUTSIDE it: removeAppLocally acquires this same lock in
+          // its Phase-B teardown (the non-re-entrant AsyncLock(1) would deadlock), and
+          // a 3-minute delay must never hold the node-wide lock (head-of-line).
           // eslint-disable-next-line no-await-in-loop
-          const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+          const upnpOk = await withHostMutationLock(() => upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`));
           if (!upnpOk) {
             log.warn(`REMOVAL REASON: UPNP port mapping failure - ${application.name} failed to map port ${port} via UPNP (portManager)`);
             // Import locally to avoid circular dependency

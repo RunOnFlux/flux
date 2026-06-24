@@ -522,6 +522,35 @@ describe('portManager tests', () => {
       // Should not throw
       await portManager.restoreAppsPortsSupport();
     });
+
+    it('removes the failed app OUTSIDE the host-mutation lock (the deadlock trap)', async function test() {
+      this.timeout(5000);
+      upnpService.isUPNP.returns(true);
+      upnpService.mapUpnpPort.resolves(false); // UPnP mapping fails -> recovery removes the app
+
+      // eslint-disable-next-line global-require
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(serviceHelper, 'delay').resolves(); // skip the real 3-minute throttle
+
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      // eslint-disable-next-line global-require
+      const { withHostMutationLock } = require('../../ZelBack/src/services/utils/hostMutationLock');
+      // The real Phase-B teardown re-enters this same non-re-entrant AsyncLock(1). If
+      // restoreAppsPortsSupport still HELD the lock when calling removeAppLocally (the
+      // trap), this re-acquire would deadlock and the test would hang to timeout. It
+      // completes only because the leaf UPnP map releases the lock before this call.
+      // (Load-bearing: production + this require share the one hostMutationLock
+      // singleton via the CJS cache; stubbing/replacing that module would silently
+      // disarm this guard.)
+      const removeStub = sinon.stub(appUninstaller, 'removeAppLocally').callsFake(
+        () => withHostMutationLock(() => Promise.resolve()),
+      );
+
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.calledWith(removeStub, 'App1', null, true, true, true);
+    });
   });
 
   describe('signCheckAppData tests', () => {
