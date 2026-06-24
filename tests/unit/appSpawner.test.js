@@ -141,7 +141,7 @@ describe('appSpawner tests', () => {
       '../fluxCommunicationMessagesSender': {
         broadcastMessageToOutgoing: sinon.stub().resolves(),
         broadcastMessageToIncoming: sinon.stub().resolves(),
-        broadcastMessageToAll: sinon.stub().resolves(),
+        broadcastMessageToAll: opts.broadcastAllStub ?? sinon.stub().resolves(),
       },
       '../utils/appConstants': {
         globalAppsInformation: 'appsInformation',
@@ -793,6 +793,106 @@ describe('appSpawner tests', () => {
       expect(delays).to.have.lengthOf(1);
       expect(delays[0]).to.be.a('number');
       expect(delays[0]).to.be.greaterThan(0);
+    });
+  });
+
+  describe('spawn loop wake latch (L2)', () => {
+    const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
+    const MY_ADDR = '192.168.1.1:16127';
+
+    afterEach(() => {
+      appSyncEvents.removeAllListeners();
+    });
+
+    function waitForLoopExits(n, timeoutMs = 2000) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Expected ${n} loop exit(s)`)), timeoutMs);
+        const check = () => {
+          const count = logStub.info.getCalls().filter((c) => c.args[0] === 'Spawn loop exited (paused)').length;
+          if (count >= n) { clearTimeout(timer); resolve(); } else { setTimeout(check, 5); }
+        };
+        check();
+      });
+    }
+
+    it('latches a wake that fires mid-cycle and skips the next idle delay', async () => {
+      buildModule({ getCachedEnterpriseIdentity: true, isEnterpriseAppOwner: () => true });
+      // Prime this node's cached socket address so notifySpecStored's pin-match passes.
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      const events = []; // ordered record of 'cycleN' and 'delay'
+      let cycle = 0;
+      aggregateStub.resetBehavior();
+      aggregateStub.callsFake(() => {
+        cycle += 1;
+        events.push(`cycle${cycle}`);
+        if (cycle === 1) {
+          // Fire the wake DURING cycle 1: idleWakeResolve is null here (it is only set inside
+          // the inter-cycle Promise.race AFTER trySpawning returns), so the old code dropped
+          // this wake. The latch must capture it and skip cycle 1's park.
+          appSpawner.notifySpecStored({
+            name: 'edingoa', owner: 'enterpriseOwnerX', nodes: [MY_ADDR], instances: 1,
+          });
+        }
+        return Promise.resolve([]); // no apps -> trySpawning returns a positive (park) delay
+      });
+      delayStub.resetBehavior();
+      delayStub.callsFake(() => {
+        events.push('delay');
+        globalStateStub.spawnerPaused = true; // pause as soon as a delay actually runs
+        return Promise.resolve();
+      });
+
+      appSpawner.initialize();
+      appSyncEvents.emit(SYNC_EVENTS.SPAWNER_READY);
+      await waitForLoopExits(1);
+
+      // With the latch: cycle1 -> (latched wake -> skip delay) -> cycle2 -> delay -> pause.
+      // Without it: cycle1 -> delay -> pause, and cycle2 never runs (wake was dropped).
+      expect(events).to.include('cycle2');
+      expect(events.indexOf('cycle2')).to.be.lessThan(events.indexOf('delay'));
+    });
+  });
+
+  describe('installing-broadcast fire-and-forget on sole-installer (L3)', () => {
+    const MY_ADDR = '192.168.1.1:16127';
+    const baseApp = {
+      name: 'soleApp', actual: 0, geolocation: [], hash: 'sole1', version: 7, enterprise: false, owner: 'o',
+    };
+    const baseSpec = {
+      name: 'soleApp', hash: 'sole1', version: 7, compose: [{ repotag: 'img:latest', containerData: '' }],
+    };
+
+    it('fire-and-forgets the broadcast on the sole path: install proceeds even if the broadcast REJECTS', async () => {
+      const installStub = sinon.stub().resolves(true);
+      buildModule({
+        aggregateResult: [{ ...baseApp, required: 1, nodes: [MY_ADDR] }],
+        appSpec: { ...baseSpec, instances: 1, nodes: [MY_ADDR] },
+        installStub,
+        broadcastAllStub: sinon.stub().rejects(new Error('broadcast down')),
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      // soleRequiredInstaller -> the broadcast is fire-and-forget (.catch), so a broadcast
+      // failure does NOT abort: the install still runs.
+      expect(installStub.called, 'install should proceed despite the broadcast failing').to.be.true;
+    });
+
+    it('awaits the broadcast on the non-sole path: a broadcast REJECT aborts before install', async () => {
+      const installStub = sinon.stub().resolves(true);
+      buildModule({
+        aggregateResult: [{ ...baseApp, required: 3, nodes: [] }],
+        appSpec: { ...baseSpec, instances: 3, nodes: [] },
+        installStub,
+        broadcastAllStub: sinon.stub().rejects(new Error('broadcast down')),
+      });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      // not sole -> the broadcast is AWAITED, so its rejection propagates to the catch
+      // BEFORE registerAppLocally is reached.
+      expect(installStub.called, 'install must NOT run when the awaited broadcast fails').to.be.false;
     });
   });
 
