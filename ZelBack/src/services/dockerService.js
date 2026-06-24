@@ -1240,7 +1240,11 @@ async function appDockerStop(idOrName, timeout) {
   try {
     // An explicit timeout wins; otherwise honor a per-container graceful-shutdown
     // window stamped at create (flux.graceful.stop-s) — TEMP v8 enterprise hack.
-    const effectiveTimeout = timeout !== undefined ? timeout : gracefulStopSecondsFromLabels(containerInfo);
+    const gracefulSeconds = gracefulStopSecondsFromLabels(containerInfo);
+    const effectiveTimeout = timeout ?? gracefulSeconds;
+    if (gracefulSeconds && effectiveTimeout === gracefulSeconds) {
+      log.info(`Graceful shutdown: ${dockerName} draining with ${gracefulSeconds}s window before SIGKILL`);
+    }
     const opts = effectiveTimeout !== undefined ? { t: effectiveTimeout } : {};
     await dockerContainer.stop(opts);
   } finally {
@@ -1275,7 +1279,10 @@ async function appDockerRestart(idOrName) {
     // restart() is a stop+start; honor the per-container graceful-shutdown window
     // for the stop half so every local stop path is consistent — TEMP v8 hack.
     const gracefulSeconds = gracefulStopSecondsFromLabels(containerInfo);
-    const opts = gracefulSeconds !== undefined ? { t: gracefulSeconds } : {};
+    if (gracefulSeconds) {
+      log.info(`Graceful shutdown: ${dockerName} draining with ${gracefulSeconds}s window before SIGKILL (restart)`);
+    }
+    const opts = gracefulSeconds ? { t: gracefulSeconds } : {};
     await dockerContainer.restart(opts);
   } finally {
     globalState.stoppingContainers.delete(dockerName);
@@ -1331,7 +1338,8 @@ async function appDockerStopGracefulOrKill(idOrName) {
 
   try {
     const gracefulSeconds = gracefulStopSecondsFromLabels(containerInfo);
-    if (gracefulSeconds !== undefined) {
+    if (gracefulSeconds) {
+      log.info(`Graceful shutdown: ${dockerName} draining with ${gracefulSeconds}s window before SIGKILL (cancel/expiry)`);
       await dockerContainer.stop({ t: gracefulSeconds });
       return `Flux App ${idOrName} successfully stopped.`;
     }
