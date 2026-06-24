@@ -711,7 +711,7 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
  * @returns {Promise<void>}
  */
 // eslint-disable-next-line no-shadow
-async function softUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring) {
+async function softUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring, skipPorts = false) {
   const componentName = componentSpecifications.name;
 
   // Stop monitoring
@@ -782,9 +782,11 @@ async function softUninstallComponent(appName, appId, componentSpecifications, r
       if (res.flush) res.flush();
     }
 
-    // Cleanup ports
-    // eslint-disable-next-line no-use-before-define
-    await cleanupPorts(componentSpecifications, appName, res, `component ${componentName}`);
+    // Cleanup ports - skipped on a redeploy, which reconciles the port delta itself.
+    if (!skipPorts) {
+      // eslint-disable-next-line no-use-before-define
+      await cleanupPorts(componentSpecifications, appName, res, `component ${componentName}`);
+    }
   });
 
   log.info(`Flux App component ${componentName} of ${appName} was successfully removed`);
@@ -805,7 +807,7 @@ async function softUninstallComponent(appName, appId, componentSpecifications, r
  * @returns {Promise<void>}
  */
 // eslint-disable-next-line no-shadow
-async function softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring) {
+async function softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, skipPorts = false) {
   // Stop monitoring
   log.info(`Stopping Flux App ${appName}...`);
   if (res) {
@@ -873,8 +875,10 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
       if (res.flush) res.flush();
     }
 
-    // Cleanup ports
-    await cleanupPorts(appSpecifications, appName, res, appName);
+    // Cleanup ports - skipped on a redeploy, which reconciles the port delta itself.
+    if (!skipPorts) {
+      await cleanupPorts(appSpecifications, appName, res, appName);
+    }
   });
 
   log.info(`Flux App ${appName} was successfuly removed`);

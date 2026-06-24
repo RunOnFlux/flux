@@ -851,7 +851,10 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
+async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) {
+  // opts.skipPorts: a soft redeploy opens the port delta itself, so the soft reinstall
+  // must NOT open ports here. Defaults false so a plain soft install opens them as before.
+  const skipPorts = opts.skipPorts === true;
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -1049,7 +1052,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
         appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
         // eslint-disable-next-line no-await-in-loop
-        await appInstaller.installApplicationSoft(appComponentSpecs, appName, isComponent, res, appSpecifications);
+        await appInstaller.installApplicationSoft(appComponentSpecs, appName, isComponent, res, appSpecifications, skipPorts);
       }
 
       // Restore syncthing cache for apps with syncthing data to prevent data deletion
@@ -1070,7 +1073,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         }
       }
     } else {
-      await appInstaller.installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications);
+      await appInstaller.installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications, skipPorts);
 
       // Restore syncthing cache for non-compose apps with syncthing data
       const hasSyncthingData = specificationsToInstall.containerData && (specificationsToInstall.containerData.includes('g:') || specificationsToInstall.containerData.includes('r:'));
@@ -1133,7 +1136,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
  * @param {object} res - Response object for streaming
  * @returns {Promise<void>}
  */
-async function softUninstallComposedApp(appSpecifications, appName, res) {
+async function softUninstallComposedApp(appSpecifications, appName, res, skipPorts = false) {
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
@@ -1143,7 +1146,7 @@ async function softUninstallComposedApp(appSpecifications, appName, res) {
   for (const appComposedComponent of appSpecifications.compose.reverse()) {
     const appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
     // eslint-disable-next-line no-await-in-loop
-    await appUninstaller.softUninstallComponent(appName, appId, appComposedComponent, res, stopAppMonitoring);
+    await appUninstaller.softUninstallComponent(appName, appId, appComposedComponent, res, stopAppMonitoring, skipPorts);
   }
 }
 
@@ -1156,13 +1159,13 @@ async function softUninstallComposedApp(appSpecifications, appName, res) {
  * @param {object} res - Response object for streaming
  * @returns {Promise<void>}
  */
-async function softUninstallSingleComponent(appSpecifications, appName, appComponent, appId, res) {
+async function softUninstallSingleComponent(appSpecifications, appName, appComponent, appId, res, skipPorts = false) {
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
 
   const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
-  await appUninstaller.softUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring);
+  await appUninstaller.softUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring, skipPorts);
 }
 
 /**
@@ -1173,12 +1176,12 @@ async function softUninstallSingleComponent(appSpecifications, appName, appCompo
  * @param {object} res - Response object for streaming
  * @returns {Promise<void>}
  */
-async function softUninstallSimpleApp(appSpecifications, appName, appId, res) {
+async function softUninstallSimpleApp(appSpecifications, appName, appId, res, skipPorts = false) {
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
 
-  await appUninstaller.softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring);
+  await appUninstaller.softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, skipPorts);
 }
 
 /**
@@ -1225,7 +1228,10 @@ async function cleanupAppDatabase(appsDatabase, appName, res) {
  * @param {string} app App name.
  * @param {object} res Response.
  */
-async function softRemoveAppLocally(app, res) {
+async function softRemoveAppLocally(app, res, opts = {}) {
+  // opts.skipPorts: a soft redeploy reconciles the port delta itself, so the soft teardown
+  // must NOT close ports here. Defaults false so a plain soft removal closes them as before.
+  const skipPorts = opts.skipPorts === true;
   if (!app) {
     throw new Error('No Flux App specified');
   }
@@ -1269,13 +1275,13 @@ async function softRemoveAppLocally(app, res) {
     // Determine uninstall strategy based on app type
     if (appSpecifications.version >= 4 && !isComponent) {
       // Composed application - uninstall all components
-      await softUninstallComposedApp(appSpecifications, appName, res);
+      await softUninstallComposedApp(appSpecifications, appName, res, skipPorts);
     } else if (isComponent) {
       // Single component of a composed app
-      await softUninstallSingleComponent(appSpecifications, appName, appComponent, appId, res);
+      await softUninstallSingleComponent(appSpecifications, appName, appComponent, appId, res, skipPorts);
     } else {
       // Simple non-composed application
-      await softUninstallSimpleApp(appSpecifications, appName, appId, res);
+      await softUninstallSimpleApp(appSpecifications, appName, appId, res, skipPorts);
     }
 
     // Node-local controller state dies with the components on the soft path too: a
@@ -1310,6 +1316,11 @@ async function softRemoveAppLocally(app, res) {
  * @param {object} res - Response object
  */
 async function softRedeploy(appSpecs, res) {
+  // Declared out here so the catch can still close the removed ports if the reinstall
+  // fails (the skipPorts soft teardown closed nothing - see the failure handler below).
+  let portsToOpen = [];
+  let portsToClose = [];
+  let skipPorts = false;
   try {
     if (globalState.removalInProgress) {
       log.warn('Another application is undergoing removal');
@@ -1380,8 +1391,27 @@ async function softRedeploy(appSpecs, res) {
 
     globalState.softRedeployInProgress = true;
     log.info('Starting softRedeploy');
+
+    // Port delta: open only added ports, close only removed ones, leave the rest. v8+
+    // non-enterprise only (resolveInstalledAppForStructureComparison is v8-gated); otherwise
+    // skipPorts stays false and the soft teardown/reinstall flap all ports as before.
+    if (appSpecs.version >= 8) {
+      try {
+        const installedAppsRes = await getInstalledAppsFromDb({ decryptApps: true });
+        const installedApp = installedAppsRes.status === 'success'
+          ? installedAppsRes.data.find((a) => a.name === appSpecs.name) : null;
+        const oldSpec = resolveInstalledAppForStructureComparison(appSpecs, installedApp, 'softRedeploy');
+        if (oldSpec) {
+          ({ toOpen: portsToOpen, toClose: portsToClose } = specDiff.portDelta(oldSpec, appSpecs));
+          skipPorts = true;
+        }
+      } catch (error) {
+        log.warn(`softRedeploy: port delta unavailable for ${appSpecs.name}, doing a full port setup: ${error.message}`);
+      }
+    }
+
     try {
-      await softRemoveAppLocally(appSpecs.name, res);
+      await softRemoveAppLocally(appSpecs.name, res, { skipPorts });
     } catch (error) {
       log.error(error);
       globalState.softRedeployInProgress = false;
@@ -1398,8 +1428,12 @@ async function softRedeploy(appSpecs, res) {
     // eslint-disable-next-line global-require
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
-    // register
-    await softRegisterAppLocally(appSpecs, undefined, res);
+    // register (skipPorts: the reinstall does not open ports - we reconcile the delta below)
+    await softRegisterAppLocally(appSpecs, undefined, res, { skipPorts });
+    if (skipPorts) {
+      // res was already ended by softRegisterAppLocally on success; reconcile with res=null.
+      await reconcileRedeployPorts(appSpecs.name, portsToClose, portsToOpen, null);
+    }
     log.info('Application softly redeployed');
     globalState.softRedeployInProgress = false;
   } catch (error) {
@@ -1410,6 +1444,13 @@ async function softRedeploy(appSpecs, res) {
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
     await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
+    // The skipPorts soft teardown closed NO ports, and the failure-path removeAppLocally
+    // closes only the new spec's ports - so the removed ports (old-new) would leak. Close
+    // them explicitly (cleanupPorts needs the host-mutation lock held by its caller).
+    if (skipPorts && portsToClose.length) {
+      await withHostMutationLock(() => appUninstaller.cleanupPorts({ ports: portsToClose }, appSpecs.name, null, appSpecs.name))
+        .catch((portErr) => log.error(`softRedeploy failure cleanup: closing removed ports failed: ${portErr.message}`));
+    }
     log.info(`Cleanup completed for ${appSpecs.name} after soft redeploy failure`);
   }
 }
@@ -1499,22 +1540,23 @@ async function hardRedeploy(appSpecs, res) {
     // the network; this brings hard into line for everything but the volume.
     const keepNetwork = !specDiff.mustRecreateNetwork(appSpecs);
 
-    // Port delta: open only added ports, close only removed ones, leave the rest. We need
-    // the installed (old) spec; resolveInstalledAppForStructureComparison yields it only for
-    // v8+ non-enterprise (or arcane-decryptable) apps - for v1-7 or an undecryptable
-    // enterprise spec it returns null and we fall back to the full port flap (skipPorts
-    // stays false), i.e. exactly the pre-change behaviour.
-    try {
-      const installedAppsRes = await getInstalledAppsFromDb({ decryptApps: true });
-      const installedApp = installedAppsRes.status === 'success'
-        ? installedAppsRes.data.find((a) => a.name === appSpecs.name) : null;
-      const oldSpec = resolveInstalledAppForStructureComparison(appSpecs, installedApp, 'hardRedeploy');
-      if (oldSpec) {
-        ({ toOpen: portsToOpen, toClose: portsToClose } = specDiff.portDelta(oldSpec, appSpecs));
-        skipPorts = true;
+    // Port delta: open only added ports, close only removed ones, leave the rest.
+    // resolveInstalledAppForStructureComparison yields the old spec only for v8+ non-enterprise
+    // (or arcane-decryptable) apps - for v1-7 or an undecryptable enterprise spec we fall back
+    // to the full port flap (skipPorts stays false), i.e. exactly the pre-change behaviour.
+    if (appSpecs.version >= 8) {
+      try {
+        const installedAppsRes = await getInstalledAppsFromDb({ decryptApps: true });
+        const installedApp = installedAppsRes.status === 'success'
+          ? installedAppsRes.data.find((a) => a.name === appSpecs.name) : null;
+        const oldSpec = resolveInstalledAppForStructureComparison(appSpecs, installedApp, 'hardRedeploy');
+        if (oldSpec) {
+          ({ toOpen: portsToOpen, toClose: portsToClose } = specDiff.portDelta(oldSpec, appSpecs));
+          skipPorts = true;
+        }
+      } catch (error) {
+        log.warn(`hardRedeploy: port delta unavailable for ${appSpecs.name}, doing a full port setup: ${error.message}`);
       }
-    } catch (error) {
-      log.warn(`hardRedeploy: port delta unavailable for ${appSpecs.name}, doing a full port setup: ${error.message}`);
     }
 
     await appUninstaller.removeAppLocally(appSpecs.name, res, false, false, false, false, false, { keepNetwork, skipPorts });

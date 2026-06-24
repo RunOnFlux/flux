@@ -943,7 +943,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  * @param {object} fullAppSpecs Full app specifications.
  * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs, skipPorts = false) {
   // Verify the apps this app must be networked with (networkWith token) are
   // installed locally and owned by the same owner. Enforced here too — not just
   // in softRegisterAppLocally — so direct callers that bypass it (container
@@ -951,8 +951,11 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   // its network links satisfied.
   await appNetworkLinker.checkAppNetworkRequirements(fullAppSpecs);
 
-  // Setup firewall and UPnP ports (fail fast before downloading images)
-  await setupApplicationPorts(appSpecifications, appName, isComponent, res);
+  // Setup firewall and UPnP ports (fail fast before downloading images). A redeploy
+  // passes skipPorts and reconciles the port delta itself; a fresh install opens all.
+  if (!skipPorts) {
+    await setupApplicationPorts(appSpecifications, appName, isComponent, res);
+  }
 
   // Verify and pull Docker image
   await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
