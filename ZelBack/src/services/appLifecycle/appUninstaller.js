@@ -53,6 +53,25 @@ function setOnComponentRemoved(callback) {
 }
 
 /**
+ * Drop all node-local controller state for a set of component identifiers: the
+ * durable runtime-state doc (operator lock + condemned stamp, via appsRuntimeState.remove)
+ * and the reconciler's in-memory controller verdict (via the onComponentRemoved seam).
+ * A redeploy of any kind is an explicit operator "make it run", so neither the
+ * operator lock nor a stale controller verdict may survive it. The hard path
+ * (removeAppLocally) does this inline; the soft path (advancedWorkflows.softRemoveAppLocally)
+ * calls this so both redeploy paths clear the lock identically.
+ * @param {string[]} identifiers - component identifiers (`component_app`) or [appName]
+ */
+async function dropControllerStateForRedeploy(identifiers) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const identifier of identifiers) {
+    // eslint-disable-next-line no-await-in-loop
+    await appsRuntimeState.remove(identifier);
+    if (onComponentRemoved) onComponentRemoved(identifier);
+  }
+}
+
+/**
  * Stop Syncthing app and clean up cache
  * @param {string} monitoredName - Monitored app name
  * @param {string} appId - Application ID
@@ -1087,6 +1106,9 @@ async function runTeardown(ctx) {
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, cancelGraceful = false, background = false) {
   let weSetRemovalFlag = false;
+  // the bare app name we claimed in removalsInProgress, captured outside the try so
+  // the finally can release exactly that entry (appName is block-scoped to the try)
+  let removalName = null;
   try {
     // Normalise to the bare identifier this function reasons about: a caller may
     // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
@@ -1099,9 +1121,26 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     const callerLine = stack.split('\n')[2]?.trim();
     log.warn(`APP REMOVAL TRIGGERED: ${app} | force=${force} | sendMessage=${sendMessage} | caller: ${callerLine}`);
 
+    if (!app) {
+      throw new Error('No App specified');
+    }
+
+    // Derive the bare app name up front - the per-app removal gate below keys on it
+    // (a component removal keys on its parent app, so it serializes with a whole-app
+    // removal of the same app).
+    const isComponent = app.includes('_');
+    const appName = isComponent ? app.split('_')[1] : app;
+    const appComponent = app.split('_')[0];
+
     if (!force) {
-      if (globalState.removalInProgress) {
-        const warnResponse = messageHelper.createWarningMessage('Another application is undergoing removal. Removal not possible.');
+      // Per-app gate: block a SECOND removal of the same app, but let removals of
+      // DIFFERENT apps proceed concurrently - the node-wide host-mutation lock and
+      // the per-container condemned stamp serialize the shared/per-container work,
+      // so node-wide removal serialization is no longer needed. A forced removal
+      // (cancel/expiry) skips this gate; same-name coordination for the force path
+      // (force WAITS on an in-flight same-name removal) is a documented follow-up.
+      if (globalState.hasRemovalInProgress(appName)) {
+        const warnResponse = messageHelper.createWarningMessage('This application is already undergoing removal. Removal not possible.');
         log.warn(warnResponse);
         if (res) {
           res.write(serviceHelper.ensureString(warnResponse));
@@ -1135,18 +1174,11 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       await removeRequiringWorkloadsFirst(app);
     }
 
-    globalState.removalInProgress = true;
-    // Only THIS call cleared the flag in finally, so a concurrent forced removal's
-    // bail (above) can never clobber another removal's in-progress state.
+    globalState.markRemovalInProgress(appName);
+    // Only release the Set entry THIS call added (the finally below), so a
+    // concurrent forced removal of the same app cannot clear another call's entry.
     weSetRemovalFlag = true;
-
-    if (!app) {
-      throw new Error('No App specified');
-    }
-
-    const isComponent = app.includes('_');
-    const appName = isComponent ? app.split('_')[1] : app;
-    const appComponent = app.split('_')[0];
+    removalName = appName;
 
     // Cancel-during-install: if this app's install is mid-pull, abort it now so we
     // don't finish downloading gigabytes we are about to tear down (and so the
@@ -1353,7 +1385,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       }
     }
   } finally {
-    if (weSetRemovalFlag) globalState.removalInProgress = false;
+    if (weSetRemovalFlag) globalState.removalDone(removalName);
   }
 }
 
@@ -1502,122 +1534,6 @@ async function resumePendingTeardowns(docs) {
 }
 
 /**
- * Soft remove application locally (database and container only)
- * @param {string} app - Application name
- * @param {object} res - Response object for streaming
- // eslint-disable-next-line no-shadow
- * @param {object} globalStateRef - Global state reference
- * @param {function} stopAppMonitoring - Function to stop monitoring
- * @returns {Promise<void>}
- */
-// eslint-disable-next-line no-shadow
-async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring) {
-  // eslint-disable-next-line no-shadow
-  const globalState = globalStateRef;
-  if (globalState.removalInProgress) {
-    throw new Error('Another application is undergoing removal');
-  }
-  if (globalState.installationInProgress) {
-    throw new Error('Another application is undergoing installation');
-  }
-
-  globalState.removalInProgress = true;
-
-  try {
-    if (!app) {
-      throw new Error('No Flux App specified');
-    }
-
-    const isComponent = app.includes('_');
-    const appName = isComponent ? app.split('_')[1] : app;
-    const appComponent = app.split('_')[0];
-
-    // Find app specifications in database
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-
-    const appsQuery = { name: appName };
-    const appsProjection = {};
-    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    if (!appSpecifications) {
-      throw new Error('Flux App not found');
-    }
-
-    let appId = dockerService.getAppIdentifier(app);
-
-    // do this temporarily - otherwise we have to move a bunch of functions around
-    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-    appSpecifications = specificationFormatter(appSpecifications);
-
-    if (appSpecifications.version >= 4 && !isComponent) {
-      // it is a composed application
-      // eslint-disable-next-line no-restricted-syntax
-      for (const appComposedComponent of appSpecifications.compose.reverse()) {
-        appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
-        const appComponentSpecifications = appComposedComponent;
-        // eslint-disable-next-line no-await-in-loop
-        await softUninstallComponent(appName, appId, appComponentSpecifications, res, stopAppMonitoring);
-      }
-    } else if (isComponent) {
-      const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
-      appId = dockerService.getAppIdentifier(`${componentSpecifications.name}_${appSpecifications.name}`);
-      await softUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring);
-    } else {
-      await softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring);
-    }
-
-    // node-local controller state dies with the components on the soft path too:
-    // a (soft) redeploy is an explicit "make it run", so neither the operator
-    // lock nor a stale controller verdict may survive it
-    let removedIdentifiers;
-    if (appSpecifications.version >= 4 && appSpecifications.compose) {
-      removedIdentifiers = isComponent
-        ? [`${appComponent}_${appSpecifications.name}`]
-        : appSpecifications.compose.map((c) => `${c.name}_${appSpecifications.name}`);
-    } else {
-      removedIdentifiers = [appName];
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const identifier of removedIdentifiers) {
-      // eslint-disable-next-line no-await-in-loop
-      await appsRuntimeState.remove(identifier);
-      if (onComponentRemoved) onComponentRemoved(identifier);
-    }
-
-    if (!isComponent) {
-      const databaseStatus = {
-        status: 'Cleaning up database...',
-      };
-      log.info(databaseStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(databaseStatus));
-        if (res.flush) res.flush();
-      }
-      await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-      const databaseStatus2 = {
-        status: 'Database cleaned',
-      };
-      log.info(databaseStatus2);
-      if (res) {
-        res.write(serviceHelper.ensureString(databaseStatus2));
-        if (res.flush) res.flush();
-      }
-      const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was partially removed`);
-      log.info(appRemovalResponseDone);
-      if (res) {
-        res.write(serviceHelper.ensureString(appRemovalResponseDone));
-        if (res.flush) res.flush();
-      }
-    }
-  } catch (error) {
-    log.error(`Error soft removing app ${app}: ${error.message}`);
-    throw error;
-  } finally {
-    globalState.removalInProgress = false;
-  }
-}
-
-/**
  * API endpoint for removing application locally
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -1711,9 +1627,9 @@ module.exports = {
   removeRequiringWorkloadsFirst,
   shouldReverseCascade,
   shouldSweepUnrequiredDependencies,
-  softRemoveAppLocally,
   removeAppLocallyApi,
   setOnComponentRemoved,
+  dropControllerStateForRedeploy,
   stampCondemnedForPendingTeardowns,
   resumePendingTeardowns,
 };

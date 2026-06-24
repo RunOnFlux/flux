@@ -1,12 +1,30 @@
 const { expect } = require('chai');
 
-describe('globalState tests', () => {
-  let globalState;
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 
+describe('globalState tests', () => {
+  // globalState is a SINGLETON shared with the production modules under test. We
+  // reset its mutable state in place between tests rather than delete it from
+  // require.cache + re-require: re-requiring hands THIS file a different instance
+  // than the production code (loaded once at startup) holds, desyncing them and
+  // breaking any later test file that shares globalState with production — an
+  // order-dependent footgun. Resetting in place keeps the one shared instance.
   beforeEach(() => {
-    // Clear the module cache to get a fresh instance for each test
-    delete require.cache[require.resolve('../../ZelBack/src/services/utils/globalState')];
-    globalState = require('../../ZelBack/src/services/utils/globalState');
+    globalState.runningAppsCache.clear();
+    globalState.stoppingContainers.clear();
+    globalState.installingApps.clear();
+    globalState.removalInProgressReset();
+    globalState.installationInProgress = false;
+    globalState.softRedeployInProgress = false;
+    globalState.hardRedeployInProgress = false;
+    globalState.reinstallationOfOldAppsInProgress = false;
+    globalState.appsToBeCheckedLater.length = 0;
+    globalState.appsSyncthingToBeCheckedLater.length = 0;
+    globalState.restoreInProgress.length = 0;
+    globalState.backupInProgress.length = 0;
+    globalState.dbReady = false;
+    globalState.daemonReady = false;
+    globalState.bootContainerStateSettled = false;
   });
 
   describe('runningAppsCache tests', () => {
@@ -86,11 +104,29 @@ describe('globalState tests', () => {
       expect(globalState.reinstallationOfOldAppsInProgress).to.equal(false);
     });
 
-    it('should allow setting removalInProgress', () => {
-      globalState.removalInProgress = true;
+    it('removalInProgress reflects the per-app removal Set (read-only, derived)', () => {
+      globalState.markRemovalInProgress('App1');
       expect(globalState.removalInProgress).to.equal(true);
+      expect(globalState.hasRemovalInProgress('App1')).to.equal(true);
+      expect(globalState.hasRemovalInProgress('App2')).to.equal(false);
 
-      globalState.removalInProgressReset();
+      globalState.removalDone('App1');
+      expect(globalState.removalInProgress).to.equal(false);
+    });
+
+    it('tracks removals per-app: a same-name removal finishing does NOT clear another (Race #2)', () => {
+      globalState.markRemovalInProgress('A');
+      globalState.markRemovalInProgress('B');
+      expect(globalState.hasRemovalInProgress('A')).to.equal(true);
+      expect(globalState.hasRemovalInProgress('B')).to.equal(true);
+
+      // A finishing must leave B's entry intact (the boolean clobber the Set fixes)
+      globalState.removalDone('A');
+      expect(globalState.hasRemovalInProgress('A')).to.equal(false);
+      expect(globalState.hasRemovalInProgress('B')).to.equal(true);
+      expect(globalState.removalInProgress).to.equal(true); // size>0 while B remains
+
+      globalState.removalDone('B');
       expect(globalState.removalInProgress).to.equal(false);
     });
 

@@ -1215,30 +1215,35 @@ async function cleanupAppDatabase(appsDatabase, appName, res) {
 }
 
 /**
- * To remove an app locally (including any components) without storage and cache deletion (keeps mounted volumes and cron job). First finds app specifications in database and then deletes the app from database. For app reload. Only for internal usage. We are throwing in functions using this.
+ * To remove an app locally (including any components) without storage and cache deletion (keeps mounted volumes and cron job). First finds app specifications in database and then deletes the app from database. For app reload (soft redeploy). Only for internal usage. We are throwing in functions using this.
+ * Also drops node-local controller state (the durable runtime-state doc - operator lock + condemned stamp - and the reconciler controller verdict, via appUninstaller.dropControllerStateForRedeploy): a soft redeploy is itself an explicit operator "make it run", so a prior operator stop must not survive it. Mirrors the hard path.
  * @param {string} app App name.
  * @param {object} res Response.
  */
 async function softRemoveAppLocally(app, res) {
-  // Validate state
-  if (globalState.removalInProgress) {
-    throw new Error('Another application is undergoing removal');
-  }
-  if (globalState.installationInProgress) {
-    throw new Error('Another application is undergoing installation');
-  }
   if (!app) {
     throw new Error('No Flux App specified');
   }
 
-  globalState.removalInProgress = true;
+  // Parse the bare app name up front: the per-app removal gate below and the
+  // release in the finally both key on it (and appName must outlive the try).
+  const isComponent = app.includes('_'); // component is defined by appComponent.name_appSpecs.name
+  const appName = isComponent ? app.split('_')[1] : app;
+  const appComponent = app.split('_')[0];
+
+  // Per-app gate: serialize a second removal of the SAME app, but let removals of
+  // DIFFERENT apps proceed concurrently (host-mutation lock + condemned stamp carry
+  // the shared/per-container safety).
+  if (globalState.hasRemovalInProgress(appName)) {
+    throw new Error('This application is already undergoing removal');
+  }
+  if (globalState.installationInProgress) {
+    throw new Error('Another application is undergoing installation');
+  }
+
+  globalState.markRemovalInProgress(appName);
 
   try {
-    // Parse app name and component
-    const isComponent = app.includes('_'); // component is defined by appComponent.name_appSpecs.name
-    const appName = isComponent ? app.split('_')[1] : app;
-    const appComponent = app.split('_')[0];
-
     // Fetch app specifications from database
     const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
@@ -1268,12 +1273,29 @@ async function softRemoveAppLocally(app, res) {
       await softUninstallSimpleApp(appSpecifications, appName, appId, res);
     }
 
+    // Node-local controller state dies with the components on the soft path too: a
+    // soft redeploy is an explicit operator "make it run" (it is itself an operator
+    // action), so neither the operator lock nor a stale reconciler verdict may
+    // survive it. Mirrors the hard path - drops the durable runtime-state doc
+    // (operator lock + condemned stamp) and clears the reconciler controller verdict.
+    let removedIdentifiers;
+    if (appSpecifications.version >= 4 && appSpecifications.compose) {
+      removedIdentifiers = isComponent
+        ? [`${appComponent}_${appSpecifications.name}`]
+        : appSpecifications.compose.map((c) => `${c.name}_${appSpecifications.name}`);
+    } else {
+      removedIdentifiers = [appName];
+    }
+    // eslint-disable-next-line global-require
+    const appUninstaller = require('./appUninstaller');
+    await appUninstaller.dropControllerStateForRedeploy(removedIdentifiers);
+
     // Clean up database (only for full app removal, not individual components)
     if (!isComponent) {
       await cleanupAppDatabase(appsDatabase, appName, res);
     }
   } finally {
-    globalState.removalInProgress = false;
+    globalState.removalDone(appName);
   }
 }
 
@@ -2653,38 +2675,6 @@ async function validateApplicationUpdateCompatibility(specifications, previousAp
 }
 
 /**
- * Set installation progress state
- * @param {boolean} state - Installation progress state
- */
-function setInstallationInProgress(state) {
-  globalState.installationInProgress = state;
-}
-
-/**
- * Set removal progress state
- * @param {boolean} state - Removal progress state
- */
-function setRemovalInProgress(state) {
-  globalState.removalInProgress = state;
-}
-
-/**
- * Get installation progress state
- * @returns {boolean} Current installation state
- */
-function getInstallationInProgress() {
-  return globalState.installationInProgress;
-}
-
-/**
- * Get removal progress state
- * @returns {boolean} Current removal state
- */
-function getRemovalInProgress() {
-  return globalState.removalInProgress;
-}
-
-/**
  * Add app to restore progress
  * @param {string} appname - App name
  */
@@ -2703,34 +2693,6 @@ function removeFromRestoreProgress(appname) {
   if (index > -1) {
     globalState.restoreInProgress.splice(index, 1);
   }
-}
-
-/**
- * Reset removal progress state
- */
-function removalInProgressReset() {
-  globalState.removalInProgress = false;
-}
-
-/**
- * Set removal in progress to true
- */
-function setRemovalInProgressToTrue() {
-  globalState.removalInProgress = true;
-}
-
-/**
- * Reset installation progress state
- */
-function installationInProgressReset() {
-  globalState.installationInProgress = false;
-}
-
-/**
- * Set installation in progress to true
- */
-function setInstallationInProgressTrue() {
-  globalState.installationInProgress = true;
 }
 
 /**
@@ -4029,16 +3991,8 @@ module.exports = {
   removeTestAppMount,
   testAppMount,
   validateApplicationUpdateCompatibility,
-  setInstallationInProgress,
-  setRemovalInProgress,
-  getInstallationInProgress,
-  getRemovalInProgress,
   addToRestoreProgress,
   removeFromRestoreProgress,
-  removalInProgressReset,
-  setRemovalInProgressToTrue,
-  installationInProgressReset,
-  setInstallationInProgressTrue,
   checkAndRemoveApplicationInstance,
   reinstallOldApplications,
   checkAndRemoveEnterpriseAppsOnNonArcane,

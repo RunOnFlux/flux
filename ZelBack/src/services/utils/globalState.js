@@ -3,7 +3,13 @@ const { AsyncGate } = require('./asyncGate');
 // Global state variables for apps service
 // These need to be shared across all modules to maintain the original business logic
 
-let removalInProgress = false;
+// removalInProgress was a single node-wide boolean. It is now a per-app Set of
+// bare app names, so concurrent removals of DIFFERENT apps proceed (e.g. the
+// expiry sweep cancelling several at once) while a second removal of the SAME app
+// still serializes. The boolean getter/setter below are a size>0 compat shim for
+// the many COARSE "is the node removing anything" readers (reconciler defer,
+// watchtower prune, daemon-health, syncthing); per-app GATES use hasRemovalInProgress(name).
+const removalsInProgress = new Set();
 let installationInProgress = false;
 let softRedeployInProgress = false;
 let hardRedeployInProgress = false;
@@ -64,8 +70,23 @@ function initializeCaches(cacheManager) {
 
 module.exports = {
   // State getters/setters
-  get removalInProgress() { return removalInProgress; },
-  set removalInProgress(value) { removalInProgress = value; },
+
+  // The per-app removal Set itself (for callers that want size / membership).
+  get removalsInProgress() { return removalsInProgress; },
+  // Per-app removal gate API — the real serialization point. A removal of `name`
+  // claims its entry on entry and releases it when done; a same-name removal sees
+  // it, a different-app removal does not.
+  hasRemovalInProgress(name) { return removalsInProgress.has(name); },
+  markRemovalInProgress(name) { removalsInProgress.add(name); },
+  removalDone(name) { removalsInProgress.delete(name); },
+
+  // Coarse READ-ONLY derived flag: "is the node removing anything" === the per-app
+  // Set is non-empty. The ~25 coarse readers (reconciler defer, watchtower prune,
+  // daemon-health, syncthing) keep reading removalInProgress unchanged. There is no
+  // setter: a removal is always OF A SPECIFIC APP, so callers use
+  // markRemovalInProgress(name)/removalDone(name); "clear everything" is
+  // removalInProgressReset() (boot recovery).
+  get removalInProgress() { return removalsInProgress.size > 0; },
 
   get installationInProgress() { return installationInProgress; },
   set installationInProgress(value) { installationInProgress = value; },
@@ -80,7 +101,7 @@ module.exports = {
   set reinstallationOfOldAppsInProgress(value) { reinstallationOfOldAppsInProgress = value; },
 
   isOperationInProgress() {
-    return removalInProgress || installationInProgress || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
+    return removalsInProgress.size > 0 || installationInProgress || softRedeployInProgress || hardRedeployInProgress || reinstallationOfOldAppsInProgress;
   },
 
   get masterSlaveAppsRunning() { return masterSlaveAppsRunning; },
@@ -139,10 +160,10 @@ module.exports = {
   set trySpawningGlobalAppCache(value) { trySpawningGlobalAppCache = value; },
 
   // Helper functions to match original API
-  removalInProgressReset() { removalInProgress = false; },
-  setRemovalInProgressToTrue() { removalInProgress = true; },
+  // Clears ALL in-flight per-app removals (boot/global recovery only — a normal
+  // removal releases its own app via removalDone(name)).
+  removalInProgressReset() { removalsInProgress.clear(); },
   installationInProgressReset() { installationInProgress = false; },
-  setInstallationInProgressTrue() { installationInProgress = true; },
   softRedeployInProgressReset() { softRedeployInProgress = false; },
   setSoftRedeployInProgressTrue() { softRedeployInProgress = true; },
   hardRedeployInProgressReset() { hardRedeployInProgress = false; },

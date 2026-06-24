@@ -11,56 +11,6 @@ describe('advancedWorkflows tests', () => {
     sinon.restore();
   });
 
-  describe('setInstallationInProgress and getInstallationInProgress tests', () => {
-    it('should set installation in progress', () => {
-      advancedWorkflows.setInstallationInProgressTrue();
-
-      const inProgress = advancedWorkflows.getInstallationInProgress();
-      expect(inProgress).to.be.true;
-    });
-
-    it('should reset installation in progress', () => {
-      advancedWorkflows.setInstallationInProgressTrue();
-      advancedWorkflows.installationInProgressReset();
-
-      const inProgress = advancedWorkflows.getInstallationInProgress();
-      expect(inProgress).to.be.false;
-    });
-
-    it('should set specific app installation in progress', () => {
-      advancedWorkflows.setInstallationInProgress('TestApp', true);
-
-      const inProgress = advancedWorkflows.getInstallationInProgress();
-      // When setting specific app, function returns the app name, not just true
-      expect(inProgress).to.equal('TestApp');
-    });
-  });
-
-  describe('setRemovalInProgress and getRemovalInProgress tests', () => {
-    it('should set removal in progress', () => {
-      advancedWorkflows.setRemovalInProgressToTrue();
-
-      const inProgress = advancedWorkflows.getRemovalInProgress();
-      expect(inProgress).to.be.true;
-    });
-
-    it('should reset removal in progress', () => {
-      advancedWorkflows.setRemovalInProgressToTrue();
-      advancedWorkflows.removalInProgressReset();
-
-      const inProgress = advancedWorkflows.getRemovalInProgress();
-      expect(inProgress).to.be.false;
-    });
-
-    it('should set specific app removal in progress', () => {
-      advancedWorkflows.setRemovalInProgress('TestApp', true);
-
-      const inProgress = advancedWorkflows.getRemovalInProgress();
-      // When setting specific app, function returns the app name, not just true
-      expect(inProgress).to.equal('TestApp');
-    });
-  });
-
   describe('addToRestoreProgress and removeFromRestoreProgress tests', () => {
     beforeEach(() => {
       // eslint-disable-next-line global-require
@@ -105,7 +55,7 @@ describe('advancedWorkflows tests', () => {
     beforeEach(() => {
       // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.removalInProgress = false;
+      globalState.removalInProgressReset();
       globalState.installationInProgress = false;
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
@@ -218,7 +168,7 @@ describe('advancedWorkflows tests', () => {
     beforeEach(() => {
       // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.removalInProgress = false;
+      globalState.removalInProgressReset();
       globalState.installationInProgress = false;
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
@@ -230,7 +180,7 @@ describe('advancedWorkflows tests', () => {
     });
 
     it('should return early if removal is in progress', async () => {
-      globalState.removalInProgress = true;
+      globalState.markRemovalInProgress('__test__');
 
       await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res);
 
@@ -332,7 +282,7 @@ describe('advancedWorkflows tests', () => {
     beforeEach(() => {
       // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.removalInProgress = false;
+      globalState.removalInProgressReset();
       globalState.installationInProgress = false;
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
@@ -344,7 +294,7 @@ describe('advancedWorkflows tests', () => {
     });
 
     it('should return early if removal is in progress', async () => {
-      globalState.removalInProgress = true;
+      globalState.markRemovalInProgress('__test__');
 
       await advancedWorkflows.hardRedeployComponent('myapp', 'frontend', res);
 
@@ -472,7 +422,7 @@ describe('advancedWorkflows tests', () => {
       globalState = require('../../ZelBack/src/services/utils/globalState');
       globalState.masterSlaveAppsRunning = false;
       globalState.installationInProgress = false;
-      globalState.removalInProgress = false;
+      globalState.removalInProgressReset();
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
       // the syncthing monitor's first-run mount-safety is assumed complete for the
@@ -544,7 +494,7 @@ describe('advancedWorkflows tests', () => {
     });
 
     it('should skip execution if removal is in progress', async () => {
-      globalState.removalInProgress = true;
+      globalState.markRemovalInProgress('__test__');
 
       const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
@@ -1269,7 +1219,7 @@ describe('advancedWorkflows tests', () => {
       // Reset global state
       // eslint-disable-next-line global-require
       const globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.removalInProgress = false;
+      globalState.removalInProgressReset();
       globalState.installationInProgress = false;
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
