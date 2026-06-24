@@ -43,6 +43,7 @@ describe('appReconciler tests', () => {
       volumeService: { ensureMountPathsExist: sinon.stub().resolves() },
       appsRuntimeState: {
         isOperatorStopped: sinon.stub().resolves(false),
+        isCondemned: sinon.stub().resolves(false),
         restartWaitMs: sinon.stub().resolves(0),
         recordRestart: sinon.stub().resolves(),
         recordExit: sinon.stub().resolves(),
@@ -150,6 +151,25 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App'); // inspect default: stopped
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    it('takes NO action on a condemned component and bails BEFORE the spec lookup', async () => {
+      // The spine's central invariant: a component being torn down (condemned) is
+      // never started, stopped, or recreated by the reconciler. The gate is a plain
+      // return at reconcile() ENTRY, before getLocalComponentSpec - so it fires even
+      // for a row-PRESENT, running container. Asserting findOneInDatabase is NOT
+      // called is load-bearing: it fails if a future edit moves the gate below the
+      // spec lookup (where a row-present condemned app would be wrongly managed) or
+      // converts it to a desired:false stop (which would appDockerStop a draining
+      // container). dockerContainerInspect is also not reached.
+      stubs.appsRuntimeState.isCondemned.resolves(true);
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerStart.called, 'must not start a condemned container').to.be.false;
+      expect(stubs.dockerService.appDockerStop.called, 'must not stop a condemned container (it may be draining)').to.be.false;
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.called, 'must not recreate a condemned container').to.be.false;
+      expect(stubs.dbHelper.findOneInDatabase.called, 'must bail at the gate, BEFORE getLocalComponentSpec').to.be.false;
+      expect(stubs.dockerService.dockerContainerInspect.called, 'must not even inspect docker').to.be.false;
     });
 
     it('starts a stopped plain component that should run (default always policy)', async () => {

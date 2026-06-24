@@ -14,10 +14,18 @@ const { AsyncLock } = require('./asyncLock');
 //   - Acquire ONLY via withHostMutationLock; one enable() is paired with exactly one
 //     disable() in its finally. maxConcurrent=1 keeps acquisition strictly serial FIFO so
 //     disable() always resolves the calling holder. NEVER raise maxConcurrent.
-//   - Wrap ONLY the leaf mutation call(s). NEVER hold the lock across a wait: no test-bind,
-//     no peer-reachability probe, no image pull, no container graceful-drain, no
-//     serviceHelper.delay. In a multi-port loop acquire/release PER PORT (each UPnP call
-//     carries ~1s of internal pacing), so the longest any holder blocks others is one call.
+//   - Wrap ONLY the host mutation call(s). NEVER hold the lock across an UNBOUNDED wait: no
+//     test-bind, no peer-reachability probe, no image pull, no container graceful-drain, no
+//     serviceHelper.delay. Two acquisition granularities are in use, both correct:
+//       (a) leaf, per-call (install port-open, prelaunch probe, availability self-test,
+//           watchtower prune): in a multi-port loop acquire/release PER PORT (each UPnP call
+//           carries ~1s of internal pacing) so the longest a holder blocks others is one call;
+//       (b) per-APP, for the removal teardown (appUninstaller.runTeardown Phase B): ONE
+//           acquisition wraps a whole app's components' host teardown + its docker-network
+//           removal. This is deliberate (one lock once per app, not per component) — the
+//           graceful drain already ran OUTSIDE it, and the steps inside are bounded host
+//           ops (ufw/UPnP/umount/rm -rf/image/network), no unbounded wait. The head-of-line
+//           cost of holding it across an app's components is accepted at current contention.
 //   - NEVER acquire while already holding it (no nesting) — AsyncLock(1) would deadlock.
 //     In particular do not wrap any region that transitively calls removeAppLocally (the
 //     teardown path acquires this lock): e.g. portManager.restoreAppsPortsSupport.
@@ -25,10 +33,6 @@ const { AsyncLock } = require('./asyncLock');
 // Deliberately NOT serialized (documented scope boundary):
 //   - the graceful container drain (appDockerStopGracefulOrKill, up to 3900s) — per-app,
 //     kept outside so one drain can't head-of-line every other host mutation;
-//   - NOT a safe exclusion (CORRECTION): the docker network removal is cross-app — apps
-//     networkWith-attach to another app's fluxDockerNetwork_<owner>, so removing it races a
-//     consumer's attach. It gets serialized as part of the upcoming removal teardown reshape
-//     (Phase B), tracked there; it is only un-serialized in the interim, not by design;
 //   - fluxNetworkHelper.allowPortApi / upnpService.*Api admin-gated manual REST handlers and
 //     once-at-boot node-self plumbing (restoreFluxPortsSupport/adjustFirewall) — rare, not a
 //     per-app lifecycle race;

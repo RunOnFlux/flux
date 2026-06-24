@@ -56,6 +56,7 @@ const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
+const pendingTeardownStore = require('./appLifecycle/pendingTeardownStore');
 const imageUpdateService = require('./imageUpdateService');
 const { version: fluxVersion } = require('../../../package.json');
 // const throughputLogger = require('./utils/throughputLogger');
@@ -198,6 +199,9 @@ async function startFluxFunctions() {
     // appsRuntimeState (localzelapps): merge any pre-unique-index duplicate docs,
     // then enforce one doc per component identifier
     await appsRuntimeState.prepareCollection();
+    // pendingAppTeardowns (localzelapps): unique index on the teardown key, so a
+    // re-removal can't fork the owed-teardown record
+    await pendingTeardownStore.prepareCollection();
     log.info('Local database prepared');
     log.info('Preparing temporary database...');
     // no need to drop temporary messages

@@ -329,6 +329,16 @@ async function reconcile(rawIdentifier) {
     return;
   }
 
+  // A removal has begun tearing this component down (stamped in the removal
+  // prelude, dropped only when its Phase B host teardown finishes). Take NO
+  // action: a plain return, NOT desired:false - the latter would appDockerStop a
+  // container the cancel may be gracefully draining, and the dataDesired 'clear'
+  // block below would rm -rf its appdata mid-teardown. No retry is scheduled; the
+  // teardown's own completion drops the stamp and nothing more is owed here.
+  if (await appsRuntimeState.isCondemned(identifier)) {
+    return;
+  }
+
   let spec;
   try {
     spec = await getLocalComponentSpec(identifier);

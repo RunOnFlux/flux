@@ -487,6 +487,13 @@ describe('appUninstaller tests', () => {
         '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: sinon.stub().returnsArg(0) },
         '../utils/appSpecHelpers': { specificationFormatter: sinon.stub().returnsArg(0) },
         '../appManagement/appInspector': { stopAppMonitoring: sinon.stub().resolves() },
+        './pendingTeardownStore': {
+          writeTeardown: sinon.stub().resolves(),
+          clearTeardown: sinon.stub().resolves(),
+          bumpAttempts: sinon.stub().resolves(),
+          readAllTeardowns: sinon.stub().resolves([]),
+          prepareCollection: sinon.stub().resolves(),
+        },
       });
       return { mod, appNetworkLinkerStub };
     }
@@ -531,7 +538,11 @@ describe('appUninstaller tests', () => {
     let runtimeStateStub;
 
     function buildUninstaller(spec) {
-      runtimeStateStub = { remove: sinon.stub().resolves() };
+      runtimeStateStub = {
+        remove: sinon.stub().resolves(),
+        setCondemned: sinon.stub().resolves(),
+        isCondemned: sinon.stub().resolves(false),
+      };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -602,6 +613,13 @@ describe('appUninstaller tests', () => {
           stopAppMonitoring: sinon.stub().resolves(),
         },
         '../appManagement/appsRuntimeState': runtimeStateStub,
+        './pendingTeardownStore': {
+          writeTeardown: sinon.stub().resolves(),
+          clearTeardown: sinon.stub().resolves(),
+          bumpAttempts: sinon.stub().resolves(),
+          readAllTeardowns: sinon.stub().resolves([]),
+          prepareCollection: sinon.stub().resolves(),
+        },
         'node-cmd': { run: sinon.stub().callsFake((cmd, cb) => cb(null, '', '')) },
       });
     }
@@ -897,6 +915,189 @@ describe('appUninstaller tests', () => {
       await appUninstallerWithApp.softRemoveAppLocally(appName, res, globalStateRef, stopAppMonitoring);
 
       expect(res.write.called).to.be.true;
+    });
+  });
+
+  describe('reshape: durable teardown doc, condemned stamp + finish ordering', () => {
+    // Locks the load-bearing invariants of the removal reshape (the spine):
+    //  - the durable pendingAppTeardowns doc is written BEFORE the local row is deleted
+    //  - every component is condemned in the prelude
+    //  - the finish drops the condemned stamp (appsRuntimeState.remove) BEFORE clearing
+    //    the durable doc, and clears the doc ONLY when no stamp survives (the doc is the
+    //    backstop for a swallowed remove failure)
+    //  - boot recovery re-stamps + replays a row-absent teardown but DROPS a doc whose
+    //    whole-app row is back (re-installed / removal aborted) without tearing it down
+    let runtimeStateStub;
+    let pendingStoreStub;
+    let dbHelperStub;
+    let dockerStub;
+
+    const v2Spec = {
+      version: 2,
+      name: 'redapp',
+      description: 'redapp',
+      repotag: 'test/redapp',
+      ports: [30000],
+      domains: [''],
+      cpu: 0.5,
+      ram: 500,
+      hdd: 5,
+    };
+
+    function buildUninstaller({ rowForName } = {}) {
+      runtimeStateStub = {
+        remove: sinon.stub().resolves(true), // confirmed drop by default
+        setCondemned: sinon.stub().resolves(),
+        isCondemned: sinon.stub().resolves(false),
+      };
+      pendingStoreStub = {
+        writeTeardown: sinon.stub().resolves(),
+        clearTeardown: sinon.stub().resolves(),
+        bumpAttempts: sinon.stub().resolves(),
+        readAllTeardowns: sinon.stub().resolves([]),
+        prepareCollection: sinon.stub().resolves(),
+      };
+      dbHelperStub = {
+        databaseConnection: sinon.stub().returns({ db: sinon.stub().returns({}) }),
+        // default: local row found (so removeAppLocally proceeds); boot-recovery tests
+        // override via rowForName to model an installed-again app
+        findOneInDatabase: sinon.stub().callsFake(async (_db, _coll, query) => {
+          if (rowForName) return rowForName(query && query.name);
+          return v2Spec;
+        }),
+        findInDatabase: sinon.stub().resolves([]),
+        findOneAndDeleteInDatabase: sinon.stub().resolves(),
+      };
+      dockerStub = {
+        appDockerStop: sinon.stub().resolves(),
+        appDockerKill: sinon.stub().resolves(),
+        appDockerStopGracefulOrKill: sinon.stub().resolves(),
+        appDockerRemove: sinon.stub().resolves(),
+        appDockerForceRemove: sinon.stub().resolves(),
+        appDockerImageRemove: sinon.stub().resolves(),
+        getAppIdentifier: sinon.stub().callsFake((id) => `flux${id}`),
+        getBaseAppName: sinon.stub().callsFake((id) => id),
+        removeFluxAppDockerNetwork: sinon.stub().resolves(),
+        forceRemoveFluxAppDockerNetwork: sinon.stub().resolves(),
+      };
+      return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        config: configStub,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../serviceHelper': {
+          ensureString: sinon.stub().returnsArg(0),
+          ensureBoolean: sinon.stub().returnsArg(0),
+          ensureNumber: sinon.stub().returnsArg(0),
+          delay: sinon.stub().resolves(),
+        },
+        '../dbHelper': dbHelperStub,
+        '../dockerService': dockerStub,
+        '../../lib/log': logStub,
+        '../utils/globalState': { removalInProgress: false, installationInProgress: false, runningAppsCache: new Map() },
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
+        './advancedWorkflows': { stopSyncthingApp: sinon.stub().resolves() },
+        '../upnpService': { removeMapUpnpPort: sinon.stub().resolves(), isUPNP: sinon.stub().returns(false) },
+        '../fluxNetworkHelper': {
+          isFirewallActive: sinon.stub().resolves(false),
+          deleteAllowPortRule: sinon.stub().resolves(true),
+          getLocalSocketAddress: sinon.stub().resolves(null),
+        },
+        '../fluxCommunicationMessagesSender': { broadcastMessageToAll: sinon.stub().resolves() },
+        '../appDatabase/registryManager': { availableApps: sinon.stub().resolves([]) },
+        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: sinon.stub().returnsArg(0) },
+        '../utils/appSpecHelpers': { specificationFormatter: sinon.stub().returnsArg(0) },
+        '../appManagement/appInspector': { stopAppMonitoring: sinon.stub() },
+        '../appManagement/appsRuntimeState': runtimeStateStub,
+        './pendingTeardownStore': pendingStoreStub,
+        'node-cmd': { run: sinon.stub().callsFake((cmd, cb) => cb(null, '', '')) },
+      });
+    }
+
+    it('writes the durable teardown doc BEFORE deleting the local app row', async () => {
+      const uninstaller = buildUninstaller();
+      await uninstaller.removeAppLocally('redapp', null, true);
+      expect(pendingStoreStub.writeTeardown.calledBefore(dbHelperStub.findOneAndDeleteInDatabase)).to.equal(true);
+      const doc = pendingStoreStub.writeTeardown.firstCall.args[0];
+      expect(doc.key).to.equal('redapp');
+      expect(doc.components.map((c) => c.identifier)).to.deep.equal(['redapp']);
+      // teardown inputs are cleartext; no enterprise blob / repoauth
+      expect(doc.components[0]).to.not.have.property('enterprise');
+      expect(doc.components[0]).to.not.have.property('repoauth');
+    });
+
+    it('condemns the component in the prelude', async () => {
+      const uninstaller = buildUninstaller();
+      await uninstaller.removeAppLocally('redapp', null, true);
+      sinon.assert.calledWith(runtimeStateStub.setCondemned, 'redapp', true);
+    });
+
+    it('drops the condemned stamp BEFORE clearing the durable doc, and clears it when no stamp survives', async () => {
+      const uninstaller = buildUninstaller();
+      await uninstaller.removeAppLocally('redapp', null, true);
+      expect(runtimeStateStub.remove.calledWith('redapp')).to.equal(true);
+      expect(pendingStoreStub.clearTeardown.calledWith('redapp')).to.equal(true);
+      expect(runtimeStateStub.remove.calledBefore(pendingStoreStub.clearTeardown)).to.equal(true);
+    });
+
+    it('keeps the durable doc when a condemned stamp fails to drop (backstop for recovery)', async () => {
+      const uninstaller = buildUninstaller();
+      runtimeStateStub.remove.resolves(false); // remove swallowed a DB error — stamp may survive
+      await uninstaller.removeAppLocally('redapp', null, true);
+      expect(pendingStoreStub.clearTeardown.called).to.equal(false);
+    });
+
+    it('boot recovery re-stamps + returns a row-absent teardown, drops a row-present one', async () => {
+      const docAbsent = {
+        key: 'goneapp', name: 'goneapp', isComponent: false, components: [{ identifier: 'goneapp', appId: 'fluxgoneapp', componentName: 'goneapp', label: 'goneapp', ports: [1], repotag: 'r' }],
+      };
+      const docPresent = {
+        key: 'liveapp', name: 'liveapp', isComponent: false, components: [{ identifier: 'liveapp', appId: 'fluxliveapp', componentName: 'liveapp', label: 'liveapp', ports: [2], repotag: 'r' }],
+      };
+      const uninstaller = buildUninstaller({ rowForName: (name) => (name === 'liveapp' ? { name } : null) });
+      pendingStoreStub.readAllTeardowns.resolves([docAbsent, docPresent]);
+
+      const owed = await uninstaller.stampCondemnedForPendingTeardowns();
+
+      expect(owed.map((d) => d.key)).to.deep.equal(['goneapp']);
+      sinon.assert.calledWith(runtimeStateStub.setCondemned, 'goneapp', true);
+      // the row-present (re-installed) app is un-condemned, never re-condemned
+      expect(runtimeStateStub.setCondemned.calledWith('liveapp', true)).to.equal(false);
+      sinon.assert.calledWith(runtimeStateStub.setCondemned, 'liveapp', false);
+      expect(pendingStoreStub.clearTeardown.calledWith('liveapp')).to.equal(true);
+    });
+
+    it('boot recovery defers (does not tear down or drop) a doc whose row read fails', async () => {
+      const doc = {
+        key: 'blipapp', name: 'blipapp', isComponent: false, components: [{ identifier: 'blipapp', appId: 'fluxblipapp', componentName: 'blipapp', label: 'blipapp', ports: [1], repotag: 'r' }],
+      };
+      const uninstaller = buildUninstaller({ rowForName: () => { throw new Error('db blip'); } });
+      pendingStoreStub.readAllTeardowns.resolves([doc]);
+
+      const owed = await uninstaller.stampCondemnedForPendingTeardowns();
+
+      // unknown row state: leave the doc untouched for a clean retry, never force-tear-down
+      expect(owed).to.deep.equal([]);
+      expect(runtimeStateStub.setCondemned.called).to.equal(false);
+      expect(pendingStoreStub.clearTeardown.called).to.equal(false);
+    });
+
+    it('boot recovery replays a teardown to completion even when the container is already gone', async () => {
+      const uninstaller = buildUninstaller();
+      // every drain/remove call throws as if the container is absent
+      const gone = new Error("Cannot read properties of undefined (reading 'Id')");
+      dockerStub.appDockerKill.rejects(gone);
+      dockerStub.appDockerForceRemove.rejects(gone);
+      const doc = {
+        key: 'goneapp', name: 'goneapp', isComponent: false, components: [{ identifier: 'goneapp', appId: 'fluxgoneapp', componentName: 'goneapp', label: 'goneapp', ports: [1], repotag: 'r' }],
+      };
+
+      await uninstaller.resumePendingTeardowns([doc]);
+
+      expect(runtimeStateStub.remove.calledWith('goneapp')).to.equal(true);
+      expect(pendingStoreStub.clearTeardown.calledWith('goneapp')).to.equal(true);
+      // the image must STILL be reclaimed even though the container was already
+      // gone (force-remove threw) - it is not gated on a successful container removal
+      expect(dockerStub.appDockerImageRemove.calledWith('r')).to.equal(true);
     });
   });
 

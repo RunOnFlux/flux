@@ -110,6 +110,39 @@ async function isOperatorStopped(identifier) {
 }
 
 /**
+ * Marks a component as condemned: a removal has begun tearing it down (the
+ * container is being drained and the host teardown is owed). While condemned
+ * the reconciler must take NO action on it (it early-bails at reconcile entry)
+ * so it can never restart a container mid-drain or recreate one mid-teardown.
+ * Set in the removal prelude for every component; dropped only when the whole
+ * doc is deleted at the end of Phase B (see remove). Survives a FluxOS restart
+ * so boot recovery re-stamps and finishes an interrupted teardown.
+ *
+ * @param {string} identifier
+ * @param {boolean} condemned
+ */
+async function setCondemned(identifier, condemned) {
+  // No catch (mirrors setOperatorStopped): the stamp is the contract that the
+  // reconciler will not fight the teardown. A swallowed write failure would let
+  // a cancel report "removing" while the reconciler keeps restarting the
+  // container - the very bug this fixes - so surface the failure to the caller.
+  await setFields(identifier, { condemned });
+}
+
+/**
+ * Whether this component is being torn down (see setCondemned). Read by the
+ * reconciler's entry gate; tolerant of a read failure (returns false) like
+ * isOperatorStopped, since a transient DB blip must not wedge the reconciler.
+ *
+ * @param {string} identifier
+ * @returns {Promise<boolean>}
+ */
+async function isCondemned(identifier) {
+  const state = await getState(identifier);
+  return state?.condemned === true;
+}
+
+/**
  * Appends a restart attempt (wall-clock) and trims the history to the ladder
  * length so a perpetually crashing container never grows the array unbounded.
  *
@@ -184,17 +217,24 @@ async function recordExit(identifier, exitCode) {
 }
 
 /**
- * Drops all runtime state for a component (on uninstall).
+ * Drops all runtime state for a component (on uninstall), INCLUDING the condemned
+ * stamp. Returns whether the delete was confirmed: true means the doc (and its
+ * stamp) is gone, false means a DB error was swallowed and the stamp MAY survive.
+ * The teardown finish relies on this signal to decide whether it is safe to clear
+ * the durable backstop doc - so this must never report success on a failed write.
  *
  * @param {string} identifier
+ * @returns {Promise<boolean>} true if the delete completed, false on a swallowed error
  */
 async function remove(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   try {
     const database = collection();
     await dbHelper.removeDocumentsFromCollection(database, appsRuntimeState, { identifier });
+    return true;
   } catch (err) {
     log.error(`appsRuntimeState - failed to remove state for ${identifier}: ${err.message}`);
+    return false;
   }
 }
 
@@ -227,6 +267,9 @@ async function prepareCollection() {
           identifier,
           // a lock anywhere is a lock: never auto-start a deliberately stopped app
           operatorStopped: twins.some((t) => t.operatorStopped === true),
+          // condemned anywhere is condemned: a being-torn-down app must not be
+          // un-condemned by a boot dedupe (else the reconciler restarts it mid-drain)
+          condemned: twins.some((t) => t.condemned === true),
           restartHistory: [...new Set(twins.flatMap((t) => t.restartHistory || []))].sort((a, b) => a - b).slice(-MAX_HISTORY),
           updatedAt: Math.max(...twins.map((t) => t.updatedAt || 0)),
         };
@@ -253,6 +296,8 @@ module.exports = {
   getState,
   setOperatorStopped,
   isOperatorStopped,
+  setCondemned,
+  isCondemned,
   recordRestart,
   restartWaitMs,
   recordExit,

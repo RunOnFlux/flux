@@ -11,6 +11,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
+const appsRuntimeState = require('../appManagement/appsRuntimeState');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const { storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
@@ -549,6 +550,28 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     }
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
+
+    // Installing a component is the inverse of condemning it: an installed
+    // component must NEVER carry a condemned stamp, or the reconciler's entry gate
+    // would early-bail on it forever. A prior teardown of the same identifier may
+    // have left a stamp set (e.g. a swallowed DB error during its finish, so the
+    // durable doc kept it for boot recovery); clear it here so this install is not
+    // wedged out of reconciliation until the next reboot. Best-effort per id.
+    let installedIdentifiers;
+    if (isComponent) {
+      installedIdentifiers = [`${appComponent.name}_${appName}`];
+    } else if (appSpecifications.version >= 4 && Array.isArray(appSpecifications.compose)) {
+      installedIdentifiers = appSpecifications.compose.map((c) => `${c.name}_${appName}`);
+    } else {
+      installedIdentifiers = [appName];
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const identifier of installedIdentifiers) {
+      // eslint-disable-next-line no-await-in-loop
+      await appsRuntimeState.setCondemned(identifier, false).catch((error) => {
+        log.error(`Failed to clear condemned stamp for ${identifier} on install: ${error.message}`);
+      });
+    }
 
     try {
       // Validate database entry exists before creating Docker containers (atomic transaction check)

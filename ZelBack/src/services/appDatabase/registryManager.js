@@ -1516,7 +1516,10 @@ async function expireGlobalApplications() {
       // eslint-disable-next-line no-await-in-loop
       // cancelGraceful=true: drain components that declared a graceful window before
       // removing (force-kill the rest) so a cancelled/expired app can flush. TEMP v8 hack.
-      await appUninstaller.removeAppLocally(appName, null, true, false, true, true);
+      // background=true: the prelude (stamp condemned + stop fighting it + delete the
+      // row + broadcast) runs promptly and the slow drain + host teardown run in the
+      // background, so one app's 65-min graceful window can't stall the whole sweep.
+      await appUninstaller.removeAppLocally(appName, null, true, false, true, true, true);
     }
   } catch (error) {
     log.error(error);

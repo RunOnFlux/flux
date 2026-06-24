@@ -55,6 +55,7 @@ module.exports = {
       collections: {
         appsInformation: 'zelappsinformation',
         appsRuntimeState: 'zelappsruntimestate',
+        pendingAppTeardowns: 'zelappspendingteardowns',
       },
     },
     appsglobal: {
