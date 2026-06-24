@@ -25,6 +25,7 @@ const enterpriseNetwork = require('../utils/enterpriseNetwork');
 const { FluxCacheManager } = require('../utils/cacheManager');
 const appInstaller = require('./appInstaller');
 const appUninstaller = require('./appUninstaller');
+const InstallResult = require('./installResult');
 const appNetworkLinker = require('./appNetworkLinker');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -894,23 +895,25 @@ async function trySpawningGlobalApplication() {
       log.warn(`trySpawningGlobalApplication - dependency precheck for ${appToRun} raised a non-deferrable error: ${error.message}`);
     }
 
-    let registerOk = false;
+    let registerResult = InstallResult.FAILED;
     try {
-      registerOk = await appInstaller.registerAppLocally(appSpecifications, null, null, false); // can throw
+      registerResult = await appInstaller.registerAppLocally(appSpecifications, null, null, false); // can throw
     } catch (error) {
       log.error(error);
-      registerOk = false;
+      registerResult = InstallResult.FAILED;
     }
-    if (registerOk === 'deferred') {
-      // Transient: this app (or another) is mid-removal/install, or a same-name teardown
-      // is still owed. NOT a failure - re-select on the next cycle/wake. Crucially do NOT
-      // poison the 7-day spawnErrorsLongerAppCache, which would suppress this pinned app
-      // for up to 7 days (it is never delete()d) - the bug a register->cancel->re-register
-      // cycle hits directly.
+    if (registerResult === InstallResult.DEFERRED) {
+      // Transient: this app (or another) is mid-removal/install, a same-name teardown is
+      // still owed, or the node tier is not yet resolved. NOT a failure - re-select on the
+      // next cycle/wake. Crucially do NOT poison the 7-day spawnErrorsLongerAppCache, which
+      // would suppress this pinned app for up to 7 days (it is never delete()d) - the bug a
+      // register->cancel->re-register cycle hits directly.
       log.info(`trySpawningGlobalApplication - Install of ${appToRun} deferred (transient), will retry`);
       return shortDelayTime;
     }
-    if (!registerOk) {
+    if (registerResult !== InstallResult.INSTALLED) {
+      // FAILED (a real, cleaned-up failure) - cache the hash so we don't immediately retry a
+      // hard failure. (DEFERRED is handled above and never reaches here, so it is never cached.)
       log.info(`trySpawningGlobalApplication - Install failed for ${appToRun}, adding to local error cache`);
       globalState.spawnErrorsLongerAppCache.set(appHash, '');
       fluxEventBus.publish('spawner:installFailed', { appName: appToRun, hash: appHash });

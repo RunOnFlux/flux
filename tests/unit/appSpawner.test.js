@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const InstallResult = require('../../ZelBack/src/services/appLifecycle/installResult');
 
 describe('appSpawner tests', () => {
   let appSpawner;
@@ -155,7 +156,7 @@ describe('appSpawner tests', () => {
         publish: sinon.stub(),
       },
       './appInstaller': {
-        registerAppLocally: opts.installStub ?? sinon.stub().resolves(true),
+        registerAppLocally: opts.installStub ?? sinon.stub().resolves(InstallResult.INSTALLED),
       },
       './appUninstaller': {
         removeAppLocally: sinon.stub().resolves(),
@@ -566,10 +567,23 @@ describe('appSpawner tests', () => {
         aggregateResult: [spawnableApp],
         appSpec: fullSpec,
         errorCount: 0,
-        installStub: sinon.stub().resolves(false),
+        installStub: sinon.stub().resolves(InstallResult.FAILED),
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.true;
+    });
+
+    it('does NOT poison the 7-day cache on a DEFERRED install (transient, retried) - F-E', async () => {
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        installStub: sinon.stub().resolves(InstallResult.DEFERRED), // e.g. a cold-tier blip / teardown owed
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      // DEFERRED must be retried, NOT 7-day-cached (the bug a register->cancel->re-register
+      // cycle, or a fresh-enterprise-node cold-tier blip, would otherwise hit)
+      expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.false;
     });
 
     it('should not overwrite short-term cache with long-term cache when network errors throw into catch', async () => {
@@ -628,7 +642,7 @@ describe('appSpawner tests', () => {
     }
 
     async function runSpawnAttempt(spec) {
-      const installStub = sinon.stub().resolves(true);
+      const installStub = sinon.stub().resolves(InstallResult.INSTALLED);
       buildModule({
         aggregateResult: [spawnableApp],
         appSpec: spec,
@@ -864,7 +878,7 @@ describe('appSpawner tests', () => {
     };
 
     it('fire-and-forgets the broadcast on the sole path: install proceeds even if the broadcast REJECTS', async () => {
-      const installStub = sinon.stub().resolves(true);
+      const installStub = sinon.stub().resolves(InstallResult.INSTALLED);
       buildModule({
         aggregateResult: [{ ...baseApp, required: 1, nodes: [MY_ADDR] }],
         appSpec: { ...baseSpec, instances: 1, nodes: [MY_ADDR] },
@@ -880,7 +894,7 @@ describe('appSpawner tests', () => {
     });
 
     it('awaits the broadcast on the non-sole path: a broadcast REJECT aborts before install', async () => {
-      const installStub = sinon.stub().resolves(true);
+      const installStub = sinon.stub().resolves(InstallResult.INSTALLED);
       buildModule({
         aggregateResult: [{ ...baseApp, required: 3, nodes: [] }],
         appSpec: { ...baseSpec, instances: 3, nodes: [] },

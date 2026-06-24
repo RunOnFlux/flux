@@ -13,6 +13,7 @@ const appUninstaller = require('./appUninstaller');
 const appNetworkLinker = require('./appNetworkLinker');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const pendingTeardownStore = require('./pendingTeardownStore');
+const InstallResult = require('./installResult');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const { storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
@@ -376,7 +377,8 @@ async function throwIfCondemnedMidInstall(appSpecifications, appName, isComponen
  * @param {object} res Response.
  * @param {boolean} test indicates if it is just to test the app install.
  * @param {boolean} sendRemovalMessage whether to broadcast removal message to network if installation fails.
- * @returns {Promise<boolean>} Returns true if installation was successful, false otherwise.
+ * @returns {Promise<string>} An InstallResult member: INSTALLED (success), DEFERRED
+ *   (transient - retry, do not cache as a failure), or FAILED (real failure).
  */
 async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false, opts = {}) {
   // opts.skipPorts: a redeploy opens the port DELTA itself (new-old) and leaves unchanged
@@ -400,7 +402,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return 'deferred';
+      return InstallResult.DEFERRED;
     }
     if (globalState.installationInProgress) {
       const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation deferred.');
@@ -409,7 +411,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return 'deferred';
+      return InstallResult.DEFERRED;
     }
     globalState.installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
@@ -418,13 +420,17 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       // catch (which clears it), so a transient nodeTier() failure would otherwise
       // wedge installationInProgress=true forever and block all future installs.
       globalState.installationInProgress = false;
-      const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
-      log.error(rStatus);
+      const rStatus = messageHelper.createWarningMessage('Node tier not yet available; deferring installation');
+      log.warn(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return false;
+      // 'deferred', NOT false: nodeTier() reads daemon RPCs that are most blip-prone at
+      // fresh boot (and an enterprise node skips the earlier tier-warming call, so this is
+      // the FIRST tier read). A transient miss is a retry state - returning false makes the
+      // spawner 7-day-poison the hash (never cleared), stranding a pinned enterprise app.
+      return InstallResult.DEFERRED;
     }
 
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
@@ -482,7 +488,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(rStatus);
         res.end();
       }
-      return false;
+      return InstallResult.FAILED;
     }
 
     // Install-side interlock (cancel-vs-install): refuse to start while a teardown
@@ -503,7 +509,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return 'deferred';
+      return InstallResult.DEFERRED;
     }
 
     // Register this install's AbortController by app name so a concurrent
@@ -775,7 +781,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
     }
 
-    return false;
+    return InstallResult.FAILED;
   } finally {
     // Drop this install's AbortController (no-op if we bailed before registering).
     if (appSpecs && appSpecs.name) globalState.installingApps.delete(appSpecs.name);
@@ -788,7 +794,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       }
     }
   }
-  return true;
+  return InstallResult.INSTALLED;
 }
 
 /**

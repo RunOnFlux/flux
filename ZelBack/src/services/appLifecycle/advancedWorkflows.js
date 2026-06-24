@@ -39,6 +39,7 @@ const { withHostMutationLock } = require('../utils/hostMutationLock');
 const appNetworkLinker = require('./appNetworkLinker');
 const specDiff = require('./specDiff');
 const pendingTeardownStore = require('./pendingTeardownStore');
+const InstallResult = require('./installResult');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -862,23 +863,27 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
   // register and launch according to specifications in message
   // throw without catching
   try {
-    if (globalState.removalInProgress) {
-      const rStatus = messageHelper.createErrorMessage('Another application is undergoing removal');
-      log.error(rStatus);
+    // Per-app removal gate (mirror registerAppLocally): only THIS app being removed blocks
+    // its own soft reinstall - the node-wide removalInProgress would spuriously fail a soft
+    // redeploy of app A just because an unrelated app B is mid-removal (e.g. a batch cancel).
+    // Return 'deferred' (not undefined) so the tri-state matches the hard path.
+    if (globalState.hasRemovalInProgress(appSpecs.name)) {
+      const rStatus = messageHelper.createWarningMessage(`Flux App ${appSpecs.name} is undergoing removal. Installation deferred.`);
+      log.warn(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return;
+      return InstallResult.DEFERRED;
     }
     if (globalState.installationInProgress) {
-      const rStatus = messageHelper.createErrorMessage('Another application is undergoing installation');
-      log.error(rStatus);
+      const rStatus = messageHelper.createWarningMessage('Another application is undergoing installation. Installation deferred.');
+      log.warn(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return;
+      return InstallResult.DEFERRED;
     }
     globalState.installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
@@ -887,13 +892,15 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
       // clears it), so a transient nodeTier() failure would otherwise wedge
       // installationInProgress=true forever and block all future installs.
       globalState.installationInProgress = false;
-      const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
-      log.error(rStatus);
+      const rStatus = messageHelper.createWarningMessage('Node tier not yet available; deferring installation');
+      log.warn(rStatus);
       if (res) {
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return;
+      // 'deferred', NOT undefined/false: a missing tier is transient infra state - matches
+      // registerAppLocally so the two register paths cannot drift.
+      return InstallResult.DEFERRED;
     }
     const appSpecifications = appSpecs;
     const appComponent = componentSpecs;
@@ -945,7 +952,9 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return;
+      // FAILED (a terminal status), distinct from the transient DEFERRED gates above -
+      // completes softRegister's InstallResult tri-state contract.
+      return InstallResult.FAILED;
     }
 
     // Install-side interlock (cancel-vs-install), mirrored from registerAppLocally: refuse
@@ -955,8 +964,8 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
     // (umount, rm -rf the volume, ufw/UPnP, network) keep running detached - the
     // "already installed" check above misses it because the row is already gone. Without
     // this gate a soft redeploy concurrent with a same-name cancel could create a container
-    // on the volume being rm -rf'd. Return 'deferred' (a non-true status) so a redeploy
-    // caller skips the port reconcile and does not reinstall on top.
+    // on the volume being rm -rf'd. Return DEFERRED (not INSTALLED) so a redeploy caller
+    // skips the port reconcile and does not reinstall on top.
     if (await pendingTeardownStore.teardownOwedFor(appName)) {
       globalState.installationInProgress = false;
       const rStatus = messageHelper.createWarningMessage(`Flux App ${appName} is still being torn down; deferring soft registration until teardown completes.`);
@@ -965,7 +974,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      return 'deferred';
+      return InstallResult.DEFERRED;
     }
 
     // Register this install's AbortController by app name so a concurrent cancel/removal of
@@ -1138,9 +1147,9 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
       res.end();
     }
     globalState.installationInProgress = false;
-    // Signal success so a redeploy caller can reconcile its port delta only when the
-    // reinstall actually completed (returning here is the ONLY true-returning path).
-    return true;
+    // Signal success so a redeploy caller reconciles its port delta only when the reinstall
+    // actually completed (this is the ONLY INSTALLED-returning path).
+    return InstallResult.INSTALLED;
   } catch (error) {
     globalState.installationInProgress = false;
     const errorResponse = messageHelper.createErrorMessage(
@@ -1164,10 +1173,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
     const appUninstaller = require('./appUninstaller');
     // Await the failure cleanup so the new spec's ports are closed before a redeploy
     // caller decides what to do with the old ports (was fire-and-forget, which let the
-    // cleanup's close race a reconcile's open). Return non-true so the caller does NOT
+    // cleanup's close race a reconcile's open). Return FAILED so the caller does NOT
     // reconcile (open) ports for an app whose reinstall just failed.
     await appUninstaller.removeAppLocally(appSpecs.name, res, true);
-    return false;
+    return InstallResult.FAILED;
   } finally {
     // Drop this install's AbortController (no-op if we bailed before registering it).
     if (appSpecs && appSpecs.name) globalState.installingApps.delete(appSpecs.name);
@@ -1478,11 +1487,11 @@ async function softRedeploy(appSpecs, res) {
     await appInstaller.checkAppRequirements(appSpecs);
     // register (skipPorts: the reinstall does not open ports - we reconcile the delta below)
     // Only reconcile (open the added ports) when the reinstall actually succeeded;
-    // softRegisterAppLocally now returns true on success and a non-true status otherwise
-    // (it never throws - it cleans up internally), so a failed reinstall must not leave
+    // softRegisterAppLocally returns an InstallResult (INSTALLED / DEFERRED / FAILED) and
+    // never throws (it cleans up internally), so on anything but INSTALLED we must not leave
     // freshly-opened ports for an app that is gone (see hardRedeploy for the same logic).
     const installed = await softRegisterAppLocally(appSpecs, undefined, res, { skipPorts });
-    if (installed === true) {
+    if (installed === InstallResult.INSTALLED) {
       if (skipPorts) {
         // res was already ended by softRegisterAppLocally on success; reconcile with res=null.
         await reconcileRedeployPorts(appSpecs.name, portsToClose, portsToOpen, null);
@@ -1584,9 +1593,9 @@ async function hardRedeploy(appSpecs, res) {
   let portsToOpen = [];
   let portsToClose = [];
   // The app's full old port set, captured alongside the delta. If the reinstall does
-  // NOT complete (registerAppLocally returns a non-true status rather than throwing -
-  // e.g. 'deferred' on a concurrent same-name cancel, or false), the skipPorts teardown
-  // left ALL old ports open and the app is now gone, so we close the whole set.
+  // NOT complete (registerAppLocally returns DEFERRED on a concurrent same-name cancel, or
+  // FAILED, rather than throwing), the skipPorts teardown left ALL old ports open and the
+  // app is now gone, so we close the whole set.
   let oldPortsFull = [];
   let skipPorts = false;
   try {
@@ -1667,12 +1676,12 @@ async function hardRedeploy(appSpecs, res) {
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
     // register (skipPorts: the reinstall does not open ports - we reconcile the delta below)
-    // registerAppLocally returns true on success, or a non-true status ('deferred' on a
-    // transient gate, false on a real failure it already cleaned up) WITHOUT throwing - so
-    // capture it: only reconcile (which OPENS the added ports) when the reinstall actually
-    // succeeded, else the open would orphan ufw/UPnP rules for an app that is no longer here.
+    // registerAppLocally returns an InstallResult (INSTALLED / DEFERRED on a transient gate /
+    // FAILED on a real failure it already cleaned up) WITHOUT throwing - so capture it: only
+    // reconcile (which OPENS the added ports) on INSTALLED, else the open would orphan
+    // ufw/UPnP rules for an app that is no longer here.
     const installed = await appInstaller.registerAppLocally(appSpecs, undefined, res, false, true, { skipPorts }); // can throw
-    if (installed === true) {
+    if (installed === InstallResult.INSTALLED) {
       if (skipPorts) {
         // res was already ended by registerAppLocally on success; reconcile with res=null so
         // the port-status writes don't hit an ended response (ERR_STREAM_WRITE_AFTER_END).

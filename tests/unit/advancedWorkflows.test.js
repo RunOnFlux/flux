@@ -5,6 +5,7 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const InstallResult = require('../../ZelBack/src/services/appLifecycle/installResult');
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -1551,7 +1552,7 @@ describe('advancedWorkflows tests', () => {
     });
 
     it('hardRedeploy reconciles the port DELTA when the reinstall SUCCEEDS (true)', async () => {
-      sinon.stub(appInstaller, 'registerAppLocally').resolves(true);
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallResult.INSTALLED);
 
       await advancedWorkflows.hardRedeploy(newAppSpecs, res);
 
@@ -1565,7 +1566,7 @@ describe('advancedWorkflows tests', () => {
     });
 
     it('hardRedeploy does NOT open ports and closes the FULL old set when the reinstall DEFERS', async () => {
-      sinon.stub(appInstaller, 'registerAppLocally').resolves('deferred');
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallResult.DEFERRED);
 
       await advancedWorkflows.hardRedeploy(newAppSpecs, res);
 
@@ -1578,7 +1579,7 @@ describe('advancedWorkflows tests', () => {
     });
 
     it('hardRedeploy does NOT open ports and closes the FULL old set when the reinstall FAILS (false)', async () => {
-      sinon.stub(appInstaller, 'registerAppLocally').resolves(false);
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallResult.FAILED);
 
       await advancedWorkflows.hardRedeploy(newAppSpecs, res);
 
@@ -1588,7 +1589,7 @@ describe('advancedWorkflows tests', () => {
     });
 
     it('hardRedeploy does NOT strip ports when a local row still exists (concurrent reinstall re-adopted the app)', async () => {
-      sinon.stub(appInstaller, 'registerAppLocally').resolves('deferred');
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallResult.DEFERRED);
       dbHelper.findOneInDatabase.resolves({ name: 'TestApp' }); // row PRESENT -> not confirmed-absent
 
       await advancedWorkflows.hardRedeploy(newAppSpecs, res);
@@ -1640,7 +1641,7 @@ describe('advancedWorkflows tests', () => {
       const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', repotag: 'repo/c1:1.0', ports: [31000] }] };
 
       const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
-      expect(result).to.equal(true);
+      expect(result).to.equal(InstallResult.INSTALLED);
     });
 
     it('returns false AND awaits the cleanup removeAppLocally on a reinstall failure', async () => {
@@ -1658,21 +1659,21 @@ describe('advancedWorkflows tests', () => {
       const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', repotag: 'repo/c1:1.0', ports: [31000] }] };
 
       const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
-      expect(result).to.equal(false);
+      expect(result).to.equal(InstallResult.FAILED);
       // the failure cleanup is now AWAITED (was fire-and-forget), so it has run by return
       expect(removeStub.calledOnce).to.be.true;
     });
 
-    it('returns a non-true status (does not reconcile) when a removal of any app is in progress', async () => {
-      globalState.markRemovalInProgress('SomeOtherApp');
+    it('DEFERS (per-app gate) when THIS app is undergoing removal', async () => {
+      globalState.markRemovalInProgress('TestApp'); // a removal of the SAME app
       const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
       const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', ports: [31000] }] };
 
       const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, {});
-      expect(result).to.not.equal(true);
+      expect(result).to.equal(InstallResult.DEFERRED);
     });
 
-    it('clears installationInProgress when nodeTier fails (no install-lock wedge)', async () => {
+    it('DEFERS (not FAILED) when nodeTier fails, and clears installationInProgress (no wedge)', async () => {
       // eslint-disable-next-line global-require
       const generalService = require('../../ZelBack/src/services/generalService');
       sinon.stub(generalService, 'nodeTier').resolves(null);
@@ -1680,7 +1681,7 @@ describe('advancedWorkflows tests', () => {
       const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', ports: [31000] }] };
 
       const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, {});
-      expect(result).to.not.equal(true);
+      expect(result).to.equal(InstallResult.DEFERRED);
       expect(globalState.installationInProgress).to.be.false;
     });
   });
@@ -1753,8 +1754,19 @@ describe('advancedWorkflows tests', () => {
 
       const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, {});
 
-      expect(result).to.equal('deferred');
+      expect(result).to.equal(InstallResult.DEFERRED);
       expect(appInstaller.installApplicationSoft.called).to.be.false; // never reached the install
+    });
+
+    it('does NOT defer when an UNRELATED app is being removed (per-app gate, F-C)', async () => {
+      globalState.markRemovalInProgress('SomeOtherApp'); // a DIFFERENT app's removal
+
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
+
+      // the per-app gate only blocks a removal of THIS app; an unrelated removal must not
+      // spuriously fail the soft reinstall (the node-wide gate used to)
+      expect(result).to.equal(InstallResult.INSTALLED);
+      expect(appInstaller.installApplicationSoft.called).to.be.true;
     });
 
     it('registers an AbortController for the app during the install, and clears it after', async () => {
@@ -1766,7 +1778,7 @@ describe('advancedWorkflows tests', () => {
 
       const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
 
-      expect(result).to.equal(true);
+      expect(result).to.equal(InstallResult.INSTALLED);
       // the in-flight install was registered so a concurrent cancel can abort its pull
       expect(controllerDuringInstall).to.be.instanceOf(AbortController);
       // and cleared in the finally
@@ -1776,7 +1788,7 @@ describe('advancedWorkflows tests', () => {
     it('clears the condemned stamp for the installed app (componentSpecs null for a whole-app install)', async () => {
       const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
 
-      expect(result).to.equal(true);
+      expect(result).to.equal(InstallResult.INSTALLED);
       expect(appInstaller.clearCondemnedStampsForInstall.calledOnce).to.be.true;
       expect(appInstaller.clearCondemnedStampsForInstall.firstCall.args[0]).to.equal(spec);
       expect(appInstaller.clearCondemnedStampsForInstall.firstCall.args[1]).to.equal(null);

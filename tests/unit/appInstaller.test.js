@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const InstallResult = require('../../ZelBack/src/services/appLifecycle/installResult');
 
 describe('appInstaller tests', () => {
   let appInstaller;
@@ -815,7 +816,7 @@ describe('appInstaller tests', () => {
       expect(result).to.equal('deferred');
     });
 
-    it('should return false if node tier does not return anything', async () => {
+    it('should DEFER (not fail) if node tier does not return anything', async () => {
       const appInstallerWithNodeTier = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -929,14 +930,15 @@ describe('appInstaller tests', () => {
       const result = await appInstallerWithNodeTier.registerAppLocally(appSpec, componentSpecs, res);
 
       expect(res.write.called).to.be.true;
-      expect(result).to.be.false;
+      // DEFERRED (transient), not FAILED: a missing tier must not 7-day-poison the hash.
+      expect(result).to.equal(InstallResult.DEFERRED);
       // The install lock must be released on the no-tier bail (a plain return bypasses
       // the catch that clears it) - else a transient nodeTier() failure wedges all
       // future installs with installationInProgress stuck true.
       expect(globalStateStub.installationInProgress).to.be.false;
     });
 
-    it('should return false if app already installed', async () => {
+    it('should return FAILED if app already installed', async () => {
       const dbHelperStubLocal = {
         databaseConnection: sinon.stub(),
         findInDatabase: sinon.stub(),
@@ -1058,7 +1060,7 @@ describe('appInstaller tests', () => {
 
       expect(logStub.error.called).to.be.true;
       expect(res.write.called).to.be.true;
-      expect(result).to.be.false;
+      expect(result).to.equal(InstallResult.FAILED);
     });
 
     it('runs the post-install broadcast only AFTER releasing the install lock', async () => {
@@ -1186,7 +1188,7 @@ describe('appInstaller tests', () => {
       const res = { write: sinon.stub(), end: sinon.stub() };
       const result = await appInstallerSuccess.registerAppLocally(appSpec, false, res);
 
-      expect(result, 'install should succeed').to.be.true;
+      expect(result, 'install should succeed').to.equal(InstallResult.INSTALLED);
       expect(onInstallComplete.calledOnce, 'post-install broadcast should fire').to.be.true;
       expect(lockHeldWhenBroadcasting, 'install lock must be released BEFORE broadcasting').to.equal(false);
       expect(globalStateStub.installationInProgress).to.equal(false);
