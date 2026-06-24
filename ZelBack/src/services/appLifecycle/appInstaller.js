@@ -352,12 +352,18 @@ async function clearCondemnedStampsForInstall(appSpecs, componentSpecs) {
  * Cancel-during-install backstop. The install registers an AbortController that aborts an
  * in-flight image PULL, but a cancel that lands AFTER the pull completed (the abort is then
  * a no-op) would otherwise let createAppVolume/appDockerCreate/appDockerStart run on a
- * volume the cancel's Phase B is about to rm -rf, leaking a container/volume. Re-check the
- * condemned stamp the cancel set (per component, in its prelude, BEFORE Phase B); if this
- * component is now condemned, throw so the caller's catch rolls back the partial state via
- * the idempotent teardown. isCondemned fails OPEN (a DB blip returns false), so this never
- * spuriously aborts an install. This SHRINKS the cancel-during-install window (the pull
- * abort remains the primary closer); it does not fully eliminate it.
+ * volume the cancel's Phase B is about to rm -rf, leaking a container/volume. Re-check, after
+ * the pull and again before start, whether a cancel arrived; if so, throw so the caller's
+ * catch rolls back the partial state via the idempotent teardown.
+ *
+ * Checks TWO signals: the per-component condemned stamp AND the durable teardown doc. The
+ * stamp alone is insufficient because clearCondemnedStampsForInstall un-condemns up front
+ * (boot-recovery hygiene) with a last-writer-wins write that can ERASE a concurrent cancel's
+ * stamp - but the cancel's pendingAppTeardowns doc is NOT erasable by the install, so it is
+ * the robust signal. isCondemned fails OPEN (a DB blip returns false); teardownOwedFor fails
+ * CLOSED (a DB blip returns true -> abort), which is the safe direction here (better to abort
+ * an install than race a live rm -rf of its volume). This SHRINKS the cancel-during-install
+ * window (the pull abort remains the primary closer); it does not fully eliminate it.
  * @param {object} appSpecifications - component (or whole-app) spec being installed
  * @param {string} appName - parent app name
  * @param {boolean} isComponent - whether installing a compose component
@@ -365,7 +371,7 @@ async function clearCondemnedStampsForInstall(appSpecs, componentSpecs) {
  */
 async function throwIfCondemnedMidInstall(appSpecifications, appName, isComponent) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
-  if (await appsRuntimeState.isCondemned(identifier)) {
+  if (await appsRuntimeState.isCondemned(identifier) || await pendingTeardownStore.teardownOwedFor(appName)) {
     throw new Error(`Install of ${identifier} aborted: a removal/cancel of ${appName} arrived mid-install`);
   }
 }
@@ -414,6 +420,13 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       return InstallResult.DEFERRED;
     }
     globalState.installationInProgress = true;
+    // Register this install's AbortController by app name BEFORE the awaited pre-pull work
+    // (tier, own-IP, the DB reads, the teardownOwedFor gate). A concurrent cancel aborts the
+    // in-flight pull via installingApps.get(name) (verifyAndPullImage threads the signal into
+    // docker.pull); registering only just before the pull left a TOCTOU window where a cancel
+    // arriving during this pre-pull I/O found an empty map and could not abort. The finally
+    // below clears it on every return (including the DEFERRED/FAILED bails below).
+    globalState.installingApps.set(appSpecs.name, new AbortController());
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       // Clear the install lock we just set: a normal `return` here bypasses the
@@ -511,13 +524,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       }
       return InstallResult.DEFERRED;
     }
-
-    // Register this install's AbortController by app name so a concurrent
-    // cancel/removal of the same app can abort the in-flight image pull
-    // (cancel-during-install). verifyAndPullImage threads its signal into
-    // docker.pull; the finally below clears the entry. Last-writer-wins is fine -
-    // installs of a given name are gated serial by installationInProgress.
-    globalState.installingApps.set(appName, new AbortController());
+    // (the install's AbortController was registered earlier, right after the install lock)
 
     // Lazy-load appQueryService to avoid circular dependency issues
     // eslint-disable-next-line global-require

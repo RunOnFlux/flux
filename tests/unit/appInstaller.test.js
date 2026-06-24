@@ -1295,7 +1295,7 @@ describe('appInstaller tests', () => {
       name: 'testapp', repotag: 'repo/test:1', containerData: '/data', ports: [30000], version: 2,
     };
 
-    function build(isCondemnedValue) {
+    function build(isCondemnedValue, teardownOwedValue = false) {
       const dockerStub = {
         dockerPullStream: sinon.stub().resolves('pulled'),
         appDockerCreate: sinon.stub().resolves(),
@@ -1305,6 +1305,7 @@ describe('appInstaller tests', () => {
       const advancedWorkflowsStub = { createAppVolume: sinon.stub().resolves() };
       const volumeServiceStub = { verifyAppVolumeMount: sinon.stub().resolves(), ensureMountPathsExist: sinon.stub().resolves() };
       const appsRuntimeStateStub = { isCondemned: sinon.stub().resolves(isCondemnedValue), setCondemned: sinon.stub().resolves() };
+      const pendingTeardownStoreStub = { teardownOwedFor: sinon.stub().resolves(teardownOwedValue) };
       const mod = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
         '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
         './appNetworkLinker': { checkAppNetworkRequirements: sinon.stub().resolves(), connectComponentToLinkedApps: sinon.stub().resolves() },
@@ -1320,6 +1321,7 @@ describe('appInstaller tests', () => {
         '../utils/volumeService': volumeServiceStub,
         '../utils/globalState': { installingApps: new Map() },
         '../appManagement/appsRuntimeState': appsRuntimeStateStub,
+        './pendingTeardownStore': pendingTeardownStoreStub,
         '../appManagement/appInspector': { startAppMonitoring: sinon.stub() },
         util: { promisify: (fn) => fn },
       });
@@ -1384,6 +1386,26 @@ describe('appInstaller tests', () => {
 
       expect(dockerStub.appDockerCreate.calledOnce, 'container created').to.be.true;
       expect(dockerStub.appDockerStart.calledOnce, 'container started').to.be.true;
+    });
+
+    it('ABORTS via the durable doc even when the condemned stamp was erased (F-A: clear cannot disarm the backstop)', async () => {
+      // isCondemned=false models clearCondemnedStampsForInstall having erased a concurrent
+      // cancel's stamp (last-writer-wins); the cancel's pendingAppTeardowns doc is NOT erasable
+      // by the install (teardownOwed=true), so the backstop must STILL fire.
+      const { mod, dockerStub, advancedWorkflowsStub } = build(false, true);
+      const res = { write: sinon.stub(), flush: sinon.stub() };
+
+      let threw = false;
+      try {
+        await mod.installApplicationHard(appSpec, 'testapp', false, res, appSpec, false, true);
+      } catch (e) {
+        threw = true;
+        expect(e.message).to.match(/aborted/);
+      }
+
+      expect(threw, 'should abort on an owed teardown doc even with no condemned stamp').to.be.true;
+      expect(advancedWorkflowsStub.createAppVolume.called, 'must NOT create the volume').to.be.false;
+      expect(dockerStub.appDockerStart.called, 'must NOT start the container').to.be.false;
     });
   });
 });
