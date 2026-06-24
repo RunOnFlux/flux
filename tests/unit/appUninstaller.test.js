@@ -549,7 +549,7 @@ describe('appUninstaller tests', () => {
 
     function buildUninstaller(spec) {
       runtimeStateStub = {
-        remove: sinon.stub().resolves(),
+        remove: sinon.stub().resolves(true), // a confirmed drop (false would now trigger the FINISH retry)
         setCondemned: sinon.stub().resolves(),
         isCondemned: sinon.stub().resolves(false),
       };
@@ -916,9 +916,20 @@ describe('appUninstaller tests', () => {
 
     it('keeps the durable doc when a condemned stamp fails to drop (backstop for recovery)', async () => {
       const uninstaller = buildUninstaller();
-      runtimeStateStub.remove.resolves(false); // remove swallowed a DB error — stamp may survive
+      runtimeStateStub.remove.resolves(false); // remove swallowed a DB error — stamp may survive (every retry too)
       await uninstaller.removeAppLocally('redapp', null, true);
       expect(pendingStoreStub.clearTeardown.called).to.equal(false);
+    });
+
+    it('RETRIES the FINISH remove() and clears the doc when a transient blip resolves (F-B)', async () => {
+      const uninstaller = buildUninstaller();
+      // first remove() blips (false), the bounded retry succeeds (true) -> doc self-heals at
+      // runtime instead of being parked (and deferring re-registration) until reboot
+      runtimeStateStub.remove.onFirstCall().resolves(false);
+      runtimeStateStub.remove.resolves(true);
+      await uninstaller.removeAppLocally('redapp', null, true);
+      expect(runtimeStateStub.remove.callCount).to.be.greaterThan(1); // it retried
+      expect(pendingStoreStub.clearTeardown.calledWith('redapp')).to.equal(true); // and cleared
     });
 
     it('ABORTS the removal (no condemn, no row delete) if the durable doc cannot be persisted', async () => {

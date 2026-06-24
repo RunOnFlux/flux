@@ -1026,6 +1026,12 @@ function shouldSweepUnrequiredDependencies(isComponent, description, force, canc
  * @param {object} [ctx.res]
  * @returns {Promise<void>}
  */
+// Bounded runtime retry of the FINISH runtime-state drop: a transient DB blip on the final
+// remove() would otherwise keep the durable doc until the next reboot (and DEFER every
+// re-registration of the name meanwhile, since teardownOwedFor reads the doc).
+const FINISH_REMOVE_RETRIES = 3;
+const FINISH_REMOVE_RETRY_MS = 500;
+
 async function runTeardown(ctx) {
   const {
     key, appName, isComponent, components, force, cancelGraceful, keepNetwork, skipPorts, res,
@@ -1076,8 +1082,20 @@ async function runTeardown(ctx) {
   let allDropped = true;
   // eslint-disable-next-line no-restricted-syntax
   for (const descriptor of components) {
+    // The drain + Phase B host teardown are already done; this just drops the runtime-state
+    // doc (+ condemned stamp). remove() returns false on a swallowed DB error - retry a
+    // bounded few times so a transient blip self-heals at runtime instead of parking the
+    // durable doc (and deferring re-registration of the name) until the next reboot. remove()
+    // is idempotent (deleting an already-gone doc succeeds), so retrying is safe. A persistent
+    // failure leaves allDropped false -> the doc is kept for boot recovery, as before.
     // eslint-disable-next-line no-await-in-loop
-    const dropped = await appsRuntimeState.remove(descriptor.identifier); // drops the condemned stamp
+    let dropped = await appsRuntimeState.remove(descriptor.identifier);
+    for (let attempt = 0; !dropped && attempt < FINISH_REMOVE_RETRIES; attempt += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(FINISH_REMOVE_RETRY_MS);
+      // eslint-disable-next-line no-await-in-loop
+      dropped = await appsRuntimeState.remove(descriptor.identifier);
+    }
     if (!dropped) allDropped = false;
   }
   if (allDropped) {
