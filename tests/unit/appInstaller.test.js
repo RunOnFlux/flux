@@ -1093,6 +1093,9 @@ describe('appInstaller tests', () => {
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
         '../dbHelper': dbHelperStubSuccess,
+        // teardownOwedFor now fails CLOSED on a DB read error; the real module would hit an
+        // unconnected Mongo here, so mock it to the no-teardown-owed answer for this install.
+        './pendingTeardownStore': { teardownOwedFor: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
           ensureNumber: sinon.stub().returnsArg(0),
@@ -1218,6 +1221,9 @@ describe('appInstaller tests', () => {
           findOneInDatabase: sinon.stub().resolves(null),
           insertOneToDatabase: sinon.stub().resolves(),
         },
+        // teardownOwedFor now fails CLOSED on a DB read error; mock it so the real module's
+        // unconnected-Mongo read does not defer this install.
+        './pendingTeardownStore': { teardownOwedFor: sinon.stub().resolves(false) },
         '../serviceHelper': { ensureString: sinon.stub().returnsArg(0), ensureNumber: sinon.stub().returnsArg(0), delay: sinon.stub().resolves() },
         '../generalService': { nodeTier: sinon.stub().resolves('cumulus'), checkSynced: sinon.stub().resolves(true) },
         '../daemonService/daemonServiceMiscRpcs': { isDaemonSynced: sinon.stub().returns({ status: 'success', data: { synced: true, height: 2094961 } }) },
