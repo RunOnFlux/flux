@@ -325,7 +325,12 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
  * @param {boolean} sendRemovalMessage whether to broadcast removal message to network if installation fails.
  * @returns {Promise<boolean>} Returns true if installation was successful, false otherwise.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
+async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false, opts = {}) {
+  // opts.skipPorts: a redeploy opens the port DELTA itself (new-old) and leaves unchanged
+  // ports untouched, so the install must NOT open this app's ports. A fresh install leaves
+  // it false and opens all ports as before. Only the ufw/UPnP setup is skipped - the
+  // container is still created with its docker port mappings.
+  const skipPorts = opts.skipPorts === true;
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -638,11 +643,11 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
           appComponentSpecs.ram = test ? 300 : appComponentSpecs[ramTier] || appComponentSpecs.ram;
           appComponentSpecs.hdd = test ? 2 : appComponentSpecs[hddTier] || appComponentSpecs.hdd;
           // eslint-disable-next-line no-await-in-loop, no-use-before-define
-          await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, test);
+          await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, test, skipPorts);
         }
       } else {
         // eslint-disable-next-line no-use-before-define
-        await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test);
+        await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test, skipPorts);
       }
     } catch (error) {
       if (!test) {
@@ -832,7 +837,7 @@ async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res)
  * @param {boolean} test - Whether this is a test installation
  * @returns {Promise<void>} Installation result
  */
-async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false) {
+async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false, skipPorts = false) {
   // Verify the apps this app must be networked with (networkWith token) are
   // installed locally and owned by the same owner. Enforced here too — not just
   // in registerAppLocally — so direct callers that bypass it (container health
@@ -840,8 +845,12 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // network links satisfied.
   await appNetworkLinker.checkAppNetworkRequirements(fullAppSpecs);
 
-  // Setup firewall and UPnP ports (fail fast before downloading images)
-  await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
+  // Setup firewall and UPnP ports (fail fast before downloading images). A redeploy
+  // passes skipPorts and reconciles the port delta itself (leaving unchanged ports
+  // untouched); a fresh install opens them all.
+  if (!skipPorts) {
+    await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
+  }
 
   // Verify and pull Docker image
   await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
@@ -1297,6 +1306,7 @@ async function testAppInstall(req, res) {
 module.exports = {
   registerAppLocally,
   installApplicationHard,
+  setupApplicationPorts,
   installApplicationSoft,
   installAppLocally,
   checkAppRequirements,

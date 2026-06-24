@@ -462,15 +462,20 @@ async function drainComponentContainer(descriptor, appName, opts, res) {
  * @param {string} appName
  * @param {object} res
  */
-async function hostTeardownComponent(descriptor, appName, res) {
+async function hostTeardownComponent(descriptor, appName, res, skipPorts = false) {
   const {
     appId, label, ports, repotag,
   } = descriptor;
 
-  // eslint-disable-next-line no-use-before-define
-  await cleanupPorts({ ports }, appName, res, label).catch((error) => {
-    log.error(`Port cleanup for ${label} failed (continuing teardown): ${error.message}`);
-  });
+  // A redeploy passes skipPorts: it reconciles the port delta itself (leaving unchanged
+  // ports untouched), so the teardown must NOT close this component's ports. Removal/
+  // cancel/expiry leave skipPorts false and revoke the ufw/UPnP rules as before.
+  if (!skipPorts) {
+    // eslint-disable-next-line no-use-before-define
+    await cleanupPorts({ ports }, appName, res, label).catch((error) => {
+      log.error(`Port cleanup for ${label} failed (continuing teardown): ${error.message}`);
+    });
+  }
 
   await unmountVolume(appId, label, res).catch((error) => {
     log.error(`Unmount for ${label} failed (continuing teardown): ${error.message}`);
@@ -1019,7 +1024,7 @@ function shouldSweepUnrequiredDependencies(isComponent, description, force, canc
  */
 async function runTeardown(ctx) {
   const {
-    key, appName, isComponent, components, force, cancelGraceful, keepNetwork, res,
+    key, appName, isComponent, components, force, cancelGraceful, keepNetwork, skipPorts, res,
   } = ctx;
 
   // Phase A — drain (no lock). Many apps can drain at once. The container-removed
@@ -1041,7 +1046,7 @@ async function runTeardown(ctx) {
     for (const descriptor of components) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        await hostTeardownComponent(descriptor, appName, res);
+        await hostTeardownComponent(descriptor, appName, res, skipPorts);
       } catch (error) {
         log.error(`Host teardown of ${descriptor.identifier} failed (continuing): ${error.message}`);
       }
@@ -1111,8 +1116,11 @@ async function runTeardown(ctx) {
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, cancelGraceful = false, background = false, opts = {}) {
   // opts.keepNetwork: a redeploy keeps the app's own docker network (it is unchanged
   // across a same-app redeploy and networkWith consumers stay attached - see specDiff).
-  // Defaults false so removal/cancel/expiry tear the network down as before.
+  // opts.skipPorts: a redeploy does NOT close ports here - it reconciles the port delta
+  // (open new-old, close old-new) itself, leaving unchanged ports untouched. Both default
+  // false so removal/cancel/expiry tear the network down and close all ports as before.
   const keepNetwork = opts.keepNetwork === true;
+  const skipPorts = opts.skipPorts === true;
   let weSetRemovalFlag = false;
   // the bare app name we claimed in removalsInProgress, captured outside the try so
   // the finally can release exactly that entry (appName is block-scoped to the try)
@@ -1346,7 +1354,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
 
     // --- teardown (Phase A drain + Phase B host cleanup) --------------------
     const teardownCtx = {
-      key: app, appName, isComponent, components, force, cancelGraceful, keepNetwork, res,
+      key: app, appName, isComponent, components, force, cancelGraceful, keepNetwork, skipPorts, res,
     };
     if (background) {
       // cancel/expiry: don't block the caller on the drain + host cleanup. A

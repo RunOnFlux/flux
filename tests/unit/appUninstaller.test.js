@@ -745,6 +745,7 @@ describe('appUninstaller tests', () => {
     let pendingStoreStub;
     let dbHelperStub;
     let dockerStub;
+    let fluxNetworkHelperStub; // captured so a test can flip the firewall on + assert port edits
     let removalsSet; // backs the per-app removal gate so tests can pre-seed an in-flight removal
 
     const v2Spec = {
@@ -821,7 +822,7 @@ describe('appUninstaller tests', () => {
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
         './advancedWorkflows': { stopSyncthingApp: sinon.stub().resolves() },
         '../upnpService': { removeMapUpnpPort: sinon.stub().resolves(), isUPNP: sinon.stub().returns(false) },
-        '../fluxNetworkHelper': {
+        '../fluxNetworkHelper': fluxNetworkHelperStub = {
           isFirewallActive: sinon.stub().resolves(false),
           deleteAllowPortRule: sinon.stub().resolves(true),
           getLocalSocketAddress: sinon.stub().resolves(null),
@@ -889,6 +890,20 @@ describe('appUninstaller tests', () => {
       await uninstaller.removeAppLocally('redapp', null, true); // force, no opts
       sinon.assert.calledWith(dockerStub.forceRemoveFluxAppDockerNetwork, 'redapp');
       expect(pendingStoreStub.writeTeardown.calledWithMatch({ key: 'redapp', keepNetwork: false })).to.equal(true);
+    });
+
+    it('redeploy skipPorts: the teardown does NOT close the app ports (the redeploy reconciles the delta)', async () => {
+      const uninstaller = buildUninstaller();
+      fluxNetworkHelperStub.isFirewallActive.resolves(true); // so cleanupPorts WOULD edit ufw
+      await uninstaller.removeAppLocally('redapp', null, false, true, false, false, false, { skipPorts: true });
+      sinon.assert.notCalled(fluxNetworkHelperStub.deleteAllowPortRule);
+    });
+
+    it('a normal removal DOES close the app ports (skipPorts defaults false)', async () => {
+      const uninstaller = buildUninstaller();
+      fluxNetworkHelperStub.isFirewallActive.resolves(true);
+      await uninstaller.removeAppLocally('redapp', null, true); // force, no opts
+      sinon.assert.called(fluxNetworkHelperStub.deleteAllowPortRule);
     });
 
     it('drops the condemned stamp BEFORE clearing the durable doc, and clears it when no stamp survives', async () => {

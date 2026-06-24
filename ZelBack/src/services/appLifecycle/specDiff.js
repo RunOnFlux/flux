@@ -37,6 +37,54 @@ function mustRecreateNetwork(spec) {
   return Boolean(name) && appsThatMightBeUsingOldGatewayIpAssignment.includes(name);
 }
 
+/**
+ * The set of host ports an app needs open (ufw/UPnP), as a Set of numbers. For a v4+
+ * composed app this is the union across components; for a simple app it is spec.ports.
+ * ufw/UPnP rules are per-port (not per-component) and FluxOS gives every component a
+ * distinct external port, so a flat union is the correct desired-port set for the node.
+ *
+ * @param {object} spec - app specification
+ * @returns {Set<number>}
+ */
+function appPortSet(spec) {
+  const ports = new Set();
+  if (!spec) return ports;
+  const add = (list) => (Array.isArray(list) ? list : []).forEach((p) => {
+    const n = Number(p);
+    if (Number.isFinite(n)) ports.add(n);
+  });
+  if (Array.isArray(spec.compose) && spec.compose.length) {
+    spec.compose.forEach((c) => add(c && c.ports));
+  } else {
+    add(spec.ports);
+    // v1 apps carry a singular `port` rather than a `ports` array (mirror normalizePorts).
+    if (spec.port != null) {
+      const n = Number(spec.port);
+      if (Number.isFinite(n)) ports.add(n);
+    }
+  }
+  return ports;
+}
+
+/**
+ * Port delta between the old (installed) and new spec for a redeploy: the SET DIFFERENCE,
+ * so only genuinely added/removed ports touch ufw/UPnP - the intersection (unchanged ports)
+ * is left exactly as-is, avoiding the ~1s/port UPnP re-map churn and the firewall flap.
+ *
+ * @param {object} oldSpec - installed spec
+ * @param {object} newSpec - target spec
+ * @returns {{toOpen: number[], toClose: number[]}} ports to open (new-old) and close (old-new)
+ */
+function portDelta(oldSpec, newSpec) {
+  const oldPorts = appPortSet(oldSpec);
+  const newPorts = appPortSet(newSpec);
+  const toOpen = [...newPorts].filter((p) => !oldPorts.has(p));
+  const toClose = [...oldPorts].filter((p) => !newPorts.has(p));
+  return { toOpen, toClose };
+}
+
 module.exports = {
   mustRecreateNetwork,
+  appPortSet,
+  portDelta,
 };

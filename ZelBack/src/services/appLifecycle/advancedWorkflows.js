@@ -1415,6 +1415,33 @@ async function softRedeploy(appSpecs, res) {
 }
 
 /**
+ * Reconcile an app's ufw/UPnP ports during a redeploy: close ONLY the removed ports
+ * (old-new) and open ONLY the added ports (new-old), leaving unchanged ports untouched -
+ * no firewall flap, no ~1s/port UPnP re-map churn. The teardown + reinstall are told to
+ * skipPorts so this is the single place ports move for a redeploy. Reuses the same
+ * cleanupPorts / setupApplicationPorts a normal removal/install use.
+ * @param {string} appName
+ * @param {number[]} toClose - ports present in the old spec but not the new
+ * @param {number[]} toOpen - ports present in the new spec but not the old
+ * @param {object} res
+ */
+async function reconcileRedeployPorts(appName, toClose, toOpen, res) {
+  // eslint-disable-next-line global-require
+  const appUninstaller = require('./appUninstaller');
+  // eslint-disable-next-line global-require
+  const appInstaller = require('./appInstaller');
+  if (toClose && toClose.length) {
+    // cleanupPorts expects its caller to hold the host-mutation lock (runTeardown does);
+    // wrap it here so the removed ports' ufw/UPnP edits serialize the same way.
+    await withHostMutationLock(() => appUninstaller.cleanupPorts({ ports: toClose }, appName, res, appName));
+  }
+  if (toOpen && toOpen.length) {
+    // setupApplicationPorts acquires the lock per port internally.
+    await appInstaller.setupApplicationPorts({ name: appName, ports: toOpen }, appName, false, res);
+  }
+}
+
+/**
  * Hard redeploy - removes and reinstalls app locally (hard)
  * @param {object} appSpecs - App specifications
  * @param {object} res - Response object
@@ -1422,6 +1449,11 @@ async function softRedeploy(appSpecs, res) {
 async function hardRedeploy(appSpecs, res) {
   // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
+  // Declared out here so the catch can still close the removed ports if the reinstall
+  // fails (the skipPorts teardown closed nothing - see the failure handler below).
+  let portsToOpen = [];
+  let portsToClose = [];
+  let skipPorts = false;
   try {
     if (globalState.removalInProgress) {
       log.warn('Another application is undergoing removal');
@@ -1466,7 +1498,26 @@ async function hardRedeploy(appSpecs, res) {
     // flap). Legacy gateway-IP apps must still recreate it. Soft redeploy already keeps
     // the network; this brings hard into line for everything but the volume.
     const keepNetwork = !specDiff.mustRecreateNetwork(appSpecs);
-    await appUninstaller.removeAppLocally(appSpecs.name, res, false, false, false, false, false, { keepNetwork });
+
+    // Port delta: open only added ports, close only removed ones, leave the rest. We need
+    // the installed (old) spec; resolveInstalledAppForStructureComparison yields it only for
+    // v8+ non-enterprise (or arcane-decryptable) apps - for v1-7 or an undecryptable
+    // enterprise spec it returns null and we fall back to the full port flap (skipPorts
+    // stays false), i.e. exactly the pre-change behaviour.
+    try {
+      const installedAppsRes = await getInstalledAppsFromDb({ decryptApps: true });
+      const installedApp = installedAppsRes.status === 'success'
+        ? installedAppsRes.data.find((a) => a.name === appSpecs.name) : null;
+      const oldSpec = resolveInstalledAppForStructureComparison(appSpecs, installedApp, 'hardRedeploy');
+      if (oldSpec) {
+        ({ toOpen: portsToOpen, toClose: portsToClose } = specDiff.portDelta(oldSpec, appSpecs));
+        skipPorts = true;
+      }
+    } catch (error) {
+      log.warn(`hardRedeploy: port delta unavailable for ${appSpecs.name}, doing a full port setup: ${error.message}`);
+    }
+
+    await appUninstaller.removeAppLocally(appSpecs.name, res, false, false, false, false, false, { keepNetwork, skipPorts });
     const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
     log.info(appRedeployResponse);
     if (res) {
@@ -1478,8 +1529,13 @@ async function hardRedeploy(appSpecs, res) {
     // eslint-disable-next-line global-require
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
-    // register
-    await appInstaller.registerAppLocally(appSpecs, undefined, res, false, true); // can throw
+    // register (skipPorts: the reinstall does not open ports - we reconcile the delta below)
+    await appInstaller.registerAppLocally(appSpecs, undefined, res, false, true, { skipPorts }); // can throw
+    if (skipPorts) {
+      // res was already ended by registerAppLocally on success; reconcile with res=null so
+      // the port-status writes don't hit an ended response (ERR_STREAM_WRITE_AFTER_END).
+      await reconcileRedeployPorts(appSpecs.name, portsToClose, portsToOpen, null);
+    }
     log.info('Application redeployed');
     globalState.hardRedeployInProgress = false;
   } catch (error) {
@@ -1487,6 +1543,15 @@ async function hardRedeploy(appSpecs, res) {
     log.warn(`REMOVAL REASON: Hard redeploy failure - ${appSpecs.name} failed during hard redeploy: ${error.message} (hardRedeploy)`);
     globalState.hardRedeployInProgress = false;
     await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
+    // The skipPorts teardown closed NO ports, and the failure-path removeAppLocally above
+    // closes only the ports of the spec it resolves (the new spec) - so the REMOVED ports
+    // (old-new) would leak as orphaned ufw/UPnP rules (restoreAppsPortsSupport only adds,
+    // never sweeps). Close them explicitly here so a failed port-shrinking redeploy leaks
+    // nothing. cleanupPorts needs the host-mutation lock held by its caller.
+    if (skipPorts && portsToClose.length) {
+      await withHostMutationLock(() => appUninstaller.cleanupPorts({ ports: portsToClose }, appSpecs.name, null, appSpecs.name))
+        .catch((portErr) => log.error(`hardRedeploy failure cleanup: closing removed ports failed: ${portErr.message}`));
+    }
     log.info(`Cleanup completed for ${appSpecs.name} after hard redeploy failure`);
   }
 }
