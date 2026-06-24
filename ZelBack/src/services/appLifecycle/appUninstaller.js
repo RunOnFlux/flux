@@ -1325,8 +1325,14 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
           broadcastedAt,
         };
         log.info('Broadcasting appremoved message to the network');
-        // broadcast messages about app removed to all peers
-        await fluxCommunicationMessagesSender.broadcastMessageToAll(appRemovedMessage);
+        // Fire-and-forget: AWAITing this serialized the whole batch cancel inside the
+        // explorer block loop - broadcastMessageToAll -> peerManager paces a hardcoded
+        // ~500ms + ~25ms/peer, so an N-app owner-group cancel paid ~0.5-2s x N of pure
+        // network wait, blocking the explorer from advancing. Nothing below depends on it
+        // completing (the runningAppsCache delete + DB row delete + runTeardown are all
+        // independent), and 7a068bec7 already treats this broadcast as fire-and-forget.
+        fluxCommunicationMessagesSender.broadcastMessageToAll(appRemovedMessage)
+          .catch((e) => log.error(`appremoved broadcast for ${appName} failed: ${e.message}`));
         // Remove app from running apps cache
         const { runningAppsCache } = globalState;
         if (runningAppsCache.has(appName)) {
