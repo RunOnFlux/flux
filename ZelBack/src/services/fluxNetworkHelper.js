@@ -50,6 +50,12 @@ const { lruRateLimit } = require('./utils/rateLimit');
 
 // This node's socket address (ip:port) from benchmark
 let localSocketAddress = null;
+// Freshness deadline (epoch ms) for the cached localSocketAddress: getLocalSocketAddress
+// returns the cached value without a fresh benchmark RPC until this passes. The own IP is
+// invariant except on a (rare, rate-limited ~1/20h) IP reassignment, so a short window
+// collapses a batch of calls (e.g. an N-app cancel's per-app broadcasts) to one RPC.
+let localSocketAddressFreshUntil = 0;
+const LOCAL_SOCKET_ADDRESS_TTL_MS = 60 * 1000;
 
 /**
  * Converts a hexadecimal IP address (as found in /proc/net/route) to dotted decimal format.
@@ -575,6 +581,9 @@ async function keepUPNPPortsOpen(req, res) {
  */
 function setLocalSocketAddress(value) {
   localSocketAddress = value ? normalizeSocketAddress(value) : null;
+  // (Re)set the freshness deadline whenever the value changes, so getLocalSocketAddress
+  // serves it without a benchmark RPC until it goes stale (cleared when set to null).
+  localSocketAddressFreshUntil = localSocketAddress ? Date.now() + LOCAL_SOCKET_ADDRESS_TTL_MS : 0;
 }
 
 /**
@@ -667,6 +676,16 @@ function isNodeDos() {
  * @returns {Promise<string|null>} Normalized socket address (always ip:port) or null.
  */
 async function getLocalSocketAddress() {
+  // Serve the cached own-IP without a benchmark RPC while it is still fresh. A batch
+  // cancel/install issues this call once per app on a hot serialized path (the explorer
+  // block loop) and the value is invariant across the batch, so this collapses N RPCs to
+  // one. A null (unresolved) value is never cached. The IP-change detector
+  // (checkMyFluxAvailability) reads the module-scoped localSocketAddress + getPublicIp()
+  // DIRECTLY, not through this function, so a <=TTL reflect-lag here after a (rate-limited)
+  // IP change is harmless - the next benchmark resolve updates the value and the deadline.
+  if (localSocketAddress && Date.now() < localSocketAddressFreshUntil) {
+    return localSocketAddress;
+  }
   const benchmarkResponse = await benchmarkService.getBenchmarks();
   const { status, data: { ipaddress = null } = {} } = benchmarkResponse;
   // The benchmark IP can be a bare IP or ip:port depending on the node's API port,

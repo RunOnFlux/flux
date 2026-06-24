@@ -52,6 +52,10 @@ describe('fluxNetworkHelper tests', () => {
     sinon.stub(upnpService, 'isUPNP').returns(false);
     sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
     sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
+    // Reset the own-IP freshness cache so it never leaks across tests (a warm cache would
+    // make getLocalSocketAddress skip the benchmark stub a test set up). Setting null clears
+    // both the value and the freshness deadline.
+    fluxNetworkHelper.setLocalSocketAddress(null);
   });
 
   afterEach(() => {
@@ -308,6 +312,40 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.getLocalSocketAddress();
 
       expect(result).to.equal('85.159.213.248:16147');
+    });
+
+    it('serves the cached own-IP without a second benchmark RPC while fresh', async () => {
+      benchStub.resolves({ status: 'success', data: { ipaddress: '85.159.213.248:16127' } });
+
+      const first = await fluxNetworkHelper.getLocalSocketAddress();
+      const second = await fluxNetworkHelper.getLocalSocketAddress();
+
+      expect(first).to.equal('85.159.213.248:16127');
+      expect(second).to.equal('85.159.213.248:16127');
+      // the freshness cache short-circuits the second call - a batch pays ONE RPC, not N
+      sinon.assert.calledOnce(benchStub);
+    });
+
+    it('re-benchmarks after the cache is invalidated (setLocalSocketAddress null)', async () => {
+      benchStub.resolves({ status: 'success', data: { ipaddress: '85.159.213.248:16127' } });
+
+      await fluxNetworkHelper.getLocalSocketAddress();
+      fluxNetworkHelper.setLocalSocketAddress(null); // clears the value + the freshness deadline
+      await fluxNetworkHelper.getLocalSocketAddress();
+
+      sinon.assert.calledTwice(benchStub);
+    });
+
+    it('does not cache a null (unresolved) own-IP - keeps probing', async () => {
+      benchStub.resolves({ status: 'error' });
+
+      const first = await fluxNetworkHelper.getLocalSocketAddress();
+      const second = await fluxNetworkHelper.getLocalSocketAddress();
+
+      expect(first).to.be.null;
+      expect(second).to.be.null;
+      // a null result is never cached, so every call re-probes until fluxbench resolves
+      sinon.assert.calledTwice(benchStub);
     });
   });
 
@@ -1402,7 +1440,10 @@ describe('fluxNetworkHelper tests', () => {
 
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed('6.2.0');
-      fluxNetworkHelper.setLocalSocketAddress('129.3.3.3');
+      // NB: do NOT pre-set the own socket address here - these tests stub getBenchmarks per
+      // case and rely on getLocalSocketAddress re-fetching it. Pre-setting a value would warm
+      // the own-IP freshness cache and shadow that benchmark. (The top-level beforeEach nulls
+      // the cache; in production setLocalSocketAddress is only ever called by getLocalSocketAddress.)
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
