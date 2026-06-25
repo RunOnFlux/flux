@@ -11,6 +11,7 @@ const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
+const dbHelper = require('./dbHelper');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
@@ -1234,6 +1235,7 @@ async function getFluxInfo(req, res) {
     info.flux.syncthingVersion = syncthingVersion.data.version;
     const dockerVersion = await dockerService.dockerVersion();
     info.flux.dockerVersion = dockerVersion.Version;
+    info.flux.mongoDbVersion = await dbHelper.getMongoDbVersion();
     const osDistInfo = await getOSDistributionInfo();
     info.flux.os = osDistInfo.distribution;
     info.flux.osVersion = osDistInfo.version;

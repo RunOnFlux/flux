@@ -4,17 +4,20 @@ import { createTestEnv } from '../framework/test-env.js';
 import {
   getState, startTicker, stopTicker, advanceBlock, setHeight,
   queueAppTx, setNodeStatus, clearNodeStatus, getNodeStatusOverrides,
-  enableRpcFailure, disableRpcFailure, removeFromNodeList, restoreToNodeList,
+  enableRpcFailure, disableRpcFailure, setNodeList, removeFromNodeList, restoreToNodeList,
   resetAll,
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
+
+const subnet = getSubnetConfig();
 
 let env;
 
 describe('Ticker and block control', function () {
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ nodes: 0 });
+    env = await createTestEnv({ hookCtx: this, nodes: 0 });
   });
 
   afterEach(async function () {
@@ -85,27 +88,34 @@ describe('Ticker and block control', function () {
   });
 
   it('should set and clear node status overrides', async function () {
-    await setNodeStatus('198.18.1.0', 'EXPIRED');
+    await setNodeStatus(subnet.nodeIp(1), 'EXPIRED');
     const overrides = await getNodeStatusOverrides();
-    expect(overrides['198.18.1.0'].status).to.equal('EXPIRED');
-    await clearNodeStatus('198.18.1.0');
+    expect(overrides[subnet.nodeIp(1)].status).to.equal('EXPIRED');
+    await clearNodeStatus(subnet.nodeIp(1));
   });
 
   it('should set and clear RPC failures', async function () {
-    await enableRpcFailure('198.18.2.0');
+    await enableRpcFailure(subnet.nodeIp(2));
     let state = await getState();
     expect(state.rpcFailures).to.equal(1);
-    await disableRpcFailure('198.18.2.0');
+    await disableRpcFailure(subnet.nodeIp(2));
     state = await getState();
     expect(state.rpcFailures).to.equal(0);
   });
 
   it('should remove and restore nodes in deterministic list', async function () {
+    // nodes:0 leaves the stub's node list empty, so seed a known list to exercise
+    // remove/restore against (the feature under test).
+    await setNodeList([
+      { ip: subnet.nodeIp(1) },
+      { ip: subnet.nodeIp(2) },
+      { ip: subnet.nodeIp(3) },
+    ]);
     const before = await getState();
-    await removeFromNodeList('198.18.3.0');
+    await removeFromNodeList(subnet.nodeIp(3));
     let state = await getState();
     expect(state.nodeCount).to.equal(before.nodeCount - 1);
-    await restoreToNodeList('198.18.3.0');
+    await restoreToNodeList(subnet.nodeIp(3));
     state = await getState();
     expect(state.nodeCount).to.equal(before.nodeCount);
   });

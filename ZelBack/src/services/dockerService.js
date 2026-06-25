@@ -57,6 +57,27 @@ function getAppIdentifier(appName) {
 }
 
 /**
+ * Inverse of getAppIdentifier: strips the flux/zel namespace prefix to recover
+ * the bare component identifier (`{component}_{app}`, or `{app}` for v1-3) used
+ * by app/component specs. Idempotent on an already-bare identifier. Consumers
+ * whose canonical form is the bare identifier (e.g. the reconciler) normalise
+ * inbound ids through this, mirroring how docker callers normalise through
+ * getAppIdentifier.
+ *
+ * Note: like getAppIdentifier this is not perfectly invertible — a component
+ * literally named `flux...`/`zel...` is ambiguous — but that is the existing
+ * limitation of the prefix-as-marker convention, not new here.
+ *
+ * @param {string} idOrName
+ * @returns {string} bare identifier
+ */
+function getBaseAppName(idOrName) {
+  if (idOrName.startsWith('flux')) return idOrName.slice(4);
+  if (idOrName.startsWith('zel')) return idOrName.slice(3);
+  return idOrName;
+}
+
+/**
  * Generates an app docker name based on app name
  *
  * @param {string} appName
@@ -1049,17 +1070,6 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   }
   options.Env.push(`FLUX_APP_NAME=${appName}`);
 
-  // Ensure all required mount paths (files and directories) exist before creating container
-  // This prevents Docker mount errors when files have been deleted or don't exist yet
-  try {
-    // eslint-disable-next-line global-require
-    const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
-    await advancedWorkflows.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
-  } catch (error) {
-    log.error(`Failed to ensure mount paths exist for ${identifier}: ${error.message}`);
-    throw error;
-  }
-
   const app = await docker.createContainer(options).catch((error) => {
     log.error(error);
     throw error;
@@ -1153,14 +1163,18 @@ async function appDockerStop(idOrName, timeout) {
   }
 
   const dockerName = getDockerName(idOrName);
+  // Held for the duration of the stop operation (legitimately hours under a
+  // graceful shutdown) so the die handler swallows the deliberate stop and the
+  // reconciler defers. Cleared when the operation settles - never left for the
+  // die event to clean up: a lost event (stream outage) would leak the flag
+  // and permanently wedge the reconciler's actuation for this component.
   globalState.stoppingContainers.add(dockerName);
 
   try {
     const opts = timeout !== undefined ? { t: timeout } : {};
     await dockerContainer.stop(opts);
-  } catch (err) {
+  } finally {
     globalState.stoppingContainers.delete(dockerName);
-    throw err;
   }
   return `Flux App ${idOrName} successfully stopped.`;
 }
@@ -1206,13 +1220,13 @@ async function appDockerKill(idOrName) {
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
   const dockerName = getDockerName(idOrName);
+  // same flag lifetime as appDockerStop: operation-scoped, never event-scoped
   globalState.stoppingContainers.add(dockerName);
 
   try {
     await dockerContainer.kill();
-  } catch (err) {
+  } finally {
     globalState.stoppingContainers.delete(dockerName);
-    throw err;
   }
   return `Flux App ${idOrName} successfully killed.`;
 }
@@ -1774,6 +1788,7 @@ module.exports = {
   dockerVersion,
   getAppDockerNameIdentifier,
   getAppIdentifier,
+  getBaseAppName,
   getDockerContainer,
   getDockerContainerByIdOrName,
   getDockerContainerOnly,

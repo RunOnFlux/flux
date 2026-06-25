@@ -19,6 +19,7 @@ const { availableApps } = require('../appDatabase/registryManager');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
+const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const imageManager = require('../appSecurity/imageManager');
 const fluxEventBus = require('../utils/fluxEventBus');
 
@@ -27,6 +28,17 @@ const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'Z
 const appsFolder = `${appsFolderPath}/`;
 const cmdAsync = util.promisify(nodecmd.run);
 const crontabLoad = util.promisify(systemcrontab.load);
+
+// Fired once per component identifier after a successful local removal, beside
+// the durable runtime-state clear (mirrors appInstaller.setOnInstallComplete).
+// serviceManager wires it to appReconciler.clearControllerDesired so the
+// reconciler's in-memory controller verdict dies with the component - a
+// back-require of appReconciler here would capture a stale partial export
+// (appReconciler already requires this module and both replace module.exports).
+let onComponentRemoved = null;
+function setOnComponentRemoved(callback) {
+  onComponentRemoved = callback;
+}
 
 /**
  * Stop Syncthing app and clean up cache
@@ -763,6 +775,12 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
   try {
+    // Normalise to the bare identifier this function reasons about: a caller may
+    // pass the flux-prefixed docker name (e.g. the syncthing flow), which would
+    // otherwise mis-derive the component as `flux{component}` below.
+    // eslint-disable-next-line no-param-reassign
+    app = app ? dockerService.getBaseAppName(app) : app;
+
     // Log removal trigger with stack trace to identify caller
     const { stack } = new Error();
     const callerLine = stack.split('\n')[2]?.trim();
@@ -829,7 +847,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
           const projection = { projection: { _id: 0 } };
           const messages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
           const appMessages = messages.filter((message) => {
-            const specifications = message.appSpecifications || message.zelAppSpecifications;
+            const specifications = message.appSpecifications;
             return specifications.name === appName;
           });
           let currentSpecifications;
@@ -839,7 +857,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
             }
           });
           if (currentSpecifications && currentSpecifications.height) {
-            appSpecifications = currentSpecifications.appSpecifications || currentSpecifications.zelAppSpecifications;
+            ({ appSpecifications } = currentSpecifications);
           }
         }
       }
@@ -870,6 +888,23 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       await hardUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring, force);
     } else {
       await hardUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, force);
+    }
+
+    // clear node-local runtime state (operator stop lock, crash backoff) for the
+    // removed component(s) so a later reinstall starts from a clean slate
+    let removedIdentifiers;
+    if (appSpecifications.version >= 4 && appSpecifications.compose) {
+      removedIdentifiers = isComponent
+        ? [`${appComponent}_${appSpecifications.name}`]
+        : appSpecifications.compose.map((c) => `${c.name}_${appSpecifications.name}`);
+    } else {
+      removedIdentifiers = [appName];
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const identifier of removedIdentifiers) {
+      // eslint-disable-next-line no-await-in-loop
+      await appsRuntimeState.remove(identifier);
+      if (onComponentRemoved) onComponentRemoved(identifier);
     }
 
     fluxEventBus.publish('app:removed', { name: appName });
@@ -1079,6 +1114,24 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
       await softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring);
     }
 
+    // node-local controller state dies with the components on the soft path too:
+    // a (soft) redeploy is an explicit "make it run", so neither the operator
+    // lock nor a stale controller verdict may survive it
+    let removedIdentifiers;
+    if (appSpecifications.version >= 4 && appSpecifications.compose) {
+      removedIdentifiers = isComponent
+        ? [`${appComponent}_${appSpecifications.name}`]
+        : appSpecifications.compose.map((c) => `${c.name}_${appSpecifications.name}`);
+    } else {
+      removedIdentifiers = [appName];
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const identifier of removedIdentifiers) {
+      // eslint-disable-next-line no-await-in-loop
+      await appsRuntimeState.remove(identifier);
+      if (onComponentRemoved) onComponentRemoved(identifier);
+    }
+
     if (!isComponent) {
       const databaseStatus = {
         status: 'Cleaning up database...',
@@ -1204,4 +1257,5 @@ module.exports = {
   removeAppLocally,
   softRemoveAppLocally,
   removeAppLocallyApi,
+  setOnComponentRemoved,
 };

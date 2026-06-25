@@ -8,6 +8,7 @@ import {
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForAppInstalled, waitForBootSettled, waitForAppRunning,
@@ -37,7 +38,7 @@ async function seedAndWaitForInstall(env, appName) {
     compose: [{
       name: appName,
       description: 'test container',
-      repotag: `198.18.0.5:5000/${appName}:v1`,
+      repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
       ports: [31111],
       domains: [''],
       environmentParameters: [],
@@ -75,7 +76,7 @@ describe('reconcileAppsOnBoot restarts containers after simulated reboot', funct
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
@@ -118,7 +119,7 @@ describe('containerHealthMonitor recreates killed container', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
@@ -155,7 +156,7 @@ describe('containerHealthMonitor restarts stopped container', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });

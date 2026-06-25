@@ -1151,7 +1151,7 @@ describe('appInstaller tests', () => {
         '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
         '../utils/globalState': globalStateStub,
         '../utils/fluxEventBus': fluxEventBusStub,
-        '../utils/volumeService': { verifyAppVolumeMount: sinon.stub().resolves() },
+        '../utils/volumeService': { verifyAppVolumeMount: sinon.stub().resolves(), ensureMountPathsExist: sinon.stub().resolves() },
         '../../lib/log': logStub,
         '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
         '../appMessaging/messageVerifier': {

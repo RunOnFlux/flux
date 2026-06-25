@@ -4,6 +4,7 @@ import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { dbClient } from '../framework/db-client.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import {
   startTicker, advanceBlock, advanceBlocks, queueAppTx,
 } from '../framework/daemon-control.js';
@@ -35,7 +36,7 @@ describe('Signed sync completes on late-joining node', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({ nodes: 11, deferredNodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 11, deferredNodes: 1, tickerAutostart: false });
     const initial = Array.from({ length: 10 }, (_, i) => i);
     await bootAndPeer(env, initial);
 
@@ -44,7 +45,7 @@ describe('Signed sync completes on late-joining node', function () {
       name: appName,
       compose: [{
         name: appName, description: 'sync test',
-        repotag: `198.18.0.5:5000/${appName}:v1`,
+        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
         ports: [31111], domains: [''], environmentParameters: [], commands: [],
         containerPorts: [80], containerData: '/tmp',
         cpu: 0.1, ram: 100, hdd: 1, repoauth: '',
@@ -90,7 +91,7 @@ describe('Ephemeral connections resolve hashes via stub peers', function () {
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({
+    env = await createTestEnv({ hookCtx: this,
       nodes: 16,
       stubPeers: stubIndices,
       tickerAutostart: false,
@@ -119,7 +120,7 @@ describe('Ephemeral connections resolve hashes via stub peers', function () {
       name: appName,
       compose: [{
         name: appName, description: 'ephemeral test',
-        repotag: `198.18.0.5:5000/${appName}:v1`,
+        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
         ports: [31113], domains: [''], environmentParameters: [], commands: [],
         containerPorts: [80], containerData: '/tmp',
         cpu: 0.1, ram: 100, hdd: 1, repoauth: '',

@@ -42,7 +42,7 @@ describe('Hash sync: retry on failure', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootToSyncing(env);
 
     // Inject failpoint before first block triggers hash sync.
@@ -84,7 +84,7 @@ describe('Hash sync: retry exhaustion', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootToSyncing(env);
 
     // times: 2 — both attempts fail (hashSyncMaxRetries: 2 in test config)
@@ -126,7 +126,7 @@ describe('Hash sync: retry timer cancelled during DEGRADED', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootToReady(env);
   });
 
@@ -170,7 +170,7 @@ describe('Hash sync: attempts reset after degrade/recover', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootToSyncing(env);
 
     // Exhaust retries on initial sync (times: 2, maxRetries: 2)
@@ -268,7 +268,7 @@ describe('Hash sync: block-timer retry with unresolvable hash', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 5, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 5, tickerAutostart: false });
     await bootToReady(env);
   });
 

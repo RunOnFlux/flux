@@ -5,6 +5,7 @@ import { nodeKey } from '../framework/keys.js';
 import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { pushImage, pushUpdatedImage } from '../framework/registry-helper.js';
 import { getContainerImageDigest } from '../framework/container.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { startTicker, advanceBlock, advanceBlocks } from '../framework/daemon-control.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
@@ -17,7 +18,7 @@ function localRegistryCompose(appName) {
   return [{
     name: appName,
     description: 'test container',
-    repotag: `198.18.0.5:5000/${appName}:v1`,
+    repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
     ports: [31111],
     domains: [''],
     environmentParameters: [],
@@ -55,7 +56,7 @@ describe('Non-enterprise image update redeploy', function () {
   before(async function () {
     this.timeout(300000);
 
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
 
     await pushImage(appName, 'v1');
@@ -153,7 +154,7 @@ describe('Enterprise image update redeploy', function () {
   before(async function () {
     this.timeout(300000);
 
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
 
     await pushImage(appName, 'v1');

@@ -94,7 +94,7 @@ describe('appSpawner tests', () => {
         listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
       },
       '../appDatabase/registryManager': {
-        appLocation: sinon.stub().resolves([]),
+        appLocation: sinon.stub().resolves(opts.appLocations || []),
         appInstallingLocation: sinon.stub().resolves([]),
         getApplicationGlobalSpecifications: sinon.stub().resolves(opts.appSpec || null),
         expireGlobalApplications: sinon.stub().resolves(),
@@ -485,6 +485,86 @@ describe('appSpawner tests', () => {
       globalStateStub.trySpawningGlobalAppCache.set('abc123', '');
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       expect(logStub.info.args.some((a) => a[0]?.includes?.('No app currently to be processed'))).to.be.true;
+    });
+  });
+
+  describe('syncthing placement caution uses the canonical g:/r:/s: classification', () => {
+    // The spawner avoids co-locating instances of syncthing-synced apps in the same
+    // IP range. Whether an app IS synced must come from the canonical classifier
+    // (sync flags are only valid on the primary mount), not a loose substring scan:
+    // a g:/s: in an invalid position or inside a word ('logs:') is NOT a synced app,
+    // so the placement caution must not apply to it.
+    //
+    // The local node's IP is 192.168.1.1 (benchmark stub), so a location in
+    // 192.168.x.x is "same IP range" without being "same IP".
+    const sameRangeLocation = [{ ip: '192.168.50.50:16127' }];
+
+    const spawnableApp = {
+      name: 'testApp',
+      actual: 0,
+      required: 3,
+      nodes: [],
+      geolocation: [],
+      hash: 'abc123',
+      version: 7,
+      enterprise: false,
+      owner: 'testOwner',
+    };
+
+    function composedSpec(containerData) {
+      return {
+        name: 'testApp',
+        hash: 'abc123',
+        version: 7,
+        instances: 3,
+        compose: [{ name: 'comp0', repotag: 'testimage:latest', containerData }],
+      };
+    }
+
+    async function runSpawnAttempt(spec) {
+      const installStub = sinon.stub().resolves(true);
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: spec,
+        appLocations: sameRangeLocation,
+        installStub,
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      const deferredForSyncthing = logStub.info.args.some(
+        (a) => typeof a[0] === 'string' && a[0].includes('uses syncthing and it is already spawned on Fluxnode with same ip range'),
+      );
+      return { installStub, deferredForSyncthing };
+    }
+
+    it('defers a g: app when an instance runs in the same IP range', async () => {
+      const { installStub, deferredForSyncthing } = await runSpawnAttempt(composedSpec('g:/data'));
+      expect(deferredForSyncthing).to.be.true;
+      expect(installStub.called).to.be.false;
+    });
+
+    it('defers a v1-3 r: app when an instance runs in the same IP range', async () => {
+      const spec = {
+        name: 'testApp',
+        hash: 'abc123',
+        version: 2,
+        repotag: 'testimage:latest',
+        containerData: 'r:/data',
+      };
+      const { installStub, deferredForSyncthing } = await runSpawnAttempt(spec);
+      expect(deferredForSyncthing).to.be.true;
+      expect(installStub.called).to.be.false;
+    });
+
+    it('does NOT apply the caution to a sync flag on a non-primary mount (not a synced app)', async () => {
+      const { installStub, deferredForSyncthing } = await runSpawnAttempt(composedSpec('/data|g:/var/roundcube/db'));
+      expect(deferredForSyncthing).to.be.false;
+      expect(installStub.called).to.be.true;
+    });
+
+    it("does NOT apply the caution to a non-flag word containing flag letters ('logs:')", async () => {
+      const { installStub, deferredForSyncthing } = await runSpawnAttempt(composedSpec('logs:/var/log'));
+      expect(deferredForSyncthing).to.be.false;
+      expect(installStub.called).to.be.true;
     });
   });
 

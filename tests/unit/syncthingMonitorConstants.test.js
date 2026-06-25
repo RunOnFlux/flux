@@ -40,24 +40,9 @@ describe('syncthingMonitorConstants tests', () => {
   });
 
   describe('Sync monitoring constants', () => {
-    it('should have MAX_SYNC_WAIT_EXECUTIONS defined', () => {
-      expect(constants.MAX_SYNC_WAIT_EXECUTIONS).to.be.a('number');
-      expect(constants.MAX_SYNC_WAIT_EXECUTIONS).to.equal(120); // ~1 hour at 30s intervals
-    });
-
     it('should have CLOCK_SKEW_TOLERANCE_MS defined', () => {
       expect(constants.CLOCK_SKEW_TOLERANCE_MS).to.be.a('number');
       expect(constants.CLOCK_SKEW_TOLERANCE_MS).to.equal(5000);
-    });
-
-    it('should have LEADER_ELECTION_MIN_EXECUTIONS defined', () => {
-      expect(constants.LEADER_ELECTION_MIN_EXECUTIONS).to.be.a('number');
-      expect(constants.LEADER_ELECTION_MIN_EXECUTIONS).to.equal(2);
-    });
-
-    it('should have LEADER_ELECTION_EXECUTIONS_PER_INDEX defined', () => {
-      expect(constants.LEADER_ELECTION_EXECUTIONS_PER_INDEX).to.be.a('number');
-      expect(constants.LEADER_ELECTION_EXECUTIONS_PER_INDEX).to.equal(10);
     });
 
     it('should have SYNC_COMPLETE_PERCENTAGE defined', () => {
@@ -73,11 +58,6 @@ describe('syncthingMonitorConstants tests', () => {
 
     it('should have error retry delay greater than operation delay', () => {
       expect(constants.ERROR_RETRY_DELAY_MS).to.be.greaterThan(constants.OPERATION_DELAY_MS);
-    });
-
-    it('should have reasonable max wait executions', () => {
-      expect(constants.MAX_SYNC_WAIT_EXECUTIONS).to.be.greaterThan(0);
-      expect(constants.MAX_SYNC_WAIT_EXECUTIONS).to.be.lessThan(1000);
     });
   });
 });

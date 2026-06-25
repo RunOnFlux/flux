@@ -14,7 +14,6 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
 const appController = require('./appManagement/appController');
-const dockerOperations = require('./appManagement/dockerOperations');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
 const appInspector = require('./appManagement/appInspector');
@@ -24,6 +23,7 @@ const peerNotification = require('./appMessaging/peerNotification');
 const syncthingMonitor = require('./appMonitoring/syncthingMonitor');
 const daemonHealthMonitor = require('./appMonitoring/daemonHealthMonitor');
 const containerCrashRecovery = require('./appMonitoring/containerCrashRecovery');
+const appReconciler = require('./appMonitoring/appReconciler');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
@@ -54,6 +54,7 @@ const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
+const appsRuntimeState = require('./appManagement/appsRuntimeState');
 const imageUpdateService = require('./imageUpdateService');
 const { version: fluxVersion } = require('../../../package.json');
 // const throughputLogger = require('./utils/throughputLogger');
@@ -193,6 +194,9 @@ async function startFluxFunctions() {
       { name: 'appName_detectedAt' },
     );
     await appTamperingDetectionService.checkFrequentRestart();
+    // appsRuntimeState (localzelapps): merge any pre-unique-index duplicate docs,
+    // then enforce one doc per component identifier
+    await appsRuntimeState.prepareCollection();
     log.info('Local database prepared');
     log.info('Preparing temporary database...');
     // no need to drop temporary messages
@@ -273,8 +277,12 @@ async function startFluxFunctions() {
     // them on future daemon restarts. FluxOS manages container startup after dbReady.
     dockerService.migrateContainerRestartPolicies();
 
-    // Subscribe to Docker container die events for immediate crash recovery.
-    // Events during boot are queued; drainBootQueue() replays them after boot settles.
+    // Start the reconcile workqueue (the single container actuator) and the
+    // Docker die-event bridge that feeds it. The workqueue holds all triggers
+    // until bootContainerStateSettled, then drains once daemon/DB are ready.
+    appReconciler.start().catch((error) => {
+      log.error(`App reconciler error: ${error.message}`);
+    });
     containerCrashRecovery.start();
 
     // Read boot context early — determines startup behavior for container management.
@@ -302,6 +310,7 @@ async function startFluxFunctions() {
         .map((p) => ({ key: p.key, send: (msg) => p.send(msg) })),
       onPeerEvent: (event, cb) => peerManager.on(event, cb),
       offPeerEvent: (event, cb) => peerManager.removeListener(event, cb),
+      peerCountIfAboveThreshold: () => peerManager.peerCountIfAboveThreshold(),
       markSyncRequested: (key) => peerManager.markSyncRequested(key),
       clearSyncRequested: () => peerManager.clearSyncRequested(),
       isEnterprise: () => enterpriseNetwork.getCachedEnterpriseIdentity(),
@@ -312,6 +321,13 @@ async function startFluxFunctions() {
     peerNotification.initialize();
     appSpawner.initialize();
     appInstaller.setOnInstallComplete(() => peerNotification.checkAndNotifyPeersOfRunningApps());
+    // a reconciler start (incl. a backoff straggler after boot) must refresh the
+    // app's network presence inside the sigterm TTL window, not at the hourly tick;
+    // checkAndNotifyPeersOfRunningApps coalesces bursts
+    appReconciler.setOnContainerStarted(() => peerNotification.checkAndNotifyPeersOfRunningApps());
+    // a removed component's in-memory controller verdict dies with it - a
+    // reinstalled g:/r: app must await a fresh election, not inherit a stale one
+    appUninstaller.setOnComponentRemoved((id) => appReconciler.clearControllerDesired(id));
     log.info('App Spawner initialized');
 
     fluxNetworkHelper.adjustFirewall();
@@ -452,31 +468,36 @@ async function startFluxFunctions() {
     setTimeout(() => {
       nodeStatusMonitor.monitorNodeStatus(appQueryService.installedApps, appUninstaller.removeAppLocally);
     }, bootDelay(1.5 * 60 * 1000));
-    setTimeout(() => {
+    // Start the syncthing/masterSlave deciders once boot container state has settled
+    // (the same AsyncGate the reconciler starts on), not after a fixed delay. Each
+    // decider self-gates per cycle on its own prerequisites (mounts, syncthing health,
+    // own-IP, FDM), so an early start is safe - it skips and retries until ready.
+    globalState.waitForBootContainerStateSettled().then(() => {
+      // The syncthing decider is declare-only: it writes desired run-state and
+      // data-state (via appReconciler) and enqueues; the reconciler is the sole
+      // actuator that stops, starts, and wipes - inside its per-key single-flight,
+      // so a start can never race a data wipe.
       syncthingMonitor.syncthingApps(
         globalState,
         appQueryService.installedApps,
         () => globalState,
-        dockerService.appDockerStop,
-        dockerService.appDockerRestart,
-        dockerOperations.appDeleteDataInMountPoint,
-        appUninstaller.removeAppLocally,
-      ); // rechecks and possibly adjust syncthing configuration every 2 minutes
-      setTimeout(() => {
-        advancedWorkflows.masterSlaveApps(
-          globalState,
-          appQueryService.installedApps,
-          appQueryService.listRunningApps,
-          globalState.receiveOnlySyncthingAppsCache,
-          globalState.backupInProgress,
-          globalState.restoreInProgress,
-          https,
-        ); // stop and starts apps using syncthing g: when a new master is required or was changed.
-      }, 30 * 1000);
+      ); // rechecks syncthing configuration each cycle
+      // masterSlave self-gates on syncthingAppsFirstRun (the syncthing monitor's
+      // first-run mount-safety must complete before any g: election), so it starts
+      // concurrently rather than after a timed offset.
+      advancedWorkflows.masterSlaveApps(
+        globalState,
+        appQueryService.installedApps,
+        appQueryService.listRunningApps,
+        globalState.receiveOnlySyncthingAppsCache,
+        globalState.backupInProgress,
+        globalState.restoreInProgress,
+        https,
+      ); // stops and starts g: syncthing apps when a new master is required or changed.
       setTimeout(() => {
         appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally, globalState); // Monitor SharedDB Apps.
       }, 60 * 1000);
-    }, bootDelay(3 * 60 * 1000));
+    });
     // Hash sync and spawner startup are now managed by the AppSyncOrchestrator (event-driven)
     orchestrator.start(bootContext);
     log.info('AppSyncOrchestrator started');

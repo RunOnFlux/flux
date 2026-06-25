@@ -17,6 +17,7 @@ const imageManager = require('../appSecurity/imageManager');
 const hwRequirements = require('../appRequirements/hwRequirements');
 const portManager = require('../appNetwork/portManager');
 const appUtilities = require('../utils/appUtilities');
+const mountParser = require('../utils/mountParser');
 const systemIntegration = require('../appSystem/systemIntegration');
 const globalState = require('../utils/globalState');
 const enterpriseNetwork = require('../utils/enterpriseNetwork');
@@ -447,11 +448,14 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
+    // canonical classification: sync flags are only valid on the primary mount, so a
+    // g:/r:/s: in an invalid position (or inside a word like 'logs:') is NOT a synced
+    // app and the same-IP-range placement caution below must not apply to it
     let syncthingApp = false;
     if (appSpecifications.version <= 3) {
-      syncthingApp = appSpecifications.containerData.includes('g:') || appSpecifications.containerData.includes('r:') || appSpecifications.containerData.includes('s:');
+      syncthingApp = mountParser.isSyncedComponent(appSpecifications.containerData);
     } else {
-      syncthingApp = appSpecifications.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+      syncthingApp = appSpecifications.compose.some((comp) => mountParser.isSyncedComponent(comp.containerData));
     }
 
     const localIp = extractIp(localSocketAddr);

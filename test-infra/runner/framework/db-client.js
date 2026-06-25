@@ -1,6 +1,7 @@
 import { MongoClient } from 'mongodb';
+import { getSubnetConfig } from './subnet-config.js';
 
-const MONGO_URL = process.env.MONGO_URL || 'mongodb://198.18.0.2:27017';
+const MONGO_URL = process.env.MONGO_URL || `mongodb://${getSubnetConfig().mongo}:27017`;
 
 let sharedClient = null;
 
@@ -90,6 +91,18 @@ export function dbClient(nodeNum) {
     async localAppCount() {
       const localDb = await db('appsLocal');
       return localDb.collection('zelappsinformation').countDocuments({});
+    },
+
+    // This node's view of where an app runs (the rows fluxapprunning messages
+    // upsert and the empty-broadcast bug used to wipe).
+    async getAppLocations(appName) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappslocation').find({ name: appName }).toArray();
+    },
+
+    async getAppLocationsByIp(ip) {
+      const globalDb = await db('appsGlobal');
+      return globalDb.collection('zelappslocation').find({ ip }).toArray();
     },
 
     async eventCounts() {
@@ -267,6 +280,7 @@ export function dbClient(nodeNum) {
       const localDb = await db('appsLocal');
       await localDb.collection('zelappsinformation').insertOne(spec);
     },
+
 
     async seedInstallingLocation({ name, ip, broadcastedAt }) {
       const globalDb = await db('appsGlobal');

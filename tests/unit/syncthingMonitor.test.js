@@ -44,6 +44,7 @@ const syncthingFolderStateMachineMock = {
   }),
   getFolderSyncCompletion: sinon.stub(),
   isDesignatedLeader: sinon.stub(),
+  verifyFolderMountSafety: sinon.stub().resolves({ isSafe: true, isMounted: true, fileCount: 1 }),
 };
 
 const syncthingMonitorHelpersMock = {
@@ -74,6 +75,13 @@ const appQueryServiceMock = {
   decryptEnterpriseApps: sinon.stub().returnsArg(0), // Return apps as-is by default
 };
 
+const syncthingEventsConsumerMock = {
+  start: sinon.stub(),
+  stop: sinon.stub().resolves(),
+  isRunning: sinon.stub().returns(false),
+  getFolderErrors: sinon.stub(),
+};
+
 // Load module with mocked dependencies
 const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingMonitor', {
   '../dbHelper': dbHelperMock,
@@ -85,6 +93,7 @@ const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/sy
   './syncthingFolderStateMachine': syncthingFolderStateMachineMock,
   './syncthingMonitorHelpers': syncthingMonitorHelpersMock,
   './syncthingHealthMonitor': syncthingHealthMonitorMock,
+  './syncthingEventsConsumer': syncthingEventsConsumerMock,
 });
 
 describe('syncthingMonitor tests', () => {
@@ -129,6 +138,9 @@ describe('syncthingMonitor tests', () => {
     dockerServiceMock.dockerContainerInspect.reset();
     dockerServiceMock.appDockerStart.reset();
     syncthingHealthMonitorMock.monitorFolderHealth.reset();
+    syncthingEventsConsumerMock.start.reset();
+    syncthingEventsConsumerMock.stop.reset();
+    syncthingEventsConsumerMock.stop.resolves();
 
     // Default stub behaviors
     syncthingServiceMock.getConfigFolders.resolves({ data: [] });
@@ -255,6 +267,89 @@ describe('syncthingMonitor tests', () => {
       await clock.tickAsync(100);
 
       sinon.assert.notCalled(mockInstalledAppsFn);
+    });
+
+    it('should switch unsafe-mount folders to receiveonly on first run WITHOUT restarting syncthing', async () => {
+      // The receiveonly PATCH applies live on syncthing v2 (verified against the
+      // fleet's v2.0.x) - a process restart here drops every folder's transfers
+      // and delays startup by 5s for nothing.
+      mockState.syncthingAppsFirstRun = true;
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      syncthingServiceMock.getConfigFolders.resolves({
+        data: [{ id: 'fluxcomp_testapp', path: '/apps/fluxcomp_testapp', type: 'sendreceive' }],
+      });
+      syncthingServiceMock.adjustConfigFolders.resolves(); // beforeEach reset() wipes behavior; restore it
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, reason: 'not mounted' });
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+        mockAppDockerStopFn,
+        mockAppDockerRestartFn,
+        mockAppDeleteDataFn,
+        mockRemoveAppLocallyFn,
+      );
+      await clock.tickAsync(10000);
+
+      sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'patch', { type: 'receiveonly' }, 'fluxcomp_testapp');
+      sinon.assert.notCalled(syncthingServiceMock.systemRestart);
+
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: true, isMounted: true, fileCount: 1 });
+    });
+
+    it('should start the events consumer (edge accelerator) and stop it on shutdown', async () => {
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+        mockAppDockerStopFn,
+        mockAppDockerRestartFn,
+        mockAppDeleteDataFn,
+        mockRemoveAppLocallyFn,
+      );
+
+      sinon.assert.calledOnce(syncthingEventsConsumerMock.start);
+      const handlers = syncthingEventsConsumerMock.start.firstCall.args[0];
+      expect(handlers.onFolderActivity).to.be.a('function');
+      expect(handlers.onResync).to.be.a('function');
+
+      monitorControl.stop();
+      sinon.assert.calledOnce(syncthingEventsConsumerMock.stop);
+    });
+
+    it('should run an early evaluation (debounced) when folder events arrive', async () => {
+      // events never decide anything - they only run the SAME monitoring pass
+      // earlier than the interval would
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+        mockAppDockerStopFn,
+        mockAppDockerRestartFn,
+        mockAppDeleteDataFn,
+        mockRemoveAppLocallyFn,
+      );
+      await clock.tickAsync(100); // initial run completes
+      const runsAfterStart = mockInstalledAppsFn.callCount;
+
+      const handlers = syncthingEventsConsumerMock.start.firstCall.args[0];
+      handlers.onFolderActivity('fluxcomp_app1', 'FolderSummary');
+      handlers.onFolderActivity('fluxcomp_app1', 'StateChanged'); // coalesces
+
+      await clock.tickAsync(2500); // past the debounce, well before the interval
+
+      expect(mockInstalledAppsFn.callCount).to.equal(runsAfterStart + 1);
     });
 
     it('should prevent overlapping executions', async () => {

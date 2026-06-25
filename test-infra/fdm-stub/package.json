@@ -1,0 +1,13 @@
+{
+  "name": "flux-fdm-stub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stub for the FDM /appips master-slave election endpoint for E2E testing",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

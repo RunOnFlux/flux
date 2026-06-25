@@ -49,7 +49,7 @@ describe('Hash sync: late-joining node', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, deferredNodes: 1, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, deferredNodes: 1, tickerAutostart: false });
     await bootAndPeer(env);
 
     ({ appHash } = await registerApp(env));
@@ -98,7 +98,7 @@ describe('Hash sync: network partition', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
 
     await env.disconnectNode(env.lastNodeIndex);
@@ -147,7 +147,7 @@ describe('Hash sync: stale state recovery', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ nodes: 10, tickerAutostart: false });
+    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
     ({ appHash } = await registerApp(env));
 

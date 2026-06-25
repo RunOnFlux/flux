@@ -40,9 +40,12 @@ function parseMountFlags(segment) {
   const flags = [];
   let hasFlags = false;
 
-  // Only consider it as having flags if segment doesn't start with /
-  // Paths like /var, /usr, /nginx should not be treated as flag segments
-  if (!segment.startsWith('/')) {
+  // A flag segment consists ENTIRELY of known flag letters ('r', 'gs', 'rgs').
+  // A word that merely contains them ('logs', 'config') is NOT a flag segment —
+  // it falls through to the invalid-primary-syntax error like any other garbage,
+  // rather than being silently adopted as a synced (g:/r:/s:) component. Paths
+  // ('/var', '/usr') never match: '/' is not a flag letter.
+  if (/^[rgs]+$/.test(segment)) {
     // eslint-disable-next-line no-restricted-syntax
     for (const flag of knownFlags) {
       if (segment.includes(flag)) {
@@ -390,14 +393,57 @@ function getPrimaryFlags(parsedMounts) {
 }
 
 /**
- * Check if containerData has specific flag
+ * Canonical sync-mode classifier for a component's containerData.
+ *
+ * The mount model permits sync flags (g/r/s) ONLY on the primary mount, so this
+ * fully parses the spec and reads the primary mount's flags. It is the single
+ * source of truth for "is this component g:/r:/s:", replacing scattered ad-hoc
+ * checks: the loose `containerData.includes('g:')` (matches g: even in an invalid
+ * non-primary position) and the old substring `hasFlag` (false-positives on a
+ * flagless path that happens to contain the flag letter, e.g. '/dogs/data').
+ *
+ * Returns null for a non-synced component AND for an unparseable/invalid spec, so
+ * detection never throws and invalid specs are simply not adopted as synced. Use a
+ * separate explicit parse (the install/reconcile path) to surface invalid specs.
+ *
+ * @param {string} containerData
+ * @returns {('g'|'r'|'s'|null)} the primary sync mode, or null
+ */
+function getComponentSyncMode(containerData) {
+  let flags;
+  try {
+    flags = parseContainerData(containerData).primary.flags || [];
+  } catch (e) {
+    return null;
+  }
+  if (flags.includes('g')) return 'g';
+  if (flags.includes('r')) return 'r';
+  if (flags.includes('s')) return 's';
+  return null;
+}
+
+/** True iff the component's primary mount is a g: (masterSlave) sync mount. */
+function isGComponent(containerData) {
+  return getComponentSyncMode(containerData) === 'g';
+}
+
+/** True iff the component's primary mount is any sync mount (g:/r:/s:). */
+function isSyncedComponent(containerData) {
+  return getComponentSyncMode(containerData) !== null;
+}
+
+/**
+ * Check if containerData has a specific sync flag on its primary mount.
  * @param {string} containerData - Original containerData string
  * @param {string} flag - Flag to check (r, g, s)
  * @returns {boolean}
  */
 function hasFlag(containerData, flag) {
-  const firstSegment = containerData.split('|')[0].split(':')[0];
-  return firstSegment.includes(flag);
+  try {
+    return (parseContainerData(containerData).primary.flags || []).includes(flag);
+  } catch (e) {
+    return false;
+  }
 }
 
 module.exports = {
@@ -407,6 +453,9 @@ module.exports = {
   getRequiredLocalPaths,
   getPrimaryFlags,
   hasFlag,
+  getComponentSyncMode,
+  isGComponent,
+  isSyncedComponent,
   validateMountPath,
   validateSubdirOrFilename,
 };

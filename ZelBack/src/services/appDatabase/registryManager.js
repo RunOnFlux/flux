@@ -1380,14 +1380,9 @@ async function expireGlobalApplications() {
       throw new Error('Scanning not initiated');
     }
     const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-    let minExpirationHeight = explorerHeight - config.fluxapps.newMinBlocksAllowance; // do a pre search in db as every app has to live for at least newMinBlocksAllowance
-    if (explorerHeight < config.fluxapps.newMinBlocksAllowanceBlock) {
-      minExpirationHeight = explorerHeight - config.fluxapps.minBlocksAllowance; // do a pre search in db as every app has to live for at least minBlocksAllowance
-    }
-    // get global applications specification that have up to date data
-    // find applications that have specifications height lower than minExpirationHeight
+    // get all global applications specifications and evaluate expiration per app below
     const databaseApps = dbopen.db(config.database.appsglobal.database);
-    const queryApps = { height: { $lt: minExpirationHeight } };
+    const queryApps = {};
     const projectionApps = {
       projection: {
         _id: 0, name: 1, hash: 1, expire: 1, height: 1,
@@ -1998,7 +1993,7 @@ async function rescanGlobalAppsInformation(height = 0, removeLastInformation = f
 
     // eslint-disable-next-line no-restricted-syntax
     for (const message of results) {
-      const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
+      const updateForSpecifications = message.appSpecifications;
       updateForSpecifications.hash = message.hash;
       updateForSpecifications.height = message.height;
       // eslint-disable-next-line no-await-in-loop
@@ -2069,8 +2064,71 @@ async function rescanGlobalAppsInformationAPI(req, res) {
   }
 }
 
+/**
+ * To get previous app specifications from the permanent message log. Used when
+ * verifying an app update message: the prior registration/update spec may no
+ * longer be in global apps (e.g. the app expired), so the message log is the
+ * accurate source. Lives here (not in advancedWorkflows) so message verification
+ * does not depend on the lifecycle layer — that was a require cycle.
+ * @param {object} specifications App specifications.
+ * @param {object} verificationTimestamp Message timestamp.
+ * @returns {object|null} App specifications or null if not found.
+ */
+async function getPreviousAppSpecifications(specifications, verificationTimestamp) {
+  // we may not have the application in global apps. This can happen when we receive the message
+  // after the app has already expired AND we need to get message right before our message.
+  // Thus using messages system that is accurate
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  const appsQuery = {
+    'appSpecifications.name': specifications.name,
+  };
+  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  let latestPermanentRegistrationMessage;
+  permanentAppMessage.forEach((foundMessage) => {
+    // has to be registration message
+    const validTypes = ['zelappregister', 'fluxappregister', 'zelappupdate', 'fluxappupdate'];
+    if (validTypes.includes(foundMessage.type)) {
+      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) {
+        // no message and found message is not newer than our message
+        latestPermanentRegistrationMessage = foundMessage;
+      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) {
+        // we have some message and the message is quite new
+        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp
+          && foundMessage.timestamp <= verificationTimestamp) {
+          // but our message is newer. foundMessage has to have lower timestamp than our new message
+          latestPermanentRegistrationMessage = foundMessage;
+        }
+      }
+    }
+  });
+  if (!latestPermanentRegistrationMessage) {
+    return null;
+  }
+  const appSpecs = latestPermanentRegistrationMessage.appSpecifications;
+  if (!appSpecs) {
+    throw new Error(`Previous specifications for ${specifications.name} update message does not exists! This should not happen.`);
+  }
+  if (appSpecs.version >= 8 && appSpecs.enterprise) {
+    try {
+      const heightForDecrypt = latestPermanentRegistrationMessage.height;
+      const decryptedPrev = await checkAndDecryptAppSpecs(appSpecs, { daemonHeight: heightForDecrypt });
+      return specificationFormatter(decryptedPrev);
+    } catch {
+      return specificationFormatter(appSpecs);
+    }
+  }
+  return specificationFormatter(appSpecs);
+}
+
 module.exports = {
   getAppHashes,
+  getPreviousAppSpecifications,
   appLocation,
   appLocationFromEvents,
   appInstallingLocation,

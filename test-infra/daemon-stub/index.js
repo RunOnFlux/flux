@@ -14,6 +14,16 @@ const FLUXD_PORT = Number(process.env.FLUXD_PORT) || 16124;
 const BENCHD_PORT = Number(process.env.BENCHD_PORT) || 16224;
 const CONTROL_PORT = Number(process.env.CONTROL_PORT) || 18232;
 
+// Reported software versions — single source of truth so every RPC stays consistent
+// and a version bump is a one-line change. BENCH_VERSION must satisfy FluxOS's
+// config.minimumFluxBenchAllowedVersion (currently 6.2.0) or the node DOS-flags itself.
+const DAEMON_VERSION = 6010050;
+const DAEMON_PROTOCOL_VERSION = 170019;
+const DAEMON_WALLET_VERSION = 60000;
+const DAEMON_SUBVERSION = '/Flux:6.1.0/';
+const BENCH_VERSION = '6.3.1';
+const FLUX_VERSION = '8.0.0';
+
 let currentHeight = Number(process.env.INITIAL_HEIGHT) || 2100000;
 let deterministicNodeList = [];
 let originalNodeList = [];
@@ -32,6 +42,9 @@ const fixturesDir = process.env.FIXTURES_DIR || path.join(__dirname, '..', 'fixt
 
 const NODE_COUNT = Number(process.env.NODE_COUNT) || 16;
 
+// Default-base baseline from the committed fixture. The harness assigns per-run
+// addresses and POSTs the rendered list to /set-node-list (which also resets this
+// baseline), so the IP convention lives only in runner/framework/subnet-config.js.
 try {
   const listPath = path.join(fixturesDir, 'deterministic-list.json');
   if (fs.existsSync(listPath)) {
@@ -62,9 +75,9 @@ const rpcHandlers = {
   getblockcount: () => currentHeight,
 
   getinfo: () => ({
-    version: 6010050,
-    protocolversion: 170019,
-    walletversion: 60000,
+    version: DAEMON_VERSION,
+    protocolversion: DAEMON_PROTOCOL_VERSION,
+    walletversion: DAEMON_WALLET_VERSION,
     balance: 0,
     blocks: currentHeight,
     timeoffset: 0,
@@ -76,9 +89,9 @@ const rpcHandlers = {
   }),
 
   getnetworkinfo: () => ({
-    version: 6010050,
-    subversion: '/Flux:6.1.0/',
-    protocolversion: 170019,
+    version: DAEMON_VERSION,
+    subversion: DAEMON_SUBVERSION,
+    protocolversion: DAEMON_PROTOCOL_VERSION,
     localservices: '0000000000000005',
     timeoffset: 0,
     connections: deterministicNodeList.length,
@@ -281,8 +294,8 @@ const benchHandlers = {
       ping: s.ping,
       download_speed: s.download_speed,
       upload_speed: s.upload_speed,
-      bench_version: '5.0.0',
-      flux_version: '8.0.0',
+      bench_version: BENCH_VERSION,
+      flux_version: FLUX_VERSION,
       architecture: 'amd64',
       thunder: false,
       real_cores: s.cores,
@@ -307,7 +320,7 @@ const benchHandlers = {
   },
 
   getinfo: () => ({
-    version: '5.0.0',
+    version: BENCH_VERSION,
     rpcport: BENCHD_PORT,
   }),
 
@@ -510,7 +523,10 @@ control.post('/set-height', (req, res) => {
 });
 
 control.post('/set-node-list', (req, res) => {
+  // Update the restore/reset baseline too, so /node-list/restore and /reset stay
+  // consistent with the per-run addresses the harness assigns (not the 198.18 fixture).
   deterministicNodeList = req.body.nodes;
+  originalNodeList = [...req.body.nodes];
   res.json({ nodeCount: deterministicNodeList.length });
 });
 

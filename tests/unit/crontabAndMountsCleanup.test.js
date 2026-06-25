@@ -60,8 +60,8 @@ const crontabAndMountsCleanup = proxyquire('../../ZelBack/src/services/appLifecy
 
 describe('crontabAndMountsCleanup tests', () => {
   beforeEach(() => {
-    // Reset all stubs before each test
-    sinon.reset();
+    // Reset only this file's own stubs (a global sinon.reset() would wipe stub
+    // behaviour set up at module load by other test files in the same run)
     crontabMock.load.reset();
     cmdAsyncMock.reset();
     logMock.info.reset();
