@@ -788,10 +788,13 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     // teardown owns anything we created. Returning FAILED would make the spawner 7-day-poison
     // the hash (never cleared), stranding a pinned enterprise app for ~a week. Defer instead -
     // and do NOT run our own cleanup removeAppLocally: the in-flight cancel already owns the
-    // teardown, so a second removeAppLocally would race it. Same two signals the mid-install
-    // backstop uses: the in-memory removal flag, and the durable teardown doc (itself
-    // fail-CLOSED on a read blip), so a transient DB miss defers rather than poisons.
-    if (!test && (globalState.hasRemovalInProgress(appSpecs.name) || await pendingTeardownStore.teardownOwedFor(appSpecs.name))) {
+    // teardown, so a second removeAppLocally would race it. The PRIMARY signal is this install's
+    // own aborted AbortController: it latches permanently when the cancel fires, so unlike the
+    // in-memory removal flag (cleared the instant a background teardown is dispatched) and the
+    // durable teardown doc (cleared at FINISH), a fast detached teardown cannot race it clear
+    // before this slower catch runs. The latter two remain as fallbacks (the teardown doc also
+    // fail-CLOSES on a read blip, so a transient DB miss still defers rather than poisons).
+    if (!test && (globalState.installAborted(appSpecs.name) || globalState.hasRemovalInProgress(appSpecs.name) || await pendingTeardownStore.teardownOwedFor(appSpecs.name))) {
       const deferStatus = messageHelper.createWarningMessage(`Install of ${appSpecs.name} deferred: a concurrent cancel/removal owns its teardown.`);
       log.warn(deferStatus);
       if (res) {

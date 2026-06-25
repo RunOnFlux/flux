@@ -152,6 +152,16 @@ module.exports = {
   get runningAppsCache() { return runningAppsCache; },
   get stoppingContainers() { return stoppingContainers; },
   get installingApps() { return installingApps; },
+  // Did a concurrent cancel/removal abort THIS app's in-flight install? A cancel calls
+  // installingApps.get(name).abort() (appUninstaller); the AbortSignal latches `aborted`
+  // permanently, so this is the one cancel-vs-install signal that cannot be out-raced by a
+  // fast detached teardown clearing the transient removal flag / durable teardown doc. The
+  // controller lives in the map until the install's own finally, so it is observable from the
+  // install's catch when classifying a thrown install as deferred (cancel) vs failed.
+  installAborted(name) {
+    const controller = installingApps.get(name);
+    return Boolean(controller && controller.signal && controller.signal.aborted);
+  },
 
   get spawnErrorsLongerAppCache() { return spawnErrorsLongerAppCache; },
   set spawnErrorsLongerAppCache(value) { spawnErrorsLongerAppCache = value; },

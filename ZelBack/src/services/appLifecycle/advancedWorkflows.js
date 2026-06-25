@@ -1192,9 +1192,11 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
     // pull) rather than a genuine failure? Returning FAILED would make the spawner 7-day-poison
     // the hash (never cleared), stranding a pinned enterprise app. Defer instead, and do NOT run
     // our own removeAppLocally - the in-flight cancel already owns the teardown, so a second
-    // removeAppLocally would race it. teardownOwedFor fails CLOSED on a read blip, so a transient
-    // DB miss defers rather than poisons. Mirrors the hard path in appInstaller.js.
-    if (globalState.hasRemovalInProgress(appSpecs.name) || await pendingTeardownStore.teardownOwedFor(appSpecs.name)) {
+    // removeAppLocally would race it. The PRIMARY signal is this install's own aborted
+    // AbortController, which latches permanently and so cannot be out-raced by a fast detached
+    // teardown clearing the transient removal flag / the durable teardown doc; those remain as
+    // fallbacks (teardownOwedFor also fail-CLOSES on a read blip). Mirrors appInstaller.js.
+    if (globalState.installAborted(appSpecs.name) || globalState.hasRemovalInProgress(appSpecs.name) || await pendingTeardownStore.teardownOwedFor(appSpecs.name)) {
       const deferStatus = messageHelper.createWarningMessage(`Soft install of ${appSpecs.name} deferred: a concurrent cancel/removal owns its teardown.`);
       log.warn(deferStatus);
       if (res) {

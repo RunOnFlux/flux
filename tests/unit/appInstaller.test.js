@@ -60,6 +60,7 @@ describe('appInstaller tests', () => {
       masterSlaveAppsRunning: false,
       installingApps: new Map(),
       hasRemovalInProgress: () => false,
+      installAborted: () => false,
     };
 
     // Stubs
@@ -1209,7 +1210,7 @@ describe('appInstaller tests', () => {
       name: 'testapp', repotag: 'repo/test:1', containerData: '/data', ports: [30000], version: 2,
     };
 
-    function buildRegister({ teardownOwed = false, hasRemoval = () => false } = {}) {
+    function buildRegister({ teardownOwed = false, hasRemoval = () => false, abortOwnController = false } = {}) {
       const removeAppLocally = sinon.stub().resolves();
       const teardownOwedFor = sinon.stub().resolves(teardownOwed);
       const installingApps = new Map();
@@ -1219,6 +1220,10 @@ describe('appInstaller tests', () => {
         masterSlaveAppsRunning: false,
         installingApps,
         hasRemovalInProgress: hasRemoval,
+        installAborted: (name) => {
+          const controller = installingApps.get(name);
+          return Boolean(controller && controller.signal && controller.signal.aborted);
+        },
       };
       const dbHelperStubLocal = {
         databaseConnection: sinon.stub(),
@@ -1238,7 +1243,16 @@ describe('appInstaller tests', () => {
           delay: sinon.stub().resolves(),
         },
         '../generalService': {
-          nodeTier: sinon.stub().resolves('cumulus'),
+          // nodeTier runs right after this install registers its AbortController. When
+          // abortOwnController is set, abort it here to model a cancel that fired mid-install,
+          // then return a tier so the install proceeds to its later throw.
+          nodeTier: sinon.stub().callsFake(async () => {
+            if (abortOwnController) {
+              const controller = installingApps.get('testapp');
+              if (controller) controller.abort();
+            }
+            return 'cumulus';
+          }),
           checkSynced: sinon.stub().resolves(true),
         },
         '../benchmarkService': {
@@ -1333,6 +1347,20 @@ describe('appInstaller tests', () => {
 
       expect(result, 'an owed teardown (or a fail-closed DB blip) must DEFER, not FAIL').to.equal(InstallResult.DEFERRED);
       expect(removeAppLocally.called, 'the owed teardown owns cleanup; we must NOT run our own').to.be.false;
+    });
+
+    it('DEFERS off the latching abort signal even when BOTH transient signals have already cleared', async () => {
+      // The tail race: a backgrounded teardown clears hasRemovalInProgress (the instant it is
+      // dispatched) AND teardownOwedFor (at FINISH) before this slower catch runs - but the
+      // install's own AbortController stays aborted (it latches). Relying on the two transient
+      // signals alone would misclassify this as FAILED and 7-day-poison a pinned enterprise app.
+      const { mod, removeAppLocally } = buildRegister({ hasRemoval: () => false, teardownOwed: false, abortOwnController: true });
+      const res = { write: sinon.stub(), end: sinon.stub(), flush: sinon.stub() };
+
+      const result = await mod.registerAppLocally(appSpec, false, res);
+
+      expect(result, 'an aborted install must DEFER even with both transient signals cleared').to.equal(InstallResult.DEFERRED);
+      expect(removeAppLocally.called, 'the cancel owns teardown; we must NOT run our own cleanup').to.be.false;
     });
 
     it('the finally drops ONLY this call\'s controller - an early bail leaves a peer install\'s controller intact', async () => {

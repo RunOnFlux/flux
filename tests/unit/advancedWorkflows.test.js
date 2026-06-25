@@ -1810,6 +1810,34 @@ describe('advancedWorkflows tests', () => {
       expect(removeStub.called, 'the in-flight cancel owns teardown; we must NOT run our own').to.be.false;
     });
 
+    it('DEFERS off the latching abort signal even when BOTH transient signals have already cleared', async () => {
+      // The tail race: a backgrounded teardown clears hasRemovalInProgress (on dispatch) AND
+      // teardownOwedFor (at FINISH) before this slower catch runs, but the install's own
+      // AbortController stays aborted. nodeTier runs right after the controller is registered,
+      // so abort it there to model the cancel; both transient signals are left false.
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) }); // findOneInDatabase throws -> catch
+      // eslint-disable-next-line global-require
+      const generalService = require('../../ZelBack/src/services/generalService');
+      sinon.stub(generalService, 'nodeTier').callsFake(async () => {
+        const controller = globalState.installingApps.get('TestApp');
+        if (controller) controller.abort();
+        return 'cumulus';
+      });
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      const removeStub = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      // eslint-disable-next-line global-require
+      const pendingTeardownStore = require('../../ZelBack/src/services/appLifecycle/pendingTeardownStore');
+      sinon.stub(pendingTeardownStore, 'teardownOwedFor').resolves(false); // transient signal already cleared
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+      const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', repotag: 'repo/c1:1.0', ports: [31000] }] };
+
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
+      expect(result, 'an aborted soft install must DEFER even with both transient signals cleared').to.equal(InstallResult.DEFERRED);
+      expect(removeStub.called, 'the cancel owns teardown; we must NOT run our own').to.be.false;
+    });
+
     it('the finally drops ONLY this call\'s controller - an early bail leaves a peer install\'s controller intact', async () => {
       // A same-name soft install (A) is already in flight with a registered controller. THIS call
       // bails at the early "another install underway" gate, BEFORE registering its own controller,
