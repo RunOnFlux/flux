@@ -1850,13 +1850,91 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
-  // Note: verifyAppUpdateParameters, createAppVolume,
-  // getPeerAppsInstallingErrorMessages, and stopSyncthingApp are
-  // complex integration functions or HTTP request handlers that require extensive
+  // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and stopSyncthingApp
+  // are complex integration functions or HTTP request handlers that require extensive
   // mocking of database connections, HTTP requests, and external services.
   // These should be tested in integration tests rather than unit tests.
   // masterSlaveApps is included above with basic tests, but full integration testing
   // is recommended for comprehensive coverage of the master-slave coordination logic.
+  // createAppVolume's volume-create-vs-teardown serialization (lock + condemned re-check) is
+  // unit-tested below.
+
+  describe('createAppVolume serializes the volume create against a racing teardown', () => {
+    // callThru ON (no .noCallThru): we stub only the handful of collaborators createAppVolume
+    // touches and let every other real module load normally.
+    // eslint-disable-next-line global-require
+    const proxyquire = require('proxyquire');
+
+    function buildVolumeMod({ condemned = false, teardownOwed = false } = {}) {
+      let lockActive = false;
+      const lockCalls = [];
+      const cmdCalls = [];
+      const mod = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
+        // cmdAsync = util.promisify(nodecmd.run): record each command and whether the host lock
+        // was held when it ran.
+        'node-cmd': { run: (cmd, cb) => { cmdCalls.push({ cmd, lockActive }); cb(null, 'ok'); } },
+        // node-df: one big volume so the space checks pass regardless of the real config reserves.
+        'node-df': (opts, cb) => cb(null, [{ filesystem: '/dev/sda1', mount: '/mnt/data', used: 10, available: 100000 }]),
+        '../utils/hostMutationLock': {
+          withHostMutationLock: async (fn) => {
+            lockCalls.push(true);
+            lockActive = true;
+            try { return await fn(); } finally { lockActive = false; }
+          },
+        },
+        '../appManagement/appsRuntimeState': { isCondemned: sinon.stub().resolves(condemned) },
+        './pendingTeardownStore': { teardownOwedFor: sinon.stub().resolves(teardownOwed) },
+        '../appRequirements/hwRequirements': { getNodeSpecs: sinon.stub().resolves({ ssdStorage: 100000 }) },
+        '../appQuery/resourceQueryService': { appsResources: sinon.stub().resolves({ status: 'success', data: { appsHddLocked: 0 } }) },
+        // Throw right AFTER the locked volume create so the test stops deterministically before
+        // the (unstubbed) crontab/syncthing host steps; the volume commands are already recorded.
+        '../utils/mountParser': { parseContainerData: () => { throw new Error('stop after the locked volume create'); }, getRequiredLocalPaths: () => [], getPrimaryFlags: () => '' },
+        '../dockerService': { getAppIdentifier: () => 'fluxtestapp' },
+      });
+      return { mod, lockCalls, cmdCalls };
+    }
+
+    const appSpec = { name: 'TestApp', hdd: 1, containerData: '/data' };
+
+    it('aborts BEFORE allocating the volume when the app was condemned by a racing cancel', async () => {
+      const { mod, cmdCalls } = buildVolumeMod({ condemned: true });
+      let threw = false;
+      try {
+        await mod.createAppVolume(appSpec, 'TestApp', false, null);
+      } catch (e) {
+        threw = true;
+        expect(e.message).to.match(/aborted/);
+      }
+      expect(threw, 'must abort when condemned mid-create').to.be.true;
+      const ran = cmdCalls.map((c) => c.cmd).join('\n');
+      expect(ran, 'must NOT fallocate/mke2fs a volume the teardown owns').to.not.match(/fallocate|mke2fs/);
+    });
+
+    it('aborts when a teardown is owed for the app (durable doc), even with no condemned stamp', async () => {
+      const { mod, cmdCalls } = buildVolumeMod({ teardownOwed: true });
+      let threw = false;
+      try {
+        await mod.createAppVolume(appSpec, 'TestApp', false, null);
+      } catch (e) {
+        threw = true;
+      }
+      expect(threw, 'an owed teardown must abort the create').to.be.true;
+      expect(cmdCalls.map((c) => c.cmd).join('\n')).to.not.match(/fallocate|mke2fs/);
+    });
+
+    it('runs fallocate/mke2fs/mount INSIDE the node-wide host-mutation lock', async () => {
+      const { mod, lockCalls, cmdCalls } = buildVolumeMod({ condemned: false, teardownOwed: false });
+      try {
+        await mod.createAppVolume(appSpec, 'TestApp', false, null);
+      } catch (e) {
+        // expected: mountParser throws right after the locked volume create
+      }
+      expect(lockCalls.length, 'the volume create must take the host-mutation lock').to.be.greaterThan(0);
+      const volumeCmds = cmdCalls.filter((c) => /fallocate|mke2fs|mount -o loop/.test(c.cmd));
+      expect(volumeCmds.length, 'fallocate, mke2fs and mount should have run').to.be.greaterThan(0);
+      expect(volumeCmds.every((c) => c.lockActive === true), 'every volume mutation must run while the host lock is held').to.be.true;
+    });
+  });
 
   describe('softRegisterAppLocally cancel-vs-install guards (C1) tests', () => {
     let globalState;

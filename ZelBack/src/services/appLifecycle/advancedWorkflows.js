@@ -505,73 +505,87 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`; // if root mount then temp file is /flu/appvolumes
     }
 
-    await cmdAsync(execDD);
-    const allocateSpace2 = {
-      status: 'Space allocated',
-    };
-    log.info(allocateSpace2);
-    if (res) {
-      res.write(serviceHelper.ensureString(allocateSpace2));
-      if (res.flush) res.flush();
-    }
+    // Serialize the volume create against a same-app cancel's Phase B teardown, which umounts and
+    // rm -rf's this exact FLUXFSVOL file + mount dir under the same node-wide host-mutation lock.
+    // Unlocked, a register racing a cancel could mke2fs a volume the teardown is mid rm -rf'ing -
+    // byte-level corruption. These are bounded host ops (fallocate/mke2fs/mount, seconds - the
+    // same class the teardown already holds this lock across), so holding it here honours the
+    // lock's "no unbounded wait" rule. Re-check condemned/teardown-owed INSIDE the lock: if the
+    // cancel won the lock first, abort rather than recreate a volume its teardown already passed
+    // (the install's pre-create backstop catches the reverse order, before any container).
+    let execMount;
+    await withHostMutationLock(async () => {
+      if (await appsRuntimeState.isCondemned(identifier) || await pendingTeardownStore.teardownOwedFor(appName)) {
+        throw new Error(`createAppVolume of ${identifier} aborted: a removal/cancel of ${appName} arrived before volume creation`);
+      }
+      await cmdAsync(execDD);
+      const allocateSpace2 = {
+        status: 'Space allocated',
+      };
+      log.info(allocateSpace2);
+      if (res) {
+        res.write(serviceHelper.ensureString(allocateSpace2));
+        if (res.flush) res.flush();
+      }
 
-    const makeFilesystem = {
-      status: 'Creating filesystem...',
-    };
-    log.info(makeFilesystem);
-    if (res) {
-      res.write(serviceHelper.ensureString(makeFilesystem));
-      if (res.flush) res.flush();
-    }
-    let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${appId}FLUXFSVOL`;
-    if (useThisVolume.mount === '/') {
-      execFS = `sudo mke2fs -t ext4 ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
-    }
-    await cmdAsync(execFS);
-    const makeFilesystem2 = {
-      status: 'Filesystem created',
-    };
-    log.info(makeFilesystem2);
-    if (res) {
-      res.write(serviceHelper.ensureString(makeFilesystem2));
-      if (res.flush) res.flush();
-    }
+      const makeFilesystem = {
+        status: 'Creating filesystem...',
+      };
+      log.info(makeFilesystem);
+      if (res) {
+        res.write(serviceHelper.ensureString(makeFilesystem));
+        if (res.flush) res.flush();
+      }
+      let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${appId}FLUXFSVOL`;
+      if (useThisVolume.mount === '/') {
+        execFS = `sudo mke2fs -t ext4 ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
+      }
+      await cmdAsync(execFS);
+      const makeFilesystem2 = {
+        status: 'Filesystem created',
+      };
+      log.info(makeFilesystem2);
+      if (res) {
+        res.write(serviceHelper.ensureString(makeFilesystem2));
+        if (res.flush) res.flush();
+      }
 
-    const makeDirectory = {
-      status: 'Making directory...',
-    };
-    log.info(makeDirectory);
-    if (res) {
-      res.write(serviceHelper.ensureString(makeDirectory));
-      if (res.flush) res.flush();
-    }
-    const execDIR = `sudo mkdir -p ${appsFolder + appId}`;
-    await cmdAsync(execDIR);
-    const makeDirectory2 = {
-      status: 'Directory made',
-    };
-    log.info(makeDirectory2);
-    if (res) {
-      res.write(serviceHelper.ensureString(makeDirectory2));
-      if (res.flush) res.flush();
-    }
+      const makeDirectory = {
+        status: 'Making directory...',
+      };
+      log.info(makeDirectory);
+      if (res) {
+        res.write(serviceHelper.ensureString(makeDirectory));
+        if (res.flush) res.flush();
+      }
+      const execDIR = `sudo mkdir -p ${appsFolder + appId}`;
+      await cmdAsync(execDIR);
+      const makeDirectory2 = {
+        status: 'Directory made',
+      };
+      log.info(makeDirectory2);
+      if (res) {
+        res.write(serviceHelper.ensureString(makeDirectory2));
+        if (res.flush) res.flush();
+      }
 
-    const mountingStatus = {
-      status: 'Mounting volume...',
-    };
-    log.info(mountingStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(mountingStatus));
-      if (res.flush) res.flush();
-    }
-    let volumeFile = `${useThisVolume.mount}/${appId}FLUXFSVOL`;
-    if (useThisVolume.mount === '/') {
-      volumeFile = `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
-    }
-    // Wait for volume file to exist (handles encrypted volumes not yet mounted after reboot)
-    // This ensures @reboot cron jobs don't fail when the encrypted partition isn't ready
-    const execMount = `while [ ! -f ${volumeFile} ]; do sleep 5; done && sudo mount -o loop ${volumeFile} ${appsFolder + appId}`;
-    await cmdAsync(`sudo mount -o loop ${volumeFile} ${appsFolder + appId}`);
+      const mountingStatus = {
+        status: 'Mounting volume...',
+      };
+      log.info(mountingStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(mountingStatus));
+        if (res.flush) res.flush();
+      }
+      let volumeFile = `${useThisVolume.mount}/${appId}FLUXFSVOL`;
+      if (useThisVolume.mount === '/') {
+        volumeFile = `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
+      }
+      // Wait for volume file to exist (handles encrypted volumes not yet mounted after reboot)
+      // This ensures @reboot cron jobs don't fail when the encrypted partition isn't ready
+      execMount = `while [ ! -f ${volumeFile} ]; do sleep 5; done && sudo mount -o loop ${volumeFile} ${appsFolder + appId}`;
+      await cmdAsync(`sudo mount -o loop ${volumeFile} ${appsFolder + appId}`);
+    });
     const mountingStatus2 = {
       status: 'Volume mounted',
     };
