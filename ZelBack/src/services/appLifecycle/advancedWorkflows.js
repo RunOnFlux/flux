@@ -38,6 +38,7 @@ const globalState = require('../utils/globalState');
 const { withHostMutationLock } = require('../utils/hostMutationLock');
 const appNetworkLinker = require('./appNetworkLinker');
 const specDiff = require('./specDiff');
+const ComponentRedeployAction = require('./componentRedeployAction');
 const pendingTeardownStore = require('./pendingTeardownStore');
 const InstallResult = require('./installResult');
 
@@ -3572,9 +3573,15 @@ async function reinstallOldApplications() {
 
                 const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
 
-                if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
+                const action = specDiff.classifyComponentRedeploy(installedComponent, appComponent);
+                if (action === ComponentRedeployAction.UNCHANGED) {
                   log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
-                } else if (!specDiff.volumeSpecChanged(installedComponent, appComponent)) {
+                } else if (action === ComponentRedeployAction.NEW) {
+                  // A component ADDED by this update has no installed counterpart to tear down;
+                  // the whole-app re-registration after this loop creates it. (This path used to
+                  // read installedComponent.hdd off undefined and throw.)
+                  log.warn(`Component ${appComponent.name}_${appSpecifications.name} is new in this update; it will be created by the reinstall.`);
+                } else if (action === ComponentRedeployAction.SOFT) {
                   log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // soft redeployment
                   const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
@@ -3584,6 +3591,7 @@ async function reinstallOldApplications() {
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
                 } else {
+                  // HARD: hdd changed -> reset the volume
                   log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   log.warn(`REMOVAL REASON: Hard redeployment (component) - ${appComponent.name}_${appSpecifications.name} HDD changed from ${installedComponent.hdd} to ${appComponent.hdd}`);
                   // hard redeployment
@@ -3646,9 +3654,10 @@ async function reinstallOldApplications() {
 
                 const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
 
-                if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
+                const action = specDiff.classifyComponentRedeploy(installedComponent, appComponent);
+                if (action === ComponentRedeployAction.UNCHANGED) {
                   log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
-                } else if (!specDiff.volumeSpecChanged(installedComponent, appComponent)) {
+                } else if (action === ComponentRedeployAction.SOFT) {
                   log.warn(`Continuing Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
@@ -3656,7 +3665,14 @@ async function reinstallOldApplications() {
                   // eslint-disable-next-line no-await-in-loop
                   await softRegisterAppLocally(appSpecifications, appComponent); // component
                 } else {
-                  log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+                  // HARD (hdd changed -> volume reset) or NEW (added by this update -> no existing
+                  // volume, install fresh): both need a full hard component install (createAppVolume
+                  // + container). NEW used to read installedComponent.hdd off undefined and throw.
+                  if (action === ComponentRedeployAction.NEW) {
+                    log.warn(`Installing new component ${appComponent.name}_${appSpecifications.name} added by this update...`);
+                  } else {
+                    log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+                  }
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
                   // install the app

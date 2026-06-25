@@ -16,6 +16,7 @@
  */
 
 const { appsThatMightBeUsingOldGatewayIpAssignment } = require('../utils/appConstants');
+const ComponentRedeployAction = require('./componentRedeployAction');
 
 /**
  * Whether a redeploy must RECREATE the app's own docker network rather than keep it.
@@ -116,7 +117,33 @@ function specsDiffer(oldSpec, newSpec) {
  * @returns {boolean} true if hdd changed
  */
 function volumeSpecChanged(oldSpec, newSpec) {
+  // A missing old spec means there is no existing volume, so one must be created: treat as
+  // changed (the hard/reset direction). Guards callers that may pass an undefined installed
+  // component (e.g. a component newly ADDED by an update) from a deref TypeError - the total
+  // classification lives in classifyComponentRedeploy below, this is defence in depth.
+  if (!oldSpec) return true;
   return oldSpec.hdd !== newSpec.hdd;
+}
+
+/**
+ * Classify how one compose COMPONENT must be handled by a composed-app redeploy, from the
+ * installed component spec (or undefined if the update ADDS it) and the target spec. Returns
+ * a ComponentRedeployAction member - the single source of truth both reinstallOldApplications
+ * reverse-compose loops switch on, so a component that is new/unchanged/soft/hard is decided
+ * once, in one tested place, instead of an inline chain that read undefined.hdd for a new
+ * component.
+ *
+ * @param {object} installedComponent - the matching component from the installed app, or undefined when added
+ * @param {object} newComponent - the target component spec
+ * @returns {string} a ComponentRedeployAction member (NEW / UNCHANGED / SOFT / HARD)
+ */
+function classifyComponentRedeploy(installedComponent, newComponent) {
+  if (!installedComponent) return ComponentRedeployAction.NEW;
+  if (JSON.stringify(installedComponent) === JSON.stringify(newComponent)) return ComponentRedeployAction.UNCHANGED;
+  // volume (hdd) changed -> reset the volume (hard); otherwise keep it (soft). Mirrors the
+  // original inline order (unchanged -> !volumeSpecChanged ? soft : hard).
+  if (volumeSpecChanged(installedComponent, newComponent)) return ComponentRedeployAction.HARD;
+  return ComponentRedeployAction.SOFT;
 }
 
 module.exports = {
@@ -125,4 +152,5 @@ module.exports = {
   portDelta,
   specsDiffer,
   volumeSpecChanged,
+  classifyComponentRedeploy,
 };

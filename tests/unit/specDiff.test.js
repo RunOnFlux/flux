@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const specDiff = require('../../ZelBack/src/services/appLifecycle/specDiff');
+const ComponentRedeployAction = require('../../ZelBack/src/services/appLifecycle/componentRedeployAction');
 
 describe('specDiff tests', () => {
   describe('mustRecreateNetwork', () => {
@@ -89,6 +90,41 @@ describe('specDiff tests', () => {
     it('is true iff hdd differs', () => {
       expect(specDiff.volumeSpecChanged({ hdd: 5 }, { hdd: 5 })).to.equal(false);
       expect(specDiff.volumeSpecChanged({ hdd: 5 }, { hdd: 10 })).to.equal(true);
+    });
+
+    it('treats a missing old spec as changed (no existing volume) instead of throwing', () => {
+      // a component newly ADDED by an update has no installed counterpart; reading undefined.hdd
+      // used to throw - the guard returns the hard/reset direction instead
+      expect(specDiff.volumeSpecChanged(undefined, { hdd: 5 })).to.equal(true);
+      expect(specDiff.volumeSpecChanged(null, { hdd: 5 })).to.equal(true);
+    });
+  });
+
+  describe('classifyComponentRedeploy', () => {
+    it('NEW when the component is absent from the installed app (added by the update)', () => {
+      // the bug this replaces: the old inline chain read undefined.hdd here and threw
+      expect(specDiff.classifyComponentRedeploy(undefined, { name: 'c2', hdd: 5 }))
+        .to.equal(ComponentRedeployAction.NEW);
+    });
+
+    it('UNCHANGED when installed and target component specs are identical', () => {
+      const comp = { name: 'c1', repotag: 'r/c1:1', hdd: 5, ports: [31000] };
+      expect(specDiff.classifyComponentRedeploy({ ...comp }, { ...comp }))
+        .to.equal(ComponentRedeployAction.UNCHANGED);
+    });
+
+    it('SOFT when the spec changed but hdd did not (volume kept)', () => {
+      expect(specDiff.classifyComponentRedeploy(
+        { name: 'c1', repotag: 'r/c1:1', hdd: 5 },
+        { name: 'c1', repotag: 'r/c1:2', hdd: 5 },
+      )).to.equal(ComponentRedeployAction.SOFT);
+    });
+
+    it('HARD when hdd changed (volume reset)', () => {
+      expect(specDiff.classifyComponentRedeploy(
+        { name: 'c1', repotag: 'r/c1:1', hdd: 5 },
+        { name: 'c1', repotag: 'r/c1:1', hdd: 10 },
+      )).to.equal(ComponentRedeployAction.HARD);
     });
   });
 });
