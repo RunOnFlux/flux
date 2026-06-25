@@ -586,6 +586,21 @@ describe('appSpawner tests', () => {
       expect(globalStateStub.spawnErrorsLongerAppCache.has('abc123')).to.be.false;
     });
 
+    it('clears the 12h spawn-throttle cache on a DEFERRED install so reselection is not suppressed', async () => {
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: fullSpec,
+        errorCount: 0,
+        installStub: sinon.stub().resolves(InstallResult.DEFERRED),
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      // The hash is added to the spawn-throttle cache unconditionally at selection time; that
+      // cache is a hard reselection filter with a 12h TTL. A transient defer must drop the entry
+      // so the next scan can re-select the app the moment the condition clears - otherwise a
+      // seconds-long blip suppresses a pinned single-instance app for up to 12h.
+      expect(globalStateStub.trySpawningGlobalAppCache.has('abc123')).to.be.false;
+    });
+
     it('should not overwrite short-term cache with long-term cache when network errors throw into catch', async () => {
       buildModule({ aggregateResult: [spawnableApp], appSpec: fullSpec, errorCount: 5 });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
