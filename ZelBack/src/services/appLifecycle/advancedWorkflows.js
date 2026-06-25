@@ -1580,6 +1580,20 @@ async function reconcileRedeployPorts(appName, toClose, toOpen, res) {
     await withHostMutationLock(() => appUninstaller.cleanupPorts({ ports: toClose }, appName, res, appName));
   }
   if (toOpen && toOpen.length) {
+    // Cancel-vs-redeploy interlock: a forced cancel of this app (force=true bypasses the per-app
+    // gate) can land after the reinstall returned INSTALLED but before we open the added ports - it
+    // writes a teardown doc, deletes the row, and runs its Phase B port teardown. Opening toOpen for
+    // an app now being torn down orphans those ufw/UPnP rules (there is no periodic deny-sweep, so
+    // they leak until reboot). Gate the open on the SAME teardownOwedFor signal the install side
+    // uses (registerAppLocally); it fails closed and is false for a normal redeploy (this app's own
+    // teardown cleared its doc at FINISH). We cannot make the re-check+open one locked unit -
+    // setupApplicationPorts self-acquires the host-mutation lock per port, so an outer acquisition
+    // would deadlock - but re-checking immediately before the open closes the realistic race, since
+    // the cancel writes its doc before its Phase B port close.
+    if (await pendingTeardownStore.teardownOwedFor(appName)) {
+      log.warn(`reconcileRedeployPorts: teardown owed for ${appName} (a cancel raced the redeploy); skipping the open of ${toOpen.length} added port(s) to avoid orphaned ufw/UPnP rules`);
+      return;
+    }
     // setupApplicationPorts acquires the lock per port internally.
     await appInstaller.setupApplicationPorts({ name: appName, ports: toOpen }, appName, false, res);
   }

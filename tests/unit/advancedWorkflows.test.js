@@ -1578,6 +1578,7 @@ describe('advancedWorkflows tests', () => {
     let appUninstaller;
     let appInstaller;
     let serviceHelper;
+    let pendingTeardownStore;
     let res;
 
     // Same component count + names so no escalation to hard; ports differ so a delta exists.
@@ -1620,6 +1621,13 @@ describe('advancedWorkflows tests', () => {
       // eslint-disable-next-line global-require
       serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       sinon.stub(serviceHelper, 'delay').resolves();
+
+      // reconcileRedeployPorts re-checks teardownOwedFor before opening the added ports; default
+      // to "no cancel owed" so the success path opens as before (the real one fails CLOSED on the
+      // unconnected test Mongo, which would otherwise skip every open).
+      // eslint-disable-next-line global-require
+      pendingTeardownStore = require('../../ZelBack/src/services/appLifecycle/pendingTeardownStore');
+      sinon.stub(pendingTeardownStore, 'teardownOwedFor').resolves(false);
 
       res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
     });
@@ -1677,6 +1685,23 @@ describe('advancedWorkflows tests', () => {
       expect(appInstaller.setupApplicationPorts.called).to.be.false;
       // skipped: closing would strip a live app's ports
       expect(appUninstaller.cleanupPorts.called).to.be.false;
+    });
+
+    it('hardRedeploy does NOT open the added ports when a cancel raced the successful reinstall (teardown owed)', async () => {
+      // The reinstall SUCCEEDED (INSTALLED), but a forced same-name cancel landed before the port
+      // reconcile and re-armed a teardown. Opening the added ports would orphan ufw/UPnP rules for
+      // an app being torn down, so the open is skipped - the removed-port close still runs.
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallResult.INSTALLED);
+      pendingTeardownStore.teardownOwedFor.resolves(true); // a cancel re-armed the teardown
+
+      await advancedWorkflows.hardRedeploy(newAppSpecs, res);
+
+      // the added ports must NOT be opened for an app that is now being torn down
+      expect(appInstaller.setupApplicationPorts.called).to.be.false;
+      // the removed-port close runs before the gate (closing is always safe)
+      expect(appUninstaller.cleanupPorts.calledOnce).to.be.true;
+      expect(appUninstaller.cleanupPorts.firstCall.args[0].ports).to.deep.equal([31000]);
+      expect(globalState.hardRedeployInProgress).to.be.false;
     });
 
     it('hardRedeploy ABORTS (no reinstall) when removeAppLocally silently failed (row still present) - F-F', async () => {
