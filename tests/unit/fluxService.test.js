@@ -22,6 +22,7 @@ const explorerService = require('../../ZelBack/src/services/explorerService');
 const generalService = require('../../ZelBack/src/services/generalService');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
@@ -1891,6 +1892,11 @@ describe('fluxService tests', () => {
       fluxCommunicationStub = sinon.stub(fluxCommunication, 'connectedPeersInfo');
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getIncomingConnectionsInfo');
       syncthingServiceStub = sinon.stub(syncthingService, 'systemVersion');
+      // getFluxInfo reads geolocationService.getNodeGeolocation() directly; left unstubbed it
+      // returns the real module-level cache (null in isolation, but a stale object once another
+      // test in the full suite has populated it), making this assertion order/environment
+      // dependent. Pin it so the test is deterministic.
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves(null);
     });
 
     afterEach(() => {
