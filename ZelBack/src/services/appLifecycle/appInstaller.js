@@ -712,7 +712,19 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
         await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test, skipPorts);
       }
     } catch (error) {
-      if (!test) {
+      // A concurrent cancel/expiry of THIS app aborts the in-flight install (its image pull, or
+      // the condemned/teardown-owed backstop before container create) and rethrows into here -
+      // BEFORE the outer catch classifies the unwind as DEFERRED. Do NOT publish a network-wide
+      // fluxappinstallingerror for an app we are deliberately tearing down: peers count it as a
+      // real install failure for that hash. Suppress the store + broadcast on the same cancel
+      // signals the outer catch defers on - installAborted latches the instant the cancel fires
+      // (so it is observable here), with the two transient flags as fallbacks - while a genuine
+      // install failure (no cancel) still broadcasts as before. Always rethrow either way so the
+      // outer catch runs its classification.
+      const cancelInFlight = globalState.installAborted(appSpecifications.name)
+        || globalState.hasRemovalInProgress(appSpecifications.name)
+        || await pendingTeardownStore.teardownOwedFor(appSpecifications.name);
+      if (!test && !cancelInFlight) {
         const errorResponse = messageHelper.createErrorMessage(
           error.message || error,
           error.name,
