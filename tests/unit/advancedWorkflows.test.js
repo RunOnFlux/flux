@@ -1800,6 +1800,25 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.installingApps.has('TestApp')).to.be.false;
     });
 
+    it('registers the AbortController BEFORE the pre-pull gates (F-A soft-path parity), so a cancel during the tier/DB/teardownOwedFor I/O can still abort the pull', async () => {
+      // teardownOwedFor runs AFTER nodeTier + the already-installed DB read but BEFORE the
+      // pull. Capturing the map here discriminates an EARLY controller registration (right
+      // after the install lock, mirroring the hard path's F-A fix) from a LATE one (just
+      // before the pull): with a late set, a concurrent cancel's installingApps.get(name)
+      // .abort() during this pre-pull I/O finds an empty map and is a no-op -> the soft pull
+      // downloads in full before the post-pull condemned backstop catches the cancel.
+      let controllerPresentAtGate = false;
+      pendingTeardownStore.teardownOwedFor.callsFake(() => {
+        controllerPresentAtGate = globalState.installingApps.has('TestApp');
+        return Promise.resolve(false);
+      });
+
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
+
+      expect(result).to.equal(InstallResult.INSTALLED);
+      expect(controllerPresentAtGate).to.be.true;
+    });
+
     it('clears the condemned stamp for the installed app (componentSpecs null for a whole-app install)', async () => {
       const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
 

@@ -886,6 +886,14 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
       return InstallResult.DEFERRED;
     }
     globalState.installationInProgress = true;
+    // Register this install's AbortController by app name BEFORE the awaited pre-pull work
+    // (tier, the DB read, the teardownOwedFor gate). A concurrent cancel aborts the in-flight
+    // pull via installingApps.get(name) (verifyAndPullImage threads the signal into docker.pull);
+    // registering only just before the pull left a TOCTOU window where a cancel arriving during
+    // this pre-pull I/O found an empty map and could not abort (the hard path closed this in F-A,
+    // appInstaller.js - mirror it here). Keyed on appSpecs.name (appName is not derived until
+    // below); the finally clears it on every return, including the DEFERRED/FAILED bails.
+    globalState.installingApps.set(appSpecs.name, new AbortController());
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       // Clear the install lock we just set: this `return` bypasses the catch (which
@@ -977,11 +985,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
       return InstallResult.DEFERRED;
     }
 
-    // Register this install's AbortController by app name so a concurrent cancel/removal of
-    // the same app can abort the in-flight image pull (verifyAndPullImage threads its signal
-    // into docker.pull). The finally below clears it. Mirrors registerAppLocally; without it
-    // the soft pull was non-abortable.
-    globalState.installingApps.set(appName, new AbortController());
+    // (the install's AbortController was registered earlier, right after the install lock)
 
     // Verify the apps this app must be networked with (networkWith token in the
     // description) are installed locally and owned by the same owner before any
