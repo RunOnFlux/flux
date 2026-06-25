@@ -1291,10 +1291,6 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       networkName: appName,
       isComponent,
       keepNetwork,
-      // Persist skipPorts alongside keepNetwork (both are redeploy flags set together): a
-      // crash-mid-redeploy boot recovery must replay with the SAME port intent, else it would
-      // revoke ufw/UPnP rules the redeploy meant to keep and flap the app's ports on recovery.
-      skipPorts,
       createdAt: Date.now(),
       attempts: 0,
       components: components.map((c) => ({
@@ -1609,9 +1605,6 @@ async function resumePendingTeardowns(docs) {
       force: true,
       cancelGraceful: false,
       keepNetwork: doc.keepNetwork === true,
-      // Honor the persisted port intent (a redeploy's teardown left ports for the redeploy to
-      // reconcile); without it the replay would close ports a redeploy meant to keep.
-      skipPorts: doc.skipPorts === true,
       res: null,
     }).catch((error) => log.error(`Boot recovery: teardown of ${doc.name} failed, will retry next boot: ${error.message}`));
   }

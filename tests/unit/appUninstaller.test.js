@@ -897,9 +897,6 @@ describe('appUninstaller tests', () => {
       fluxNetworkHelperStub.isFirewallActive.resolves(true); // so cleanupPorts WOULD edit ufw
       await uninstaller.removeAppLocally('redapp', null, false, true, false, false, false, { skipPorts: true });
       sinon.assert.notCalled(fluxNetworkHelperStub.deleteAllowPortRule);
-      // and the durable doc records skipPorts so a crashed-mid-redeploy boot recovery keeps the
-      // ports too (mirrors keepNetwork) instead of flapping them on replay
-      expect(pendingStoreStub.writeTeardown.calledWithMatch({ key: 'redapp', skipPorts: true })).to.equal(true);
     });
 
     it('a normal removal DOES close the app ports (skipPorts defaults false)', async () => {
@@ -1014,22 +1011,6 @@ describe('appUninstaller tests', () => {
       // the image must STILL be reclaimed even though the container was already
       // gone (force-remove threw) - it is not gated on a successful container removal
       expect(dockerStub.appDockerImageRemove.calledWith('r')).to.equal(true);
-    });
-
-    it('boot recovery honors a persisted skipPorts: the replayed teardown does NOT close the app ports', async () => {
-      const uninstaller = buildUninstaller();
-      fluxNetworkHelperStub.isFirewallActive.resolves(true); // so cleanupPorts WOULD edit ufw
-      // a doc persisted by an interrupted hard redeploy, which carries skipPorts so the redeploy
-      // could reconcile the port delta itself - recovery must replay with the SAME intent
-      const doc = {
-        key: 'redapp', name: 'redapp', isComponent: false, skipPorts: true, components: [{ identifier: 'redapp', appId: 'fluxredapp', componentName: 'redapp', label: 'redapp', ports: [30000], repotag: 'r' }],
-      };
-
-      await uninstaller.resumePendingTeardowns([doc]);
-
-      sinon.assert.notCalled(fluxNetworkHelperStub.deleteAllowPortRule);
-      // the rest of the teardown still completes
-      expect(pendingStoreStub.clearTeardown.calledWith('redapp')).to.equal(true);
     });
   });
 
