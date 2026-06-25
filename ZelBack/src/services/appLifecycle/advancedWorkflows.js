@@ -3447,6 +3447,7 @@ async function reinstallOldApplications() {
             log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (version upgrade path)`);
 
             // Now install components - containers will be created but app is already in DB
+            let allComponentsInstalled = true;
             // eslint-disable-next-line no-restricted-syntax
             for (const appComponent of appSpecifications.compose) {
               log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
@@ -3454,9 +3455,21 @@ async function reinstallOldApplications() {
               await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
               // install the app
               // eslint-disable-next-line no-await-in-loop
-              await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
+              const installed = await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
+              // Only the whole composed app counts as "updated" when EVERY component installed.
+              // A DEFERRED (concurrent same-name cancel / transient gate) or FAILED here must not
+              // be logged as success: the app row is already inserted, so the spawner's name gate
+              // will NOT re-adopt it - the partial app reconciles on a future update/redeploy.
+              if (installed !== InstallResult.INSTALLED) {
+                allComponentsInstalled = false;
+                log.warn(`Component ${appComponent.name}_${appSpecifications.name} did not complete (status: ${installed})`);
+              }
             }
-            log.warn(`Composed application ${appSpecifications.name} updated.`);
+            if (allComponentsInstalled) {
+              log.warn(`Composed application ${appSpecifications.name} updated.`);
+            } else {
+              log.warn(`Composed application ${appSpecifications.name} update did not fully complete; some components are not installed and will reconcile on a future update/redeploy`);
+            }
             log.warn(`Restarting application ${appSpecifications.name}`);
             // eslint-disable-next-line no-await-in-loop, no-use-before-define
             await appDockerRestart(appSpecifications.name);
@@ -3681,6 +3694,7 @@ async function reinstallOldApplications() {
               log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (composed redeployment path)`);
 
               // Now install components - containers will be created but app is already in DB
+              let allComponentsInstalled = true;
               // eslint-disable-next-line no-restricted-syntax
               for (const appComponent of appSpecifications.compose) {
                 if (appComponent.tiered) {
@@ -3703,7 +3717,11 @@ async function reinstallOldApplications() {
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
                   // install the app
                   // eslint-disable-next-line no-await-in-loop
-                  await softRegisterAppLocally(appSpecifications, appComponent); // component
+                  const installed = await softRegisterAppLocally(appSpecifications, appComponent); // component
+                  if (installed !== InstallResult.INSTALLED) {
+                    allComponentsInstalled = false;
+                    log.warn(`Component ${appComponent.name}_${appSpecifications.name} did not complete (status: ${installed})`);
+                  }
                 } else {
                   // HARD (hdd changed -> volume reset) or NEW (added by this update -> no existing
                   // volume, install fresh): both need a full hard component install (createAppVolume
@@ -3717,10 +3735,20 @@ async function reinstallOldApplications() {
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
                   // install the app
                   // eslint-disable-next-line no-await-in-loop
-                  await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
+                  const installed = await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
+                  if (installed !== InstallResult.INSTALLED) {
+                    allComponentsInstalled = false;
+                    log.warn(`Component ${appComponent.name}_${appSpecifications.name} did not complete (status: ${installed})`);
+                  }
                 }
               }
-              log.warn(`Composed application ${appSpecifications.name} updated.`);
+              // Only claim the composed app "updated" when EVERY component installed; a DEFERRED
+              // (concurrent same-name cancel / transient gate) or FAILED must not read as success.
+              if (allComponentsInstalled) {
+                log.warn(`Composed application ${appSpecifications.name} updated.`);
+              } else {
+                log.warn(`Composed application ${appSpecifications.name} update did not fully complete; some components are not installed and will reconcile on a future update/redeploy`);
+              }
               log.warn(`Restarting application ${appSpecifications.name}`);
               // eslint-disable-next-line no-await-in-loop, no-use-before-define
               await appDockerRestart(appSpecifications.name);
