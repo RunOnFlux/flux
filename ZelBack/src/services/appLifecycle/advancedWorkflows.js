@@ -1827,9 +1827,16 @@ async function softRedeployComponent(appName, componentName, res) {
 
       // Register component
       log.warn(`Continuing Soft Redeployment of component ${fullComponentName}...`);
-      await softRegisterAppLocally(appSpecifications, componentSpec, res);
+      const installed = await softRegisterAppLocally(appSpecifications, componentSpec, res);
 
-      log.info(`Component ${fullComponentName} softly redeployed`);
+      // Only claim success on a real install. A DEFERRED (a same-name cancel still draining, an
+      // unrelated install in progress, or no tier yet) did NOT redeploy - the reconciler/spawner
+      // retries; a FAILED was already cleaned up. Logging success unconditionally would mask both.
+      if (installed === InstallResult.INSTALLED) {
+        log.info(`Component ${fullComponentName} softly redeployed`);
+      } else {
+        log.warn(`Component ${fullComponentName} soft redeploy did not complete (status: ${installed}); will retry`);
+      }
       globalState.softRedeployInProgress = false;
     } catch (error) {
       log.error(error);
@@ -1942,9 +1949,16 @@ async function hardRedeployComponent(appName, componentName, res) {
 
       // Register component
       log.warn(`Continuing Hard Redeployment of component ${fullComponentName}...`);
-      await appInstaller.registerAppLocally(appSpecifications, componentSpec, res);
+      const installed = await appInstaller.registerAppLocally(appSpecifications, componentSpec, res);
 
-      log.info(`Component ${fullComponentName} hard redeployed`);
+      // Only claim success on a real install. A DEFERRED (a same-name cancel still draining, an
+      // unrelated install in progress, or no tier yet) did NOT redeploy - the reconciler/spawner
+      // retries; a FAILED was already cleaned up. Logging success unconditionally would mask both.
+      if (installed === InstallResult.INSTALLED) {
+        log.info(`Component ${fullComponentName} hard redeployed`);
+      } else {
+        log.warn(`Component ${fullComponentName} hard redeploy did not complete (status: ${installed}); will retry`);
+      }
       globalState.hardRedeployInProgress = false;
     } catch (error) {
       log.error(error);
@@ -3529,8 +3543,15 @@ async function reinstallOldApplications() {
 
               // register
               // eslint-disable-next-line no-await-in-loop
-              await appInstaller.registerAppLocally(appSpecifications, undefined, null, false, true);
-              log.info(`Application ${appSpecifications.name} redeployed with new component structure`);
+              const installed = await appInstaller.registerAppLocally(appSpecifications, undefined, null, false, true);
+              // Only claim success on a real install. The local row was already confirmed gone
+              // above, so a DEFERRED/FAILED simply leaves the app for the spawner to re-adopt -
+              // do not log a false "redeployed" success for a reinstall that did not happen.
+              if (installed === InstallResult.INSTALLED) {
+                log.info(`Application ${appSpecifications.name} redeployed with new component structure`);
+              } else {
+                log.warn(`Application ${appSpecifications.name} structure redeploy did not complete (status: ${installed}); spawner will retry`);
+              }
 
               // eslint-disable-next-line no-continue
               continue;

@@ -274,6 +274,48 @@ describe('advancedWorkflows tests', () => {
         expect(globalState.softRedeployInProgress).to.be.false;
       }
     });
+
+    it('does NOT log a completed redeploy when the component register returns DEFERRED', async () => {
+      // softRegisterAppLocally is an IN-module call here, so a sibling stub would NOT intercept
+      // it (it does not go through module.exports) - drive the REAL softRegisterAppLocally to a
+      // DEFERRED via the cross-module teardownOwedFor gate (a same-name cancel still draining).
+      // eslint-disable-next-line global-require
+      const log = require('../../ZelBack/src/lib/log');
+      // eslint-disable-next-line global-require
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      // eslint-disable-next-line global-require
+      const generalService = require('../../ZelBack/src/services/generalService');
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      // eslint-disable-next-line global-require
+      const pendingTeardownStore = require('../../ZelBack/src/services/appLifecycle/pendingTeardownStore');
+
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({
+        name: 'myapp',
+        version: 4,
+        compose: [{ name: 'frontend', repotag: 'myapp/frontend:1.0', ports: [31000] }],
+      });
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      // real softRegisterAppLocally: tier OK, not-already-installed, then a teardown is owed
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      sinon.stub(pendingTeardownStore, 'teardownOwedFor').resolves(true);
+      res.end = sinon.stub(); // the real softRegisterAppLocally ends res on its DEFERRED bail
+      const infoStub = sinon.stub(log, 'info');
+      const warnStub = sinon.stub(log, 'warn');
+
+      await advancedWorkflows.softRedeployComponent('myapp', 'frontend', res);
+
+      const successLogged = infoStub.getCalls().some((c) => String(c.args[0]).includes('softly redeployed'));
+      const deferredWarned = warnStub.getCalls().some((c) => String(c.args[0]).includes('did not complete'));
+      expect(successLogged).to.be.false;
+      expect(deferredWarned).to.be.true;
+      expect(globalState.softRedeployInProgress).to.be.false;
+    });
   });
 
   describe('hardRedeployComponent tests', () => {
@@ -401,6 +443,41 @@ describe('advancedWorkflows tests', () => {
       } catch (error) {
         expect(globalState.hardRedeployInProgress).to.be.false;
       }
+    });
+
+    it('does NOT log a completed redeploy when the component register returns DEFERRED', async () => {
+      // registerAppLocally is a CROSS-module call here (appInstaller.registerAppLocally), so a
+      // stub on the required module intercepts it; drive it to a transient DEFERRED.
+      // eslint-disable-next-line global-require
+      const log = require('../../ZelBack/src/lib/log');
+      // eslint-disable-next-line global-require
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves({
+        name: 'myapp',
+        version: 4,
+        compose: [{ name: 'frontend', repotag: 'myapp/frontend:1.0', ports: [31000] }],
+      });
+      sinon.stub(appUninstaller, 'hardUninstallComponent').resolves();
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      sinon.stub(appInstaller, 'registerAppLocally').resolves(InstallResult.DEFERRED);
+      const infoStub = sinon.stub(log, 'info');
+      const warnStub = sinon.stub(log, 'warn');
+
+      await advancedWorkflows.hardRedeployComponent('myapp', 'frontend', res);
+
+      // A DEFERRED reinstall did NOT redeploy - it must not be logged as a completed redeploy
+      const successLogged = infoStub.getCalls().some((c) => String(c.args[0]).includes('hard redeployed'));
+      const deferredWarned = warnStub.getCalls().some((c) => String(c.args[0]).includes('did not complete'));
+      expect(successLogged).to.be.false;
+      expect(deferredWarned).to.be.true;
+      expect(globalState.hardRedeployInProgress).to.be.false;
     });
   });
 
