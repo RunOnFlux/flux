@@ -1295,7 +1295,7 @@ describe('appInstaller tests', () => {
       name: 'testapp', repotag: 'repo/test:1', containerData: '/data', ports: [30000], version: 2,
     };
 
-    function build(isCondemnedValue, teardownOwedValue = false) {
+    function build(isCondemnedValue, teardownOwedValue = false, isCondemnedStub = null) {
       const dockerStub = {
         dockerPullStream: sinon.stub().resolves('pulled'),
         appDockerCreate: sinon.stub().resolves(),
@@ -1304,7 +1304,9 @@ describe('appInstaller tests', () => {
       };
       const advancedWorkflowsStub = { createAppVolume: sinon.stub().resolves() };
       const volumeServiceStub = { verifyAppVolumeMount: sinon.stub().resolves(), ensureMountPathsExist: sinon.stub().resolves() };
-      const appsRuntimeStateStub = { isCondemned: sinon.stub().resolves(isCondemnedValue), setCondemned: sinon.stub().resolves() };
+      // isCondemnedStub lets a test vary the answer per call (e.g. false at the post-pull check,
+      // true at the later pre-create check); otherwise a constant value is used.
+      const appsRuntimeStateStub = { isCondemned: isCondemnedStub || sinon.stub().resolves(isCondemnedValue), setCondemned: sinon.stub().resolves() };
       const pendingTeardownStoreStub = { teardownOwedFor: sinon.stub().resolves(teardownOwedValue) };
       const mod = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
         '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
@@ -1406,6 +1408,53 @@ describe('appInstaller tests', () => {
       expect(threw, 'should abort on an owed teardown doc even with no condemned stamp').to.be.true;
       expect(advancedWorkflowsStub.createAppVolume.called, 'must NOT create the volume').to.be.false;
       expect(dockerStub.appDockerStart.called, 'must NOT start the container').to.be.false;
+    });
+
+    // A g:/r: (syncthing/data) app SKIPS the pre-START backstop, so the pre-CREATE re-check is
+    // its only guard against a cancel that condemns it AFTER the post-pull check but before the
+    // container is created. isCondemned: false at the post-pull check, true at the pre-create one.
+    function condemnedAfterPull() {
+      const stub = sinon.stub();
+      stub.onFirstCall().resolves(false); // post-pull re-check passes
+      stub.resolves(true); // a cancel has condemned the app by the pre-create re-check
+      return stub;
+    }
+    const dataAppSpec = {
+      name: 'testapp', repotag: 'repo/test:1', containerData: 'g:/data', ports: [30000], version: 2,
+    };
+
+    it('installApplicationHard ABORTS before creating the container for a g:/r: app condemned after the pull (pre-create backstop)', async () => {
+      const { mod, dockerStub, advancedWorkflowsStub } = build(false, false, condemnedAfterPull());
+      const res = { write: sinon.stub(), flush: sinon.stub() };
+
+      let threw = false;
+      try {
+        await mod.installApplicationHard(dataAppSpec, 'testapp', false, res, dataAppSpec, false, true);
+      } catch (e) {
+        threw = true;
+        expect(e.message).to.match(/aborted/);
+      }
+
+      expect(threw, 'must abort at the pre-create backstop').to.be.true;
+      // the post-pull check passed, so the volume WAS created - but the container must NOT be
+      expect(advancedWorkflowsStub.createAppVolume.calledOnce, 'volume created (post-pull check passed)').to.be.true;
+      expect(dockerStub.appDockerCreate.called, 'must NOT create the container').to.be.false;
+    });
+
+    it('installApplicationSoft ABORTS before creating the container for a g:/r: app condemned after the pull (pre-create backstop)', async () => {
+      const { mod, dockerStub } = build(false, false, condemnedAfterPull());
+      const res = { write: sinon.stub(), flush: sinon.stub() };
+
+      let threw = false;
+      try {
+        await mod.installApplicationSoft(dataAppSpec, 'testapp', false, res, dataAppSpec, true);
+      } catch (e) {
+        threw = true;
+        expect(e.message).to.match(/aborted/);
+      }
+
+      expect(threw, 'must abort at the pre-create backstop').to.be.true;
+      expect(dockerStub.appDockerCreate.called, 'must NOT create the container').to.be.false;
     });
   });
 });

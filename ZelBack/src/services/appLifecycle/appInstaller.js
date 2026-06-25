@@ -953,6 +953,11 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // Mount paths must exist before the container is created (Syncthing cleanup can
   // remove them while a container is stopped); ensure them at the orchestration layer.
   await volumeService.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
+  // Final cancel-during-install re-check before creating the container: the r:/g: (syncthing/
+  // data) path skips the pre-start backstop below, so without this an aborting cancel could
+  // leave a created container on the volume its Phase B is about to rm -rf. Read-only/idempotent
+  // and a no-op unless a concurrent cancel condemned the app during the pull/volume work.
+  await throwIfCondemnedMidInstall(appSpecifications, appName, isComponent);
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
   // Attach this component to the private network of every app it is linked with
@@ -1037,6 +1042,11 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   // Mount paths must exist before the container is created (Syncthing cleanup can
   // remove them while a container is stopped); ensure them at the orchestration layer.
   await volumeService.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
+  // Final cancel-during-install re-check before creating the container: the g: (syncthing/data)
+  // path skips the pre-start backstop below, so without this an aborting cancel could leave a
+  // created container on the volume its Phase B is about to rm -rf. Read-only/idempotent and a
+  // no-op unless a concurrent cancel condemned the app during the pull.
+  await throwIfCondemnedMidInstall(appSpecifications, appName, isComponent);
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
   // Attach this component to the private network of every app it is linked with
