@@ -1771,6 +1771,12 @@ describe('advancedWorkflows tests', () => {
       // eslint-disable-next-line global-require
       const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
       const removeStub = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      // No teardown is owed for a genuine soft-reinstall failure; without this stub the real
+      // module fail-CLOSES teardownOwedFor to true (no DB) and the catch would (correctly)
+      // reclassify to DEFERRED. This asserts the genuine FAILED + cleanup path.
+      // eslint-disable-next-line global-require
+      const pendingTeardownStore = require('../../ZelBack/src/services/appLifecycle/pendingTeardownStore');
+      sinon.stub(pendingTeardownStore, 'teardownOwedFor').resolves(false);
 
       const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
       const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', repotag: 'repo/c1:1.0', ports: [31000] }] };
@@ -1779,6 +1785,47 @@ describe('advancedWorkflows tests', () => {
       expect(result).to.equal(InstallResult.FAILED);
       // the failure cleanup is now AWAITED (was fire-and-forget), so it has run by return
       expect(removeStub.calledOnce).to.be.true;
+    });
+
+    it('DEFERS (not FAILED) and runs no cleanup when a throw races a same-name cancel/teardown', async () => {
+      // Same throw trigger as the failure test, but a teardown is owed for this app (a concurrent
+      // cancel aborted the in-flight pull). The soft catch must DEFER, not 7-day-poison the hash,
+      // and must NOT run its own removeAppLocally (the in-flight cancel owns the teardown).
+      sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+      // eslint-disable-next-line global-require
+      const generalService = require('../../ZelBack/src/services/generalService');
+      sinon.stub(generalService, 'nodeTier').resolves('cumulus');
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      const removeStub = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      // eslint-disable-next-line global-require
+      const pendingTeardownStore = require('../../ZelBack/src/services/appLifecycle/pendingTeardownStore');
+      sinon.stub(pendingTeardownStore, 'teardownOwedFor').resolves(true);
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+      const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', repotag: 'repo/c1:1.0', ports: [31000] }] };
+
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, { skipPorts: true });
+      expect(result, 'a cancel-aborted soft install must DEFER, not poison the spawner cache').to.equal(InstallResult.DEFERRED);
+      expect(removeStub.called, 'the in-flight cancel owns teardown; we must NOT run our own').to.be.false;
+    });
+
+    it('the finally drops ONLY this call\'s controller - an early bail leaves a peer install\'s controller intact', async () => {
+      // A same-name soft install (A) is already in flight with a registered controller. THIS call
+      // bails at the early "another install underway" gate, BEFORE registering its own controller,
+      // so its finally must NOT delete A's controller by name.
+      const peerController = new AbortController();
+      globalState.installingApps.set('TestApp', peerController);
+      globalState.installationInProgress = true; // forces the early DEFERRED bail (before the set)
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+      const spec = { name: 'TestApp', version: 8, compose: [{ name: 'c1', ports: [31000] }] };
+
+      const result = await advancedWorkflows.softRegisterAppLocally(spec, undefined, res, {});
+
+      expect(result).to.equal(InstallResult.DEFERRED);
+      expect(globalState.installingApps.get('TestApp'), 'peer install A\'s controller must survive our early-bail finally').to.equal(peerController);
+      globalState.installingApps.clear(); // avoid polluting later tests that read the shared map
     });
 
     it('DEFERS (per-app gate) when THIS app is undergoing removal', async () => {

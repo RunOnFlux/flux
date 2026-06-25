@@ -951,6 +951,10 @@ describe('appInstaller tests', () => {
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
         '../dbHelper': dbHelperStubLocal,
+        // No teardown is owed for a normal already-installed failure; without this stub the
+        // real module fail-CLOSES teardownOwedFor to true (no DB) and the outer catch would
+        // (correctly) reclassify to DEFERRED. This asserts the genuine FAILED path.
+        './pendingTeardownStore': { teardownOwedFor: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
           ensureNumber: sinon.stub().returnsArg(0),
@@ -1192,6 +1196,160 @@ describe('appInstaller tests', () => {
       expect(onInstallComplete.calledOnce, 'post-install broadcast should fire').to.be.true;
       expect(lockHeldWhenBroadcasting, 'install lock must be released BEFORE broadcasting').to.equal(false);
       expect(globalStateStub.installationInProgress).to.equal(false);
+    });
+  });
+
+  describe('registerAppLocally - concurrent cancel defers instead of failing, and the finally drops only its own controller', () => {
+    // Drives the REAL registerAppLocally try/catch/finally. The throw is triggered the same
+    // way the sibling "already installed" FAILED-path test triggers it (the pre-install I/O
+    // checks reject) - a stand-in for ANY mid-install failure, including a cancel aborting the
+    // in-flight image pull. What these assert is the OUTER catch's classification of that
+    // throw and the finally's controller bookkeeping, NOT the throw's origin.
+    const appSpec = {
+      name: 'testapp', repotag: 'repo/test:1', containerData: '/data', ports: [30000], version: 2,
+    };
+
+    function buildRegister({ teardownOwed = false, hasRemoval = () => false } = {}) {
+      const removeAppLocally = sinon.stub().resolves();
+      const teardownOwedFor = sinon.stub().resolves(teardownOwed);
+      const installingApps = new Map();
+      const gState = {
+        removalInProgress: false,
+        installationInProgress: false,
+        masterSlaveAppsRunning: false,
+        installingApps,
+        hasRemovalInProgress: hasRemoval,
+      };
+      const dbHelperStubLocal = {
+        databaseConnection: sinon.stub(),
+        findInDatabase: sinon.stub(),
+        findOneInDatabase: sinon.stub().resolves({ name: 'testapp' }),
+        insertOneToDatabase: sinon.stub(),
+      };
+      const mod = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        config: configStub,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../dbHelper': dbHelperStubLocal,
+        './pendingTeardownStore': { teardownOwedFor },
+        '../serviceHelper': {
+          ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
+          ensureNumber: sinon.stub().returnsArg(0),
+          delay: sinon.stub().resolves(),
+        },
+        '../generalService': {
+          nodeTier: sinon.stub().resolves('cumulus'),
+          checkSynced: sinon.stub().resolves(true),
+        },
+        '../benchmarkService': {
+          getBenchmarks: sinon.stub().resolves({ status: 'success', data: { ipaddress: '127.0.0.1:5050' } }),
+        },
+        '../fluxNetworkHelper': {
+          getNumberOfPeers: sinon.stub().returns(15),
+          isFirewallActive: sinon.stub().resolves(false),
+          allowPort: sinon.stub().resolves({ status: true }),
+          removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
+        },
+        '../geolocationService': { isStaticIP: sinon.stub().returns(true) },
+        '../dockerService': {
+          dockerListContainers: sinon.stub().resolves([]),
+          pruneContainers: sinon.stub().resolves(),
+          pruneNetworks: sinon.stub().resolves(),
+          pruneVolumes: sinon.stub().resolves(),
+          pruneImages: sinon.stub().resolves(),
+          createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
+          getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
+          appDockerCreate: sinon.stub().resolves(),
+          appDockerStart: sinon.stub().resolves('container-started'),
+          getAppIdentifier: sinon.stub().returns('testapp'),
+          dockerPullStream: sinon.stub().resolves('pulled'),
+        },
+        './appUninstaller': { removeAppLocally },
+        './advancedWorkflows': { createAppVolume: sinon.stub().resolves() },
+        '../fluxCommunicationMessagesSender': {
+          broadcastMessageToOutgoing: sinon.stub().resolves(),
+          broadcastMessageToIncoming: sinon.stub().resolves(),
+        },
+        '../appMessaging/messageStore': {
+          storeAppRunningMessage: sinon.stub().resolves(),
+          storeAppInstallingErrorMessage: sinon.stub().resolves(),
+        },
+        '../appSystem/systemIntegration': { systemArchitecture: sinon.stub().resolves('amd64') },
+        '../appSecurity/imageManager': { checkApplicationImagesCompliance: sinon.stub().resolves() },
+        '../appManagement/appInspector': { startAppMonitoring: sinon.stub() },
+        '../utils/imageVerifier': {
+          ImageVerifier: sinon.stub().returns({
+            addCredentials: sinon.stub(), verifyImage: sinon.stub().resolves(), throwIfError: sinon.stub(), supported: true, provider: 'docker.io',
+          }),
+        },
+        '../pgpService': { decryptMessage: sinon.stub().resolves('user:token') },
+        '../upnpService': { isUPNP: sinon.stub().returns(false), mapUpnpPort: sinon.stub().resolves(true) },
+        '../utils/globalState': gState,
+        '../../lib/log': logStub,
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
+        '../appMessaging/messageVerifier': {
+          checkAppTemporaryMessageExistence: sinon.stub().resolves(null),
+          checkAppMessageExistence: sinon.stub().resolves(null),
+        },
+        '../appDatabase/registryManager': {
+          availableApps: sinon.stub().resolves([]),
+          getApplicationGlobalSpecifications: sinon.stub().resolves(null),
+        },
+        '../appRequirements/hwRequirements': hwRequirementsStub,
+        '../appQuery/appQueryService': {
+          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
+          listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+        },
+        util: { promisify: (fn) => fn },
+      });
+      return {
+        mod, removeAppLocally, teardownOwedFor, installingApps, gState,
+      };
+    }
+
+    it('a throw while a cancel is in flight (hasRemovalInProgress) returns DEFERRED, not FAILED, and runs no cleanup', async () => {
+      // The cancel arrives AFTER the entry gate: hasRemovalInProgress reads false at the 404
+      // gate, then true by the time the catch runs (the cancel set it while we were mid-install).
+      let entered = false;
+      const hasRemoval = () => {
+        if (!entered) { entered = true; return false; }
+        return true;
+      };
+      const { mod, removeAppLocally } = buildRegister({ hasRemoval });
+      const res = { write: sinon.stub(), end: sinon.stub(), flush: sinon.stub() };
+
+      const result = await mod.registerAppLocally(appSpec, false, res);
+
+      expect(result, 'a cancel-aborted install must DEFER (not poison the spawner 7-day cache)').to.equal(InstallResult.DEFERRED);
+      expect(removeAppLocally.called, 'the in-flight cancel owns teardown; we must NOT run our own cleanup').to.be.false;
+      expect(res.end.called, 'the deferred bail must end the REST stream, not leave the caller hanging').to.be.true;
+    });
+
+    it('a throw while a teardown is owed (durable doc) returns DEFERRED and runs no cleanup', async () => {
+      const { mod, removeAppLocally } = buildRegister({ teardownOwed: true });
+      const res = { write: sinon.stub(), end: sinon.stub(), flush: sinon.stub() };
+
+      const result = await mod.registerAppLocally(appSpec, false, res);
+
+      expect(result, 'an owed teardown (or a fail-closed DB blip) must DEFER, not FAIL').to.equal(InstallResult.DEFERRED);
+      expect(removeAppLocally.called, 'the owed teardown owns cleanup; we must NOT run our own').to.be.false;
+    });
+
+    it('the finally drops ONLY this call\'s controller - an early bail leaves a peer install\'s controller intact', async () => {
+      // Another same-name install (A) is already in flight with a registered controller. THIS
+      // call bails at the early "another install underway" gate, BEFORE registering its own
+      // controller, so its finally must NOT delete A's controller by name (which would leave a
+      // concurrent cancel unable to abort A's pull).
+      const { mod, installingApps, gState } = buildRegister();
+      const peerController = new AbortController();
+      installingApps.set('testapp', peerController);
+      gState.installationInProgress = true; // forces the early DEFERRED bail (before the set)
+
+      const res = { write: sinon.stub(), end: sinon.stub(), flush: sinon.stub() };
+      const result = await mod.registerAppLocally(appSpec, false, res);
+
+      expect(result, 'a second same-name install must defer while the first is underway').to.equal(InstallResult.DEFERRED);
+      expect(installingApps.get('testapp'), 'peer install A\'s controller must survive our early-bail finally').to.equal(peerController);
     });
   });
 

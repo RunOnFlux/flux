@@ -392,6 +392,11 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
   // it false and opens all ports as before. Only the ufw/UPnP setup is skipped - the
   // container is still created with its docker port mappings.
   const skipPorts = opts.skipPorts === true;
+  // Tracks whether THIS call registered its AbortController (below). The finally must only
+  // drop a controller this call actually set: the early DEFERRED bails return BEFORE the set,
+  // and an unconditional delete-by-name there would evict a DIFFERENT in-flight same-name
+  // install's controller, defeating a concurrent cancel's pull-abort.
+  let controllerRegistered = false;
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -427,6 +432,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     // arriving during this pre-pull I/O found an empty map and could not abort. The finally
     // below clears it on every return (including the DEFERRED/FAILED bails below).
     globalState.installingApps.set(appSpecs.name, new AbortController());
+    controllerRegistered = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       // Clear the install lock we just set: a normal `return` here bypasses the
@@ -777,6 +783,26 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       if (res.flush) res.flush();
     }
 
+    // Was this throw caused by a concurrent cancel/expiry of THIS app rather than a genuine
+    // install failure? A cancel aborts the in-flight image pull (it rejects into here) and its
+    // teardown owns anything we created. Returning FAILED would make the spawner 7-day-poison
+    // the hash (never cleared), stranding a pinned enterprise app for ~a week. Defer instead -
+    // and do NOT run our own cleanup removeAppLocally: the in-flight cancel already owns the
+    // teardown, so a second removeAppLocally would race it. Same two signals the mid-install
+    // backstop uses: the in-memory removal flag, and the durable teardown doc (itself
+    // fail-CLOSED on a read blip), so a transient DB miss defers rather than poisons.
+    if (!test && (globalState.hasRemovalInProgress(appSpecs.name) || await pendingTeardownStore.teardownOwedFor(appSpecs.name))) {
+      const deferStatus = messageHelper.createWarningMessage(`Install of ${appSpecs.name} deferred: a concurrent cancel/removal owns its teardown.`);
+      log.warn(deferStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(deferStatus));
+        // End the stream like every other deferred/terminal bail: this path RETURNS (does not
+        // throw), so the REST handler's catch never runs and nothing else closes the response.
+        res.end();
+      }
+      return InstallResult.DEFERRED;
+    }
+
     if (!test) {
       const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
       log.info(removeStatus);
@@ -790,8 +816,11 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
 
     return InstallResult.FAILED;
   } finally {
-    // Drop this install's AbortController (no-op if we bailed before registering).
-    if (appSpecs && appSpecs.name) globalState.installingApps.delete(appSpecs.name);
+    // Drop ONLY this call's AbortController. Guard on controllerRegistered: the early
+    // DEFERRED bails (removal-in-progress / another install underway) return BEFORE the set,
+    // and a bare delete-by-name here would evict a DIFFERENT in-flight same-name install's
+    // controller, leaving a concurrent cancel unable to abort that install's pull.
+    if (controllerRegistered && appSpecs && appSpecs.name) globalState.installingApps.delete(appSpecs.name);
     if (test) {
       try {
         await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);

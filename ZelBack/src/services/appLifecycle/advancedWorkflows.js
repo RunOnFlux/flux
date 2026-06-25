@@ -858,6 +858,11 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
   // opts.skipPorts: a soft redeploy opens the port delta itself, so the soft reinstall
   // must NOT open ports here. Defaults false so a plain soft install opens them as before.
   const skipPorts = opts.skipPorts === true;
+  // Tracks whether THIS call registered its AbortController (below). The finally must only drop
+  // a controller this call actually set: the early DEFERRED bails return BEFORE the set, and an
+  // unconditional delete-by-name there would evict a DIFFERENT in-flight same-name install's
+  // controller, leaving a concurrent cancel unable to abort that install's pull.
+  let controllerRegistered = false;
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -891,10 +896,11 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
     // (tier, the DB read, the teardownOwedFor gate). A concurrent cancel aborts the in-flight
     // pull via installingApps.get(name) (verifyAndPullImage threads the signal into docker.pull);
     // registering only just before the pull left a TOCTOU window where a cancel arriving during
-    // this pre-pull I/O found an empty map and could not abort (the hard path closed this in F-A,
+    // this pre-pull I/O found an empty map and could not abort (the hard path closed this in
     // appInstaller.js - mirror it here). Keyed on appSpecs.name (appName is not derived until
     // below); the finally clears it on every return, including the DEFERRED/FAILED bails.
     globalState.installingApps.set(appSpecs.name, new AbortController());
+    controllerRegistered = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       // Clear the install lock we just set: this `return` bypasses the catch (which
@@ -1167,6 +1173,23 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
+
+    // Was this throw caused by a concurrent cancel/expiry of THIS app (it aborted the in-flight
+    // pull) rather than a genuine failure? Returning FAILED would make the spawner 7-day-poison
+    // the hash (never cleared), stranding a pinned enterprise app. Defer instead, and do NOT run
+    // our own removeAppLocally - the in-flight cancel already owns the teardown, so a second
+    // removeAppLocally would race it. teardownOwedFor fails CLOSED on a read blip, so a transient
+    // DB miss defers rather than poisons. Mirrors the hard path in appInstaller.js.
+    if (globalState.hasRemovalInProgress(appSpecs.name) || await pendingTeardownStore.teardownOwedFor(appSpecs.name)) {
+      const deferStatus = messageHelper.createWarningMessage(`Soft install of ${appSpecs.name} deferred: a concurrent cancel/removal owns its teardown.`);
+      log.warn(deferStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(deferStatus));
+        res.end();
+      }
+      return InstallResult.DEFERRED;
+    }
+
     const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
     log.warn(`REMOVAL REASON: Soft registration failure - ${appSpecs.name} failed during soft registration: ${error.message} (softRegisterAppLocally)`);
@@ -1183,8 +1206,11 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, opts = {}) 
     await appUninstaller.removeAppLocally(appSpecs.name, res, true);
     return InstallResult.FAILED;
   } finally {
-    // Drop this install's AbortController (no-op if we bailed before registering it).
-    if (appSpecs && appSpecs.name) globalState.installingApps.delete(appSpecs.name);
+    // Drop ONLY this call's AbortController. Guard on controllerRegistered: the early DEFERRED
+    // bails return BEFORE the set, and a bare delete-by-name here would evict a DIFFERENT
+    // in-flight same-name install's controller, leaving a concurrent cancel unable to abort
+    // that install's pull.
+    if (controllerRegistered && appSpecs && appSpecs.name) globalState.installingApps.delete(appSpecs.name);
   }
 }
 
