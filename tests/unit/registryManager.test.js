@@ -1088,3 +1088,139 @@ describe('registryManager setOnSpecStored', () => {
     expect(result).to.equal(true);
   });
 });
+
+// Prompt at-tip sweep: reads expiry from the AUTHORITATIVE global spec, using the
+// local rows only to scope WHICH apps this node runs. dbHelper is stubbed so no
+// mongo is needed; a separate top-level describe outside the requireMongo gate.
+describe('registryManager expireInstalledApplications (at-tip sweep, global-sourced)', () => {
+  let delGlobal;
+
+  // The local and global apps collections share the name 'zelappsinformation'
+  // (they differ only by database), so the findInDatabase fake cannot discriminate
+  // on the collection name - it keys on the query shape instead: the local read
+  // uses {} and the global read uses { name: { $in: [...] } }.
+  function arrange(localRows, globalRows) {
+    sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+    sinon.stub(dbHelper, 'findInDatabase').callsFake((d, coll, query) => (
+      query && query.name && query.name.$in ? Promise.resolve(globalRows) : Promise.resolve(localRows)
+    ));
+    delGlobal = sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves(null);
+    sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves();
+    sinon.stub(dbHelper, 'findOneInDatabase').resolves(null); // expireSingleApplication installed-guard -> skip removeAppLocally
+  }
+
+  // expireSingleApplication is an internal closure; observe that the sweep FIRED for
+  // an app by its first side effect - findOneAndDeleteInDatabase(global, { name }).
+  function deletedNames() {
+    return delGlobal.getCalls().map((c) => c.args[2] && c.args[2].name);
+  }
+
+  afterEach(() => sinon.restore());
+
+  it('reads the authoritative global expire, not the stale local row (regression)', async () => {
+    // Local row still says expire 250 (install-time snapshot); the cancel set global to expire 1.
+    arrange(
+      [{ name: 'cancelledapp', height: 100, expire: 250 }],
+      [{ name: 'cancelledapp', height: 100, expire: 1 }],
+    );
+    await registryManager.expireInstalledApplications(105);
+    // global expire 1 -> expiration 101 <= 105 -> expired. (Stale local 250 -> 350, never expires.)
+    expect(deletedNames()).to.include('cancelledapp');
+  });
+
+  it('never expires a forever app (height 0), even when absent from global', async () => {
+    arrange([{ name: 'forever', height: 0 }], []);
+    await registryManager.expireInstalledApplications(999999);
+    expect(delGlobal.called).to.equal(false);
+  });
+
+  it('falls back to the local row when the app is absent from global', async () => {
+    // Not in global -> evaluate off the local height/expire (manual/legacy install).
+    arrange([{ name: 'manual', height: 100, expire: 250 }], []); // expiration 350
+    await registryManager.expireInstalledApplications(300); // 350 not <= 300 -> kept
+    expect(delGlobal.called).to.equal(false);
+    await registryManager.expireInstalledApplications(350); // 350 <= 350 -> expired
+    expect(deletedNames()).to.include('manual');
+  });
+
+  it('treats a corrupt row (missing height) as expired', async () => {
+    arrange([{ name: 'corrupt' }], []);
+    await registryManager.expireInstalledApplications(200);
+    expect(deletedNames()).to.include('corrupt');
+  });
+
+  it('tears down at H+1 (<=), the block its term ends, not H+2', async () => {
+    // expire 1 cancel confirmed at height 100 -> expiration height 101.
+    arrange(
+      [{ name: 'cancelledapp', height: 100, expire: 1 }],
+      [{ name: 'cancelledapp', height: 100, expire: 1 }],
+    );
+    await registryManager.expireInstalledApplications(101); // 101 <= 101 -> removed (strict < would wait for 102)
+    expect(deletedNames()).to.include('cancelledapp');
+  });
+});
+
+// %8 backstop: its local-removal branch must also evaluate installed apps against
+// the authoritative global spec, not the stale local row (symmetric renewal-direction
+// bug). dbHelper + appQueryService.installedApps are stubbed; no mongo needed.
+describe('registryManager expireGlobalApplications (%8 backstop, global-sourced local removal)', () => {
+  // eslint-disable-next-line global-require
+  const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+  let delGlobal;
+
+  function arrange(globalRows, installedRows, tip) {
+    sinon.stub(dbHelper, 'databaseConnection').returns({ db: () => ({}) });
+    sinon.stub(dbHelper, 'findOneInDatabase').callsFake((d, coll, query) => (
+      query && query.generalScannedHeight
+        ? Promise.resolve({ generalScannedHeight: tip }) // synced-height read
+        : Promise.resolve(null) // expireSingleApplication installed-guard -> skip local removal
+    ));
+    sinon.stub(dbHelper, 'findInDatabase').resolves(globalRows); // global specs query ({})
+    delGlobal = sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').resolves(null);
+    sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves();
+    sinon.stub(appQueryService, 'installedApps').resolves({ status: 'success', data: installedRows });
+  }
+
+  function deletedNames() {
+    return delGlobal.getCalls().map((c) => c.args[2] && c.args[2].name);
+  }
+
+  afterEach(() => sinon.restore());
+
+  it('does NOT remove a renewed app whose local row carries a stale shorter expire', async () => {
+    // Local still says expire 1 (about to die); the renewal extended global to 5000.
+    arrange(
+      [{ name: 'renewed', height: 100, expire: 5000 }],
+      [{ name: 'renewed', height: 100, expire: 1 }],
+      200,
+    );
+    await registryManager.expireGlobalApplications();
+    // authoritative global 5000 -> expiration 5100, not < 200 -> kept. (Stale local 1 -> 101 < 200 -> wrongly removed.)
+    expect(deletedNames()).to.not.include('renewed');
+  });
+
+  it('still removes a genuinely globally-expired installed app', async () => {
+    arrange(
+      [{ name: 'dead', height: 100, expire: 1 }],
+      [{ name: 'dead', height: 100, expire: 1 }],
+      200,
+    );
+    await registryManager.expireGlobalApplications();
+    expect(deletedNames()).to.include('dead');
+  });
+
+  it('removes an orphan installed app (absent from global) via the local-removal branch', async () => {
+    // Empty global -> the global-cleanup loop deletes nothing, so the ONLY path that
+    // can remove this app is the rewritten local-removal branch's local fallback.
+    // (The 'dead' test above is confounded by the cleanup loop; this one pins the branch:
+    // it fails if the local-removal loop is neutered.)
+    arrange(
+      [],
+      [{ name: 'orphan', height: 100, expire: 1 }],
+      200,
+    );
+    await registryManager.expireGlobalApplications();
+    // fallback authoritative = local (expire 1) -> expiration 101 < 200 -> removed.
+    expect(deletedNames()).to.include('orphan');
+  });
+});

@@ -1462,34 +1462,64 @@ async function expireSingleApplication(appName, { async: background = true } = {
 /**
  * Prompt at-tip expiry of this node's LOCALLY-installed apps. Runs EVERY block at
  * the chain tip (vs the periodic %8 global sweep), so a cancel/expiry is enforced
- * the instant the app becomes eligible (~the definitional H+2, ~60 s) instead of
- * waiting up to 4 min for the next sweep tick. Cheap by design: it reads only this
- * node's installed-app rows (a handful, plaintext height/expire — no decrypt), so
- * a per-block cadence is safe. The %8 expireGlobalApplications stays the global-
- * collection cleanup + the deterministic backstop; detect-at-tip in messageVerifier
- * covers late/re-processed messages. Eligibility uses the SAME expirationHeightOf +
- * strict-< as the sweep, so this only changes WHEN this node acts, never the
- * network-agreed expiry height.
+ * the instant the app becomes eligible (~H+1, one block, ~30 s) instead of waiting
+ * up to 4 min for the next sweep tick. The local rows only scope WHICH apps this
+ * node runs; the expiry-driving height/expire are read from the AUTHORITATIVE
+ * global registry (name/height/expire are plaintext even for enterprise apps, so
+ * the per-block read is cheap and decrypt-free). Eligibility uses <= (not the %8
+ * backstop's strict <) to match detect-at-tip in messageVerifier (actualExpiration
+ * Height <= daemonHeight), so an app is torn down the block its term ends rather
+ * than one block later. The %8 expireGlobalApplications stays the global-collection
+ * cleanup + the deterministic strict-< backstop; detect-at-tip covers re-processed
+ * messages.
  *
  * @param {number} explorerHeight - current scanned tip height
  * @returns {Promise<void>}
  */
 async function expireInstalledApplications(explorerHeight) {
   try {
+    // A reindex empties globalAppsInformation mid-rebuild, so reading the registry
+    // now would make every installed app look unregistered and force a mass
+    // teardown. Skip this tick; the next block (or the %8 backstop) re-evaluates
+    // once the rebuild has repopulated it.
+    if (reindexRunning) return;
+
     const db = dbHelper.databaseConnection();
     const appsLocalDb = db.db(config.database.appslocal.database);
-    const apps = await dbHelper.findInDatabase(appsLocalDb, localAppsInformation, {}, { projection: { _id: 0, name: 1, height: 1, expire: 1 } });
+    const appsGlobalDb = db.db(config.database.appsglobal.database);
+
+    // The local rows are runtime state: they only tell us WHICH apps this node
+    // runs (the decision scope). They are NOT the expiry authority.
+    const installed = await dbHelper.findInDatabase(appsLocalDb, localAppsInformation, {}, { projection: { _id: 0, name: 1, height: 1, expire: 1 } });
+    if (!installed.length) return;
+
+    // Expiry is a property of the network-confirmed spec, so its one authoritative
+    // source is the global registry. name/height/expire are plaintext top-level
+    // even for enterprise apps (only compose/contacts are encrypted), so this is a
+    // no-decrypt, this-node-scoped projection.
+    const names = installed.map((app) => app.name);
+    const globalRows = await dbHelper.findInDatabase(appsGlobalDb, globalAppsInformation, { name: { $in: names } }, { projection: { _id: 0, name: 1, height: 1, expire: 1 } });
+    const globalByName = new Map(globalRows.map((row) => [row.name, row]));
+
     const expired = [];
-    apps.forEach((app) => {
-      if (!app.height) {
-        expired.push({ name: app.name, expirationHeight: 0 });
-      } else if (app.height === 0) {
-        // forever-lasting local app — never expires
-      } else {
-        const expirationHeight = expirationHeightOf(app, explorerHeight);
-        if (expirationHeight < explorerHeight) {
-          expired.push({ name: app.name, expirationHeight });
-        }
+    installed.forEach((localApp) => {
+      // Prefer the authoritative global spec; fall back to the local row only when
+      // the app has no global registration (forever/manual installs, or a row a
+      // prior sweep already deleted - the %8 installedApps backstop still reaps those).
+      const authoritative = globalByName.get(localApp.name) || localApp;
+      // forever-lasting app - never expires. Checked FIRST so height===0 is not
+      // swallowed by the !height branch below (which would otherwise force-expire it).
+      if (authoritative.height === 0) return;
+      // genuinely missing height (corrupt/legacy row) - treat as expired.
+      if (!authoritative.height) {
+        expired.push({ name: localApp.name, expirationHeight: 0 });
+        return;
+      }
+      // <= (not the %8 sweep's <) tears the app down at H+1 instead of H+2, matching
+      // detect-at-tip so this prompt path no longer lags the message path by a block.
+      const expirationHeight = expirationHeightOf(authoritative, explorerHeight);
+      if (expirationHeight <= explorerHeight) {
+        expired.push({ name: localApp.name, expirationHeight });
       }
     });
     if (!expired.length) return;
@@ -1569,20 +1599,34 @@ async function expireGlobalApplications() {
       throw new Error('Failed to get installed Apps');
     }
     const appsInstalled = installedAppsRes.data;
-    // remove any installed app which height is lower (or not present) but is not infinite app
+    // Expiry is a property of the network-confirmed spec, so evaluate each installed
+    // app against the AUTHORITATIVE global row, not the local install row - a lazy
+    // local refresh can leave the local row carrying a stale shorter expire, and a
+    // renewal that extended the global expire would otherwise wrongly remove a
+    // still-paid app. Reuse the already-fetched global `results` (zero extra reads).
+    const globalByName = new Map(results.map((row) => [row.name, row]));
+    // remove any installed app which is expired (or has no/forever height) per the
+    // authoritative spec; fall back to the local row only when there is no global one.
     const appsToRemove = [];
     appsInstalled.forEach((app) => {
+      // Prefer the authoritative global spec; fall back to the local row only when
+      // the app has no global registration (forever/manual installs, or one a prior
+      // sweep already removed from global).
+      const authoritative = globalByName.get(app.name) || app;
       if (appNamesToExpire.includes(app.name)) {
-        appsToRemove.push({ app, expirationHeight: app.height ? expirationHeightOf(app, explorerHeight) : 0 });
-      } else if (!app.height) {
+        appsToRemove.push({ app, expirationHeight: authoritative.height ? expirationHeightOf(authoritative, explorerHeight) : 0 });
+        return;
+      }
+      // forever-lasting app - never expires. Checked FIRST so height===0 is not
+      // swallowed by the !height branch (which would otherwise force-expire it).
+      if (authoritative.height === 0) return;
+      if (!authoritative.height) {
         appsToRemove.push({ app, expirationHeight: 0 });
-      } else if (app.height === 0) {
-        // do nothing, forever lasting local app
-      } else {
-        const expirationHeight = expirationHeightOf(app, explorerHeight);
-        if (expirationHeight < explorerHeight) {
-          appsToRemove.push({ app, expirationHeight });
-        }
+        return;
+      }
+      const expirationHeight = expirationHeightOf(authoritative, explorerHeight);
+      if (expirationHeight < explorerHeight) {
+        appsToRemove.push({ app, expirationHeight });
       }
     });
     // Remove earliest-expired first - the iteration order is otherwise the DB's,
