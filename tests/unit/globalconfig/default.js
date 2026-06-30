@@ -56,7 +56,7 @@ module.exports = {
         appsInformation: 'zelappsinformation',
         appsRuntimeState: 'zelappsruntimestate',
         pendingAppTeardowns: 'zelappspendingteardowns',
-        cachedImages: 'zelappscachedimages',
+        cachedImages: 'cachedimages',
       },
     },
     appsglobal: {

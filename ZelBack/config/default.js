@@ -64,7 +64,7 @@ module.exports = {
         appsInformation: 'zelappsinformation',
         appsRuntimeState: 'zelappsruntimestate', // node-local per-component controller state: desiredState, restartHistory (crash backoff), last exit
         pendingAppTeardowns: 'zelappspendingteardowns', // durable record of owed host teardown once the app row is gone (Phase B + boot recovery)
-        cachedImages: 'zelappscachedimages', // enterprise image cache: owner-pinned docker images (the durable pin the uninstall retention gate + per-fluxId quota consult)
+        cachedImages: 'cachedimages', // enterprise image cache: owner-pinned docker images (the durable pin the uninstall retention gate + per-fluxId quota consult)
       },
     },
     appsglobal: {

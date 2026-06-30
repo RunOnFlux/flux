@@ -26,7 +26,7 @@ describe('imageCacheStore tests', () => {
       database: {
         appslocal: {
           database: 'localapps',
-          collections: { cachedImages: 'zelappscachedimages' },
+          collections: { cachedImages: 'cachedimages' },
         },
       },
     };
@@ -47,7 +47,7 @@ describe('imageCacheStore tests', () => {
       const ok = await store.upsertImage({ fluxId: 'F1', repotag: 'r:1', state: 'pulling' });
       expect(ok).to.equal(true);
       const [, coll, query, update, options] = dbHelperStub.updateOneInDatabase.firstCall.args;
-      expect(coll).to.equal('zelappscachedimages');
+      expect(coll).to.equal('cachedimages');
       expect(query).to.deep.equal({ fluxId: 'F1', repotag: 'r:1' });
       expect(update).to.deep.equal({ $set: { fluxId: 'F1', repotag: 'r:1', state: 'pulling' } });
       expect(options).to.deep.equal({ upsert: true });
@@ -120,7 +120,7 @@ describe('imageCacheStore tests', () => {
       const ok = await store.removeImage('F1', 'r:1');
       expect(ok).to.equal(true);
       const [, coll, query] = dbHelperStub.removeDocumentsFromCollection.firstCall.args;
-      expect(coll).to.equal('zelappscachedimages');
+      expect(coll).to.equal('cachedimages');
       expect(query).to.deep.equal({ fluxId: 'F1', repotag: 'r:1' });
     });
 
