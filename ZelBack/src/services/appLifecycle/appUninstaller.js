@@ -25,6 +25,7 @@ const appNetworkLinker = require('./appNetworkLinker');
 const imageManager = require('../appSecurity/imageManager');
 const fluxEventBus = require('../utils/fluxEventBus');
 const pendingTeardownStore = require('./pendingTeardownStore');
+const imageCacheRetention = require('./imageCacheRetention');
 
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
@@ -442,6 +443,41 @@ async function drainComponentContainer(descriptor, appName, opts, res) {
 }
 
 /**
+ * Remove a component's docker image during teardown UNLESS it is pinned in the
+ * enterprise image cache, in which case keep it warm for a fast reinstall. Streams
+ * the same status to res either way. Shared by the hard host teardown and both soft
+ * uninstall paths so the retain decision is applied identically at every site (the
+ * generic dockerService.appDockerImageRemove primitive stays policy-free; the gate
+ * lives only here in the lifecycle layer).
+ * @param {string} repotag
+ * @param {string} label - display name for the streamed status
+ * @param {object} res
+ */
+async function removeImageUnlessPinned(repotag, label, res) {
+  if (await imageCacheRetention.shouldRetainImage(repotag)) {
+    log.info(`Retaining Flux App ${label} image ${repotag} (pinned in enterprise image cache)`);
+    if (res) {
+      res.write(serviceHelper.ensureString({ status: `Retaining ${label} image (pinned in image cache)` }));
+      if (res.flush) res.flush();
+    }
+    return;
+  }
+  log.info(`Removing Flux App ${label} image...`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Removing Flux App ${label} image...` }));
+    if (res.flush) res.flush();
+  }
+  await dockerService.appDockerImageRemove(repotag).catch((error) => {
+    const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+    log.error(errorResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
+    }
+  });
+}
+
+/**
  * Phase B host teardown for one component: ufw/UPnP ports, the loop-mounted
  * volume, the appdata, the crontab entry + its volume path, and the image. The
  * caller MUST already hold the node-wide hostMutationLock (these are the shared
@@ -494,20 +530,7 @@ async function hostTeardownComponent(descriptor, appName, res, skipPorts = false
     log.error(`Volume-path cleanup for ${label} failed (continuing teardown): ${error.message}`);
   });
 
-  log.info(`Removing Flux App ${label} image...`);
-  if (res) {
-    res.write(serviceHelper.ensureString({ status: `Removing Flux App ${label} image...` }));
-    if (res.flush) res.flush();
-  }
-
-  await dockerService.appDockerImageRemove(repotag).catch((error) => {
-    const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
-    log.error(errorResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
-      if (res.flush) res.flush();
-    }
-  });
+  await removeImageUnlessPinned(repotag, label, res);
 
   log.info(`Flux App ${label} image operations done`);
   if (res) {
@@ -761,20 +784,7 @@ async function softUninstallComponent(appName, appId, componentSpecifications, r
   // wait to keep outside the lock here.
   await withHostMutationLock(async () => {
     // Remove image
-    log.info(`Removing Flux App component ${componentName} image...`);
-    if (res) {
-      res.write(serviceHelper.ensureString({ status: `Removing Flux App component ${componentName} image...` }));
-      if (res.flush) res.flush();
-    }
-
-    await dockerService.appDockerImageRemove(componentSpecifications.repotag).catch((error) => {
-      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
-      log.error(errorResponse);
-      if (res) {
-        res.write(serviceHelper.ensureString(errorResponse));
-        if (res.flush) res.flush();
-      }
-    });
+    await removeImageUnlessPinned(componentSpecifications.repotag, componentName, res);
 
     log.info(`Flux App component ${componentName} image operations done`);
     if (res) {
@@ -854,20 +864,7 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
   // The soft path uses a plain appDockerStop (no graceful drain), so there is no long
   // wait to keep outside the lock here.
   await withHostMutationLock(async () => {
-    log.info(`Removing Flux App ${appName} image...`);
-    if (res) {
-      res.write(serviceHelper.ensureString({ status: `Removing Flux App ${appName} image...` }));
-      if (res.flush) res.flush();
-    }
-
-    await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
-      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
-      log.error(errorResponse);
-      if (res) {
-        res.write(serviceHelper.ensureString(errorResponse));
-        if (res.flush) res.flush();
-      }
-    });
+    await removeImageUnlessPinned(appSpecifications.repotag, appName, res);
 
     log.info(`Flux App ${appName} image operations done`);
     if (res) {
@@ -1698,6 +1695,7 @@ module.exports = {
   hardUninstallApplication,
   softUninstallComponent,
   softUninstallApplication,
+  removeImageUnlessPinned,
   cleanupPorts,
   removeAppLocally,
   removeUnrequiredDependencies,

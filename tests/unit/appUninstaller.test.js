@@ -59,6 +59,7 @@ describe('appUninstaller tests', () => {
     };
 
     appUninstaller = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './imageCacheRetention': { shouldRetainImage: sinon.stub().resolves(false) },
       config: configStub,
       '../verificationHelper': verificationHelperStub,
       '../messageHelper': messageHelperStub,
@@ -247,6 +248,7 @@ describe('appUninstaller tests', () => {
 
     it('should handle app not found case', async () => {
       const appUninstallerWithDb = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './imageCacheRetention': { shouldRetainImage: sinon.stub().resolves(false) },
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -324,6 +326,7 @@ describe('appUninstaller tests', () => {
 
     it('should remove app locally if app name is specified and app in DB', async () => {
       const appUninstallerWithDbApp = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './imageCacheRetention': { shouldRetainImage: sinon.stub().resolves(false) },
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -467,6 +470,7 @@ describe('appUninstaller tests', () => {
         updateOneInDatabase: sinon.stub().resolves(),
       };
       const mod = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './imageCacheRetention': { shouldRetainImage: sinon.stub().resolves(false) },
         config: cfg,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -554,6 +558,7 @@ describe('appUninstaller tests', () => {
         isCondemned: sinon.stub().resolves(false),
       };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './imageCacheRetention': { shouldRetainImage: sinon.stub().resolves(false) },
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -798,6 +803,7 @@ describe('appUninstaller tests', () => {
         forceRemoveFluxAppDockerNetwork: sinon.stub().resolves(),
       };
       return proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        './imageCacheRetention': { shouldRetainImage: sinon.stub().resolves(false) },
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
@@ -1023,6 +1029,63 @@ describe('appUninstaller tests', () => {
       expect(appUninstaller.removeAppLocally).to.be.a('function');
       expect(appUninstaller.dropControllerStateForRedeploy).to.be.a('function');
       expect(appUninstaller.removeAppLocallyApi).to.be.a('function');
+    });
+  });
+
+  describe('removeImageUnlessPinned (image-cache retention gate wiring)', () => {
+    function build(retain) {
+      const shouldRetainImage = sinon.stub().resolves(retain);
+      const appDockerImageRemove = sinon.stub().resolves();
+      const mod = proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+        config: configStub,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../serviceHelper': { ensureString: sinon.stub().returnsArg(0), ensureBoolean: sinon.stub().returnsArg(0) },
+        '../dbHelper': { databaseConnection: sinon.stub(), findOneInDatabase: sinon.stub(), findInDatabase: sinon.stub() },
+        '../dockerService': {
+          appDockerStop: sinon.stub().resolves(),
+          appDockerRemove: sinon.stub().resolves(),
+          appDockerImageRemove,
+          getAppIdentifier: sinon.stub().returns('x'),
+        },
+        '../../lib/log': logStub,
+        '../utils/globalState': {
+          installingApps: new Map(), hasRemovalInProgress: () => false, markRemovalInProgress: () => {}, removalDone: () => {}, removalInProgress: false,
+        },
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', { config: configStub }),
+        './advancedWorkflows': { reindexGlobalAppsInformation: sinon.stub().resolves(), updateAppSpecsForRestoredNode: sinon.stub().resolves(), checkAndNotifyPeersOfRunningApps: sinon.stub().resolves() },
+        '../upnpService': { removeMapUpnpPort: sinon.stub().resolves(), isUPNP: sinon.stub().returns(false) },
+        '../fluxNetworkHelper': { closeConnection: sinon.stub().resolves(), isFirewallActive: sinon.stub().resolves(false), allowPort: sinon.stub().resolves(true) },
+        '../fluxCommunicationMessagesSender': { broadcastMessageToOutgoing: sinon.stub().resolves(), broadcastMessageToIncoming: sinon.stub().resolves() },
+        '../appDatabase/registryManager': { availableApps: sinon.stub().resolves([]) },
+        '../utils/enterpriseHelper': { checkAndDecryptAppSpecs: sinon.stub().returnsArg(0) },
+        '../utils/appSpecHelpers': { specificationFormatter: sinon.stub().returnsArg(0) },
+        '../appManagement/appInspector': { stopAppMonitoring: sinon.stub().resolves() },
+        './imageCacheRetention': { shouldRetainImage },
+      });
+      return { mod, shouldRetainImage, appDockerImageRemove };
+    }
+
+    it('removes the image when it is NOT pinned in the cache', async () => {
+      const { mod, appDockerImageRemove } = build(false);
+      await mod.removeImageUnlessPinned('r:1', 'app', null);
+      expect(appDockerImageRemove.calledOnceWith('r:1')).to.equal(true);
+    });
+
+    it('KEEPS the image (skips appDockerImageRemove) when it IS pinned', async () => {
+      const { mod, appDockerImageRemove, shouldRetainImage } = build(true);
+      await mod.removeImageUnlessPinned('r:1', 'app', null);
+      expect(shouldRetainImage.calledOnceWith('r:1')).to.equal(true);
+      expect(appDockerImageRemove.called).to.equal(false);
+    });
+
+    it('streams a status to res whether it retains or removes', async () => {
+      const resKeep = { write: sinon.stub(), flush: sinon.stub() };
+      await build(true).mod.removeImageUnlessPinned('r:1', 'app', resKeep);
+      expect(resKeep.write.called).to.equal(true);
+      const resRm = { write: sinon.stub(), flush: sinon.stub() };
+      await build(false).mod.removeImageUnlessPinned('r:1', 'app', resRm);
+      expect(resRm.write.called).to.equal(true);
     });
   });
 });
