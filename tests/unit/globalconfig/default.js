@@ -56,6 +56,7 @@ module.exports = {
         appsInformation: 'zelappsinformation',
         appsRuntimeState: 'zelappsruntimestate',
         pendingAppTeardowns: 'zelappspendingteardowns',
+        cachedImages: 'zelappscachedimages',
       },
     },
     appsglobal: {
@@ -343,6 +344,14 @@ module.exports = {
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
     masterSlaveIntervalMs: 30000,
+    imageCacheEnabled: true,
+    imageCachePerFluxIdQuotaGb: 20,
+    imageCachePerImageBurstCapGb: 5,
+    imageCacheNodeMaxGb: 60,
+    imageCacheMaxConcurrentPulls: 3,
+    imageCacheMaxPullRetries: 3,
+    imageCacheGcIntervalMs: 3600000,
+    imageCacheJobTtlMs: 10800000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

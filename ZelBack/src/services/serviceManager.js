@@ -57,6 +57,7 @@ const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
 const pendingTeardownStore = require('./appLifecycle/pendingTeardownStore');
+const imageCacheStore = require('./appLifecycle/imageCacheStore');
 const imageUpdateService = require('./imageUpdateService');
 const { version: fluxVersion } = require('../../../package.json');
 // const throughputLogger = require('./utils/throughputLogger');
@@ -68,14 +69,16 @@ const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
 const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
 
-const bootDelayMultiplier = config.fluxapps.bootDelayMultiplier;
+const { bootDelayMultiplier } = config.fluxapps;
 function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
 
-const portRestoreIntervalMs = config.fluxapps.portRestoreIntervalMs;
-const cpuCheckIntervalMs = config.fluxapps.cpuCheckIntervalMs;
-const imageComplianceIntervalMs = config.fluxapps.imageComplianceIntervalMs;
-const forceRemovalIntervalMs = config.fluxapps.forceRemovalIntervalMs;
-const tempMsgTtlS = config.fluxapps.tempMsgTtlS;
+const {
+  portRestoreIntervalMs,
+  cpuCheckIntervalMs,
+  imageComplianceIntervalMs,
+  forceRemovalIntervalMs,
+  tempMsgTtlS,
+} = config.fluxapps;
 
 // State objects for monitoring services
 const dosState = {
@@ -202,6 +205,9 @@ async function startFluxFunctions() {
     // pendingAppTeardowns (localzelapps): unique index on the teardown key, so a
     // re-removal can't fork the owed-teardown record
     await pendingTeardownStore.prepareCollection();
+    // cachedImages (localzelapps): unique index on (fluxId, repotag) so a re-submit
+    // can't fork an owner's pin record, plus a repotag lookup for the retention gate
+    await imageCacheStore.prepareCollection();
     log.info('Local database prepared');
     log.info('Preparing temporary database...');
     // no need to drop temporary messages
@@ -429,7 +435,7 @@ async function startFluxFunctions() {
 
     // Services that read from zelappsinformation wait for the orchestrator
     // to finish rebuilding it rather than guessing a setTimeout delay.
-    async function startDbDependentServices() {
+    const startDbDependentServices = async () => {
       await globalState.waitForDbReady();
       log.info('DB ready - starting db-dependent services');
       advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
@@ -443,7 +449,7 @@ async function startFluxFunctions() {
       setInterval(() => {
         portManager.restorePortsSupport();
       }, portRestoreIntervalMs);
-    }
+    };
     startDbDependentServices();
     log.info('Starting setting Node Geolocation');
     geolocationService.setNodeGeolocation();

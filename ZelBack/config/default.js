@@ -64,6 +64,7 @@ module.exports = {
         appsInformation: 'zelappsinformation',
         appsRuntimeState: 'zelappsruntimestate', // node-local per-component controller state: desiredState, restartHistory (crash backoff), last exit
         pendingAppTeardowns: 'zelappspendingteardowns', // durable record of owed host teardown once the app row is gone (Phase B + boot recovery)
+        cachedImages: 'zelappscachedimages', // enterprise image cache: owner-pinned docker images (the durable pin the uninstall retention gate + per-fluxId quota consult)
       },
     },
     appsglobal: {
@@ -357,6 +358,15 @@ module.exports = {
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
     masterSlaveIntervalMs: 30000, // masterSlave (g:) FDM election cycle
+    // Enterprise image cache (owner-driven pre-warm). Node-local, enterprise + Arcane gated.
+    imageCacheEnabled: true, // master switch for the image-cache API + retention pin
+    imageCachePerFluxIdQuotaGb: 20, // soft per-fluxId quota, accounted from real docker df() on-disk size
+    imageCachePerImageBurstCapGb: 5, // per-image admission cap vs (compressed * 2); bounds the burst to ~one image
+    imageCacheNodeMaxGb: 60, // node-wide cap across all owners (the only node-side guard on this branch; v9 owns disk-fit integration)
+    imageCacheMaxConcurrentPulls: 3, // parallel pull bound (a congested registry link favours few-at-once)
+    imageCacheMaxPullRetries: 3, // transient-failure retries before a pull is marked failed
+    imageCacheGcIntervalMs: 3600000, // de-auth / orphan reconcile cadence (hourly)
+    imageCacheJobTtlMs: 10800000, // in-memory download-job/progress retention (3h)
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
