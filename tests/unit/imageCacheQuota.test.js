@@ -114,5 +114,19 @@ describe('imageCacheQuota tests', () => {
       expect(q.usageFromRecords([{ sizeOnDiskBytes: 3 }, { sizeOnDiskBytes: 4 }, {}])).to.equal(7);
       expect(q.usageFromRecords(null)).to.equal(0);
     });
+
+    it('quotaInfoForFluxId reports used/quota/remaining for the 20GB owner quota', () => {
+      const q = build();
+      expect(q.quotaInfoForFluxId([{ sizeOnDiskBytes: 5 * GB }])).to.deep.equal({
+        usedBytes: 5 * GB, quotaBytes: 20 * GB, remainingBytes: 15 * GB,
+      });
+    });
+
+    it('nodeQuotaInfo reports used/cap/remaining for the 60GB node cap, clamped at 0', () => {
+      const q = build();
+      expect(q.nodeQuotaInfo([{ sizeOnDiskBytes: 61 * GB }])).to.deep.equal({
+        usedBytes: 61 * GB, capBytes: 60 * GB, remainingBytes: 0,
+      });
+    });
   });
 });

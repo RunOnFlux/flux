@@ -7,7 +7,17 @@ const imageManager = require('../appSecurity/imageManager');
 const imageCacheStore = require('./imageCacheStore');
 const imageCacheQuota = require('./imageCacheQuota');
 const imageCacheDownloader = require('./imageCacheDownloader');
+const enterpriseHelper = require('../utils/enterpriseHelper');
 const { ImageProgress } = require('./imageCacheProgress');
+
+// Synthetic per-owner RSA keypair label (blockHeight is not part of fluxbench's
+// derivation, so 0 is fine): the client fetches the pubkey for (owner, this label)
+// via /apps/getpublickey, encrypts, and this node decrypts with the same tuple.
+const CACHE_KEY_LABEL = 'fluxos-image-cache';
+
+// Typed errors so the controller can map them to HTTP status without HTTP leaking here.
+function badRequestError(message) { const e = new Error(message); e.kind = 'bad-request'; return e; }
+function overCapacityError(message) { const e = new Error(message); e.kind = 'over-capacity'; return e; }
 
 // Business logic for the enterprise image cache (NO req/res — the controller owns
 // those). A submission becomes one in-memory job tracking every image in it; the
@@ -316,8 +326,126 @@ function getJob(jobId, fluxId) {
   return jobView(job);
 }
 
+function recordView(record) {
+  return {
+    repotag: record.repotag,
+    digest: record.digest ?? null,
+    imageId: record.imageId ?? null,
+    compressedBytes: record.compressedBytes ?? null,
+    sizeOnDiskBytes: record.sizeOnDiskBytes ?? 0,
+    state: record.state,
+    pinnedAt: record.pinnedAt ?? null,
+    lastReferencedAt: record.lastReferencedAt ?? null,
+    error: record.error ?? null,
+  };
+}
+
+// Decrypt the v8-envelope payload to its { images: [...] } plaintext, keyed to the
+// owner's synthetic cache keypair. Throws a bad-request on a malformed/undecryptable
+// payload.
+async function decryptSubmission(fluxId, encryptedData) {
+  let payload;
+  try {
+    payload = await enterpriseHelper.decryptEnterpriseFromSession(encryptedData, CACHE_KEY_LABEL, 0, fluxId);
+  } catch (err) {
+    throw badRequestError(`Unable to decrypt image cache payload: ${err.message}`);
+  }
+  if (!payload || !Array.isArray(payload.images) || payload.images.length === 0) {
+    throw badRequestError('Decrypted payload must contain a non-empty images array');
+  }
+  return payload.images;
+}
+
+// Synchronous over-capacity guard before a job is created: if the owner already fills
+// their quota (or the node fills its cap) nothing in the batch can ever be admitted,
+// so reject the whole request rather than spin up a job of all-rejects. Headroom
+// cases still go async (per-image admission decides). Fail-closed on a store error.
+async function assertHasCapacity(fluxId) {
+  const [fluxRecords, allRecords] = await Promise.all([
+    imageCacheStore.listImagesForFluxId(fluxId),
+    imageCacheStore.listAllImages(),
+  ]);
+  if (fluxRecords === null || allRecords === null) {
+    throw overCapacityError('Image cache accounting is temporarily unavailable');
+  }
+  if (imageCacheQuota.quotaInfoForFluxId(fluxRecords).remainingBytes <= 0) {
+    throw overCapacityError('Per-fluxId image cache quota is full');
+  }
+  if (imageCacheQuota.nodeQuotaInfo(allRecords).remainingBytes <= 0) {
+    throw overCapacityError('Node image cache capacity is full');
+  }
+}
+
+/**
+ * Decrypt an owner's encrypted submission and start a download job for it.
+ * @returns {Promise<{jobId:string}>}
+ * @throws {Error} with .kind 'bad-request' (malformed) or 'over-capacity' (no room)
+ */
+async function submitEncrypted(fluxId, encryptedData) {
+  const images = await decryptSubmission(fluxId, encryptedData);
+  images.forEach((img) => {
+    if (!img || typeof img.repotag !== 'string' || !img.repotag) {
+      throw badRequestError('Each image requires a repotag');
+    }
+  });
+  await assertHasCapacity(fluxId);
+  const { jobId } = submit(fluxId, images);
+  return { jobId };
+}
+
+/** One owner's cached images + their allocation summary. */
+async function listImages(fluxId) {
+  const records = await imageCacheStore.listImagesForFluxId(fluxId);
+  if (records === null) throw new Error('Image cache listing is temporarily unavailable');
+  const info = imageCacheQuota.quotaInfoForFluxId(records);
+  return {
+    images: records.map(recordView),
+    allocation: { usedBytes: info.usedBytes, quotaBytes: info.quotaBytes, remainingBytes: info.remainingBytes },
+  };
+}
+
+/** One cached image by repotag or digest, or null if this owner has none. */
+async function getImageDetail(fluxId, identifier) {
+  const records = await imageCacheStore.listImagesForFluxId(fluxId);
+  if (records === null) throw new Error('Image cache lookup is temporarily unavailable');
+  const match = records.find((r) => r.repotag === identifier || r.digest === identifier);
+  return match ? recordView(match) : null;
+}
+
+/**
+ * Unpin one cached image (remove this owner's record), then reclaim the docker image
+ * IF no other owner still pins it AND no container holds it (docker 409 is the final
+ * backstop). Returns { found, removed, imageRemoved, message }.
+ */
+async function deleteImage(fluxId, identifier) {
+  const records = await imageCacheStore.listImagesForFluxId(fluxId);
+  if (records === null) throw new Error('Image cache delete is temporarily unavailable');
+  const match = records.find((r) => r.repotag === identifier || r.digest === identifier);
+  if (!match) return { found: false, removed: false, imageRemoved: false, message: 'No such cached image for this owner' };
+
+  await imageCacheStore.removeImage(fluxId, match.repotag);
+
+  // Another owner may pin the same repotag (one shared docker image, many records).
+  const otherPins = await imageCacheStore.findPinsForRepotag(match.repotag);
+  const stillPinned = otherPins === null || otherPins.some((p) => p.state !== 'failed');
+  if (stillPinned) {
+    return { found: true, removed: true, imageRemoved: false, message: 'Unpinned; image kept (still pinned by another owner)' };
+  }
+
+  try {
+    await dockerService.appDockerImageRemove(match.repotag);
+    return { found: true, removed: true, imageRemoved: true, message: 'Unpinned and image removed' };
+  } catch (err) {
+    return { found: true, removed: true, imageRemoved: false, message: `Unpinned; image kept (in use or removal failed): ${err.message}` };
+  }
+}
+
 module.exports = {
   submit,
+  submitEncrypted,
   getJob,
+  listImages,
+  getImageDetail,
+  deleteImage,
   pruneExpiredJobs,
 };

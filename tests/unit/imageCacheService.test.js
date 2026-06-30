@@ -16,17 +16,38 @@ describe('imageCacheService tests', () => {
       release: sinon.stub(),
       upsertImage: sinon.stub().resolves(true),
       patchImage: sinon.stub().resolves(true),
+      listImagesForFluxId: sinon.stub().resolves([]),
+      listAllImages: sinon.stub().resolves([]),
+      removeImage: sinon.stub().resolves(true),
+      findPinsForRepotag: sinon.stub().resolves([]),
+      appDockerImageRemove: sinon.stub().resolves(),
       dockerListImages: sinon.stub().resolves([{ RepoTags: ['repo:1'], Size: 4242, Id: 'sha256:img' }]),
       delay: sinon.stub().resolves(),
+      decrypt: sinon.stub().resolves({ images: [{ repotag: 'repo:1' }] }),
+      quotaInfoForFluxId: sinon.stub().returns({ usedBytes: 0, quotaBytes: 20_000_000_000, remainingBytes: 20_000_000_000 }),
+      nodeQuotaInfo: sinon.stub().returns({ usedBytes: 0, capBytes: 60_000_000_000, remainingBytes: 60_000_000_000 }),
     };
     return proxyquire('../../ZelBack/src/services/appLifecycle/imageCacheService', {
       config: { fluxapps: { imageCacheJobTtlMs: 10_800_000, imageCacheMaxConcurrentPulls: 3, imageCacheMaxPullRetries: 1 } },
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
       '../serviceHelper': { delay: stubs.delay },
-      '../dockerService': { dockerListImages: stubs.dockerListImages },
+      '../dockerService': { dockerListImages: stubs.dockerListImages, appDockerImageRemove: stubs.appDockerImageRemove },
       '../appSecurity/imageManager': { checkApplicationImagesCompliance: stubs.compliance },
-      './imageCacheStore': { upsertImage: stubs.upsertImage, patchImage: stubs.patchImage },
-      './imageCacheQuota': { tryAdmit: stubs.tryAdmit, release: stubs.release },
+      '../utils/enterpriseHelper': { decryptEnterpriseFromSession: stubs.decrypt },
+      './imageCacheStore': {
+        upsertImage: stubs.upsertImage,
+        patchImage: stubs.patchImage,
+        listImagesForFluxId: stubs.listImagesForFluxId,
+        listAllImages: stubs.listAllImages,
+        removeImage: stubs.removeImage,
+        findPinsForRepotag: stubs.findPinsForRepotag,
+      },
+      './imageCacheQuota': {
+        tryAdmit: stubs.tryAdmit,
+        release: stubs.release,
+        quotaInfoForFluxId: stubs.quotaInfoForFluxId,
+        nodeQuotaInfo: stubs.nodeQuotaInfo,
+      },
       './imageCacheDownloader': { inspectImage: stubs.inspectImage, pullImage: stubs.pullImage },
     });
   }
@@ -117,6 +138,114 @@ describe('imageCacheService tests', () => {
       await settled;
       expect(svc.getJob(jobId, 'OTHER')).to.equal(null);
       expect(svc.getJob('no-such-job', 'F1')).to.equal(null);
+    });
+  });
+
+  describe('submitEncrypted', () => {
+    it('decrypts with the synthetic per-owner label and starts a job', async () => {
+      const svc = build();
+      const { jobId } = await svc.submitEncrypted('F1', 'BLOB');
+      expect(jobId).to.be.a('string');
+      expect(stubs.decrypt.calledOnceWith('BLOB', 'fluxos-image-cache', 0, 'F1')).to.equal(true);
+    });
+
+    it('throws bad-request when the payload cannot be decrypted', async () => {
+      const svc = build();
+      stubs.decrypt.rejects(new Error('Error decrypting AES key'));
+      let caught;
+      try { await svc.submitEncrypted('F1', 'BLOB'); } catch (e) { caught = e; }
+      expect(caught.kind).to.equal('bad-request');
+    });
+
+    it('throws bad-request when the decrypted payload has no images', async () => {
+      const svc = build();
+      stubs.decrypt.resolves({ images: [] });
+      let caught;
+      try { await svc.submitEncrypted('F1', 'BLOB'); } catch (e) { caught = e; }
+      expect(caught.kind).to.equal('bad-request');
+    });
+
+    it('throws over-capacity when the owner quota is already full', async () => {
+      const svc = build();
+      stubs.quotaInfoForFluxId.returns({ usedBytes: 20_000_000_000, quotaBytes: 20_000_000_000, remainingBytes: 0 });
+      let caught;
+      try { await svc.submitEncrypted('F1', 'BLOB'); } catch (e) { caught = e; }
+      expect(caught.kind).to.equal('over-capacity');
+    });
+
+    it('throws over-capacity (fail-closed) when accounting is unavailable', async () => {
+      const svc = build();
+      stubs.listImagesForFluxId.resolves(null);
+      let caught;
+      try { await svc.submitEncrypted('F1', 'BLOB'); } catch (e) { caught = e; }
+      expect(caught.kind).to.equal('over-capacity');
+    });
+  });
+
+  describe('listImages', () => {
+    it('returns owner records plus the allocation summary', async () => {
+      const svc = build();
+      stubs.listImagesForFluxId.resolves([{ repotag: 'repo:1', state: 'pinned', sizeOnDiskBytes: 4242 }]);
+      stubs.quotaInfoForFluxId.returns({ usedBytes: 4242, quotaBytes: 20_000_000_000, remainingBytes: 19_999_995_758 });
+      const result = await svc.listImages('F1');
+      expect(result.images[0]).to.include({ repotag: 'repo:1', state: 'pinned', sizeOnDiskBytes: 4242 });
+      expect(result.allocation).to.deep.equal({ usedBytes: 4242, quotaBytes: 20_000_000_000, remainingBytes: 19_999_995_758 });
+    });
+
+    it('throws on a store read failure', async () => {
+      const svc = build();
+      stubs.listImagesForFluxId.resolves(null);
+      let threw = false;
+      try { await svc.listImages('F1'); } catch (e) { threw = true; }
+      expect(threw).to.equal(true);
+    });
+  });
+
+  describe('getImageDetail', () => {
+    it('matches by repotag or digest, else null', async () => {
+      const svc = build();
+      stubs.listImagesForFluxId.resolves([{ repotag: 'repo:1', digest: 'sha256:abc', state: 'pinned' }]);
+      expect((await svc.getImageDetail('F1', 'repo:1')).repotag).to.equal('repo:1');
+      expect((await svc.getImageDetail('F1', 'sha256:abc')).repotag).to.equal('repo:1');
+      expect(await svc.getImageDetail('F1', 'nope')).to.equal(null);
+    });
+  });
+
+  describe('deleteImage', () => {
+    it('unpins and removes the image when no other owner pins it', async () => {
+      const svc = build();
+      stubs.listImagesForFluxId.resolves([{ repotag: 'repo:1', digest: 'd', state: 'pinned' }]);
+      stubs.findPinsForRepotag.resolves([]); // no other owners
+      const result = await svc.deleteImage('F1', 'repo:1');
+      expect(result).to.include({ found: true, removed: true, imageRemoved: true });
+      expect(stubs.removeImage.calledOnceWith('F1', 'repo:1')).to.equal(true);
+      expect(stubs.appDockerImageRemove.calledOnceWith('repo:1')).to.equal(true);
+    });
+
+    it('unpins but KEEPS the image when another owner still pins it', async () => {
+      const svc = build();
+      stubs.listImagesForFluxId.resolves([{ repotag: 'repo:1', state: 'pinned' }]);
+      stubs.findPinsForRepotag.resolves([{ fluxId: 'F2', state: 'pinned' }]);
+      const result = await svc.deleteImage('F1', 'repo:1');
+      expect(result).to.include({ found: true, removed: true, imageRemoved: false });
+      expect(stubs.appDockerImageRemove.called).to.equal(false);
+    });
+
+    it('unpins but KEEPS the image when docker refuses (in use)', async () => {
+      const svc = build();
+      stubs.listImagesForFluxId.resolves([{ repotag: 'repo:1', state: 'pinned' }]);
+      stubs.findPinsForRepotag.resolves([]);
+      stubs.appDockerImageRemove.rejects(new Error('409 conflict'));
+      const result = await svc.deleteImage('F1', 'repo:1');
+      expect(result).to.include({ found: true, removed: true, imageRemoved: false });
+    });
+
+    it('returns found:false for an unknown image', async () => {
+      const svc = build();
+      stubs.listImagesForFluxId.resolves([]);
+      const result = await svc.deleteImage('F1', 'nope');
+      expect(result).to.include({ found: false, removed: false });
+      expect(stubs.removeImage.called).to.equal(false);
     });
   });
 });

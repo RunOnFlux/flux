@@ -113,6 +113,20 @@ async function tryAdmit(fluxId, repotag, compressedBytes) {
   return result;
 }
 
+/** Per-fluxId allocation summary for the list endpoint: used / quota / remaining. */
+function quotaInfoForFluxId(records) {
+  const usedBytes = usageFromRecords(records);
+  const total = quotaBytes();
+  return { usedBytes, quotaBytes: total, remainingBytes: Math.max(0, total - usedBytes) };
+}
+
+/** Node-wide cache usage vs the node cap. */
+function nodeQuotaInfo(records) {
+  const usedBytes = usageFromRecords(records);
+  const total = nodeMaxBytes();
+  return { usedBytes, capBytes: total, remainingBytes: Math.max(0, total - usedBytes) };
+}
+
 /** Release an in-flight reservation once its pull has finished (success or failure). */
 function release(token) {
   if (token) reservations.delete(token);
@@ -129,6 +143,8 @@ module.exports = {
   release,
   clearReservations,
   usageFromRecords,
+  quotaInfoForFluxId,
+  nodeQuotaInfo,
   reservedForFluxId,
   reservedNodeTotal,
 };
