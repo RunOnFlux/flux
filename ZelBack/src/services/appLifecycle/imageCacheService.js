@@ -415,10 +415,26 @@ async function getImageDetail(fluxId, identifier) {
   return match ? recordView(match) : null;
 }
 
+// Whether any container (running OR stopped) is built from this cached image, so the
+// image must NOT be removed. Matches by imageId (robust across tags) with a repotag
+// fallback. Fail-safe: if containers can't be listed, assume in use (keep the image).
+async function imageInUseByContainer(repotag, imageId) {
+  let containers;
+  try {
+    containers = await dockerService.dockerListContainers(true);
+  } catch (err) {
+    log.warn(`imageCache - cannot verify container usage of ${repotag}, keeping image: ${err.message}`);
+    return true;
+  }
+  return (containers || []).some((c) => (imageId && c.ImageID === imageId) || c.Image === repotag);
+}
+
 /**
  * Unpin one cached image (remove this owner's record), then reclaim the docker image
- * IF no other owner still pins it AND no container holds it (docker 409 is the final
- * backstop). Returns { found, removed, imageRemoved, message }.
+ * ONLY if no other owner still pins it AND no app container references it. The usage is
+ * pre-checked so an in-use image is never even offered to docker for removal; the
+ * non-forced remove's 409 is kept only as a TOCTOU backstop for the redeploy race.
+ * Returns { found, removed, imageRemoved, message }.
  */
 async function deleteImage(fluxId, identifier) {
   const records = await imageCacheStore.listImagesForFluxId(fluxId);
@@ -435,11 +451,17 @@ async function deleteImage(fluxId, identifier) {
     return { found: true, removed: true, imageRemoved: false, message: 'Unpinned; image kept (still pinned by another owner)' };
   }
 
+  // Pre-check: don't even attempt removal of an image an app is using.
+  if (await imageInUseByContainer(match.repotag, match.imageId)) {
+    return { found: true, removed: true, imageRemoved: false, message: 'Unpinned; image kept (in use by an app container)' };
+  }
+
   try {
     await dockerService.appDockerImageRemove(match.repotag);
     return { found: true, removed: true, imageRemoved: true, message: 'Unpinned and image removed' };
   } catch (err) {
-    return { found: true, removed: true, imageRemoved: false, message: `Unpinned; image kept (in use or removal failed): ${err.message}` };
+    // Backstop only: a container could have appeared between the check and the remove.
+    return { found: true, removed: true, imageRemoved: false, message: `Unpinned; image kept (appeared in use): ${err.message}` };
   }
 }
 

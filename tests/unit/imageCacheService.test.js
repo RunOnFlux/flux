@@ -21,6 +21,7 @@ describe('imageCacheService tests', () => {
       removeImage: sinon.stub().resolves(true),
       findPinsForRepotag: sinon.stub().resolves([]),
       appDockerImageRemove: sinon.stub().resolves(),
+      dockerListContainers: sinon.stub().resolves([]),
       dockerListImages: sinon.stub().resolves([{ RepoTags: ['repo:1'], Size: 4242, Id: 'sha256:img' }]),
       delay: sinon.stub().resolves(),
       decrypt: sinon.stub().resolves({ images: [{ repotag: 'repo:1' }] }),
@@ -31,7 +32,7 @@ describe('imageCacheService tests', () => {
       config: { fluxapps: { imageCacheJobTtlMs: 10_800_000, imageCacheMaxConcurrentPulls: 3, imageCacheMaxPullRetries: 1 } },
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
       '../serviceHelper': { delay: stubs.delay },
-      '../dockerService': { dockerListImages: stubs.dockerListImages, appDockerImageRemove: stubs.appDockerImageRemove },
+      '../dockerService': { dockerListImages: stubs.dockerListImages, appDockerImageRemove: stubs.appDockerImageRemove, dockerListContainers: stubs.dockerListContainers },
       '../appSecurity/imageManager': { checkApplicationImagesCompliance: stubs.compliance },
       '../utils/enterpriseHelper': { decryptEnterpriseFromSession: stubs.decrypt },
       './imageCacheStore': {
@@ -231,11 +232,42 @@ describe('imageCacheService tests', () => {
       expect(stubs.appDockerImageRemove.called).to.equal(false);
     });
 
-    it('unpins but KEEPS the image when docker refuses (in use)', async () => {
+    it('unpins but does NOT attempt removal when an app container uses the image (pre-check)', async () => {
+      const svc = build();
+      stubs.listImagesForFluxId.resolves([{ repotag: 'repo:1', imageId: 'sha256:img', state: 'pinned' }]);
+      stubs.findPinsForRepotag.resolves([]);
+      stubs.dockerListContainers.resolves([{ Image: 'repo:1', ImageID: 'sha256:img' }]);
+      const result = await svc.deleteImage('F1', 'repo:1');
+      expect(result).to.include({ found: true, removed: true, imageRemoved: false });
+      expect(stubs.appDockerImageRemove.called).to.equal(false); // never even tried
+    });
+
+    it('matches usage by imageId across a different tag', async () => {
+      const svc = build();
+      stubs.listImagesForFluxId.resolves([{ repotag: 'repo:1', imageId: 'sha256:img', state: 'pinned' }]);
+      stubs.findPinsForRepotag.resolves([]);
+      stubs.dockerListContainers.resolves([{ Image: 'repo:other-tag', ImageID: 'sha256:img' }]);
+      const result = await svc.deleteImage('F1', 'repo:1');
+      expect(result.imageRemoved).to.equal(false);
+      expect(stubs.appDockerImageRemove.called).to.equal(false);
+    });
+
+    it('KEEPS the image (fail-safe) if the container list cannot be read', async () => {
       const svc = build();
       stubs.listImagesForFluxId.resolves([{ repotag: 'repo:1', state: 'pinned' }]);
       stubs.findPinsForRepotag.resolves([]);
-      stubs.appDockerImageRemove.rejects(new Error('409 conflict'));
+      stubs.dockerListContainers.rejects(new Error('docker down'));
+      const result = await svc.deleteImage('F1', 'repo:1');
+      expect(result.imageRemoved).to.equal(false);
+      expect(stubs.appDockerImageRemove.called).to.equal(false);
+    });
+
+    it('TOCTOU backstop: a 409 from a racing container is still handled', async () => {
+      const svc = build();
+      stubs.listImagesForFluxId.resolves([{ repotag: 'repo:1', state: 'pinned' }]);
+      stubs.findPinsForRepotag.resolves([]);
+      stubs.dockerListContainers.resolves([]); // pre-check says free...
+      stubs.appDockerImageRemove.rejects(new Error('409 conflict')); // ...but docker refuses
       const result = await svc.deleteImage('F1', 'repo:1');
       expect(result).to.include({ found: true, removed: true, imageRemoved: false });
     });
