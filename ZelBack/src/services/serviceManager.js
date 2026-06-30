@@ -58,6 +58,7 @@ const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
 const pendingTeardownStore = require('./appLifecycle/pendingTeardownStore');
 const imageCacheStore = require('./appLifecycle/imageCacheStore');
+const imageCacheMaintenance = require('./appLifecycle/imageCacheMaintenance');
 const imageUpdateService = require('./imageUpdateService');
 const { version: fluxVersion } = require('../../../package.json');
 // const throughputLogger = require('./utils/throughputLogger');
@@ -77,6 +78,8 @@ const {
   cpuCheckIntervalMs,
   imageComplianceIntervalMs,
   forceRemovalIntervalMs,
+  imageCacheGcIntervalMs,
+  imageCacheEnabled,
   tempMsgTtlS,
 } = config.fluxapps;
 
@@ -520,6 +523,14 @@ async function startFluxFunctions() {
     setInterval(() => {
       imageManager.checkApplicationsCompliance(appQueryService.installedApps, appUninstaller.removeAppLocally);
     }, imageComplianceIntervalMs);
+    // Enterprise image cache: one-shot boot reconcile of restart-interrupted pulls, then
+    // a periodic GC (de-authorized owners, records whose docker image vanished, stale jobs).
+    if (imageCacheEnabled) {
+      imageCacheMaintenance.runBootReconcile();
+      setInterval(() => {
+        imageCacheMaintenance.runGc();
+      }, imageCacheGcIntervalMs);
+    }
     setTimeout(() => {
       advancedWorkflows.forceAppRemovals();
       setInterval(() => {
