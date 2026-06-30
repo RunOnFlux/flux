@@ -159,6 +159,9 @@ async function startPull(job, image) {
     image.pulledBytes = snap.pulledBytes;
     image.totalBytes = snap.totalBytes;
     image.pct = snap.pct;
+    // Downloads done but the pull hasn't returned yet -> docker is extracting/committing.
+    // A display phase only (the durable record stays 'pulling'); flips to 'pinned' on success.
+    if (image.state === 'pulling' && progress.downloadComplete) image.state = 'extracting';
   };
 
   try {

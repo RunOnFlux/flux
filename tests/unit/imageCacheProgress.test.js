@@ -37,4 +37,33 @@ describe('imageCacheProgress tests', () => {
     p.onEvent({ status: 'Status: Downloaded newer image' });
     expect(p.snapshot()).to.deep.equal({ pulledBytes: 0, totalBytes: 0, pct: 0 });
   });
+
+  describe('downloadComplete (drives the extracting phase)', () => {
+    it('false while any layer is still downloading', () => {
+      const p = new ImageProgress();
+      p.onEvent({ id: 'a', status: 'Downloading', progressDetail: { current: 100, total: 400 } });
+      p.onEvent({ id: 'b', status: 'Pull complete' });
+      expect(p.downloadComplete).to.equal(false);
+    });
+
+    it('true once every layer has finished downloading', () => {
+      const p = new ImageProgress();
+      p.onEvent({ id: 'a', status: 'Downloading', progressDetail: { current: 400, total: 400 } });
+      p.onEvent({ id: 'a', status: 'Pull complete' });
+      p.onEvent({ id: 'b', status: 'Downloading', progressDetail: { current: 600, total: 600 } });
+      p.onEvent({ id: 'b', status: 'Download complete' });
+      expect(p.downloadComplete).to.equal(true);
+    });
+
+    it('false with no layers', () => {
+      expect(new ImageProgress().downloadComplete).to.equal(false);
+    });
+
+    it('false for an all-"already exists" cache hit (nothing to extract)', () => {
+      const p = new ImageProgress();
+      p.onEvent({ id: 'a', status: 'Already exists' });
+      p.onEvent({ id: 'b', status: 'Already exists' });
+      expect(p.downloadComplete).to.equal(false);
+    });
+  });
 });

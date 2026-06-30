@@ -32,6 +32,14 @@ class ImageProgress {
     const pct = totalBytes > 0 ? Math.min(100, Math.round((pulledBytes / totalBytes) * 100)) : 0;
     return { pulledBytes, totalBytes, pct };
   }
+
+  // Every layer has finished downloading (so the pull is now extracting/committing).
+  // Requires at least one layer that actually downloaded bytes, so an all-"already
+  // exists" cache hit (nothing to extract) is not reported as extracting.
+  get downloadComplete() {
+    const layers = [...this.layers.values()];
+    return layers.length > 0 && layers.every((l) => l.done) && layers.some((l) => l.total > 0);
+  }
 }
 
 module.exports = { ImageProgress };
