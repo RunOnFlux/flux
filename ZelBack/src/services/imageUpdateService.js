@@ -11,6 +11,7 @@ const log = require('../lib/log');
 const dockerService = require('./dockerService');
 const appQueryService = require('./appQuery/appQueryService');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
+const imageCacheService = require('./appLifecycle/imageCacheService');
 const registryCredentialHelper = require('./utils/registryCredentialHelper');
 const { withHostMutationLock } = require('./utils/hostMutationLock');
 const { ImageVerifier } = require('./utils/imageVerifier');
@@ -186,7 +187,7 @@ async function getRemoteManifestDigest(repotag, repoauth, specVersion, appName) 
     const digest = await verifier.fetchManifestDigestOnly();
 
     if (verifier.error) {
-      const errorMeta = verifier.errorMeta;
+      const { errorMeta } = verifier;
       if (errorMeta && errorMeta.errorType === 'rate_limit') {
         log.warn(`Rate limited while checking ${repotag}`);
         return { error: 'rate_limited', digest: null };
@@ -334,6 +335,22 @@ async function triggerAppUpdate(appSpec) {
     await advancedWorkflows.softRedeploy(appSpec, null);
 
     fluxEventBus.publish('imageUpdate:redeployComplete', { appName: appSpec.name });
+
+    // The redeploy moves an updated image's tag onto a newer digest. If any of this app's
+    // images are pinned in the enterprise image cache, re-reconcile their records so the
+    // pin tracks the live image (otherwise the quota under-counts the new image and inspect
+    // reports the superseded snapshot). Best-effort — a cache reconcile must never fail the update.
+    const components = Array.isArray(appSpec.compose) && appSpec.compose.length
+      ? appSpec.compose
+      : [appSpec];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of components) {
+      if (component && component.repotag) {
+        // eslint-disable-next-line no-await-in-loop
+        await imageCacheService.reconcilePinnedImage(component.repotag)
+          .catch((err) => log.warn(`imageCache reconcile after update for ${component.repotag}: ${err.message}`));
+      }
+    }
 
     return true;
   } catch (error) {

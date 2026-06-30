@@ -29,7 +29,7 @@ describe('imageCacheService tests', () => {
       nodeQuotaInfo: sinon.stub().returns({ usedBytes: 0, capBytes: 60_000_000_000, remainingBytes: 60_000_000_000 }),
     };
     return proxyquire('../../ZelBack/src/services/appLifecycle/imageCacheService', {
-      config: { fluxapps: { imageCacheJobTtlMs: 10_800_000, imageCacheMaxConcurrentPulls: 3, imageCacheMaxPullRetries: 1 } },
+      config: { fluxapps: { imageCacheEnabled: true, imageCacheJobTtlMs: 10_800_000, imageCacheMaxConcurrentPulls: 3, imageCacheMaxPullRetries: 1 } },
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
       '../serviceHelper': { delay: stubs.delay },
       '../dockerService': { dockerListImages: stubs.dockerListImages, appDockerImageRemove: stubs.appDockerImageRemove, dockerListContainers: stubs.dockerListContainers },
@@ -278,6 +278,37 @@ describe('imageCacheService tests', () => {
       const result = await svc.deleteImage('F1', 'nope');
       expect(result).to.include({ found: false, removed: false });
       expect(stubs.removeImage.called).to.equal(false);
+    });
+  });
+
+  describe('reconcilePinnedImage (post image-update refresh)', () => {
+    it('re-measures and patches every live pin with the new size/imageId/digest', async () => {
+      const svc = build();
+      stubs.findPinsForRepotag.resolves([{ fluxId: 'F1', state: 'pinned' }, { fluxId: 'F2', state: 'pinned' }]);
+      stubs.dockerListImages.resolves([{ RepoTags: ['repo:1'], Size: 9999, Id: 'sha256:newimg', RepoDigests: ['repo@sha256:newdigest'] }]);
+      await svc.reconcilePinnedImage('repo:1');
+      expect(stubs.patchImage.callCount).to.equal(2);
+      const [fluxId, repotag, patch] = stubs.patchImage.firstCall.args;
+      expect(fluxId).to.equal('F1');
+      expect(repotag).to.equal('repo:1');
+      expect(patch).to.include({ sizeOnDiskBytes: 9999, imageId: 'sha256:newimg', digest: 'sha256:newdigest' });
+      expect(patch).to.have.property('lastReferencedAt');
+      expect(stubs.patchImage.secondCall.args[0]).to.equal('F2');
+    });
+
+    it('is a no-op when the repotag has no pin', async () => {
+      const svc = build();
+      stubs.findPinsForRepotag.resolves([]);
+      await svc.reconcilePinnedImage('repo:1');
+      expect(stubs.patchImage.called).to.equal(false);
+      expect(stubs.dockerListImages.called).to.equal(false);
+    });
+
+    it('skips failed pins (only refreshes pinned state)', async () => {
+      const svc = build();
+      stubs.findPinsForRepotag.resolves([{ fluxId: 'F1', state: 'failed' }]);
+      await svc.reconcilePinnedImage('repo:1');
+      expect(stubs.patchImage.called).to.equal(false);
     });
   });
 });

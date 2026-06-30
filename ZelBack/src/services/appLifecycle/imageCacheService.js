@@ -105,11 +105,38 @@ async function reconcileSize(repotag, compressedBytes) {
   try {
     const images = await dockerService.dockerListImages();
     const match = (images || []).find((img) => Array.isArray(img.RepoTags) && img.RepoTags.includes(repotag));
-    if (match) return { sizeOnDiskBytes: match.Size || 0, imageId: match.Id || null };
+    if (match) {
+      const repoDigest = (match.RepoDigests || [])[0];
+      const digest = repoDigest && repoDigest.includes('@') ? repoDigest.split('@')[1] : null;
+      return { sizeOnDiskBytes: match.Size || 0, imageId: match.Id || null, digest };
+    }
   } catch (err) {
     log.warn(`imageCache - reconcileSize ${repotag} failed: ${err.message}`);
   }
-  return { sizeOnDiskBytes: Math.round((compressedBytes || 0) * 2), imageId: null };
+  return { sizeOnDiskBytes: Math.round((compressedBytes || 0) * 2), imageId: null, digest: null };
+}
+
+// Re-reconcile pinned cache records for a repotag whose local image just changed —
+// e.g. imageUpdateService soft-redeployed an app onto a newer digest. Docker moves the
+// tag to the new image (the old one goes dangling and is later pruned), so without this
+// the pin would keep the superseded digest/imageId/size: the quota (summed by real
+// imageId) would miss the new image and `inspect` would report the wrong snapshot.
+// Tracks the live image instead. No-op when the repotag carries no live pin; best-effort
+// (the caller wraps it so an update never fails on a cache reconcile error).
+async function reconcilePinnedImage(repotag) {
+  if (!config.fluxapps.imageCacheEnabled || !repotag) return;
+  const pins = await imageCacheStore.findPinsForRepotag(repotag);
+  const active = (pins || []).filter((pin) => pin.state === 'pinned');
+  if (!active.length) return;
+  const { sizeOnDiskBytes, imageId, digest } = await reconcileSize(repotag, 0);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const pin of active) {
+    const patch = { sizeOnDiskBytes, imageId, lastReferencedAt: Date.now() };
+    if (digest) patch.digest = digest;
+    // eslint-disable-next-line no-await-in-loop
+    await imageCacheStore.patchImage(pin.fluxId, repotag, patch);
+  }
+  log.info(`imageCache - reconciled ${active.length} pin(s) for updated image ${repotag}`);
 }
 
 async function pullWithRetry(job, image, onProgress) {
@@ -472,5 +499,6 @@ module.exports = {
   listImages,
   getImageDetail,
   deleteImage,
+  reconcilePinnedImage,
   pruneExpiredJobs,
 };
