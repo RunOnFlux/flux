@@ -296,12 +296,22 @@ async function dockerContainerChanges(idOrName) {
  */
 function dockerPullStream(pullConfig, res, callback) {
   const {
-    repoTag, provider, authToken, abortSignal,
+    repoTag, provider, authToken, authConfig, abortSignal, progressTap,
   } = pullConfig;
   const pullOptions = {};
 
-  // fix this auth token stuff upstream
-  if (authToken) {
+  // Preferred: an explicit { username, password } object — avoids the authToken
+  // split(':') below mangling a password that contains a colon.
+  if (authConfig && authConfig.username && authConfig.password) {
+    pullOptions.authconfig = {
+      username: authConfig.username,
+      password: authConfig.password,
+    };
+    if (provider) {
+      pullOptions.authconfig.serveraddress = provider;
+    }
+  } else if (authToken) {
+    // fix this auth token stuff upstream
     if (authToken.includes(':')) { // specified by username:token
       pullOptions.authconfig = {
         username: authToken.split(':')[0],
@@ -335,6 +345,16 @@ function dockerPullStream(pullConfig, res, callback) {
       if (res) {
         res.write(serviceHelper.ensureString(event));
         if (res.flush) res.flush();
+      }
+      // Optional capture hook (e.g. the image cache aggregating per-layer bytes for
+      // its async download job, where there is no live res to stream to). Best-effort:
+      // a tap error must never break the pull.
+      if (typeof progressTap === 'function') {
+        try {
+          progressTap(event);
+        } catch (tapError) {
+          log.warn(`dockerPullStream progressTap error: ${tapError.message}`);
+        }
       }
       log.info(event);
     }

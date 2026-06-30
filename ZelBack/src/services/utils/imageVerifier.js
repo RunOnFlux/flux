@@ -95,6 +95,9 @@ class ImageVerifier {
     this.architecture = options.architecture || 'amd64';
     this.architectureSet = options.architectureSet || ['amd64', 'arm64'];
     this.maxImageSize = options.maxImageSize || 2_000_000_000; // 2Gb
+    // Total compressed (download) size in bytes of the layers for THIS node's
+    // architecture, summed from the manifest during verifyImage(). 0 until evaluated.
+    this.compressedSize = 0;
 
     if (options.credentials) this.addCredentials(options.credentials);
 
@@ -467,7 +470,10 @@ class ImageVerifier {
         this.#supportedArchitectures.push(arch);
       }
 
-      if (this.architecture === arch) this.#architectureSupported = true;
+      if (this.architecture === arch) {
+        this.#architectureSupported = true;
+        this.compressedSize = size;
+      }
     };
 
     const evaluateMultipleImages = async (manifest) => {

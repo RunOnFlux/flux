@@ -1011,6 +1011,32 @@ describe('imageVerifier tests', () => {
       expect(verifier.errorMeta.errorType).to.equal('size_limit');
     });
 
+    it('exposes compressedSize summed from the manifest layers for this architecture', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      const manifest = {
+        schemaVersion: 2,
+        mediaType: 'application/vnd.docker.distribution.manifest.v2+json',
+        config: { digest: 'sha256:cfg' },
+        layers: [{ size: 1_000 }, { size: 2_500 }],
+      };
+
+      const getStub = sinon.stub();
+      getStub.onCall(0).resolves({ data: manifest }); // top manifest
+      getStub.onCall(1).resolves({ data: { architecture: 'amd64' } }); // config blob -> arch
+      axiosInstanceStub.returns({
+        get: getStub,
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag, { architecture: 'amd64', maxImageSize: 5_000_000_000 });
+      await verifier.verifyImage();
+
+      expect(verifier.error).to.equal(false);
+      expect(verifier.supported).to.equal(true);
+      expect(verifier.compressedSize).to.equal(3_500);
+    });
+
     it('should populate errorMeta with unsupported_architecture error type', async () => {
       const repotag = 'megachips/ipshow:web';
 
