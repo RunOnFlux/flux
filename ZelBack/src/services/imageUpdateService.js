@@ -12,6 +12,7 @@ const dockerService = require('./dockerService');
 const appQueryService = require('./appQuery/appQueryService');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const imageCacheService = require('./appLifecycle/imageCacheService');
+const imageReaper = require('./appLifecycle/imageReaper');
 const registryCredentialHelper = require('./utils/registryCredentialHelper');
 const { withHostMutationLock } = require('./utils/hostMutationLock');
 const { ImageVerifier } = require('./utils/imageVerifier');
@@ -351,6 +352,12 @@ async function triggerAppUpdate(appSpec) {
           .catch((err) => log.warn(`imageCache reconcile after update for ${component.repotag}: ${err.message}`));
       }
     }
+
+    // The redeploy moved each updated tag onto a new digest, orphaning the old image. Reap cold
+    // images now so a soft-update doesn't leak the superseded layers until the daily run. All-nodes
+    // and best-effort — it must never fail the update; the reaper protects pinned/in-use images itself.
+    await imageReaper.pruneUnusedImages()
+      .catch((err) => log.warn(`imageReaper after update for ${appSpec.name}: ${err.message}`));
 
     return true;
   } catch (error) {

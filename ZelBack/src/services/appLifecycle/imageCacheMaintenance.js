@@ -2,12 +2,17 @@ const log = require('../../lib/log');
 const dockerService = require('../dockerService');
 const enterpriseNetwork = require('../utils/enterpriseNetwork');
 const imageCacheStore = require('./imageCacheStore');
-const imageCacheService = require('./imageCacheService');
 
-// Maintenance for the enterprise image cache: a one-shot boot reconcile of pulls that
-// a restart interrupted, plus a periodic GC (drop de-authorized owners, drop records
-// whose docker image has vanished, expire stale in-memory jobs). All best-effort:
-// every step logs and continues so a transient DB/docker blip never wedges boot or GC.
+// Cache-record maintenance for the enterprise image cache (DB bookkeeping only — this
+// module never deletes a docker image; cold-image disk reclamation lives in imageReaper).
+// These chores are enterprise-only (the cachedimages collection is empty off enterprise
+// nodes) and event-driven, not polled: their inputs change rarely, so each runs once at
+// boot and then only when its trigger fires (serviceManager wires the triggers):
+//   - reconcileInterruptedPulls   : boot only (a restart can't leave a pull mid-flight twice)
+//   - cleanupDeauthorizedOwners   : boot + after each allowed-owner-list refresh (6h github sync)
+//   - reconcileOrphanedRecords    : boot + after the image-compliance sweep
+// (pruneExpiredJobs self-cleans on every cache submit/status call, so it needs no periodic tick.)
+// All best-effort: every step logs and continues so a transient DB/docker blip never wedges boot.
 
 /**
  * Boot: a record still in 'pulling' means the process restarted mid-download. Private
@@ -75,23 +80,28 @@ async function reconcileOrphanedRecords() {
   }
 }
 
-/** One-shot at boot. */
+/**
+ * One-shot at boot: run all three reconcilers for a clean slate after downtime. Each is
+ * isolated so one failing never skips the next. Scheduled by serviceManager only once the
+ * DB is ready AND the node identity has resolved (cleanupDeauthorizedOwners reads the
+ * allowed-owner list, which is null until then); the ongoing de-auth/orphan triggers fire
+ * from their own events thereafter.
+ */
 async function runBootReconcile() {
   try {
     await reconcileInterruptedPulls();
   } catch (err) {
-    log.error(`imageCache - boot reconcile error: ${err.message}`);
+    log.error(`imageCache - boot reconcileInterruptedPulls error: ${err.message}`);
   }
-}
-
-/** Periodic GC tick. */
-async function runGc() {
   try {
-    imageCacheService.pruneExpiredJobs();
     await cleanupDeauthorizedOwners();
+  } catch (err) {
+    log.error(`imageCache - boot cleanupDeauthorizedOwners error: ${err.message}`);
+  }
+  try {
     await reconcileOrphanedRecords();
   } catch (err) {
-    log.error(`imageCache - gc error: ${err.message}`);
+    log.error(`imageCache - boot reconcileOrphanedRecords error: ${err.message}`);
   }
 }
 
@@ -100,5 +110,4 @@ module.exports = {
   cleanupDeauthorizedOwners,
   reconcileOrphanedRecords,
   runBootReconcile,
-  runGc,
 };

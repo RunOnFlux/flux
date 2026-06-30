@@ -3,12 +3,13 @@ const { AsyncLock } = require('./asyncLock');
 // Node-wide serial lock guarding the cross-app-unsafe HOST mutations that several FluxOS
 // subsystems perform: the ufw ruleset (fluxNetworkHelper allowPort/deleteAllowPortRule ->
 // `sudo ufw ...`), the UPnP IGD client (upnpService mapUpnpPort/removeMapUpnpPort), and the
-// content-addressed docker image store (appDockerImageRemove / pruneImages). These are each
-// a single physical host resource; two concurrent operations (e.g. an app install opening a
-// port while a removal deletes one, or a watchtower prune racing a teardown image-remove)
+// content-addressed docker image store (appDockerImageRemove, used by teardown, the cold-image
+// reaper, and watchtower cleanup). These are each a single physical host resource; two concurrent
+// operations (e.g. an app install opening a port while a removal deletes one, or the reaper
+// removing a cold image while a teardown removes another)
 // corrupt the firewall ruleset / router session / image store. One shared lock across ALL
 // callers (removal teardown, install port-open, prelaunch port-probe, availability self-test,
-// watchtower prune) is the single serialization point.
+// watchtower cleanup, cold-image reaper) is the single serialization point.
 //
 // Usage rules (load-bearing — see asyncLock.js disable()==shift-the-head):
 //   - Acquire ONLY via withHostMutationLock; one enable() is paired with exactly one
@@ -18,8 +19,9 @@ const { AsyncLock } = require('./asyncLock');
 //     test-bind, no peer-reachability probe, no image pull, no container graceful-drain, no
 //     serviceHelper.delay. Two acquisition granularities are in use, both correct:
 //       (a) leaf, per-call (install port-open, prelaunch probe, availability self-test,
-//           watchtower prune): in a multi-port loop acquire/release PER PORT (each UPnP call
-//           carries ~1s of internal pacing) so the longest a holder blocks others is one call;
+//           watchtower cleanup, cold-image reaper): in a multi-port loop acquire/release PER PORT
+//           (each UPnP call carries ~1s of internal pacing), and the reaper acquires PER IMAGE,
+//           so the longest a holder blocks others is one call;
 //       (b) per-APP, for the removal teardown (appUninstaller.runTeardown Phase B): ONE
 //           acquisition wraps a whole app's components' host teardown + its docker-network
 //           removal. This is deliberate (one lock once per app, not per component) — the

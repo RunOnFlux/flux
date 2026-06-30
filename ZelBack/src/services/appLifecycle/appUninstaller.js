@@ -490,7 +490,8 @@ async function removeImageUnlessPinned(repotag, label, res) {
  * (decision #2) is literally true. The image is reclaimed UNCONDITIONALLY (not
  * gated on whether the container was removed this pass): a boot-recovery replay
  * runs after the container was already removed, so gating on containerRemoved
- * would leak the tagged image forever (pruneImages is dangling-only). Docker
+ * would leave the tagged image for the cold-image reaper to reclaim only on a
+ * later pass; removing it here reclaims it immediately. Docker
  * refuses (409) to remove an image still referenced by a live container, which
  * the .catch swallows, so an unconditional attempt is safe in every case.
  *

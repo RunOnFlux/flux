@@ -23,6 +23,10 @@ const advancedWorkflowsStub = {
   softRedeploy: sinon.stub(),
 };
 
+const imageReaperStub = {
+  pruneUnusedImages: sinon.stub().resolves({ removed: 0, kept: 0, skipped: 0 }),
+};
+
 const registryCredentialHelperStub = {
   getCredentials: sinon.stub(),
 };
@@ -74,6 +78,7 @@ const imageUpdateService = proxyquire('../../ZelBack/src/services/imageUpdateSer
   './dockerService': dockerServiceStub,
   './appQuery/appQueryService': appQueryServiceStub,
   './appLifecycle/advancedWorkflows': advancedWorkflowsStub,
+  './appLifecycle/imageReaper': imageReaperStub,
   './utils/registryCredentialHelper': registryCredentialHelperStub,
   './utils/imageVerifier': { ImageVerifier: MockImageVerifier },
   './serviceHelper': serviceHelperStub,
@@ -95,6 +100,9 @@ describe('imageUpdateService tests', () => {
     appQueryServiceStub.decryptEnterpriseApps.callsFake(async (apps) => apps);
 
     advancedWorkflowsStub.softRedeploy.reset();
+
+    imageReaperStub.pruneUnusedImages.reset();
+    imageReaperStub.pruneUnusedImages.resolves({ removed: 0, kept: 0, skipped: 0 });
 
     registryCredentialHelperStub.getCredentials.reset();
 
@@ -453,6 +461,8 @@ describe('imageUpdateService tests', () => {
       expect(result).to.equal(true);
       sinon.assert.calledOnce(advancedWorkflowsStub.softRedeploy);
       sinon.assert.calledWith(advancedWorkflowsStub.softRedeploy, appSpec, null);
+      // reaps cold images (e.g. the now-orphaned old digest) after a successful redeploy
+      sinon.assert.calledOnce(imageReaperStub.pruneUnusedImages);
     });
 
     it('should return false when removal is in progress', async () => {
@@ -463,6 +473,8 @@ describe('imageUpdateService tests', () => {
 
       expect(result).to.equal(false);
       sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
+      // no redeploy happened, so nothing to reap
+      sinon.assert.notCalled(imageReaperStub.pruneUnusedImages);
     });
 
     it('should return false when installation is in progress', async () => {

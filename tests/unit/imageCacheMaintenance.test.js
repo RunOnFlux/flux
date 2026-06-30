@@ -13,7 +13,6 @@ describe('imageCacheMaintenance tests', () => {
       removeImage: sinon.stub().resolves(true),
       dockerListImages: sinon.stub().resolves([]),
       getCachedAllowedOwnersForNode: sinon.stub().returns(['F1']),
-      pruneExpiredJobs: sinon.stub(),
     };
     return proxyquire('../../ZelBack/src/services/appLifecycle/imageCacheMaintenance', {
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
@@ -25,7 +24,6 @@ describe('imageCacheMaintenance tests', () => {
         removeAllForFluxId: stubs.removeAllForFluxId,
         removeImage: stubs.removeImage,
       },
-      './imageCacheService': { pruneExpiredJobs: stubs.pruneExpiredJobs },
     });
   }
 
@@ -105,13 +103,36 @@ describe('imageCacheMaintenance tests', () => {
     });
   });
 
-  describe('runGc', () => {
-    it('prunes jobs and runs both reconcilers', async () => {
+  describe('runBootReconcile', () => {
+    function seedAllThree() {
+      // one interrupted pull, one de-authorized owner, one orphaned pin
+      stubs.getCachedAllowedOwnersForNode.returns(['F1']);
+      stubs.listAllImages.resolves([
+        { fluxId: 'F1', repotag: 'r-pulling', state: 'pulling' },
+        { fluxId: 'F2', repotag: 'r-deauth', state: 'pinned' },
+        { fluxId: 'F1', repotag: 'present:1', state: 'pinned' },
+        { fluxId: 'F1', repotag: 'gone:1', state: 'pinned' },
+      ]);
+      stubs.dockerListImages.resolves([{ RepoTags: ['present:1'] }]);
+    }
+
+    it('runs all three reconcilers at boot', async () => {
       const m = build();
-      await m.runGc();
-      expect(stubs.pruneExpiredJobs.calledOnce).to.equal(true);
-      // both reconcilers read the store
-      expect(stubs.listAllImages.callCount).to.be.greaterThan(0);
+      seedAllThree();
+      await m.runBootReconcile();
+      expect(stubs.patchImage.calledWith('F1', 'r-pulling', { state: 'failed', error: 'interrupted by restart' })).to.equal(true);
+      expect(stubs.removeAllForFluxId.calledWith('F2')).to.equal(true);
+      expect(stubs.removeImage.calledWith('F1', 'gone:1')).to.equal(true);
+    });
+
+    it('isolates a failing reconciler so the others still run', async () => {
+      const m = build();
+      seedAllThree();
+      stubs.patchImage.rejects(new Error('db blip')); // interrupted-pulls step throws
+      await m.runBootReconcile();
+      // de-auth + orphan still execute
+      expect(stubs.removeAllForFluxId.calledWith('F2')).to.equal(true);
+      expect(stubs.removeImage.calledWith('F1', 'gone:1')).to.equal(true);
     });
   });
 });

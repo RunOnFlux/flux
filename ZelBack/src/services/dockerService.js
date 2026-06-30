@@ -1742,13 +1742,6 @@ async function pruneVolumes() {
 }
 
 /**
- * Remove all unused Images. Unused Images are those which are not referenced by any containers
- */
-async function pruneImages() {
-  return docker.pruneImages();
-}
-
-/**
  * Return docker system information
  *
  * @returns {object}
@@ -1936,7 +1929,6 @@ module.exports = {
   getFluxDockerNetworkSubnets,
   migrateContainerRestartPolicies,
   pruneContainers,
-  pruneImages,
   pruneNetworks,
   pruneVolumes,
   removeFluxAppDockerNetwork,

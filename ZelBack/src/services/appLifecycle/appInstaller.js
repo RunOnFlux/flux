@@ -111,24 +111,9 @@ async function performDockerCleanup(res) {
     res.write(serviceHelper.ensureString(dockerVolumes2));
     if (res.flush) res.flush();
   }
-
-  const dockerImages = {
-    status: 'Clearing up unused docker images...',
-  };
-  log.info(dockerImages);
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerImages));
-    if (res.flush) res.flush();
-  }
-  // serialize the system-wide image prune against concurrent teardown image-removes / pulls
-  await withHostMutationLock(() => dockerService.pruneImages());
-  const dockerImages2 = {
-    status: 'Docker images cleaned.',
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerImages2));
-    if (res.flush) res.flush();
-  }
+  // Image reclamation is no longer done here: the old install-time prune was dangling-only and
+  // missed cold tagged images. The all-nodes, cache-aware imageReaper (boot / post-update / daily)
+  // owns it now, so this cleanup leaves images untouched.
 }
 
 /**

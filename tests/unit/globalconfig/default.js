@@ -350,8 +350,8 @@ module.exports = {
     imageCacheNodeMaxGb: 60,
     imageCacheMaxConcurrentPulls: 3,
     imageCacheMaxPullRetries: 3,
-    imageCacheGcIntervalMs: 3600000,
     imageCacheJobTtlMs: 10800000,
+    imageReaperIntervalMs: 86400000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

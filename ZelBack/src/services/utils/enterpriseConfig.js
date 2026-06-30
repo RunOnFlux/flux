@@ -78,14 +78,31 @@ async function syncFromGithub() {
  * github fetch are both async and bounded, so awaiting this in startFluxFunctions
  * never blocks boot for more than the fetch timeout. Initialization is performed
  * here (not as a side effect of require) so module loading stays pure.
+ *
+ * @param {() => void} [onSyncSuccess] Optional observer invoked after every successful
+ *   github sync (the allowed-owner map may have changed). Lets a caller react to the
+ *   refresh — e.g. reclaiming resources owned by a now-de-authorized owner — without this
+ *   module knowing anything about those consumers. Its own errors are isolated.
  */
-async function startSync() {
+async function startSync(onSyncSuccess) {
   if (syncInterval) return;
+  const notify = () => {
+    if (!onSyncSuccess) return;
+    try {
+      onSyncSuccess();
+    } catch (error) {
+      log.error(`enterpriseConfig - onSyncSuccess handler error: ${error.message}`);
+    }
+  };
   const onDisk = await readMapFromDisk();
   if (onDisk) nodeOwnerMap = onDisk;
-  await syncFromGithub();
-  syncInterval = setInterval(() => {
-    syncFromGithub().catch((error) => log.error(`enterpriseConfig - sync error: ${error.message}`));
+  if (await syncFromGithub()) notify();
+  syncInterval = setInterval(async () => {
+    const refreshed = await syncFromGithub().catch((error) => {
+      log.error(`enterpriseConfig - sync error: ${error.message}`);
+      return false;
+    });
+    if (refreshed) notify();
   }, SYNC_INTERVAL_MS);
 }
 

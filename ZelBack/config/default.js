@@ -365,8 +365,11 @@ module.exports = {
     imageCacheNodeMaxGb: 60, // node-wide cap across all owners (the only node-side guard on this branch; v9 owns disk-fit integration)
     imageCacheMaxConcurrentPulls: 3, // parallel pull bound (a congested registry link favours few-at-once)
     imageCacheMaxPullRetries: 3, // transient-failure retries before a pull is marked failed
-    imageCacheGcIntervalMs: 3600000, // de-auth / orphan reconcile cadence (hourly)
     imageCacheJobTtlMs: 10800000, // in-memory download-job/progress retention (3h)
+    // Cold-image reaper (all nodes, NOT gated on imageCacheEnabled): reclaims unused tagged
+    // images that no container references and no cache pin protects. Replaces the old
+    // install-time dangling-only prune. Runs on boot, after each image update, and on this cadence.
+    imageReaperIntervalMs: 86400000, // cold-unused-image reaper cadence (daily)
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

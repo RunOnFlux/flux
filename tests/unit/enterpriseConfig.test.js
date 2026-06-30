@@ -236,6 +236,64 @@ describe('enterpriseConfig', () => {
     });
   });
 
+  describe('startSync onSyncSuccess callback', () => {
+    function stubInterval() {
+      let intervalCb = null;
+      sinon.stub(global, 'setInterval').callsFake((cb) => {
+        intervalCb = cb;
+        return Symbol('enterpriseConfig-interval');
+      });
+      sinon.stub(global, 'clearInterval');
+      return () => intervalCb;
+    }
+
+    it('invokes the callback after the initial successful sync', async () => {
+      const axiosGet = sinon.stub().resolves({ data: { nodeC: ['ownerC'] } });
+      stubInterval();
+      const onSyncSuccess = sinon.stub();
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+
+      await m.startSync(onSyncSuccess);
+      expect(onSyncSuccess.calledOnce).to.equal(true);
+      m.stopSync();
+    });
+
+    it('invokes the callback again on each successful refresh tick', async () => {
+      const axiosGet = sinon.stub().resolves({ data: { nodeC: ['ownerC'] } });
+      const getIntervalCb = stubInterval();
+      const onSyncSuccess = sinon.stub();
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+
+      await m.startSync(onSyncSuccess);
+      await getIntervalCb()(); // one refresh tick
+      expect(onSyncSuccess.callCount).to.equal(2);
+      m.stopSync();
+    });
+
+    it('does not invoke the callback when the sync fails', async () => {
+      const axiosGet = sinon.stub().rejects(new Error('network down'));
+      const getIntervalCb = stubInterval();
+      const onSyncSuccess = sinon.stub();
+      const { module: m } = loadModule({ serviceHelper: { axiosGet } });
+
+      await m.startSync(onSyncSuccess); // initial sync fails (disk seed only)
+      await getIntervalCb()(); // refresh also fails
+      expect(onSyncSuccess.called).to.equal(false);
+      m.stopSync();
+    });
+
+    it('isolates a throwing callback (logs, does not propagate)', async () => {
+      const axiosGet = sinon.stub().resolves({ data: { nodeC: ['ownerC'] } });
+      stubInterval();
+      const onSyncSuccess = sinon.stub().throws(new Error('handler boom'));
+      const { module: m, log } = loadModule({ serviceHelper: { axiosGet } });
+
+      await m.startSync(onSyncSuccess); // must not reject
+      expect(log.error.called).to.equal(true);
+      m.stopSync();
+    });
+  });
+
   describe('getEnterpriseAppOwners memoization (finding #6)', () => {
     it('returns the same array instance until the map is replaced', async () => {
       const axiosGet = sinon.stub();

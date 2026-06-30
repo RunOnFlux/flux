@@ -150,7 +150,6 @@ describe('appInstaller tests', () => {
         pruneContainers: sinon.stub().resolves(),
         pruneNetworks: sinon.stub().resolves(),
         pruneVolumes: sinon.stub().resolves(),
-        pruneImages: sinon.stub().resolves(),
         createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
         getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
         appDockerCreate: sinon.stub().resolves(),
@@ -613,8 +612,6 @@ describe('appInstaller tests', () => {
         systemArchitecture: sinon.stub().resolves('amd64'), // Node is AMD64
       };
 
-      const registerAppLocallyStub = sinon.stub().resolves();
-
       const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
         config: configStub,
         '../verificationHelper': verificationHelperStub,
@@ -655,7 +652,6 @@ describe('appInstaller tests', () => {
           pruneContainers: sinon.stub().resolves(),
           pruneNetworks: sinon.stub().resolves(),
           pruneVolumes: sinon.stub().resolves(),
-          pruneImages: sinon.stub().resolves(),
           createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
           getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
           appDockerCreate: sinon.stub().resolves(),
@@ -852,7 +848,6 @@ describe('appInstaller tests', () => {
           pruneContainers: sinon.stub().resolves(),
           pruneNetworks: sinon.stub().resolves(),
           pruneVolumes: sinon.stub().resolves(),
-          pruneImages: sinon.stub().resolves(),
           createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
           getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
           appDockerCreate: sinon.stub().resolves(),
@@ -985,7 +980,6 @@ describe('appInstaller tests', () => {
           pruneContainers: sinon.stub().resolves(),
           pruneNetworks: sinon.stub().resolves(),
           pruneVolumes: sinon.stub().resolves(),
-          pruneImages: sinon.stub().resolves(),
           createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
           getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
           appDockerCreate: sinon.stub().resolves(),
@@ -1128,7 +1122,6 @@ describe('appInstaller tests', () => {
           pruneContainers: sinon.stub().resolves(),
           pruneNetworks: sinon.stub().resolves(),
           pruneVolumes: sinon.stub().resolves(),
-          pruneImages: sinon.stub().resolves(),
           createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
           getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
           appDockerCreate: sinon.stub().resolves(),
@@ -1270,7 +1263,6 @@ describe('appInstaller tests', () => {
           pruneContainers: sinon.stub().resolves(),
           pruneNetworks: sinon.stub().resolves(),
           pruneVolumes: sinon.stub().resolves(),
-          pruneImages: sinon.stub().resolves(),
           createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
           getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
           appDockerCreate: sinon.stub().resolves(),
@@ -1447,7 +1439,6 @@ describe('appInstaller tests', () => {
           pruneContainers: sinon.stub().resolves(),
           pruneNetworks: sinon.stub().resolves(),
           pruneVolumes: sinon.stub().resolves(),
-          pruneImages: sinon.stub().resolves(),
           createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
           getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
           // The throw INSIDE installApplicationHard (and thus inside the inner try) - stands in
@@ -1565,14 +1556,19 @@ describe('appInstaller tests', () => {
         '../serviceHelper': { ensureString: sinon.stub().returnsArg(0), ensureNumber: sinon.stub().returnsArg(0), delay: sinon.stub().resolves() },
         '../generalService': { nodeTier: sinon.stub().resolves('cumulus'), checkSynced: sinon.stub().resolves(true) },
         '../daemonService/daemonServiceMiscRpcs': { isDaemonSynced: sinon.stub().returns({ status: 'success', data: { synced: true, height: 2094961 } }) },
-        '../fluxNetworkHelper': { getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'), getNumberOfPeers: sinon.stub().returns(15), isFirewallActive: sinon.stub().resolves(false), allowPort: sinon.stub().resolves({ status: true }), removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true) },
+        '../fluxNetworkHelper': {
+          getLocalSocketAddress: sinon.stub().resolves('192.168.1.1:16127'),
+          getNumberOfPeers: sinon.stub().returns(15),
+          isFirewallActive: sinon.stub().resolves(false),
+          allowPort: sinon.stub().resolves({ status: true }),
+          removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
+        },
         '../geolocationService': { isStaticIP: sinon.stub().returns(true) },
         '../dockerService': {
           dockerListContainers: sinon.stub().resolves([]),
           pruneContainers: pruneContainersStub,
           pruneNetworks: sinon.stub().resolves(),
           pruneVolumes: sinon.stub().resolves(),
-          pruneImages: sinon.stub().resolves(),
           createFluxAppDockerNetwork: sinon.stub().resolves('net'),
           getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
           appDockerCreate: sinon.stub().resolves(),
