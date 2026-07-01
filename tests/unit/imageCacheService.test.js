@@ -23,6 +23,7 @@ describe('imageCacheService tests', () => {
       appDockerImageRemove: sinon.stub().resolves(),
       dockerListContainers: sinon.stub().resolves([]),
       dockerListImages: sinon.stub().resolves([{ RepoTags: ['repo:1'], Size: 4242, Id: 'sha256:img' }]),
+      dockerImageInspect: sinon.stub().resolves({ Id: 'sha256:img' }),
       delay: sinon.stub().resolves(),
       decrypt: sinon.stub().resolves({ images: [{ repotag: 'repo:1' }] }),
       quotaInfoForFluxId: sinon.stub().returns({ usedBytes: 0, quotaBytes: 20_000_000_000, remainingBytes: 20_000_000_000 }),
@@ -32,7 +33,9 @@ describe('imageCacheService tests', () => {
       config: { fluxapps: { imageCacheEnabled: true, imageCacheJobTtlMs: 10_800_000, imageCacheMaxConcurrentPulls: 3, imageCacheMaxPullRetries: 1 } },
       '../../lib/log': { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() },
       '../serviceHelper': { delay: stubs.delay },
-      '../dockerService': { dockerListImages: stubs.dockerListImages, appDockerImageRemove: stubs.appDockerImageRemove, dockerListContainers: stubs.dockerListContainers },
+      '../dockerService': {
+        dockerListImages: stubs.dockerListImages, dockerImageInspect: stubs.dockerImageInspect, appDockerImageRemove: stubs.appDockerImageRemove, dockerListContainers: stubs.dockerListContainers,
+      },
       '../appSecurity/imageManager': { checkApplicationImagesCompliance: stubs.compliance },
       '../utils/enterpriseHelper': { decryptEnterpriseFromSession: stubs.decrypt },
       './imageCacheStore': {
@@ -128,6 +131,39 @@ describe('imageCacheService tests', () => {
       expect(view.images[0].error).to.equal('boom');
       expect(stubs.pullImage.callCount).to.equal(2); // initial + 1 retry (maxRetries=1)
       expect(stubs.patchImage.lastCall.args[2]).to.include({ state: 'failed' });
+      expect(stubs.release.calledOnceWith('t1')).to.equal(true);
+    });
+  });
+
+  describe('image not present after a resolved pull', () => {
+    it('marks failed (not pinned) when the pulled image is absent (inspect 404)', async () => {
+      const svc = build();
+      // pull resolves but the image never landed (truncated stream / swallowed error)
+      const notFound = new Error('no such image');
+      notFound.statusCode = 404;
+      stubs.dockerImageInspect.rejects(notFound);
+      const { jobId, settled } = svc.submit('F1', [{ repotag: 'repo:1' }]);
+      await settled;
+
+      const view = svc.getJob(jobId, 'F1');
+      expect(view.images[0].state).to.equal('failed');
+      expect(view.images[0].error).to.equal('pull completed but image is not present');
+      expect(stubs.patchImage.lastCall.args[2]).to.include({ state: 'failed' });
+      // never pinned an unconfirmed image
+      expect(stubs.patchImage.getCalls().some((c) => c.args[2] && c.args[2].state === 'pinned')).to.equal(false);
+      expect(stubs.release.calledOnceWith('t1')).to.equal(true);
+    });
+
+    it('fail-closes (marks failed) when the presence check errors non-404', async () => {
+      const svc = build();
+      stubs.dockerImageInspect.rejects(new Error('docker daemon busy'));
+      const { jobId, settled } = svc.submit('F1', [{ repotag: 'repo:1' }]);
+      await settled;
+
+      const view = svc.getJob(jobId, 'F1');
+      expect(view.images[0].state).to.equal('failed');
+      expect(view.images[0].error).to.equal('docker daemon busy');
+      expect(stubs.patchImage.getCalls().some((c) => c.args[2] && c.args[2].state === 'pinned')).to.equal(false);
       expect(stubs.release.calledOnceWith('t1')).to.equal(true);
     });
   });

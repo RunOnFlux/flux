@@ -116,6 +116,20 @@ async function reconcileSize(repotag, compressedBytes) {
   return { sizeOnDiskBytes: Math.round((compressedBytes || 0) * 2), imageId: null, digest: null };
 }
 
+// Authoritative present/absent check for a just-pulled image via a direct inspect
+// (reliable, unlike reconcileSize's list scan whose miss also covers a transient list
+// error). Fail-closed: a non-404 docker error rethrows so the caller never pins an image
+// it could not confirm.
+async function imageIsPresent(repotag) {
+  try {
+    await dockerService.dockerImageInspect(repotag);
+    return true;
+  } catch (err) {
+    if (err.statusCode === 404) return false;
+    throw err;
+  }
+}
+
 // Re-reconcile pinned cache records for a repotag whose local image just changed —
 // e.g. imageUpdateService soft-redeployed an app onto a newer digest. Docker moves the
 // tag to the new image (the old one goes dangling and is later pruned), so without this
@@ -193,6 +207,12 @@ async function startPull(job, image) {
 
   try {
     await pullWithRetry(job, image, onProgress);
+    // A pull can resolve without a usable image (a truncated stream that ends without a
+    // socket error, or an in-band docker error). Never pin an image we cannot confirm is
+    // actually present - fail it so the owner re-submits (docker's layer cache is cheap).
+    if (!(await imageIsPresent(image.repotag))) {
+      throw new Error('pull completed but image is not present');
+    }
     const { sizeOnDiskBytes, imageId } = await reconcileSize(image.repotag, image.compressedBytes);
     await imageCacheStore.patchImage(job.fluxId, image.repotag, {
       state: 'pinned', sizeOnDiskBytes, imageId, digest: image.digest, pinnedAt: Date.now(), lastReferencedAt: Date.now(), error: null,

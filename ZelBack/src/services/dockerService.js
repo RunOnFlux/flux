@@ -338,7 +338,16 @@ function dockerPullStream(pullConfig, res, callback) {
         // proceed onto a missing image.
         callback(error);
       } else {
-        callback(null, output);
+        // docker reports a registry/blob failure (e.g. a CDN EOF mid-blob) as an
+        // in-band {error} event and then ends the stream cleanly. followProgress only
+        // fails on a socket-level error, so without this a failed pull is reported as
+        // success onto a missing image. Fail the pull on any in-band error event.
+        const errorEvent = Array.isArray(output) ? output.find((e) => e && e.error) : null;
+        if (errorEvent) {
+          callback(new Error((errorEvent.errorDetail && errorEvent.errorDetail.message) || errorEvent.error));
+        } else {
+          callback(null, output);
+        }
       }
     }
     function onProgress(event) {
@@ -1415,6 +1424,20 @@ async function appDockerImageRemove(idOrName) {
 }
 
 /**
+ * Inspects a docker image by id or repotag. Resolves the inspect object when the image
+ * is present; rejects (statusCode 404) when it is absent. Authoritative present/absent
+ * check for a single image - more reliable than scanning dockerListImages().
+ *
+ * @param {string} idOrName
+ * @returns {Promise<object>} the docker image inspect result
+ */
+async function dockerImageInspect(idOrName) {
+  const dockerImage = docker.getImage(idOrName);
+  const info = await dockerImage.inspect();
+  return info;
+}
+
+/**
  * Pauses app's docker.
  *
  * @param {string} idOrName
@@ -1888,6 +1911,7 @@ module.exports = {
   appDockerCreate,
   appDockerUpdateCpu,
   appDockerImageRemove,
+  dockerImageInspect,
   appDockerKill,
   appDockerPause,
   appDockerRemove,

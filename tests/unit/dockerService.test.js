@@ -1248,4 +1248,44 @@ describe('dockerService tests', () => {
       });
     });
   });
+
+  describe('dockerPullStream in-band error handling', () => {
+    // the docker-modem class dockerService's docker.modem is built from (avoids a direct
+    // require of the transitive docker-modem dependency)
+    const Modem = new Dockerode().modem.constructor;
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    // Drive dockerPullStream with a controlled followProgress outcome (onFinished args).
+    function runPull(followImpl) {
+      sinon.stub(Dockerode.prototype, 'pull').callsFake((repoTag, opts, cb) => cb(null, {}));
+      sinon.stub(Modem.prototype, 'followProgress').callsFake(followImpl);
+      return new Promise((resolve, reject) => {
+        dockerService.dockerPullStream({ repoTag: 'repo:1' }, null, (err, out) => (err ? reject(err) : resolve(out)));
+      });
+    }
+
+    it('rejects when the pull stream ends with an in-band {error} event', async () => {
+      // docker reports a registry/blob failure in-band then ends the stream cleanly;
+      // followProgress calls onFinished(null, output) - the error must not be swallowed.
+      const result = runPull((stream, onFinished) => onFinished(null, [
+        { status: 'Pulling from repo' },
+        { error: 'failed to copy', errorDetail: { message: 'failed to copy: httpReadSeeker: EOF' } },
+      ]));
+      await expect(result).to.be.rejectedWith('failed to copy: httpReadSeeker: EOF');
+    });
+
+    it('resolves with the output when the stream has no error event', async () => {
+      const output = [{ status: 'Download complete' }, { status: 'Status: Downloaded newer image' }];
+      const result = runPull((stream, onFinished) => onFinished(null, output));
+      expect(await result).to.equal(output);
+    });
+
+    it('propagates a socket-level error unchanged', async () => {
+      const result = runPull((stream, onFinished) => onFinished(new Error('socket reset')));
+      await expect(result).to.be.rejectedWith('socket reset');
+    });
+  });
 });
