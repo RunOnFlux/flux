@@ -146,8 +146,9 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // gone), with data leaked onto the bare host dir. chattr -i first - the
     // leak predates the immutable-mountpoint fix on real incident nodes.
     const r = await execInContainer(client.container,
-      `docker stop ${appId(leakName)} >/dev/null 2>&1; umount ${dir} && chattr -i ${dir} && touch ${dir}/leaked.db && rm -f ${volFile(leakName)}`);
-    expect(r.exitCode, `leak-state setup failed: ${r.output}`).to.equal(0);
+      `L() { grep "${appId(leakName)}" /proc/self/mountinfo; }; echo "PRE:"; L; docker stop ${appId(leakName)} >/dev/null 2>&1; echo "POSTSTOP:"; L; umount ${dir}; U=$?; echo "UMOUNT_RC:$U POSTUMOUNT:"; L; losetup -a | grep "${appId(leakName)}"; [ $U -eq 0 ] && chattr -i ${dir} && touch ${dir}/leaked.db && rm -f ${volFile(leakName)} && echo SETUP_OK`);
+    console.log(`      [setup trace]\n${r.output.trim().split('\n').map((l) => `        ${l}`).join('\n')}`);
+    expect(r.output, `leak-state setup failed: ${r.output}`).to.include('SETUP_OK');
 
     // ground truth for the mount views: layers per /proc in the exec namespace
     // vs the FluxOS process's namespace (they have diverged in past runs)
