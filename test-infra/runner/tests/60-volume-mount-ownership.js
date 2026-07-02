@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, getAppContainerStatus, restartFluxos } from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
-import { buildSeedableApp } from '../framework/seed-helper.js';
+import { buildSeedableApp, buildSeedableEnterpriseApp } from '../framework/seed-helper.js';
 import {
   waitFor, waitForReconcileActuated, waitForAppRemoved, assertNoEvent,
 } from '../framework/wait.js';
@@ -27,6 +27,12 @@ import { fluxTeamKey } from '../framework/keys.js';
 //    recreated on the bare dir
 //  - uninstall deletes the backing image WITHOUT a crontab entry to parse
 //    (old code orphaned the image when the entry was missing)
+//  - a legacy @reboot entry whose volume CANNOT be mounted is KEPT - it is the
+//    remaining safety net; removing entries on the strength of a possibly
+//    blind inventory is how they kept vanishing in production
+//  - all of the above hold for ENTERPRISE apps, whose local row stores compose
+//    EMPTY (components only inside the encrypted blob) - the inventory that
+//    took that as "not installed" ate their remount entries on every start
 
 const subnet = getSubnetConfig();
 
@@ -88,6 +94,7 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
   const rebootName = `e2evolboot${ts}`; // plain app on node 1 (reboot remount regression)
   const inertName = `e2evolinert${ts}`; // plain app on node 2 (missing image stays inert)
   const rmName = `e2evolrm${ts}`; // plain app on node 3 (uninstall deletes image)
+  const entName = `e2evolent${ts}`; // ENTERPRISE app on node 4 (reboot remount for the encrypted-compose class)
   const syncIdentifier = `${syncName}_${syncName}`;
   const inertIdentifier = `${inertName}_${inertName}`;
 
@@ -103,6 +110,27 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     await installPlainApp(env, rebootName, 1, 31201);
     await installPlainApp(env, inertName, 2, 31301);
     await installPlainApp(env, rmName, 3, 31401);
+
+    await pushImage(entName, 'v1');
+    const entApp = await buildSeedableEnterpriseApp({
+      name: entName,
+      compose: [{
+        name: entName,
+        description: 'test container',
+        repotag: `${REGISTRY_REPO_HOST}/${entName}:v1`,
+        ports: [31501],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: [80],
+        containerData: '/appdata',
+        cpu: 0.1,
+        ram: 100,
+        hdd: 1,
+        repoauth: '',
+      }],
+    });
+    await installOnNodes(env, entApp, [4]);
   });
 
   after(async function () {
@@ -195,6 +223,28 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     expect(probe.stdout.trim()).to.equal('0');
   });
 
+  it('keeps a legacy @reboot entry across FluxOS restart while its volume cannot be mounted', async function () {
+    this.timeout(240000);
+    // continues on node 2: the previous test deleted the app's backing image,
+    // so its volume cannot mount. A legacy entry seeded now must SURVIVE the
+    // startup cleanup - it is only superseded once the FluxOS-owned mount
+    // demonstrably works, and here it demonstrably cannot.
+    const client = env.clients[2];
+    const c2 = client.container;
+    const entry = `@reboot while [ ! -f ${volFile(inertName)} ]; do sleep 5; done && sudo mount -o loop ${volFile(inertName)} ${appDir(inertName)} #${appId(inertName)}`;
+    await execInContainer(c2, `(crontab -l 2>/dev/null; echo '${entry}') | crontab -`);
+    expect(await crontabVolumeEntries(c2)).to.equal(1);
+
+    const afterId = client.getLastEventId();
+    await restartFluxos(c2);
+    // the reconciler reporting the unavailable volume proves startup (and the
+    // crontab cleanup pass that precedes reconciliation) has completed
+    await waitForReconcileActuated(client, inertIdentifier, 'volumeUnavailable', 120000, { afterId });
+
+    expect(await crontabVolumeEntries(c2)).to.equal(1);
+    expect(await isUp(client, inertName)).to.equal(false);
+  });
+
   it('uninstall deletes the discovered backing image with NO crontab entry to parse (orphan regression)', async function () {
     this.timeout(180000);
     const client = env.clients[3];
@@ -210,5 +260,33 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
 
     await waitFor(async () => !(await fileExists(client.container, volFile(rmName))), { timeout: 30000, interval: 2000, label: 'backing image deleted' });
     expect(await fileExists(client.container, appDir(rmName))).to.equal(false);
+  });
+
+  it('remounts an ENTERPRISE app volume after a reboot with an empty crontab (incident app class)', async function () {
+    this.timeout(300000);
+    let client = env.clients[4];
+    const dir = appDir(entName);
+    await waitFor(() => isUp(client, entName), { timeout: 120000, interval: 2000, label: 'enterprise app running' });
+    expect(await isMountpoint(client.container, dir)).to.equal(true);
+
+    // the local row must be in the production enterprise shape: compose emptied,
+    // components only inside the encrypted blob - the exact shape the blind
+    // inventory took for "not installed"
+    const installed = await client.getInstalledApps();
+    const row = installed.data.find((a) => a.name === entName);
+    expect(row, 'enterprise app row present in local DB').to.exist;
+    expect(row.compose, 'compose stored empty for enterprise').to.deep.equal([]);
+    expect(row.enterprise, 'enterprise blob stored').to.be.a('string').and.not.equal('');
+
+    // the incident state: no remount entry exists anywhere
+    await execInContainer(client.container, 'crontab -r 2>/dev/null || true');
+
+    env.setBootId(4, `entreboot-${Date.now()}`);
+    await env.restartNode(4);
+    client = env.clients[4];
+
+    await waitFor(() => isMountpoint(client.container, dir), { timeout: 150000, interval: 3000, label: 'enterprise volume remounted after reboot' });
+    await waitFor(() => isUp(client, entName), { timeout: 120000, interval: 3000, label: 'enterprise app running after reboot' });
+    expect(await crontabVolumeEntries(client.container)).to.equal(0);
   });
 });

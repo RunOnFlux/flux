@@ -27,6 +27,12 @@ const dockerServiceMock = {
 
 const volumeServiceMock = {
   ensureAppVolumeMounted: sinon.stub(),
+  getComponentAppIdsFromVolumeFiles: sinon.stub(),
+  isPathMounted: sinon.stub(),
+};
+
+const enterpriseHelperMock = {
+  checkAndDecryptAppSpecs: sinon.stub(),
 };
 
 const appTamperingDetectionServiceMock = {
@@ -40,6 +46,7 @@ const crontabAndMountsCleanup = proxyquire('../../ZelBack/src/services/appLifecy
   '../dbHelper': dbHelperMock,
   '../dockerService': dockerServiceMock,
   '../utils/volumeService': volumeServiceMock,
+  '../utils/enterpriseHelper': enterpriseHelperMock,
   '../appTamperingDetectionService': appTamperingDetectionServiceMock,
 });
 
@@ -55,6 +62,9 @@ describe('crontabAndMountsCleanup tests', () => {
     dbHelperMock.findInDatabase.reset();
     dockerServiceMock.getAppIdentifier.reset();
     volumeServiceMock.ensureAppVolumeMounted.reset();
+    volumeServiceMock.getComponentAppIdsFromVolumeFiles.reset();
+    volumeServiceMock.isPathMounted.reset();
+    enterpriseHelperMock.checkAndDecryptAppSpecs.reset();
     appTamperingDetectionServiceMock.recordEvent.reset();
     appTamperingDetectionServiceMock.recordEvent.resolves();
   });
@@ -106,13 +116,19 @@ describe('crontabAndMountsCleanup tests', () => {
       expect(result.size).to.equal(3);
     });
 
-    it('should handle database errors gracefully', async () => {
+    it('should throw on database errors instead of reporting an empty install set', async () => {
+      // an empty set means "nothing installed" to callers; a failed
+      // enumeration must never masquerade as that
       dbHelperMock.databaseConnection.throws(new Error('DB connection failed'));
 
-      const result = await crontabAndMountsCleanup.getInstalledAppIds();
-      expect(result).to.be.instanceOf(Set);
-      expect(result.size).to.equal(0);
-      expect(logMock.error.called).to.be.true;
+      let thrown = null;
+      try {
+        await crontabAndMountsCleanup.getInstalledAppIds();
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.an('error');
+      expect(thrown.message).to.include('DB connection failed');
     });
 
     it('should handle null response from database', async () => {
@@ -120,6 +136,73 @@ describe('crontabAndMountsCleanup tests', () => {
 
       const result = await crontabAndMountsCleanup.getInstalledAppIds();
       expect(result.size).to.equal(0);
+    });
+
+    it('should decrypt enterprise apps (compose stored empty) to enumerate components', async () => {
+      // enterprise specs are stored locally with compose: [] - the incident
+      // regression treated them as "not installed" and ate their crontab entries
+      const enterpriseApp = {
+        name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob',
+      };
+      stubInstalledApps([enterpriseApp]);
+      enterpriseHelperMock.checkAndDecryptAppSpecs.resolves({
+        ...enterpriseApp, compose: [{ name: 'hermes' }],
+      });
+      dockerServiceMock.getAppIdentifier.withArgs('hermes_hermesagent123').returns('fluxhermes_hermesagent123');
+
+      const result = await crontabAndMountsCleanup.getInstalledAppIds();
+
+      expect(enterpriseHelperMock.checkAndDecryptAppSpecs.calledWith(enterpriseApp)).to.be.true;
+      expect(result.has('fluxhermes_hermesagent123')).to.be.true;
+      expect(result.size).to.equal(1);
+    });
+
+    it('should derive enterprise components from volume images when decryption fails', async () => {
+      stubInstalledApps([{
+        name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob',
+      }]);
+      enterpriseHelperMock.checkAndDecryptAppSpecs.rejects(new Error('fluxbenchd unavailable'));
+      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves(['fluxhermes_hermesagent123']);
+
+      const result = await crontabAndMountsCleanup.getInstalledAppIds();
+
+      expect(result.has('fluxhermes_hermesagent123')).to.be.true;
+      expect(logMock.warn.called).to.be.true;
+    });
+
+    it('should derive enterprise components from volume images when decryption yields no compose', async () => {
+      stubInstalledApps([{
+        name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob',
+      }]);
+      enterpriseHelperMock.checkAndDecryptAppSpecs.resolvesArg(0);
+      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves(['fluxhermes_hermesagent123']);
+
+      const result = await crontabAndMountsCleanup.getInstalledAppIds();
+
+      expect(result.has('fluxhermes_hermesagent123')).to.be.true;
+    });
+
+    it('should not attempt decryption for apps with plaintext compose', async () => {
+      stubInstalledApps([{ name: 'wordpress123', version: 4, compose: [{ name: 'wp' }] }]);
+      dockerServiceMock.getAppIdentifier.withArgs('wp_wordpress123').returns('fluxwp_wordpress123');
+
+      await crontabAndMountsCleanup.getInstalledAppIds();
+
+      expect(enterpriseHelperMock.checkAndDecryptAppSpecs.called).to.be.false;
+    });
+  });
+
+  describe('extractMountPoint', () => {
+    it('should extract the mountpoint from a plain mount command', () => {
+      expect(crontabAndMountsCleanup.extractMountPoint('sudo mount -o loop /dat/fluxwpFLUXFSVOL /dat/var/lib/fluxos/flux-apps/fluxwp')).to.equal('/dat/var/lib/fluxos/flux-apps/fluxwp');
+    });
+
+    it('should extract the mountpoint from a wait-logic command', () => {
+      expect(crontabAndMountsCleanup.extractMountPoint('while [ ! -f /dat/fluxwpFLUXFSVOL ]; do sleep 5; done && sudo mount -o loop /dat/fluxwpFLUXFSVOL /mnt/wp')).to.equal('/mnt/wp');
+    });
+
+    it('should return null for unparseable commands', () => {
+      expect(crontabAndMountsCleanup.extractMountPoint('sudo apt update')).to.be.null;
     });
   });
 
@@ -189,19 +272,47 @@ describe('crontabAndMountsCleanup tests', () => {
         save: sinon.stub(),
       };
       crontabMock.load.callsFake((callback) => callback(null, mockCrontab));
+      volumeServiceMock.isPathMounted.resolves(true);
     });
 
-    it('should remove every FLUXFSVOL mount entry, installed or not', async () => {
+    it('should remove every mounted FLUXFSVOL entry, installed or not', async () => {
       const plainJob = makeJob('sudo mount -o loop /dat/fluxapp1FLUXFSVOL /mount/app1', 'fluxapp1');
       const waitJob = makeJob('while [ ! -f /dat/fluxapp2FLUXFSVOL ]; do sleep 5; done && sudo mount -o loop /dat/fluxapp2FLUXFSVOL /mount/app2', 'fluxapp2');
       mockJobs = [plainJob, waitJob];
 
       const result = await crontabAndMountsCleanup.removeLegacyMountCrontabEntries();
 
+      expect(volumeServiceMock.isPathMounted.calledWith('/mount/app1')).to.be.true;
+      expect(volumeServiceMock.isPathMounted.calledWith('/mount/app2')).to.be.true;
       expect(mockCrontab.remove.calledWith(plainJob)).to.be.true;
       expect(mockCrontab.remove.calledWith(waitJob)).to.be.true;
       expect(result.removed).to.deep.equal(['fluxapp1', 'fluxapp2']);
       expect(mockCrontab.save.called).to.be.true;
+    });
+
+    it('should keep entries whose volume is not currently mounted', async () => {
+      // the entry is only superseded once the FluxOS-owned mount demonstrably
+      // works; until then it is the remaining safety net for the next boot
+      const job = makeJob('sudo mount -o loop /dat/fluxapp1FLUXFSVOL /mount/app1', 'fluxapp1');
+      mockJobs = [job];
+      volumeServiceMock.isPathMounted.withArgs('/mount/app1').resolves(false);
+
+      const result = await crontabAndMountsCleanup.removeLegacyMountCrontabEntries();
+
+      expect(mockCrontab.remove.called).to.be.false;
+      expect(mockCrontab.save.called).to.be.false;
+      expect(result.kept).to.deep.equal(['fluxapp1']);
+      expect(result.removed).to.have.lengthOf(0);
+    });
+
+    it('should keep entries whose mountpoint cannot be parsed', async () => {
+      const job = makeJob('mount -o loop somethingFLUXFSVOL', 'fluxweird');
+      mockJobs = [job];
+
+      const result = await crontabAndMountsCleanup.removeLegacyMountCrontabEntries();
+
+      expect(mockCrontab.remove.called).to.be.false;
+      expect(result.kept).to.deep.equal(['fluxweird']);
     });
 
     it('should leave non-mount jobs untouched and not save', async () => {
@@ -246,6 +357,40 @@ describe('crontabAndMountsCleanup tests', () => {
         save: sinon.stub(),
       };
       crontabMock.load.callsFake((callback) => callback(null, mockCrontab));
+      volumeServiceMock.isPathMounted.resolves(true);
+    });
+
+    it('should abort without touching the crontab when the install set cannot be enumerated', async () => {
+      // a failed enumeration must not cascade into destructive crontab edits -
+      // that is precisely how remount entries kept vanishing in production
+      dbHelperMock.databaseConnection.throws(new Error('DB connection failed'));
+      mockJobs = [{
+        isValid: () => true,
+        command: () => 'sudo mount -o loop /dat/fluxmyappFLUXFSVOL /mount/point',
+        comment: () => 'fluxmyapp',
+      }];
+
+      const result = await crontabAndMountsCleanup.cleanupCrontabAndMounts();
+
+      expect(mockCrontab.remove.called).to.be.false;
+      expect(mockCrontab.save.called).to.be.false;
+      expect(result.crontab.removed).to.have.lengthOf(0);
+      expect(result.mounts.mounted).to.have.lengthOf(0);
+      expect(logMock.error.called).to.be.true;
+    });
+
+    it('should mount an enterprise app volume via disk-derived components when decryption fails', async () => {
+      stubInstalledApps([{
+        name: 'hermesagent123', version: 8, compose: [], enterprise: 'encryptedblob',
+      }]);
+      enterpriseHelperMock.checkAndDecryptAppSpecs.rejects(new Error('fluxbenchd unavailable'));
+      volumeServiceMock.getComponentAppIdsFromVolumeFiles.withArgs('hermesagent123').resolves(['fluxhermes_hermesagent123']);
+      volumeServiceMock.ensureAppVolumeMounted.withArgs('fluxhermes_hermesagent123').resolves({ mounted: true, alreadyMounted: false });
+
+      const result = await crontabAndMountsCleanup.cleanupCrontabAndMounts();
+
+      expect(result.mounts.mounted).to.include('fluxhermes_hermesagent123');
+      expect(result.mounts.failed).to.have.lengthOf(0);
     });
 
     it('should mount installed app volumes even when the crontab is empty', async () => {
