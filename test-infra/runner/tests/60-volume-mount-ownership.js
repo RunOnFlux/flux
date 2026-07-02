@@ -65,6 +65,7 @@ async function installPlainApp(env, name, index, port) {
   await pushImage(name, 'v1');
   const app = await buildSeedableApp({
     name,
+    expire: 50, // spawner must never respawn a deliberately-held test app
     compose: [{
       name,
       description: 'test container',
@@ -104,7 +105,7 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     await bootAndPeer(env);
     await resetSyncState();
 
-    await seedSyncthingApp(env, { name: syncName, mode: 'r', index: 0 });
+    await seedSyncthingApp(env, { name: syncName, mode: 'r', index: 0, spawnable: false });
     // pin the folder synced so the leader promotes and the app runs steadily
     await setSynced({ ip: subnet.nodeIp(1), folder: appId(syncName) });
     await installPlainApp(env, rebootName, 1, 31201);
@@ -114,6 +115,7 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     await pushImage(entName, 'v1');
     const entApp = await buildSeedableEnterpriseApp({
       name: entName,
+      expire: 50, // spawner must never respawn a deliberately-held test app
       compose: [{
         name: entName,
         description: 'test container',

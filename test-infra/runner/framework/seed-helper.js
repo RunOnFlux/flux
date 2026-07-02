@@ -20,6 +20,11 @@ export async function buildSeedableApp({
   owner = null,
   staticip = false,
   enterprise = '',
+  // Targeted suites that deliberately hold/kill their only instance seed a
+  // near-expiry spec (expire < newMinBlocksAllowance = 100): the spawner's
+  // pipeline permanently ignores it, so the network cannot "heal" the app
+  // back mid-assertion. With the block ticker off it never actually expires.
+  expire = 22000,
 }) {
   const ownerKey = appOwnerKey();
   const appOwner = owner ?? ownerKey.zelid;
@@ -47,7 +52,7 @@ export async function buildSeedableApp({
     instances,
     contacts: [],
     geolocation: [],
-    expire: 22000,
+    expire,
     nodes: [],
     staticip,
     enterprise,

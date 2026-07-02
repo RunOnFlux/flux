@@ -67,9 +67,9 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
 
     // both apps are r: leaders on their own nodes: they seed, promote to
     // sendreceive and start - the state every test here begins from
-    await seedSyncthingApp(env, { name: leakName, mode: 'r', index: 0 });
+    await seedSyncthingApp(env, { name: leakName, mode: 'r', index: 0, spawnable: false });
     await setSynced({ ip: ip0, folder: leakFolder });
-    await seedSyncthingApp(env, { name: phantomName, mode: 'r', index: 1 });
+    await seedSyncthingApp(env, { name: phantomName, mode: 'r', index: 1, spawnable: false });
     await setSynced({ ip: ip1, folder: phantomFolder });
 
     await waitFor(async () => (await folderType(ip0, leakFolder)) === 'sendreceive', { timeout: 90000, interval: 3000, label: `${leakFolder} sendreceive` });

@@ -198,10 +198,13 @@ export async function waitForInstanceCount(env, appName, target, {
 // cold-start. Pinning the peer synced keeps it the stable running source the subject
 // must defer to.
 export async function seedSyncthingApp(env, {
-  name, mode = 'r', forceNonLeader = false, index = 0,
+  name, mode = 'r', forceNonLeader = false, index = 0, spawnable = true,
 }) {
   await pushImage(name, 'v1');
-  const app = await buildSeedableSyncthingApp({ name, mode });
+  // spawnable: false seeds a near-expiry spec the spawner permanently ignores
+  // (see buildSeedableApp) - for suites that hold/kill their only instance and
+  // must not have the network respawn it mid-assertion.
+  const app = await buildSeedableSyncthingApp({ name, mode, ...(spawnable ? {} : { expire: 50 }) });
 
   const peerIndex = forceNonLeader ? (index === 0 ? env.clients.length - 1 : 0) : null;
   if (forceNonLeader) {
