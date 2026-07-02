@@ -105,7 +105,13 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     await bootAndPeer(env);
     await resetSyncState();
 
+    // first-run reset first, real data on disk second, pin synced LAST - an
+    // index claiming bytes over an empty disk is the phantom state the guard
+    // demotes, and the demote/hold would latch the app down mid-suite
+    const syncInstallAfter = env.clients[0].getLastEventId();
     await seedSyncthingApp(env, { name: syncName, mode: 'r', index: 0, spawnable: false });
+    await waitForReconcileActuated(env.clients[0], syncIdentifier, 'dataCleared', 60000, { afterId: syncInstallAfter });
+    await seedSyncScopedData(env, syncName, 0);
     // pin the folder synced so the leader promotes and the app runs steadily
     await setSynced({ ip: subnet.nodeIp(1), folder: appId(syncName) });
     await installPlainApp(env, rebootName, 1, 31201);
@@ -133,11 +139,6 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
       }],
     });
     await installOnNodes(env, entApp, [4]);
-
-    // the pinned-synced r: app needs real disk content once it is up (post
-    // first-run reset), or the phantom guard fights the re-promotion all suite
-    await waitFor(() => isUp(env.clients[0], syncName), { timeout: 90000, interval: 2000, label: 'sync app running' });
-    await seedSyncScopedData(env, syncName, 0);
   });
 
   after(async function () {

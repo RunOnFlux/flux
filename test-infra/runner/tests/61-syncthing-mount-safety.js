@@ -6,7 +6,7 @@ import {
   setSyncState, setSynced, setSyncing, getSyncthingState, resetSyncState,
 } from '../framework/syncthing-control.js';
 import {
-  waitFor, waitForReconcilerDesiredChanged, assertNoEvent,
+  waitFor, waitForReconcilerDesiredChanged, waitForReconcileActuated, assertNoEvent,
 } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -66,23 +66,27 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     await resetSyncState();
 
     // both apps are r: leaders on their own nodes: they seed, promote to
-    // sendreceive and start - the state every test here begins from
+    // sendreceive and start - the state every test here begins from.
+    // Order matters: the sync layer's first-run reset clears local appdata, so
+    // wait for it, put real data on disk, and only THEN pin the index synced -
+    // if the index ever claims bytes over an empty disk, the phantom guard
+    // (correctly) demotes and holds, and the app never reaches the premise.
+    const leakInstallAfter = env.clients[0].getLastEventId();
     await seedSyncthingApp(env, { name: leakName, mode: 'r', index: 0, spawnable: false });
+    await waitForReconcileActuated(env.clients[0], leakIdentifier, 'dataCleared', 60000, { afterId: leakInstallAfter });
+    await seedSyncScopedData(env, leakName, 0);
     await setSynced({ ip: ip0, folder: leakFolder });
+
+    const phantomInstallAfter = env.clients[1].getLastEventId();
     await seedSyncthingApp(env, { name: phantomName, mode: 'r', index: 1, spawnable: false });
+    await waitForReconcileActuated(env.clients[1], phantomIdentifier, 'dataCleared', 60000, { afterId: phantomInstallAfter });
+    await seedSyncScopedData(env, phantomName, 1);
     await setSynced({ ip: ip1, folder: phantomFolder });
 
     await waitFor(async () => (await folderType(ip0, leakFolder)) === 'sendreceive', { timeout: 90000, interval: 3000, label: `${leakFolder} sendreceive` });
     await waitFor(async () => (await folderType(ip1, phantomFolder)) === 'sendreceive', { timeout: 90000, interval: 3000, label: `${phantomFolder} sendreceive` });
     await waitFor(() => isUp(env.clients[0], leakName), { timeout: 90000, interval: 2000, label: 'leak app running' });
     await waitFor(() => isUp(env.clients[1], phantomName), { timeout: 90000, interval: 2000, label: 'phantom app running' });
-
-    // now that the first-run reset has run and the apps are up, give each
-    // pinned-synced folder real disk content - index and disk must agree or
-    // the phantom guard (correctly) fights the pinned-synced re-promotion
-    // for the rest of the suite
-    await seedSyncScopedData(env, leakName, 0);
-    await seedSyncScopedData(env, phantomName, 1);
   });
 
   after(async function () {
