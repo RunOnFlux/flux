@@ -7,7 +7,7 @@ import { buildSeedableApp, buildSeedableEnterpriseApp } from '../framework/seed-
 import {
   waitFor, waitForReconcileActuated, waitForAppRemoved, assertNoEvent,
 } from '../framework/wait.js';
-import { bootAndPeer, seedSyncthingApp, installOnNodes } from '../framework/reconciler-suite.js';
+import { bootAndPeer, seedSyncthingApp, seedSyncScopedData, installOnNodes } from '../framework/reconciler-suite.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { getSubnetConfig, REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -133,6 +133,11 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
       }],
     });
     await installOnNodes(env, entApp, [4]);
+
+    // the pinned-synced r: app needs real disk content once it is up (post
+    // first-run reset), or the phantom guard fights the re-promotion all suite
+    await waitFor(() => isUp(env.clients[0], syncName), { timeout: 90000, interval: 2000, label: 'sync app running' });
+    await seedSyncScopedData(env, syncName, 0);
   });
 
   after(async function () {

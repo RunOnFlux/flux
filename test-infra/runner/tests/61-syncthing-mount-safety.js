@@ -8,7 +8,7 @@ import {
 import {
   waitFor, waitForReconcilerDesiredChanged, assertNoEvent,
 } from '../framework/wait.js';
-import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
+import { bootAndPeer, seedSyncthingApp, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -76,6 +76,13 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     await waitFor(async () => (await folderType(ip1, phantomFolder)) === 'sendreceive', { timeout: 90000, interval: 3000, label: `${phantomFolder} sendreceive` });
     await waitFor(() => isUp(env.clients[0], leakName), { timeout: 90000, interval: 2000, label: 'leak app running' });
     await waitFor(() => isUp(env.clients[1], phantomName), { timeout: 90000, interval: 2000, label: 'phantom app running' });
+
+    // now that the first-run reset has run and the apps are up, give each
+    // pinned-synced folder real disk content - index and disk must agree or
+    // the phantom guard (correctly) fights the pinned-synced re-promotion
+    // for the rest of the suite
+    await seedSyncScopedData(env, leakName, 0);
+    await seedSyncScopedData(env, phantomName, 1);
   });
 
   after(async function () {
