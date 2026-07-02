@@ -16,6 +16,21 @@ import {
 } from './wait.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
 import { setSynced } from './syncthing-control.js';
+import { execInContainer } from './container.js';
+
+// A folder the suite pins "synced" (setSynced reports a non-zero global index)
+// must also HOLD data on disk, like any really-synced folder. Seeded apps write
+// nothing themselves, and an index that claims bytes over an empty disk is
+// exactly the phantom-index state the mount-safety guard demotes - a seeded
+// r: leader left idle for a few monitor cycles would be demoted and held
+// mid-suite (bit suite 61's leak test on its first run).
+async function seedSyncScopedData(env, name, index) {
+  const dataFile = `/mnt/appdata/flux-apps/flux${name}_${name}/appdata/seed-data`;
+  const r = await execInContainer(env.clients[index].container, `sh -c 'echo seeded > ${dataFile}'`);
+  if (r.exitCode !== 0) {
+    throw new Error(`seedSyncScopedData: could not write ${dataFile} on node ${index}: ${r.output}`);
+  }
+}
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install
 // can resolve it).
@@ -196,6 +211,7 @@ export async function seedSyncthingApp(env, {
     // leader-election sees a running peer and takes the sync-gated follower path.
     const afterId = env.clients[index].getLastEventId();
     await installOnNodes(env, app, [peerIndex]);
+    await seedSyncScopedData(env, name, peerIndex);
     await setSynced({ ip: getSubnetConfig().nodeIp(peerIndex + 1), folder: `flux${name}_${name}` });
     await env.clients[index].waitForEvent(
       'network:apprunning', (d) => d.apps?.some((a) => a.name === name), 60000, { afterId },
@@ -203,6 +219,7 @@ export async function seedSyncthingApp(env, {
   }
 
   await installOnNodes(env, app, [index]);
+  await seedSyncScopedData(env, name, index);
   return {
     app, index, peerIndex, folder: `flux${name}_${name}`, identifier: `${name}_${name}`,
   };

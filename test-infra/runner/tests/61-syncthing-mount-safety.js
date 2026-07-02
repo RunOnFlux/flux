@@ -123,6 +123,12 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     this.timeout(120000);
     const client = env.clients[0];
     const dir = appDir(leakName);
+
+    // premise, asserted so drift fails fast instead of timing out downstream: a
+    // genuinely running sendreceive leader (an idle seeded leader with an empty
+    // disk would already have been phantom-demoted - see seedSyncScopedData)
+    expect(await folderType(ip0, leakFolder), 'leak folder must start sendreceive').to.equal('sendreceive');
+    expect(await isUp(client, leakName), 'leak app must start running').to.equal(true);
     const afterId = client.getLastEventId();
 
     // recreate the incident state: volume unmounted and unrepairable (image
