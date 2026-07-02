@@ -26,6 +26,7 @@ const {
   folderNeedsUpdate,
 } = require('./syncthingMonitorHelpers');
 const volumeService = require('../utils/volumeService');
+const appReconciler = require('./appReconciler');
 const {
   manageFolderSyncState,
   verifyFolderMountSafety,
@@ -325,11 +326,34 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
 
     // CRITICAL: Check if app folder mounts are ready before processing
     // This prevents syncthing operations when loop devices aren't mounted after reboot
+    // (checkAppFolderMounts repairs an unmounted volume itself when the backing
+    // image still exists, so reaching this branch means repair failed too)
     const unmountedApps = await checkAppFolderMounts(appsInstalled.data);
     if (unmountedApps.length > 0) {
       const unmountedList = unmountedApps.map((app) => app.appId).join(', ');
       log.warn(`syncthingAppsCore - Skipping processing: ${unmountedApps.length} app folders not mounted yet: ${unmountedList}`);
       log.warn('syncthingAppsCore - Waiting for app folders to be mounted before syncthing processing');
+
+      // Never leave an unsafe-mount folder sendreceive while processing is
+      // skipped: the syncthing daemon keeps running as configured, so an
+      // un-demoted sendreceive folder over a bad mount can still broadcast its
+      // (leaked or missing) disk state to the healthy peers. Demote those
+      // folders and hold their containers before bailing - idempotent, and the
+      // normal receiveonly machinery re-promotes once the mount is healthy.
+      const foldersResp = await syncthingService.getConfigFolders();
+      const folders = Array.isArray(foldersResp?.data) ? foldersResp.data : [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const { appId, reason } of unmountedApps) {
+        const folder = folders.find((f) => f.id === appId);
+        if (folder && folder.type === 'sendreceive') {
+          log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder is sendreceive over an unsafe mount (${reason}); switching to receiveonly and holding the container`);
+          // eslint-disable-next-line no-await-in-loop
+          await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, appId).catch((err) => {
+            log.error(`syncthingAppsCore - Failed to switch ${appId} to receiveonly: ${err.message}`);
+          });
+          appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
+        }
+      }
       return;
     }
 

@@ -52,6 +52,10 @@ const volumeServiceMock = {
   ensureAppVolumeMounted: sinon.stub().resolves({ mounted: true, alreadyMounted: true }),
 };
 
+const appReconcilerMock = {
+  setControllerDesired: sinon.stub(),
+};
+
 const syncthingMonitorHelpersMock = {
   sortAndFilterLocations: sinon.stub((locs) => locs),
   buildDeviceConfiguration: sinon.stub().resolves([]),
@@ -96,6 +100,7 @@ const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/sy
   '../syncthingService': syncthingServiceMock,
   '../appQuery/appQueryService': appQueryServiceMock,
   '../utils/volumeService': volumeServiceMock,
+  './appReconciler': appReconcilerMock,
   './syncthingFolderStateMachine': syncthingFolderStateMachineMock,
   './syncthingMonitorHelpers': syncthingMonitorHelpersMock,
   './syncthingHealthMonitor': syncthingHealthMonitorMock,
@@ -147,6 +152,12 @@ describe('syncthingMonitor tests', () => {
     syncthingEventsConsumerMock.start.reset();
     syncthingEventsConsumerMock.stop.reset();
     syncthingEventsConsumerMock.stop.resolves();
+
+    volumeServiceMock.ensureAppVolumeMounted.reset();
+    volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: true });
+    appReconcilerMock.setControllerDesired.reset();
+    syncthingFolderStateMachineMock.verifyFolderMountSafety.reset();
+    syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: true, isMounted: true, fileCount: 1 });
 
     // Default stub behaviors
     syncthingServiceMock.getConfigFolders.resolves({ data: [] });
@@ -304,6 +315,52 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.notCalled(syncthingServiceMock.systemRestart);
 
       syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: true, isMounted: true, fileCount: 1 });
+    });
+
+    it('demotes a sendreceive folder over an unrepairable mount while skipping the cycle', async function () {
+      // repair fails (no backing image) -> the cycle is skipped, but a folder
+      // left sendreceive over the bad mount could still broadcast its disk
+      // state - it must be demoted and its container held before bailing
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'unmounted_with_content' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      syncthingServiceMock.getConfigFolders.resolves({ data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.adjustConfigFolders.resolves();
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'patch', { type: 'receiveonly' }, 'testapp');
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'testapp', 'stopped');
+      // the cycle itself was skipped - per-app processing never ran
+      sinon.assert.notCalled(syncthingServiceMock.getDeviceId);
+    });
+
+    it('does not re-patch an unsafe folder that is already receiveonly', async function () {
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      syncthingServiceMock.getConfigFolders.resolves({ data: [{ id: 'testapp', type: 'receiveonly' }] });
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      sinon.assert.notCalled(syncthingServiceMock.adjustConfigFolders);
+      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
 
     it('should start the events consumer (edge accelerator) and stop it on shutdown', async () => {
