@@ -6,6 +6,8 @@ const portManager = require('../../ZelBack/src/services/appNetwork/portManager')
 const upnpService = require('../../ZelBack/src/services/upnpService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
 const { requireMongo } = require('./dbTestHelper');
 
 describe('portManager tests', () => {
@@ -496,6 +498,9 @@ describe('portManager tests', () => {
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(false);
       sinon.stub(fluxNetworkHelper, 'allowPort').resolves(true);
       sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      portManager.upnpMapFailures.clear();
     });
 
     it('should setup firewall for app ports when active', async () => {
@@ -519,6 +524,71 @@ describe('portManager tests', () => {
 
       // Should not throw
       await portManager.restoreAppsPortsSupport();
+    });
+
+    it('should NOT remove an app on a single UPNP mapping failure', async () => {
+      // the incident regression: one failed map used to escalate straight to
+      // removeAppLocally(force, sendMessage) - a transient router blip nuked
+      // a running app and broadcast its removal to the network
+      upnpService.isUPNP.returns(true);
+      upnpService.mapUpnpPort.resolves(false);
+
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(1);
+    });
+
+    it('should retry a failed port within the cycle and record no failure on recovery', async () => {
+      upnpService.isUPNP.returns(true);
+      upnpService.mapUpnpPort.onFirstCall().resolves(false);
+      upnpService.mapUpnpPort.resolves(true);
+
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(portManager.upnpMapFailures.has('App1')).to.be.false;
+    });
+
+    it('should not remove before the sustained window even after enough failing cycles', async () => {
+      upnpService.isUPNP.returns(true);
+      upnpService.mapUpnpPort.resolves(false);
+
+      await portManager.restoreAppsPortsSupport();
+      await portManager.restoreAppsPortsSupport();
+      await portManager.restoreAppsPortsSupport();
+
+      // 3 consecutive cycles, but wall-clock window not yet elapsed
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(3);
+    });
+
+    it('should remove and broadcast only after sustained failure (cycles AND window)', async () => {
+      upnpService.isUPNP.returns(true);
+      upnpService.mapUpnpPort.resolves(false);
+      const nowMonotonicMs = Number(process.hrtime.bigint() / 1000000n);
+      portManager.upnpMapFailures.set('App1', {
+        cycles: 2,
+        firstFailureAtMs: nowMonotonicMs - (31 * 60 * 1000),
+      });
+
+      await portManager.restoreAppsPortsSupport();
+
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'App1', null, true, true, true);
+      expect(portManager.upnpMapFailures.has('App1')).to.be.false;
+    });
+
+    it('should clear the failure tracker once mapping succeeds again', async () => {
+      upnpService.isUPNP.returns(true);
+      upnpService.mapUpnpPort.resolves(false);
+      await portManager.restoreAppsPortsSupport();
+      expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(1);
+
+      upnpService.mapUpnpPort.resolves(true);
+      await portManager.restoreAppsPortsSupport();
+
+      expect(portManager.upnpMapFailures.has('App1')).to.be.false;
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
   });
 
