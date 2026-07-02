@@ -6,48 +6,70 @@ const dbHelper = require('../dbHelper');
 const { localAppsInformation } = require('../utils/appConstants');
 const dockerService = require('../dockerService');
 const volumeService = require('../utils/volumeService');
+const enterpriseHelper = require('../utils/enterpriseHelper');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 
 const crontabLoad = util.promisify(systemcrontab.load);
 
 /**
- * Get all locally installed app IDs
+ * Get all locally installed app IDs. Enterprise apps are stored locally with
+ * `compose` deliberately emptied (the components only exist inside the
+ * encrypted `enterprise` blob), so they are decrypted the same way the rest
+ * of the runtime reads them; when decryption is unavailable the component ids
+ * are derived from the app's FLUXFSVOL images on disk instead. A database
+ * failure throws: "could not enumerate" must surface as unknown to callers,
+ * never as "nothing is installed".
  * @returns {Promise<Set<string>>} Set of installed app IDs
  */
 async function getInstalledAppIds() {
   const installedAppIds = new Set();
 
-  try {
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
 
-    const appsProjection = {
-      projection: { _id: 0 },
-    };
+  const appsProjection = {
+    projection: { _id: 0 },
+  };
 
-    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, {}, appsProjection);
+  const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, {}, appsProjection);
 
-    if (!apps || !Array.isArray(apps)) {
-      return installedAppIds;
+  if (!apps || !Array.isArray(apps)) {
+    return installedAppIds;
+  }
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const app of apps) {
+    if (app.version <= 3) {
+      // Legacy app - single app ID
+      installedAppIds.add(dockerService.getAppIdentifier(app.name));
+      // eslint-disable-next-line no-continue
+      continue;
     }
 
-    apps.forEach((app) => {
-      if (app.version <= 3) {
-        // Legacy app - single app ID
-        const appId = dockerService.getAppIdentifier(app.name);
-        installedAppIds.add(appId);
-      } else {
-        // Newer app - multiple components
-        if (app.compose && Array.isArray(app.compose)) {
-          app.compose.forEach((component) => {
-            const appId = dockerService.getAppIdentifier(`${component.name}_${app.name}`);
-            installedAppIds.add(appId);
-          });
-        }
+    let { compose } = app;
+    if ((!compose || compose.length === 0) && app.enterprise) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const decrypted = await enterpriseHelper.checkAndDecryptAppSpecs(app);
+        compose = decrypted ? decrypted.compose : null;
+      } catch (error) {
+        log.warn(`getInstalledAppIds - could not decrypt enterprise app ${app.name} (${error.message}); deriving its components from volume images on disk`);
+        compose = null;
       }
-    });
-  } catch (error) {
-    log.error(`getInstalledAppIds - Error: ${error.message}`);
+      if (!compose || compose.length === 0) {
+        // eslint-disable-next-line no-await-in-loop
+        const diskAppIds = await volumeService.getComponentAppIdsFromVolumeFiles(app.name);
+        diskAppIds.forEach((appId) => installedAppIds.add(appId));
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+    }
+
+    if (compose && Array.isArray(compose)) {
+      compose.forEach((component) => {
+        installedAppIds.add(dockerService.getAppIdentifier(`${component.name}_${app.name}`));
+      });
+    }
   }
 
   return installedAppIds;
@@ -60,6 +82,16 @@ async function getInstalledAppIds() {
  */
 function isVolumeMountJob(command) {
   return command.includes('mount -o loop') && command.includes('FLUXFSVOL');
+}
+
+/**
+ * Extract the mountpoint from a legacy FLUXFSVOL mount command.
+ * @param {string} command - The crontab command
+ * @returns {string|null} Mountpoint path, or null when unparseable
+ */
+function extractMountPoint(command) {
+  const match = command.match(/sudo mount -o loop\s+\S+FLUXFSVOL\s+(\S+)/);
+  return match ? match[1] : null;
 }
 
 /**
@@ -100,15 +132,19 @@ async function ensureInstalledAppVolumesMounted() {
 }
 
 /**
- * Removes every legacy FLUXFSVOL @reboot remount entry from the root crontab.
- * FluxOS owns volume mounting now (boot pass above + reconciler), so the
- * entries are superseded - and a surviving entry could double-mount over a
- * FluxOS-owned mount on the next boot.
- * @returns {Promise<{removed: string[], errors: Array<{appId: string, error: string}>}>}
+ * Removes legacy FLUXFSVOL @reboot remount entries from the root crontab, but
+ * only those whose volume is currently mounted - proof the FluxOS-owned mount
+ * (boot pass above + reconciler) has demonstrably replaced the entry. An entry
+ * whose volume is NOT mounted is kept: it is the remaining safety net for the
+ * next boot, and removing it on the strength of a possibly-blind inventory is
+ * exactly how remount entries used to vanish. A surviving entry on a mounted
+ * volume would double-mount on the next boot, hence the cleanup.
+ * @returns {Promise<{removed: string[], kept: string[], errors: Array<{appId: string, error: string}>}>}
  */
 async function removeLegacyMountCrontabEntries() {
   const results = {
     removed: [],
+    kept: [],
     errors: [],
   };
 
@@ -121,17 +157,30 @@ async function removeLegacyMountCrontabEntries() {
   if (!crontab) return results;
 
   const jobs = crontab.jobs() || [];
-  jobs.forEach((job) => {
-    if (!job) return;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const job of jobs) {
     let command = '';
     let comment = '';
     try {
-      command = job.command ? job.command() : '';
-      comment = job.comment ? job.comment() : '';
+      command = job && job.command ? job.command() : '';
+      comment = job && job.comment ? job.comment() : '';
     } catch (error) {
-      return;
+      // eslint-disable-next-line no-continue
+      continue;
     }
-    if (!isVolumeMountJob(command)) return;
+    if (!isVolumeMountJob(command)) {
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    const mountPoint = extractMountPoint(command);
+    // eslint-disable-next-line no-await-in-loop
+    const mounted = mountPoint ? await volumeService.isPathMounted(mountPoint) : false;
+    if (!mounted) {
+      log.warn(`removeLegacyMountCrontabEntries - keeping legacy entry for ${comment || command}: its volume is not currently mounted`);
+      results.kept.push(comment || command);
+      // eslint-disable-next-line no-continue
+      continue;
+    }
     try {
       crontab.remove(job);
       results.removed.push(comment || command);
@@ -139,7 +188,7 @@ async function removeLegacyMountCrontabEntries() {
       log.error(`removeLegacyMountCrontabEntries - failed to remove entry for ${comment}: ${error.message}`);
       results.errors.push({ appId: comment, error: error.message });
     }
-  });
+  }
 
   if (results.removed.length > 0) {
     try {
@@ -161,7 +210,7 @@ async function removeLegacyMountCrontabEntries() {
  */
 async function cleanupCrontabAndMounts() {
   const results = {
-    crontab: { removed: [], errors: [] },
+    crontab: { removed: [], kept: [], errors: [] },
     mounts: { mounted: [], alreadyMounted: [], failed: [] },
   };
 
@@ -173,7 +222,7 @@ async function cleanupCrontabAndMounts() {
     log.info(
       'cleanupCrontabAndMounts - Done. '
       + `Mounts: mounted ${results.mounts.mounted.length}, already mounted ${results.mounts.alreadyMounted.length}, failed ${results.mounts.failed.length}. `
-      + `Crontab: removed ${results.crontab.removed.length} legacy entr(ies), errors ${results.crontab.errors.length}`,
+      + `Crontab: removed ${results.crontab.removed.length} legacy entr(ies), kept ${results.crontab.kept.length}, errors ${results.crontab.errors.length}`,
     );
 
     return results;
@@ -189,4 +238,5 @@ module.exports = {
   ensureInstalledAppVolumesMounted,
   removeLegacyMountCrontabEntries,
   isVolumeMountJob,
+  extractMountPoint,
 };

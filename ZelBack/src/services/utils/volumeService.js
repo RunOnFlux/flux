@@ -61,6 +61,51 @@ async function getVolumeFilePath(appId) {
 }
 
 /**
+ * Derives the docker app identifiers of an app's components from the
+ * FLUXFSVOL images present on disk - the image filename embeds the component
+ * identifier (flux<component>_<app>FLUXFSVOL; legacy single-component apps
+ * flux<app>FLUXFSVOL). Ground truth for apps whose local spec cannot
+ * enumerate components: enterprise specs are stored with compose emptied and
+ * decryption needs fluxbenchd, while the images need nothing.
+ * @param {string} appName Application name.
+ * @returns {Promise<string[]>} Docker app identifiers whose images exist on disk.
+ */
+async function getComponentAppIdsFromVolumeFiles(appName) {
+  const appIds = new Set();
+  const searchDirs = new Set([appVolumesPath, legacyAppVolumesPath]);
+
+  try {
+    const dfres = await dfAsync({});
+    dfres.forEach((volume) => {
+      const eligible = (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot'))
+        || (volume.filesystem.includes('loop') && volume.mount === '/');
+      if (eligible && volume.mount !== '/') {
+        searchDirs.add(volume.mount);
+      }
+    });
+  } catch (error) {
+    log.warn(`getComponentAppIdsFromVolumeFiles - df failed (${error.message}), searching appvolumes locations only`);
+  }
+
+  const escapedName = appName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const componentImage = new RegExp(`^flux\\w+_${escapedName}FLUXFSVOL$`);
+  const legacyImage = `flux${appName}FLUXFSVOL`;
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const dir of searchDirs) {
+    // eslint-disable-next-line no-await-in-loop
+    const entries = await fs.readdir(dir).catch(() => []);
+    entries.forEach((entry) => {
+      if (componentImage.test(entry) || entry === legacyImage) {
+        appIds.add(entry.slice(0, -'FLUXFSVOL'.length));
+      }
+    });
+  }
+
+  return [...appIds];
+}
+
+/**
  * Ensures an app component's data volume is loop-mounted at its app dir - the
  * level-based desired state FluxOS itself owns (a rw mount replays a dirty
  * ext4 journal automatically). Idempotent: a mounted volume is a no-op. Never
@@ -287,5 +332,6 @@ module.exports = {
   ensureMountPathsExist,
   isPathMounted,
   getVolumeFilePath,
+  getComponentAppIdsFromVolumeFiles,
   ensureAppVolumeMounted,
 };
