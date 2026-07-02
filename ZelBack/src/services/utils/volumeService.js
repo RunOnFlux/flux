@@ -1,9 +1,130 @@
 const fs = require('fs').promises;
+const path = require('node:path');
+const util = require('node:util');
+const df = require('node-df');
 const dockerService = require('../dockerService');
 const serviceHelper = require('../serviceHelper');
 const mountParser = require('./mountParser');
 const log = require('../../lib/log');
-const { appsFolder } = require('./appConstants');
+const { appsFolder, appVolumesPath, legacyAppVolumesPath } = require('./appConstants');
+
+const dfAsync = util.promisify(df);
+
+/**
+ * Whether a path currently has a filesystem mounted on it.
+ * @param {string} dirPath Directory path to check.
+ * @returns {Promise<boolean>} True if the path is a mountpoint.
+ */
+async function isPathMounted(dirPath) {
+  const result = await serviceHelper.runCommand('mountpoint', { params: ['-q', dirPath], logError: false });
+  return !result.error;
+}
+
+/**
+ * Locates the backing FLUXFSVOL image for an app component deterministically,
+ * without consulting the crontab (whose entries can silently vanish - relying
+ * on them once orphaned images on removal and left volumes unmounted after
+ * reboot). Candidates mirror where createAppVolume places images: the root of
+ * each eligible host volume, or the appvolumes directory (proper and legacy
+ * glued layout) when the root filesystem hosts them.
+ * @param {string} appId Docker app identifier (e.g. fluxcomp_app).
+ * @returns {Promise<string|null>} Absolute path of the image, or null.
+ */
+async function getVolumeFilePath(appId) {
+  const volumeFileName = `${appId}FLUXFSVOL`;
+  const candidates = [];
+
+  try {
+    const dfres = await dfAsync({});
+    dfres.forEach((volume) => {
+      const eligible = (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot'))
+        || (volume.filesystem.includes('loop') && volume.mount === '/');
+      if (eligible && volume.mount !== '/') {
+        candidates.push(path.join(volume.mount, volumeFileName));
+      }
+    });
+  } catch (error) {
+    log.warn(`getVolumeFilePath - df failed (${error.message}), falling back to appvolumes locations only`);
+  }
+
+  candidates.push(path.join(appVolumesPath, volumeFileName));
+  candidates.push(path.join(legacyAppVolumesPath, volumeFileName));
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const candidate of candidates) {
+    // eslint-disable-next-line no-await-in-loop
+    const exists = await fs.access(candidate).then(() => true).catch(() => false);
+    if (exists) return candidate;
+  }
+
+  return null;
+}
+
+/**
+ * Ensures an app component's data volume is loop-mounted at its app dir - the
+ * level-based desired state FluxOS itself owns (a rw mount replays a dirty
+ * ext4 journal automatically). Idempotent: a mounted volume is a no-op. Never
+ * deletes anything: content found on the bare mountpoint is shadowed by the
+ * mount, loudly, so it stays recoverable underneath.
+ * @param {string} identifier Component identifier (comp_app), app name, or docker app id.
+ * @returns {Promise<{mounted: boolean, alreadyMounted?: boolean, reason?: string}>}
+ */
+async function ensureAppVolumeMounted(identifier) {
+  const appId = dockerService.getAppIdentifier(identifier);
+  const mountPoint = path.join(appsFolder, appId);
+
+  if (await isPathMounted(mountPoint)) {
+    return { mounted: true, alreadyMounted: true };
+  }
+
+  const volumeFile = await getVolumeFilePath(appId);
+  if (!volumeFile) {
+    return { mounted: false, reason: 'volume_file_missing' };
+  }
+
+  let mountPointEntries;
+  try {
+    mountPointEntries = await fs.readdir(mountPoint);
+  } catch (error) {
+    const mkdir = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', mountPoint] });
+    if (mkdir.error) {
+      return { mounted: false, reason: `mount_point_unavailable: ${mkdir.error.message}` };
+    }
+    mountPointEntries = [];
+  }
+
+  if (mountPointEntries.length === 0) {
+    // An empty bare mountpoint is locked immutable before mounting so writes
+    // through it while the volume is unmounted fail with EPERM instead of
+    // silently landing on the host filesystem (bypassing the app's quota and
+    // getting orphaned under the next mount). The mounted volume shadows the
+    // flag. Both fleet filesystems (ext4, XFS) support it, so a failure is an
+    // anomaly - but the flag is defense-in-depth on top of the mount itself,
+    // so it must never block bringing the app's volume up.
+    const chattr = await serviceHelper.runCommand('chattr', { runAsRoot: true, params: ['+i', mountPoint], logError: false });
+    if (chattr.error) {
+      log.error(`ensureAppVolumeMounted - could not set ${mountPoint} immutable (unexpected on ext4/XFS): ${chattr.error.message}`);
+    }
+  } else {
+    log.warn(`ensureAppVolumeMounted - ${mountPoint} is not mounted but holds ${mountPointEntries.length} entries; they were written while unmounted and will be shadowed by the volume`);
+  }
+
+  const mountRes = await serviceHelper.runCommand('mount', {
+    runAsRoot: true, params: ['-o', 'loop', volumeFile, mountPoint], logError: false,
+  });
+  if (mountRes.error) {
+    // another actor (e.g. a legacy @reboot job on its last boot) may have
+    // mounted in between - that is success, not an error
+    if (await isPathMounted(mountPoint)) {
+      return { mounted: true, alreadyMounted: true };
+    }
+    log.error(`ensureAppVolumeMounted - failed to mount ${volumeFile} at ${mountPoint}: ${mountRes.error.message}`);
+    return { mounted: false, reason: `mount_failed: ${mountRes.error.message}` };
+  }
+
+  log.info(`ensureAppVolumeMounted - mounted ${volumeFile} at ${mountPoint}`);
+  return { mounted: true, alreadyMounted: false };
+}
 
 async function verifyAppVolumeMount(appName, isComponent, componentName) {
   const identifier = isComponent ? `${componentName}_${appName}` : appName;
@@ -68,6 +189,14 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   const appId = dockerService.getAppIdentifier(identifier);
 
+  // Structure created on the bare app dir would land on the host filesystem
+  // instead of the app's volume, so the volume must be mounted first - and it
+  // is level-based desired state, so mount it rather than merely assert.
+  const volumeMount = await ensureAppVolumeMounted(identifier);
+  if (!volumeMount.mounted) {
+    throw new Error(`Data volume for ${appId} is not mounted (${volumeMount.reason}); refusing to create mount paths on the bare directory`);
+  }
+
   let parsedMounts;
   try {
     parsedMounts = mountParser.parseContainerData(appSpecifications.containerData);
@@ -125,6 +254,14 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
       }
 
       const componentAppId = dockerService.getAppIdentifier(componentIdentifier);
+
+      // the referenced component's own volume must back anything we create there
+      // eslint-disable-next-line no-await-in-loop
+      const refVolumeMount = await ensureAppVolumeMounted(componentIdentifier);
+      if (!refVolumeMount.mounted) {
+        throw new Error(`Data volume for referenced component ${componentAppId} is not mounted (${refVolumeMount.reason})`);
+      }
+
       const fullPath = mount.subdir === 'appdata'
         ? `${appsFolder}${componentAppId}/appdata`
         : `${appsFolder}${componentAppId}/${mount.subdir}`;
@@ -148,4 +285,7 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
 module.exports = {
   verifyAppVolumeMount,
   ensureMountPathsExist,
+  isPathMounted,
+  getVolumeFilePath,
+  ensureAppVolumeMounted,
 };

@@ -1,9 +1,9 @@
 const config = require('config');
 const util = require('util');
 const df = require('node-df');
+const fs = require('node:fs');
 const path = require('node:path');
 const nodecmd = require('node-cmd');
-const systemcrontab = require('crontab');
 const axios = require('axios');
 const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
@@ -25,6 +25,8 @@ const {
   globalAppsMessages,
   globalAppsLocations,
   appsFolder,
+  appVolumesPath,
+  legacyAppVolumesPath,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -48,8 +50,19 @@ const timeTostartNewMasterApp = new Map();
 
 // Promisified functions
 const cmdAsync = util.promisify(nodecmd.run);
-const crontabLoad = util.promisify(systemcrontab.load);
-const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
+
+/**
+ * Runs a command as root via execFile (no shell, args passed as params) and
+ * throws on failure, preserving the throw-to-cleanup flow of volume
+ * construction.
+ * @param {string} cmd Binary to run.
+ * @param {string[]} params Arguments.
+ * @returns {Promise<void>}
+ */
+async function execAsRoot(cmd, params) {
+  const result = await serviceHelper.runCommand(cmd, { runAsRoot: true, params });
+  if (result.error) throw result.error;
+}
 
 // We need to avoid circular dependency, so we'll implement getInstalledAppsForDocker locally
 // eslint-disable-next-line no-unused-vars
@@ -493,14 +506,15 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       if (res.flush) res.flush();
     }
 
-    let execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted
+    // volume image path: at the root of the chosen host volume, or in the
+    // appvolumes directory when the root filesystem hosts it
+    let volumeFile = path.join(useThisVolume.mount, `${appId}FLUXFSVOL`);
     if (useThisVolume.mount === '/') {
-      const execMkdir = `sudo mkdir -p ${fluxDirPath}appvolumes`;
-      await cmdAsync(execMkdir);
-      execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`; // if root mount then temp file is /flu/appvolumes
+      await execAsRoot('mkdir', ['-p', appVolumesPath]);
+      volumeFile = path.join(appVolumesPath, `${appId}FLUXFSVOL`);
     }
 
-    await cmdAsync(execDD);
+    await execAsRoot('fallocate', ['-l', `${appSpecifications.hdd}G`, volumeFile]);
     const allocateSpace2 = {
       status: 'Space allocated',
     };
@@ -518,11 +532,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(makeFilesystem));
       if (res.flush) res.flush();
     }
-    let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${appId}FLUXFSVOL`;
-    if (useThisVolume.mount === '/') {
-      execFS = `sudo mke2fs -t ext4 ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
-    }
-    await cmdAsync(execFS);
+    await execAsRoot('mke2fs', ['-t', 'ext4', volumeFile]);
     const makeFilesystem2 = {
       status: 'Filesystem created',
     };
@@ -540,8 +550,21 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(makeDirectory));
       if (res.flush) res.flush();
     }
-    const execDIR = `sudo mkdir -p ${appsFolder + appId}`;
-    await cmdAsync(execDIR);
+    const appDir = path.join(appsFolder, appId);
+    await execAsRoot('mkdir', ['-p', appDir]);
+
+    // The empty bare mountpoint is locked immutable before mounting so writes
+    // through it while the volume is unmounted (a syncthing pull, the
+    // container bind, a stray marker creation) fail with EPERM instead of
+    // silently landing on the host filesystem. The mounted volume shadows the
+    // flag. Both fleet filesystems (ext4, XFS) support it, so a failure is an
+    // anomaly - but the flag is defense-in-depth on top of the mount itself,
+    // so it must never fail the install.
+    const chattr = await serviceHelper.runCommand('chattr', { runAsRoot: true, params: ['+i', appDir], logError: false });
+    if (chattr.error) {
+      log.error(`createAppVolume - could not set ${appDir} immutable (unexpected on ext4/XFS): ${chattr.error.message}`);
+    }
+
     const makeDirectory2 = {
       status: 'Directory made',
     };
@@ -559,14 +582,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(mountingStatus));
       if (res.flush) res.flush();
     }
-    let volumeFile = `${useThisVolume.mount}/${appId}FLUXFSVOL`;
-    if (useThisVolume.mount === '/') {
-      volumeFile = `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
-    }
-    // Wait for volume file to exist (handles encrypted volumes not yet mounted after reboot)
-    // This ensures @reboot cron jobs don't fail when the encrypted partition isn't ready
-    const execMount = `while [ ! -f ${volumeFile} ]; do sleep 5; done && sudo mount -o loop ${volumeFile} ${appsFolder + appId}`;
-    await cmdAsync(`sudo mount -o loop ${volumeFile} ${appsFolder + appId}`);
+    await execAsRoot('mount', ['-o', 'loop', volumeFile, appDir]);
     const mountingStatus2 = {
       status: 'Volume mounted',
     };
@@ -585,8 +601,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(makeAppDataDir));
       if (res.flush) res.flush();
     }
-    const execAppdataDir = `sudo mkdir -p ${appsFolder + appId}/appdata`;
-    await cmdAsync(execAppdataDir);
+    await execAsRoot('mkdir', ['-p', path.join(appDir, 'appdata')]);
     const makeAppDataDir2 = {
       status: 'Appdata directory created',
     };
@@ -642,10 +657,11 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         }
 
         // Create file directly at same level as appdata with 777 permissions
-        const filePath = `${appsFolder + appId}/${pathInfo.name}`;
-        const execCommands = `sudo touch ${filePath} && sudo chmod 777 ${filePath}`;
+        const filePath = path.join(appDir, pathInfo.name);
         // eslint-disable-next-line no-await-in-loop
-        await cmdAsync(execCommands);
+        await execAsRoot('touch', [filePath]);
+        // eslint-disable-next-line no-await-in-loop
+        await execAsRoot('chmod', ['777', filePath]);
 
         log.info(`File mount created with 777 permissions: ${pathInfo.name}`);
 
@@ -667,9 +683,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           res.write(serviceHelper.ensureString(createDirStatus));
           if (res.flush) res.flush();
         }
-        const execSubDIR = `sudo mkdir -p ${appsFolder + appId}/${pathInfo.name}`;
         // eslint-disable-next-line no-await-in-loop
-        await cmdAsync(execSubDIR);
+        await execAsRoot('mkdir', ['-p', path.join(appDir, pathInfo.name)]);
         const createDirStatus2 = {
           status: `Directory created: ${pathInfo.name}`,
         };
@@ -698,10 +713,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(permissionsDirectory));
       if (res.flush) res.flush();
     }
-    const execPERM = `sudo chmod 777 ${appsFolder + appId}`;
-    await cmdAsync(execPERM);
-    const execPERMdata = `sudo chmod 777 ${appsFolder + appId}/appdata`;
-    await cmdAsync(execPERMdata);
+    await execAsRoot('chmod', ['777', appDir]);
+    await execAsRoot('chmod', ['777', path.join(appDir, 'appdata')]);
 
     // Set permissions for all created paths (appdata and additional mounts at same level)
     // eslint-disable-next-line no-restricted-syntax
@@ -710,9 +723,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       if (pathInfo.name === 'appdata') {
         continue; // eslint-disable-line no-continue
       }
-      const execPERMpath = `sudo chmod 777 ${appsFolder + appId}/${pathInfo.name}`;
       // eslint-disable-next-line no-await-in-loop
-      await cmdAsync(execPERMpath);
+      await execAsRoot('chmod', ['777', path.join(appDir, pathInfo.name)]);
     }
     const permissionsDirectory2 = {
       status: 'Permissions adjusted',
@@ -737,9 +749,12 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         res.write(serviceHelper.ensureString(stFolderCreation));
         if (res.flush) res.flush();
       }
-      // Create .stfolder in parent directory for syncthing (not inside appdata)
-      const execDIRst = `sudo mkdir -p ${appsFolder + appId}/.stfolder`;
-      await cmdAsync(execDIRst);
+      // Create .stfolder in parent directory for syncthing (not inside appdata).
+      // The marker lives INSIDE the mounted volume, never on the bare
+      // mountpoint - it is syncthing's own guard against syncing an unmounted
+      // dir, and the immutable bare mountpoint guarantees it can never be
+      // recreated there.
+      await execAsRoot('mkdir', ['-p', path.join(appDir, '.stfolder')]);
       const stFolderCreation2 = {
         status: '.stfolder created',
       };
@@ -749,10 +764,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         if (res.flush) res.flush();
       }
 
-      // Create .stignore file to exclude backup directory (in parent directory)
-      const stignore = `sudo echo '/backup' >| ${appsFolder + appId}/.stignore`;
-      log.info(stignore);
-      await cmdAsync(stignore);
+      // Create .stignore file to exclude backup directory (in parent
+      // directory; the app dir is 777 by now so no elevation is needed)
+      await fs.promises.writeFile(path.join(appDir, '.stignore'), '/backup\n');
       const stiFileCreation = {
         status: '.stignore created',
       };
@@ -763,46 +777,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       }
     }
 
-    const cronStatus = {
-      status: 'Creating crontab...',
-    };
-    log.info(cronStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(cronStatus));
-      if (res.flush) res.flush();
-    }
-    const crontab = await crontabLoad();
-    const jobs = crontab.jobs();
-    let exists = false;
-    jobs.forEach((job) => {
-      if (job.comment() === appId) {
-        exists = true;
-      }
-      if (!job || !job.isValid()) {
-        // remove the job as its invalid anyway
-        crontab.remove(job);
-      }
-    });
-    if (!exists) {
-      const job = crontab.create(execMount, '@reboot', appId);
-      // check valid
-      if (job == null) {
-        throw new Error('Failed to create a cron job');
-      }
-      if (!job.isValid()) {
-        throw new Error('Failed to create a valid cron job');
-      }
-      // save
-      crontab.save();
-    }
-    const cronStatusB = {
-      status: 'Crontab adjusted.',
-    };
-    log.info(cronStatusB);
-    if (res) {
-      res.write(serviceHelper.ensureString(cronStatusB));
-      if (res.flush) res.flush();
-    }
+    // No @reboot crontab entry: remounting after reboot is owned by FluxOS
+    // itself (startup mount pass + reconciler), which re-asserts the mount as
+    // desired state instead of depending on an unreconciled crontab line.
     const message = messageHelper.createSuccessMessage('Flux App volume creation completed.');
     return message;
   } catch (error) {
@@ -817,19 +794,19 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(cleaningRemoval));
       if (res.flush) res.flush();
     }
-    // Unmount the volume if it's mounted
-    const execUnmount = `sudo umount ${appsFolder + appId}`;
-    // eslint-disable-next-line no-unused-vars
-    await cmdAsync(execUnmount).catch((_e) => {
+    const appDir = path.join(appsFolder, appId);
+    // Unmount the volume if it's mounted (failure = was not mounted, fine)
+    const unmount = await serviceHelper.runCommand('umount', { runAsRoot: true, params: [appDir], logError: false });
+    if (unmount.error) {
       log.warn('Volume not mounted or already unmounted during cleanup');
-    });
-    let execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}/${appId}FLUXFSVOL`;
-    if (useThisVolume.mount === '/') {
-      execRemoveAlloc = `sudo rm -rf ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
     }
-    await cmdAsync(execRemoveAlloc).catch((e) => log.error(e));
-    const execFinal = `sudo rm -rf ${appsFolder + appId}`;
-    await cmdAsync(execFinal).catch((e) => log.error(e));
+    const volumeFile = useThisVolume.mount === '/'
+      ? path.join(appVolumesPath, `${appId}FLUXFSVOL`)
+      : path.join(useThisVolume.mount, `${appId}FLUXFSVOL`);
+    await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', volumeFile] });
+    // clear the immutable flag set before mounting, or the removal fails
+    await serviceHelper.runCommand('chattr', { runAsRoot: true, params: ['-i', appDir], logError: false });
+    await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', appDir] });
     const aloocationRemoval2 = {
       status: 'Pre-removal cleaning completed. Forcing removal.',
     };
@@ -2444,29 +2421,29 @@ async function appendRestoreTask(req, res) {
 async function removeTestAppMount(specifiedVolume) {
   try {
     const appId = 'flux_fluxTestVol';
+    const appDir = path.join(appsFolder, appId);
     log.info('Mount Test: Unmounting volume');
-    const execUnmount = `sudo umount ${appsFolder + appId}`;
-    await cmdAsync(execUnmount).then(() => {
+    const unmount = await serviceHelper.runCommand('umount', { runAsRoot: true, params: [appDir], logError: false });
+    if (unmount.error) {
+      log.info('Mount Test: Volume not mounted. Continuing. Most likely false positive.');
+    } else {
       log.info('Mount Test: Volume unmounted');
-    }).catch((e) => {
-      log.error(e);
-      log.error('Mount Test: An error occured while unmounting volume. Continuing. Most likely false positive.');
-    });
+    }
 
     log.info('Mount Test: Cleaning up data');
-    const execDelete = `sudo rm -rf ${appsFolder + appId}`;
-    await cmdAsync(execDelete).catch((e) => {
-      log.error(e);
-      log.error('Mount Test: An error occured while cleaning up data. Continuing. Most likely false positive.');
-    });
+    await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', appDir] });
     log.info('Mount Test: Data cleaned');
     log.info('Mount Test: Cleaning up data volume');
-    const volumeToRemove = specifiedVolume || `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
-    const execVolumeDelete = `sudo rm -rf ${volumeToRemove}`;
-    await cmdAsync(execVolumeDelete).catch((e) => {
-      log.error(e);
-      log.error('Mount Test: An error occured while cleaning up volume. Continuing. Most likely false positive.');
-    });
+    const volumesToRemove = specifiedVolume
+      ? [specifiedVolume]
+      // no volume given: remove from both the current location and the legacy
+      // glued location a previous FluxOS version may have left an image at
+      : [path.join(appVolumesPath, `${appId}FLUXFSVOL`), path.join(legacyAppVolumesPath, `${appId}FLUXFSVOL`)];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const volumeToRemove of volumesToRemove) {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', volumeToRemove] });
+    }
     log.info('Mount Test: Volume cleaned');
   } catch (error) {
     log.error('Mount Test Removal: Error');
@@ -2529,32 +2506,26 @@ async function testAppMount() {
     log.info('Mount Test: Space found');
     log.info('Mount Test: Allocating space...');
 
-    let volumePath = `${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted/
+    let volumePath = path.join(useThisVolume.mount, `${appId}FLUXFSVOL`); // eg /mnt/sthMounted
     if (useThisVolume.mount === '/') {
-      const execMkdir = `sudo mkdir -p ${fluxDirPath}appvolumes`;
-      await cmdAsync(execMkdir);
-      volumePath = `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;// if root mount then temp file is in flux folder/appvolumes
+      await execAsRoot('mkdir', ['-p', appVolumesPath]);
+      volumePath = path.join(appVolumesPath, `${appId}FLUXFSVOL`); // if root mount then temp file is in flux folder/appvolumes
     }
 
-    const execDD = `sudo fallocate -l ${appSize}G ${volumePath}`;
-
-    await cmdAsync(execDD);
+    await execAsRoot('fallocate', ['-l', `${appSize}G`, volumePath]);
 
     log.info('Mount Test: Space allocated');
     log.info('Mount Test: Creating filesystem...');
 
-    const execFS = `sudo mke2fs -t ext4 ${volumePath}`;
-    await cmdAsync(execFS);
+    await execAsRoot('mke2fs', ['-t', 'ext4', volumePath]);
     log.info('Mount Test: Filesystem created');
     log.info('Mount Test: Making directory...');
 
-    const execDIR = `sudo mkdir -p ${appsFolder + appId}`;
-    await cmdAsync(execDIR);
+    await execAsRoot('mkdir', ['-p', path.join(appsFolder, appId)]);
     log.info('Mount Test: Directory made');
     log.info('Mount Test: Mounting volume...');
 
-    const execMount = `sudo mount -o loop ${volumePath} ${appsFolder + appId}`;
-    await cmdAsync(execMount);
+    await execAsRoot('mount', ['-o', 'loop', volumePath, path.join(appsFolder, appId)]);
     log.info('Mount Test: Volume mounted. Test completed.');
     dosMountMessage = '';
     // run removal
@@ -3722,7 +3693,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         // eslint-disable-next-line no-await-in-loop
         const fdmResult = await getMasterIpFromFdm(installedApp.name, axiosOptions);
         const { ip } = fdmResult;
-        fdmOk = fdmResult.fdmOk;
+        ({ fdmOk } = fdmResult);
 
         if (!fdmOk) {
           log.warn(`masterSlaveApps: All FDM services failed for app:${installedApp.name}, skipping primary selection for this cycle`);

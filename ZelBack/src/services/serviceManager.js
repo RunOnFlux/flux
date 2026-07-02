@@ -66,14 +66,16 @@ const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
 const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
 
-const bootDelayMultiplier = config.fluxapps.bootDelayMultiplier;
+const { bootDelayMultiplier } = config.fluxapps;
 function bootDelay(ms) { return Math.round(ms * bootDelayMultiplier); }
 
-const portRestoreIntervalMs = config.fluxapps.portRestoreIntervalMs;
-const cpuCheckIntervalMs = config.fluxapps.cpuCheckIntervalMs;
-const imageComplianceIntervalMs = config.fluxapps.imageComplianceIntervalMs;
-const forceRemovalIntervalMs = config.fluxapps.forceRemovalIntervalMs;
-const tempMsgTtlS = config.fluxapps.tempMsgTtlS;
+const {
+  portRestoreIntervalMs,
+  cpuCheckIntervalMs,
+  imageComplianceIntervalMs,
+  forceRemovalIntervalMs,
+  tempMsgTtlS,
+} = config.fluxapps;
 
 // State objects for monitoring services
 const dosState = {
@@ -356,7 +358,8 @@ async function startFluxFunctions() {
       fluxCommunication.startDiscovery();
       log.info('Flux Discovery started');
     }
-    // Cleanup and fix crontab mount entries (add wait logic, remove stale entries, ensure mounts are active)
+    // Mount every installed app's data volume (derived from the installed-apps
+    // DB) and drop the superseded legacy @reboot remount crontab entries
     log.info('crontab and mounts cleanup...');
     await crontabAndMountsCleanup.cleanupCrontabAndMounts().catch((error) => {
       log.error(`Crontab and mounts cleanup service error: ${error.message}`);
@@ -419,7 +422,7 @@ async function startFluxFunctions() {
 
     // Services that read from zelappsinformation wait for the orchestrator
     // to finish rebuilding it rather than guessing a setTimeout delay.
-    async function startDbDependentServices() {
+    const startDbDependentServices = async () => {
       await globalState.waitForDbReady();
       log.info('DB ready - starting db-dependent services');
       advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
@@ -433,7 +436,7 @@ async function startFluxFunctions() {
       setInterval(() => {
         portManager.restorePortsSupport();
       }, portRestoreIntervalMs);
-    }
+    };
     startDbDependentServices();
     log.info('Starting setting Node Geolocation');
     geolocationService.setNodeGeolocation();

@@ -98,6 +98,15 @@ function notifyContainerStarted(identifier) {
 // completion, so this is just a backstop)
 const MANAGED_RETRY_MS = 5000;
 
+// an unmountable volume usually means its host filesystem is still coming up
+// (e.g. the encrypted data partition after a reboot) - retry on a pace that
+// won't spam, and keep deferring until it mounts
+const VOLUME_MOUNT_RETRY_MS = 30 * 1000;
+
+// identifiers whose missing backing image was already recorded as a tampering
+// event, so the paced retries don't re-record it every cycle
+const volumeMissingNoted = new Set();
+
 // The reconciler's canonical id is the bare component identifier
 // (`{component}_{app}`). Deciders disagree on the form they pass — masterSlave
 // uses the bare identifier, the syncthing flow passes the flux-prefixed docker
@@ -352,6 +361,32 @@ async function reconcile(rawIdentifier) {
     return;
   }
 
+  const mainAppName = identifier.split('_')[1] || identifier;
+
+  // The component's data volume is level-based desired state owned HERE, not by
+  // a @reboot crontab (unreconciled - its silent loss left volumes unmounted
+  // after reboot). It must be mounted before ANY actuation touches the app dir:
+  // a data wipe, mount-path creation or container start against the bare
+  // mountpoint writes to the host filesystem instead of the volume. It matters
+  // even while the container stays stopped - a g:/r: component's syncthing
+  // folder lives on it. An app whose volume cannot be mounted stays inert.
+  const volumeMount = await volumeService.ensureAppVolumeMounted(identifier);
+  if (!volumeMount.mounted) {
+    log.error(`appReconciler - ${identifier} data volume not mounted (${volumeMount.reason}); deferring all actuation`);
+    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeUnavailable', reason: volumeMount.reason });
+    if (volumeMount.reason === 'volume_file_missing' && !volumeMissingNoted.has(identifier)) {
+      volumeMissingNoted.add(identifier);
+      await appTamperingDetectionService.recordEvent(mainAppName, 'volume_missing', `Backing volume image for ${identifier} not found on disk`);
+    }
+    scheduleRetry(identifier, VOLUME_MOUNT_RETRY_MS);
+    return;
+  }
+  volumeMissingNoted.delete(identifier);
+  if (!volumeMount.alreadyMounted) {
+    log.info(`appReconciler - mounted data volume for ${identifier}`);
+    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeMounted' });
+  }
+
   const actual = await dockerActual(identifier);
 
   // docker unreachable (e.g. dockerd restarting): defer rather than misread the
@@ -443,7 +478,6 @@ async function reconcile(rawIdentifier) {
   // Recreate any bind-mount paths removed while the container was stopped (e.g.
   // Syncthing cleanup of a g:/r: data folder) before starting — otherwise the
   // start fails on a missing mount source and the app backoff-loops forever.
-  const mainAppName = identifier.split('_')[1] || identifier;
   const isComponent = spec.appSpec.version >= 4 && Array.isArray(spec.appSpec.compose);
   await volumeService.ensureMountPathsExist(spec.comp, mainAppName, isComponent, isComponent ? spec.appSpec : null);
 
