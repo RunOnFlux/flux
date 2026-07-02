@@ -149,7 +149,17 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
       `docker stop ${appId(leakName)} >/dev/null 2>&1; umount ${dir} && chattr -i ${dir} && touch ${dir}/leaked.db && rm -f ${volFile(leakName)}`);
     expect(r.exitCode, `leak-state setup failed: ${r.output}`).to.equal(0);
 
+    // ground truth for the mount views: layers per /proc in the exec namespace
+    // vs the FluxOS process's namespace (they have diverged in past runs)
+    const probe = await execInContainer(client.container,
+      `FPID=$(cat /tmp/fluxos.pid); echo EXEC_LAYERS:$(grep -c "${appId(leakName)}" /proc/self/mountinfo); echo FLUX_LAYERS:$(grep -c "${appId(leakName)}" /proc/$FPID/mountinfo); echo DIR:$(ls -a ${dir} | tr "\n" ",")`);
+    console.log(`      [mount-probe after setup] ${probe.output.trim().replace(/\n/g, ' | ')}`);
+
     // content must NOT buy a pass: the folder is demoted and the container held
+    await new Promise((resolve) => { setTimeout(resolve, 9000); });
+    const probe2 = await execInContainer(client.container,
+      `FPID=$(cat /tmp/fluxos.pid); echo EXEC_LAYERS:$(grep -c "${appId(leakName)}" /proc/self/mountinfo); echo FLUX_LAYERS:$(grep -c "${appId(leakName)}" /proc/$FPID/mountinfo)`);
+    console.log(`      [mount-probe +9s] ${probe2.output.trim().replace(/\n/g, ' | ')}`);
     await waitFor(async () => (await folderType(ip0, leakFolder)) === 'receiveonly', { timeout: 60000, interval: 3000, label: 'leaked folder demoted to receiveonly' });
     await waitForReconcilerDesiredChanged(client, leakIdentifier, 'stopped', 60000, { afterId });
     await assertNoEvent(client, 'reconciler:actuated', (d) => d.identifier === leakIdentifier && d.action === 'started', 15000);
