@@ -145,26 +145,22 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // recreate the incident state: volume unmounted and unrepairable (image
     // gone), with data leaked onto the bare host dir. chattr -i first - the
     // leak predates the immutable-mountpoint fix on real incident nodes.
+    // Deliberately do NOT stop the container: a die event triggers an
+    // immediate reconcile, whose level-based mount ownership re-mounts the
+    // volume and restarts the app before the image can be removed (the
+    // self-heal beat this test's teardown in every earlier run). A lazy
+    // unmount detaches the dir under the running container instead; stopping
+    // the app is then the GUARD's job, which is exactly what this test is for.
     const r = await execInContainer(client.container,
-      `L() { grep "${appId(leakName)}" /proc/self/mountinfo; }; echo "PRE:"; L; docker stop ${appId(leakName)} >/dev/null 2>&1; echo "POSTSTOP:"; L; umount ${dir}; U=$?; echo "UMOUNT_RC:$U POSTUMOUNT:"; L; losetup -a | grep "${appId(leakName)}"; [ $U -eq 0 ] && chattr -i ${dir} && touch ${dir}/leaked.db && rm -f ${volFile(leakName)} && echo SETUP_OK`);
-    console.log(`      [setup trace]\n${r.output.trim().split('\n').map((l) => `        ${l}`).join('\n')}`);
-    expect(r.output, `leak-state setup failed: ${r.output}`).to.include('SETUP_OK');
+      `umount -l ${dir} && chattr -i ${dir} && touch ${dir}/leaked.db && rm -f ${volFile(leakName)}`);
+    expect(r.exitCode, `leak-state setup failed: ${r.output}`).to.equal(0);
 
-    // ground truth for the mount views: layers per /proc in the exec namespace
-    // vs the FluxOS process's namespace (they have diverged in past runs)
-    const probe = await execInContainer(client.container,
-      `FPID=$(cat /tmp/fluxos.pid); echo EXEC_LAYERS:$(grep -c "${appId(leakName)}" /proc/self/mountinfo); echo FLUX_LAYERS:$(grep -c "${appId(leakName)}" /proc/$FPID/mountinfo); echo DIR:$(ls -a ${dir} | tr "\n" ",")`);
-    console.log(`      [mount-probe after setup] ${probe.output.trim().replace(/\n/g, ' | ')}`);
-
-    // content must NOT buy a pass: the folder is demoted and the container held
-    await new Promise((resolve) => { setTimeout(resolve, 9000); });
-    const probe2 = await execInContainer(client.container,
-      `FPID=$(cat /tmp/fluxos.pid); echo EXEC_LAYERS:$(grep -c "${appId(leakName)}" /proc/self/mountinfo); echo FLUX_LAYERS:$(grep -c "${appId(leakName)}" /proc/$FPID/mountinfo)`);
-    console.log(`      [mount-probe +9s] ${probe2.output.trim().replace(/\n/g, ' | ')}`);
+    // content must NOT buy a pass: the folder is demoted and the container
+    // stopped by the mount-safety hold (no help from the test this time)
     await waitFor(async () => (await folderType(ip0, leakFolder)) === 'receiveonly', { timeout: 60000, interval: 3000, label: 'leaked folder demoted to receiveonly' });
     await waitForReconcilerDesiredChanged(client, leakIdentifier, 'stopped', 60000, { afterId });
+    await waitFor(async () => !(await isUp(client, leakName)), { timeout: 60000, interval: 2000, label: 'leak app container held (stopped)' });
     await assertNoEvent(client, 'reconciler:actuated', (d) => d.identifier === leakIdentifier && d.action === 'started', 15000);
-    expect(await isUp(client, leakName)).to.equal(false);
   });
 
   it('never recreates the .stfolder marker on the bare unmounted dir', async function () {
