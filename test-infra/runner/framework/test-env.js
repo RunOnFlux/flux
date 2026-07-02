@@ -263,7 +263,28 @@ function makeEnvShell(networkName) {
       await closeDb();
       const cleanupClient = await getContainerRuntimeClient();
       for (const volName of volumeNames) {
-        await cleanupClient.container.dockerode.getVolume(volName).remove().catch((e) => warn(`volume ${volName}`, e));
+        const volume = cleanupClient.container.dockerode.getVolume(volName);
+        try {
+          await volume.remove();
+        } catch (firstErr) {
+          // The in-container sweep above misses nodes that crashed or never got
+          // a client (boot failure), and their immutable app dirs EPERM the
+          // volume delete. Strip the flags from the volume side with a
+          // throwaway container and retry, so even a wedged fleet cleans up.
+          try {
+            const helper = await cleanupClient.container.dockerode.createContainer({
+              Image: 'flux-e2e-fluxos-01',
+              Entrypoint: ['bash', '-c', 'chattr -R -i /v 2>/dev/null; true'],
+              HostConfig: { Binds: [`${volName}:/v`], CapAdd: ['LINUX_IMMUTABLE'] },
+            });
+            await helper.start();
+            await helper.wait();
+            await helper.remove({ force: true }).catch(() => {});
+            await volume.remove();
+          } catch (retryErr) {
+            warn(`volume ${volName}`, firstErr);
+          }
+        }
       }
       await removeNetwork(networkName);
       for (const cfg of nodeConfigs) {
