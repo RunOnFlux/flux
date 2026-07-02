@@ -17,6 +17,7 @@ import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
 import { getSubnetConfig, REGISTRY_ALIAS, REGISTRY_REPO_HOST } from './subnet-config.js';
 import { closeDb } from './db-client.js';
 import { stubPeerClient } from './stub-peer-helper.js';
+import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey, nodeKey } from './keys.js';
@@ -612,6 +613,13 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .start();
   started.push(registry);
   containers.registry = registry;
+
+  // Seed the default spec image so every env's registry can satisfy
+  // registration verification and installs for buildAppSpec/buildSeedableApp
+  // defaults BY CONSTRUCTION - no per-suite push incantation. The image is
+  // synthesized in memory (static pause binary + marker; see registry-helper),
+  // so this costs milliseconds and never contacts Docker Hub.
+  await pushImage('nginx', 'alpine');
 
   const rtClient = await getContainerRuntimeClient();
   const { getReaper: getReaperFn } = await import('testcontainers');

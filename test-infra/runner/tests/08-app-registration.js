@@ -8,17 +8,14 @@ import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import { waitForDaemonReady, waitFor, waitForBlockProcessed, waitForNodeStatus } from '../framework/wait.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import { pushImage } from '../framework/registry-helper.js';
 
 let env;
 
 describe('App registration', function () {
+  dumpLogsOnFailure(() => env);
   before(async function () {
     this.timeout(300000);
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
-    // the default spec's repotag points at the harness registry; the image
-    // must exist there for registration verification to pass
-    await pushImage('nginx', 'alpine');
     await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await advanceBlock();

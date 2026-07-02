@@ -46,9 +46,23 @@ const defaultSpec = {
   enterprise: '',
 };
 
-export function buildAppSpec({ enterprise = false, ...overrides } = {}) {
+// Every repotag must name the harness registry: anything else is verified or
+// pulled over live internet, silently coupling the suite to Docker Hub uptime
+// and rate limits (429s failed suites 07/08/09 in the 2026-07-02 gate). A test
+// that deliberately needs an external/unreachable repotag opts out explicitly.
+export function assertHermeticRepotags(spec, allowExternalRepotag) {
+  if (allowExternalRepotag) return;
+  for (const comp of spec.compose || []) {
+    if (comp.repotag && !comp.repotag.startsWith(`${REGISTRY_REPO_HOST}/`)) {
+      throw new Error(`spec repotag leaves the harness: ${comp.repotag} - push to the env registry (${REGISTRY_REPO_HOST}/...) or pass allowExternalRepotag: true for an external-by-design test`);
+    }
+  }
+}
+
+export function buildAppSpec({ enterprise = false, allowExternalRepotag = false, ...overrides } = {}) {
   const ownerKey = appOwnerKey();
   const spec = { ...defaultSpec, owner: ownerKey.zelid, ...overrides };
+  assertHermeticRepotags(spec, allowExternalRepotag);
 
   if (overrides.compose) {
     spec.compose = overrides.compose;

@@ -6,7 +6,6 @@ import { buildAppSpec, registerAndConfirm } from '../framework/app-helper.js';
 import { startTicker, advanceBlock } from '../framework/daemon-control.js';
 import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForAppInstalled, waitForAppSpecStored, waitForNodeStatus } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import { pushImage } from '../framework/registry-helper.js';
 
 let env;
 
@@ -17,9 +16,6 @@ describe('App spawning', function () {
   before(async function () {
     this.timeout(300000);
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
-    // the default spec's repotag points at the harness registry; the image
-    // must exist there for registration verification to pass
-    await pushImage('nginx', 'alpine');
     for (const client of env.clients) await waitForDaemonReady(client);
     await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
     await advanceBlock();

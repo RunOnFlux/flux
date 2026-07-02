@@ -3,6 +3,7 @@ import { buildEnterpriseBlob } from './enterprise-helper.js';
 import { signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
 import { REGISTRY_REPO_HOST } from './subnet-config.js';
+import { assertHermeticRepotags } from './app-helper.js';
 
 function sha256(data) {
   return createHash('sha256').update(data).digest('hex');
@@ -21,6 +22,7 @@ export async function buildSeedableApp({
   staticip = false,
   enterprise = '',
   expire = 22000,
+  allowExternalRepotag = false,
 }) {
   const ownerKey = appOwnerKey();
   const appOwner = owner ?? ownerKey.zelid;
@@ -33,7 +35,10 @@ export async function buildSeedableApp({
     compose: compose ?? [{
       name,
       description: 'seeded component',
-      repotag: 'nginx:alpine',
+      // harness registry, never bare Docker Hub: hub repotags make installs
+      // pull over live internet (rate-limit flakes); the env registry is
+      // seeded with this image at bootstrap (test-env.js)
+      repotag: `${REGISTRY_REPO_HOST}/nginx:alpine`,
       ports: [31111],
       domains: [''],
       environmentParameters: [],
@@ -86,6 +91,7 @@ export async function buildSeedableApp({
     createdAt: new Date(),
   };
 
+  assertHermeticRepotags(spec, allowExternalRepotag);
   const specWithMeta = { ...spec, hash, height };
 
   return { spec: specWithMeta, permanentMessage, hashEntry, hash, txid };
@@ -374,7 +380,7 @@ export async function buildSeedableEnterpriseApp({ name, compose, contacts = [],
   const components = compose ?? [{
     name,
     description: 'seeded enterprise component',
-    repotag: 'nginx:alpine',
+    repotag: `${REGISTRY_REPO_HOST}/nginx:alpine`,
     ports: [31131],
     domains: [''],
     environmentParameters: [],
