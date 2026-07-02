@@ -176,6 +176,23 @@ describe('appReconciler tests', () => {
       expect(deferredLoud, 'should log the volume defer loudly').to.equal(true);
     });
 
+    it('honors a pending stop even when the data volume cannot be mounted (mount-safety hold)', async () => {
+      // a stop takes nothing from the app dir; deferring it left the incident's
+      // container running over the gutted volume with the hold unenforceable
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      try {
+        appReconciler.setControllerDesired('www_App', 'stopped', 'mount safety block: unmounted_with_content');
+        // setControllerDesired enqueues its own reconcile; wait for it to land
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+        expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+        expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
+      } finally {
+        appReconciler.clearControllerDesired('www_App');
+      }
+    });
+
     it('mounts an unmounted volume and proceeds with the start', async () => {
       stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false });
       await appReconciler.reconcile('www_App');

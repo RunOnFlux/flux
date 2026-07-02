@@ -372,6 +372,22 @@ async function reconcile(rawIdentifier) {
   // folder lives on it. An app whose volume cannot be mounted stays inert.
   const volumeMount = await volumeService.ensureAppVolumeMounted(identifier);
   if (!volumeMount.mounted) {
+    // A stop takes nothing from the app dir, and deferring it would leave the
+    // container running over a missing volume with the mount-safety hold
+    // unenforceable - the incident's app kept running through the gutted
+    // window exactly this way. Honor a pending stop; defer everything else.
+    if (controllerDesired.get(identifier) === 'stopped') {
+      try {
+        const actualNow = await dockerActual(identifier);
+        if (actualNow.reachable && !actualNow.indeterminate && actualNow.running) {
+          log.info(`appReconciler - ${identifier} data volume unavailable but a stop is desired; stopping the container`);
+          await dockerService.appDockerStop(identifier);
+          fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'controllerDesired' });
+        }
+      } catch (err) {
+        log.error(`appReconciler - ${identifier} stop under unavailable volume failed: ${err.message}`);
+      }
+    }
     log.error(`appReconciler - ${identifier} data volume not mounted (${volumeMount.reason}); deferring all actuation`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'volumeUnavailable', reason: volumeMount.reason });
     if (volumeMount.reason === 'volume_file_missing' && !volumeMissingNoted.has(identifier)) {
