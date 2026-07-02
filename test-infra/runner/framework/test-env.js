@@ -11,6 +11,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { nodeClient } from './node-client.js';
+import { execInContainer } from './container.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
 import { getSubnetConfig, REGISTRY_ALIAS, REGISTRY_REPO_HOST } from './subnet-config.js';
@@ -243,6 +244,19 @@ function makeEnvShell(networkName) {
       for (const client of clients) {
         if (client) client.disconnectEventStream();
       }
+      // FluxOS sets app mountpoints immutable (chattr +i) so an unmounted app
+      // dir rejects writes. The flag lives on the BARE dir under the loop mount
+      // and survives into the node's named volume - Docker then cannot delete
+      // the volume (EPERM) and every run leaks its node volumes. Unmount to
+      // expose the bare dirs and strip the flag while the node is still
+      // running; containers going down makes this the last chance to exec.
+      await Promise.all(clients.map(async (client) => {
+        if (!client?.container) return;
+        await execInContainer(
+          client.container,
+          'for d in /mnt/appdata/flux-apps/*/; do umount -l "$d" 2>/dev/null; done; chattr -R -i /mnt/appdata 2>/dev/null; true',
+        ).catch((e) => warn('immutable-flag sweep', e));
+      }));
       for (const c of [...started].reverse()) {
         await c.stop().catch((e) => warn('container stop', e));
       }
