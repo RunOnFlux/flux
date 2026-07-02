@@ -7,6 +7,7 @@ import { waitForDaemonReady, waitForBlockProcessed, waitFor, waitForNodeStatus }
 import { advanceBlock, startTicker } from '../framework/daemon-control.js';
 import { dbClient } from '../framework/db-client.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { pushImage } from '../framework/registry-helper.js';
 
 async function bootAndPeer(env) {
   for (const client of env.clients) {
@@ -50,6 +51,9 @@ describe('Hash sync: late-joining node', function () {
   before(async function () {
     this.timeout(300000);
     env = await createTestEnv({ hookCtx: this, nodes: 10, deferredNodes: 1, tickerAutostart: false });
+    // the default spec's repotag points at the harness registry; the image
+    // must exist there for registration verification to pass
+    await pushImage('nginx', 'alpine');
     await bootAndPeer(env);
 
     ({ appHash } = await registerApp(env));
@@ -99,6 +103,7 @@ describe('Hash sync: network partition', function () {
   before(async function () {
     this.timeout(300000);
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    await pushImage('nginx', 'alpine');
     await bootAndPeer(env);
 
     await env.disconnectNode(env.lastNodeIndex);
@@ -148,6 +153,7 @@ describe('Hash sync: stale state recovery', function () {
   before(async function () {
     this.timeout(300000);
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    await pushImage('nginx', 'alpine');
     await bootAndPeer(env);
     ({ appHash } = await registerApp(env));
 
