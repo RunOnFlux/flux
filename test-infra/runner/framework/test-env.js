@@ -254,7 +254,7 @@ function makeEnvShell(networkName) {
         if (!client?.container) return;
         await execInContainer(
           client.container,
-          'for d in /mnt/appdata/flux-apps/*/; do umount -l "$d" 2>/dev/null; done; chattr -R -i /mnt/appdata 2>/dev/null; true',
+          'for d in /mnt/appdata/flux-apps/*/; do umount -l "$d" 2>/dev/null; done; chattr -R -i /mnt/appdata/flux-apps 2>/dev/null; true',
         ).catch((e) => warn('immutable-flag sweep', e));
       }));
       for (const c of [...started].reverse()) {
@@ -274,7 +274,7 @@ function makeEnvShell(networkName) {
           try {
             const helper = await cleanupClient.container.dockerode.createContainer({
               Image: 'flux-e2e-fluxos-01',
-              Entrypoint: ['bash', '-c', 'chattr -R -i /v 2>/dev/null; true'],
+              Entrypoint: ['bash', '-c', 'chattr -R -i /v/flux-apps 2>/dev/null; true'],
               HostConfig: { Binds: [`${volName}:/v`], CapAdd: ['LINUX_IMMUTABLE'] },
             });
             await helper.start();
