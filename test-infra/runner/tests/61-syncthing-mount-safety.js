@@ -72,13 +72,13 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // if the index ever claims bytes over an empty disk, the phantom guard
     // (correctly) demotes and holds, and the app never reaches the premise.
     const leakInstallAfter = env.clients[0].getLastEventId();
-    await seedSyncthingApp(env, { name: leakName, mode: 'r', index: 0, spawnable: false });
+    await seedSyncthingApp(env, { name: leakName, mode: 'r', index: 0 });
     await waitForReconcileActuated(env.clients[0], leakIdentifier, 'dataCleared', 60000, { afterId: leakInstallAfter });
     await seedSyncScopedData(env, leakName, 0);
     await setSynced({ ip: ip0, folder: leakFolder });
 
     const phantomInstallAfter = env.clients[1].getLastEventId();
-    await seedSyncthingApp(env, { name: phantomName, mode: 'r', index: 1, spawnable: false });
+    await seedSyncthingApp(env, { name: phantomName, mode: 'r', index: 1 });
     await waitForReconcileActuated(env.clients[1], phantomIdentifier, 'dataCleared', 60000, { afterId: phantomInstallAfter });
     await seedSyncScopedData(env, phantomName, 1);
     await setSynced({ ip: ip1, folder: phantomFolder });

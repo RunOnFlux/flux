@@ -65,7 +65,6 @@ async function installPlainApp(env, name, index, port) {
   await pushImage(name, 'v1');
   const app = await buildSeedableApp({
     name,
-    expire: 50, // spawner must never respawn a deliberately-held test app
     compose: [{
       name,
       description: 'test container',
@@ -109,7 +108,7 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     // index claiming bytes over an empty disk is the phantom state the guard
     // demotes, and the demote/hold would latch the app down mid-suite
     const syncInstallAfter = env.clients[0].getLastEventId();
-    await seedSyncthingApp(env, { name: syncName, mode: 'r', index: 0, spawnable: false });
+    await seedSyncthingApp(env, { name: syncName, mode: 'r', index: 0 });
     await waitForReconcileActuated(env.clients[0], syncIdentifier, 'dataCleared', 60000, { afterId: syncInstallAfter });
     await seedSyncScopedData(env, syncName, 0);
     // pin the folder synced so the leader promotes and the app runs steadily
@@ -121,7 +120,6 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     await pushImage(entName, 'v1');
     const entApp = await buildSeedableEnterpriseApp({
       name: entName,
-      expire: 50, // spawner must never respawn a deliberately-held test app
       compose: [{
         name: entName,
         description: 'test container',
@@ -285,6 +283,10 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     expect(row, 'enterprise app row present in local DB').to.exist;
     expect(row.compose, 'compose stored empty for enterprise').to.deep.equal([]);
     expect(row.enterprise, 'enterprise blob stored').to.be.a('string').and.not.equal('');
+    // a local row stored without height is force-removed by the expiry sweep's
+    // missing-height check - the install path must preserve it through the
+    // enterprise decrypt+format
+    expect(row.height, 'local row must keep spec height').to.be.a('number').greaterThan(0);
 
     // the incident state: no remount entry exists anywhere
     await execInContainer(client.container, 'crontab -r 2>/dev/null || true');
