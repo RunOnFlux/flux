@@ -1,12 +1,13 @@
 // Syncthing Folder State Machine - Manages folder sync transitions
-const util = require('util');
-const nodecmd = require('node-cmd');
+const fs = require('node:fs');
+const path = require('node:path');
 const log = require('../../lib/log');
 const dockerService = require('../dockerService');
 const appReconciler = require('./appReconciler');
 const appUninstaller = require('../appLifecycle/appUninstaller');
 const syncthingService = require('../syncthingService');
 const serviceHelper = require('../serviceHelper');
+const volumeService = require('../utils/volumeService');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
@@ -21,23 +22,44 @@ const {
   ACTIVE_FOLDER_STATES,
 } = require('./syncthingMonitorConstants');
 
-const cmdAsync = util.promisify(nodecmd.run);
+const { isPathMounted } = volumeService;
 
 /**
- * Check if a path is a mount point (has a filesystem mounted on it)
- * This detects if loop devices or other filesystems are properly mounted
- * @param {string} dirPath - Directory path to check
- * @returns {Promise<boolean>} True if path is a mount point
+ * Counts regular files under a directory (recursive, early exit at `limit`),
+ * optionally skipping file names and directory subtrees. Pure fs - no child
+ * process, no shell, and immune to the output-buffer truncation a
+ * `find | wc` pipeline hits on huge trees (where a truncated listing could
+ * make a safety guard misread a populated folder as empty).
+ * @param {string} dirPath - Directory to scan
+ * @param {number} limit - Stop counting once this many files are found
+ * @param {{excludeNames?: string[], excludeDirs?: string[]}} options - Skips
+ * @returns {Promise<number>} Number of files found (capped at limit)
  */
-async function isPathMounted(dirPath) {
-  try {
-    // mountpoint command returns 0 if path is a mount point
-    await cmdAsync(`mountpoint -q ${dirPath}`);
-    return true;
-  } catch (error) {
-    // mountpoint returns non-zero if not a mount point
-    return false;
+async function countFilesUpTo(dirPath, limit, { excludeNames = [], excludeDirs = [] } = {}) {
+  let count = 0;
+  const pending = [dirPath];
+  while (pending.length > 0 && count < limit) {
+    const current = pending.pop();
+    let entries;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      entries = await fs.promises.readdir(current, { withFileTypes: true });
+    } catch (error) {
+      // unreadable/missing directory - skip it, like find does
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (!excludeDirs.includes(entry.name)) pending.push(path.join(current, entry.name));
+      } else if (entry.isFile() && !excludeNames.includes(entry.name)) {
+        count += 1;
+        if (count >= limit) break;
+      }
+    }
   }
+  return count;
 }
 
 /**
@@ -46,18 +68,30 @@ async function isPathMounted(dirPath) {
  * @returns {Promise<{hasContent: boolean, fileCount: number}>} Content status
  */
 async function checkDirectoryHasContent(dirPath) {
-  try {
-    // Count files in directory (excluding . and ..)
-    const result = await cmdAsync(`find ${dirPath} -type f 2>/dev/null | head -100 | wc -l`);
-    const fileCount = parseInt(result.toString().trim(), 10) || 0;
-    return {
-      hasContent: fileCount > 0,
-      fileCount,
-    };
-  } catch (error) {
-    log.warn(`checkDirectoryHasContent - Error checking ${dirPath}: ${error.message}`);
-    return { hasContent: false, fileCount: 0 };
-  }
+  const fileCount = await countFilesUpTo(dirPath, 100);
+  return {
+    hasContent: fileCount > 0,
+    fileCount,
+  };
+}
+
+/**
+ * Like checkDirectoryHasContent, but counts only files inside the folder's
+ * SYNC SCOPE - the same scope the syncthing index describes. .stignore is
+ * syncthing's own ignore file (never synced itself) and /backup is what it is
+ * told to ignore, so both exist on a fresh volume without representing any
+ * synced data. Comparing this against the index's globalBytes is therefore
+ * like for like; the plain content check would let FluxOS's own housekeeping
+ * files mask an empty dataset.
+ * @param {string} dirPath - Directory path to check
+ * @returns {Promise<{hasContent: boolean, fileCount: number}>} Content status
+ */
+async function checkDirectoryHasSyncScopedContent(dirPath) {
+  const fileCount = await countFilesUpTo(dirPath, 100, { excludeNames: ['.stignore'], excludeDirs: ['backup'] });
+  return {
+    hasContent: fileCount > 0,
+    fileCount,
+  };
 }
 
 /**
@@ -79,7 +113,7 @@ async function verifyFolderMountSafety(appId, folderPath) {
   try {
     // Check 1: Does the base app directory exist?
     const baseDir = `${appsFolder}${appId}`;
-    const baseDirExists = await cmdAsync(`test -d ${baseDir} && echo "exists"`).then(() => true).catch(() => false);
+    const baseDirExists = await fs.promises.stat(baseDir).then((stats) => stats.isDirectory()).catch(() => false);
 
     if (!baseDirExists) {
       result.isSafe = false;
@@ -97,18 +131,23 @@ async function verifyFolderMountSafety(appId, folderPath) {
     result.hasContent = contentCheck.hasContent;
     result.fileCount = contentCheck.fileCount;
 
-    // Safety logic:
-    // If directory exists but is NOT mounted and has NO content, this is dangerous
-    // It might be an empty mount point waiting for loop device
-    if (!result.isMounted && !result.hasContent) {
+    // An unmounted app dir is NEVER safe to sync, whatever it contains.
+    // Content on the bare dir means writes already leaked onto the host
+    // filesystem (e.g. a sync pull while the volume was unmounted) - letting
+    // content buy a pass here is exactly how a stale sendreceive folder kept
+    // broadcasting deletions to the healthy master (observed live 2026-07-01).
+    if (!result.isMounted) {
       result.isSafe = false;
-      result.reason = 'empty_unmounted_directory';
-      log.error(`verifyFolderMountSafety - CRITICAL: ${appId} directory exists but not mounted and empty! Likely missing loop mount.`);
+      result.reason = result.hasContent ? 'unmounted_with_content' : 'empty_unmounted_directory';
+      log.error(`verifyFolderMountSafety - CRITICAL: ${appId} directory is not a mountpoint (${result.fileCount} file(s) present)! Missing loop mount.`);
+      if (result.hasContent) {
+        await appTamperingDetectionService.recordEvent(appId, 'mount_vanished', `App dir not mounted but holds ${result.fileCount} file(s) - data leaked onto the host filesystem`);
+      }
       return result;
     }
 
     // If mounted but empty, be cautious (could be race condition)
-    if (result.isMounted && !result.hasContent) {
+    if (!result.hasContent) {
       // Give a small grace period - maybe syncing hasn't completed yet
       // But this is still suspicious
       log.warn(`verifyFolderMountSafety - ${appId} is mounted but has no content (0 files). Potential data loss risk.`);
@@ -122,6 +161,34 @@ async function verifyFolderMountSafety(appId, folderPath) {
     result.reason = 'check_failed';
     return result;
   }
+}
+
+/**
+ * Full safety check for a folder that is (or is about to be) sendreceive.
+ * On top of the mount check, detects a stale ("phantom") index over an empty
+ * volume: the folder's global index claims data while the disk holds none.
+ * In sendreceive, syncthing treats those missing files as local deletions and
+ * broadcasts them, gutting the healthy peers (the deletion-propagation
+ * failure mode observed live 2026-07-01). A legitimately empty folder
+ * (globalBytes 0, e.g. a cold-start seed) does not trip this.
+ * @param {string} appId - App ID (also the syncthing folder id)
+ * @param {string} folderPath - Syncthing folder path
+ * @returns {Promise<{isSafe: boolean, reason: string, isMounted: boolean, hasContent: boolean}>}
+ */
+async function verifySendReceiveFolderSafety(appId, folderPath) {
+  const result = await verifyFolderMountSafety(appId, folderPath);
+  if (!result.isSafe) return result;
+
+  const syncStatus = await getFolderSyncCompletion(appId);
+  if (!syncStatus || syncStatus.globalBytes === 0) return result;
+
+  const dataCheck = await checkDirectoryHasSyncScopedContent(folderPath);
+  if (!dataCheck.hasContent) {
+    result.isSafe = false;
+    result.reason = 'phantom_index_empty_disk';
+    log.error(`verifySendReceiveFolderSafety - CRITICAL: ${appId} index claims ${syncStatus.globalBytes} bytes but the disk holds no synced files - stale index over an empty volume; sendreceive would broadcast deletions.`);
+  }
+  return result;
 }
 
 /**
@@ -140,8 +207,8 @@ async function fixAppdataPermissions(appId) {
     // Recursively set 777 permissions to allow any container user to write
     // This ensures containers running as any UID/GID can access their data
     // Covers both appdata (primary mount) and all additional mounts at the same level
-    const fixPermissions = `sudo chmod -R 777 ${appPath}`;
-    await cmdAsync(fixPermissions);
+    const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['-R', '777', appPath] });
+    if (chmod.error) throw chmod.error;
     log.info(`fixAppdataPermissions - Fixed permissions on ${appPath} (includes appdata and all mount points)`);
   } catch (error) {
     log.warn(`fixAppdataPermissions - Could not fix permissions for ${appId}: ${error.message}`);
@@ -714,7 +781,19 @@ async function manageFolderSyncState(params) {
     // CRITICAL SAFETY CHECK: Verify mount is properly initialized before trusting sendreceive mode
     // This prevents data loss when loop mounts aren't ready after reboot
     const folderPath = syncFolder.path || `${appsFolder}${appId}/appdata`;
-    const mountSafety = await verifyFolderMountSafety(appId, folderPath);
+    let mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
+
+    if (!mountSafety.isSafe && !mountSafety.isMounted) {
+      // The detection is actionable: the backing image normally still exists,
+      // and FluxOS owns the mount - repair instead of just blocking. The
+      // re-verify still holds the folder back (receiveonly) if the freshly
+      // mounted volume disagrees with the index (phantom-index case).
+      const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
+      if (mountAttempt.mounted) {
+        log.info(`manageFolderSyncState - ${appId} volume was not mounted; mounted it, re-verifying folder safety`);
+        mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
+      }
+    }
 
     if (!mountSafety.isSafe) {
       // DANGER: Mount not ready! Switch to receiveonly to prevent data propagation
@@ -730,6 +809,11 @@ async function manageFolderSyncState(params) {
         blockedAt: Date.now(),
       };
       receiveOnlySyncthingAppsCache.set(appId, cache);
+
+      // Hold the container too: its binds point at the same unsafe dir. The
+      // reconciler is the actuator; the receiveonly machinery flips the
+      // verdict back to running once the folder is verifiably synced.
+      appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${mountSafety.reason}`);
 
       // Return with skipUpdate=false so the folder config gets updated to receiveonly
       return { syncthingFolder, cache, skipUpdate: false };
@@ -821,7 +905,9 @@ module.exports = {
   getFolderSyncCompletion,
   isDesignatedLeader,
   verifyFolderMountSafety,
+  verifySendReceiveFolderSafety,
   isPathMounted,
   checkDirectoryHasContent,
+  checkDirectoryHasSyncScopedContent,
   nudgeFolderDevices,
 };

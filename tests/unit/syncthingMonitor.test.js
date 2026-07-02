@@ -45,6 +45,11 @@ const syncthingFolderStateMachineMock = {
   getFolderSyncCompletion: sinon.stub(),
   isDesignatedLeader: sinon.stub(),
   verifyFolderMountSafety: sinon.stub().resolves({ isSafe: true, isMounted: true, fileCount: 1 }),
+  verifySendReceiveFolderSafety: sinon.stub().resolves({ isSafe: true, isMounted: true, fileCount: 1 }),
+};
+
+const volumeServiceMock = {
+  ensureAppVolumeMounted: sinon.stub().resolves({ mounted: true, alreadyMounted: true }),
 };
 
 const syncthingMonitorHelpersMock = {
@@ -57,7 +62,7 @@ const syncthingMonitorHelpersMock = {
     devices,
     type: type || 'sendreceive',
   })),
-  ensureStfolderExists: sinon.stub().resolves(),
+  ensureStfolderExists: sinon.stub().resolves(true),
   getContainerFolderPath: sinon.stub().returns(''),
   getContainerDataFlags: sinon.stub().returns(''),
   requiresSyncing: sinon.stub().returns(false),
@@ -90,6 +95,7 @@ const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/sy
   '../fluxNetworkHelper': fluxNetworkHelperMock,
   '../syncthingService': syncthingServiceMock,
   '../appQuery/appQueryService': appQueryServiceMock,
+  '../utils/volumeService': volumeServiceMock,
   './syncthingFolderStateMachine': syncthingFolderStateMachineMock,
   './syncthingMonitorHelpers': syncthingMonitorHelpersMock,
   './syncthingHealthMonitor': syncthingHealthMonitorMock,
@@ -281,7 +287,7 @@ describe('syncthingMonitor tests', () => {
         data: [{ id: 'fluxcomp_testapp', path: '/apps/fluxcomp_testapp', type: 'sendreceive' }],
       });
       syncthingServiceMock.adjustConfigFolders.resolves(); // beforeEach reset() wipes behavior; restore it
-      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, reason: 'not mounted' });
+      syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: false, reason: 'not mounted' });
 
       monitorControl = syncthingMonitor.syncthingApps(
         mockState,
@@ -297,7 +303,7 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'patch', { type: 'receiveonly' }, 'fluxcomp_testapp');
       sinon.assert.notCalled(syncthingServiceMock.systemRestart);
 
-      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: true, isMounted: true, fileCount: 1 });
+      syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: true, isMounted: true, fileCount: 1 });
     });
 
     it('should start the events consumer (edge accelerator) and stop it on shutdown', async () => {

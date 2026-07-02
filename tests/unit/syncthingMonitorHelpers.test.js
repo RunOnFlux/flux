@@ -4,6 +4,8 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const { expect } = require('chai');
 const sinon = require('sinon');
 const axios = require('axios');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const helpers = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
 
 describe('syncthingMonitorHelpers tests', () => {
@@ -374,6 +376,39 @@ describe('syncthingMonitorHelpers tests', () => {
 
       expect(result).to.be.null;
       expect(cache.has('10.0.0.1:16127')).to.be.false;
+    });
+  });
+
+  describe('ensureStfolderExists', () => {
+    it('refuses to create the marker on an unmounted dir (the rootfs-leak regression)', async () => {
+      // a .stfolder created on the bare mountpoint re-arms syncthing onto the
+      // host filesystem and defeats syncthing's own missing-marker guard
+      sandbox.stub(volumeService, 'isPathMounted').resolves(false);
+      const runCommand = sandbox.stub(serviceHelper, 'runCommand');
+
+      const result = await helpers.ensureStfolderExists('/apps/fluxcomp_app');
+
+      expect(result).to.be.false;
+      sinon.assert.notCalled(runCommand);
+    });
+
+    it('creates the marker inside a mounted volume', async () => {
+      sandbox.stub(volumeService, 'isPathMounted').resolves(true);
+      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+
+      const result = await helpers.ensureStfolderExists('/apps/fluxcomp_app');
+
+      expect(result).to.be.true;
+      sinon.assert.calledWith(runCommand, 'mkdir', sinon.match({ runAsRoot: true, params: ['-p', '/apps/fluxcomp_app/.stfolder'] }));
+    });
+
+    it('reports failure when the marker cannot be created', async () => {
+      sandbox.stub(volumeService, 'isPathMounted').resolves(true);
+      sandbox.stub(serviceHelper, 'runCommand').resolves({ error: new Error('EPERM'), stdout: '', stderr: '' });
+
+      const result = await helpers.ensureStfolderExists('/apps/fluxcomp_app');
+
+      expect(result).to.be.false;
     });
   });
 });

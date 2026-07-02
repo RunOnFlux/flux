@@ -24,10 +24,23 @@ const dockerServiceMock = {
 
 const serviceHelperMock = {
   delay: sinon.stub().resolves(),
+  runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
 };
 
-const nodecmdMock = {
-  run: sinon.stub(),
+const volumeServiceMock = {
+  isPathMounted: sinon.stub(),
+  ensureAppVolumeMounted: sinon.stub(),
+};
+
+const fsMock = {
+  promises: {
+    stat: sinon.stub(),
+    readdir: sinon.stub(),
+  },
+};
+
+const appTamperingDetectionServiceMock = {
+  recordEvent: sinon.stub().resolves(),
 };
 
 const appReconcilerMock = {
@@ -37,12 +50,21 @@ const appReconcilerMock = {
 };
 const appUninstallerMock = { removeAppLocally: sinon.stub().resolves() };
 
+// a directory entry as fs.readdir({ withFileTypes: true }) returns it
+const dirent = (name, isFile = true) => ({
+  name,
+  isFile: () => isFile,
+  isDirectory: () => !isFile,
+});
+
 // Load module with mocked dependencies
 const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine', {
   '../dockerService': dockerServiceMock,
   '../syncthingService': syncthingServiceMock,
   '../serviceHelper': serviceHelperMock,
-  'node-cmd': nodecmdMock,
+  '../utils/volumeService': volumeServiceMock,
+  '../appTamperingDetectionService': appTamperingDetectionServiceMock,
+  'node:fs': fsMock,
   // stub new collaborators so the unit test doesn't load the real module graph
   './appReconciler': appReconcilerMock,
   '../appLifecycle/appUninstaller': appUninstallerMock,
@@ -68,35 +90,25 @@ describe('syncthingFolderStateMachine tests', () => {
     dockerServiceMock.getAppIdentifier.reset();
     serviceHelperMock.delay.reset();
     serviceHelperMock.delay.resolves();
-    nodecmdMock.run.reset();
+    serviceHelperMock.runCommand.reset();
+    serviceHelperMock.runCommand.resolves({ error: null, stdout: '', stderr: '' });
+    volumeServiceMock.isPathMounted.reset();
+    volumeServiceMock.ensureAppVolumeMounted.reset();
+    fsMock.promises.stat.reset();
+    fsMock.promises.readdir.reset();
+    appTamperingDetectionServiceMock.recordEvent.reset();
+    appTamperingDetectionServiceMock.recordEvent.resolves();
     appUninstallerMock.removeAppLocally.reset();
     appUninstallerMock.removeAppLocally.resolves();
     appReconcilerMock.setControllerDesired.reset();
     appReconcilerMock.requestStopAndClearData.reset();
     appReconcilerMock.enqueue.reset();
 
-    // Mock successful file system operations for safety checks
+    // Default filesystem state: app dir exists, is a mountpoint, holds files.
     // This makes verifyFolderMountSafety return isSafe: true
-    // nodecmd.run callback signature: (err, data, stderr)
-    nodecmdMock.run.callsFake((cmd, callback) => {
-      if (cmd.includes('test -d')) {
-        // Directory exists
-        callback(null, 'exists', '');
-      } else if (cmd.includes('mountpoint')) {
-        // Not a mount point (exit code 1) - this causes an error
-        const err = new Error('not a mountpoint');
-        err.code = 1;
-        callback(err, '', '');
-      } else if (cmd.includes('find')) {
-        // Has files (return count > 0)
-        callback(null, '10\n', '');
-      } else if (cmd.includes('chmod')) {
-        // Permission changes succeed
-        callback(null, '', '');
-      } else {
-        callback(null, '', '');
-      }
-    });
+    fsMock.promises.stat.resolves({ isDirectory: () => true });
+    volumeServiceMock.isPathMounted.resolves(true);
+    fsMock.promises.readdir.resolves([dirent('state.db'), dirent('config.yaml')]);
   });
 
   describe('isDesignatedLeader', () => {
@@ -989,6 +1001,157 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.calledTwice(syncthingServiceMock.systemPause);
       sinon.assert.calledTwice(syncthingServiceMock.systemResume);
       expect(syncthingServiceMock.systemResume.secondCall.args[0].params.device).to.equal('DEVICE_B');
+    });
+  });
+
+  describe('verifyFolderMountSafety', () => {
+    it('is unsafe when the dir is not mounted even if it has content', async () => {
+      // the deletion-propagation regression: syncthing had pulled the master's
+      // data onto the BARE dir, so content used to buy a pass while unmounted -
+      // and the stale sendreceive folder then broadcast deletions to the master
+      volumeServiceMock.isPathMounted.resolves(false);
+      fsMock.promises.readdir.resolves([dirent('leaked.db')]);
+
+      const result = await stateMachine.verifyFolderMountSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('unmounted_with_content');
+      expect(result.hasContent).to.be.true;
+      sinon.assert.calledWith(appTamperingDetectionServiceMock.recordEvent, 'test-app', 'mount_vanished');
+    });
+
+    it('is unsafe when the dir is not mounted and empty', async () => {
+      volumeServiceMock.isPathMounted.resolves(false);
+      fsMock.promises.readdir.resolves([]);
+
+      const result = await stateMachine.verifyFolderMountSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('empty_unmounted_directory');
+    });
+
+    it('is safe when mounted with content', async () => {
+      const result = await stateMachine.verifyFolderMountSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.true;
+      expect(result.isMounted).to.be.true;
+    });
+
+    it('is unsafe when the base directory is missing', async () => {
+      fsMock.promises.stat.rejects(new Error('ENOENT'));
+
+      const result = await stateMachine.verifyFolderMountSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('base_directory_missing');
+    });
+  });
+
+  describe('verifySendReceiveFolderSafety', () => {
+    it('is unsafe when the index claims data but the disk holds no sync-scoped files', async () => {
+      // stale ("phantom") index over a fresh empty volume: only FluxOS's own
+      // housekeeping (.stignore, backup/) on disk, yet the index claims bytes -
+      // sendreceive would broadcast every "missing" file as a deletion
+      fsMock.promises.readdir.resolves([dirent('.stignore'), dirent('backup', false)]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 500000, inSyncBytes: 500000, state: 'idle' },
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('phantom_index_empty_disk');
+    });
+
+    it('is safe on an empty disk when the index is empty too (cold-start seed)', async () => {
+      fsMock.promises.readdir.resolves([dirent('.stignore')]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 0, inSyncBytes: 0, state: 'idle' },
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.true;
+    });
+
+    it('is safe when the disk holds real data matching a non-empty index', async () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 500000, inSyncBytes: 500000, state: 'idle' },
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.true;
+    });
+
+    it('falls back to the mount-level verdict when the sync status is unreadable', async () => {
+      syncthingServiceMock.getDbStatus.rejects(new Error('syncthing down'));
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.true;
+    });
+  });
+
+  describe('manageFolderSyncState mount safety on a sendreceive folder', () => {
+    let mockParams;
+
+    beforeEach(() => {
+      mockParams = {
+        appId: 'test-app',
+        syncFolder: { type: 'sendreceive', path: '/apps/test-app' },
+        containerDataFlags: 'g',
+        syncthingAppsFirstRun: false,
+        receiveOnlySyncthingAppsCache: new Map(),
+        appLocation: sinon.stub().resolves([]),
+        localSocketAddr: '10.0.0.1:16127',
+        syncthingFolder: { id: 'test-app', type: 'sendreceive' },
+        installedAppName: 'test-app',
+      };
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
+    });
+
+    it('mounts an unmounted volume and proceeds when the re-verify passes', async () => {
+      volumeServiceMock.isPathMounted.onFirstCall().resolves(false);
+      volumeServiceMock.isPathMounted.resolves(true);
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      sinon.assert.calledWith(volumeServiceMock.ensureAppVolumeMounted, 'test-app');
+      expect(result.skipUpdate).to.be.true;
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, 'test-app', 'stopped');
+    });
+
+    it('demotes to receiveonly and holds the container when the volume cannot be mounted', async () => {
+      volumeServiceMock.isPathMounted.resolves(false);
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.mountSafetyBlocked).to.be.true;
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'stopped');
+    });
+
+    it('still demotes after a successful mount when the index is phantom over an empty volume', async () => {
+      volumeServiceMock.isPathMounted.onFirstCall().resolves(false);
+      volumeServiceMock.isPathMounted.resolves(true);
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false });
+      fsMock.promises.readdir.resolves([dirent('.stignore')]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 500000, inSyncBytes: 500000, state: 'idle' },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.blockedReason).to.equal('phantom_index_empty_disk');
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'stopped');
     });
   });
 });
