@@ -38,7 +38,7 @@ export async function buildSeedableApp({
       // harness registry, never bare Docker Hub: hub repotags make installs
       // pull over live internet (rate-limit flakes); the env registry is
       // seeded with this image at bootstrap (test-env.js)
-      repotag: `${REGISTRY_REPO_HOST}/nginx:alpine`,
+      repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
       ports: [31111],
       domains: [''],
       environmentParameters: [],
@@ -380,7 +380,7 @@ export async function buildSeedableEnterpriseApp({ name, compose, contacts = [],
   const components = compose ?? [{
     name,
     description: 'seeded enterprise component',
-    repotag: `${REGISTRY_REPO_HOST}/nginx:alpine`,
+    repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
     ports: [31131],
     domains: [''],
     environmentParameters: [],

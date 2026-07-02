@@ -18,13 +18,13 @@ const defaultSpec = {
   compose: [
     {
       name: 'e2eTestApp',
-      description: 'nginx test container',
+      description: 'default pause test container',
       // the harness registry, NEVER a bare Docker Hub reference: registration
       // verifies the repotag against the registry it names, and a hub repotag
       // makes the suite depend on live internet + hub rate limits (429s broke
-      // suites 07/08/09 in the 2026-07-02 gate). Suites using this default
-      // must push it once per env: pushImage('nginx', 'alpine').
-      repotag: `${REGISTRY_REPO_HOST}/nginx:alpine`,
+      // suites 07/08/09 in the 2026-07-02 gate). The env registry is seeded
+      // with this image at bootstrap (test-env.js).
+      repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
       ports: [31111],
       domains: [''],
       environmentParameters: [],

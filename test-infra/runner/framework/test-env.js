@@ -619,7 +619,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   // defaults BY CONSTRUCTION - no per-suite push incantation. The image is
   // synthesized in memory (static pause binary + marker; see registry-helper),
   // so this costs milliseconds and never contacts Docker Hub.
-  await pushImage('nginx', 'alpine');
+  await pushImage('e2e-pause', 'v1');
 
   const rtClient = await getContainerRuntimeClient();
   const { getReaper: getReaperFn } = await import('testcontainers');
