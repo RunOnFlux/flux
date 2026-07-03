@@ -94,6 +94,21 @@ describe('syncthingEventsConsumer tests', () => {
     expect(secondCallQuery.since).to.equal(6);
   });
 
+  it('accumulates FolderErrors folder ids for the monitor to drain; draining clears', async () => {
+    syncthingServiceMock.getEvents.onFirstCall().resolves(eventsResponse([
+      { id: 7, time: 't', type: 'FolderErrors', data: { folder: 'fluxcomp_bad', errors: [{ error: 'folder marker missing' }] } },
+      { id: 8, time: 't', type: 'FolderSummary', data: { folder: 'fluxcomp_ok', summary: {} } },
+    ]));
+    syncthingServiceMock.getEvents.onSecondCall().callsFake(parkForever);
+
+    consumer.start({ onFolderActivity, onResync });
+    await new Promise((resolve) => { setImmediate(() => { setImmediate(resolve); }); });
+
+    // only the FolderErrors folder accumulates - plain activity never does
+    expect(consumer.drainErroredFolderIds()).to.deep.equal(['fluxcomp_bad']);
+    expect(consumer.drainErroredFolderIds()).to.deep.equal([]);
+  });
+
   it('treats an id regression as a lost-events signal (defensive: a conforming server never returns ids below since)', async () => {
     syncthingServiceMock.getEvents.onFirstCall().resolves(eventsResponse([
       { id: 100, time: 't', type: 'FolderSummary', data: { folder: 'fluxa', summary: {} } },

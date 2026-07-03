@@ -34,7 +34,10 @@ describe('volumeService tests', () => {
         COMPONENT_FILE: 'component_file',
       },
     };
-    fsStub = { promises: { access: sinon.stub(), readdir: sinon.stub().resolves([]) } };
+    // readFile rejecting drives isPathMounted onto its mountpoint-command
+    // fallback, so tests can keep expressing mountedness via runCommand; the
+    // isPathMounted describe covers the mountinfo path with real fixtures
+    fsStub = { promises: { access: sinon.stub(), readdir: sinon.stub().resolves([]), readFile: sinon.stub().rejects(new Error('no mountinfo')) } };
     dfStub = sinon.stub().callsArgWith(1, null, []); // node-df callback style: (options, cb)
     logStub = {
       info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
@@ -66,8 +69,41 @@ describe('volumeService tests', () => {
     });
   };
 
+  // one /proc/self/mountinfo line per mounted path (field 5 is the mount point)
+  const mountinfoWith = (...paths) => paths
+    .map((p, i) => `${400 + i} 29 7:${i} / ${p} rw,relatime shared:${i} - ext4 /dev/loop${i} rw`)
+    .join('\n');
+
   describe('isPathMounted tests', () => {
-    it('should return true when mountpoint -q succeeds', async () => {
+    it('should return true when mountinfo lists the path as a mount point', async () => {
+      fsStub.promises.readFile.resolves(mountinfoWith('/dat', '/some/dir'));
+      const result = await volumeService.isPathMounted('/some/dir');
+      expect(result).to.be.true;
+      // no process spawned - this is the whole point of the mountinfo read
+      expect(callsFor('mountpoint')).to.have.lengthOf(0);
+    });
+
+    it('should return false when mountinfo does not list the path', async () => {
+      fsStub.promises.readFile.resolves(mountinfoWith('/dat', '/some/dir/deeper'));
+      const result = await volumeService.isPathMounted('/some/dir');
+      expect(result).to.be.false;
+      expect(callsFor('mountpoint')).to.have.lengthOf(0);
+    });
+
+    it('should normalize a trailing slash on the queried path', async () => {
+      fsStub.promises.readFile.resolves(mountinfoWith('/some/dir'));
+      const result = await volumeService.isPathMounted('/some/dir/');
+      expect(result).to.be.true;
+    });
+
+    it('should decode octal-escaped characters in mount points', async () => {
+      // mountinfo escapes spaces as \040
+      fsStub.promises.readFile.resolves(mountinfoWith('/some/dir\\040with\\040space'));
+      const result = await volumeService.isPathMounted('/some/dir with space');
+      expect(result).to.be.true;
+    });
+
+    it('should fall back to the mountpoint command when mountinfo is unreadable', async () => {
       const result = await volumeService.isPathMounted('/some/dir');
       expect(result).to.be.true;
       const probe = callsFor('mountpoint');
@@ -75,7 +111,7 @@ describe('volumeService tests', () => {
       expect(probe[0].args[1].params).to.deep.equal(['-q', '/some/dir']);
     });
 
-    it('should return false when mountpoint -q fails', async () => {
+    it('should return false from the fallback when mountpoint -q fails', async () => {
       serviceHelperStub.runCommand.resolves({ error: new Error('not a mountpoint'), stdout: '', stderr: '' });
       const result = await volumeService.isPathMounted('/some/dir');
       expect(result).to.be.false;
@@ -144,10 +180,14 @@ describe('volumeService tests', () => {
     });
 
     it('should be a no-op when the app dir is already a mountpoint', async () => {
+      // the mountedness comes from mountinfo - proving the composition once
+      fsStub.promises.readFile.resolves(mountinfoWith(`${APPS_FOLDER}fluxapp1`));
+
       const result = await volumeService.ensureAppVolumeMounted('app1');
 
       expect(result).to.deep.equal({ mounted: true, alreadyMounted: true });
       expect(callsFor('mount')).to.have.lengthOf(0);
+      expect(callsFor('mountpoint')).to.have.lengthOf(0);
     });
 
     it('should mount the discovered image and set the empty mountpoint immutable first', async () => {

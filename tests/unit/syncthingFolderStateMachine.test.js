@@ -1119,6 +1119,75 @@ describe('syncthingFolderStateMachine tests', () => {
     });
   });
 
+  describe('mount-safety observation logging', () => {
+    // eslint-disable-next-line global-require
+    const log = require('../../ZelBack/src/lib/log');
+    let sandbox;
+
+    beforeEach(() => {
+      sandbox = sinon.createSandbox();
+      sandbox.spy(log, 'warn');
+      sandbox.spy(log, 'error');
+      sandbox.spy(log, 'info');
+    });
+
+    afterEach(() => {
+      sandbox.restore();
+    });
+
+    const callsMentioning = (spy, appId) => spy.getCalls().filter((c) => String(c.args[0]).includes(appId));
+
+    it('logs a persistent mounted-but-empty observation once, not per pass', async () => {
+      fsMock.promises.readdir.resolves([]); // mounted, no content
+
+      await stateMachine.verifyFolderMountSafety('obs-empty-app', '/apps/obs-empty-app');
+      await stateMachine.verifyFolderMountSafety('obs-empty-app', '/apps/obs-empty-app');
+      await stateMachine.verifyFolderMountSafety('obs-empty-app', '/apps/obs-empty-app');
+
+      expect(callsMentioning(log.warn, 'obs-empty-app')).to.have.lengthOf(1);
+    });
+
+    it('logs recovery once when the observation returns to ok', async () => {
+      fsMock.promises.readdir.resolves([]);
+      await stateMachine.verifyFolderMountSafety('obs-recover-app', '/apps/obs-recover-app');
+
+      fsMock.promises.readdir.resolves([dirent('state.db')]);
+      await stateMachine.verifyFolderMountSafety('obs-recover-app', '/apps/obs-recover-app');
+      await stateMachine.verifyFolderMountSafety('obs-recover-app', '/apps/obs-recover-app');
+
+      const recoveries = callsMentioning(log.info, 'obs-recover-app').filter((c) => String(c.args[0]).includes('recovered'));
+      expect(recoveries).to.have.lengthOf(1);
+    });
+
+    it('logs again when the observation changes to a different condition', async () => {
+      fsMock.promises.readdir.resolves([]); // mounted empty -> warn
+      await stateMachine.verifyFolderMountSafety('obs-change-app', '/apps/obs-change-app');
+      expect(callsMentioning(log.warn, 'obs-change-app')).to.have.lengthOf(1);
+
+      volumeServiceMock.isPathMounted.resolves(false); // unmounted now -> error
+      await stateMachine.verifyFolderMountSafety('obs-change-app', '/apps/obs-change-app');
+      await stateMachine.verifyFolderMountSafety('obs-change-app', '/apps/obs-change-app');
+
+      expect(callsMentioning(log.error, 'obs-change-app')).to.have.lengthOf(1);
+    });
+
+    it('re-logs a persisting unsafe observation after the relog interval', async () => {
+      const clock = sinon.useFakeTimers({ toFake: ['hrtime'] });
+      try {
+        fsMock.promises.readdir.resolves([]);
+        await stateMachine.verifyFolderMountSafety('obs-relog-app', '/apps/obs-relog-app');
+        expect(callsMentioning(log.warn, 'obs-relog-app')).to.have.lengthOf(1);
+
+        clock.tick(6 * 60 * 1000); // past the 5-minute relog interval
+        await stateMachine.verifyFolderMountSafety('obs-relog-app', '/apps/obs-relog-app');
+
+        expect(callsMentioning(log.warn, 'obs-relog-app')).to.have.lengthOf(2);
+      } finally {
+        clock.restore();
+      }
+    });
+  });
+
   describe('verifySendReceiveFolderSafety', () => {
     it('is unsafe when the index claims data but the disk holds no sync-scoped files', async () => {
       // stale ("phantom") index over a fresh empty volume: only FluxOS's own

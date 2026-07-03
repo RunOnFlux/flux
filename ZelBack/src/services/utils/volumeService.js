@@ -11,13 +11,27 @@ const { appsFolder, appVolumesPath, legacyAppVolumesPath } = require('./appConst
 const dfAsync = util.promisify(df);
 
 /**
- * Whether a path currently has a filesystem mounted on it.
+ * Whether a path currently has a filesystem mounted on it. Reads
+ * /proc/self/mountinfo - one silent file read instead of forking
+ * mountpoint(1), so callers can probe freely without process-spawn cost or
+ * log noise. Falls back to the mountpoint binary if the read fails.
  * @param {string} dirPath Directory path to check.
  * @returns {Promise<boolean>} True if the path is a mountpoint.
  */
 async function isPathMounted(dirPath) {
-  const result = await serviceHelper.runCommand('mountpoint', { params: ['-q', dirPath], logError: false });
-  return !result.error;
+  const mountinfo = await fs.readFile('/proc/self/mountinfo', 'utf8').catch(() => null);
+  if (mountinfo === null) {
+    const result = await serviceHelper.runCommand('mountpoint', { params: ['-q', dirPath], logError: false });
+    return !result.error;
+  }
+  const target = path.resolve(dirPath);
+  // field 5 of each mountinfo line is the mount point, with space/tab/newline/
+  // backslash octal-escaped
+  const unescapeMount = (s) => s.replace(/\\(\d{3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)));
+  return mountinfo.split('\n').some((line) => {
+    const fields = line.split(' ');
+    return fields.length > 4 && unescapeMount(fields[4]) === target;
+  });
 }
 
 /**

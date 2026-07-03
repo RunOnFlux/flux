@@ -1,5 +1,7 @@
 // Syncthing Monitor - Helper Functions
 const axios = require('axios');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const volumeService = require('../utils/volumeService');
@@ -215,11 +217,18 @@ async function ensureStfolderExists(folder) {
     log.error(`ensureStfolderExists - ${folder} is not a mountpoint; refusing to create .stfolder on the bare directory`);
     return false;
   }
-  const mkdir = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', `${folder}/.stfolder`] });
+  // creation is a one-time setup act: when the marker is already present in
+  // the mounted volume there is nothing to do (and nothing to log)
+  const marker = path.join(folder, '.stfolder');
+  const exists = await fs.stat(marker).then((stats) => stats.isDirectory()).catch(() => false);
+  if (exists) return true;
+
+  const mkdir = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', marker] });
   if (mkdir.error) {
     log.error(`ensureStfolderExists - failed to create .stfolder in ${folder}: ${mkdir.error.message}`);
     return false;
   }
+  log.info(`ensureStfolderExists - created .stfolder in ${folder}`);
   return true;
 }
 

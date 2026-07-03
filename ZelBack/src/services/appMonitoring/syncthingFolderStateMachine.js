@@ -24,6 +24,46 @@ const {
 
 const { isPathMounted } = volumeService;
 
+const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
+
+// Per-folder mount-safety observation log gate: a persistent condition writes
+// one line when first seen (re-logged at most every OBSERVATION_RELOG_MS while
+// it lasts) and one recovery line when it clears - never a line per monitor
+// pass. Process-lifetime state, bounded by the folder ids ever observed; it
+// only dedupes log lines, so a stale entry for a removed app costs nothing.
+// appId -> { observation, lastLoggedMs }
+const mountSafetyObservations = new Map();
+const OBSERVATION_RELOG_MS = 5 * 60 * 1000;
+
+/**
+ * Logs a mount-safety observation only when it changes for the folder (with a
+ * periodic re-log while a non-ok observation persists) and logs recovery when
+ * the folder returns to ok.
+ * @param {string} appId - App/folder identifier
+ * @param {string} observation - Stable key for the observed condition ('ok' when healthy)
+ * @param {Function} [logFn] - Log method for the observation line (unused for 'ok')
+ * @param {string} [message] - The observation line
+ */
+function noteSafetyObservation(appId, observation, logFn, message) {
+  const now = monotonicMs();
+  const previous = mountSafetyObservations.get(appId);
+  if (previous && previous.observation === observation) {
+    if (observation !== 'ok' && now - previous.lastLoggedMs >= OBSERVATION_RELOG_MS) {
+      previous.lastLoggedMs = now;
+      logFn(message);
+    }
+    return;
+  }
+  mountSafetyObservations.set(appId, { observation, lastLoggedMs: now });
+  if (observation === 'ok') {
+    if (previous && previous.observation !== 'ok') {
+      log.info(`verifyFolderMountSafety - ${appId} recovered (was: ${previous.observation})`);
+    }
+    return;
+  }
+  logFn(message);
+}
+
 /**
  * Counts regular files under a directory (recursive, early exit at `limit`),
  * optionally skipping file names and directory subtrees. Pure fs - no child
@@ -118,7 +158,7 @@ async function verifyFolderMountSafety(appId, folderPath) {
     if (!baseDirExists) {
       result.isSafe = false;
       result.reason = 'base_directory_missing';
-      log.warn(`verifyFolderMountSafety - ${appId} base directory does not exist: ${baseDir}`);
+      noteSafetyObservation(appId, result.reason, log.warn, `verifyFolderMountSafety - ${appId} base directory does not exist: ${baseDir}`);
       await appTamperingDetectionService.recordEvent(appId, 'mount_vanished', `Base directory missing: ${baseDir}`);
       return result;
     }
@@ -139,19 +179,20 @@ async function verifyFolderMountSafety(appId, folderPath) {
     if (!result.isMounted) {
       result.isSafe = false;
       result.reason = result.hasContent ? 'unmounted_with_content' : 'empty_unmounted_directory';
-      log.error(`verifyFolderMountSafety - CRITICAL: ${appId} directory is not a mountpoint (${result.fileCount} file(s) present)! Missing loop mount.`);
+      noteSafetyObservation(appId, result.reason, log.error, `verifyFolderMountSafety - CRITICAL: ${appId} directory is not a mountpoint (${result.fileCount} file(s) present)! Missing loop mount.`);
       if (result.hasContent) {
         await appTamperingDetectionService.recordEvent(appId, 'mount_vanished', `App dir not mounted but holds ${result.fileCount} file(s) - data leaked onto the host filesystem`);
       }
       return result;
     }
 
-    // If mounted but empty, be cautious (could be race condition)
+    // Mounted but empty is legitimate (a folder the app never writes to, a
+    // fresh volume awaiting its first sync) - note it once, allow it, and let
+    // the sync machinery decide what emptiness means for this folder
     if (!result.hasContent) {
-      // Give a small grace period - maybe syncing hasn't completed yet
-      // But this is still suspicious
-      log.warn(`verifyFolderMountSafety - ${appId} is mounted but has no content (0 files). Potential data loss risk.`);
-      // We'll allow it but log warning - Syncthing should handle this
+      noteSafetyObservation(appId, 'mounted_empty', log.warn, `verifyFolderMountSafety - ${appId} is mounted but has no content (0 files). Potential data loss risk.`);
+    } else {
+      noteSafetyObservation(appId, 'ok');
     }
 
     return result;
@@ -793,6 +834,7 @@ async function manageFolderSyncState(params) {
     localSocketAddr,
     syncthingFolder,
     installedAppName,
+    mountVerifyNeeded = true,
   } = params;
 
   // Check if folder already exists and is in sendreceive mode
@@ -800,48 +842,52 @@ async function manageFolderSyncState(params) {
 
   // If already syncing in sendreceive mode, ensure container is running
   if (folderAlreadySyncing) {
-    // CRITICAL SAFETY CHECK: Verify mount is properly initialized before trusting sendreceive mode
-    // This prevents data loss when loop mounts aren't ready after reboot
-    const folderPath = syncFolder.path || `${appsFolder}${appId}/appdata`;
-    let mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
+    // Mount safety of a live sendreceive folder is verified at decision points
+    // (startup, FolderErrors from syncthing) - not per pass: the .stfolder
+    // marker inside the volume turns storage loss into FolderErrors, and the
+    // caller flags exactly those folders here
+    if (mountVerifyNeeded) {
+      const folderPath = syncFolder.path || `${appsFolder}${appId}/appdata`;
+      let mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
 
-    if (!mountSafety.isSafe && !mountSafety.isMounted) {
-      // The detection is actionable: the backing image normally still exists,
-      // and FluxOS owns the mount - repair instead of just blocking. The
-      // re-verify still holds the folder back (receiveonly) if the freshly
-      // mounted volume disagrees with the index (phantom-index case).
-      const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
-      if (mountAttempt.mounted) {
-        log.info(`manageFolderSyncState - ${appId} volume was not mounted; mounted it, re-verifying folder safety`);
-        mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
+      if (!mountSafety.isSafe && !mountSafety.isMounted) {
+        // The detection is actionable: the backing image normally still exists,
+        // and FluxOS owns the mount - repair instead of just blocking. The
+        // re-verify still holds the folder back (receiveonly) if the freshly
+        // mounted volume disagrees with the index (phantom-index case).
+        const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
+        if (mountAttempt.mounted) {
+          log.info(`manageFolderSyncState - ${appId} volume was not mounted; mounted it, re-verifying folder safety`);
+          mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
+        }
+      }
+
+      if (!mountSafety.isSafe) {
+        // DANGER: Mount not ready! Switch to receiveonly to prevent data propagation
+        log.error(`manageFolderSyncState - SAFETY BLOCK: ${appId} mount not safe (${mountSafety.reason}). Switching to receiveonly mode to prevent data loss.`);
+        log.error(`manageFolderSyncState - Mount status: mounted=${mountSafety.isMounted}, hasContent=${mountSafety.hasContent}, files=${mountSafety.fileCount}`);
+
+        // Update folder to receiveonly mode to prevent this node from sending "empty" state to peers
+        syncthingFolder.type = 'receiveonly';
+        const cache = {
+          numberOfExecutions: 0,
+          mountSafetyBlocked: true,
+          blockedReason: mountSafety.reason,
+          blockedAt: Date.now(),
+        };
+        receiveOnlySyncthingAppsCache.set(appId, cache);
+
+        // Hold the container too: its binds point at the same unsafe dir. The
+        // reconciler is the actuator; the receiveonly machinery flips the
+        // verdict back to running once the folder is verifiably synced.
+        appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${mountSafety.reason}`);
+
+        // Return with skipUpdate=false so the folder config gets updated to receiveonly
+        return { syncthingFolder, cache, skipUpdate: false };
       }
     }
 
-    if (!mountSafety.isSafe) {
-      // DANGER: Mount not ready! Switch to receiveonly to prevent data propagation
-      log.error(`manageFolderSyncState - SAFETY BLOCK: ${appId} mount not safe (${mountSafety.reason}). Switching to receiveonly mode to prevent data loss.`);
-      log.error(`manageFolderSyncState - Mount status: mounted=${mountSafety.isMounted}, hasContent=${mountSafety.hasContent}, files=${mountSafety.fileCount}`);
-
-      // Update folder to receiveonly mode to prevent this node from sending "empty" state to peers
-      syncthingFolder.type = 'receiveonly';
-      const cache = {
-        numberOfExecutions: 0,
-        mountSafetyBlocked: true,
-        blockedReason: mountSafety.reason,
-        blockedAt: Date.now(),
-      };
-      receiveOnlySyncthingAppsCache.set(appId, cache);
-
-      // Hold the container too: its binds point at the same unsafe dir. The
-      // reconciler is the actuator; the receiveonly machinery flips the
-      // verdict back to running once the folder is verifiably synced.
-      appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${mountSafety.reason}`);
-
-      // Return with skipUpdate=false so the folder config gets updated to receiveonly
-      return { syncthingFolder, cache, skipUpdate: false };
-    }
-
-    // Mount is safe, proceed normally
+    // Mount is safe (verified) or not in question (steady state)
     await ensureContainerRunning(appId, containerDataFlags);
     // Ensure cache entry exists so health monitor can track this folder
     const existingCache = receiveOnlySyncthingAppsCache.get(appId);
