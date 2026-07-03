@@ -215,8 +215,13 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     await waitFor(() => isUp(client, inertName), { timeout: 60000, interval: 2000, label: 'running before image loss' });
 
     const afterId = client.getLastEventId();
+    // Demolish the volume BEFORE stopping the container: the die event triggers
+    // an immediate reconcile, so the broken state must fully exist when it
+    // fires (a die over a still-healthy volume gets re-mounted and restarted by
+    // the self-heal instead of reported unavailable). The lazy unmount detaches
+    // the host dir under the running container without emitting any event.
     const r = await execInContainer(client.container,
-      `docker stop ${appId(inertName)} >/dev/null 2>&1; umount ${dir} && rm -f ${volFile(inertName)}`);
+      `umount -l ${dir} && rm -f ${volFile(inertName)} && docker stop ${appId(inertName)} >/dev/null 2>&1`);
     expect(r.exitCode, `teardown failed: ${r.output}`).to.equal(0);
 
     // the reconciler must report the unavailable volume and never start
