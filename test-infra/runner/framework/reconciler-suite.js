@@ -13,9 +13,28 @@ import { authenticate } from '../auth.js';
 import { fluxTeamKey } from './keys.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
+  waitForReconcileActuated,
 } from './wait.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
 import { setSynced } from './syncthing-control.js';
+import { execInContainer } from './container.js';
+
+// A folder the suite pins "synced" (setSynced reports a non-zero global index)
+// must also HOLD data on disk, like any really-synced folder. Seeded apps write
+// nothing themselves, and an index that claims bytes over an empty disk is the
+// phantom-index state the mount-safety guard refuses to promote (and demotes) -
+// the stub never rescans, so the disagreement never converges and the app never
+// (re)starts. Call AFTER the sync layer's first-run reset (the dataCleared
+// actuation): the reset clears local appdata at install and deletes anything
+// written earlier. seedSyncthingApp runs this ordering itself; only suites
+// installing through another path need to call it directly.
+export async function seedSyncScopedData(env, name, index) {
+  const dataFile = `/mnt/appdata/flux-apps/flux${name}_${name}/appdata/seed-data`;
+  const r = await execInContainer(env.clients[index].container, `sh -c 'echo seeded > ${dataFile}'`);
+  if (r.exitCode !== 0) {
+    throw new Error(`seedSyncScopedData: could not write ${dataFile} on node ${index}: ${r.output}`);
+  }
+}
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install
 // can resolve it).
@@ -182,11 +201,18 @@ export async function waitForInstanceCount(env, appName, target, {
 // peer list to itself and makes the subject win a spurious single-peer election and
 // cold-start. Pinning the peer synced keeps it the stable running source the subject
 // must defer to.
+//
+// Every install here waits out the sync layer's first-run reset (dataCleared) and
+// then writes sync-scoped disk data, so a folder any test later pins synced already
+// holds the data its index claims (see seedSyncScopedData). Whether/when to pin the
+// SUBJECT synced stays the caller's choice.
 export async function seedSyncthingApp(env, {
   name, mode = 'r', forceNonLeader = false, index = 0,
 }) {
   await pushImage(name, 'v1');
   const app = await buildSeedableSyncthingApp({ name, mode });
+  const folder = `flux${name}_${name}`;
+  const identifier = `${name}_${name}`;
 
   const peerIndex = forceNonLeader ? (index === 0 ? env.clients.length - 1 : 0) : null;
   if (forceNonLeader) {
@@ -195,16 +221,22 @@ export async function seedSyncthingApp(env, {
     // broadcast (surfaced as network:apprunning) before installing it, so its first
     // leader-election sees a running peer and takes the sync-gated follower path.
     const afterId = env.clients[index].getLastEventId();
+    const peerInstallAfter = env.clients[peerIndex].getLastEventId();
     await installOnNodes(env, app, [peerIndex]);
-    await setSynced({ ip: getSubnetConfig().nodeIp(peerIndex + 1), folder: `flux${name}_${name}` });
+    await waitForReconcileActuated(env.clients[peerIndex], identifier, 'dataCleared', 60000, { afterId: peerInstallAfter });
+    await seedSyncScopedData(env, name, peerIndex);
+    await setSynced({ ip: getSubnetConfig().nodeIp(peerIndex + 1), folder });
     await env.clients[index].waitForEvent(
       'network:apprunning', (d) => d.apps?.some((a) => a.name === name), 60000, { afterId },
     );
   }
 
+  const installAfter = env.clients[index].getLastEventId();
   await installOnNodes(env, app, [index]);
+  await waitForReconcileActuated(env.clients[index], identifier, 'dataCleared', 60000, { afterId: installAfter });
+  await seedSyncScopedData(env, name, index);
   return {
-    app, index, peerIndex, folder: `flux${name}_${name}`, identifier: `${name}_${name}`,
+    app, index, peerIndex, folder, identifier,
   };
 }
 

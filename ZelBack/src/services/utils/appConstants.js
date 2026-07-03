@@ -5,6 +5,14 @@ const path = require('path');
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = path.join(appsFolderPath, '/');
+// Backing FLUXFSVOL images live here when the host volume is the root
+// filesystem (the directory ships with the repo - see appvolumes/.gitkeep).
+const appVolumesPath = path.join(fluxDirPath, 'appvolumes');
+// The path used to be assembled by string concatenation without a separator,
+// landing images in a glued '<fluxDir>appvolumes' sibling directory (e.g.
+// ~/zelfluxappvolumes). Volumes created by older FluxOS still live there, so
+// discovery must keep checking it.
+const legacyAppVolumesPath = `${fluxDirPath}appvolumes`;
 
 // Database collections - Daemon
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
@@ -87,6 +95,8 @@ module.exports = {
   fluxDirPath,
   appsFolderPath,
   appsFolder,
+  appVolumesPath,
+  legacyAppVolumesPath,
 
   // Database collections
   scannedHeightCollection,

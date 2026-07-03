@@ -2,13 +2,11 @@ import { describe, it, before, after, afterEach } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import {
-  waitForDaemonReady, waitForNodeStatus, waitForMessageCapabilityChanged,
-  waitForDaemonUnreachable, waitForDaemonRecovered, waitFor,
+  waitForDaemonReady, waitForNodeStatus, waitForMessageCapabilityChanged, waitFor,
 } from '../framework/wait.js';
 import {
-  advanceBlock, setNodeStatus, clearAllNodeStatus, clearNodeStatus,
-  enableRpcFailure, disableRpcFailure, disableAllRpcFailure,
-  removeFromNodeList, restoreToNodeList, resetNodeList,
+  advanceBlock, enableRpcFailure, disableAllRpcFailure,
+  removeFromNodeList, resetNodeList,
 } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -68,7 +66,14 @@ describe('Confirmation service: RPC failure windows', function () {
 
   before(async function () {
     this.timeout(120000);
-    env = await createTestEnv({ hookCtx: this, nodes: 1, tickerAutostart: false });
+    // fast stale/expiry windows: this describe exercises those flows directly
+    // (the fleet default is stall-proof and would take minutes here)
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 1,
+      tickerAutostart: false,
+      configOverrides: { confirmation: { daemonStaleMs: 10000, daemonExpiredMs: 20000 } },
+    });
     await waitForDaemonReady(env.clients[0]);
     await waitForNodeStatus(env.clients[0], (d) => d.confirmed === true, 30000);
   });

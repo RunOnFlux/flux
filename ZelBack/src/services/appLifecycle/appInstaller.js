@@ -989,8 +989,14 @@ async function installAppLocally(req, res) {
         && appSpecifications.enterprise
         && !appSpecifications.compose.length
       ) {
+        // the formatter strips spec metadata; height/hash must survive it -
+        // a local row stored without height is force-removed (with broadcast)
+        // by expireGlobalApplications' missing-height check on every sweep
+        const { height, hash } = appSpecifications;
         appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
         appSpecifications = specificationFormatter(appSpecifications);
+        appSpecifications.height = height;
+        appSpecifications.hash = hash;
       }
 
       // get current height

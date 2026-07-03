@@ -59,8 +59,10 @@ describe('appUninstaller tests', () => {
       config: configStub,
       '../verificationHelper': verificationHelperStub,
       '../messageHelper': messageHelperStub,
+      '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves(null), isPathMounted: sinon.stub().resolves(false) },
       '../serviceHelper': {
         ensureString: sinon.stub().returnsArg(0),
+        runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
         ensureBoolean: sinon.stub().returnsArg(0),
       },
       '../dbHelper': dbHelperStub,
@@ -246,8 +248,10 @@ describe('appUninstaller tests', () => {
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
+        '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves(null), isPathMounted: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().returnsArg(0),
+          runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
           ensureBoolean: sinon.stub().returnsArg(0),
           delay: sinon.stub().resolves(),
         },
@@ -322,8 +326,10 @@ describe('appUninstaller tests', () => {
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
+        '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves(null), isPathMounted: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().returnsArg(0),
+          runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
           ensureBoolean: sinon.stub().returnsArg(0),
         },
         '../dbHelper': {
@@ -419,8 +425,10 @@ describe('appUninstaller tests', () => {
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
+        '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves(null), isPathMounted: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().returnsArg(0),
+          runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
           ensureBoolean: sinon.stub().returnsArg(0),
           ensureNumber: sinon.stub().returnsArg(0),
           delay: sinon.stub().resolves(),
@@ -609,8 +617,10 @@ describe('appUninstaller tests', () => {
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
+        '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves(null), isPathMounted: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().returnsArg(0),
+          runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
           ensureBoolean: sinon.stub().returnsArg(0),
           delay: sinon.stub().resolves(),
         },
@@ -695,8 +705,10 @@ describe('appUninstaller tests', () => {
         config: configStub,
         '../verificationHelper': verificationHelperStub,
         '../messageHelper': messageHelperStub,
+        '../utils/volumeService': { getVolumeFilePath: sinon.stub().resolves(null), isPathMounted: sinon.stub().resolves(false) },
         '../serviceHelper': {
           ensureString: sinon.stub().returnsArg(0),
+          runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
           ensureBoolean: sinon.stub().returnsArg(0),
         },
         '../dbHelper': {

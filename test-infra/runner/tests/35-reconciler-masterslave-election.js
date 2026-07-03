@@ -12,7 +12,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import {
   waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged, assertNoEvent,
 } from '../framework/wait.js';
-import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const subnet = getSubnetConfig();
@@ -52,13 +52,20 @@ describe('reconciler enforces masterSlave g: election', function () {
     await pushImage(appName, 'v1');
     const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g' });
     // targeted install on two specific nodes — deterministic g: holders
+    const installAfters = [0, 1].map((i) => env.clients[i].getLastEventId());
     holders = await installOnNodes(env, app, [0, 1]);
     // This suite exercises the FDM election/failover of a READY g: app, so pin both
     // holders' folders to a genuinely synced state (they promote to sendreceive and
     // become election-eligible). An empty global is correctly no longer treated as
     // synced, so without real data neither holder would ever become ready — that
-    // sourceless cold-start path is covered separately by suite 51.
+    // sourceless cold-start path is covered separately by suite 51. A synced index
+    // also requires matching data on disk (the promote gate refuses a claimed-bytes
+    // index over an empty volume), written after each holder's first-run reset.
     const folder = `flux${appName}_${appName}`;
+    await Promise.all(holders.map(async (i, k) => {
+      await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 60000, { afterId: installAfters[k] });
+      await seedSyncScopedData(env, appName, i);
+    }));
     await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));
   });
 
@@ -107,7 +114,6 @@ describe('reconciler enforces masterSlave g: election', function () {
     await waitForDown(b, appName, 'operator-stopped primary down');
 
     // keep b elected; the election must NOT override the operator stop
-    const afterId = b.getLastEventId();
     await electMaster(appName, b.ip);
     await assertNoEvent(b, 'reconciler:actuated', (d) => d.identifier === identifier && d.action === 'started', 15000);
     expect(await isUp(b, appName)).to.equal(false);

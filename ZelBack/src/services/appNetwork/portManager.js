@@ -16,6 +16,19 @@ const { localAppsInformation, globalAppsInformation } = require('../utils/appCon
 // Global cache for failed nodes
 const failedNodesTestPortsCache = new Map();
 
+// A single UPnP map failure is routine on consumer routers (busy router, a
+// node network blip) and the app itself keeps running regardless - it must
+// NEVER escalate straight to a force-removal + network broadcast. Removal
+// requires the failure to be sustained: consecutive restore cycles AND a
+// minimum wall-clock window, measured on the monotonic clock.
+const UPNP_REMOVAL_MIN_CONSECUTIVE_CYCLES = 3;
+const UPNP_REMOVAL_MIN_WINDOW_MS = 30 * 60 * 1000;
+const UPNP_MAP_RETRY_DELAY_MS = 30 * 1000;
+// appName -> { cycles, firstFailureAtMs } (monotonic ms)
+const upnpMapFailures = new Map();
+
+const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
+
 /**
  * Check if ports in array are unique
  * @param {number[]} portsArray - Array of port numbers
@@ -228,7 +241,7 @@ async function restoreFluxPortsSupport() {
   try {
     const isUPNP = upnpService.isUPNP();
 
-    const userconfig = globalThis.userconfig;
+    const { userconfig } = globalThis;
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
     const apiPortSSL = +apiPort + 1;
@@ -277,25 +290,62 @@ async function restoreAppsPortsSupport() {
 
     // UPNP
     if (isUPNP) {
+      // one shared recovery pause per cycle: every failing mapping still gets
+      // its retry, but a router-wide outage must not stack per-app pauses
+      // (N apps -> N x 30s of serial delay, outgrowing the restore interval)
+      let retryDelayElapsed = false;
       // map application ports
       // eslint-disable-next-line no-restricted-syntax
       for (const application of currentAppsPorts) {
+        let failedPort = null;
         // eslint-disable-next-line no-restricted-syntax
         for (const port of application.ports) {
           // eslint-disable-next-line no-await-in-loop
-          const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+          let upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
           if (!upnpOk) {
-            log.warn(`REMOVAL REASON: UPNP port mapping failure - ${application.name} failed to map port ${port} via UPNP (portManager)`);
-            // Import locally to avoid circular dependency
-            // eslint-disable-next-line global-require
-            const appUninstaller = require('../appLifecycle/appUninstaller');
+            if (!retryDelayElapsed) {
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(UPNP_MAP_RETRY_DELAY_MS);
+              retryDelayElapsed = true;
+            }
             // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(application.name, null, true, true, true).catch((error) => log.error(error)); // remove entire app
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(3 * 60 * 1000); // 3 mins
+            upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+          }
+          if (!upnpOk) {
+            failedPort = port;
             break;
           }
         }
+
+        if (failedPort === null) {
+          upnpMapFailures.delete(application.name);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+
+        const now = monotonicMs();
+        const tracker = upnpMapFailures.get(application.name) || { cycles: 0, firstFailureAtMs: now };
+        tracker.cycles += 1;
+        upnpMapFailures.set(application.name, tracker);
+        const sustainedMs = now - tracker.firstFailureAtMs;
+
+        if (tracker.cycles < UPNP_REMOVAL_MIN_CONSECUTIVE_CYCLES || sustainedMs < UPNP_REMOVAL_MIN_WINDOW_MS) {
+          log.warn(`restoreAppsPortsSupport - ${application.name} failed to map port ${failedPort} via UPNP `
+            + `(failure ${tracker.cycles}, ${Math.round(sustainedMs / 60000)}m sustained); not removing - removal requires `
+            + `${UPNP_REMOVAL_MIN_CONSECUTIVE_CYCLES} consecutive cycles over ${UPNP_REMOVAL_MIN_WINDOW_MS / 60000}m`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+
+        log.warn(`REMOVAL REASON: UPNP port mapping failure - ${application.name} failed to map port ${failedPort} via UPNP for ${tracker.cycles} consecutive cycles over ${Math.round(sustainedMs / 60000)}m (portManager)`);
+        upnpMapFailures.delete(application.name);
+        // Import locally to avoid circular dependency
+        // eslint-disable-next-line global-require
+        const appUninstaller = require('../appLifecycle/appUninstaller');
+        // eslint-disable-next-line no-await-in-loop
+        await appUninstaller.removeAppLocally(application.name, null, true, true, true).catch((error) => log.error(error)); // remove entire app
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(3 * 60 * 1000); // 3 mins
       }
     }
   } catch (error) {
@@ -596,7 +646,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
  */
 async function callOtherNodeToKeepUpnpPortsOpen() {
   try {
-    const userconfig = globalThis.userconfig;
+    const { userconfig } = globalThis;
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddr) {
@@ -704,4 +754,5 @@ module.exports = {
   checkInstallingAppPortAvailable,
   callOtherNodeToKeepUpnpPortsOpen,
   failedNodesTestPortsCache,
+  upnpMapFailures,
 };

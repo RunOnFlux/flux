@@ -1,14 +1,14 @@
 // Syncthing Monitor - Helper Functions
 const axios = require('axios');
-const util = require('util');
 const log = require('../../lib/log');
+const serviceHelper = require('../serviceHelper');
+const volumeService = require('../utils/volumeService');
 const {
   DEVICE_ID_REQUEST_TIMEOUT_MS,
   SYNCTHING_RESCAN_INTERVAL_SECONDS,
   SYNCTHING_MAX_CONFLICTS,
 } = require('./syncthingMonitorConstants');
 
-const cmdAsync = util.promisify(require('child_process').exec);
 const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
 
 /**
@@ -201,13 +201,26 @@ function createSyncthingFolderConfig(id, label, path, devices, type = 'sendrecei
 }
 
 /**
- * Ensure .stfolder directory exists
+ * Ensure the .stfolder marker exists - ONLY inside the mounted volume. The
+ * marker is syncthing's own guard against syncing a missing folder: creating
+ * it on the bare mountpoint re-arms syncthing onto the host filesystem and
+ * defeats that guard (this exact leak re-armed a sync onto the rootfs in the
+ * 2026-07-01 data-loss incident).
  * @param {string} folder - Folder path
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>} True if the marker exists in a mounted volume
  */
 async function ensureStfolderExists(folder) {
-  const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`;
-  await cmdAsync(execDIRst);
+  const mounted = await volumeService.isPathMounted(folder);
+  if (!mounted) {
+    log.error(`ensureStfolderExists - ${folder} is not a mountpoint; refusing to create .stfolder on the bare directory`);
+    return false;
+  }
+  const mkdir = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', `${folder}/.stfolder`] });
+  if (mkdir.error) {
+    log.error(`ensureStfolderExists - failed to create .stfolder in ${folder}: ${mkdir.error.message}`);
+    return false;
+  }
+  return true;
 }
 
 /**

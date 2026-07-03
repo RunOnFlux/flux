@@ -25,10 +25,12 @@ const {
   requiresSyncing,
   folderNeedsUpdate,
 } = require('./syncthingMonitorHelpers');
+const volumeService = require('../utils/volumeService');
+const appReconciler = require('./appReconciler');
 const {
   manageFolderSyncState,
   verifyFolderMountSafety,
-  isPathMounted,
+  verifySendReceiveFolderSafety,
 } = require('./syncthingFolderStateMachine');
 const {
   monitorFolderHealth,
@@ -42,6 +44,26 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
+
+/**
+ * Verify one app folder's mount safety, repairing an unmounted volume on the
+ * spot (FluxOS owns the mount - the backing image normally still exists, so
+ * the actionable response is to mount it, not just to report it).
+ * @param {string} appId - Docker app identifier
+ * @param {string} appFolder - App folder path
+ * @returns {Promise<{isSafe: boolean, reason: string}>} Result after any repair
+ */
+async function verifyAppFolderMountWithRepair(appId, appFolder) {
+  let mountSafety = await verifyFolderMountSafety(appId, appFolder);
+  if (!mountSafety.isSafe && !mountSafety.isMounted) {
+    const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
+    if (mountAttempt.mounted) {
+      log.info(`checkAppFolderMounts - ${appId} volume was not mounted; mounted it`);
+      mountSafety = await verifyFolderMountSafety(appId, appFolder);
+    }
+  }
+  return mountSafety;
+}
 
 /**
  * Check if app folders are properly mounted
@@ -60,7 +82,7 @@ async function checkAppFolderMounts(appsInstalled) {
       const appId = dockerService.getAppIdentifier(installedApp.name);
       const appFolder = `${appsFolder}${appId}`;
       // eslint-disable-next-line no-await-in-loop
-      const mountSafety = await verifyFolderMountSafety(appId, appFolder);
+      const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder);
       if (!mountSafety.isSafe) {
         // Folder exists but mount is not safe (empty and not mounted - likely unmounted loop device)
         unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
@@ -72,7 +94,7 @@ async function checkAppFolderMounts(appsInstalled) {
         const appId = dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`);
         const appFolder = `${appsFolder}${appId}`;
         // eslint-disable-next-line no-await-in-loop
-        const mountSafety = await verifyFolderMountSafety(appId, appFolder);
+        const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder);
         if (!mountSafety.isSafe) {
           unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
         }
@@ -140,8 +162,13 @@ async function processContainerData(params) {
   const id = appId;
   const label = appId;
 
-  // Ensure .stfolder directory exists at appId level
-  await ensureStfolderExists(folder);
+  // Ensure .stfolder directory exists at appId level - refused on an
+  // unmounted dir (the marker may only ever live inside the volume)
+  const markerReady = await ensureStfolderExists(folder);
+  if (!markerReady) {
+    log.warn(`processContainerData - ${appId} volume not mounted; skipping syncthing configuration this cycle`);
+    return;
+  }
 
   // Get and process app locations
   let locations = await appLocation(installedAppName);
@@ -299,11 +326,34 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
 
     // CRITICAL: Check if app folder mounts are ready before processing
     // This prevents syncthing operations when loop devices aren't mounted after reboot
+    // (checkAppFolderMounts repairs an unmounted volume itself when the backing
+    // image still exists, so reaching this branch means repair failed too)
     const unmountedApps = await checkAppFolderMounts(appsInstalled.data);
     if (unmountedApps.length > 0) {
       const unmountedList = unmountedApps.map((app) => app.appId).join(', ');
       log.warn(`syncthingAppsCore - Skipping processing: ${unmountedApps.length} app folders not mounted yet: ${unmountedList}`);
       log.warn('syncthingAppsCore - Waiting for app folders to be mounted before syncthing processing');
+
+      // Never leave an unsafe-mount folder sendreceive while processing is
+      // skipped: the syncthing daemon keeps running as configured, so an
+      // un-demoted sendreceive folder over a bad mount can still broadcast its
+      // (leaked or missing) disk state to the healthy peers. Demote those
+      // folders and hold their containers before bailing - idempotent, and the
+      // normal receiveonly machinery re-promotes once the mount is healthy.
+      const foldersResp = await syncthingService.getConfigFolders();
+      const folders = Array.isArray(foldersResp?.data) ? foldersResp.data : [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const { appId, reason } of unmountedApps) {
+        const folder = folders.find((f) => f.id === appId);
+        if (folder && folder.type === 'sendreceive') {
+          log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder is sendreceive over an unsafe mount (${reason}); switching to receiveonly and holding the container`);
+          // eslint-disable-next-line no-await-in-loop
+          await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, appId).catch((err) => {
+            log.error(`syncthingAppsCore - Failed to switch ${appId} to receiveonly: ${err.message}`);
+          });
+          appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
+        }
+      }
       return;
     }
 
@@ -362,7 +412,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
           const folderPath = folder.path;
 
           // eslint-disable-next-line no-await-in-loop
-          const mountSafety = await verifyFolderMountSafety(appId, folderPath);
+          const mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
 
           if (!mountSafety.isSafe) {
             unsafeFoldersCount += 1;
