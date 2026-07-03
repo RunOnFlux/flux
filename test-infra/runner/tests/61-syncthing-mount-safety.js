@@ -6,7 +6,6 @@ import {
   setSyncState, setSynced, setSyncing, getSyncthingState, resetSyncState,
   injectSyncthingEvent,
 } from '../framework/syncthing-control.js';
-import { countPattern } from '../framework/log-reader.js';
 import {
   waitFor, waitForReconcilerDesiredChanged, waitForReconcileActuated, assertNoEvent,
 } from '../framework/wait.js';
@@ -108,20 +107,20 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     this.timeout(60000);
     // both apps are healthy, promoted and running - four-plus monitor cycles
     // must pass without a forked mount probe, a marker re-assertion, or a
-    // repeated safety observation on either node
+    // repeated safety observation on either node. The harness's in-memory log
+    // collectors give each node's lines; only lines from the quiet window count.
+    const linesFor = (index) => env.nodeDiagnostics().find((n) => n.index === index)?.lines ?? [];
+    const startAt = [linesFor(0).length, linesFor(1).length];
     await new Promise((resolve) => { setTimeout(resolve, 13000); });
-    // eslint-disable-next-line no-restricted-syntax
-    for (const client of [env.clients[0], env.clients[1]]) {
-      // eslint-disable-next-line no-await-in-loop
-      const probes = await countPattern(client.container, 'Run Cmd: mountpoint', { since: '13s' });
-      // eslint-disable-next-line no-await-in-loop
-      const markerAsserts = await countPattern(client.container, 'mkdir -p .*stfolder', { since: '13s' });
-      // eslint-disable-next-line no-await-in-loop
-      const observationSpam = await countPattern(client.container, 'mounted but has no content', { since: '13s' });
-      expect(probes, 'mountpoint execs in steady state').to.equal(0);
-      expect(markerAsserts, '.stfolder re-assertions in steady state').to.equal(0);
-      expect(observationSpam, 'per-pass observation warns in steady state').to.equal(0);
-    }
+    [0, 1].forEach((nodeIndex) => {
+      const fresh = linesFor(nodeIndex).slice(startAt[nodeIndex]);
+      const probes = fresh.filter((l) => l.includes('Run Cmd: mountpoint')).length;
+      const markerAsserts = fresh.filter((l) => /mkdir -p .*stfolder/.test(l)).length;
+      const observationSpam = fresh.filter((l) => l.includes('mounted but has no content')).length;
+      expect(probes, `node ${nodeIndex} mountpoint execs in steady state`).to.equal(0);
+      expect(markerAsserts, `node ${nodeIndex} .stfolder re-assertions in steady state`).to.equal(0);
+      expect(observationSpam, `node ${nodeIndex} per-pass observation warns in steady state`).to.equal(0);
+    });
   });
 
   it('does NOT demote a legitimately empty folder whose index is empty too (cold-start seed)', async function () {
