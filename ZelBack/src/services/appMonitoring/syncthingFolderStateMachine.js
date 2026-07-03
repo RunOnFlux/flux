@@ -535,6 +535,8 @@ async function handleReceiveOnlyTransition(params) {
 
   log.info(`handleReceiveOnlyTransition - ${appId} in cache and not restarted, processing receive-only logic`);
 
+  const folderPath = syncthingFolder.path || `${appsFolder}${appId}/appdata`;
+
   // Whether any CONNECTED peer genuinely holds the data. Gates the election (a true
   // cold start - nobody serving - must still elect one seed instead of standing off)
   // and is reused by the stall ladder below, so it is computed once per cycle here.
@@ -575,6 +577,18 @@ async function handleReceiveOnlyTransition(params) {
   // subsumes the data-version check) - a separate, proposed redesign, out of scope here.
   if (isLeader) {
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers, confirmed ${cache.leaderStreak}x), starting immediately`);
+
+    // A folder must pass the sendreceive safety verification BEFORE it ever
+    // flips - the seed included. An empty cold-start folder passes (empty index
+    // over an empty disk); an unmounted dir, or a stale index claiming bytes
+    // over an empty volume, must never seed: sendreceive would broadcast the
+    // missing files as deletions.
+    const seedSafety = await verifySendReceiveFolderSafety(appId, folderPath);
+    if (!seedSafety.isSafe) {
+      log.warn(`handleReceiveOnlyTransition - ${appId} elected leader but not safe to seed (${seedSafety.reason}); staying receiveonly`);
+      syncthingFolder.type = 'receiveonly';
+      return { syncthingFolder, cache };
+    }
 
     // Fix permissions before changing to sendreceive - ensures correct ownership for synced data
     await fixAppdataPermissions(appId);
@@ -619,6 +633,14 @@ async function handleReceiveOnlyTransition(params) {
       return { syncthingFolder, cache };
     }
     if (syncStatus.isSynced) {
+      // Same pre-flip verification as the seed above: completion metrics come
+      // from the index, and an index can be stale - promotion requires the disk
+      // to actually hold the data the index claims.
+      const promoteSafety = await verifySendReceiveFolderSafety(appId, folderPath);
+      if (!promoteSafety.isSafe) {
+        log.warn(`handleReceiveOnlyTransition - ${appId} is synced but not safe to promote (${promoteSafety.reason}); staying receiveonly`);
+        return { syncthingFolder, cache };
+      }
       log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
       await fixAppdataPermissions(appId);
       syncthingFolder.type = 'sendreceive';

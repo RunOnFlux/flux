@@ -584,6 +584,78 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
     });
 
+    // Pre-flip safety: completion metrics come from the index, and a stale index
+    // claims bytes the disk does not hold. A folder must pass the sendreceive
+    // safety verification BEFORE it flips - promoting first and demoting a cycle
+    // later leaves a window where sendreceive broadcasts the missing files as
+    // deletions.
+    it('does not promote a synced folder whose index claims data over an empty disk', async () => {
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 1000, inSyncBytes: 1000, state: 'idle' },
+      });
+      // only syncthing housekeeping on disk - no sync-scoped files
+      fsMock.promises.readdir.resolves([dirent('.stignore'), dirent('backup', false)]);
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted).to.not.equal(true);
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
+    });
+
+    it('does not let an elected leader seed when the index claims data over an empty disk', async () => {
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 1000, inSyncBytes: 1000, state: 'idle' },
+      });
+      fsMock.promises.readdir.resolves([dirent('.stignore'), dirent('backup', false)]);
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted).to.not.equal(true);
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
+    });
+
+    it('still lets the leader seed a cold start (empty index over an empty disk)', async () => {
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 0, inSyncBytes: 0, state: 'idle' },
+      });
+      fsMock.promises.readdir.resolves([dirent('.stignore')]);
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      expect(result.cache.restarted).to.be.true;
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
+    });
+
     it('should NOT start on unsynced data while sync is still progressing (no force-start)', async () => {
       // not the leader, sync at 50% and still progressing (not stalled)
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
