@@ -290,6 +290,10 @@ async function restoreAppsPortsSupport() {
 
     // UPNP
     if (isUPNP) {
+      // one shared recovery pause per cycle: every failing mapping still gets
+      // its retry, but a router-wide outage must not stack per-app pauses
+      // (N apps -> N x 30s of serial delay, outgrowing the restore interval)
+      let retryDelayElapsed = false;
       // map application ports
       // eslint-disable-next-line no-restricted-syntax
       for (const application of currentAppsPorts) {
@@ -299,8 +303,11 @@ async function restoreAppsPortsSupport() {
           // eslint-disable-next-line no-await-in-loop
           let upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
           if (!upnpOk) {
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(UPNP_MAP_RETRY_DELAY_MS);
+            if (!retryDelayElapsed) {
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(UPNP_MAP_RETRY_DELAY_MS);
+              retryDelayElapsed = true;
+            }
             // eslint-disable-next-line no-await-in-loop
             upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
           }

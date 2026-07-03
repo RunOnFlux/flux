@@ -578,6 +578,24 @@ describe('portManager tests', () => {
       expect(portManager.upnpMapFailures.has('App1')).to.be.false;
     });
 
+    it('should pay the retry pause at most once per cycle across failing apps', async () => {
+      const collection = config.database.appslocal.collections.appsInformation;
+      await dbHelper.insertManyToDatabase(database, collection, [
+        { name: 'App2', version: 3, ports: [30002] },
+      ]);
+      upnpService.isUPNP.returns(true);
+      upnpService.mapUpnpPort.resolves(false);
+
+      await portManager.restoreAppsPortsSupport();
+
+      // both apps still get their retry attempt and their strike, but the
+      // recovery pause is shared - not stacked per app
+      sinon.assert.calledOnce(serviceHelper.delay);
+      expect(upnpService.mapUpnpPort.callCount).to.equal(4);
+      expect(portManager.upnpMapFailures.get('App1').cycles).to.equal(1);
+      expect(portManager.upnpMapFailures.get('App2').cycles).to.equal(1);
+    });
+
     it('should clear the failure tracker once mapping succeeds again', async () => {
       upnpService.isUPNP.returns(true);
       upnpService.mapUpnpPort.resolves(false);

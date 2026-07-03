@@ -37,9 +37,9 @@ async function getVolumeFilePath(appId) {
   try {
     const dfres = await dfAsync({});
     dfres.forEach((volume) => {
-      const eligible = (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot'))
-        || (volume.filesystem.includes('loop') && volume.mount === '/');
-      if (eligible && volume.mount !== '/') {
+      const eligible = volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop')
+        && !volume.mount.includes('boot') && volume.mount !== '/';
+      if (eligible) {
         candidates.push(path.join(volume.mount, volumeFileName));
       }
     });
@@ -77,9 +77,9 @@ async function getComponentAppIdsFromVolumeFiles(appName) {
   try {
     const dfres = await dfAsync({});
     dfres.forEach((volume) => {
-      const eligible = (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot'))
-        || (volume.filesystem.includes('loop') && volume.mount === '/');
-      if (eligible && volume.mount !== '/') {
+      const eligible = volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop')
+        && !volume.mount.includes('boot') && volume.mount !== '/';
+      if (eligible) {
         searchDirs.add(volume.mount);
       }
     });
