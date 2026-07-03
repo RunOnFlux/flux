@@ -4,7 +4,9 @@ import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, getAppContainerStatus } from '../framework/container.js';
 import {
   setSyncState, setSynced, setSyncing, getSyncthingState, resetSyncState,
+  injectSyncthingEvent,
 } from '../framework/syncthing-control.js';
+import { countPattern } from '../framework/log-reader.js';
 import {
   waitFor, waitForReconcilerDesiredChanged, waitForReconcileActuated, assertNoEvent,
 } from '../framework/wait.js';
@@ -26,6 +28,13 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 //  - the .stfolder marker must never (re)appear on the bare unmounted dir -
 //    recreating it there re-arms syncthing onto the host filesystem and
 //    defeats syncthing's own missing-marker guard
+//
+// Mount safety is verified at decision points (startup, promotion) and in
+// reaction to FolderErrors - syncthing's own storage-went-bad signal, raised
+// natively when a vanished mount takes the .stfolder marker with it. The stub
+// has no disk watcher, so these tests inject the FolderErrors event that real
+// syncthing would raise. Steady state runs no probes and writes no per-pass
+// log lines - asserted here before any state is broken.
 
 const subnet = getSubnetConfig();
 
@@ -95,6 +104,26 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     await env?.teardown();
   });
 
+  it('steady state runs no mount probes and writes no per-pass observation lines', async function () {
+    this.timeout(60000);
+    // both apps are healthy, promoted and running - four-plus monitor cycles
+    // must pass without a forked mount probe, a marker re-assertion, or a
+    // repeated safety observation on either node
+    await new Promise((resolve) => { setTimeout(resolve, 13000); });
+    // eslint-disable-next-line no-restricted-syntax
+    for (const client of [env.clients[0], env.clients[1]]) {
+      // eslint-disable-next-line no-await-in-loop
+      const probes = await countPattern(client.container, 'Run Cmd: mountpoint', { since: '13s' });
+      // eslint-disable-next-line no-await-in-loop
+      const markerAsserts = await countPattern(client.container, 'mkdir -p .*stfolder', { since: '13s' });
+      // eslint-disable-next-line no-await-in-loop
+      const observationSpam = await countPattern(client.container, 'mounted but has no content', { since: '13s' });
+      expect(probes, 'mountpoint execs in steady state').to.equal(0);
+      expect(markerAsserts, '.stfolder re-assertions in steady state').to.equal(0);
+      expect(observationSpam, 'per-pass observation warns in steady state').to.equal(0);
+    }
+  });
+
   it('does NOT demote a legitimately empty folder whose index is empty too (cold-start seed)', async function () {
     this.timeout(60000);
     const client = env.clients[1];
@@ -118,6 +147,9 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     // mounted volume holds none - in sendreceive, syncthing would broadcast
     // every "missing" file as a deletion
     await setSyncState({ ip: ip1, folder: phantomFolder, state: 'idle', globalBytes: 100000, inSyncBytes: 100000 });
+    // flag the folder: steady state is never swept, so the verify (which
+    // includes the phantom-index check) runs when syncthing flags the folder
+    await injectSyncthingEvent({ ip: ip1, type: 'FolderErrors', data: { folder: phantomFolder, errors: [{ error: 'pull failed' }] } });
 
     await waitFor(async () => (await folderType(ip1, phantomFolder)) === 'receiveonly', { timeout: 60000, interval: 3000, label: 'phantom folder demoted to receiveonly' });
     await waitForReconcilerDesiredChanged(client, phantomIdentifier, 'stopped', 60000, { afterId });
@@ -154,6 +186,11 @@ describe('syncthing mount-safety guard demotes unsafe sendreceive folders', func
     const r = await execInContainer(client.container,
       `umount -l ${dir} && chattr -i ${dir} && touch ${dir}/leaked.db && rm -f ${volFile(leakName)}`);
     expect(r.exitCode, `leak-state setup failed: ${r.output}`).to.equal(0);
+
+    // the vanished mount took the .stfolder marker with it - real syncthing
+    // raises FolderErrors for the folder; the stub has no disk watcher, so
+    // inject the same signal
+    await injectSyncthingEvent({ ip: ip0, type: 'FolderErrors', data: { folder: leakFolder, errors: [{ error: 'folder marker missing' }] } });
 
     // content must NOT buy a pass: the folder is demoted and the container
     // stopped by the mount-safety hold (no help from the test this time)
