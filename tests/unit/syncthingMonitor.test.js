@@ -89,6 +89,7 @@ const syncthingEventsConsumerMock = {
   stop: sinon.stub().resolves(),
   isRunning: sinon.stub().returns(false),
   getFolderErrors: sinon.stub(),
+  drainErroredFolderIds: sinon.stub().returns([]),
 };
 
 // Load module with mocked dependencies
@@ -152,6 +153,8 @@ describe('syncthingMonitor tests', () => {
     syncthingEventsConsumerMock.start.reset();
     syncthingEventsConsumerMock.stop.reset();
     syncthingEventsConsumerMock.stop.resolves();
+    syncthingEventsConsumerMock.drainErroredFolderIds.reset();
+    syncthingEventsConsumerMock.drainErroredFolderIds.returns([]);
 
     volumeServiceMock.ensureAppVolumeMounted.reset();
     volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: true });
@@ -318,6 +321,7 @@ describe('syncthingMonitor tests', () => {
     });
 
     it('demotes a sendreceive folder over an unrepairable mount while skipping the cycle', async function () {
+      // syncthing raised FolderErrors for the folder (storage went bad), the
       // repair fails (no backing image) -> the cycle is skipped, but a folder
       // left sendreceive over the bad mount could still broadcast its disk
       // state - it must be demoted and its container held before bailing
@@ -325,6 +329,7 @@ describe('syncthingMonitor tests', () => {
         status: 'success',
         data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
       });
+      syncthingEventsConsumerMock.drainErroredFolderIds.returns(['testapp']);
       syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'unmounted_with_content' });
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
       syncthingServiceMock.getConfigFolders.resolves({ data: [{ id: 'testapp', type: 'sendreceive' }] });
@@ -348,6 +353,7 @@ describe('syncthingMonitor tests', () => {
         status: 'success',
         data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
       });
+      syncthingEventsConsumerMock.drainErroredFolderIds.returns(['testapp']);
       syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
       syncthingServiceMock.getConfigFolders.resolves({ data: [{ id: 'testapp', type: 'receiveonly' }] });
@@ -387,12 +393,14 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.calledOnce(syncthingEventsConsumerMock.stop);
     });
 
-    it('should run an early evaluation (debounced) when folder events arrive', async () => {
+    it('should run an early evaluation for a folder in active transition', async () => {
       // events never decide anything - they only run the SAME monitoring pass
-      // earlier than the interval would
+      // earlier than the interval would, and only for folders the state
+      // machine is actively transitioning
       mockInstalledAppsFn.resolves({ status: 'success', data: [] });
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
       fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      mockState.receiveOnlySyncthingAppsCache.set('fluxcomp_app1', { numberOfExecutions: 3 });
 
       monitorControl = syncthingMonitor.syncthingApps(
         mockState,
@@ -410,7 +418,98 @@ describe('syncthingMonitor tests', () => {
       handlers.onFolderActivity('fluxcomp_app1', 'FolderSummary');
       handlers.onFolderActivity('fluxcomp_app1', 'StateChanged'); // coalesces
 
-      await clock.tickAsync(2500); // past the debounce, well before the interval
+      // a continuous event stream must not drive back-to-back passes: nothing
+      // fires before the min gap from the last completed pass
+      await clock.tickAsync(2500);
+      expect(mockInstalledAppsFn.callCount).to.equal(runsAfterStart);
+
+      // past the min gap, before the interval
+      await clock.tickAsync(8500);
+      expect(mockInstalledAppsFn.callCount).to.equal(runsAfterStart + 1);
+    });
+
+    it('does not sweep mounts in steady state (no FolderErrors, not first run)', async () => {
+      // an unsafe mount exists, but nothing flagged it - the steady-state pass
+      // must not go looking: syncthing's .stfolder marker converts real
+      // storage loss into FolderErrors, which is the only trigger
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+      syncthingServiceMock.getConfigFolders.resolves({ data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      sinon.assert.notCalled(syncthingFolderStateMachineMock.verifyFolderMountSafety);
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'patch', { type: 'receiveonly' }, 'testapp');
+      // and the pass itself proceeded - it was not skipped
+      sinon.assert.called(syncthingServiceMock.getDeviceId);
+    });
+
+    it('should NOT accelerate on activity from steady-state folders', async () => {
+      // a healthy folder (synced, or simply a busy app writing into it) emits
+      // events continuously - those belong to the level pass, never the
+      // accelerator, or a busy g: app degenerates the 30s cadence into
+      // back-to-back full passes
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      // a completed transition (restarted) is steady state too
+      mockState.receiveOnlySyncthingAppsCache.set('fluxcomp_done', { restarted: true });
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+        mockAppDockerStopFn,
+        mockAppDockerRestartFn,
+        mockAppDeleteDataFn,
+        mockRemoveAppLocallyFn,
+      );
+      await clock.tickAsync(100); // initial run completes
+      const runsAfterStart = mockInstalledAppsFn.callCount;
+
+      const handlers = syncthingEventsConsumerMock.start.firstCall.args[0];
+      handlers.onFolderActivity('fluxcomp_untracked', 'FolderSummary');
+      handlers.onFolderActivity('fluxcomp_done', 'FolderSummary');
+      handlers.onFolderActivity('fluxcomp_done', 'StateChanged');
+
+      await clock.tickAsync(15000); // well past debounce and min gap
+
+      expect(mockInstalledAppsFn.callCount).to.equal(runsAfterStart);
+    });
+
+    it('should accelerate on FolderErrors regardless of folder state', async () => {
+      // FolderErrors is syncthing's own storage-went-bad signal (e.g. the
+      // .stfolder marker vanished with its mount) - always worth an early pass
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+        mockAppDockerStopFn,
+        mockAppDockerRestartFn,
+        mockAppDeleteDataFn,
+        mockRemoveAppLocallyFn,
+      );
+      await clock.tickAsync(100); // initial run completes
+      const runsAfterStart = mockInstalledAppsFn.callCount;
+
+      const handlers = syncthingEventsConsumerMock.start.firstCall.args[0];
+      handlers.onFolderActivity('fluxcomp_untracked', 'FolderErrors');
+
+      await clock.tickAsync(11000);
 
       expect(mockInstalledAppsFn.callCount).to.equal(runsAfterStart + 1);
     });

@@ -39,6 +39,12 @@ const CLOCK_SKEW_TOLERANCE_MS = 5000; // 5 seconds tolerance for timestamp compa
 // flip a follower into self-promoting (and starting the app). Tunable for tests.
 const LEADER_CONFIRM_COUNT = config.syncthing.leaderConfirmCount ?? 2;
 
+// Edge-accelerator pacing: event bursts coalesce for the debounce window, and
+// early runs keep a minimum gap from the last completed pass so a continuous
+// event stream cannot drive back-to-back full passes. Tunable for tests.
+const EARLY_EVAL_DEBOUNCE_MS = config.syncthing.earlyEvalDebounceMs ?? 2 * 1000;
+const EARLY_EVAL_MIN_GAP_MS = config.syncthing.earlyEvalMinGapMs ?? 10 * 1000;
+
 // Sync completion thresholds
 const SYNC_COMPLETE_PERCENTAGE = 100;
 
@@ -62,6 +68,8 @@ module.exports = {
   STALL_REMOVE_MIN_NUDGES,
   ACTIVE_FOLDER_STATES,
   CLOCK_SKEW_TOLERANCE_MS,
+  EARLY_EVAL_DEBOUNCE_MS,
+  EARLY_EVAL_MIN_GAP_MS,
   LEADER_CONFIRM_COUNT,
   SYNC_COMPLETE_PERCENTAGE,
   HEALTH_NUDGE_THRESHOLD_MS,

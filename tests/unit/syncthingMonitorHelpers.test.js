@@ -4,6 +4,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const { expect } = require('chai');
 const sinon = require('sinon');
 const axios = require('axios');
+const fsp = require('node:fs/promises');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const helpers = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
@@ -394,12 +395,24 @@ describe('syncthingMonitorHelpers tests', () => {
 
     it('creates the marker inside a mounted volume', async () => {
       sandbox.stub(volumeService, 'isPathMounted').resolves(true);
+      sandbox.stub(fsp, 'stat').rejects(new Error('ENOENT'));
       const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
 
       const result = await helpers.ensureStfolderExists('/apps/fluxcomp_app');
 
       expect(result).to.be.true;
       sinon.assert.calledWith(runCommand, 'mkdir', sinon.match({ runAsRoot: true, params: ['-p', '/apps/fluxcomp_app/.stfolder'] }));
+    });
+
+    it('does not recreate an existing marker (creation is one-time setup, not a per-pass ritual)', async () => {
+      sandbox.stub(volumeService, 'isPathMounted').resolves(true);
+      sandbox.stub(fsp, 'stat').resolves({ isDirectory: () => true });
+      const runCommand = sandbox.stub(serviceHelper, 'runCommand');
+
+      const result = await helpers.ensureStfolderExists('/apps/fluxcomp_app');
+
+      expect(result).to.be.true;
+      sinon.assert.notCalled(runCommand);
     });
 
     it('reports failure when the marker cannot be created', async () => {

@@ -15,7 +15,10 @@ const {
   ERROR_RETRY_DELAY_MS,
   SYNC_STATE_LOG_INTERVAL_MS,
   HEALTH_CHECK_INTERVAL_MS,
+  EARLY_EVAL_DEBOUNCE_MS,
+  EARLY_EVAL_MIN_GAP_MS,
 } = require('./syncthingMonitorConstants');
+const { createMonitorAccelerator } = require('./syncthingMonitorAccelerator');
 const {
   sortAndFilterLocations,
   buildDeviceConfiguration,
@@ -105,6 +108,26 @@ async function checkAppFolderMounts(appsInstalled) {
   return unmountedApps;
 }
 
+/**
+ * Installed apps having at least one component whose docker app identifier is
+ * in the given folder-id list (syncthing folder ids ARE the app identifiers).
+ * @param {Array} appsInstalled - List of installed apps
+ * @param {string[]} folderIds - Syncthing folder ids to match
+ * @returns {Array} Matching installed apps
+ */
+function appsMatchingFolderIds(appsInstalled, folderIds) {
+  if (folderIds.length === 0) return [];
+  const wanted = new Set(folderIds);
+  return appsInstalled.filter((installedApp) => {
+    if (installedApp.version <= 3) {
+      return wanted.has(dockerService.getAppIdentifier(installedApp.name));
+    }
+    return (installedApp.compose || []).some(
+      (component) => wanted.has(dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`)),
+    );
+  });
+}
+
 // Helper function to get app locations
 async function appLocation(appName) {
   try {
@@ -135,6 +158,7 @@ async function processContainerData(params) {
     localSocketAddr,
     localDeviceId,
     state,
+    erroredFolderIds,
     allFoldersResp,
     allDevicesResp,
     devicesConfiguration,
@@ -202,6 +226,7 @@ async function processContainerData(params) {
       localSocketAddr,
       syncthingFolder,
       installedAppName,
+      mountVerifyNeeded: state.syncthingAppsFirstRun || erroredFolderIds.has(appId),
     });
 
     // Update cache if provided
@@ -324,11 +349,20 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // Decrypt enterprise apps (version 8 with encrypted content)
     appsInstalled.data = await decryptEnterpriseApps(appsInstalled.data);
 
-    // CRITICAL: Check if app folder mounts are ready before processing
-    // This prevents syncthing operations when loop devices aren't mounted after reboot
-    // (checkAppFolderMounts repairs an unmounted volume itself when the backing
-    // image still exists, so reaching this branch means repair failed too)
-    const unmountedApps = await checkAppFolderMounts(appsInstalled.data);
+    // Mount safety is verified at decision points and in reaction to
+    // syncthing's own storage signal - never as a steady-state sweep. The full
+    // sweep runs on the first pass after process start (the reboot case: loop
+    // mounts may not be up yet, and the sweep repairs them). After that, a
+    // vanished mount takes the folder's .stfolder marker with it, syncthing
+    // halts the folder and raises FolderErrors, and only the flagged folders
+    // are verified here (checkAppFolderMounts repairs an unmounted volume
+    // itself when the backing image still exists, so a non-empty unmountedApps
+    // means repair failed too).
+    const erroredFolderIds = new Set(syncthingEventsConsumer.drainErroredFolderIds());
+    const appsToVerify = state.syncthingAppsFirstRun
+      ? appsInstalled.data
+      : appsMatchingFolderIds(appsInstalled.data, [...erroredFolderIds]);
+    const unmountedApps = appsToVerify.length > 0 ? await checkAppFolderMounts(appsToVerify) : [];
     if (unmountedApps.length > 0) {
       const unmountedList = unmountedApps.map((app) => app.appId).join(', ');
       log.warn(`syncthingAppsCore - Skipping processing: ${unmountedApps.length} app folders not mounted yet: ${unmountedList}`);
@@ -448,6 +482,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       localSocketAddr,
       localDeviceId,
       state,
+      erroredFolderIds,
       allFoldersResp,
       allDevicesResp,
       devicesConfiguration,
@@ -621,6 +656,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
 function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
   let intervalId = null;
   let isRunning = false;
+  let accelerator; // assigned below; runMonitoring only executes after assignment
 
   const runMonitoring = async () => {
     if (isRunning) {
@@ -629,6 +665,7 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
     }
 
     isRunning = true;
+    accelerator.notePassStarted();
     try {
       await syncthingAppsCore(
         state,
@@ -640,8 +677,23 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
       log.error(error.stack);
     } finally {
       isRunning = false;
+      accelerator.notePassEnded();
     }
   };
+
+  // Edge accelerator: folder events for folders the state machine is actively
+  // transitioning (plus FolderErrors and resync requests) trigger an early run
+  // of the SAME monitoring pass the interval drives - events never carry
+  // decisions, and steady-state folder activity never accelerates anything.
+  accelerator = createMonitorAccelerator({
+    run: runMonitoring,
+    isFolderInTransition: (folderId) => {
+      const entry = state.receiveOnlySyncthingAppsCache.get(folderId);
+      return Boolean(entry && !entry.restarted);
+    },
+    debounceMs: EARLY_EVAL_DEBOUNCE_MS,
+    minGapMs: EARLY_EVAL_MIN_GAP_MS,
+  });
 
   // Run immediately on start
   runMonitoring();
@@ -649,21 +701,9 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
   // Then run at regular intervals (the LEVEL: ground truth, self-healing)
   intervalId = setInterval(runMonitoring, MONITOR_INTERVAL_MS);
 
-  // Edge accelerator: syncthing folder events trigger an early run of the SAME
-  // monitoring pass the interval drives - events never carry decisions. Debounced
-  // so an event burst coalesces into one evaluation; if the stream dies, behavior
-  // degrades to the interval cadence (latency, never correctness).
-  let earlyEvaluationTimer = null;
-  const requestEarlyEvaluation = () => {
-    if (earlyEvaluationTimer) return;
-    earlyEvaluationTimer = setTimeout(() => {
-      earlyEvaluationTimer = null;
-      runMonitoring();
-    }, 2000);
-  };
   syncthingEventsConsumer.start({
-    onFolderActivity: () => requestEarlyEvaluation(),
-    onResync: () => requestEarlyEvaluation(),
+    onFolderActivity: (folder, eventType) => accelerator.onFolderActivity(folder, eventType),
+    onResync: () => accelerator.onResync(),
   });
 
   // Return control object for graceful shutdown
@@ -672,10 +712,7 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
       if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
-        if (earlyEvaluationTimer) {
-          clearTimeout(earlyEvaluationTimer);
-          earlyEvaluationTimer = null;
-        }
+        accelerator.stop();
         syncthingEventsConsumer.stop();
         log.info('syncthingApps - Monitoring service stopped');
       }
