@@ -71,11 +71,13 @@ function noteSafetyObservation(appId, observation, logFn, message) {
  * `find | wc` pipeline hits on huge trees (where a truncated listing could
  * make a safety guard misread a populated folder as empty).
  * @param {string} dirPath - Directory to scan
- * @param {number} limit - Stop counting once this many files are found
- * @param {{excludeNames?: string[], excludeDirs?: string[]}} options - Skips
- * @returns {Promise<number>} Number of files found (capped at limit)
+ * @param {number} limit - Stop counting once this many entries are found
+ * @param {{excludeNames?: string[], excludeDirs?: string[], countDirs?: boolean}} options -
+ *   Skips, and whether a (non-excluded) directory counts as content in its own
+ *   right rather than only as a subtree to descend into.
+ * @returns {Promise<number>} Number of entries found (capped at limit)
  */
-async function countFilesUpTo(dirPath, limit, { excludeNames = [], excludeDirs = [] } = {}) {
+async function countFilesUpTo(dirPath, limit, { excludeNames = [], excludeDirs = [], countDirs = false } = {}) {
   let count = 0;
   const pending = [dirPath];
   while (pending.length > 0 && count < limit) {
@@ -92,7 +94,20 @@ async function countFilesUpTo(dirPath, limit, { excludeNames = [], excludeDirs =
     // eslint-disable-next-line no-restricted-syntax
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (!excludeDirs.includes(entry.name)) pending.push(path.join(current, entry.name));
+        if (excludeDirs.includes(entry.name)) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        // A synced folder can legitimately hold nothing but empty directories:
+        // syncthing indexes each directory entry (so globalBytes > 0) while the
+        // tree contains no regular file. When asked, count the directory itself
+        // as content so an all-directory folder is not misread as empty - the
+        // real 2026-07-04 phantom_index_empty_disk false positive.
+        if (countDirs) {
+          count += 1;
+          if (count >= limit) break;
+        }
+        pending.push(path.join(current, entry.name));
       } else if (entry.isFile() && !excludeNames.includes(entry.name)) {
         count += 1;
         if (count >= limit) break;
@@ -116,18 +131,28 @@ async function checkDirectoryHasContent(dirPath) {
 }
 
 /**
- * Like checkDirectoryHasContent, but counts only files inside the folder's
- * SYNC SCOPE - the same scope the syncthing index describes. .stignore is
- * syncthing's own ignore file (never synced itself) and /backup is what it is
- * told to ignore, so both exist on a fresh volume without representing any
- * synced data. Comparing this against the index's globalBytes is therefore
- * like for like; the plain content check would let FluxOS's own housekeeping
- * files mask an empty dataset.
+ * Like checkDirectoryHasContent, but counts entries inside the folder's SYNC
+ * SCOPE - the same scope the syncthing index describes (globalBytes). Two
+ * kinds of on-disk entry are NOT synced payload and are skipped so they cannot
+ * mask a genuinely empty dataset: housekeeping that FluxOS/syncthing recreate
+ * on any fresh or wiped volume (`.stignore`, the `.stfolder` marker), and the
+ * `/backup` subtree `.stignore` tells syncthing to ignore. Everything else
+ * counts - crucially INCLUDING directories, because the index counts each
+ * directory entry too: a folder whose synced payload is only (empty)
+ * directories has globalBytes > 0 with zero regular files, and a files-only
+ * walk misread that as a phantom index over an empty disk (the 2026-07-04
+ * false positive that stopped healthy, fully-synced apps and held them down).
+ * A truly wiped disk keeps only the skipped housekeeping, so it still reads
+ * empty and the phantom guard still fires.
  * @param {string} dirPath - Directory path to check
  * @returns {Promise<{hasContent: boolean, fileCount: number}>} Content status
  */
 async function checkDirectoryHasSyncScopedContent(dirPath) {
-  const fileCount = await countFilesUpTo(dirPath, 100, { excludeNames: ['.stignore'], excludeDirs: ['backup'] });
+  const fileCount = await countFilesUpTo(dirPath, 100, {
+    excludeNames: ['.stignore'],
+    excludeDirs: ['backup', '.stfolder'],
+    countDirs: true,
+  });
   return {
     hasContent: fileCount > 0,
     fileCount,
