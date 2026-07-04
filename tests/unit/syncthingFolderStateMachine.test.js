@@ -1205,6 +1205,46 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.reason).to.equal('phantom_index_empty_disk');
     });
 
+    it('is safe when the synced payload is only (empty) directories', async () => {
+      // real 2026-07-04 false positive: an app whose synced content is empty
+      // directories. The index counts each directory entry (globalBytes 256)
+      // while the disk holds no regular file, so a files-only walk wrongly
+      // called it a phantom index and the reconciler stopped the container
+      // (exit 137) and held it down. Directories must count as content.
+      fsMock.promises.readdir.resolves([]); // nested dirs are empty
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('.stfolder', false), dirent('data', false),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 256, inSyncBytes: 256, state: 'idle' },
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.true;
+    });
+
+    it('still flags a phantom when only housekeeping survives a wiped disk', async () => {
+      // the guard must keep protecting: a genuinely wiped volume keeps only what
+      // FluxOS/syncthing recreate - .stignore, the .stfolder marker, the ignored
+      // backup/ - none of which is synced payload, so an index that still claims
+      // bytes is a stale index over an empty disk and must stay blocked.
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('.stfolder', false), dirent('backup', false),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 500000, inSyncBytes: 0, state: 'idle' },
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('phantom_index_empty_disk');
+    });
+
     it('is safe on an empty disk when the index is empty too (cold-start seed)', async () => {
       fsMock.promises.readdir.resolves([dirent('.stignore')]);
       syncthingServiceMock.getDbStatus.resolves({
