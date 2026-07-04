@@ -15,7 +15,10 @@ const {
   ERROR_RETRY_DELAY_MS,
   SYNC_STATE_LOG_INTERVAL_MS,
   HEALTH_CHECK_INTERVAL_MS,
+  EARLY_EVAL_DEBOUNCE_MS,
+  EARLY_EVAL_MIN_GAP_MS,
 } = require('./syncthingMonitorConstants');
+const { createMonitorAccelerator } = require('./syncthingMonitorAccelerator');
 const {
   sortAndFilterLocations,
   buildDeviceConfiguration,
@@ -25,10 +28,12 @@ const {
   requiresSyncing,
   folderNeedsUpdate,
 } = require('./syncthingMonitorHelpers');
+const volumeService = require('../utils/volumeService');
+const appReconciler = require('./appReconciler');
 const {
   manageFolderSyncState,
   verifyFolderMountSafety,
-  isPathMounted,
+  verifySendReceiveFolderSafety,
 } = require('./syncthingFolderStateMachine');
 const {
   monitorFolderHealth,
@@ -42,6 +47,26 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
+
+/**
+ * Verify one app folder's mount safety, repairing an unmounted volume on the
+ * spot (FluxOS owns the mount - the backing image normally still exists, so
+ * the actionable response is to mount it, not just to report it).
+ * @param {string} appId - Docker app identifier
+ * @param {string} appFolder - App folder path
+ * @returns {Promise<{isSafe: boolean, reason: string}>} Result after any repair
+ */
+async function verifyAppFolderMountWithRepair(appId, appFolder) {
+  let mountSafety = await verifyFolderMountSafety(appId, appFolder);
+  if (!mountSafety.isSafe && !mountSafety.isMounted) {
+    const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
+    if (mountAttempt.mounted) {
+      log.info(`checkAppFolderMounts - ${appId} volume was not mounted; mounted it`);
+      mountSafety = await verifyFolderMountSafety(appId, appFolder);
+    }
+  }
+  return mountSafety;
+}
 
 /**
  * Check if app folders are properly mounted
@@ -60,7 +85,7 @@ async function checkAppFolderMounts(appsInstalled) {
       const appId = dockerService.getAppIdentifier(installedApp.name);
       const appFolder = `${appsFolder}${appId}`;
       // eslint-disable-next-line no-await-in-loop
-      const mountSafety = await verifyFolderMountSafety(appId, appFolder);
+      const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder);
       if (!mountSafety.isSafe) {
         // Folder exists but mount is not safe (empty and not mounted - likely unmounted loop device)
         unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
@@ -72,7 +97,7 @@ async function checkAppFolderMounts(appsInstalled) {
         const appId = dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`);
         const appFolder = `${appsFolder}${appId}`;
         // eslint-disable-next-line no-await-in-loop
-        const mountSafety = await verifyFolderMountSafety(appId, appFolder);
+        const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder);
         if (!mountSafety.isSafe) {
           unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
         }
@@ -81,6 +106,26 @@ async function checkAppFolderMounts(appsInstalled) {
   }
 
   return unmountedApps;
+}
+
+/**
+ * Installed apps having at least one component whose docker app identifier is
+ * in the given folder-id list (syncthing folder ids ARE the app identifiers).
+ * @param {Array} appsInstalled - List of installed apps
+ * @param {string[]} folderIds - Syncthing folder ids to match
+ * @returns {Array} Matching installed apps
+ */
+function appsMatchingFolderIds(appsInstalled, folderIds) {
+  if (folderIds.length === 0) return [];
+  const wanted = new Set(folderIds);
+  return appsInstalled.filter((installedApp) => {
+    if (installedApp.version <= 3) {
+      return wanted.has(dockerService.getAppIdentifier(installedApp.name));
+    }
+    return (installedApp.compose || []).some(
+      (component) => wanted.has(dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`)),
+    );
+  });
 }
 
 // Helper function to get app locations
@@ -113,6 +158,7 @@ async function processContainerData(params) {
     localSocketAddr,
     localDeviceId,
     state,
+    erroredFolderIds,
     allFoldersResp,
     allDevicesResp,
     devicesConfiguration,
@@ -140,8 +186,13 @@ async function processContainerData(params) {
   const id = appId;
   const label = appId;
 
-  // Ensure .stfolder directory exists at appId level
-  await ensureStfolderExists(folder);
+  // Ensure .stfolder directory exists at appId level - refused on an
+  // unmounted dir (the marker may only ever live inside the volume)
+  const markerReady = await ensureStfolderExists(folder);
+  if (!markerReady) {
+    log.warn(`processContainerData - ${appId} volume not mounted; skipping syncthing configuration this cycle`);
+    return;
+  }
 
   // Get and process app locations
   let locations = await appLocation(installedAppName);
@@ -175,6 +226,7 @@ async function processContainerData(params) {
       localSocketAddr,
       syncthingFolder,
       installedAppName,
+      mountVerifyNeeded: state.syncthingAppsFirstRun || erroredFolderIds.has(appId),
     });
 
     // Update cache if provided
@@ -297,13 +349,45 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // Decrypt enterprise apps (version 8 with encrypted content)
     appsInstalled.data = await decryptEnterpriseApps(appsInstalled.data);
 
-    // CRITICAL: Check if app folder mounts are ready before processing
-    // This prevents syncthing operations when loop devices aren't mounted after reboot
-    const unmountedApps = await checkAppFolderMounts(appsInstalled.data);
+    // Mount safety is verified at decision points and in reaction to
+    // syncthing's own storage signal - never as a steady-state sweep. The full
+    // sweep runs on the first pass after process start (the reboot case: loop
+    // mounts may not be up yet, and the sweep repairs them). After that, a
+    // vanished mount takes the folder's .stfolder marker with it, syncthing
+    // halts the folder and raises FolderErrors, and only the flagged folders
+    // are verified here (checkAppFolderMounts repairs an unmounted volume
+    // itself when the backing image still exists, so a non-empty unmountedApps
+    // means repair failed too).
+    const erroredFolderIds = new Set(syncthingEventsConsumer.drainErroredFolderIds());
+    const appsToVerify = state.syncthingAppsFirstRun
+      ? appsInstalled.data
+      : appsMatchingFolderIds(appsInstalled.data, [...erroredFolderIds]);
+    const unmountedApps = appsToVerify.length > 0 ? await checkAppFolderMounts(appsToVerify) : [];
     if (unmountedApps.length > 0) {
       const unmountedList = unmountedApps.map((app) => app.appId).join(', ');
       log.warn(`syncthingAppsCore - Skipping processing: ${unmountedApps.length} app folders not mounted yet: ${unmountedList}`);
       log.warn('syncthingAppsCore - Waiting for app folders to be mounted before syncthing processing');
+
+      // Never leave an unsafe-mount folder sendreceive while processing is
+      // skipped: the syncthing daemon keeps running as configured, so an
+      // un-demoted sendreceive folder over a bad mount can still broadcast its
+      // (leaked or missing) disk state to the healthy peers. Demote those
+      // folders and hold their containers before bailing - idempotent, and the
+      // normal receiveonly machinery re-promotes once the mount is healthy.
+      const foldersResp = await syncthingService.getConfigFolders();
+      const folders = Array.isArray(foldersResp?.data) ? foldersResp.data : [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const { appId, reason } of unmountedApps) {
+        const folder = folders.find((f) => f.id === appId);
+        if (folder && folder.type === 'sendreceive') {
+          log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder is sendreceive over an unsafe mount (${reason}); switching to receiveonly and holding the container`);
+          // eslint-disable-next-line no-await-in-loop
+          await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, appId).catch((err) => {
+            log.error(`syncthingAppsCore - Failed to switch ${appId} to receiveonly: ${err.message}`);
+          });
+          appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
+        }
+      }
       return;
     }
 
@@ -362,7 +446,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
           const folderPath = folder.path;
 
           // eslint-disable-next-line no-await-in-loop
-          const mountSafety = await verifyFolderMountSafety(appId, folderPath);
+          const mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
 
           if (!mountSafety.isSafe) {
             unsafeFoldersCount += 1;
@@ -398,6 +482,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       localSocketAddr,
       localDeviceId,
       state,
+      erroredFolderIds,
       allFoldersResp,
       allDevicesResp,
       devicesConfiguration,
@@ -571,6 +656,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
 function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
   let intervalId = null;
   let isRunning = false;
+  let accelerator; // assigned below; runMonitoring only executes after assignment
 
   const runMonitoring = async () => {
     if (isRunning) {
@@ -579,6 +665,7 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
     }
 
     isRunning = true;
+    accelerator.notePassStarted();
     try {
       await syncthingAppsCore(
         state,
@@ -590,8 +677,23 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
       log.error(error.stack);
     } finally {
       isRunning = false;
+      accelerator.notePassEnded();
     }
   };
+
+  // Edge accelerator: folder events for folders the state machine is actively
+  // transitioning (plus FolderErrors and resync requests) trigger an early run
+  // of the SAME monitoring pass the interval drives - events never carry
+  // decisions, and steady-state folder activity never accelerates anything.
+  accelerator = createMonitorAccelerator({
+    run: runMonitoring,
+    isFolderInTransition: (folderId) => {
+      const entry = state.receiveOnlySyncthingAppsCache.get(folderId);
+      return Boolean(entry && !entry.restarted);
+    },
+    debounceMs: EARLY_EVAL_DEBOUNCE_MS,
+    minGapMs: EARLY_EVAL_MIN_GAP_MS,
+  });
 
   // Run immediately on start
   runMonitoring();
@@ -599,21 +701,9 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
   // Then run at regular intervals (the LEVEL: ground truth, self-healing)
   intervalId = setInterval(runMonitoring, MONITOR_INTERVAL_MS);
 
-  // Edge accelerator: syncthing folder events trigger an early run of the SAME
-  // monitoring pass the interval drives - events never carry decisions. Debounced
-  // so an event burst coalesces into one evaluation; if the stream dies, behavior
-  // degrades to the interval cadence (latency, never correctness).
-  let earlyEvaluationTimer = null;
-  const requestEarlyEvaluation = () => {
-    if (earlyEvaluationTimer) return;
-    earlyEvaluationTimer = setTimeout(() => {
-      earlyEvaluationTimer = null;
-      runMonitoring();
-    }, 2000);
-  };
   syncthingEventsConsumer.start({
-    onFolderActivity: () => requestEarlyEvaluation(),
-    onResync: () => requestEarlyEvaluation(),
+    onFolderActivity: (folder, eventType) => accelerator.onFolderActivity(folder, eventType),
+    onResync: () => accelerator.onResync(),
   });
 
   // Return control object for graceful shutdown
@@ -622,10 +712,7 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn) {
       if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
-        if (earlyEvaluationTimer) {
-          clearTimeout(earlyEvaluationTimer);
-          earlyEvaluationTimer = null;
-        }
+        accelerator.stop();
         syncthingEventsConsumer.stop();
         log.info('syncthingApps - Monitoring service stopped');
       }

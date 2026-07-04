@@ -30,8 +30,12 @@ module.exports = {
   },
   confirmation: {
     pollIntervalMs: 5000,
-    daemonStaleMs: 10000,
-    daemonExpiredMs: 20000,
+    // The stale/expired verdicts remove every local app, so the fleet default
+    // must ride out multi-second process stalls under parallel-gate load
+    // (production is minutes-scale). Suites that exercise the stale/expiry
+    // removal flows override these per-env to fast values.
+    daemonStaleMs: 300000,
+    daemonExpiredMs: 600000,
   },
   github: {
     rawBaseUrl: 'http://198.18.0.6:3000',

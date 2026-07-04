@@ -40,7 +40,10 @@ describe('appReconciler tests', () => {
         waitForBootContainerStateSettled: () => Promise.resolve(),
       },
       appInspector: { startAppMonitoring: sinon.stub() },
-      volumeService: { ensureMountPathsExist: sinon.stub().resolves() },
+      volumeService: {
+        ensureMountPathsExist: sinon.stub().resolves(),
+        ensureAppVolumeMounted: sinon.stub().resolves({ mounted: true, alreadyMounted: true }),
+      },
       appsRuntimeState: {
         isOperatorStopped: sinon.stub().resolves(false),
         restartWaitMs: sinon.stub().resolves(0),
@@ -157,6 +160,62 @@ describe('appReconciler tests', () => {
       expect(stubs.appsRuntimeState.recordRestart.calledOnceWith('www_App')).to.be.true;
       expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
       expect(stubs.appInspector.startAppMonitoring.calledOnce).to.be.true;
+    });
+
+    it('defers ALL actuation when the data volume cannot be mounted', async () => {
+      // the app dir without its volume is an ordinary host dir: a start there
+      // writes to the host filesystem instead of the volume - the reconciler
+      // must keep the component inert and retry, never actuate
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'mount_failed: bad superblock' });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+      expect(stubs.dockerService.appDockerStop.called).to.be.false;
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
+      const deferredLoud = stubs.log.error.getCalls().some((c) => /data volume not mounted/.test(c.args[0]));
+      expect(deferredLoud, 'should log the volume defer loudly').to.equal(true);
+    });
+
+    it('honors a pending stop even when the data volume cannot be mounted (mount-safety hold)', async () => {
+      // a stop takes nothing from the app dir; deferring it left the incident's
+      // container running over the gutted volume with the hold unenforceable
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      try {
+        appReconciler.setControllerDesired('www_App', 'stopped', 'mount safety block: unmounted_with_content');
+        // setControllerDesired enqueues its own reconcile; wait for it to land
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+        expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+        expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
+      } finally {
+        appReconciler.clearControllerDesired('www_App');
+      }
+    });
+
+    it('mounts an unmounted volume and proceeds with the start', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: false });
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
+      sinon.assert.callOrder(stubs.volumeService.ensureAppVolumeMounted, stubs.dockerService.appDockerStart);
+    });
+
+    it('records a tampering event once (not per retry) when the backing image is missing', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      await appReconciler.reconcile('www_App');
+      await appReconciler.reconcile('www_App');
+      const volumeEvents = stubs.appTamperingDetectionService.recordEvent.getCalls()
+        .filter((c) => c.args[1] === 'volume_missing');
+      expect(volumeEvents).to.have.lengthOf(1);
+      expect(volumeEvents[0].args[0]).to.equal('App');
+    });
+
+    it('ensures the volume is mounted before actuating a pending data wipe', async () => {
+      appReconciler.requestStopAndClearData('www_App', 'test wipe');
+      // requestStopAndClearData enqueues its own reconcile; wait for it to land
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnce).to.be.true;
+      sinon.assert.callOrder(stubs.volumeService.ensureAppVolumeMounted, stubs.dockerOperations.appDeleteDataInMountPoint);
     });
 
     it('ensures mount paths exist (recreating any syncthing-cleaned source) before starting', async () => {

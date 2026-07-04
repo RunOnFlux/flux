@@ -50,6 +50,11 @@ const controller = new FluxController();
 // folderId -> { time, errors } from the last FolderErrors event
 const folderErrorsByFolder = new Map();
 
+// folder ids seen in FolderErrors since the last drain - the monitor pass
+// drains this to mount-verify exactly the flagged folders (targeted reaction,
+// never a steady-state sweep)
+const erroredFolderIdsSinceLastDrain = new Set();
+
 /**
  * One long-poll iteration: fetch events after `since`, detect lost-events
  * conditions, surface folder activity to the monitor.
@@ -100,6 +105,7 @@ async function pollOnce() {
     }
     if (event.type === 'FolderErrors') {
       folderErrorsByFolder.set(folder, { time: event.time, errors: event.data.errors || [] });
+      erroredFolderIdsSinceLastDrain.add(folder);
       fluxEventBus.publish('syncthing:folderErrors', { folder, time: event.time, errors: event.data.errors || [] });
     }
     if (callbacks.onFolderActivity) callbacks.onFolderActivity(folder, event.type);
@@ -177,9 +183,21 @@ function getFolderErrors(folderId) {
   return folderErrorsByFolder.get(folderId);
 }
 
+/**
+ * Folder ids flagged by FolderErrors since the last drain; draining clears
+ * the accumulator. Consumed by the monitor pass for targeted mount verifies.
+ * @returns {string[]} Folder ids
+ */
+function drainErroredFolderIds() {
+  const ids = [...erroredFolderIdsSinceLastDrain];
+  erroredFolderIdsSinceLastDrain.clear();
+  return ids;
+}
+
 module.exports = {
   start,
   stop,
   isRunning,
   getFolderErrors,
+  drainErroredFolderIds,
 };

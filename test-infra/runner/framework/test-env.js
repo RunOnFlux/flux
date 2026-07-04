@@ -11,11 +11,13 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { nodeClient } from './node-client.js';
+import { execInContainer } from './container.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
 import { getSubnetConfig, REGISTRY_ALIAS, REGISTRY_REPO_HOST } from './subnet-config.js';
 import { closeDb } from './db-client.js';
 import { stubPeerClient } from './stub-peer-helper.js';
+import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey, nodeKey } from './keys.js';
@@ -243,13 +245,47 @@ function makeEnvShell(networkName) {
       for (const client of clients) {
         if (client) client.disconnectEventStream();
       }
+      // FluxOS sets app mountpoints immutable (chattr +i) so an unmounted app
+      // dir rejects writes. The flag lives on the BARE dir under the loop mount
+      // and survives into the node's named volume - Docker then cannot delete
+      // the volume (EPERM) and every run leaks its node volumes. Unmount to
+      // expose the bare dirs and strip the flag while the node is still
+      // running; containers going down makes this the last chance to exec.
+      await Promise.all(clients.map(async (client) => {
+        if (!client?.container) return;
+        await execInContainer(
+          client.container,
+          'for d in /mnt/appdata/flux-apps/*/; do umount -l "$d" 2>/dev/null; done; chattr -R -i /mnt/appdata/flux-apps 2>/dev/null; true',
+        ).catch((e) => warn('immutable-flag sweep', e));
+      }));
       for (const c of [...started].reverse()) {
         await c.stop().catch((e) => warn('container stop', e));
       }
       await closeDb();
       const cleanupClient = await getContainerRuntimeClient();
       for (const volName of volumeNames) {
-        await cleanupClient.container.dockerode.getVolume(volName).remove().catch((e) => warn(`volume ${volName}`, e));
+        const volume = cleanupClient.container.dockerode.getVolume(volName);
+        try {
+          await volume.remove();
+        } catch (firstErr) {
+          // The in-container sweep above misses nodes that crashed or never got
+          // a client (boot failure), and their immutable app dirs EPERM the
+          // volume delete. Strip the flags from the volume side with a
+          // throwaway container and retry, so even a wedged fleet cleans up.
+          try {
+            const helper = await cleanupClient.container.dockerode.createContainer({
+              Image: 'flux-e2e-fluxos-01',
+              Entrypoint: ['bash', '-c', 'chattr -R -i /v/flux-apps 2>/dev/null; true'],
+              HostConfig: { Binds: [`${volName}:/v`], CapAdd: ['LINUX_IMMUTABLE'] },
+            });
+            await helper.start();
+            await helper.wait();
+            await helper.remove({ force: true }).catch(() => {});
+            await volume.remove();
+          } catch (retryErr) {
+            warn(`volume ${volName}`, firstErr);
+          }
+        }
       }
       await removeNetwork(networkName);
       for (const cfg of nodeConfigs) {
@@ -577,6 +613,13 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .start();
   started.push(registry);
   containers.registry = registry;
+
+  // Seed the default spec image so every env's registry can satisfy
+  // registration verification and installs for buildAppSpec/buildSeedableApp
+  // defaults BY CONSTRUCTION - no per-suite push incantation. The image is
+  // synthesized in memory (static pause binary + marker; see registry-helper),
+  // so this costs milliseconds and never contacts Docker Hub.
+  await pushImage('e2e-pause', 'v1');
 
   const rtClient = await getContainerRuntimeClient();
   const { getReaper: getReaperFn } = await import('testcontainers');

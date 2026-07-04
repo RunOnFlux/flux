@@ -1,5 +1,4 @@
 import { describe, it, before, after } from 'mocha';
-import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { dbClient } from '../framework/db-client.js';
@@ -110,7 +109,14 @@ describe('Daemon stale removes installed apps', function () {
 
   before(async function () {
     this.timeout(300000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // fast stale window: this suite exercises the stale-removal flow directly
+    // (the fleet default is stall-proof and would take minutes here)
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 10,
+      tickerAutostart: false,
+      configOverrides: { confirmation: { daemonStaleMs: 10000, daemonExpiredMs: 20000 } },
+    });
     await bootAndPeer(env);
     installedOnIndex = await seedAndWaitForInstall(env, appName);
   });
