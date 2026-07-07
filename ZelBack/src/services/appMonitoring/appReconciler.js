@@ -382,6 +382,11 @@ async function recreateForNetworkHeal(identifier) {
 async function attemptNetworkHeal(identifier, mainAppName) {
   await appTamperingDetectionService.recordEvent(mainAppName, 'network_detached', `Container ${identifier} running with no network endpoint on its own network`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkDetached' });
+  // Stop the per-minute stats monitor before removing the container (mirrors the
+  // uninstaller). Otherwise its interval runs against a gone container - and, if
+  // the recreate then fails/gives up, leaks and error-spams forever. The recreate
+  // re-establishes monitoring via startAppMonitoring on success.
+  appInspector.stopAppMonitoring(identifier, true, globalState.appsMonitored);
   try {
     // v=false: Flux data lives on bind mounts, so nothing is lost; the recreate
     // reuses it via a soft install.
