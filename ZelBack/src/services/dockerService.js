@@ -1333,6 +1333,25 @@ function isContainerDetachedFromNetwork(attachment) {
 }
 
 /**
+ * Whether a docker network exists, by name. Used to distinguish a stale endpoint
+ * (network present, container not attached - recreatable) from a pruned network
+ * (network gone - a recreate would fail on a missing NetworkMode). Any inspect
+ * failure is treated as "does not exist".
+ *
+ * @param {string} networkName
+ * @returns {Promise<boolean>}
+ */
+async function dockerNetworkExists(networkName) {
+  if (!networkName) return false;
+  try {
+    await docker.getNetwork(networkName).inspect();
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
  * Pauses app's docker.
  *
  * @param {string} idOrName
@@ -1865,5 +1884,6 @@ module.exports = {
   parseContainerNetworkAttachment,
   getContainerNetworkAttachment,
   isContainerDetachedFromNetwork,
+  dockerNetworkExists,
   waitForDocker,
 };

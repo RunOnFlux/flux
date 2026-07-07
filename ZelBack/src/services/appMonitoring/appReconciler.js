@@ -575,6 +575,21 @@ async function reconcile(rawIdentifier) {
       }
       return;
     }
+    // Only heal a stale endpoint (network present, container not attached). If the
+    // network itself is gone, a recreate would fail on a missing NetworkMode, so
+    // removing the container would only take it from partially-alive to removed-
+    // and-unrecreatable. That is a different fault (network restore) - record it
+    // and leave the container in place rather than destroying it.
+    if (!(await dockerService.dockerNetworkExists(actual.attachment.networkMode))) {
+      if (!st.gaveUp) {
+        st.gaveUp = true;
+        networkHealState.set(identifier, st);
+        log.error(`appReconciler - ${identifier} detached because its network ${actual.attachment.networkMode} is missing; not recreating (needs network restore, app NOT touched)`);
+        await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Network ${actual.attachment.networkMode} missing while ${identifier} runs detached`);
+        fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkPruned' });
+      }
+      return;
+    }
     st.tries += 1;
     networkHealState.set(identifier, st);
     log.warn(`appReconciler - ${identifier} running but not attached to its docker network (recreate ${st.tries}/${MAX_NETWORK_HEAL_ATTEMPTS}); clearing the stale endpoint`);
