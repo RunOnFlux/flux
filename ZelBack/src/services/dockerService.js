@@ -1276,6 +1276,63 @@ async function appDockerImageRemove(idOrName) {
 }
 
 /**
+ * Reads a container's network attachment against its own configured NetworkMode.
+ *
+ * A Flux app component container is created with NetworkMode =
+ * fluxDockerNetwork_<app> and a matching endpoint in NetworkSettings.Networks
+ * (see appDockerCreate). A start that fails "programming external connectivity"
+ * - e.g. a host-port bind conflict during a restart after an unclean reboot -
+ * can leave libnetwork holding a stale endpoint for that container: the next
+ * `docker start` then brings the task up attached to NO network at all.
+ * NetworkMode still names the network, but NetworkSettings.Networks no longer
+ * carries it (or carries it without an IP). Such a container runs with no IP, no
+ * embedded DNS (it cannot resolve sibling components by name) and no published
+ * ports, and a plain start never repairs it - only a recreate, which allocates a
+ * fresh endpoint, clears the stale state. These helpers surface that condition so
+ * callers (the reconciler) can detect and heal it. parseContainerNetworkAttachment
+ * is the pure classifier over a Docker inspect object; getContainerNetworkAttachment
+ * is the inspect-and-classify wrapper.
+ *
+ * @param {object} info - a Docker container inspect object
+ * @returns {{managed: boolean, running: boolean, networkMode: (string|null), attached: boolean}}
+ *   managed  - NetworkMode is a fluxDockerNetwork_* (we own its networking)
+ *   running  - the container task is running
+ *   attached - the NetworkMode network is present in Networks with an IP
+ */
+function parseContainerNetworkAttachment(info) {
+  const networkMode = info && info.HostConfig ? info.HostConfig.NetworkMode || null : null;
+  const running = !!(info && info.State && info.State.Running);
+  const managed = typeof networkMode === 'string' && networkMode.startsWith('fluxDockerNetwork_');
+  let attached = false;
+  if (managed) {
+    const networks = (info && info.NetworkSettings && info.NetworkSettings.Networks) || {};
+    const endpoint = networks[networkMode];
+    attached = !!(endpoint && endpoint.IPAddress);
+  }
+  return {
+    managed, running, networkMode, attached,
+  };
+}
+
+async function getContainerNetworkAttachment(idOrName) {
+  const info = await dockerContainerInspect(idOrName);
+  return parseContainerNetworkAttachment(info);
+}
+
+/**
+ * Whether a container is running but not attached to its own managed network -
+ * the unrecoverable-by-restart state described in getContainerNetworkAttachment.
+ * A non-managed (host/none/bridge) container is never considered detached.
+ *
+ * @param {{managed: boolean, running: boolean, attached: boolean}} attachment
+ * @returns {boolean}
+ */
+function isContainerDetachedFromNetwork(attachment) {
+  if (!attachment) return false;
+  return !!(attachment.managed && attachment.running && !attachment.attached);
+}
+
+/**
  * Pauses app's docker.
  *
  * @param {string} idOrName
@@ -1805,5 +1862,8 @@ module.exports = {
   getAppContainerNames,
   getAppContainerObjects,
   getAppNameByContainerIp,
+  parseContainerNetworkAttachment,
+  getContainerNetworkAttachment,
+  isContainerDetachedFromNetwork,
   waitForDocker,
 };

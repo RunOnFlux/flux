@@ -107,6 +107,14 @@ const VOLUME_MOUNT_RETRY_MS = 30 * 1000;
 // event, so the paced retries don't re-record it every cycle
 const volumeMissingNoted = new Set();
 
+// A running container attached to NO network (stale libnetwork endpoint from an
+// earlier failed start) is healed by recreating it. Bound the attempts per
+// identifier so a recreate that keeps landing detached (e.g. a still-held host
+// port) can't loop remove->recreate forever - after the cap we leave it for
+// manual intervention. Reset once the container is seen properly attached.
+const MAX_NETWORK_HEAL_ATTEMPTS = 3;
+const networkHealAttempts = new Map();
+
 // The reconciler's canonical id is the bare component identifier
 // (`{component}_{app}`). Deciders disagree on the form they pass — masterSlave
 // uses the bare identifier, the syncthing flow passes the flux-prefixed docker
@@ -329,6 +337,24 @@ async function recreateMissing(identifier) {
   }
 }
 
+/**
+ * Whether a running container has come up attached to NO network - a start can
+ * succeed (the task runs) while libnetwork silently skips (re)attaching the
+ * container's endpoint, leaving it with no IP, no embedded DNS and no published
+ * ports. See dockerService.getContainerNetworkAttachment. An inspect blip must
+ * NOT be read as detached (that would trigger a needless recreate), so any error
+ * here is treated as "not detached" and the next reconcile re-checks.
+ */
+async function isDetachedFromOwnNetwork(identifier) {
+  try {
+    const attachment = await dockerService.getContainerNetworkAttachment(identifier);
+    return dockerService.isContainerDetachedFromNetwork(attachment);
+  } catch (err) {
+    log.warn(`appReconciler - could not read network attachment for ${identifier}: ${err.message}`);
+    return false;
+  }
+}
+
 // --- the reconcile -------------------------------------------------------
 
 async function reconcile(rawIdentifier) {
@@ -474,7 +500,43 @@ async function reconcile(rawIdentifier) {
     return;
   }
 
-  if (actual.running) return; // already where we want it
+  if (actual.running) {
+    // A running container is normally "already where we want it" - but a start
+    // can succeed while leaving the container attached to NO network when
+    // libnetwork holds a stale endpoint from an earlier failed "programming
+    // external connectivity" (e.g. a host-port bind conflict on a restart after
+    // an unclean reboot). It then runs with no IP, no embedded DNS (cannot
+    // resolve sibling components by name) and no published ports, and no future
+    // `docker start` repairs it - only a recreate clears the stale endpoint.
+    // Verify the attachment before trusting "running"; heal by recreating.
+    if (!(await isDetachedFromOwnNetwork(identifier))) {
+      networkHealAttempts.delete(identifier);
+      return; // running and properly attached - already where we want it
+    }
+    const attempts = (networkHealAttempts.get(identifier) || 0) + 1;
+    networkHealAttempts.set(identifier, attempts);
+    if (attempts > MAX_NETWORK_HEAL_ATTEMPTS) {
+      log.error(`appReconciler - ${identifier} still detached from its docker network after ${attempts - 1} recreate attempt(s); leaving as-is for manual intervention`);
+      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkHealGaveUp' });
+      return;
+    }
+    log.warn(`appReconciler - ${identifier} is running but not attached to its docker network (attempt ${attempts}/${MAX_NETWORK_HEAL_ATTEMPTS}); recreating to clear the stale endpoint`);
+    await appTamperingDetectionService.recordEvent(mainAppName, 'network_detached', `Container ${identifier} running with no network endpoint on its own network`);
+    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkDetached', attempt: attempts });
+    try {
+      // keep anonymous volumes (v=false); Flux data lives on bind mounts, so the
+      // recreate below reuses it via a soft install.
+      await dockerService.appDockerForceRemove(identifier, false);
+    } catch (err) {
+      log.error(`appReconciler - failed to remove detached ${identifier}: ${err.message}; retrying`);
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
+    }
+    // The container is gone now; recreate it through the tested vanished path,
+    // which allocates a fresh endpoint (and re-publishes ports) cleanly.
+    await recreateMissing(identifier);
+    return;
+  }
 
   if (!actual.exists) {
     await recreateMissing(identifier);

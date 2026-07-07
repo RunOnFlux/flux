@@ -258,6 +258,77 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('parseContainerNetworkAttachment / isContainerDetachedFromNetwork tests', () => {
+    it('reports attached when the managed network carries an IP', () => {
+      const attachment = dockerService.parseContainerNetworkAttachment({
+        HostConfig: { NetworkMode: 'fluxDockerNetwork_appx' },
+        State: { Running: true },
+        NetworkSettings: { Networks: { fluxDockerNetwork_appx: { IPAddress: '172.23.0.5' } } },
+      });
+
+      expect(attachment).to.deep.equal({
+        managed: true, running: true, networkMode: 'fluxDockerNetwork_appx', attached: true,
+      });
+      expect(dockerService.isContainerDetachedFromNetwork(attachment)).to.equal(false);
+    });
+
+    it('flags a running managed container with an empty Networks as detached', () => {
+      const attachment = dockerService.parseContainerNetworkAttachment({
+        HostConfig: { NetworkMode: 'fluxDockerNetwork_appx' },
+        State: { Running: true },
+        NetworkSettings: { Networks: {} },
+      });
+
+      expect(attachment.managed).to.equal(true);
+      expect(attachment.attached).to.equal(false);
+      expect(dockerService.isContainerDetachedFromNetwork(attachment)).to.equal(true);
+    });
+
+    it('flags detached when the endpoint exists but has no IP (half-programmed)', () => {
+      const attachment = dockerService.parseContainerNetworkAttachment({
+        HostConfig: { NetworkMode: 'fluxDockerNetwork_appx' },
+        State: { Running: true },
+        NetworkSettings: { Networks: { fluxDockerNetwork_appx: { IPAddress: '' } } },
+      });
+
+      expect(dockerService.isContainerDetachedFromNetwork(attachment)).to.equal(true);
+    });
+
+    it('does not flag a stopped container as detached', () => {
+      const attachment = dockerService.parseContainerNetworkAttachment({
+        HostConfig: { NetworkMode: 'fluxDockerNetwork_appx' },
+        State: { Running: false },
+        NetworkSettings: { Networks: {} },
+      });
+
+      expect(attachment.running).to.equal(false);
+      expect(dockerService.isContainerDetachedFromNetwork(attachment)).to.equal(false);
+    });
+
+    it('never flags a non-managed (host-networked) container as detached', () => {
+      const attachment = dockerService.parseContainerNetworkAttachment({
+        HostConfig: { NetworkMode: 'host' },
+        State: { Running: true },
+        NetworkSettings: { Networks: {} },
+      });
+
+      expect(attachment.managed).to.equal(false);
+      expect(dockerService.isContainerDetachedFromNetwork(attachment)).to.equal(false);
+    });
+
+    it('tolerates a partial/empty inspect object', () => {
+      const attachment = dockerService.parseContainerNetworkAttachment({});
+      expect(attachment).to.deep.equal({
+        managed: false, running: false, networkMode: null, attached: false,
+      });
+    });
+
+    it('isContainerDetachedFromNetwork tolerates missing input', () => {
+      expect(dockerService.isContainerDetachedFromNetwork(undefined)).to.equal(false);
+      expect(dockerService.isContainerDetachedFromNetwork(null)).to.equal(false);
+    });
+  });
+
   describe('dockerContainerStats tests', () => {
     it('should return a valid stats object', async () => {
       const containerName = 'website';
