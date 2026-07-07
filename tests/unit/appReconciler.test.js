@@ -26,9 +26,18 @@ describe('appReconciler tests', () => {
         getDockerContainerOnly: sinon.stub().resolves(undefined),
         appDockerStart: sinon.stub().resolves(),
         appDockerStop: sinon.stub().resolves(),
+        appDockerForceRemove: sinon.stub().resolves(),
         getAppIdentifier: (id) => `flux${id}`,
         getAppDockerNameIdentifier: (id) => `/flux${id}`,
         getBaseAppName: (id) => (id.startsWith('flux') ? id.slice(4) : id),
+        // network-attachment helpers used by dockerActual + the running branch.
+        // Default: a benign, attached container (not detached), so the heal path
+        // stays dormant unless a test opts in.
+        parseContainerNetworkAttachment: sinon.stub().returns({
+          managed: false, running: false, networkMode: null, attached: false,
+        }),
+        isContainerDetachedFromNetwork: sinon.stub().returns(false),
+        dockerNetworkExists: sinon.stub().resolves(true),
       },
       globalState: {
         appsMonitored: {},
@@ -39,7 +48,7 @@ describe('appReconciler tests', () => {
         bootContainerStateSettled: true,
         waitForBootContainerStateSettled: () => Promise.resolve(),
       },
-      appInspector: { startAppMonitoring: sinon.stub() },
+      appInspector: { startAppMonitoring: sinon.stub(), stopAppMonitoring: sinon.stub() },
       volumeService: {
         ensureMountPathsExist: sinon.stub().resolves(),
         ensureAppVolumeMounted: sinon.stub().resolves({ mounted: true, alreadyMounted: true }),
@@ -974,6 +983,79 @@ describe('appReconciler tests', () => {
       await reachedInspect[1].promise;
       expect(resolvers).to.have.lengthOf(2); // one re-run, not two
       resolvers[1]();
+    });
+  });
+
+  describe('network-detach heal', () => {
+    // A running container reported as detached from its own docker network (stale
+    // libnetwork endpoint). isContainerDetachedFromNetwork is stubbed directly so
+    // these tests drive the reconciler's control flow, not the classifier (covered
+    // by dockerService tests).
+    beforeEach(() => {
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      stubs.dockerService.parseContainerNetworkAttachment.returns({
+        managed: true, running: true, networkMode: 'fluxDockerNetwork_App', attached: false,
+      });
+    });
+
+    it('leaves a running, properly-attached container alone', async () => {
+      stubs.dockerService.isContainerDetachedFromNetwork.returns(false);
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerForceRemove.called).to.be.false;
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.called).to.be.false;
+    });
+
+    it('debounces: does not act on the first detached observation', async () => {
+      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerForceRemove.called, 'no destructive action on first sighting').to.be.false;
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.called).to.be.false;
+    });
+
+    it('recreates after two consecutive detached observations, stopping monitoring first and never uninstalling', async () => {
+      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
+      await appReconciler.reconcile('www_App'); // obs 1 (debounce)
+      await appReconciler.reconcile('www_App'); // obs 2 (act)
+      expect(stubs.appInspector.stopAppMonitoring.calledWith('www_App', true), 'stops the stats monitor before removing').to.be.true;
+      expect(stubs.dockerService.appDockerForceRemove.calledWith('www_App', false), 'force-removes keeping bind-mounted data').to.be.true;
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App'), 'recreates once').to.be.true;
+      expect(stubs.appUninstaller.removeAppLocally.called, 'the heal must NEVER uninstall the app').to.be.false;
+    });
+
+    it('does not destroy the container when its network is missing (records network_pruned)', async () => {
+      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
+      stubs.dockerService.dockerNetworkExists.resolves(false);
+      await appReconciler.reconcile('www_App'); // obs 1
+      await appReconciler.reconcile('www_App'); // obs 2 -> network gone -> skip destructive heal
+      expect(stubs.dockerService.appDockerForceRemove.called, 'must not remove a container it cannot recreate').to.be.false;
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.called).to.be.false;
+      const pruned = stubs.appTamperingDetectionService.recordEvent.getCalls().some((c) => c.args[1] === 'network_pruned');
+      expect(pruned, 'records a network_pruned event').to.be.true;
+    });
+
+    it('a recreate failure retries but never uninstalls the app', async () => {
+      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
+      stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('host port still in use'));
+      await appReconciler.reconcile('www_App'); // obs 1
+      await appReconciler.reconcile('www_App'); // obs 2 -> heal attempt -> recreate throws
+      expect(stubs.dockerService.appDockerForceRemove.called).to.be.true;
+      expect(stubs.appUninstaller.removeAppLocally.called, 'a transient recreate failure must not uninstall').to.be.false;
+    });
+
+    it('gives up after MAX attempts without ever uninstalling', async () => {
+      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
+      stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('host port still in use'));
+      // 1 debounce pass + several act passes; the container stays "running" (inspect
+      // stub), so each pass re-enters the running-detached branch.
+      for (let i = 0; i < 8; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await appReconciler.reconcile('www_App');
+      }
+      expect(stubs.appUninstaller.removeAppLocally.called, 'never uninstalls, even after giving up').to.be.false;
+      const gaveUp = stubs.log.error.getCalls().some((c) => /manual intervention/.test(c.args[0]));
+      expect(gaveUp, 'logs a give-up for manual intervention').to.be.true;
+      // bounded: at most MAX_NETWORK_HEAL_ATTEMPTS (3) recreate attempts, not one per pass
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.callCount).to.be.at.most(3);
     });
   });
 });
