@@ -374,13 +374,13 @@ async function recreateForNetworkHeal(identifier) {
 }
 
 /**
- * One heal cycle for a running-but-detached container: record the signal,
- * force-remove the broken container (keeping bind-mounted data), then recreate
- * it with a fresh endpoint. Force-remove is required because the recreate path
- * (appDockerCreate) 409s on an existing container name.
+ * One heal cycle for a running-but-detached container: force-remove the broken
+ * container (keeping bind-mounted data), then recreate it with a fresh endpoint.
+ * Force-remove is required because the recreate path (appDockerCreate) 409s on an
+ * existing container name. The durable network_detached signal is recorded once
+ * per episode by the caller, not here (this runs up to MAX times per episode).
  */
-async function attemptNetworkHeal(identifier, mainAppName) {
-  await appTamperingDetectionService.recordEvent(mainAppName, 'network_detached', `Container ${identifier} running with no network endpoint on its own network`);
+async function attemptNetworkHeal(identifier) {
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkDetached' });
   // Stop the per-minute stats monitor before removing the container (mirrors the
   // uninstaller). Otherwise its interval runs against a gone container - and, if
@@ -597,8 +597,14 @@ async function reconcile(rawIdentifier) {
     }
     st.tries += 1;
     networkHealState.set(identifier, st);
+    // Record the durable anomaly signal ONCE per episode (first attempt), not on
+    // every retry - it feeds a node-level tampering-event count, so a per-retry
+    // record would inflate it 3x for a single detachment.
+    if (st.tries === 1) {
+      await appTamperingDetectionService.recordEvent(mainAppName, 'network_detached', `Container ${identifier} running with no network endpoint on its own network`);
+    }
     log.warn(`appReconciler - ${identifier} running but not attached to its docker network (recreate ${st.tries}/${MAX_NETWORK_HEAL_ATTEMPTS}); clearing the stale endpoint`);
-    await attemptNetworkHeal(identifier, mainAppName);
+    await attemptNetworkHeal(identifier);
     return;
   }
 

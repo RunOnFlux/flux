@@ -1056,6 +1056,9 @@ describe('appReconciler tests', () => {
       expect(gaveUp, 'logs a give-up for manual intervention').to.be.true;
       // bounded: at most MAX_NETWORK_HEAL_ATTEMPTS (3) recreate attempts, not one per pass
       expect(stubs.containerHealthMonitor.recreateMissingContainers.callCount).to.be.at.most(3);
+      // the durable tampering signal is recorded once per episode, not per retry
+      const detachedEvents = stubs.appTamperingDetectionService.recordEvent.getCalls().filter((c) => c.args[1] === 'network_detached').length;
+      expect(detachedEvents, 'records network_detached once per episode, not per retry').to.equal(1);
     });
   });
 });

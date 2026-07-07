@@ -1288,10 +1288,9 @@ async function appDockerImageRemove(idOrName) {
  * carries it (or carries it without an IP). Such a container runs with no IP, no
  * embedded DNS (it cannot resolve sibling components by name) and no published
  * ports, and a plain start never repairs it - only a recreate, which allocates a
- * fresh endpoint, clears the stale state. These helpers surface that condition so
- * callers (the reconciler) can detect and heal it. parseContainerNetworkAttachment
- * is the pure classifier over a Docker inspect object; getContainerNetworkAttachment
- * is the inspect-and-classify wrapper.
+ * fresh endpoint, clears the stale state. This pure classifier over a Docker
+ * inspect object surfaces that condition so callers (the reconciler, which
+ * already holds the inspect) can detect and heal it.
  *
  * @param {object} info - a Docker container inspect object
  * @returns {{managed: boolean, running: boolean, networkMode: (string|null), attached: boolean}}
@@ -1314,14 +1313,9 @@ function parseContainerNetworkAttachment(info) {
   };
 }
 
-async function getContainerNetworkAttachment(idOrName) {
-  const info = await dockerContainerInspect(idOrName);
-  return parseContainerNetworkAttachment(info);
-}
-
 /**
  * Whether a container is running but not attached to its own managed network -
- * the unrecoverable-by-restart state described in getContainerNetworkAttachment.
+ * the unrecoverable-by-restart state described in parseContainerNetworkAttachment.
  * A non-managed (host/none/bridge) container is never considered detached.
  *
  * @param {{managed: boolean, running: boolean, attached: boolean}} attachment
@@ -1882,7 +1876,6 @@ module.exports = {
   getAppContainerObjects,
   getAppNameByContainerIp,
   parseContainerNetworkAttachment,
-  getContainerNetworkAttachment,
   isContainerDetachedFromNetwork,
   dockerNetworkExists,
   waitForDocker,
