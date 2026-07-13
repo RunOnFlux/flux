@@ -3,7 +3,6 @@ const stream = require('stream');
 const Docker = require('dockerode');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
-const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const pgpService = require('./pgpService');
 const deviceHelper = require('./deviceHelper');
 const generalService = require('./generalService');
@@ -11,6 +10,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const { extractIp } = require('./utils/socketAddressUtils');
 const log = require('../lib/log');
 const cpuBurstHelper = require('./utils/cpuBurstHelper');
+const { obtainPayloadFromStorage } = require('./utils/fluxStorageResolver');
 
 const globalState = require('./utils/globalState');
 
@@ -533,33 +533,6 @@ async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, c
       callback(error);
     }
     throw error;
-  }
-}
-
-async function obtainPayloadFromStorage(url, appName) {
-  try {
-    // do a signed request in headers
-    // we want to be able to fetch even from unsecure storages that may not have all the auths
-    // and so this is only basic auth where timestamp is important
-    // server should verify valid signature based on publicKey that server can get from
-    // deterministic node list of ip address that did this request
-    const version = 1;
-    const timestamp = Date.now();
-    const message = version + url + timestamp;
-    const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(message);
-    const axiosConfig = {
-      headers: {
-        'flux-message': message,
-        'flux-signature': signature,
-        'flux-app': appName,
-      },
-      timeout: 20000,
-    };
-    const response = await serviceHelper.axiosGet(url, axiosConfig);
-    return response.data;
-  } catch (error) {
-    log.error(error);
-    throw new Error(`Parameters from Flux Storage ${url} failed to be obtained`);
   }
 }
 

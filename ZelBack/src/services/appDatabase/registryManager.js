@@ -9,6 +9,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
+const fluxStorageResolver = require('../utils/fluxStorageResolver');
 const {
   SIGTERM_EXPIRY_MS,
   globalAppsInformation,
@@ -782,6 +783,10 @@ async function getApplicationSpecificationAPI(req, res) {
     // query params take precedence over params (they were set explictly)
     decrypt = req.query.decrypt || decrypt;
 
+    // opt-in flag: expand F_S_ storage links into their real values for the app owner
+    // (or Flux support). Off by default so normal spec reads never pay the storage fetch.
+    const resolveStorage = req.query.resolvestorage === 'true';
+
     const specifications = await getApplicationSpecifications(appname);
     const mainAppName = appname.split('_')[1] || appname;
 
@@ -794,6 +799,30 @@ async function getApplicationSpecificationAPI(req, res) {
     );
 
     if (!decrypt) {
+      if (resolveStorage) {
+        // Reveal storage-backed values for non-enterprise apps in cleartext. Enterprise apps
+        // must use the encrypted decryption path so secrets never travel in clear.
+        if (isEnterprise) {
+          throw new Error('Enterprise apps require decryption to resolve Flux Storage values.');
+        }
+
+        const ownerAuthorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
+        const fluxTeamAuthorized = ownerAuthorized === true
+          ? false
+          : await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+
+        if (ownerAuthorized !== true && fluxTeamAuthorized !== true) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          return null;
+        }
+
+        const resolvedSpecifications = await fluxStorageResolver.attachResolvedStorage(specifications, appname);
+        const resolvedResponse = messageHelper.createDataMessage(resolvedSpecifications);
+        res.json(resolvedResponse);
+        return null;
+      }
+
       if (isEnterprise) {
         specifications.compose = [];
         specifications.contacts = [];
@@ -841,10 +870,19 @@ async function getApplicationSpecificationAPI(req, res) {
       });
     }
 
+    // Optionally expand F_S_ storage links into their values before re-encryption, so the
+    // resolved content rides the same client session key instead of travelling in clear.
+    // Resolved into a clone (after any support-team blanking above) so the source spec and
+    // its cache are untouched.
+    let specificationsToEncrypt = specifications;
+    if (resolveStorage) {
+      specificationsToEncrypt = await fluxStorageResolver.attachResolvedStorage(specifications, appname);
+    }
+
     // this seems a bit weird, but the client can ask for the specs encrypted or decrypted.
     // If decrypted, they pass us another session key and we use that to encrypt.
     specifications.enterprise = await encryptEnterpriseFromSession(
-      specifications,
+      specificationsToEncrypt,
       daemonHeight,
       encryptedEnterpriseKey,
     );
