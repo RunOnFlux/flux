@@ -112,19 +112,48 @@ const volumeMissingNoted = new Set();
 // A running container attached to NO network (a stale libnetwork endpoint left
 // by an earlier failed start) is healed by recreating it (force-remove + fresh
 // create; a plain start reuses the broken endpoint, and `network connect` does
-// not restore published host ports). This is destructive, so it is guarded:
-//   - DETACHED_CONFIRM_OBSERVATIONS: require the detached state on N consecutive
-//     reconciles before acting, so a transient inspect (e.g. dockerd mid-restart)
+// not restore published host ports). The remove is destructive, so it is guarded:
+//
+//   - Confirmed in-pass: on first sight of the detached state we settle, then
+//     re-inspect, and only act if it is still detached. Counting observations
+//     across reconciles would not do this - two reconciles can run back-to-back
+//     (a die event lands while the sweep's pass is in flight, and the workqueue
+//     re-runs the id immediately), so both "observations" can come from the same
+//     instant. A settle + re-read guarantees the time separation the confirmation
+//     is for: a transient inspect (dockerd mid-restart, the brief pre-IP window)
 //     never destroys a healthy container.
-//   - MAX_NETWORK_HEAL_ATTEMPTS: cap recreate attempts so a recreate that keeps
-//     landing detached (e.g. a still-held host port) can't loop forever.
-// Per-id state {obs, tries, gaveUp}; cleared once the container is seen attached.
-// Unlike the vanished path, a heal recreate failure NEVER uninstalls the app -
-// the component's spec/image are fine; only its host networking hit a transient
-// conflict, so we keep retrying (bounded) and otherwise leave it for a human.
-const DETACHED_CONFIRM_OBSERVATIONS = 2;
-const MAX_NETWORK_HEAL_ATTEMPTS = 3;
-const networkHealState = new Map();
+//   - Paced, not capped: heal attempts walk the SAME durable backoff ladder as
+//     crash restarts (appsRuntimeState), up to its 30m cap. A hard attempt cap
+//     would park the heal in a terminal state until the FluxOS process restarts,
+//     which is not level-based - a reconciler keeps trying at a bounded rate.
+//     Retrying forever is also convergent at the network level: while the
+//     container is broken or absent this node stops advertising it in apprunning,
+//     its location record expires on TTL and the app is re-placed elsewhere, all
+//     without destroying this node's bind-mounted data.
+//   - Never uninstalls: unlike the vanished path, a failed heal recreate does not
+//     escalate to removeAppLocally. The spec and image are fine; only the host
+//     networking hit a conflict.
+//
+// The one fact that must survive a FluxOS restart is "I removed this container on
+// purpose" (otherwise a restart between the remove and the recreate makes the next
+// reconcile read the absence as tampering and, on a failed recreate, uninstall the
+// app). That lives in appsRuntimeState.networkHealRemoval, not here.
+const NETWORK_DETACH_CONFIRM_MS = 3000;
+// a pruned network cannot be repaired by recreating the container - re-check on a
+// slow pace so a restored network is picked up without an hour's wait
+const NETWORK_PRUNED_RETRY_MS = 5 * 60 * 1000;
+// a container is normally verified attached only on the reconcile after its start,
+// i.e. the hourly sweep. But this pathology is BORN at start time, so re-check
+// shortly after every start/recreate we perform: detached-at-boot then heals in
+// under a minute, with the sweep as the backstop. (Docker network events cannot
+// cover this: a container born detached never emits a disconnect.)
+const POST_START_VERIFY_MS = 30 * 1000;
+
+// identifiers whose detach/prune was already recorded as a tampering event, so the
+// paced retries record it once per episode rather than once per attempt (the count
+// feeds a node-level signal). Cleared once the container is seen attached.
+const networkDetachedNoted = new Set();
+const networkPrunedNoted = new Set();
 
 // The reconciler's canonical id is the bare component identifier
 // (`{component}_{app}`). Deciders disagree on the form they pass — masterSlave
@@ -256,7 +285,7 @@ async function dockerActual(identifier) {
       finishedAt,
       // classified from THIS inspect so the running-branch network check needs no
       // second docker call (and no TOCTOU between two inspects).
-      attachment: dockerService.parseContainerNetworkAttachment(info),
+      attachment: dockerService.classifyContainerNetworkAttachment(info),
     };
   } catch (err) {
     let containers;
@@ -326,6 +355,7 @@ async function recreateMissing(identifier) {
     log.info(`appReconciler - recreated missing container ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated' });
     notifyContainerStarted(identifier);
+    scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
     // Removal must be justified by the state of the world NOW, not at
     // classification time: a whole recreate attempt (image pull - up to
@@ -355,9 +385,11 @@ async function recreateMissing(identifier) {
  * Recreate a container that was removed to clear a detached network endpoint.
  * Deliberately NOT recreateMissing: a failure here must not escalate to
  * uninstalling the whole app (the trigger is a transient host-networking
- * conflict, not tampering). On failure we just re-arm a paced retry; the caller's
- * attempt cap bounds it. For a g: component recreateMissingContainers creates but
- * does not start - the normal reconcile flow starts it on a later pass.
+ * conflict, not tampering). On failure we just re-arm a retry; the next pass
+ * paces it on the backoff ladder. For a g: component recreateMissingContainers
+ * creates but does not start - the normal reconcile flow starts it on a later
+ * pass. The durable heal-removal flag is NOT cleared here: only seeing the
+ * container running AND attached proves the heal worked.
  */
 async function recreateForNetworkHeal(identifier) {
   try {
@@ -366,6 +398,7 @@ async function recreateForNetworkHeal(identifier) {
     log.info(`appReconciler - recreated ${identifier} to clear a detached network endpoint`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated', reason: 'networkDetached' });
     notifyContainerStarted(identifier);
+    scheduleRetry(identifier, POST_START_VERIFY_MS); // verify it came up attached
   } catch (err) {
     log.error(`appReconciler - failed to recreate ${identifier} after network detach: ${err.message}; will retry (app NOT uninstalled)`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkHealRecreateFailed', reason: err.message });
@@ -374,24 +407,108 @@ async function recreateForNetworkHeal(identifier) {
 }
 
 /**
- * One heal cycle for a running-but-detached container: force-remove the broken
- * container (keeping bind-mounted data), then recreate it with a fresh endpoint.
- * Force-remove is required because the recreate path (appDockerCreate) 409s on an
- * existing container name. The durable network_detached signal is recorded once
- * per episode by the caller, not here (this runs up to MAX times per episode).
+ * Drops all bookkeeping for a healed/healthy container: the record-once tampering
+ * markers and the durable "I removed this on purpose" flag. Called when a running
+ * container is seen properly attached - the only proof a heal actually worked.
  */
-async function attemptNetworkHeal(identifier) {
+async function clearNetworkHealState(identifier) {
+  networkDetachedNoted.delete(identifier);
+  networkPrunedNoted.delete(identifier);
+  await appsRuntimeState.clearNetworkHealRemoval(identifier);
+}
+
+/**
+ * Heals a container that looks running-but-detached from its own docker network:
+ * confirm it (settle + re-inspect), require its network to still exist, then
+ * force-remove (keeping bind-mounted data) and recreate with a fresh endpoint.
+ * Force-remove is required because the recreate path (appDockerCreate) 409s on an
+ * existing container name; `docker network connect` on a live container does not
+ * restore published host ports, so only a recreate fully heals it.
+ */
+async function healDetachedNetwork(identifier, mainAppName) {
+  // Confirm in-pass: a detached read can be transient (dockerd mid-restart, the
+  // brief window before an endpoint gets its IP). Settle, then look again, and
+  // only destroy on a state that survived the gap.
+  log.warn(`appReconciler - ${identifier} appears detached from its docker network; confirming before acting`);
+  await serviceHelper.delay(NETWORK_DETACH_CONFIRM_MS);
+  const confirmed = await dockerActual(identifier);
+  if (!confirmed.reachable || confirmed.indeterminate || !confirmed.exists || !confirmed.running) {
+    // docker went unhappy, or the container is no longer running: nothing here can
+    // be justified on this read. The next pass reconciles whatever it actually is.
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
+  if (!dockerService.isContainerDetachedFromNetwork(confirmed.attachment)) {
+    log.info(`appReconciler - ${identifier} is attached after all; no heal needed`);
+    await clearNetworkHealState(identifier);
+    return;
+  }
+  const { networkMode } = confirmed.attachment;
+
+  // Only a stale endpoint (network present, container not attached) is heal-able.
+  // If the network itself is gone the recreate would fail on a missing NetworkMode,
+  // so removing the container would only take it from partially-alive to removed-
+  // and-unrecreatable. And absence must be PROVEN: a failed network read is not
+  // evidence of a missing network, and acting on it destroys a container we then
+  // cannot bring back.
+  const networkState = await dockerService.dockerNetworkState(networkMode);
+  if (networkState === 'unknown') {
+    log.warn(`appReconciler - cannot determine whether ${networkMode} exists; deferring the heal of ${identifier}`);
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
+  if (networkState === 'absent') {
+    if (!networkPrunedNoted.has(identifier)) {
+      networkPrunedNoted.add(identifier);
+      log.error(`appReconciler - ${identifier} detached because its network ${networkMode} is missing; not recreating (needs network restore, app NOT touched)`);
+      await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Network ${networkMode} missing while ${identifier} runs detached`);
+      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkPruned' });
+    }
+    scheduleRetry(identifier, NETWORK_PRUNED_RETRY_MS); // keep watching for a restored network
+    return;
+  }
+  networkPrunedNoted.delete(identifier);
+
+  // Paced on the durable crash-backoff ladder (0, 30s, 5m, 15m, 30m cap), shared
+  // with restarts: a component that keeps needing intervention gets progressively
+  // slower attention, and the pacing survives a FluxOS restart. No attempt cap -
+  // the reconciler never parks in a terminal state.
+  const wait = await appsRuntimeState.restartWaitMs(identifier);
+  if (wait > 0) {
+    log.warn(`appReconciler - ${identifier} still detached, backing off ${Math.round(wait / 1000)}s before the next heal attempt`);
+    scheduleRetry(identifier, wait);
+    return;
+  }
+
+  if (!networkDetachedNoted.has(identifier)) {
+    networkDetachedNoted.add(identifier);
+    await appTamperingDetectionService.recordEvent(mainAppName, 'network_detached', `Container ${identifier} running with no network endpoint on its own network`);
+  }
+  log.warn(`appReconciler - ${identifier} running but not attached to its docker network; clearing the stale endpoint`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkDetached' });
+
+  await appsRuntimeState.recordRestart(identifier);
+  // Durable, and BEFORE the remove: if FluxOS restarts in the window between the
+  // remove and the recreate, this is the only thing that tells the next process the
+  // absence was ours - without it, the vanished path records a false tampering event
+  // and can uninstall the whole app on a failed recreate. A throw here aborts the
+  // remove, which is the safe direction (a detached container still half-serves).
+  await appsRuntimeState.setNetworkHealRemoval(identifier, true);
+
   // Stop the per-minute stats monitor before removing the container (mirrors the
-  // uninstaller). Otherwise its interval runs against a gone container - and, if
-  // the recreate then fails/gives up, leaks and error-spams forever. The recreate
-  // re-establishes monitoring via startAppMonitoring on success.
+  // uninstaller). Otherwise its interval runs against a gone container, leaking and
+  // error-spamming. The recreate re-establishes it via startAppMonitoring.
   appInspector.stopAppMonitoring(identifier, true, globalState.appsMonitored);
   try {
     // v=false: Flux data lives on bind mounts, so nothing is lost; the recreate
     // reuses it via a soft install.
     await dockerService.appDockerForceRemove(identifier, false);
   } catch (err) {
+    // The container is still there (or partially removed): put monitoring back so a
+    // container we did NOT manage to remove is not left unmonitored. The heal flag
+    // stays set on purpose - the remove may have partially succeeded, and a stale
+    // flag only keeps us on the recreate path (never the uninstall one).
+    appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
     log.error(`appReconciler - failed to remove detached ${identifier}: ${err.message}; will retry`);
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
@@ -419,7 +536,10 @@ async function reconcile(rawIdentifier) {
     return;
   }
   if (!spec) { // not installed here - nothing to enforce
-    networkHealState.delete(identifier); // drop any heal bookkeeping for a gone app
+    // drop the in-memory heal markers for a gone app (its durable runtime-state doc
+    // is dropped by the uninstaller via appsRuntimeState.remove)
+    networkDetachedNoted.delete(identifier);
+    networkPrunedNoted.delete(identifier);
     return;
   }
 
@@ -556,78 +676,31 @@ async function reconcile(rawIdentifier) {
     // resolve sibling components by name) and no published ports, and no future
     // `docker start` repairs it - only a recreate clears the stale endpoint.
     // Verify the attachment (from the inspect dockerActual already did) before
-    // trusting "running"; heal by recreating, debounced and bounded.
+    // trusting "running"; heal by recreating, confirmed in-pass and paced.
     if (!dockerService.isContainerDetachedFromNetwork(actual.attachment)) {
-      networkHealState.delete(identifier);
-      return; // running and properly attached - already where we want it
-    }
-    const st = networkHealState.get(identifier) || { obs: 0, tries: 0, gaveUp: false };
-    st.obs += 1;
-    if (st.obs < DETACHED_CONFIRM_OBSERVATIONS) {
-      // first sighting - confirm on the next pass before doing anything
-      // destructive, so a transient read never recreates a healthy container.
-      networkHealState.set(identifier, st);
-      log.warn(`appReconciler - ${identifier} appears detached from its docker network; confirming before acting`);
-      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      // running AND attached - already where we want it, and the only proof that
+      // any earlier heal actually worked.
+      await clearNetworkHealState(identifier);
       return;
     }
-    if (st.tries >= MAX_NETWORK_HEAL_ATTEMPTS) {
-      if (!st.gaveUp) {
-        st.gaveUp = true;
-        networkHealState.set(identifier, st);
-        log.error(`appReconciler - ${identifier} still detached from its docker network after ${st.tries} recreate attempt(s); leaving it running for manual intervention (app NOT uninstalled)`);
-        fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkHealGaveUp' });
-      }
-      return;
-    }
-    // Only heal a stale endpoint (network present, container not attached). If the
-    // network itself is gone, a recreate would fail on a missing NetworkMode, so
-    // removing the container would only take it from partially-alive to removed-
-    // and-unrecreatable. That is a different fault (network restore) - record it
-    // and leave the container in place rather than destroying it.
-    if (!(await dockerService.dockerNetworkExists(actual.attachment.networkMode))) {
-      if (!st.gaveUp) {
-        st.gaveUp = true;
-        networkHealState.set(identifier, st);
-        log.error(`appReconciler - ${identifier} detached because its network ${actual.attachment.networkMode} is missing; not recreating (needs network restore, app NOT touched)`);
-        await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Network ${actual.attachment.networkMode} missing while ${identifier} runs detached`);
-        fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkPruned' });
-      }
-      return;
-    }
-    st.tries += 1;
-    networkHealState.set(identifier, st);
-    // Record the durable anomaly signal ONCE per episode (first attempt), not on
-    // every retry - it feeds a node-level tampering-event count, so a per-retry
-    // record would inflate it 3x for a single detachment.
-    if (st.tries === 1) {
-      await appTamperingDetectionService.recordEvent(mainAppName, 'network_detached', `Container ${identifier} running with no network endpoint on its own network`);
-    }
-    log.warn(`appReconciler - ${identifier} running but not attached to its docker network (recreate ${st.tries}/${MAX_NETWORK_HEAL_ATTEMPTS}); clearing the stale endpoint`);
-    await attemptNetworkHeal(identifier);
+    await healDetachedNetwork(identifier, mainAppName);
     return;
   }
 
   if (!actual.exists) {
-    // If we removed this container for a network-detach heal (tries > 0) and the
-    // recreate has not yet brought it back, keep retrying the recreate WITHOUT the
-    // vanished path's uninstall-on-failure escalation - the trigger was transient
-    // host networking, not tampering, so a whole-app uninstall is wrong. Once the
-    // cap is hit we give up and, crucially, keep steering AWAY from recreateMissing
-    // so a heal never turns into an uninstall. Only a container that vanished by
-    // other means (no heal in flight) takes the tested vanished path.
-    const st = networkHealState.get(identifier);
-    if (st && st.tries > 0) {
-      if (st.gaveUp) return; // gave up earlier; leave removed, never uninstall
-      if (st.tries >= MAX_NETWORK_HEAL_ATTEMPTS) {
-        st.gaveUp = true;
-        networkHealState.set(identifier, st);
-        log.error(`appReconciler - ${identifier} still cannot be recreated after ${st.tries} network-heal attempt(s); leaving it removed for manual intervention (app NOT uninstalled)`);
-        fluxEventBus.publish('reconciler:actuated', { identifier, action: 'networkHealGaveUp' });
+    // Durable, so it survives a FluxOS restart mid-heal: if WE removed this
+    // container to clear a stale endpoint, its absence is not tampering. Keep
+    // recreating it - paced on the backoff ladder, never escalating to the vanished
+    // path's uninstall-on-failure. Only a container that vanished by other means
+    // takes that path.
+    if (await appsRuntimeState.isNetworkHealRemoval(identifier)) {
+      const wait = await appsRuntimeState.restartWaitMs(identifier);
+      if (wait > 0) {
+        log.warn(`appReconciler - ${identifier} awaiting recreation after a network heal, backing off ${Math.round(wait / 1000)}s`);
+        scheduleRetry(identifier, wait);
         return;
       }
-      st.tries += 1;
-      networkHealState.set(identifier, st);
+      await appsRuntimeState.recordRestart(identifier);
       await recreateForNetworkHeal(identifier);
       return;
     }
@@ -678,6 +751,11 @@ async function reconcile(rawIdentifier) {
   log.info(`appReconciler - ${identifier} restarted`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'started', exitCode: actual.exitCode });
   notifyContainerStarted(identifier);
+  // A start is exactly when a container can come up attached to no network (a stale
+  // endpoint left by an earlier failed start). The attachment we hold was sampled
+  // BEFORE this start, so verify the new one shortly - otherwise a detached-at-boot
+  // container waits for the hourly sweep.
+  scheduleRetry(identifier, POST_START_VERIFY_MS);
 }
 
 // --- workqueue (per-key single-flight, boot-gated) -----------------------

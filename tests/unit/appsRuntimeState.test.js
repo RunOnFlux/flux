@@ -311,6 +311,49 @@ describe('appsRuntimeState tests', () => {
     });
   });
 
+  describe('networkHealRemoval (durable "I removed this container on purpose")', () => {
+    it('persists the flag and reads it back', async () => {
+      await appsRuntimeState.setNetworkHealRemoval('www_App', true);
+      expect(await appsRuntimeState.isNetworkHealRemoval('www_App')).to.be.true;
+    });
+
+    it('defaults to false for an unknown component', async () => {
+      expect(await appsRuntimeState.isNetworkHealRemoval('nope_App')).to.be.false;
+    });
+
+    it('clears the flag', async () => {
+      await appsRuntimeState.setNetworkHealRemoval('www_App', true);
+      await appsRuntimeState.clearNetworkHealRemoval('www_App');
+      expect(await appsRuntimeState.isNetworkHealRemoval('www_App')).to.be.false;
+    });
+
+    it('is dropped with the rest of the component state on uninstall', async () => {
+      await appsRuntimeState.setNetworkHealRemoval('www_App', true);
+      await appsRuntimeState.remove('www_App');
+      expect(await appsRuntimeState.isNetworkHealRemoval('www_App')).to.be.false;
+    });
+
+    it('survives a process restart: a fresh module instance reads the persisted flag', async () => {
+      // this is the whole point of the flag - an in-memory map would lose the fact
+      // that the reconciler removed the container itself, and the next process would
+      // read the absence as tampering
+      await appsRuntimeState.setNetworkHealRemoval('www_App', true);
+
+      const restarted = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({}) }),
+          findOneInDatabase: async (_db, _coll, query) => store.get(query.identifier) || null,
+          updateOneInDatabase: async () => {},
+          removeDocumentsFromCollection: async () => {},
+        },
+        '../dockerService': { getBaseAppName: (id) => id.replace(/^flux/, '').replace(/^zel/, '') },
+      });
+
+      expect(await restarted.isNetworkHealRemoval('www_App')).to.be.true;
+    });
+  });
+
   describe('prepareCollection (merge-dedupe + unique index)', () => {
     // Fleet nodes wrote into this collection before the unique index existed, so
     // same-identifier twins may exist - and because every later updateOne matched

@@ -1298,7 +1298,7 @@ async function appDockerImageRemove(idOrName) {
  *   running  - the container task is running
  *   attached - the NetworkMode network is present in Networks with an IP
  */
-function parseContainerNetworkAttachment(info) {
+function classifyContainerNetworkAttachment(info) {
   const networkMode = info && info.HostConfig ? info.HostConfig.NetworkMode || null : null;
   const running = !!(info && info.State && info.State.Running);
   const managed = typeof networkMode === 'string' && networkMode.startsWith('fluxDockerNetwork_');
@@ -1315,7 +1315,7 @@ function parseContainerNetworkAttachment(info) {
 
 /**
  * Whether a container is running but not attached to its own managed network -
- * the unrecoverable-by-restart state described in parseContainerNetworkAttachment.
+ * the unrecoverable-by-restart state described in classifyContainerNetworkAttachment.
  * A non-managed (host/none/bridge) container is never considered detached.
  *
  * @param {{managed: boolean, running: boolean, attached: boolean}} attachment
@@ -1327,21 +1327,35 @@ function isContainerDetachedFromNetwork(attachment) {
 }
 
 /**
- * Whether a docker network exists, by name. Used to distinguish a stale endpoint
- * (network present, container not attached - recreatable) from a pruned network
- * (network gone - a recreate would fail on a missing NetworkMode). Any inspect
- * failure is treated as "does not exist".
+ * Reads whether a docker network is present, by name. Used to distinguish a
+ * stale endpoint (network present, container not attached - recreatable) from a
+ * pruned network (network gone - a recreate would fail on a missing NetworkMode).
+ *
+ * A failed inspect is ambiguous - the network may be genuinely gone, or the one
+ * call may have failed while docker is fine - and the caller acts destructively
+ * on the answer, so absence is never inferred from an error. On an inspect
+ * failure we probe the daemon with a list call and use its ANSWER, not just its
+ * success (the same pattern the reconciler's dockerActual uses):
+ *   - list throws          -> 'unknown'  (docker is unhappy: the caller defers)
+ *   - the network IS listed -> 'exists'  (the inspect failure was transient)
+ *   - NOT listed            -> 'absent'  (docker itself confirms absence)
  *
  * @param {string} networkName
- * @returns {Promise<boolean>}
+ * @returns {Promise<'exists'|'absent'|'unknown'>}
  */
-async function dockerNetworkExists(networkName) {
-  if (!networkName) return false;
+async function dockerNetworkState(networkName) {
+  if (!networkName) return 'absent';
   try {
     await docker.getNetwork(networkName).inspect();
-    return true;
+    return 'exists';
   } catch (err) {
-    return false;
+    let networks;
+    try {
+      networks = await docker.listNetworks();
+    } catch (probeErr) {
+      return 'unknown';
+    }
+    return networks.some((n) => n.Name === networkName) ? 'exists' : 'absent';
   }
 }
 
@@ -1875,8 +1889,8 @@ module.exports = {
   getAppContainerNames,
   getAppContainerObjects,
   getAppNameByContainerIp,
-  parseContainerNetworkAttachment,
+  classifyContainerNetworkAttachment,
   isContainerDetachedFromNetwork,
-  dockerNetworkExists,
+  dockerNetworkState,
   waitForDocker,
 };

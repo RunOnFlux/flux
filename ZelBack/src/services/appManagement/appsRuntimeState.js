@@ -170,6 +170,54 @@ async function restartWaitMs(identifier, lastFinishedAtMs = null) {
 }
 
 /**
+ * The network-detach heal force-removes a container in order to recreate it with
+ * a fresh endpoint. Between those two steps the container is legitimately absent,
+ * and that fact MUST be durable: if FluxOS restarts in that window, the next
+ * reconcile would otherwise see a missing container with no heal in flight, call
+ * it vanished (a false tampering signal) and, on a failed recreate, uninstall the
+ * whole app. This flag is the reconciler's memory of "I removed this on purpose";
+ * it is set before the remove and cleared once the container is seen running AND
+ * attached again (see appReconciler).
+ *
+ * @param {string} identifier
+ * @param {boolean} removed
+ */
+async function setNetworkHealRemoval(identifier, removed) {
+  // No catch: the flag is what keeps a failed heal from escalating to an app
+  // uninstall. If it cannot be persisted, the caller must not remove the container.
+  await setFields(identifier, { networkHealRemoval: removed });
+}
+
+/**
+ * Whether the reconciler removed this container itself for a network heal.
+ *
+ * @param {string} identifier
+ * @returns {Promise<boolean>}
+ */
+async function isNetworkHealRemoval(identifier) {
+  const state = await getState(identifier);
+  return state?.networkHealRemoval === true;
+}
+
+/**
+ * Clears the heal-removal flag. Reads first so the healthy steady state (every
+ * reconcile of every attached container) costs a lookup, not a write.
+ *
+ * @param {string} identifier
+ */
+async function clearNetworkHealRemoval(identifier) {
+  try {
+    if (!(await isNetworkHealRemoval(identifier))) return;
+    await setFields(identifier, { networkHealRemoval: false });
+  } catch (err) {
+    // A stale `true` only ever makes the reconciler MORE conservative (it keeps
+    // recreating instead of escalating to an uninstall), so a failed clear is safe
+    // to log and move on from - unlike a failed set, which must abort the remove.
+    log.error(`appsRuntimeState - failed to clear network heal removal for ${identifier}: ${err.message}`);
+  }
+}
+
+/**
  * Records the last observed exit for diagnostics / tampering signals.
  *
  * @param {string} identifier
@@ -227,6 +275,9 @@ async function prepareCollection() {
           identifier,
           // a lock anywhere is a lock: never auto-start a deliberately stopped app
           operatorStopped: twins.some((t) => t.operatorStopped === true),
+          // likewise, a heal-removal anywhere means a heal may be mid-flight: keep
+          // the reconciler on the recreate path rather than the uninstall path
+          networkHealRemoval: twins.some((t) => t.networkHealRemoval === true),
           restartHistory: [...new Set(twins.flatMap((t) => t.restartHistory || []))].sort((a, b) => a - b).slice(-MAX_HISTORY),
           updatedAt: Math.max(...twins.map((t) => t.updatedAt || 0)),
         };
@@ -255,6 +306,9 @@ module.exports = {
   isOperatorStopped,
   recordRestart,
   restartWaitMs,
+  setNetworkHealRemoval,
+  isNetworkHealRemoval,
+  clearNetworkHealRemoval,
   recordExit,
   remove,
   BACKOFF_DELAYS_MS,
