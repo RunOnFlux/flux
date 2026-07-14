@@ -323,8 +323,28 @@ describe('appsRuntimeState tests', () => {
 
     it('clears the flag', async () => {
       await appsRuntimeState.setNetworkHealRemoval('www_App', true);
-      await appsRuntimeState.clearNetworkHealRemoval('www_App');
+      await appsRuntimeState.clearNetworkHeal('www_App');
       expect(await appsRuntimeState.isNetworkHealRemoval('www_App')).to.be.false;
+    });
+
+    it('a read failure throws rather than reporting "not a heal removal"', async () => {
+      // reading false on a DB blip is the DESTRUCTIVE guess: the reconciler would
+      // treat its own removal as a vanished container and can uninstall the app.
+      const failing = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+        '../../lib/log': logStub,
+        '../dbHelper': {
+          databaseConnection: () => ({ db: () => ({}) }),
+          findOneInDatabase: async () => { throw new Error('db unavailable'); },
+          updateOneInDatabase: async () => {},
+          removeDocumentsFromCollection: async () => {},
+        },
+        '../dockerService': { getBaseAppName: (id) => id },
+      });
+
+      let thrown = null;
+      await failing.isNetworkHealRemoval('www_App').catch((e) => { thrown = e; });
+
+      expect(thrown, 'must not silently answer false').to.be.an('error');
     });
 
     it('is dropped with the rest of the component state on uninstall', async () => {
@@ -351,6 +371,36 @@ describe('appsRuntimeState tests', () => {
       });
 
       expect(await restarted.isNetworkHealRemoval('www_App')).to.be.true;
+    });
+  });
+
+  describe('network heal ladder (separate from the crash-restart ladder)', () => {
+    it('allows the first attempt immediately, then paces the next ones', async () => {
+      expect(await appsRuntimeState.networkHealWaitMs('www_App')).to.equal(0);
+
+      await appsRuntimeState.recordNetworkHealAttempt('www_App');
+      expect(await appsRuntimeState.networkHealWaitMs('www_App'), 'the second attempt waits').to.be.above(0);
+    });
+
+    it('does not touch the crash-restart backoff', async () => {
+      // sharing restartHistory would hold down the very container the heal just
+      // recreated (a g: component is created, not started, so the next pass reads the
+      // ladder the heal grew) - and would block a heal for a crash-looping container
+      await appsRuntimeState.recordNetworkHealAttempt('www_App');
+      await appsRuntimeState.recordNetworkHealAttempt('www_App');
+
+      expect(await appsRuntimeState.restartWaitMs('www_App'), 'the restart ladder is untouched').to.equal(0);
+      expect(store.get('www_App').restartHistory).to.equal(undefined);
+    });
+
+    it('is reset once the container is healthy, so a later episode starts from the bottom', async () => {
+      await appsRuntimeState.recordNetworkHealAttempt('www_App');
+      await appsRuntimeState.recordNetworkHealAttempt('www_App');
+      expect(await appsRuntimeState.networkHealWaitMs('www_App')).to.be.above(0);
+
+      await appsRuntimeState.clearNetworkHeal('www_App');
+
+      expect(await appsRuntimeState.networkHealWaitMs('www_App')).to.equal(0);
     });
   });
 

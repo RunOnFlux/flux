@@ -142,6 +142,51 @@ describe('containerHealthMonitor tests', () => {
       const recreated = appInstallerStub.installApplicationHard.getCalls().map((c) => c.args[0].name);
       expect(recreated).to.deep.equal(['web', 'db']);
     });
+
+    describe('softOnly (the network-detach heal)', () => {
+      // A hard install runs createAppVolume: fallocate + mke2fs on the app's volume
+      // file, i.e. it REFORMATS the app's data. The heal deliberately force-removes a
+      // LIVE container whose data is intact, so it must never be able to trigger that
+      // fallback - a transient verifyAppVolumeMount failure would wipe user data.
+      it('throws instead of hard-installing a component whose volume cannot be verified', async () => {
+        volumeServiceStub.verifyAppVolumeMount.resolves(false);
+        let err;
+        try {
+          await containerHealthMonitor.recreateMissingContainers('web_testapp', { softOnly: true });
+        } catch (e) { err = e; }
+
+        expect(err).to.be.an('error');
+        expect(err.message).to.include('without reformatting its volume');
+        expect(appInstallerStub.installApplicationHard.called, 'must never reformat the data volume of a container it was asked to rebuild softly').to.be.false;
+      });
+
+      it('throws instead of hard-installing on the whole-app path', async () => {
+        volumeServiceStub.verifyAppVolumeMount.resolves(false);
+        let err;
+        try {
+          await containerHealthMonitor.recreateMissingContainers('testapp', { softOnly: true });
+        } catch (e) { err = e; }
+
+        expect(err).to.be.an('error');
+        expect(appInstallerStub.installApplicationHard.called).to.be.false;
+      });
+
+      it('still soft-installs normally when the volume is verified', async () => {
+        volumeServiceStub.verifyAppVolumeMount.resolves(true);
+
+        await containerHealthMonitor.recreateMissingContainers('web_testapp', { softOnly: true });
+
+        expect(appInstallerStub.installApplicationSoft.calledOnce).to.be.true;
+      });
+
+      it('leaves the default (vanished-container) path free to hard-install', async () => {
+        volumeServiceStub.verifyAppVolumeMount.resolves(false);
+
+        await containerHealthMonitor.recreateMissingContainers('web_testapp');
+
+        expect(appInstallerStub.installApplicationHard.calledOnce, 'a container that is gone anyway may still be rebuilt from scratch').to.be.true;
+      });
+    });
   });
 
 });

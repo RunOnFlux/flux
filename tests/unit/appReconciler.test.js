@@ -52,16 +52,20 @@ describe('appReconciler tests', () => {
       volumeService: {
         ensureMountPathsExist: sinon.stub().resolves(),
         ensureAppVolumeMounted: sinon.stub().resolves({ mounted: true, alreadyMounted: true }),
+        // the heal will not destroy a container whose volume it cannot verify
+        verifyAppVolumeMount: sinon.stub().resolves(true),
       },
       appsRuntimeState: {
         isOperatorStopped: sinon.stub().resolves(false),
         restartWaitMs: sinon.stub().resolves(0),
         recordRestart: sinon.stub().resolves(),
         recordExit: sinon.stub().resolves(),
-        // durable "I removed this container for a network heal" flag
+        // durable "I removed this container for a network heal" flag + its own ladder
         isNetworkHealRemoval: sinon.stub().resolves(false),
         setNetworkHealRemoval: sinon.stub().resolves(),
-        clearNetworkHealRemoval: sinon.stub().resolves(),
+        recordNetworkHealAttempt: sinon.stub().resolves(),
+        networkHealWaitMs: sinon.stub().resolves(0),
+        clearNetworkHeal: sinon.stub().resolves(),
       },
       appQueryService: {
         decryptEnterpriseApps: sinon.stub().callsFake(async (arr) => arr),
@@ -1005,35 +1009,73 @@ describe('appReconciler tests', () => {
     // A running container reported as detached from its own docker network (stale
     // libnetwork endpoint). isContainerDetachedFromNetwork is stubbed directly so
     // these tests drive the reconciler's control flow, not the classifier (covered
-    // by dockerService tests). The heal confirms in-pass (settle + re-inspect), so
-    // one reconcile call is a complete heal cycle.
+    // by dockerService tests).
+    //
+    // A heal needs the detach to (a) survive an in-pass re-inspect and (b) persist
+    // for DETACHED_PERSIST_MS of wall-clock. Date is faked so tests can cross that
+    // window without waiting; setTimeout is NOT faked, so the reconciler's own
+    // scheduleRetry timers never fire and each pass is driven explicitly.
+    let clock;
+
     beforeEach(() => {
+      clock = sinon.useFakeTimers({ toFake: ['Date'] });
       stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
       stubs.dockerService.classifyContainerNetworkAttachment.returns({
         managed: true, running: true, networkMode: 'fluxDockerNetwork_App', attached: false,
       });
+      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
     });
+
+    // first pass opens the persistence window; the second, past it, may act
+    const healPasses = async (id = 'www_App') => {
+      await appReconciler.reconcile(id);
+      clock.tick(61 * 1000);
+      await appReconciler.reconcile(id);
+    };
 
     it('leaves a running, properly-attached container alone and clears any heal state', async () => {
       stubs.dockerService.isContainerDetachedFromNetwork.returns(false);
       await appReconciler.reconcile('www_App');
       expect(stubs.dockerService.appDockerForceRemove.called).to.be.false;
       expect(stubs.containerHealthMonitor.recreateMissingContainers.called).to.be.false;
-      expect(stubs.appsRuntimeState.clearNetworkHealRemoval.calledWith('www_App'), 'attached is the proof a heal worked: clear the durable flag').to.be.true;
+      expect(stubs.appsRuntimeState.clearNetworkHeal.calledWith('www_App'), 'a healthy container clears the durable heal state').to.be.true;
+    });
+
+    it('clears the durable heal state for a container that merely EXISTS, even stopped', async () => {
+      // the flag means "absent because I removed it" - once the container is back it
+      // is stale, whatever its run state. Leaking it would divert a later, genuine
+      // disappearance away from the vanished path forever.
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+      stubs.dockerService.isContainerDetachedFromNetwork.returns(false);
+      stubs.appsRuntimeState.restartWaitMs.resolves(60 * 1000); // stay in backoff, never start
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.appsRuntimeState.clearNetworkHeal.calledWith('www_App')).to.be.true;
     });
 
     it('confirms in-pass before acting: a detached read that clears on re-inspect destroys nothing', async () => {
-      // detached on the first read, attached on the confirming re-read
-      stubs.dockerService.isContainerDetachedFromNetwork.onFirstCall().returns(true).onSecondCall().returns(false);
+      // a pass reads the attachment three times: the stale-state clear, the running
+      // branch, then the heal's confirming re-inspect. Detached for the first two,
+      // attached on the re-inspect - i.e. the first read was transient.
+      stubs.dockerService.isContainerDetachedFromNetwork.onCall(2).returns(false);
       await appReconciler.reconcile('www_App');
       expect(stubs.serviceHelper.delay.called, 'settles before re-reading').to.be.true;
       expect(stubs.dockerService.dockerContainerInspect.callCount, 're-inspects to confirm').to.be.at.least(2);
       expect(stubs.dockerService.appDockerForceRemove.called, 'a transient detached read must never destroy a healthy container').to.be.false;
     });
 
-    it('heals a confirmed detach: durable flag set before the remove, monitoring stopped, recreate, never uninstall', async () => {
-      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
+    it('waits for the detach to persist before destroying anything', async () => {
+      await appReconciler.reconcile('www_App'); // confirmed detached, but only just now
+      expect(stubs.dockerService.appDockerForceRemove.called, 'a detach seen for the first time is not yet actionable').to.be.false;
+
+      clock.tick(61 * 1000);
       await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerForceRemove.called, 'a detach that persisted is healed').to.be.true;
+    });
+
+    it('heals a persisted detach: durable flag before the remove, monitoring stopped, soft-only recreate, never uninstall', async () => {
+      await healPasses();
       expect(
         stubs.appsRuntimeState.setNetworkHealRemoval.calledWith('www_App', true),
         'records the deliberate removal durably',
@@ -1044,14 +1086,78 @@ describe('appReconciler tests', () => {
       ).to.be.true;
       expect(stubs.appInspector.stopAppMonitoring.calledWith('www_App', true), 'stops the stats monitor before removing').to.be.true;
       expect(stubs.dockerService.appDockerForceRemove.calledWith('www_App', false), 'force-removes keeping bind-mounted data').to.be.true;
-      expect(stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App'), 'recreates once').to.be.true;
+      expect(
+        stubs.containerHealthMonitor.recreateMissingContainers.calledOnceWith('www_App', { softOnly: true }),
+        'the recreate must never be allowed to fall back to a hard install: that reformats the data volume',
+      ).to.be.true;
       expect(stubs.appUninstaller.removeAppLocally.called, 'the heal must NEVER uninstall the app').to.be.false;
     });
 
-    it('does not destroy the container when docker confirms its network is gone (records network_pruned)', async () => {
-      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
-      stubs.dockerService.dockerNetworkState.resolves('absent');
+    it('refuses to destroy a container it could never recreate (v1-3 app with no compose spec)', async () => {
+      // recreateMissingContainers throws unconditionally on a spec with no compose
+      // array, and the heal never escalates - so removing such a container would
+      // destroy it permanently.
+      localSpec = { name: 'App', version: 3, containerData: '/data' };
+
+      await healPasses('App');
+
+      expect(stubs.dockerService.appDockerForceRemove.called, 'must not remove what it cannot recreate').to.be.false;
+      expect(stubs.appUninstaller.removeAppLocally.called).to.be.false;
+      const blocked = stubs.log.error.getCalls().some((c) => /must NOT be recreated/.test(c.args[0]));
+      expect(blocked, 'says loudly why it refused').to.be.true;
+    });
+
+    it('refuses to destroy a container whose data volume cannot be verified', async () => {
+      // the recreate is soft-only, so an unverifiable volume means it would fail
+      // AFTER the container was destroyed
+      stubs.volumeService.verifyAppVolumeMount.resolves(false);
+
+      await healPasses();
+
+      expect(stubs.dockerService.appDockerForceRemove.called, 'a container whose volume cannot be verified must be left alone').to.be.false;
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.called).to.be.false;
+    });
+
+    it('aborts the remove if another operation took the container over during the confirmation', async () => {
+      // isManagedElsewhere is sampled at reconcile entry, but the heal spends seconds
+      // confirming - a redeploy/backup starting in that window must not have its
+      // container force-removed underneath it.
+      await appReconciler.reconcile('www_App'); // opens the persistence window
+      clock.tick(61 * 1000);
+      stubs.serviceHelper.delay.callsFake(async () => {
+        stubs.globalState.isOperationInProgress = () => true; // a redeploy starts mid-settle
+      });
+
       await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerForceRemove.called, 'must not actuate on a container another subsystem owns').to.be.false;
+    });
+
+    it('does not rebuild the whole node when many containers look detached at once', async () => {
+      // a dockerd restart can serve inspects before libnetwork restores endpoint IPs,
+      // and the reconnect sweep enqueues everything at that moment
+      localSpec = {
+        name: 'App',
+        version: 4,
+        compose: [{ name: 'www', containerData: '/data' }, { name: 'api', containerData: '/data' }, { name: 'db', containerData: '/data' }],
+      };
+
+      await appReconciler.reconcile('www_App');
+      await appReconciler.reconcile('api_App');
+      await appReconciler.reconcile('db_App');
+      clock.tick(61 * 1000);
+      await appReconciler.reconcile('www_App');
+      await appReconciler.reconcile('api_App');
+      await appReconciler.reconcile('db_App');
+
+      expect(stubs.dockerService.appDockerForceRemove.called, 'a node-wide detach is a docker fault, not N stale endpoints').to.be.false;
+      const storm = stubs.log.error.getCalls().some((c) => /docker-level fault/.test(c.args[0]));
+      expect(storm, 'says loudly that it refused a node-wide rebuild').to.be.true;
+    });
+
+    it('does not destroy the container when docker confirms its network is gone (records network_pruned)', async () => {
+      stubs.dockerService.dockerNetworkState.resolves('absent');
+      await healPasses();
       expect(stubs.dockerService.appDockerForceRemove.called, 'must not remove a container it cannot recreate').to.be.false;
       expect(stubs.containerHealthMonitor.recreateMissingContainers.called).to.be.false;
       const pruned = stubs.appTamperingDetectionService.recordEvent.getCalls().some((c) => c.args[1] === 'network_pruned');
@@ -1059,26 +1165,39 @@ describe('appReconciler tests', () => {
     });
 
     it('defers (destroys nothing, records nothing) when docker cannot say whether the network exists', async () => {
-      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
       stubs.dockerService.dockerNetworkState.resolves('unknown');
-      await appReconciler.reconcile('www_App');
+      await healPasses();
       expect(stubs.dockerService.appDockerForceRemove.called, 'an unreadable network is not a missing network').to.be.false;
       const pruned = stubs.appTamperingDetectionService.recordEvent.getCalls().some((c) => c.args[1] === 'network_pruned');
       expect(pruned, 'must not record a false network_pruned on a transient docker error').to.be.false;
     });
 
-    it('paces heal attempts on the durable backoff ladder instead of counting them', async () => {
-      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
-      stubs.appsRuntimeState.restartWaitMs.resolves(30 * 1000); // ladder says: not yet
-      await appReconciler.reconcile('www_App');
+    it('paces heal attempts on its own durable ladder, not the crash-restart one', async () => {
+      stubs.appsRuntimeState.networkHealWaitMs.resolves(30 * 1000); // the heal ladder says: not yet
+      await healPasses();
       expect(stubs.dockerService.appDockerForceRemove.called, 'no destructive action while backing off').to.be.false;
       expect(stubs.appsRuntimeState.setNetworkHealRemoval.called).to.be.false;
+      expect(
+        stubs.appsRuntimeState.recordRestart.called,
+        'a heal must not write to the crash ladder: it would hold down the container it just fixed',
+      ).to.be.false;
+    });
+
+    it('does not remove the container if the heal cannot be recorded durably', async () => {
+      // the durable flag is what stops a restart mid-heal from uninstalling the app,
+      // and the ladder is what stops the retries hammering - without them, no remove
+      stubs.appsRuntimeState.setNetworkHealRemoval.rejects(new Error('db unavailable'));
+
+      await healPasses();
+
+      expect(stubs.dockerService.appDockerForceRemove.called, 'an unrecordable heal must not happen at all').to.be.false;
+      const noted = stubs.log.error.getCalls().some((c) => /cannot record the network heal/.test(c.args[0]));
+      expect(noted, 'logs and retries rather than throwing out of reconcile').to.be.true;
     });
 
     it('restores monitoring when the force-remove itself fails', async () => {
-      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
       stubs.dockerService.appDockerForceRemove.rejects(new Error('device or resource busy'));
-      await appReconciler.reconcile('www_App');
+      await healPasses();
       expect(
         stubs.appInspector.startAppMonitoring.calledWith('www_App'),
         'the container is still there: it must not be left unmonitored',
@@ -1086,28 +1205,29 @@ describe('appReconciler tests', () => {
       expect(stubs.appUninstaller.removeAppLocally.called).to.be.false;
     });
 
-    it('a recreate failure retries but never uninstalls the app', async () => {
-      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
+    it('a recreate failure retries, records the diagnostics, and never uninstalls the app', async () => {
       stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('host port still in use'));
-      await appReconciler.reconcile('www_App');
+      await healPasses();
       expect(stubs.dockerService.appDockerForceRemove.called).to.be.true;
       expect(stubs.appUninstaller.removeAppLocally.called, 'a transient recreate failure must not uninstall').to.be.false;
+      const failed = stubs.appTamperingDetectionService.recordEvent.getCalls().some((c) => c.args[1] === 'recreation_failed');
+      expect(failed, 'a silently looping heal is an invisible outage: record the failure').to.be.true;
     });
 
     it('keeps retrying a broken heal at a bounded rate: no terminal give-up, no uninstall, one tamper event', async () => {
-      stubs.dockerService.isContainerDetachedFromNetwork.returns(true);
       stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('host port still in use'));
       // the container stays "running" (inspect stub), so each pass re-enters the
       // running-detached branch - as the hourly sweep would drive it
       for (let i = 0; i < 8; i += 1) {
         // eslint-disable-next-line no-await-in-loop
         await appReconciler.reconcile('www_App');
+        clock.tick(61 * 1000);
       }
       expect(stubs.appUninstaller.removeAppLocally.called, 'never uninstalls, however long it stays broken').to.be.false;
       expect(
         stubs.containerHealthMonitor.recreateMissingContainers.callCount,
-        'keeps trying (paced by the ladder) rather than parking in a terminal state',
-      ).to.equal(8);
+        'keeps trying (paced by its ladder) rather than parking in a terminal state',
+      ).to.be.at.least(6);
       // the durable tampering signal is recorded once per episode, not per attempt
       const detachedEvents = stubs.appTamperingDetectionService.recordEvent.getCalls().filter((c) => c.args[1] === 'network_detached').length;
       expect(detachedEvents, 'records network_detached once per episode, not per attempt').to.equal(1);
@@ -1127,6 +1247,21 @@ describe('appReconciler tests', () => {
       expect(vanished, 'our own removal must not be recorded as tampering').to.be.false;
       expect(stubs.containerHealthMonitor.recreateMissingContainers.called, 'recreates on the heal path').to.be.true;
       expect(stubs.appUninstaller.removeAppLocally.called, 'a failed recreate must not uninstall the app').to.be.false;
+    });
+
+    it('defers instead of guessing when the durable heal flag cannot be read', async () => {
+      // guessing "not a heal removal" is the destructive guess: it records a false
+      // tampering event and can uninstall the app on a failed recreate
+      stubs.appsRuntimeState.isNetworkHealRemoval.rejects(new Error('db unavailable'));
+      stubs.dockerService.dockerContainerInspect.rejects(new Error('no such container'));
+      stubs.dockerService.dockerListContainers.resolves([]);
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.containerHealthMonitor.recreateMissingContainers.called, 'no recreate on an unreadable state').to.be.false;
+      expect(stubs.appUninstaller.removeAppLocally.called, 'and above all, no uninstall').to.be.false;
+      const vanished = stubs.appTamperingDetectionService.recordEvent.getCalls().some((c) => c.args[1] === 'container_vanished');
+      expect(vanished, 'no false tampering event').to.be.false;
     });
 
     it('a container that vanished on its own (no heal flag) still takes the vanished path', async () => {
