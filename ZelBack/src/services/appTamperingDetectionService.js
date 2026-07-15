@@ -34,7 +34,7 @@ function isNetworkMissingError(errorMessage) {
  * Documents expire automatically 30 days after detectedAt (TTL index).
  * @param {string} appName - Application name
  * @param {string} eventType - One of: container_vanished, network_pruned,
- *   mount_vanished, crontab_wiped, recreation_failed
+ *   mount_vanished, crontab_wiped, recreation_failed, network_detached
  * @param {string} details - Free-text context about the event
  */
 async function recordEvent(appName, eventType, details) {
