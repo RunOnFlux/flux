@@ -43,6 +43,15 @@ const INCIDENT_BUCKET_MS = 60 * 60 * 1000;
 // (tamper, then reboot, and the evidence goes out with the boot noise).
 const BOOT_STORM_WINDOW_MS = 30 * 60 * 1000;
 const BOOT_STORM_DISCOUNT = 0.25;
+// Only the event types a boot race can actually produce are discounted inside
+// the storm window. container_vanished is deliberately absent: containers
+// persist as `exited` across a clean reboot, and a late-disk docker daemon
+// surfaces as docker-unreachable (deferred, never recorded) — so a missing
+// container is tamper signal even seconds after boot. Discounting it would
+// hand kill-style tampering a 4x discount for rebooting first, and unlike
+// persistent damage (a deleted volume re-records at full weight in the next
+// hourly bucket) a healed one-shot vanish never re-records.
+const BOOT_STORM_DISCOUNT_TYPES = ['mount_vanished', 'volume_missing', 'network_pruned', 'recreation_failed'];
 
 // Per-type severity, stamped on each incident at write time so scoring reads
 // stored values rather than re-deriving them. recreation_failed is an
@@ -481,6 +490,7 @@ module.exports = {
   deriveMainAppName,
   EVENT_SEVERITY,
   BOOT_STORM_DISCOUNT,
+  BOOT_STORM_DISCOUNT_TYPES,
   BOOT_STORM_WINDOW_MS,
   INCIDENT_BUCKET_MS,
   IDENTITY_BACKFILL_INTERVAL_MS,

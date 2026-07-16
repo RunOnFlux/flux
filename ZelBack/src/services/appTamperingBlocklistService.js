@@ -89,12 +89,18 @@ async function computeTamperScore() {
     const database = db.db(config.database.local.database);
     const pipeline = [
       { $match: { schemaVersion: { $gte: 1 } } },
-      { $project: { _id: 0, severity: 1, duringBootStorm: 1 } },
+      { $project: {
+        _id: 0, severity: 1, duringBootStorm: 1, eventType: 1,
+      } },
     ];
     const incidents = await dbHelper.aggregateInDatabase(database, tamperingEventsCollection, pipeline);
     return incidents.reduce((score, incident) => {
-      const discount = incident.duringBootStorm ? appTamperingDetectionService.BOOT_STORM_DISCOUNT : 1;
-      return score + (incident.severity ?? 0) * discount;
+      // The storm discount applies only to the boot-race event family; a
+      // container_vanished right after boot scores full weight (see
+      // BOOT_STORM_DISCOUNT_TYPES for why).
+      const discounted = incident.duringBootStorm
+        && appTamperingDetectionService.BOOT_STORM_DISCOUNT_TYPES.includes(incident.eventType);
+      return score + (incident.severity ?? 0) * (discounted ? appTamperingDetectionService.BOOT_STORM_DISCOUNT : 1);
     }, 0);
   } catch (error) {
     log.warn(`appTamperingBlocklist - failed to compute tamper score: ${error.message}`);
