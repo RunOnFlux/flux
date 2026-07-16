@@ -35,10 +35,6 @@ describe('appTamperingBlocklistService tests', () => {
       './generalService': generalServiceStub,
       './daemonService/daemonServiceMiscRpcs': daemonMiscStub,
       './benchmarkService': benchmarkServiceStub,
-      './appTamperingDetectionService': {
-        BOOT_STORM_DISCOUNT: 0.25,
-        BOOT_STORM_DISCOUNT_TYPES: ['mount_vanished', 'volume_missing', 'network_pruned', 'recreation_failed'],
-      },
     });
   }
 
@@ -81,11 +77,11 @@ describe('appTamperingBlocklistService tests', () => {
     sinon.restore();
   });
 
-  // Helper: make the incident aggregation return n severity-1 incidents
-  // outside any boot storm, i.e. a tamper score of exactly n.
+  // Helper: make the incident aggregation return n severity-1 incidents,
+  // i.e. a tamper score of exactly n.
   function setTamperScore(n) {
     const incidents = Array.from({ length: n }, () => ({
-      eventType: 'mount_vanished', severity: 1, duringBootStorm: false,
+      eventType: 'mount_vanished', severity: 1,
     }));
     dbHelperStub.aggregateInDatabase = sinon.stub().resolves(incidents);
   }
@@ -129,10 +125,10 @@ describe('appTamperingBlocklistService tests', () => {
 
     it('sums stored severities across incidents', async () => {
       dbHelperStub.aggregateInDatabase = sinon.stub().resolves([
-        { eventType: 'container_vanished', severity: 3, duringBootStorm: false },
-        { eventType: 'network_pruned', severity: 1, duringBootStorm: false },
-        { eventType: 'network_detached', severity: 1, duringBootStorm: false },
-        { eventType: 'recreation_failed', severity: 0, duringBootStorm: false }, // operational
+        { eventType: 'container_vanished', severity: 3 },
+        { eventType: 'network_pruned', severity: 1 },
+        { eventType: 'network_detached', severity: 1 },
+        { eventType: 'recreation_failed', severity: 0 }, // operational
       ]);
 
       const result = await service.computeTamperScore();
@@ -140,34 +136,22 @@ describe('appTamperingBlocklistService tests', () => {
       expect(result).to.equal(5);
     });
 
-    it('discounts boot-race incidents flagged duringBootStorm', async () => {
+    it('scores full weight regardless of stored duringBootStorm flags', async () => {
+      // Stored incidents may carry a duringBootStorm flag; it is inert —
+      // severities always sum in full.
       dbHelperStub.aggregateInDatabase = sinon.stub().resolves([
         { eventType: 'mount_vanished', severity: 1, duringBootStorm: true },
-        { eventType: 'volume_missing', severity: 1, duringBootStorm: true },
-        { eventType: 'container_vanished', severity: 3, duringBootStorm: false },
-      ]);
-
-      const result = await service.computeTamperScore();
-
-      expect(result).to.equal(3.5); // 2 × (1 × 0.25) + 3
-    });
-
-    it('never discounts container_vanished, even inside the boot-storm window', async () => {
-      // Containers persist as exited across a clean reboot, so a vanished
-      // container is tamper signal regardless of the window — a reboot must
-      // not buy kill-style tampering a discount.
-      dbHelperStub.aggregateInDatabase = sinon.stub().resolves([
         { eventType: 'container_vanished', severity: 3, duringBootStorm: true },
       ]);
 
       const result = await service.computeTamperScore();
 
-      expect(result).to.equal(3);
+      expect(result).to.equal(4);
     });
 
     it('treats a missing severity as zero', async () => {
       dbHelperStub.aggregateInDatabase = sinon.stub().resolves([
-        { eventType: 'mount_vanished', duringBootStorm: false },
+        { eventType: 'mount_vanished' },
       ]);
 
       const result = await service.computeTamperScore();

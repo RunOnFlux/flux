@@ -20,7 +20,6 @@ const { localAppsInformation } = require('./utils/appConstants');
 const tamperingEventsCollection = config.database.local.collections.appTamperingEvents;
 const nodeStartupTrackerCollection = config.database.local.collections.nodeStartupTracker;
 
-const SYSTEM_APP_NAME = '__system__';
 const STARTUP_MARKER_KEY = 'lastStartup';
 const BOOT_HISTORY_KEY = 'bootHistory';
 // ~200 boots covers >1 month even at the fastest observed abusive reboot
@@ -36,34 +35,18 @@ const BOOT_HISTORY_MAX = 200;
 // erasing distinct incidents.
 const INCIDENT_BUCKET_MS = 60 * 60 * 1000;
 
-// Events recorded within this window after a machine boot are flagged
-// duringBootStorm and down-weighted in scoring — never dropped. Any reboot
-// with a late data disk legitimately produces mount/volume events for every
-// app; outright suppression would instead hand tamperers a laundering trick
-// (tamper, then reboot, and the evidence goes out with the boot noise).
-const BOOT_STORM_WINDOW_MS = 30 * 60 * 1000;
-const BOOT_STORM_DISCOUNT = 0.25;
-// Only the event types a boot race can actually produce are discounted inside
-// the storm window. container_vanished is deliberately absent: containers
-// persist as `exited` across a clean reboot, and a late-disk docker daemon
-// surfaces as docker-unreachable (deferred, never recorded) — so a missing
-// container is tamper signal even seconds after boot. Discounting it would
-// hand kill-style tampering a 4x discount for rebooting first, and unlike
-// persistent damage (a deleted volume re-records at full weight in the next
-// hourly bucket) a healed one-shot vanish never re-records.
-const BOOT_STORM_DISCOUNT_TYPES = ['mount_vanished', 'volume_missing', 'network_pruned', 'recreation_failed'];
-
 // Per-type severity, stamped on each incident at write time so scoring reads
 // stored values rather than re-deriving them. recreation_failed is an
-// operational fault (registry, image pull, disk) and node_reboot is an
-// observation feeding operator-level analysis — both are recorded for
-// visibility but carry no tamper weight, because punishing them would
-// penalize honest nodes for infra noise. container_vanished weighs highest:
+// operational fault (registry, image pull, disk) — recorded for visibility
+// but zero-weighted, because punishing it would penalize honest nodes for
+// infra noise. container_vanished weighs highest:
 // containers persist as `exited` across a clean reboot, so a
 // positively-confirmed missing container is the strongest local indicator of
-// host-side interference this data has. The mount/volume/network types are
-// real signals but dominated by boot races, hence low severity plus the
-// boot-storm discount.
+// host-side interference this data has. The mount/volume/network types carry
+// low weight because they cannot distinguish interference from an unhealthy
+// host — fleet-wide they are dominated by persistent faults on broken nodes —
+// and a persistent fault re-records in every hourly bucket, so anything real
+// accumulates weight without needing a high per-incident severity.
 const EVENT_SEVERITY = {
   container_vanished: 3,
   network_pruned: 1,
@@ -71,7 +54,6 @@ const EVENT_SEVERITY = {
   mount_vanished: 1,
   volume_missing: 1,
   recreation_failed: 0,
-  node_reboot: 0,
 };
 
 const EVENTS_DEFAULT_LIMIT = 500;
@@ -82,18 +64,16 @@ const EVENTS_MAX_LIMIT = 1000;
 // a dead daemon on every event.
 const IDENTITY_RETRY_MS = 5 * 60 * 1000;
 const ATTRIBUTION_TTL_MS = 60 * 60 * 1000;
-// node_reboot always fires seconds after boot — before fluxd's RPC is up —
-// so without a later pass, reboot incidents would systematically carry null
-// identity (observed on the first live deploy). The backfill retries on this
-// interval until the daemon answers, stamps every unattributed incident, and
-// stops.
+// The boot-sweep harvest (mount/volume checks) fires before fluxd's RPC is
+// up, so without a later pass its incidents would systematically carry null
+// identity. The backfill retries on this interval until the daemon answers,
+// stamps every unattributed incident, and stops.
 const IDENTITY_BACKFILL_INTERVAL_MS = 5 * 60 * 1000;
 
 // Boot context, set once by checkNodeReboot() during startup. Until it runs
 // (or on hosts without a readable boot_id) events fall back to an 'unknown'
-// boot in their incident key and are never flagged as boot storm.
+// boot in their incident key.
 let currentBootId = null;
-let bootStormUntilMs = 0;
 
 let nodeIdentityCache = null;
 let identityRetryAfterMs = 0;
@@ -227,7 +207,7 @@ function deriveMainAppName(appName) {
  * @returns {Promise<object|null>}
  */
 async function getAppAttribution(appName) {
-  if (!appName || appName === SYSTEM_APP_NAME) return null;
+  if (!appName) return null;
   const cached = appAttributionCache.get(appName);
   if (cached && Date.now() - cached.cachedAt < ATTRIBUTION_TTL_MS) return cached;
   try {
@@ -265,10 +245,10 @@ async function getAppAttribution(appName) {
  * the boot_id plus an hourly time bucket; repeat calls increment `count` and
  * advance `lastSeen`, so retry storms collapse while the incident keeps its
  * full observation tally. Each document carries node identity, operator
- * identity, app attribution, severity and boot-storm context so fleet-level
- * consumers can attribute and weigh it without joining local state.
+ * identity, app attribution and severity so fleet-level consumers can
+ * attribute and weigh it without joining local state.
  * Documents expire 30 days after lastSeen (TTL index).
- * @param {string} appName - Application name (or SYSTEM_APP_NAME)
+ * @param {string} appName - Application name
  * @param {string} eventType - One of the EVENT_SEVERITY keys
  * @param {string} details - Free-text context (stored once per incident)
  */
@@ -282,7 +262,6 @@ async function recordEvent(appName, eventType, details) {
     const database = db.db(config.database.local.database);
     const now = new Date();
     const incidentKey = `${currentBootId ?? 'unknown'}:${Math.floor(now.getTime() / INCIDENT_BUCKET_MS)}`;
-    const duringBootStorm = now.getTime() < bootStormUntilMs;
     const [identity, attribution] = await Promise.all([
       getNodeIdentity(),
       getAppAttribution(appName),
@@ -295,7 +274,6 @@ async function recordEvent(appName, eventType, details) {
         eventType,
         incidentKey,
         severity: EVENT_SEVERITY[eventType] ?? 0,
-        duringBootStorm,
         bootId: currentBootId,
         uptimeSecAtEvent: Math.round(os.uptime()),
         firstSeen: now,
@@ -331,7 +309,7 @@ async function recordEvent(appName, eventType, details) {
     // doc or null; older shapes return { value, lastErrorObject }.
     const inserted = !result || result.value === null || result?.lastErrorObject?.updatedExisting === false;
     if (inserted) {
-      log.info(`appTamperingDetection - recorded ${eventType} for ${appName}${duringBootStorm ? ' (boot storm)' : ''}`);
+      log.info(`appTamperingDetection - recorded ${eventType} for ${appName}`);
     } else {
       log.debug(`appTamperingDetection - ${eventType} for ${appName} repeated, incident count incremented`);
     }
@@ -379,11 +357,8 @@ async function getEvents(req, res) {
  * Startup check: distinguishes a genuine machine reboot from a mere process
  * restart using the kernel boot identity (/proc/sys/kernel/random/boot_id — a
  * UUID regenerated on every boot, stable across process restarts). On a
- * genuine reboot it records a single `node_reboot` observation under the
- * synthetic __system__ app, appends the boot to a rolling history so
- * consumers can derive a reboot rate/cadence, and opens the boot-storm
- * window that down-weights the mount/volume/network noise any boot with a
- * late data disk produces.
+ * genuine reboot it appends the boot to a rolling history in
+ * nodestartuptracker so consumers can derive a reboot rate/cadence.
  *
  * This replaces a wall-clock `frequent_restart` heuristic that measured
  * process-start gaps: a crash-loop or the serviceManager boot-retry looked
@@ -418,8 +393,9 @@ async function checkNodeReboot() {
     }
 
     // Started here (not lazily from recordEvent) so incidents written during
-    // boot — node_reboot above all — get their identity even on a node quiet
-    // enough that no later event ever triggers a lookup.
+    // boot — the boot-sweep mount/volume harvest fires before fluxd's RPC is
+    // up — get their identity even on a node quiet enough that no later event
+    // ever triggers a lookup.
     startIdentityBackfill();
 
     let bootId = null;
@@ -445,28 +421,23 @@ async function checkNodeReboot() {
 
     if (previousBootId !== currentBootId) {
       // First sighting of this boot_id: genuine reboot, first run, or upgrade
-      // from the pre-boot_id marker. All three open the boot-storm window —
-      // when we cannot prove the machine did NOT just boot, erring toward the
-      // discount protects honest nodes and costs a tamperer nothing (the
-      // events still record). A same-boot_id process restart opens nothing:
-      // disks and Docker have been up throughout, so its events are real.
-      bootStormUntilMs = Date.now() + BOOT_STORM_WINDOW_MS;
+      // from the pre-boot_id marker. All three land in the boot history; a
+      // same-boot_id process restart does not, keeping the history a record
+      // of machine boots rather than FluxOS restarts. `bootedAt` is the
+      // machine's boot moment (uptime-derived) — cadence consumers want the
+      // boot period itself, free of FluxOS's variable start lag; `at` is when
+      // FluxOS first saw the boot.
+      const bootedAt = new Date(now.getTime() - Math.round(os.uptime() * 1000));
       await dbHelper.findOneAndUpdateInDatabase(
         database,
         nodeStartupTrackerCollection,
         { _id: BOOT_HISTORY_KEY },
-        { $push: { boots: { $each: [{ bootId: currentBootId, at: now }], $slice: -BOOT_HISTORY_MAX } } },
+        { $push: { boots: { $each: [{ bootId: currentBootId, bootedAt, at: now }], $slice: -BOOT_HISTORY_MAX } } },
         { upsert: true },
       );
-    }
-
-    if (previousBootId && previousBootId !== currentBootId) {
-      const previousStart = previous.at ? new Date(previous.at).toISOString() : 'unknown';
-      await recordEvent(
-        SYSTEM_APP_NAME,
-        'node_reboot',
-        `Machine rebooted: boot_id ${previousBootId.slice(0, 8)} -> ${currentBootId.slice(0, 8)}, previous FluxOS start ${previousStart}`,
-      );
+      if (previousBootId) {
+        log.info(`appTamperingDetection - machine reboot: boot_id ${previousBootId.slice(0, 8)} -> ${currentBootId.slice(0, 8)}`);
+      }
     }
 
     await dbHelper.findOneAndUpdateInDatabase(
@@ -489,11 +460,7 @@ module.exports = {
   startIdentityBackfill,
   deriveMainAppName,
   EVENT_SEVERITY,
-  BOOT_STORM_DISCOUNT,
-  BOOT_STORM_DISCOUNT_TYPES,
-  BOOT_STORM_WINDOW_MS,
   INCIDENT_BUCKET_MS,
   IDENTITY_BACKFILL_INTERVAL_MS,
   BOOT_HISTORY_MAX,
-  SYSTEM_APP_NAME,
 };

@@ -195,7 +195,6 @@ describe('appTamperingDetectionService tests', () => {
       const ins = update.$setOnInsert;
       expect(ins.schemaVersion).to.equal(1);
       expect(ins.severity).to.equal(service.EVENT_SEVERITY.container_vanished);
-      expect(ins.duringBootStorm).to.be.false;
       expect(ins.firstSeen).to.be.instanceOf(Date);
       expect(ins.detailsSample).to.equal('details here');
       expect(ins.uptimeSecAtEvent).to.equal(3600);
@@ -266,12 +265,10 @@ describe('appTamperingDetectionService tests', () => {
       expect(ins.appHash).to.equal('spechash1');
     });
 
-    it('records null attribution for unknown apps and for __system__', async () => {
+    it('records null attribution for unknown apps', async () => {
       await service.recordEvent('ghostapp', 'container_vanished', 'x');
-      await service.recordEvent(service.SYSTEM_APP_NAME, 'node_reboot', 'x');
 
       expect(eventUpserts()[0].update.$setOnInsert.ownerZelid).to.be.null;
-      expect(eventUpserts()[1].update.$setOnInsert.ownerZelid).to.be.null;
     });
 
     it('uses the same incidentKey for repeats within the hour bucket', async () => {
@@ -339,45 +336,11 @@ describe('appTamperingDetectionService tests', () => {
     });
   });
 
-  describe('boot storm flagging', () => {
-    async function rebootNow() {
+  describe('boot context keying', () => {
+    it('keys incidents by the current boot_id once checkNodeReboot has run', async () => {
       dbHelperStub.findOneInDatabase = sinon.stub().callsFake(async (db, coll, query) => {
         if (coll === 'nodestartuptracker' && query._id === 'lastStartup') {
           return { _id: 'lastStartup', at: new Date(), bootId: PREVIOUS_BOOT_ID };
-        }
-        return null;
-      });
-      await service.checkNodeReboot();
-    }
-
-    it('flags events inside the window after a boot_id change', async () => {
-      sinon.useFakeTimers(new Date('2026-07-16T10:00:00Z'));
-      await rebootNow();
-
-      await service.recordEvent('myapp', 'mount_vanished', 'late disk');
-
-      const incident = eventUpserts().find((c) => c.query.eventType === 'mount_vanished');
-      expect(incident.update.$setOnInsert.duringBootStorm).to.be.true;
-      expect(incident.update.$setOnInsert.bootId).to.equal(CURRENT_BOOT_ID);
-      expect(incident.query.incidentKey).to.include(CURRENT_BOOT_ID);
-    });
-
-    it('stops flagging once the window has elapsed', async () => {
-      const clock = sinon.useFakeTimers(new Date('2026-07-16T10:00:00Z'));
-      await rebootNow();
-
-      clock.tick(service.BOOT_STORM_WINDOW_MS);
-      await service.recordEvent('myapp', 'mount_vanished', 'vanished while up');
-
-      const incident = eventUpserts().find((c) => c.query.eventType === 'mount_vanished');
-      expect(incident.update.$setOnInsert.duringBootStorm).to.be.false;
-    });
-
-    it('does NOT open the window on a same-boot_id process restart', async () => {
-      sinon.useFakeTimers(new Date('2026-07-16T10:00:00Z'));
-      dbHelperStub.findOneInDatabase = sinon.stub().callsFake(async (db, coll, query) => {
-        if (coll === 'nodestartuptracker' && query._id === 'lastStartup') {
-          return { _id: 'lastStartup', at: new Date(), bootId: CURRENT_BOOT_ID };
         }
         return null;
       });
@@ -386,7 +349,8 @@ describe('appTamperingDetectionService tests', () => {
       await service.recordEvent('myapp', 'mount_vanished', 'x');
 
       const incident = eventUpserts().find((c) => c.query.eventType === 'mount_vanished');
-      expect(incident.update.$setOnInsert.duringBootStorm).to.be.false;
+      expect(incident.update.$setOnInsert.bootId).to.equal(CURRENT_BOOT_ID);
+      expect(incident.query.incidentKey).to.include(CURRENT_BOOT_ID);
     });
   });
 
@@ -544,20 +508,14 @@ describe('appTamperingDetectionService tests', () => {
       });
     }
 
-    it('records a node_reboot incident when the boot_id changed', async () => {
-      const previousAt = new Date('2026-07-15T10:00:00Z');
-      setMarker({ _id: 'lastStartup', at: previousAt, bootId: PREVIOUS_BOOT_ID });
+    it('records a reboot only in the boot history, never as an incident', async () => {
+      setMarker({ _id: 'lastStartup', at: new Date('2026-07-15T10:00:00Z'), bootId: PREVIOUS_BOOT_ID });
 
       await service.checkNodeReboot();
 
-      const reboots = eventUpserts().filter((c) => c.query.eventType === 'node_reboot');
-      expect(reboots).to.have.lengthOf(1);
-      expect(reboots[0].query.appName).to.equal(service.SYSTEM_APP_NAME);
-      const ins = reboots[0].update.$setOnInsert;
-      expect(ins.severity).to.equal(0);
-      expect(ins.detailsSample).to.include(PREVIOUS_BOOT_ID.slice(0, 8));
-      expect(ins.detailsSample).to.include(CURRENT_BOOT_ID.slice(0, 8));
-      expect(ins.detailsSample).to.include(previousAt.toISOString());
+      expect(eventUpserts()).to.have.lengthOf(0);
+      expect(historyUpdates()).to.have.lengthOf(1);
+      expect(markerUpdates()).to.have.lengthOf(1);
     });
 
     it('does NOT record an incident on a same-boot_id process restart', async () => {
@@ -605,6 +563,9 @@ describe('appTamperingDetectionService tests', () => {
       const push = history[0].update.$push.boots;
       expect(push.$each[0].bootId).to.equal(CURRENT_BOOT_ID);
       expect(push.$each[0].at).to.be.instanceOf(Date);
+      // bootedAt = FluxOS start minus the stubbed 3600s of machine uptime
+      expect(push.$each[0].bootedAt).to.be.instanceOf(Date);
+      expect(push.$each[0].at.getTime() - push.$each[0].bootedAt.getTime()).to.equal(3600 * 1000);
       expect(push.$slice).to.equal(-service.BOOT_HISTORY_MAX);
       expect(history[0].options).to.deep.equal({ upsert: true });
     });

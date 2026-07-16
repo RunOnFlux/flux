@@ -6,7 +6,6 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const generalService = require('./generalService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const benchmarkService = require('./benchmarkService');
-const appTamperingDetectionService = require('./appTamperingDetectionService');
 
 const BLOCKLIST_URL = `${config.github.rawBaseUrl}/helpers/tamperingblockednodes.json`;
 const CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
@@ -75,9 +74,7 @@ async function isArcaneOs() {
 /**
  * Tamper score over incident documents (30-day TTL bounds the window).
  * Each schemaVersion>=1 document already IS one deduplicated incident with a
- * severity stamped at write time, so scoring is a plain sum: severity,
- * discounted for incidents flagged duringBootStorm (any reboot with a late
- * data disk produces per-app mount/volume noise — discounted, never dropped).
+ * severity stamped at write time, so scoring is a plain sum of severities.
  * Pre-schema rows are excluded on purpose: they are row-per-observation noise
  * with no severity or boot context, exactly the data a raw countDocuments({})
  * once let cross the enforcement gate on honest nodes; they age out via TTL.
@@ -89,19 +86,10 @@ async function computeTamperScore() {
     const database = db.db(config.database.local.database);
     const pipeline = [
       { $match: { schemaVersion: { $gte: 1 } } },
-      { $project: {
-        _id: 0, severity: 1, duringBootStorm: 1, eventType: 1,
-      } },
+      { $project: { _id: 0, severity: 1 } },
     ];
     const incidents = await dbHelper.aggregateInDatabase(database, tamperingEventsCollection, pipeline);
-    return incidents.reduce((score, incident) => {
-      // The storm discount applies only to the boot-race event family; a
-      // container_vanished right after boot scores full weight (see
-      // BOOT_STORM_DISCOUNT_TYPES for why).
-      const discounted = incident.duringBootStorm
-        && appTamperingDetectionService.BOOT_STORM_DISCOUNT_TYPES.includes(incident.eventType);
-      return score + (incident.severity ?? 0) * (discounted ? appTamperingDetectionService.BOOT_STORM_DISCOUNT : 1);
-    }, 0);
+    return incidents.reduce((score, incident) => score + (incident.severity ?? 0), 0);
   } catch (error) {
     log.warn(`appTamperingBlocklist - failed to compute tamper score: ${error.message}`);
     return 0;
