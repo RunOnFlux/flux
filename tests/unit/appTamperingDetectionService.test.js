@@ -20,7 +20,7 @@ describe('appTamperingDetectionService tests', () => {
     status: 'success',
     data: {
       txhash: 'deadbeefcafe',
-      outidx: 0,
+      outidx: '0', // the daemon RPC returns outidx as a string
       ip: '65.108.1.2:16127',
       pubkey: '04aabbcc',
       payment_address: 't1payout',

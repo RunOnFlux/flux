@@ -134,7 +134,9 @@ async function getNodeIdentity() {
     }
     nodeIdentityCache = {
       nodeTxid,
-      nodeOutidx,
+      // getzelnodestatus returns outidx as a string; keep the stored type
+      // numeric so fleet-level queries never juggle '0' vs 0
+      nodeOutidx: nodeOutidx === null ? null : Number(nodeOutidx),
       nodeIp: node.ip ?? null,
       pubkey: node.pubkey ?? null,
       paymentAddress: node.payment_address ?? null,
