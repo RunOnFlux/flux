@@ -195,7 +195,7 @@ async function startFluxFunctions() {
       { appName: 1, detectedAt: -1 },
       { name: 'appName_detectedAt' },
     );
-    await appTamperingDetectionService.checkFrequentRestart();
+    await appTamperingDetectionService.checkNodeReboot();
     // appsRuntimeState (localzelapps): merge any pre-unique-index duplicate docs,
     // then enforce one doc per component identifier
     await appsRuntimeState.prepareCollection();
