@@ -174,6 +174,18 @@ async function checkNodeReboot() {
     }
     const database = db.db(config.database.local.database);
 
+    // The retired frequent_restart heuristic self-fired on the serviceManager
+    // boot retry, so live nodes carry noise rows under that type. Sweep them
+    // until every row written before the boot_id rework has aged past the
+    // 30-day TTL; after that this purge deletes nothing and can be removed.
+    try {
+      await dbHelper.removeDocumentsFromCollection(
+        database, tamperingEventsCollection, { eventType: 'frequent_restart' },
+      );
+    } catch (error) {
+      log.warn(`appTamperingDetection - legacy frequent_restart purge failed: ${error.message}`);
+    }
+
     let currentBootId = null;
     try {
       const bootIdPath = config.system?.bootIdPath ?? '/proc/sys/kernel/random/boot_id';

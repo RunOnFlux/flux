@@ -38,6 +38,7 @@ describe('appTamperingDetectionService tests', () => {
       }),
       findOneInDatabase: sinon.stub().resolves(null),
       findOneAndUpdateInDatabase: sinon.stub().resolves({ value: null }),
+      removeDocumentsFromCollection: sinon.stub().resolves({ deletedCount: 0 }),
     };
 
     logStub = {
@@ -410,6 +411,24 @@ describe('appTamperingDetectionService tests', () => {
       expect(dbHelperStub.findOneAndUpdateInDatabase.called).to.be.false;
     });
 
+    it('purges legacy frequent_restart rows', async () => {
+      await service.checkNodeReboot();
+
+      sinon.assert.calledOnce(dbHelperStub.removeDocumentsFromCollection);
+      const { args } = dbHelperStub.removeDocumentsFromCollection.firstCall;
+      expect(args[1]).to.equal('apptamperingevents');
+      expect(args[2]).to.deep.equal({ eventType: 'frequent_restart' });
+    });
+
+    it('still tracks the boot when the legacy purge fails', async () => {
+      dbHelperStub.removeDocumentsFromCollection = sinon.stub().rejects(new Error('no permission'));
+
+      await service.checkNodeReboot();
+
+      expect(markerUpdates()).to.have.lengthOf(1);
+      sinon.assert.called(logStub.warn);
+    });
+
     it('no-ops when DB is unavailable', async () => {
       dbHelperStub.databaseConnection = sinon.stub().returns(null);
 
@@ -417,6 +436,7 @@ describe('appTamperingDetectionService tests', () => {
 
       expect(dbHelperStub.findOneInDatabase.called).to.be.false;
       expect(dbHelperStub.findOneAndUpdateInDatabase.called).to.be.false;
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.false;
     });
 
     it('swallows errors without throwing and logs them', async () => {
