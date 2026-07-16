@@ -73,6 +73,12 @@ const EVENTS_MAX_LIMIT = 1000;
 // a dead daemon on every event.
 const IDENTITY_RETRY_MS = 5 * 60 * 1000;
 const ATTRIBUTION_TTL_MS = 60 * 60 * 1000;
+// node_reboot always fires seconds after boot — before fluxd's RPC is up —
+// so without a later pass, reboot incidents would systematically carry null
+// identity (observed on the first live deploy). The backfill retries on this
+// interval until the daemon answers, stamps every unattributed incident, and
+// stops.
+const IDENTITY_BACKFILL_INTERVAL_MS = 5 * 60 * 1000;
 
 // Boot context, set once by checkNodeReboot() during startup. Until it runs
 // (or on hosts without a readable boot_id) events fall back to an 'unknown'
@@ -82,6 +88,7 @@ let bootStormUntilMs = 0;
 
 let nodeIdentityCache = null;
 let identityRetryAfterMs = 0;
+let identityBackfillTimer = null;
 const appAttributionCache = new Map(); // appName -> { ownerZelid, appHash, cachedAt }
 
 /**
@@ -138,6 +145,49 @@ async function getNodeIdentity() {
     log.debug(`appTamperingDetection - node identity unavailable: ${error.message}`);
     return null;
   }
+}
+
+/**
+ * Stamp node/operator identity onto incidents that recorded while the daemon
+ * was unreachable, retrying every IDENTITY_BACKFILL_INTERVAL_MS until it
+ * answers, then stopping for good. Keyed off nodeTxid: null — identity is
+ * constant for the life of the process, so one pass settles everything
+ * written before the daemon came up. Safe to call repeatedly (single timer).
+ */
+function startIdentityBackfill() {
+  if (identityBackfillTimer) return;
+  const attempt = async () => {
+    try {
+      const identity = await getNodeIdentity();
+      if (!identity || !identity.nodeTxid) return; // daemon not ready — next tick retries
+      const db = dbHelper.databaseConnection();
+      if (!db) return;
+      const database = db.db(config.database.local.database);
+      const result = await dbHelper.updateInDatabase(
+        database,
+        tamperingEventsCollection,
+        { schemaVersion: { $gte: 1 }, nodeTxid: null },
+        {
+          $set: {
+            nodeTxid: identity.nodeTxid,
+            nodeOutidx: identity.nodeOutidx,
+            nodeIp: identity.nodeIp,
+            pubkey: identity.pubkey,
+            paymentAddress: identity.paymentAddress,
+          },
+        },
+      );
+      const updated = result?.modifiedCount ?? 0;
+      if (updated > 0) log.info(`appTamperingDetection - backfilled identity onto ${updated} incident(s)`);
+      clearInterval(identityBackfillTimer);
+      identityBackfillTimer = null;
+    } catch (error) {
+      log.debug(`appTamperingDetection - identity backfill attempt failed: ${error.message}`);
+    }
+  };
+  identityBackfillTimer = setInterval(attempt, IDENTITY_BACKFILL_INTERVAL_MS);
+  if (identityBackfillTimer.unref) identityBackfillTimer.unref();
+  attempt();
 }
 
 /**
@@ -356,6 +406,11 @@ async function checkNodeReboot() {
       log.warn(`appTamperingDetection - legacy frequent_restart purge failed: ${error.message}`);
     }
 
+    // Started here (not lazily from recordEvent) so incidents written during
+    // boot — node_reboot above all — get their identity even on a node quiet
+    // enough that no later event ever triggers a lookup.
+    startIdentityBackfill();
+
     let bootId = null;
     try {
       const bootIdPath = config.system?.bootIdPath ?? '/proc/sys/kernel/random/boot_id';
@@ -420,11 +475,13 @@ module.exports = {
   getEvents,
   isNetworkMissingError,
   checkNodeReboot,
+  startIdentityBackfill,
   deriveMainAppName,
   EVENT_SEVERITY,
   BOOT_STORM_DISCOUNT,
   BOOT_STORM_WINDOW_MS,
   INCIDENT_BUCKET_MS,
+  IDENTITY_BACKFILL_INTERVAL_MS,
   BOOT_HISTORY_MAX,
   SYSTEM_APP_NAME,
 };

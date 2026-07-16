@@ -67,6 +67,7 @@ describe('appTamperingDetectionService tests', () => {
         return null; // startup marker by default absent
       }),
       removeDocumentsFromCollection: sinon.stub().resolves({ deletedCount: 0 }),
+      updateInDatabase: sinon.stub().resolves({ modifiedCount: 0 }),
     };
 
     logStub = {
@@ -386,6 +387,55 @@ describe('appTamperingDetectionService tests', () => {
 
       const incident = eventUpserts().find((c) => c.query.eventType === 'mount_vanished');
       expect(incident.update.$setOnInsert.duringBootStorm).to.be.false;
+    });
+  });
+
+  describe('identity backfill', () => {
+    it('stamps identity onto unattributed incidents once the daemon answers, then stops', async () => {
+      const clock = sinon.useFakeTimers(new Date('2026-07-16T10:00:00Z'));
+      fluxnodeRpcsStub.getFluxNodeStatus.rejects(new Error('daemon starting'));
+
+      await service.checkNodeReboot(); // starts the backfill; immediate attempt fails
+      await clock.tickAsync(0);
+      expect(dbHelperStub.updateInDatabase.called).to.be.false;
+
+      fluxnodeRpcsStub.getFluxNodeStatus.resolves(NODE_STATUS);
+      await clock.tickAsync(service.IDENTITY_BACKFILL_INTERVAL_MS);
+
+      sinon.assert.calledOnce(dbHelperStub.updateInDatabase);
+      const call = dbHelperStub.updateInDatabase.firstCall;
+      expect(call.args[1]).to.equal('apptamperingevents');
+      expect(call.args[2]).to.deep.equal({ schemaVersion: { $gte: 1 }, nodeTxid: null });
+      expect(call.args[3].$set.nodeTxid).to.equal('deadbeefcafe');
+      expect(call.args[3].$set.pubkey).to.equal('04aabbcc');
+      expect(call.args[3].$set.paymentAddress).to.equal('t1payout');
+
+      // stopped for good: further intervals do not fire another update
+      await clock.tickAsync(2 * service.IDENTITY_BACKFILL_INTERVAL_MS);
+      sinon.assert.calledOnce(dbHelperStub.updateInDatabase);
+    });
+
+    it('keeps retrying while the daemon stays unreachable', async () => {
+      const clock = sinon.useFakeTimers(new Date('2026-07-16T10:00:00Z'));
+      fluxnodeRpcsStub.getFluxNodeStatus.rejects(new Error('daemon down'));
+
+      await service.checkNodeReboot();
+      await clock.tickAsync(2 * service.IDENTITY_BACKFILL_INTERVAL_MS);
+
+      expect(dbHelperStub.updateInDatabase.called).to.be.false;
+      expect(fluxnodeRpcsStub.getFluxNodeStatus.callCount).to.be.greaterThan(1);
+    });
+
+    it('does not start a second timer when called repeatedly', async () => {
+      const clock = sinon.useFakeTimers(new Date('2026-07-16T10:00:00Z'));
+      fluxnodeRpcsStub.getFluxNodeStatus.rejects(new Error('daemon down'));
+
+      service.startIdentityBackfill();
+      service.startIdentityBackfill();
+      await clock.tickAsync(service.IDENTITY_BACKFILL_INTERVAL_MS);
+
+      // one immediate attempt + one interval tick — not doubled
+      expect(fluxnodeRpcsStub.getFluxNodeStatus.callCount).to.equal(2);
     });
   });
 
