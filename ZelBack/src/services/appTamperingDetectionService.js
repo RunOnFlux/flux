@@ -70,9 +70,11 @@ const ATTRIBUTION_TTL_MS = 60 * 60 * 1000;
 // stamps every unattributed incident, and stops.
 const IDENTITY_BACKFILL_INTERVAL_MS = 5 * 60 * 1000;
 
-// Boot context, set once by checkNodeReboot() during startup. Until it runs
-// (or on hosts without a readable boot_id) events fall back to an 'unknown'
-// boot in their incident key.
+// Boot context, set by checkNodeReboot() during startup. serviceManager awaits
+// checkNodeReboot() before starting any tamper-event emitter (reconciler,
+// mount/crontab sweep, syncthing), so recordEvent sees a real bootId in normal
+// operation. The 'unknown' fallback only covers a host where boot_id itself is
+// unreadable.
 let currentBootId = null;
 
 let nodeIdentityCache = null;
@@ -132,6 +134,10 @@ async function getNodeIdentity() {
     };
     return nodeIdentityCache;
   } catch (error) {
+    // A concurrent caller (or the backfill) may have populated the cache while
+    // this RPC was in flight; prefer that over returning null and writing an
+    // unattributed row the one-shot backfill may already have stopped covering.
+    if (nodeIdentityCache) return nodeIdentityCache;
     identityRetryAfterMs = Date.now() + IDENTITY_RETRY_MS;
     log.debug(`appTamperingDetection - node identity unavailable: ${error.message}`);
     return null;
@@ -331,6 +337,9 @@ async function getEvents(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+    // The route is public: coerce to a string so a bracket-notation query
+    // (?appname[$gt]=) can't smuggle a Mongo operator object into the filter.
+    if (appname !== undefined && appname !== null) appname = String(appname);
     const requestedLimit = Number.parseInt(req.query.limit, 10);
     const limit = Number.isNaN(requestedLimit)
       ? EVENTS_DEFAULT_LIMIT

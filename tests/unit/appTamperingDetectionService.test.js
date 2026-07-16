@@ -245,6 +245,28 @@ describe('appTamperingDetectionService tests', () => {
       sinon.assert.calledOnce(fluxnodeRpcsStub.getFluxNodeStatus); // backoff, no hammering
     });
 
+    it('uses a concurrently-populated identity cache when its own RPC fails (daemon flap)', async () => {
+      // Race: this event enters getNodeIdentity with the cache empty, a
+      // concurrent call populates it, then this event's own RPC rejects. The
+      // catch must prefer the now-populated cache over writing a null-identity
+      // row that the one-shot backfill may already have stopped covering.
+      let rejectSecond;
+      const secondRpc = new Promise((_, reject) => { rejectSecond = reject; });
+      fluxnodeRpcsStub.getFluxNodeStatus = sinon.stub()
+        .onFirstCall().resolves(NODE_STATUS)
+        .onSecondCall().returns(secondRpc);
+
+      const first = service.recordEvent('a', 'container_vanished', 'x'); // populates cache
+      const second = service.recordEvent('b', 'container_vanished', 'x'); // RPC left pending
+      await first;
+      rejectSecond(new Error('daemon flap'));
+      await second;
+
+      const bUpsert = eventUpserts().find((c) => c.query.appName === 'b');
+      expect(bUpsert.update.$setOnInsert.nodeTxid).to.equal('deadbeefcafe');
+      expect(bUpsert.update.$setOnInsert.pubkey).to.equal('04aabbcc');
+    });
+
     it('attributes the app owner and spec hash by exact name', async () => {
       installedApps.myapp = { owner: '1ownerZelid', hash: 'spechash1' };
 
@@ -292,6 +314,18 @@ describe('appTamperingDetectionService tests', () => {
       expect(eventUpserts()[0].query.incidentKey).to.not.equal(eventUpserts()[1].query.incidentKey);
     });
 
+    it('keys under "unknown" and stamps bootId:null before checkNodeReboot has run', async () => {
+      // This block never calls checkNodeReboot(), so currentBootId is still
+      // null — the same fallback state as a host with an unreadable boot_id.
+      // In production serviceManager awaits checkNodeReboot() before any
+      // emitter, so this path is a safety net; it must still key deterministically.
+      await service.recordEvent('myapp', 'mount_vanished', 'x');
+
+      const { query, update } = eventUpserts()[0];
+      expect(query.incidentKey).to.match(/^unknown:\d+$/);
+      expect(update.$setOnInsert.bootId).to.be.null;
+    });
+
     it('stamps severity 0 for operational and unknown event types', async () => {
       await service.recordEvent('myapp', 'recreation_failed', 'x');
       await service.recordEvent('myapp', 'some_future_type', 'x');
@@ -316,6 +350,46 @@ describe('appTamperingDetectionService tests', () => {
 
       expect(eventUpserts()).to.have.lengthOf(1);
       expect(logStub.error.called).to.be.false;
+    });
+
+    it('rolls up a repeat (v6 non-null pre-image) as inserted=false, no fresh-insert log', async () => {
+      // The real mongodb v6 driver returns the matched pre-image document (not
+      // null) when the upsert hits an existing incident; the default mock
+      // returns null (insert). Model the repeat and pin the count-rollup branch.
+      dbHelperStub.findOneAndUpdateInDatabase = sinon.stub().callsFake(async (db, coll, query, update, options) => {
+        upsertCalls.push({
+          db, coll, query, update, options,
+        });
+        return { _id: 'existing', count: 1 }; // v6 pre-image of the matched doc
+      });
+
+      await service.recordEvent('myapp', 'container_vanished', 'x');
+
+      expect(eventUpserts()[0].update.$inc).to.deep.equal({ count: 1 });
+      expect(logStub.debug.calledWithMatch(/repeated, incident count incremented/)).to.be.true;
+      expect(logStub.info.calledWithMatch(/recorded container_vanished/)).to.be.false;
+    });
+
+    it('reads insert vs repeat from the legacy { value, lastErrorObject } driver shape', async () => {
+      dbHelperStub.findOneAndUpdateInDatabase = sinon.stub()
+        .onFirstCall().callsFake(async (db, coll, query, update, options) => {
+          upsertCalls.push({
+            db, coll, query, update, options,
+          });
+          return { value: null, lastErrorObject: { updatedExisting: false } }; // insert
+        })
+        .onSecondCall().callsFake(async (db, coll, query, update, options) => {
+          upsertCalls.push({
+            db, coll, query, update, options,
+          });
+          return { value: { _id: 'e', count: 1 }, lastErrorObject: { updatedExisting: true } }; // repeat
+        });
+
+      await service.recordEvent('myapp', 'container_vanished', 'insert');
+      await service.recordEvent('myapp', 'container_vanished', 'repeat');
+
+      expect(logStub.info.calledWithMatch(/recorded container_vanished/)).to.be.true;
+      expect(logStub.debug.calledWithMatch(/repeated, incident count incremented/)).to.be.true;
     });
 
     it('no-ops when DB is not available', async () => {
@@ -487,6 +561,18 @@ describe('appTamperingDetectionService tests', () => {
       await service.getEvents(req, res);
 
       expect(lastFindArgs.query).to.deep.equal({ appName: 'otherapp' });
+    });
+
+    it('coerces an object appname query param to a string (NoSQL operator guard)', async () => {
+      // Express extended parser turns ?appname[$gt]= into an object; it must
+      // not reach the mongo filter as a field-level operator.
+      const req = { params: {}, query: { appname: { $gt: '' } } };
+      const res = makeRes();
+
+      await service.getEvents(req, res);
+
+      expect(lastFindArgs.query.appName).to.be.a('string');
+      expect(lastFindArgs.query.appName).to.equal('[object Object]');
     });
 
     it('returns an error message when the query throws', async () => {
