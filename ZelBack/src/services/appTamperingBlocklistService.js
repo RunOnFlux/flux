@@ -76,8 +76,9 @@ async function isArcaneOs() {
  * Each schemaVersion>=1 document already IS one deduplicated incident with a
  * severity stamped at write time, so scoring is a plain sum of severities.
  * Pre-schema rows are excluded on purpose: they are row-per-observation noise
- * with no severity or boot context, exactly the data a raw countDocuments({})
- * once let cross the enforcement gate on honest nodes; they age out via TTL.
+ * with no severity, exactly the data a raw countDocuments({}) once let cross
+ * the enforcement gate on honest nodes. The startup purge removes them; the
+ * filter here covers anything written before that purge has run.
  */
 async function computeTamperScore() {
   try {

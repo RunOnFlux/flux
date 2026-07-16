@@ -186,8 +186,9 @@ async function startFluxFunctions() {
     await ensureIndex(database.collection(config.database.local.collections.completedPayments), { paymentId: 1 });
     await ensureIndex(database.collection(config.database.local.collections.completedPayments), { createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 });
     // legacy pre-incident-schema rows expire via detectedAt; current incident
-    // documents expire via lastSeen. Drop the detectedAt pair once every
-    // pre-schema row has aged past the 30-day TTL.
+    // documents expire via lastSeen. The tamper service purges pre-schema
+    // rows at startup, so the detectedAt pair only matters where old code
+    // still writes; drop it once the fleet is past the incident schema.
     await ensureIndex(
       database.collection(config.database.local.collections.appTamperingEvents),
       { detectedAt: 1 },

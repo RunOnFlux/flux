@@ -322,9 +322,7 @@ async function recordEvent(appName, eventType, details) {
  * GET API handler. Returns tampering incidents, optionally filtered by
  * appname, most recent first. Results are capped: the route is public, so an
  * uncapped no-arg query would dump the whole collection to anyone. Documents
- * include _id as a stable paging/identity key. Pre-schema rows (detectedAt,
- * no lastSeen) sort after current-schema incidents until they age out via
- * their 30-day TTL.
+ * include _id as a stable paging/identity key.
  * Route: GET /apps/tamperingevents/:appname? (query: ?limit=1..1000)
  * @param {object} req - Express request
  * @param {object} res - Express response
@@ -380,16 +378,18 @@ async function checkNodeReboot() {
     }
     const database = db.db(config.database.local.database);
 
-    // The retired frequent_restart heuristic self-fired on the serviceManager
-    // boot retry, so live nodes carry noise rows under that type. Sweep them
-    // until every row written before the boot_id rework has aged past the
-    // 30-day TTL; after that this purge deletes nothing and can be removed.
+    // Pre-schema rows (no schemaVersion) are row-per-observation noise with
+    // no identity, severity or dedup — nothing consumes them, but the public
+    // API would keep serving them for up to 30 days of TTL. Sweeping them at
+    // startup gives an upgraded node an honest collection from its first
+    // boot. A no-op on every boot after that; removable once the fleet has
+    // upgraded past the incident schema.
     try {
       await dbHelper.removeDocumentsFromCollection(
-        database, tamperingEventsCollection, { eventType: 'frequent_restart' },
+        database, tamperingEventsCollection, { schemaVersion: { $exists: false } },
       );
     } catch (error) {
-      log.warn(`appTamperingDetection - legacy frequent_restart purge failed: ${error.message}`);
+      log.warn(`appTamperingDetection - pre-schema row purge failed: ${error.message}`);
     }
 
     // Started here (not lazily from recordEvent) so incidents written during

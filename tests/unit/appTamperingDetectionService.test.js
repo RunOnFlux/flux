@@ -570,13 +570,13 @@ describe('appTamperingDetectionService tests', () => {
       expect(history[0].options).to.deep.equal({ upsert: true });
     });
 
-    it('purges legacy frequent_restart rows', async () => {
+    it('purges all pre-schema rows at startup', async () => {
       await service.checkNodeReboot();
 
       sinon.assert.calledOnce(dbHelperStub.removeDocumentsFromCollection);
       const { args } = dbHelperStub.removeDocumentsFromCollection.firstCall;
       expect(args[1]).to.equal('apptamperingevents');
-      expect(args[2]).to.deep.equal({ eventType: 'frequent_restart' });
+      expect(args[2]).to.deep.equal({ schemaVersion: { $exists: false } });
     });
 
     it('still tracks the boot when the legacy purge fails', async () => {
