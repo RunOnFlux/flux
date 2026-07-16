@@ -1,16 +1,21 @@
 const config = require('config');
+const os = require('os');
 const fs = require('fs').promises;
 const log = require('../lib/log');
 const dbHelper = require('./dbHelper');
 const messageHelper = require('./messageHelper');
+const generalService = require('./generalService');
+const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
+const { localAppsInformation } = require('./utils/appConstants');
 
-// All tamper-feature behaviour (episode dedup, boot identity, event taxonomy)
+// All tamper-feature behaviour (incident rollup, boot identity, severities)
 // deliberately lives inside this service rather than at the emitting call
 // sites: the call sites (appReconciler, crontabAndMountsCleanup,
 // syncthingFolderStateMachine) sit in files under heavy parallel rework on the
 // v9 branch, while this file is identical across branches. Centralizing here
 // keeps the feature rebase-safe and guarantees every emitter gets the same
-// semantics without call-site edits.
+// semantics without call-site edits. Call sites still pass plain
+// (appName, eventType, details); everything else is derived here.
 
 const tamperingEventsCollection = config.database.local.collections.appTamperingEvents;
 const nodeStartupTrackerCollection = config.database.local.collections.nodeStartupTracker;
@@ -22,18 +27,62 @@ const BOOT_HISTORY_KEY = 'bootHistory';
 // cadence (~4h), comfortably beyond the collection's 30-day event TTL.
 const BOOT_HISTORY_MAX = 200;
 
-// One row per (appName, eventType) per hour. The reconciler re-attempts a
-// failed recreation on a seconds-scale backoff and re-sweeps hourly, so a
-// single persistent fault (unpullable image, missing volume) used to insert
-// hundreds of rows for one incident, drowning genuine signal and inflating
-// the enforcement count. Suppressed repeats are dropped, not counted, until
-// the phase-1 incident schema adds first/last-seen rollups.
-const EPISODE_WINDOW_MS = 60 * 60 * 1000;
-// `${appName}|${eventType}` -> epoch ms of the last inserted row. In-memory
-// on purpose: a process restart clears it, and per-boot events (mount races
-// on a late data disk) should record once per boot.
-const episodeMarkers = new Map();
-const EPISODE_MARKERS_MAX = 1000;
+// One incident document per (appName, eventType) per hour bucket. The
+// reconciler re-attempts a failed recreation on a seconds-scale backoff and
+// re-sweeps hourly, so a single persistent fault used to insert hundreds of
+// rows for one incident; the rollup collapses those into a count. The time
+// bucket is load-bearing: keyed on bootId alone, a node up for weeks would
+// fold every same-type event across that whole span into one document,
+// erasing distinct incidents.
+const INCIDENT_BUCKET_MS = 60 * 60 * 1000;
+
+// Events recorded within this window after a machine boot are flagged
+// duringBootStorm and down-weighted in scoring — never dropped. Any reboot
+// with a late data disk legitimately produces mount/volume events for every
+// app; outright suppression would instead hand tamperers a laundering trick
+// (tamper, then reboot, and the evidence goes out with the boot noise).
+const BOOT_STORM_WINDOW_MS = 30 * 60 * 1000;
+const BOOT_STORM_DISCOUNT = 0.25;
+
+// Per-type severity, stamped on each incident at write time so scoring reads
+// stored values rather than re-deriving them. recreation_failed is an
+// operational fault (registry, image pull, disk) and node_reboot is an
+// observation feeding operator-level analysis — both are recorded for
+// visibility but carry no tamper weight, because punishing them would
+// penalize honest nodes for infra noise. container_vanished weighs highest:
+// containers persist as `exited` across a clean reboot, so a
+// positively-confirmed missing container is the strongest local indicator of
+// host-side interference this data has. The mount/volume/network types are
+// real signals but dominated by boot races, hence low severity plus the
+// boot-storm discount.
+const EVENT_SEVERITY = {
+  container_vanished: 3,
+  network_pruned: 1,
+  network_detached: 1,
+  mount_vanished: 1,
+  volume_missing: 1,
+  recreation_failed: 0,
+  node_reboot: 0,
+};
+
+const EVENTS_DEFAULT_LIMIT = 500;
+const EVENTS_MAX_LIMIT = 1000;
+
+// Identity lookups are best-effort: an event must still record while the
+// daemon is down, just unattributed. Failures back off rather than hammering
+// a dead daemon on every event.
+const IDENTITY_RETRY_MS = 5 * 60 * 1000;
+const ATTRIBUTION_TTL_MS = 60 * 60 * 1000;
+
+// Boot context, set once by checkNodeReboot() during startup. Until it runs
+// (or on hosts without a readable boot_id) events fall back to an 'unknown'
+// boot in their incident key and are never flagged as boot storm.
+let currentBootId = null;
+let bootStormUntilMs = 0;
+
+let nodeIdentityCache = null;
+let identityRetryAfterMs = 0;
+const appAttributionCache = new Map(); // appName -> { ownerZelid, appHash, cachedAt }
 
 /**
  * Returns true when a Docker/daemon error message indicates a missing network
@@ -54,68 +103,189 @@ function isNetworkMissingError(errorMessage) {
 }
 
 /**
- * Drop episode markers whose window has already elapsed so the map cannot
- * grow unbounded on a node with many flapping apps.
- * @param {number} now - Current epoch ms
+ * Node identity (collateral outpoint, ip, operator pubkey/payout) from the
+ * daemon's own fluxnode status, cached for the process lifetime. Returns null
+ * while the daemon is unreachable — events record unattributed and the next
+ * event after the backoff retries.
+ * @returns {Promise<object|null>}
  */
-function pruneExpiredEpisodeMarkers(now) {
-  episodeMarkers.forEach((recordedAt, key) => {
-    if (now - recordedAt >= EPISODE_WINDOW_MS) episodeMarkers.delete(key);
-  });
+async function getNodeIdentity() {
+  if (nodeIdentityCache) return nodeIdentityCache;
+  if (Date.now() < identityRetryAfterMs) return null;
+  try {
+    const status = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
+    if (!status || status.status !== 'success' || !status.data) {
+      throw new Error('fluxnode status unavailable');
+    }
+    const node = status.data;
+    let nodeTxid = node.txhash ?? null;
+    let nodeOutidx = node.outidx ?? null;
+    if ((nodeTxid === null || nodeOutidx === null) && node.collateral) {
+      const collateralInfo = generalService.getCollateralInfo(node.collateral);
+      nodeTxid = collateralInfo.txhash;
+      nodeOutidx = collateralInfo.txindex;
+    }
+    nodeIdentityCache = {
+      nodeTxid,
+      nodeOutidx,
+      nodeIp: node.ip ?? null,
+      pubkey: node.pubkey ?? null,
+      paymentAddress: node.payment_address ?? null,
+    };
+    return nodeIdentityCache;
+  } catch (error) {
+    identityRetryAfterMs = Date.now() + IDENTITY_RETRY_MS;
+    log.debug(`appTamperingDetection - node identity unavailable: ${error.message}`);
+    return null;
+  }
 }
 
 /**
- * Record a tampering event. Inserts one row per (appName, eventType) episode:
- * repeat calls inside EPISODE_WINDOW_MS after a successful insert are dropped,
- * so retry storms collapse into a single row while distinct incidents in later
- * windows still record. Documents expire 30 days after detectedAt (TTL index).
+ * Reduce an emitted app name to the main app name used in the installed-apps
+ * database. Call sites pass either a spec name ('MyApp') or a docker
+ * identifier ('fluxcomponent_MyApp' / 'zelMyApp'); component and app names
+ * are alphanumeric, so everything after the first underscore is the app.
+ * @param {string} appName
+ * @returns {string}
+ */
+function deriveMainAppName(appName) {
+  let name = appName;
+  if (name.startsWith('zel')) name = name.slice(3);
+  else if (name.startsWith('flux')) name = name.slice(4);
+  const underscore = name.indexOf('_');
+  if (underscore !== -1) name = name.slice(underscore + 1);
+  return name;
+}
+
+/**
+ * Owner/spec-hash attribution for an app from the local installed-apps
+ * database, cached per emitted name. Tries the name as passed first (a real
+ * app name may itself start with 'flux'), then the derived main app name.
+ * Best-effort: returns null fields when the app cannot be found.
+ * @param {string} appName - Name exactly as passed by the emitter
+ * @returns {Promise<object|null>}
+ */
+async function getAppAttribution(appName) {
+  if (!appName || appName === SYSTEM_APP_NAME) return null;
+  const cached = appAttributionCache.get(appName);
+  if (cached && Date.now() - cached.cachedAt < ATTRIBUTION_TTL_MS) return cached;
+  try {
+    const db = dbHelper.databaseConnection();
+    if (!db) return null;
+    const appsDatabase = db.db(config.database.appslocal.database);
+    const projection = { projection: { _id: 0, owner: 1, hash: 1 } };
+    let app = await dbHelper.findOneInDatabase(
+      appsDatabase, localAppsInformation, { name: appName }, projection,
+    );
+    if (!app) {
+      const mainName = deriveMainAppName(appName);
+      if (mainName !== appName) {
+        app = await dbHelper.findOneInDatabase(
+          appsDatabase, localAppsInformation, { name: mainName }, projection,
+        );
+      }
+    }
+    const attribution = {
+      ownerZelid: app?.owner ?? null,
+      appHash: app?.hash ?? null,
+      cachedAt: Date.now(),
+    };
+    appAttributionCache.set(appName, attribution);
+    return attribution;
+  } catch (error) {
+    log.debug(`appTamperingDetection - attribution lookup failed for ${appName}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Record a tampering event as an incident rollup (schemaVersion 1).
+ * One document per (appName, eventType, incidentKey) where incidentKey is
+ * the boot_id plus an hourly time bucket; repeat calls increment `count` and
+ * advance `lastSeen`, so retry storms collapse while the incident keeps its
+ * full observation tally. Each document carries node identity, operator
+ * identity, app attribution, severity and boot-storm context so fleet-level
+ * consumers can attribute and weigh it without joining local state.
+ * Documents expire 30 days after lastSeen (TTL index).
  * @param {string} appName - Application name (or SYSTEM_APP_NAME)
- * @param {string} eventType - One of: container_vanished, recreation_failed,
- *   network_pruned, network_detached, mount_vanished, volume_missing,
- *   node_reboot
- * @param {string} details - Free-text context about the event
+ * @param {string} eventType - One of the EVENT_SEVERITY keys
+ * @param {string} details - Free-text context (stored once per incident)
  */
 async function recordEvent(appName, eventType, details) {
   try {
-    const now = Date.now();
-    const episodeKey = `${appName}|${eventType}`;
-    const lastRecordedAt = episodeMarkers.get(episodeKey);
-    if (lastRecordedAt !== undefined && now - lastRecordedAt < EPISODE_WINDOW_MS) {
-      log.debug(`appTamperingDetection - ${eventType} for ${appName} already recorded this episode, skipping`);
-      return;
-    }
     const db = dbHelper.databaseConnection();
     if (!db) {
       log.warn('appTamperingDetection - DB not available, skipping event');
       return;
     }
     const database = db.db(config.database.local.database);
-    const doc = {
-      appName,
-      eventType,
-      details,
-      detectedAt: new Date(),
+    const now = new Date();
+    const incidentKey = `${currentBootId ?? 'unknown'}:${Math.floor(now.getTime() / INCIDENT_BUCKET_MS)}`;
+    const duringBootStorm = now.getTime() < bootStormUntilMs;
+    const [identity, attribution] = await Promise.all([
+      getNodeIdentity(),
+      getAppAttribution(appName),
+    ]);
+    const query = { appName, eventType, incidentKey };
+    const update = {
+      $setOnInsert: {
+        schemaVersion: 1,
+        appName,
+        eventType,
+        incidentKey,
+        severity: EVENT_SEVERITY[eventType] ?? 0,
+        duringBootStorm,
+        bootId: currentBootId,
+        uptimeSecAtEvent: Math.round(os.uptime()),
+        firstSeen: now,
+        detailsSample: details,
+        nodeTxid: identity?.nodeTxid ?? null,
+        nodeOutidx: identity?.nodeOutidx ?? null,
+        nodeIp: identity?.nodeIp ?? null,
+        pubkey: identity?.pubkey ?? null,
+        paymentAddress: identity?.paymentAddress ?? null,
+        ownerZelid: attribution?.ownerZelid ?? null,
+        appHash: attribution?.appHash ?? null,
+      },
+      $set: { lastSeen: now },
+      $inc: { count: 1 },
     };
-    await dbHelper.insertOneToDatabase(database, tamperingEventsCollection, doc);
-    // Marked only after a successful insert: a failed write must not consume
-    // the episode, otherwise the event would be silently lost for an hour.
-    episodeMarkers.set(episodeKey, now);
-    if (episodeMarkers.size > EPISODE_MARKERS_MAX) pruneExpiredEpisodeMarkers(now);
-    log.info(`appTamperingDetection - recorded ${eventType} for ${appName}`);
+    let result;
+    try {
+      result = await dbHelper.findOneAndUpdateInDatabase(
+        database, tamperingEventsCollection, query, update, { upsert: true },
+      );
+    } catch (error) {
+      // Two concurrent upserts racing on a brand-new incident key can trip
+      // the unique index; the loser retries once and lands as the increment.
+      if (error && error.code === 11000) {
+        result = await dbHelper.findOneAndUpdateInDatabase(
+          database, tamperingEventsCollection, query, update, { upsert: true },
+        );
+      } else {
+        throw error;
+      }
+    }
+    // Insert detection across driver result shapes: v6 returns the pre-image
+    // doc or null; older shapes return { value, lastErrorObject }.
+    const inserted = !result || result.value === null || result?.lastErrorObject?.updatedExisting === false;
+    if (inserted) {
+      log.info(`appTamperingDetection - recorded ${eventType} for ${appName}${duringBootStorm ? ' (boot storm)' : ''}`);
+    } else {
+      log.debug(`appTamperingDetection - ${eventType} for ${appName} repeated, incident count incremented`);
+    }
   } catch (error) {
     log.error(`appTamperingDetection - failed to record event: ${error.message}`);
   }
 }
 
-const EVENTS_DEFAULT_LIMIT = 500;
-const EVENTS_MAX_LIMIT = 1000;
-
 /**
- * GET API handler. Returns tampering events, optionally filtered by appname,
- * sorted by most recent first. Results are capped: the route is public, so an
- * uncapped no-arg query would dump the whole collection to anyone. A stable
- * paging key arrives with the phase-1 schema (_id is stripped today); until
- * then newest-first plus `limit` is the supported access pattern.
+ * GET API handler. Returns tampering incidents, optionally filtered by
+ * appname, most recent first. Results are capped: the route is public, so an
+ * uncapped no-arg query would dump the whole collection to anyone. Documents
+ * include _id as a stable paging/identity key. Pre-schema rows (detectedAt,
+ * no lastSeen) sort after current-schema incidents until they age out via
+ * their 30-day TTL.
  * Route: GET /apps/tamperingevents/:appname? (query: ?limit=1..1000)
  * @param {object} req - Express request
  * @param {object} res - Express response
@@ -131,11 +301,9 @@ async function getEvents(req, res) {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
     const query = appname ? { appName: appname } : {};
-    const projection = {
-      projection: { _id: 0 }, sort: { detectedAt: -1 }, limit,
-    };
+    const options = { sort: { lastSeen: -1, detectedAt: -1 }, limit };
     const results = await dbHelper.findInDatabase(
-      database, tamperingEventsCollection, query, projection,
+      database, tamperingEventsCollection, query, options,
     );
     const message = messageHelper.createDataMessage(results);
     res.json(message);
@@ -151,8 +319,10 @@ async function getEvents(req, res) {
  * restart using the kernel boot identity (/proc/sys/kernel/random/boot_id — a
  * UUID regenerated on every boot, stable across process restarts). On a
  * genuine reboot it records a single `node_reboot` observation under the
- * synthetic __system__ app and appends the boot to a rolling history, so
- * consumers can derive a reboot *rate/cadence* instead of a single interval.
+ * synthetic __system__ app, appends the boot to a rolling history so
+ * consumers can derive a reboot rate/cadence, and opens the boot-storm
+ * window that down-weights the mount/volume/network noise any boot with a
+ * late data disk produces.
  *
  * This replaces a wall-clock `frequent_restart` heuristic that measured
  * process-start gaps: a crash-loop or the serviceManager boot-retry looked
@@ -186,19 +356,20 @@ async function checkNodeReboot() {
       log.warn(`appTamperingDetection - legacy frequent_restart purge failed: ${error.message}`);
     }
 
-    let currentBootId = null;
+    let bootId = null;
     try {
       const bootIdPath = config.system?.bootIdPath ?? '/proc/sys/kernel/random/boot_id';
-      currentBootId = (await fs.readFile(bootIdPath, 'utf8')).trim();
+      bootId = (await fs.readFile(bootIdPath, 'utf8')).trim();
     } catch (error) {
-      currentBootId = null;
+      bootId = null;
     }
-    if (!currentBootId) {
+    if (!bootId) {
       // Without a boot identity, reboot vs restart is guesswork — recording
       // anything here would reintroduce the noise this check exists to remove.
       log.warn('appTamperingDetection - boot_id unreadable, skipping reboot check');
       return;
     }
+    currentBootId = bootId;
 
     const now = new Date();
     const previous = await dbHelper.findOneInDatabase(
@@ -206,25 +377,29 @@ async function checkNodeReboot() {
     );
     const previousBootId = previous && previous.bootId ? previous.bootId : null;
 
-    if (previousBootId && previousBootId !== currentBootId) {
-      const previousStart = previous.at ? new Date(previous.at).toISOString() : 'unknown';
-      await recordEvent(
-        SYSTEM_APP_NAME,
-        'node_reboot',
-        `Machine rebooted: boot_id ${previousBootId.slice(0, 8)} -> ${currentBootId.slice(0, 8)}, previous FluxOS start ${previousStart}`,
-      );
-    }
-
     if (previousBootId !== currentBootId) {
-      // First sighting of this boot_id (reboot, first run, or upgrade from the
-      // pre-boot_id marker). A same-boot_id process restart adds no entry, so
-      // the history reflects machine boots only.
+      // First sighting of this boot_id: genuine reboot, first run, or upgrade
+      // from the pre-boot_id marker. All three open the boot-storm window —
+      // when we cannot prove the machine did NOT just boot, erring toward the
+      // discount protects honest nodes and costs a tamperer nothing (the
+      // events still record). A same-boot_id process restart opens nothing:
+      // disks and Docker have been up throughout, so its events are real.
+      bootStormUntilMs = Date.now() + BOOT_STORM_WINDOW_MS;
       await dbHelper.findOneAndUpdateInDatabase(
         database,
         nodeStartupTrackerCollection,
         { _id: BOOT_HISTORY_KEY },
         { $push: { boots: { $each: [{ bootId: currentBootId, at: now }], $slice: -BOOT_HISTORY_MAX } } },
         { upsert: true },
+      );
+    }
+
+    if (previousBootId && previousBootId !== currentBootId) {
+      const previousStart = previous.at ? new Date(previous.at).toISOString() : 'unknown';
+      await recordEvent(
+        SYSTEM_APP_NAME,
+        'node_reboot',
+        `Machine rebooted: boot_id ${previousBootId.slice(0, 8)} -> ${currentBootId.slice(0, 8)}, previous FluxOS start ${previousStart}`,
       );
     }
 
@@ -245,7 +420,11 @@ module.exports = {
   getEvents,
   isNetworkMissingError,
   checkNodeReboot,
-  EPISODE_WINDOW_MS,
+  deriveMainAppName,
+  EVENT_SEVERITY,
+  BOOT_STORM_DISCOUNT,
+  BOOT_STORM_WINDOW_MS,
+  INCIDENT_BUCKET_MS,
   BOOT_HISTORY_MAX,
   SYSTEM_APP_NAME,
 };

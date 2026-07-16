@@ -6,30 +6,13 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const generalService = require('./generalService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const benchmarkService = require('./benchmarkService');
+const appTamperingDetectionService = require('./appTamperingDetectionService');
 
 const BLOCKLIST_URL = `${config.github.rawBaseUrl}/helpers/tamperingblockednodes.json`;
 const CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const SYNC_POLL_MS = 60 * 1000; // 60s while waiting for daemon sync
 const TAMPER_SCORE_THRESHOLD = 10;
 const DOS_MESSAGE_PREFIX = 'Node flagged via tampering blocklist';
-
-// Per-type weights for the tamper score. Not every event is tamper evidence:
-// recreation_failed is an operational fault (registry, image pull, disk) and
-// node_reboot is an observation feeding operator-level analysis — both weigh 0
-// via omission, because punishing them would penalize honest nodes for infra
-// noise. container_vanished weighs highest: containers persist as `exited`
-// across a clean reboot, so a positively-confirmed missing container is the
-// strongest local indicator of host-side interference this data has. The
-// mount/volume/network types are real signals but dominated by late-data-disk
-// and network-not-ready boot races, so they weigh low until the phase-1
-// schema can flag boot-storm context explicitly.
-const TAMPER_EVENT_WEIGHTS = {
-  container_vanished: 3,
-  network_pruned: 1,
-  network_detached: 1,
-  mount_vanished: 1,
-  volume_missing: 1,
-};
 
 const tamperingEventsCollection = config.database.local.collections.appTamperingEvents;
 
@@ -90,14 +73,14 @@ async function isArcaneOs() {
 }
 
 /**
- * Weighted tamper score over distinct incidents in the events collection
- * (30-day TTL bounds the window). Rows are collapsed to incident keys of
- * (eventType, appName, calendar day) before weighting: the collection is
- * row-per-observation, so a single flapping app — or rows inserted before
- * episode dedup existed — would otherwise count one incident many times.
- * A raw `countDocuments({})` here once meant a single late-disk reboot of a
- * multi-app node could cross the enforcement gate; distinct-incident scoring
- * makes the threshold mean "how many app-days showed tamper symptoms".
+ * Tamper score over incident documents (30-day TTL bounds the window).
+ * Each schemaVersion>=1 document already IS one deduplicated incident with a
+ * severity stamped at write time, so scoring is a plain sum: severity,
+ * discounted for incidents flagged duringBootStorm (any reboot with a late
+ * data disk produces per-app mount/volume noise — discounted, never dropped).
+ * Pre-schema rows are excluded on purpose: they are row-per-observation noise
+ * with no severity or boot context, exactly the data a raw countDocuments({})
+ * once let cross the enforcement gate on honest nodes; they age out via TTL.
  */
 async function computeTamperScore() {
   try {
@@ -105,18 +88,14 @@ async function computeTamperScore() {
     if (!db) return 0;
     const database = db.db(config.database.local.database);
     const pipeline = [
-      {
-        $group: {
-          _id: {
-            eventType: '$eventType',
-            appName: '$appName',
-            day: { $dateToString: { format: '%Y-%m-%d', date: '$detectedAt' } },
-          },
-        },
-      },
+      { $match: { schemaVersion: { $gte: 1 } } },
+      { $project: { _id: 0, severity: 1, duringBootStorm: 1 } },
     ];
     const incidents = await dbHelper.aggregateInDatabase(database, tamperingEventsCollection, pipeline);
-    return incidents.reduce((score, incident) => score + (TAMPER_EVENT_WEIGHTS[incident._id.eventType] ?? 0), 0);
+    return incidents.reduce((score, incident) => {
+      const discount = incident.duringBootStorm ? appTamperingDetectionService.BOOT_STORM_DISCOUNT : 1;
+      return score + (incident.severity ?? 0) * discount;
+    }, 0);
   } catch (error) {
     log.warn(`appTamperingBlocklist - failed to compute tamper score: ${error.message}`);
     return 0;
@@ -278,6 +257,5 @@ module.exports = {
   getMyTxhash,
   isDosActive,
   TAMPER_SCORE_THRESHOLD,
-  TAMPER_EVENT_WEIGHTS,
   DOS_MESSAGE_PREFIX,
 };

@@ -35,6 +35,7 @@ describe('appTamperingBlocklistService tests', () => {
       './generalService': generalServiceStub,
       './daemonService/daemonServiceMiscRpcs': daemonMiscStub,
       './benchmarkService': benchmarkServiceStub,
+      './appTamperingDetectionService': { BOOT_STORM_DISCOUNT: 0.25 },
     });
   }
 
@@ -77,11 +78,11 @@ describe('appTamperingBlocklistService tests', () => {
     sinon.restore();
   });
 
-  // Helper: make the incident aggregation return n distinct weight-1
-  // (mount_vanished) incidents, i.e. a tamper score of exactly n.
+  // Helper: make the incident aggregation return n severity-1 incidents
+  // outside any boot storm, i.e. a tamper score of exactly n.
   function setTamperScore(n) {
-    const incidents = Array.from({ length: n }, (_, i) => ({
-      _id: { eventType: 'mount_vanished', appName: `app${i}`, day: '2026-07-16' },
+    const incidents = Array.from({ length: n }, () => ({
+      severity: 1, duringBootStorm: false,
     }));
     dbHelperStub.aggregateInDatabase = sinon.stub().resolves(incidents);
   }
@@ -114,35 +115,43 @@ describe('appTamperingBlocklistService tests', () => {
   });
 
   describe('computeTamperScore', () => {
-    it('groups rows into distinct (eventType, appName, day) incidents', async () => {
+    it('scores only current-schema incident documents', async () => {
       setTamperScore(1);
 
       await service.computeTamperScore();
 
       const pipeline = dbHelperStub.aggregateInDatabase.firstCall.args[2];
-      const groupId = pipeline[0].$group._id;
-      expect(groupId).to.have.keys(['eventType', 'appName', 'day']);
+      expect(pipeline[0]).to.deep.equal({ $match: { schemaVersion: { $gte: 1 } } });
     });
 
-    it('sums per-type weights across incidents', async () => {
+    it('sums stored severities across incidents', async () => {
       dbHelperStub.aggregateInDatabase = sinon.stub().resolves([
-        { _id: { eventType: 'container_vanished', appName: 'a', day: '2026-07-16' } }, // 3
-        { _id: { eventType: 'network_pruned', appName: 'a', day: '2026-07-16' } }, // 1
-        { _id: { eventType: 'network_detached', appName: 'b', day: '2026-07-16' } }, // 1
-        { _id: { eventType: 'mount_vanished', appName: 'b', day: '2026-07-16' } }, // 1
-        { _id: { eventType: 'volume_missing', appName: 'c', day: '2026-07-16' } }, // 1
+        { severity: 3, duringBootStorm: false },
+        { severity: 1, duringBootStorm: false },
+        { severity: 1, duringBootStorm: false },
+        { severity: 0, duringBootStorm: false }, // operational/observational
       ]);
 
       const result = await service.computeTamperScore();
 
-      expect(result).to.equal(7);
+      expect(result).to.equal(5);
     });
 
-    it('gives operational and observational event types zero weight', async () => {
+    it('discounts incidents flagged duringBootStorm', async () => {
       dbHelperStub.aggregateInDatabase = sinon.stub().resolves([
-        { _id: { eventType: 'recreation_failed', appName: 'a', day: '2026-07-16' } },
-        { _id: { eventType: 'node_reboot', appName: '__system__', day: '2026-07-16' } },
-        { _id: { eventType: 'frequent_restart', appName: '__system__', day: '2026-07-16' } },
+        { severity: 1, duringBootStorm: true },
+        { severity: 1, duringBootStorm: true },
+        { severity: 3, duringBootStorm: false },
+      ]);
+
+      const result = await service.computeTamperScore();
+
+      expect(result).to.equal(3.5); // 2 × (1 × 0.25) + 3
+    });
+
+    it('treats a missing severity as zero', async () => {
+      dbHelperStub.aggregateInDatabase = sinon.stub().resolves([
+        { duringBootStorm: false },
       ]);
 
       const result = await service.computeTamperScore();
