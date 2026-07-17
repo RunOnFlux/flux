@@ -45,12 +45,9 @@ describe('appTamperingBlocklistService tests', () => {
 
     dbHelperStub = {
       databaseConnection: sinon.stub().returns({
-        db: sinon.stub().returns({
-          collection: sinon.stub().returns({
-            countDocuments: sinon.stub().resolves(0),
-          }),
-        }),
+        db: sinon.stub().returns({ name: 'mockdb' }),
       }),
+      aggregateInDatabase: sinon.stub().resolves([]),
     };
 
     fluxNetworkHelperStub = {
@@ -80,15 +77,13 @@ describe('appTamperingBlocklistService tests', () => {
     sinon.restore();
   });
 
-  // Helper: set documents returned by the mongo countDocuments stub
-  function setEventCount(n) {
-    dbHelperStub.databaseConnection = sinon.stub().returns({
-      db: sinon.stub().returns({
-        collection: sinon.stub().returns({
-          countDocuments: sinon.stub().resolves(n),
-        }),
-      }),
-    });
+  // Helper: make the incident aggregation return n severity-1 incidents,
+  // i.e. a tamper score of exactly n.
+  function setTamperScore(n) {
+    const incidents = Array.from({ length: n }, () => ({
+      eventType: 'mount_vanished', severity: 1,
+    }));
+    dbHelperStub.aggregateInDatabase = sinon.stub().resolves(incidents);
   }
 
   describe('fetchBlocklist', () => {
@@ -118,33 +113,64 @@ describe('appTamperingBlocklistService tests', () => {
     });
   });
 
-  describe('countTamperingEvents', () => {
-    it('returns the count from mongo', async () => {
-      setEventCount(42);
+  describe('computeTamperScore', () => {
+    it('scores only current-schema incident documents', async () => {
+      setTamperScore(1);
 
-      const result = await service.countTamperingEvents();
+      await service.computeTamperScore();
 
-      expect(result).to.equal(42);
+      const pipeline = dbHelperStub.aggregateInDatabase.firstCall.args[2];
+      expect(pipeline[0]).to.deep.equal({ $match: { schemaVersion: { $gte: 1 } } });
+    });
+
+    it('sums stored severities across incidents', async () => {
+      dbHelperStub.aggregateInDatabase = sinon.stub().resolves([
+        { eventType: 'container_vanished', severity: 3 },
+        { eventType: 'network_pruned', severity: 1 },
+        { eventType: 'network_detached', severity: 1 },
+        { eventType: 'recreation_failed', severity: 0 }, // operational
+      ]);
+
+      const result = await service.computeTamperScore();
+
+      expect(result).to.equal(5);
+    });
+
+    it('scores full weight regardless of stored duringBootStorm flags', async () => {
+      // Stored incidents may carry a duringBootStorm flag; it is inert —
+      // severities always sum in full.
+      dbHelperStub.aggregateInDatabase = sinon.stub().resolves([
+        { eventType: 'mount_vanished', severity: 1, duringBootStorm: true },
+        { eventType: 'container_vanished', severity: 3, duringBootStorm: true },
+      ]);
+
+      const result = await service.computeTamperScore();
+
+      expect(result).to.equal(4);
+    });
+
+    it('treats a missing severity as zero', async () => {
+      dbHelperStub.aggregateInDatabase = sinon.stub().resolves([
+        { eventType: 'mount_vanished' },
+      ]);
+
+      const result = await service.computeTamperScore();
+
+      expect(result).to.equal(0);
     });
 
     it('returns 0 when DB is unavailable', async () => {
       dbHelperStub.databaseConnection = sinon.stub().returns(null);
 
-      const result = await service.countTamperingEvents();
+      const result = await service.computeTamperScore();
 
       expect(result).to.equal(0);
     });
 
     it('returns 0 on mongo errors', async () => {
-      dbHelperStub.databaseConnection = sinon.stub().returns({
-        db: sinon.stub().returns({
-          collection: sinon.stub().returns({
-            countDocuments: sinon.stub().rejects(new Error('mongo boom')),
-          }),
-        }),
-      });
+      dbHelperStub.aggregateInDatabase = sinon.stub().rejects(new Error('mongo boom'));
 
-      const result = await service.countTamperingEvents();
+      const result = await service.computeTamperScore();
 
       expect(result).to.equal(0);
     });
@@ -195,25 +221,25 @@ describe('appTamperingBlocklistService tests', () => {
 
     it('does nothing when txhash is not on the blocklist', async () => {
       serviceHelperStub.axiosGet.resolves({ data: ['otherhash'] });
-      setEventCount(100);
+      setTamperScore(100);
 
       await service.enforceBlocklist();
 
       expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
     });
 
-    it('does nothing when listed but events <= threshold', async () => {
+    it('does nothing when listed but score <= threshold', async () => {
       serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
-      setEventCount(10); // threshold is >10, so exactly 10 should NOT trigger
+      setTamperScore(10); // threshold is >10, so exactly 10 should NOT trigger
 
       await service.enforceBlocklist();
 
       expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
     });
 
-    it('sets sticky DOS when listed AND events > threshold', async () => {
+    it('sets sticky DOS when listed AND score > threshold', async () => {
       serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
-      setEventCount(11);
+      setTamperScore(11);
 
       await service.enforceBlocklist();
 
@@ -229,7 +255,7 @@ describe('appTamperingBlocklistService tests', () => {
     it('clears sticky DOS on next tick when condition no longer holds', async () => {
       // First tick: set DOS
       serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
-      setEventCount(15);
+      setTamperScore(15);
       await service.enforceBlocklist();
       expect(service.isDosActive()).to.be.true;
 
@@ -241,13 +267,13 @@ describe('appTamperingBlocklistService tests', () => {
       expect(service.isDosActive()).to.be.false;
     });
 
-    it('clears sticky DOS when events drop to <= threshold', async () => {
+    it('clears sticky DOS when the score drops to <= threshold', async () => {
       serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
-      setEventCount(15);
+      setTamperScore(15);
       await service.enforceBlocklist();
       expect(service.isDosActive()).to.be.true;
 
-      setEventCount(5);
+      setTamperScore(5);
       await service.enforceBlocklist();
 
       sinon.assert.called(fluxNetworkHelperStub.clearStickyDosMessage);
@@ -256,10 +282,10 @@ describe('appTamperingBlocklistService tests', () => {
 
     it('clears an orphaned sticky DOS message owned by this service', async () => {
       // ourDosActive is false, but sticky owned by us (prefix match) from prior run
-      const ours = `${service.DOS_MESSAGE_PREFIX}: 42 events, txhash xyz`;
+      const ours = `${service.DOS_MESSAGE_PREFIX}: tamper score 42, txhash xyz`;
       fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns(ours);
       serviceHelperStub.axiosGet.resolves({ data: [] });
-      setEventCount(0);
+      setTamperScore(0);
 
       await service.enforceBlocklist();
 
@@ -270,7 +296,7 @@ describe('appTamperingBlocklistService tests', () => {
       // Some other module set sticky for an unrelated reason
       fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('some other module sticky reason');
       serviceHelperStub.axiosGet.resolves({ data: [] });
-      setEventCount(0);
+      setTamperScore(0);
 
       await service.enforceBlocklist();
 
@@ -324,7 +350,7 @@ describe('appTamperingBlocklistService tests', () => {
     it('enforceBlocklist is a no-op when bench reports systemsecure=true', async () => {
       const arcaneService = makeArcaneService();
       serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
-      setEventCount(100);
+      setTamperScore(100);
 
       await arcaneService.enforceBlocklist();
 
@@ -357,7 +383,7 @@ describe('appTamperingBlocklistService tests', () => {
       benchmarkServiceStub.getBenchmarks = sinon.stub().rejects(new Error('bench down'));
       const svc = loadService();
       serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
-      setEventCount(100);
+      setTamperScore(100);
 
       await svc.enforceBlocklist();
 
@@ -369,7 +395,7 @@ describe('appTamperingBlocklistService tests', () => {
       benchmarkServiceStub.getBenchmarks = sinon.stub().resolves({ status: 'error' });
       const svc = loadService();
       serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
-      setEventCount(100);
+      setTamperScore(100);
 
       await svc.enforceBlocklist();
 
@@ -384,7 +410,7 @@ describe('appTamperingBlocklistService tests', () => {
       });
       const svc = loadService();
       serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
-      setEventCount(100);
+      setTamperScore(100);
 
       await svc.enforceBlocklist();
 
@@ -398,7 +424,7 @@ describe('appTamperingBlocklistService tests', () => {
       process.env.FLUXOS_PATH = '/fake/arcane/path';
       try {
         serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
-        setEventCount(100);
+        setTamperScore(100);
         const svc = loadService();
 
         await svc.enforceBlocklist();

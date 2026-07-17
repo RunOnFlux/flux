@@ -10,7 +10,7 @@ const benchmarkService = require('./benchmarkService');
 const BLOCKLIST_URL = `${config.github.rawBaseUrl}/helpers/tamperingblockednodes.json`;
 const CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const SYNC_POLL_MS = 60 * 1000; // 60s while waiting for daemon sync
-const TAMPERING_EVENT_THRESHOLD = 10;
+const TAMPER_SCORE_THRESHOLD = 10;
 const DOS_MESSAGE_PREFIX = 'Node flagged via tampering blocklist';
 
 const tamperingEventsCollection = config.database.local.collections.appTamperingEvents;
@@ -72,17 +72,27 @@ async function isArcaneOs() {
 }
 
 /**
- * Count documents in the tampering events collection (all types, all apps).
- * The 30-day TTL on detectedAt already scopes this.
+ * Tamper score over incident documents (30-day TTL bounds the window).
+ * Each schemaVersion>=1 document already IS one deduplicated incident with a
+ * severity stamped at write time, so scoring is a plain sum of severities.
+ * Pre-schema rows are excluded on purpose: they are row-per-observation noise
+ * with no severity, exactly the data a raw countDocuments({}) once let cross
+ * the enforcement gate on honest nodes. The startup purge removes them; the
+ * filter here covers anything written before that purge has run.
  */
-async function countTamperingEvents() {
+async function computeTamperScore() {
   try {
     const db = dbHelper.databaseConnection();
     if (!db) return 0;
     const database = db.db(config.database.local.database);
-    return await database.collection(tamperingEventsCollection).countDocuments({});
+    const pipeline = [
+      { $match: { schemaVersion: { $gte: 1 } } },
+      { $project: { _id: 0, severity: 1 } },
+    ];
+    const incidents = await dbHelper.aggregateInDatabase(database, tamperingEventsCollection, pipeline);
+    return incidents.reduce((score, incident) => score + (incident.severity ?? 0), 0);
   } catch (error) {
-    log.warn(`appTamperingBlocklist - failed to count events: ${error.message}`);
+    log.warn(`appTamperingBlocklist - failed to compute tamper score: ${error.message}`);
     return 0;
   }
 }
@@ -121,8 +131,8 @@ async function waitForDaemonSynced() {
 }
 
 /**
- * Core check: if our txhash is in the blocklist AND we have more than
- * TAMPERING_EVENT_THRESHOLD events, DOS the node. Otherwise, if we previously
+ * Core check: if our txhash is in the blocklist AND the weighted tamper score
+ * exceeds TAMPER_SCORE_THRESHOLD, DOS the node. Otherwise, if we previously
  * DOSed it, clear the DOS. This service owns the DOS message it sets and only
  * clears it when its own condition is no longer true.
  */
@@ -143,10 +153,10 @@ async function enforceBlocklist() {
     return;
   }
 
-  const [myTxhash, blocklist, eventCount] = await Promise.all([
+  const [myTxhash, blocklist, tamperScore] = await Promise.all([
     getMyTxhash(),
     fetchBlocklist(),
-    countTamperingEvents(),
+    computeTamperScore(),
   ]);
 
   if (!myTxhash) {
@@ -155,13 +165,13 @@ async function enforceBlocklist() {
   }
 
   const listed = Array.isArray(blocklist) && blocklist.includes(myTxhash);
-  const exceedsThreshold = eventCount > TAMPERING_EVENT_THRESHOLD;
+  const exceedsThreshold = tamperScore > TAMPER_SCORE_THRESHOLD;
   const shouldDos = listed && exceedsThreshold;
 
-  log.info(`appTamperingBlocklist - txhash=${myTxhash} listed=${listed} events=${eventCount} shouldDos=${shouldDos}`);
+  log.info(`appTamperingBlocklist - txhash=${myTxhash} listed=${listed} score=${tamperScore} shouldDos=${shouldDos}`);
 
   if (shouldDos) {
-    const message = `${DOS_MESSAGE_PREFIX}: ${eventCount} events, txhash ${myTxhash}`;
+    const message = `${DOS_MESSAGE_PREFIX}: tamper score ${tamperScore}, txhash ${myTxhash}`;
     fluxNetworkHelper.setStickyDosMessage(message);
     fluxNetworkHelper.setStickyDosStateValue(100);
     ourDosActive = true;
@@ -170,7 +180,7 @@ async function enforceBlocklist() {
   }
 
   if (ourDosActive || isOurStickyDos()) {
-    log.info(`appTamperingBlocklist - clearing sticky DOS (listed=${listed}, events=${eventCount})`);
+    log.info(`appTamperingBlocklist - clearing sticky DOS (listed=${listed}, score=${tamperScore})`);
     fluxNetworkHelper.clearStickyDosMessage();
     ourDosActive = false;
   }
@@ -238,9 +248,9 @@ module.exports = {
   stop,
   enforceBlocklist,
   fetchBlocklist,
-  countTamperingEvents,
+  computeTamperScore,
   getMyTxhash,
   isDosActive,
-  TAMPERING_EVENT_THRESHOLD,
+  TAMPER_SCORE_THRESHOLD,
   DOS_MESSAGE_PREFIX,
 };
