@@ -305,6 +305,90 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
 }
 
 /**
+ * Ensures the per-app docker network (fluxDockerNetwork_<appName>) exists,
+ * creating it with a free /24 (172.23.<octet>.0/24) if absent. Safe to call on
+ * every install and from the reconciler's heal path, where a pruned network
+ * (docker prune, daemon restart) must be re-created before any container can be
+ * re-created onto it.
+ *
+ * When the network already exists this returns EARLY - no allocation and, crucially,
+ * no firewall work: its interface is already in the node-wide DOCKER-USER rules, so
+ * re-running removeDockerContainerAccessToNonRoutable here would flush and rebuild
+ * the whole chain on every heal recreate for no gain (briefly dropping RFC1918
+ * protection for every flux container on the node).
+ *
+ * Allocation is deterministic (lowest free octet) but collision-safe: many heals can
+ * run concurrently after a mass prune, so a create that loses its octet to another
+ * app - or to a non-flux network whose subnet docker rejects - is retried against the
+ * NEXT free octet, giving up only on true exhaustion. A premature give-up would throw,
+ * and on the vanished-container path that throw escalates to an app uninstall, so the
+ * loop must never fail while octets are free. The subnet is not persisted; nothing
+ * outside the container depends on it (ports are host-mapped, gelf targets resolve
+ * from the collector's live container IP at create time).
+ * @param {string} appName bare app name (the network is per-app, not per-component)
+ * @param {object} [res] optional express response for install-status streaming
+ * @returns {Promise<object|string>} the created-or-existing network response
+ */
+async function ensureAppDockerNetwork(appName, res) {
+  const fluxNetworkStatus = {
+    status: `Checking Flux App network of ${appName}...`,
+  };
+  log.info(fluxNetworkStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(fluxNetworkStatus));
+    if (res.flush) res.flush();
+  }
+
+  if (await dockerService.dockerNetworkState(`fluxDockerNetwork_${appName}`) === 'exists') {
+    return `Flux App Network of ${appName} already exists.`;
+  }
+
+  let fluxNet = null;
+  if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+    // legacy apps pinned their gateway octet by name (it was baked into their
+    // config); they must keep it rather than take the next free one.
+    fluxNet = await dockerService.createFluxAppDockerNetwork(appName, appName.charCodeAt(appName.length - 1)).catch((error) => log.error(error));
+  } else {
+    // Take the lowest free 172.23.x.0/24, advancing past any octet a create loses
+    // (a concurrent heal of another app, or a non-flux network holding the subnet).
+    // Give up only when the octet space is genuinely exhausted, never on a fixed
+    // count - see the JSDoc for why a premature throw is dangerous here.
+    const tried = new Set();
+    while (!fluxNet) {
+      // eslint-disable-next-line no-await-in-loop
+      const octet = await dockerService.getFreeFluxAppNetworkOctet(tried);
+      if (octet === null) {
+        throw new Error(`Flux App network of ${appName} failed to initiate. No free 172.23.x.0/24 subnet available on this node.`);
+      }
+      // eslint-disable-next-line no-await-in-loop
+      fluxNet = await dockerService.createFluxAppDockerNetwork(appName, octet).catch((error) => log.error(error));
+      if (!fluxNet) tried.add(octet);
+    }
+  }
+  if (!fluxNet) {
+    throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
+  }
+  log.info(serviceHelper.ensureString(fluxNet));
+  const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
+  const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
+  const accessRemovedRes = {
+    status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(accessRemovedRes));
+    if (res.flush) res.flush();
+  }
+  const fluxNetResponse = {
+    status: `Docker network of ${appName} initiated.`,
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(fluxNetResponse));
+    if (res.flush) res.flush();
+  }
+  return fluxNet;
+}
+
+/**
  * To register an app locally. Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs hard install. If registration fails, the app is removed locally.
  * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications.
@@ -451,47 +535,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     await appNetworkLinker.checkAppNetworkRequirements(appSpecifications);
 
     if (!isComponent) {
-      let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
-      if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
-        dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
-      }
-      const fluxNetworkStatus = {
-        status: `Checking Flux App network of ${appName}...`,
-      };
-      log.info(fluxNetworkStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(fluxNetworkStatus));
-        if (res.flush) res.flush();
-      }
-      let fluxNet = null;
-      for (let i = 0; i <= 20; i += 1) {
-        // eslint-disable-next-line no-await-in-loop
-        fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
-        if (fluxNet || appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
-          break;
-        }
-        dockerNetworkAddrValue = Math.floor(Math.random() * 256);
-      }
-      if (!fluxNet) {
-        throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
-      }
-      log.info(serviceHelper.ensureString(fluxNet));
-      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
-      const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
-      const accessRemovedRes = {
-        status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
-      };
-      if (res) {
-        res.write(serviceHelper.ensureString(accessRemovedRes));
-        if (res.flush) res.flush();
-      }
-      const fluxNetResponse = {
-        status: `Docker network of ${appName} initiated.`,
-      };
-      if (res) {
-        res.write(serviceHelper.ensureString(fluxNetResponse));
-        if (res.flush) res.flush();
-      }
+      await ensureAppDockerNetwork(appName, res);
     }
 
     const appInstallation = {
@@ -1234,6 +1278,7 @@ async function testAppInstall(req, res) {
 
 module.exports = {
   registerAppLocally,
+  ensureAppDockerNetwork,
   installApplicationHard,
   installApplicationSoft,
   installAppLocally,

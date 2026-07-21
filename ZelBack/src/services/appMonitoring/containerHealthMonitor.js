@@ -45,6 +45,14 @@ async function recreateMissingContainers(componentIdentifier, options = {}) {
     throw new Error(`App ${mainAppName} has no components to install`);
   }
 
+  // A container can only be (re)created onto an existing docker network, but the
+  // per-app network (fluxDockerNetwork_<app>) is otherwise created only at install
+  // time (registerAppLocally). If it was pruned - docker prune, daemon restart -
+  // every recreate below would loop forever on "network not found". Recreate it
+  // first; ensureAppDockerNetwork returns early (no create, no firewall work) when
+  // the network already exists, so the common intact-network recreate stays cheap.
+  await appInstaller.ensureAppDockerNetwork(mainAppName);
+
   const tier = await generalService.nodeTier();
   const isComponent = componentIdentifier.includes('_');
 
