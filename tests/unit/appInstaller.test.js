@@ -1355,5 +1355,29 @@ describe('appInstaller tests', () => {
       expect(err).to.be.an('error');
       expect(err.message).to.include('Not possible to create docker application network');
     });
+
+    it('reserves the legacy-pinned octets so a non-legacy app cannot squat one', async () => {
+      dockerServiceStub.getFreeFluxAppNetworkOctet.resolves(7);
+
+      await appInstallerNet.ensureAppDockerNetwork('myapp');
+
+      // the legacy octets are seeded into the exclude set on the very first allocation
+      // so the free-octet scan never hands one out: 'fdm'->'m'(109), 'health'->'h'(104),
+      // 'Jetpack2'->'2'(50).
+      const excluded = [...dockerServiceStub.getFreeFluxAppNetworkOctet.firstCall.args[0]];
+      expect(excluded).to.include('m'.charCodeAt(0));
+      expect(excluded).to.include('h'.charCodeAt(0));
+      expect(excluded).to.include('2'.charCodeAt(0));
+    });
+
+    it('streams an already-exists status on the early-return path', async () => {
+      dockerServiceStub.dockerNetworkState.resolves('exists');
+      const writes = [];
+      const res = { write: (chunk) => writes.push(chunk) };
+
+      await appInstallerNet.ensureAppDockerNetwork('myapp', res);
+
+      expect(writes.some((w) => w && w.status && w.status.includes('already exists'))).to.be.true;
+    });
   });
 });

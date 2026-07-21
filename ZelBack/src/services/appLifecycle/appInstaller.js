@@ -44,6 +44,11 @@ const volumeService = require('../utils/volumeService');
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
 
+// The octets those legacy apps pin by name (charCodeAt of the last character).
+// Reserve them in the free-octet scan so a non-legacy app can't take one before
+// the legacy app heals onto its fixed octet.
+const legacyPinnedOctets = appsThatMightBeUsingOldGatewayIpAssignment.map((name) => name.charCodeAt(name.length - 1));
+
 // Helper functions and constants for installApplicationHard
 const util = require('util');
 
@@ -340,6 +345,14 @@ async function ensureAppDockerNetwork(appName, res) {
   }
 
   if (await dockerService.dockerNetworkState(`fluxDockerNetwork_${appName}`) === 'exists') {
+    const existsStatus = {
+      status: `Flux App network of ${appName} already exists.`,
+    };
+    log.info(existsStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(existsStatus));
+      if (res.flush) res.flush();
+    }
     return `Flux App Network of ${appName} already exists.`;
   }
 
@@ -351,9 +364,11 @@ async function ensureAppDockerNetwork(appName, res) {
   } else {
     // Take the lowest free 172.23.x.0/24, advancing past any octet a create loses
     // (a concurrent heal of another app, or a non-flux network holding the subnet).
-    // Give up only when the octet space is genuinely exhausted, never on a fixed
-    // count - see the JSDoc for why a premature throw is dangerous here.
-    const tried = new Set();
+    // Seed the exclude set with the legacy-pinned octets so a non-legacy app can't
+    // squat an octet a legacy app must heal onto. Give up only when the octet space
+    // is genuinely exhausted, never on a fixed count - see the JSDoc for why a
+    // premature throw is dangerous here.
+    const tried = new Set(legacyPinnedOctets);
     while (!fluxNet) {
       // eslint-disable-next-line no-await-in-loop
       const octet = await dockerService.getFreeFluxAppNetworkOctet(tried);
