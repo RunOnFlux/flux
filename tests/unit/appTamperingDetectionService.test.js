@@ -5,33 +5,78 @@ const proxyquire = require('proxyquire').noCallThru();
 describe('appTamperingDetectionService tests', () => {
   let service;
   let dbHelperStub;
-  let insertedDocs;
+  let logStub;
+  let fsReadFileStub;
+  let fluxnodeRpcsStub;
+  let generalServiceStub;
+  let upsertCalls;
   let findResults;
   let lastFindArgs;
-  let databaseConnectionReturn;
+  let installedApps;
+
+  const CURRENT_BOOT_ID = 'aaaaaaaa-1111-2222-3333-444444444444';
+  const PREVIOUS_BOOT_ID = 'bbbbbbbb-5555-6666-7777-888888888888';
+  const NODE_STATUS = {
+    status: 'success',
+    data: {
+      txhash: 'deadbeefcafe',
+      outidx: '0', // the daemon RPC returns outidx as a string
+      ip: '65.108.1.2:16127',
+      pubkey: '04aabbcc',
+      payment_address: 't1payout',
+      collateral: 'COutPoint(deadbeefcafe, 0)',
+    },
+  };
+
+  function eventUpserts() {
+    return upsertCalls.filter((c) => c.coll === 'apptamperingevents');
+  }
+
+  function markerUpdates() {
+    return upsertCalls.filter((c) => c.coll === 'nodestartuptracker' && c.query._id === 'lastStartup');
+  }
+
+  function historyUpdates() {
+    return upsertCalls.filter((c) => c.coll === 'nodestartuptracker' && c.query._id === 'bootHistory');
+  }
 
   beforeEach(() => {
-    insertedDocs = [];
+    upsertCalls = [];
     findResults = [];
     lastFindArgs = null;
-
-    databaseConnectionReturn = {
-      db: sinon.stub().returns({ name: 'mockdb' }),
-    };
+    installedApps = {}; // name -> { owner, hash }
 
     dbHelperStub = {
-      databaseConnection: sinon.stub().callsFake(() => databaseConnectionReturn),
-      insertOneToDatabase: sinon.stub().callsFake(async (db, coll, doc) => {
-        insertedDocs.push({ db, coll, doc });
-        return { insertedId: 'mock-id' };
+      databaseConnection: sinon.stub().returns({
+        db: sinon.stub().callsFake((name) => ({ name })),
+      }),
+      findOneAndUpdateInDatabase: sinon.stub().callsFake(async (db, coll, query, update, options) => {
+        upsertCalls.push({
+          db, coll, query, update, options,
+        });
+        return null; // driver v6 upsert shape: null means a fresh insert
       }),
       findInDatabase: sinon.stub().callsFake(async (db, coll, query, options) => {
-        lastFindArgs = { db, coll, query, options };
+        lastFindArgs = {
+          db, coll, query, options,
+        };
         return findResults;
       }),
-      findOneInDatabase: sinon.stub().resolves(null),
-      findOneAndUpdateInDatabase: sinon.stub().resolves({ value: null }),
+      findOneInDatabase: sinon.stub().callsFake(async (db, coll, query) => {
+        if (coll === 'zelappsinformation') return installedApps[query.name] || null;
+        return null; // startup marker by default absent
+      }),
+      removeDocumentsFromCollection: sinon.stub().resolves({ deletedCount: 0 }),
+      updateInDatabase: sinon.stub().resolves({ modifiedCount: 0 }),
     };
+
+    logStub = {
+      info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
+    };
+
+    fsReadFileStub = sinon.stub().resolves(`${CURRENT_BOOT_ID}\n`);
+    fluxnodeRpcsStub = { getFluxNodeStatus: sinon.stub().resolves(NODE_STATUS) };
+    generalServiceStub = { getCollateralInfo: sinon.stub().returns({ txhash: 'colTx', txindex: 7 }) };
 
     service = proxyquire('../../ZelBack/src/services/appTamperingDetectionService', {
       config: {
@@ -43,12 +88,24 @@ describe('appTamperingDetectionService tests', () => {
               nodeStartupTracker: 'nodestartuptracker',
             },
           },
+          appslocal: {
+            database: 'localzelappsinformation',
+            collections: { appsInformation: 'zelappsinformation' },
+          },
+        },
+        system: {
+          bootIdPath: '/proc/sys/kernel/random/boot_id',
         },
       },
-      './dbHelper': dbHelperStub,
-      '../lib/log': {
-        info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(),
+      fs: {
+        promises: { readFile: fsReadFileStub },
       },
+      os: { uptime: () => 3600 },
+      './dbHelper': dbHelperStub,
+      '../lib/log': logStub,
+      './generalService': generalServiceStub,
+      './daemonService/daemonServiceFluxnodeRpcs': fluxnodeRpcsStub,
+      './utils/appConstants': { localAppsInformation: 'zelappsinformation' },
       './messageHelper': {
         createDataMessage: (d) => ({ status: 'success', data: d }),
         createErrorMessage: (m) => ({ status: 'error', data: { message: m } }),
@@ -105,42 +162,318 @@ describe('appTamperingDetectionService tests', () => {
     });
   });
 
-  describe('recordEvent', () => {
-    it('inserts a new document with expected shape', async () => {
-      await service.recordEvent('myapp', 'container_vanished', 'details here');
-
-      expect(insertedDocs).to.have.lengthOf(1);
-      const { coll, doc } = insertedDocs[0];
-      expect(coll).to.equal('apptamperingevents');
-      expect(doc.appName).to.equal('myapp');
-      expect(doc.eventType).to.equal('container_vanished');
-      expect(doc.details).to.equal('details here');
-      expect(doc.detectedAt).to.be.instanceOf(Date);
+  describe('deriveMainAppName', () => {
+    it('passes a plain app name through', () => {
+      expect(service.deriveMainAppName('MyApp')).to.equal('MyApp');
     });
 
-    it('inserts a NEW row on every call (does not upsert)', async () => {
-      await service.recordEvent('myapp', 'mount_vanished', 'a');
-      await service.recordEvent('myapp', 'mount_vanished', 'b');
-      await service.recordEvent('myapp', 'mount_vanished', 'c');
+    it('strips the flux docker prefix', () => {
+      expect(service.deriveMainAppName('fluxMyApp')).to.equal('MyApp');
+    });
 
-      expect(insertedDocs).to.have.lengthOf(3);
-      expect(insertedDocs.map((x) => x.doc.details)).to.deep.equal(['a', 'b', 'c']);
+    it('strips the zel docker prefix', () => {
+      expect(service.deriveMainAppName('zelMyApp')).to.equal('MyApp');
+    });
+
+    it('reduces a component identifier to the main app name', () => {
+      expect(service.deriveMainAppName('fluxweb_MyApp')).to.equal('MyApp');
+      expect(service.deriveMainAppName('web_MyApp')).to.equal('MyApp');
+    });
+  });
+
+  describe('recordEvent', () => {
+    it('upserts an incident with the full schema on first sight', async () => {
+      await service.recordEvent('myapp', 'container_vanished', 'details here');
+
+      expect(eventUpserts()).to.have.lengthOf(1);
+      const { query, update, options } = eventUpserts()[0];
+      expect(query.appName).to.equal('myapp');
+      expect(query.eventType).to.equal('container_vanished');
+      expect(query.incidentKey).to.be.a('string');
+      expect(options).to.deep.equal({ upsert: true });
+
+      const ins = update.$setOnInsert;
+      expect(ins.schemaVersion).to.equal(1);
+      expect(ins.severity).to.equal(service.EVENT_SEVERITY.container_vanished);
+      expect(ins.firstSeen).to.be.instanceOf(Date);
+      expect(ins.detailsSample).to.equal('details here');
+      expect(ins.uptimeSecAtEvent).to.equal(3600);
+      expect(update.$set.lastSeen).to.be.instanceOf(Date);
+      expect(update.$inc).to.deep.equal({ count: 1 });
+    });
+
+    it('stamps node and operator identity from the daemon status', async () => {
+      await service.recordEvent('myapp', 'container_vanished', 'x');
+
+      const ins = eventUpserts()[0].update.$setOnInsert;
+      expect(ins.nodeTxid).to.equal('deadbeefcafe');
+      expect(ins.nodeOutidx).to.equal(0);
+      expect(ins.nodeIp).to.equal('65.108.1.2:16127');
+      expect(ins.pubkey).to.equal('04aabbcc');
+      expect(ins.paymentAddress).to.equal('t1payout');
+    });
+
+    it('caches node identity across events (one RPC)', async () => {
+      await service.recordEvent('a', 'container_vanished', 'x');
+      await service.recordEvent('b', 'container_vanished', 'x');
+
+      sinon.assert.calledOnce(fluxnodeRpcsStub.getFluxNodeStatus);
+    });
+
+    it('falls back to collateral parsing when status lacks txhash/outidx', async () => {
+      fluxnodeRpcsStub.getFluxNodeStatus.resolves({
+        status: 'success',
+        data: { collateral: 'COutPoint(colTx, 7)', ip: '1.2.3.4' },
+      });
+
+      await service.recordEvent('myapp', 'container_vanished', 'x');
+
+      const ins = eventUpserts()[0].update.$setOnInsert;
+      expect(ins.nodeTxid).to.equal('colTx');
+      expect(ins.nodeOutidx).to.equal(7);
+    });
+
+    it('records unattributed when the daemon is unreachable, and backs off', async () => {
+      fluxnodeRpcsStub.getFluxNodeStatus.rejects(new Error('daemon down'));
+
+      await service.recordEvent('a', 'container_vanished', 'x');
+      await service.recordEvent('b', 'container_vanished', 'x');
+
+      expect(eventUpserts()).to.have.lengthOf(2);
+      expect(eventUpserts()[0].update.$setOnInsert.nodeTxid).to.be.null;
+      expect(eventUpserts()[0].update.$setOnInsert.pubkey).to.be.null;
+      sinon.assert.calledOnce(fluxnodeRpcsStub.getFluxNodeStatus); // backoff, no hammering
+    });
+
+    it('uses a concurrently-populated identity cache when its own RPC fails (daemon flap)', async () => {
+      // Race: this event enters getNodeIdentity with the cache empty, a
+      // concurrent call populates it, then this event's own RPC rejects. The
+      // catch must prefer the now-populated cache over writing a null-identity
+      // row that the one-shot backfill may already have stopped covering.
+      let rejectSecond;
+      const secondRpc = new Promise((_, reject) => { rejectSecond = reject; });
+      fluxnodeRpcsStub.getFluxNodeStatus = sinon.stub()
+        .onFirstCall().resolves(NODE_STATUS)
+        .onSecondCall().returns(secondRpc);
+
+      const first = service.recordEvent('a', 'container_vanished', 'x'); // populates cache
+      const second = service.recordEvent('b', 'container_vanished', 'x'); // RPC left pending
+      await first;
+      rejectSecond(new Error('daemon flap'));
+      await second;
+
+      const bUpsert = eventUpserts().find((c) => c.query.appName === 'b');
+      expect(bUpsert.update.$setOnInsert.nodeTxid).to.equal('deadbeefcafe');
+      expect(bUpsert.update.$setOnInsert.pubkey).to.equal('04aabbcc');
+    });
+
+    it('attributes the app owner and spec hash by exact name', async () => {
+      installedApps.myapp = { owner: '1ownerZelid', hash: 'spechash1' };
+
+      await service.recordEvent('myapp', 'container_vanished', 'x');
+
+      const ins = eventUpserts()[0].update.$setOnInsert;
+      expect(ins.ownerZelid).to.equal('1ownerZelid');
+      expect(ins.appHash).to.equal('spechash1');
+    });
+
+    it('attributes a component identifier via the derived main app name', async () => {
+      installedApps.MyApp = { owner: '1ownerZelid', hash: 'spechash1' };
+
+      await service.recordEvent('fluxweb_MyApp', 'mount_vanished', 'x');
+
+      const ins = eventUpserts()[0].update.$setOnInsert;
+      expect(ins.ownerZelid).to.equal('1ownerZelid');
+      expect(ins.appHash).to.equal('spechash1');
+    });
+
+    it('records null attribution for unknown apps', async () => {
+      await service.recordEvent('ghostapp', 'container_vanished', 'x');
+
+      expect(eventUpserts()[0].update.$setOnInsert.ownerZelid).to.be.null;
+    });
+
+    it('uses the same incidentKey for repeats within the hour bucket', async () => {
+      const clock = sinon.useFakeTimers(new Date('2026-07-16T10:00:00Z'));
+
+      await service.recordEvent('myapp', 'mount_vanished', 'a');
+      clock.tick(10 * 60 * 1000);
+      await service.recordEvent('myapp', 'mount_vanished', 'b');
+
+      expect(eventUpserts()).to.have.lengthOf(2); // both reach the DB: count rolls up
+      expect(eventUpserts()[0].query.incidentKey).to.equal(eventUpserts()[1].query.incidentKey);
+    });
+
+    it('opens a new incident in the next hour bucket', async () => {
+      const clock = sinon.useFakeTimers(new Date('2026-07-16T10:00:00Z'));
+
+      await service.recordEvent('myapp', 'mount_vanished', 'a');
+      clock.tick(service.INCIDENT_BUCKET_MS);
+      await service.recordEvent('myapp', 'mount_vanished', 'b');
+
+      expect(eventUpserts()[0].query.incidentKey).to.not.equal(eventUpserts()[1].query.incidentKey);
+    });
+
+    it('keys under "unknown" and stamps bootId:null before checkNodeReboot has run', async () => {
+      // This block never calls checkNodeReboot(), so currentBootId is still
+      // null — the same fallback state as a host with an unreadable boot_id.
+      // In production serviceManager awaits checkNodeReboot() before any
+      // emitter, so this path is a safety net; it must still key deterministically.
+      await service.recordEvent('myapp', 'mount_vanished', 'x');
+
+      const { query, update } = eventUpserts()[0];
+      expect(query.incidentKey).to.match(/^unknown:\d+$/);
+      expect(update.$setOnInsert.bootId).to.be.null;
+    });
+
+    it('stamps severity 0 for operational and unknown event types', async () => {
+      await service.recordEvent('myapp', 'recreation_failed', 'x');
+      await service.recordEvent('myapp', 'some_future_type', 'x');
+
+      expect(eventUpserts()[0].update.$setOnInsert.severity).to.equal(0);
+      expect(eventUpserts()[1].update.$setOnInsert.severity).to.equal(0);
+    });
+
+    it('retries once when concurrent upserts race on the unique index', async () => {
+      const dupErr = new Error('E11000 duplicate key');
+      dupErr.code = 11000;
+      dbHelperStub.findOneAndUpdateInDatabase = sinon.stub()
+        .onFirstCall().rejects(dupErr)
+        .callsFake(async (db, coll, query, update, options) => {
+          upsertCalls.push({
+            db, coll, query, update, options,
+          });
+          return { count: 1 };
+        });
+
+      await service.recordEvent('myapp', 'container_vanished', 'x');
+
+      expect(eventUpserts()).to.have.lengthOf(1);
+      expect(logStub.error.called).to.be.false;
+    });
+
+    it('rolls up a repeat (v6 non-null pre-image) as inserted=false, no fresh-insert log', async () => {
+      // The real mongodb v6 driver returns the matched pre-image document (not
+      // null) when the upsert hits an existing incident; the default mock
+      // returns null (insert). Model the repeat and pin the count-rollup branch.
+      dbHelperStub.findOneAndUpdateInDatabase = sinon.stub().callsFake(async (db, coll, query, update, options) => {
+        upsertCalls.push({
+          db, coll, query, update, options,
+        });
+        return { _id: 'existing', count: 1 }; // v6 pre-image of the matched doc
+      });
+
+      await service.recordEvent('myapp', 'container_vanished', 'x');
+
+      expect(eventUpserts()[0].update.$inc).to.deep.equal({ count: 1 });
+      expect(logStub.debug.calledWithMatch(/repeated, incident count incremented/)).to.be.true;
+      expect(logStub.info.calledWithMatch(/recorded container_vanished/)).to.be.false;
+    });
+
+    it('reads insert vs repeat from the legacy { value, lastErrorObject } driver shape', async () => {
+      dbHelperStub.findOneAndUpdateInDatabase = sinon.stub()
+        .onFirstCall().callsFake(async (db, coll, query, update, options) => {
+          upsertCalls.push({
+            db, coll, query, update, options,
+          });
+          return { value: null, lastErrorObject: { updatedExisting: false } }; // insert
+        })
+        .onSecondCall().callsFake(async (db, coll, query, update, options) => {
+          upsertCalls.push({
+            db, coll, query, update, options,
+          });
+          return { value: { _id: 'e', count: 1 }, lastErrorObject: { updatedExisting: true } }; // repeat
+        });
+
+      await service.recordEvent('myapp', 'container_vanished', 'insert');
+      await service.recordEvent('myapp', 'container_vanished', 'repeat');
+
+      expect(logStub.info.calledWithMatch(/recorded container_vanished/)).to.be.true;
+      expect(logStub.debug.calledWithMatch(/repeated, incident count incremented/)).to.be.true;
     });
 
     it('no-ops when DB is not available', async () => {
-      databaseConnectionReturn = null;
       dbHelperStub.databaseConnection = sinon.stub().returns(null);
 
       await service.recordEvent('myapp', 'container_vanished', 'x');
 
-      expect(dbHelperStub.insertOneToDatabase.called).to.be.false;
+      expect(dbHelperStub.findOneAndUpdateInDatabase.called).to.be.false;
     });
 
-    it('swallows insert errors without throwing', async () => {
-      dbHelperStub.insertOneToDatabase = sinon.stub().rejects(new Error('boom'));
+    it('swallows write errors without throwing and logs them', async () => {
+      dbHelperStub.findOneAndUpdateInDatabase = sinon.stub().rejects(new Error('boom'));
 
       await service.recordEvent('myapp', 'container_vanished', 'x');
-      // no assertion needed — test passes if no error thrown
+
+      sinon.assert.calledOnce(logStub.error);
+      expect(logStub.error.firstCall.args[0]).to.include('boom');
+    });
+  });
+
+  describe('boot context keying', () => {
+    it('keys incidents by the current boot_id once checkNodeReboot has run', async () => {
+      dbHelperStub.findOneInDatabase = sinon.stub().callsFake(async (db, coll, query) => {
+        if (coll === 'nodestartuptracker' && query._id === 'lastStartup') {
+          return { _id: 'lastStartup', at: new Date(), bootId: PREVIOUS_BOOT_ID };
+        }
+        return null;
+      });
+      await service.checkNodeReboot();
+
+      await service.recordEvent('myapp', 'mount_vanished', 'x');
+
+      const incident = eventUpserts().find((c) => c.query.eventType === 'mount_vanished');
+      expect(incident.update.$setOnInsert.bootId).to.equal(CURRENT_BOOT_ID);
+      expect(incident.query.incidentKey).to.include(CURRENT_BOOT_ID);
+    });
+  });
+
+  describe('identity backfill', () => {
+    it('stamps identity onto unattributed incidents once the daemon answers, then stops', async () => {
+      const clock = sinon.useFakeTimers(new Date('2026-07-16T10:00:00Z'));
+      fluxnodeRpcsStub.getFluxNodeStatus.rejects(new Error('daemon starting'));
+
+      await service.checkNodeReboot(); // starts the backfill; immediate attempt fails
+      await clock.tickAsync(0);
+      expect(dbHelperStub.updateInDatabase.called).to.be.false;
+
+      fluxnodeRpcsStub.getFluxNodeStatus.resolves(NODE_STATUS);
+      await clock.tickAsync(service.IDENTITY_BACKFILL_INTERVAL_MS);
+
+      sinon.assert.calledOnce(dbHelperStub.updateInDatabase);
+      const call = dbHelperStub.updateInDatabase.firstCall;
+      expect(call.args[1]).to.equal('apptamperingevents');
+      expect(call.args[2]).to.deep.equal({ schemaVersion: { $gte: 1 }, nodeTxid: null });
+      expect(call.args[3].$set.nodeTxid).to.equal('deadbeefcafe');
+      expect(call.args[3].$set.pubkey).to.equal('04aabbcc');
+      expect(call.args[3].$set.paymentAddress).to.equal('t1payout');
+
+      // stopped for good: further intervals do not fire another update
+      await clock.tickAsync(2 * service.IDENTITY_BACKFILL_INTERVAL_MS);
+      sinon.assert.calledOnce(dbHelperStub.updateInDatabase);
+    });
+
+    it('keeps retrying while the daemon stays unreachable', async () => {
+      const clock = sinon.useFakeTimers(new Date('2026-07-16T10:00:00Z'));
+      fluxnodeRpcsStub.getFluxNodeStatus.rejects(new Error('daemon down'));
+
+      await service.checkNodeReboot();
+      await clock.tickAsync(2 * service.IDENTITY_BACKFILL_INTERVAL_MS);
+
+      expect(dbHelperStub.updateInDatabase.called).to.be.false;
+      expect(fluxnodeRpcsStub.getFluxNodeStatus.callCount).to.be.greaterThan(1);
+    });
+
+    it('does not start a second timer when called repeatedly', async () => {
+      const clock = sinon.useFakeTimers(new Date('2026-07-16T10:00:00Z'));
+      fluxnodeRpcsStub.getFluxNodeStatus.rejects(new Error('daemon down'));
+
+      service.startIdentityBackfill();
+      service.startIdentityBackfill();
+      await clock.tickAsync(service.IDENTITY_BACKFILL_INTERVAL_MS);
+
+      // one immediate attempt + one interval tick — not doubled
+      expect(fluxnodeRpcsStub.getFluxNodeStatus.callCount).to.equal(2);
     });
   });
 
@@ -151,9 +484,9 @@ describe('appTamperingDetectionService tests', () => {
       return res;
     }
 
-    it('returns all events when no appname filter, sorted by detectedAt desc', async () => {
+    it('returns events newest first, keeping _id as the stable paging key', async () => {
       findResults = [
-        { appName: 'a', eventType: 'x', detectedAt: new Date() },
+        { _id: 'x', appName: 'a', eventType: 'y' },
       ];
       const req = { params: {}, query: {} };
       const res = makeRes();
@@ -162,9 +495,54 @@ describe('appTamperingDetectionService tests', () => {
 
       expect(lastFindArgs.coll).to.equal('apptamperingevents');
       expect(lastFindArgs.query).to.deep.equal({});
-      expect(lastFindArgs.options.sort).to.deep.equal({ detectedAt: -1 });
-      expect(lastFindArgs.options.projection).to.deep.equal({ _id: 0 });
+      expect(lastFindArgs.options.sort).to.deep.equal({ lastSeen: -1, detectedAt: -1 });
+      expect(lastFindArgs.options.projection).to.equal(undefined);
       sinon.assert.calledWith(res.json, sinon.match({ status: 'success' }));
+    });
+
+    it('caps results at the default limit when none is requested', async () => {
+      const req = { params: {}, query: {} };
+      const res = makeRes();
+
+      await service.getEvents(req, res);
+
+      expect(lastFindArgs.options.limit).to.equal(500);
+    });
+
+    it('honours an explicit limit', async () => {
+      const req = { params: {}, query: { limit: '50' } };
+      const res = makeRes();
+
+      await service.getEvents(req, res);
+
+      expect(lastFindArgs.options.limit).to.equal(50);
+    });
+
+    it('clamps the limit to the maximum', async () => {
+      const req = { params: {}, query: { limit: '999999' } };
+      const res = makeRes();
+
+      await service.getEvents(req, res);
+
+      expect(lastFindArgs.options.limit).to.equal(1000);
+    });
+
+    it('clamps a non-positive limit up to 1', async () => {
+      const req = { params: {}, query: { limit: '-5' } };
+      const res = makeRes();
+
+      await service.getEvents(req, res);
+
+      expect(lastFindArgs.options.limit).to.equal(1);
+    });
+
+    it('falls back to the default limit on a non-numeric limit', async () => {
+      const req = { params: {}, query: { limit: 'lots' } };
+      const res = makeRes();
+
+      await service.getEvents(req, res);
+
+      expect(lastFindArgs.options.limit).to.equal(500);
     });
 
     it('filters by appname from params', async () => {
@@ -185,6 +563,18 @@ describe('appTamperingDetectionService tests', () => {
       expect(lastFindArgs.query).to.deep.equal({ appName: 'otherapp' });
     });
 
+    it('coerces an object appname query param to a string (NoSQL operator guard)', async () => {
+      // Express extended parser turns ?appname[$gt]= into an object; it must
+      // not reach the mongo filter as a field-level operator.
+      const req = { params: {}, query: { appname: { $gt: '' } } };
+      const res = makeRes();
+
+      await service.getEvents(req, res);
+
+      expect(lastFindArgs.query.appName).to.be.a('string');
+      expect(lastFindArgs.query.appName).to.equal('[object Object]');
+    });
+
     it('returns an error message when the query throws', async () => {
       dbHelperStub.findInDatabase = sinon.stub().rejects(new Error('db down'));
       const req = { params: {}, query: {} };
@@ -196,82 +586,128 @@ describe('appTamperingDetectionService tests', () => {
     });
   });
 
-  describe('checkFrequentRestart', () => {
-    it('records a frequent_restart event when previous start was under one hour ago', async () => {
-      const previousAt = new Date(Date.now() - (30 * 60 * 1000)); // 30 min ago
-      dbHelperStub.findOneInDatabase = sinon.stub().resolves({ _id: 'lastStartup', at: previousAt });
+  describe('checkNodeReboot', () => {
+    function setMarker(marker) {
+      dbHelperStub.findOneInDatabase = sinon.stub().callsFake(async (db, coll, query) => {
+        if (coll === 'nodestartuptracker' && query._id === 'lastStartup') return marker;
+        return null;
+      });
+    }
 
-      await service.checkFrequentRestart();
+    it('records a reboot only in the boot history, never as an incident', async () => {
+      setMarker({ _id: 'lastStartup', at: new Date('2026-07-15T10:00:00Z'), bootId: PREVIOUS_BOOT_ID });
 
-      expect(insertedDocs).to.have.lengthOf(1);
-      const { doc } = insertedDocs[0];
-      expect(doc.appName).to.equal(service.SYSTEM_APP_NAME);
-      expect(doc.eventType).to.equal('frequent_restart');
-      expect(doc.details).to.match(/FluxOS restarted \d+s after previous start/);
+      await service.checkNodeReboot();
+
+      expect(eventUpserts()).to.have.lengthOf(0);
+      expect(historyUpdates()).to.have.lengthOf(1);
+      expect(markerUpdates()).to.have.lengthOf(1);
     });
 
-    it('does NOT record an event when previous start was over one hour ago', async () => {
-      const previousAt = new Date(Date.now() - (2 * 60 * 60 * 1000)); // 2 hours ago
-      dbHelperStub.findOneInDatabase = sinon.stub().resolves({ _id: 'lastStartup', at: previousAt });
+    it('does NOT record an incident on a same-boot_id process restart', async () => {
+      setMarker({ _id: 'lastStartup', at: new Date(), bootId: CURRENT_BOOT_ID });
 
-      await service.checkFrequentRestart();
+      await service.checkNodeReboot();
 
-      expect(insertedDocs).to.have.lengthOf(0);
+      expect(eventUpserts()).to.have.lengthOf(0);
+      expect(historyUpdates()).to.have.lengthOf(0);
+      expect(markerUpdates()).to.have.lengthOf(1);
     });
 
-    it('does NOT record an event when previous start is exactly at threshold', async () => {
-      const previousAt = new Date(Date.now() - service.FREQUENT_RESTART_THRESHOLD_MS);
-      dbHelperStub.findOneInDatabase = sinon.stub().resolves({ _id: 'lastStartup', at: previousAt });
+    it('does NOT record an incident on first-ever startup, but seeds marker and history', async () => {
+      setMarker(null);
 
-      await service.checkFrequentRestart();
+      await service.checkNodeReboot();
 
-      expect(insertedDocs).to.have.lengthOf(0);
+      expect(eventUpserts()).to.have.lengthOf(0);
+      expect(historyUpdates()).to.have.lengthOf(1);
+      const marker = markerUpdates();
+      expect(marker).to.have.lengthOf(1);
+      expect(marker[0].update.$set.bootId).to.equal(CURRENT_BOOT_ID);
+      expect(marker[0].update.$set.at).to.be.instanceOf(Date);
+      expect(marker[0].options).to.deep.equal({ upsert: true });
     });
 
-    it('does NOT record an event on first-ever startup (no previous marker)', async () => {
-      dbHelperStub.findOneInDatabase = sinon.stub().resolves(null);
+    it('does NOT record an incident when upgrading from a marker without bootId', async () => {
+      // Pre-boot_id marker only carried `at`; reboot vs restart is unknowable.
+      setMarker({ _id: 'lastStartup', at: new Date(Date.now() - 1000) });
 
-      await service.checkFrequentRestart();
+      await service.checkNodeReboot();
 
-      expect(insertedDocs).to.have.lengthOf(0);
+      expect(eventUpserts()).to.have.lengthOf(0);
+      expect(historyUpdates()).to.have.lengthOf(1);
+      expect(markerUpdates()).to.have.lengthOf(1);
     });
 
-    it('ignores a negative delta (clock skew: previous marker in the future)', async () => {
-      const previousAt = new Date(Date.now() + (5 * 60 * 1000)); // 5 min in future
-      dbHelperStub.findOneInDatabase = sinon.stub().resolves({ _id: 'lastStartup', at: previousAt });
+    it('appends the new boot to the rolling history on reboot', async () => {
+      setMarker({ _id: 'lastStartup', at: new Date(), bootId: PREVIOUS_BOOT_ID });
 
-      await service.checkFrequentRestart();
+      await service.checkNodeReboot();
 
-      expect(insertedDocs).to.have.lengthOf(0);
+      const history = historyUpdates();
+      expect(history).to.have.lengthOf(1);
+      const push = history[0].update.$push.boots;
+      expect(push.$each[0].bootId).to.equal(CURRENT_BOOT_ID);
+      expect(push.$each[0].at).to.be.instanceOf(Date);
+      // bootedAt = FluxOS start minus the stubbed 3600s of machine uptime
+      expect(push.$each[0].bootedAt).to.be.instanceOf(Date);
+      expect(push.$each[0].at.getTime() - push.$each[0].bootedAt.getTime()).to.equal(3600 * 1000);
+      expect(push.$slice).to.equal(-service.BOOT_HISTORY_MAX);
+      expect(history[0].options).to.deep.equal({ upsert: true });
     });
 
-    it('always upserts the startup marker to now', async () => {
-      dbHelperStub.findOneInDatabase = sinon.stub().resolves(null);
+    it('purges all pre-schema rows at startup', async () => {
+      await service.checkNodeReboot();
 
-      await service.checkFrequentRestart();
+      sinon.assert.calledOnce(dbHelperStub.removeDocumentsFromCollection);
+      const { args } = dbHelperStub.removeDocumentsFromCollection.firstCall;
+      expect(args[1]).to.equal('apptamperingevents');
+      expect(args[2]).to.deep.equal({ schemaVersion: { $exists: false } });
+    });
 
-      sinon.assert.calledOnce(dbHelperStub.findOneAndUpdateInDatabase);
-      const args = dbHelperStub.findOneAndUpdateInDatabase.firstCall.args;
-      expect(args[1]).to.equal('nodestartuptracker'); // collection
-      expect(args[2]).to.deep.equal({ _id: 'lastStartup' });
-      expect(args[3].$set.at).to.be.instanceOf(Date);
-      expect(args[4]).to.deep.equal({ upsert: true });
+    it('still tracks the boot when the legacy purge fails', async () => {
+      dbHelperStub.removeDocumentsFromCollection = sinon.stub().rejects(new Error('no permission'));
+
+      await service.checkNodeReboot();
+
+      expect(markerUpdates()).to.have.lengthOf(1);
+      sinon.assert.called(logStub.warn);
+    });
+
+    it('skips entirely when boot_id cannot be read', async () => {
+      fsReadFileStub.rejects(new Error('ENOENT'));
+
+      await service.checkNodeReboot();
+
+      expect(upsertCalls).to.have.lengthOf(0);
+      sinon.assert.called(logStub.warn);
+    });
+
+    it('skips entirely when boot_id reads empty', async () => {
+      fsReadFileStub.resolves('  \n');
+
+      await service.checkNodeReboot();
+
+      expect(upsertCalls).to.have.lengthOf(0);
     });
 
     it('no-ops when DB is unavailable', async () => {
       dbHelperStub.databaseConnection = sinon.stub().returns(null);
 
-      await service.checkFrequentRestart();
+      await service.checkNodeReboot();
 
       expect(dbHelperStub.findOneInDatabase.called).to.be.false;
       expect(dbHelperStub.findOneAndUpdateInDatabase.called).to.be.false;
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.false;
     });
 
-    it('swallows errors without throwing', async () => {
+    it('swallows errors without throwing and logs them', async () => {
       dbHelperStub.findOneInDatabase = sinon.stub().rejects(new Error('mongo down'));
 
-      await service.checkFrequentRestart();
-      // test passes if no exception propagates
+      await service.checkNodeReboot();
+
+      sinon.assert.calledOnce(logStub.error);
+      expect(logStub.error.firstCall.args[0]).to.include('mongo down');
     });
   });
 });

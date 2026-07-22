@@ -170,6 +170,105 @@ async function restartWaitMs(identifier, lastFinishedAtMs = null) {
 }
 
 /**
+ * The network-detach heal force-removes a container in order to recreate it with
+ * a fresh endpoint. Between those two steps the container is legitimately absent,
+ * and that fact MUST be durable: if FluxOS restarts in that window, the next
+ * reconcile would otherwise see a missing container with no heal in flight, call
+ * it vanished (a false tampering signal) and, on a failed recreate, uninstall the
+ * whole app. This flag is the reconciler's memory of "I removed this on purpose";
+ * it is set before the remove and cleared once the container is seen running AND
+ * attached again (see appReconciler).
+ *
+ * @param {string} identifier
+ * @param {boolean} removed
+ */
+async function setNetworkHealRemoval(identifier, removed) {
+  // No catch: the flag is what keeps a failed heal from escalating to an app
+  // uninstall. If it cannot be persisted, the caller must not remove the container.
+  await setFields(identifier, { networkHealRemoval: removed });
+}
+
+/**
+ * Whether the reconciler removed this container itself for a network heal.
+ *
+ * Deliberately does NOT reuse getState: getState swallows a read failure and
+ * returns null, which here would read as "not a heal removal" - the DESTRUCTIVE
+ * direction (the caller would treat its own removal as a vanished container,
+ * record a false tampering event and, on a failed recreate, uninstall the app).
+ * A read failure must be a failure, so the caller can defer instead of guess.
+ *
+ * @param {string} identifier
+ * @returns {Promise<boolean>} - throws if the state cannot be read
+ */
+async function isNetworkHealRemoval(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  const database = collection();
+  const state = await dbHelper.findOneInDatabase(database, appsRuntimeState, { identifier }, { projection: { _id: 0 } });
+  return state?.networkHealRemoval === true;
+}
+
+/**
+ * Appends a network-heal attempt to its OWN durable ladder. Kept separate from
+ * restartHistory: sharing it would cross-contaminate in both directions - a heal
+ * that recreates a g: component (created, not started) would then have the very
+ * container it just fixed held down by the crash ladder its own attempts grew,
+ * and a crash-looping container could not be healed for up to the 30m cap.
+ *
+ * @param {string} identifier
+ */
+async function recordNetworkHealAttempt(identifier) {
+  // No catch: pacing that silently fails to persist means the next pass sees an
+  // empty ladder, waits 0, and hammers the destructive heal. The caller defers.
+  const state = await getState(identifier);
+  const history = (state && state.networkHealHistory) || [];
+  history.push(Date.now());
+  if (history.length > MAX_HISTORY) {
+    history.splice(0, history.length - MAX_HISTORY);
+  }
+  await setFields(identifier, { networkHealHistory: history });
+}
+
+/**
+ * How long (ms) before the next network-heal attempt is allowed - 0 means now.
+ * Same ladder shape as the crash backoff (immediate, 30s, 5m, 15m, 30m cap), so
+ * a container that keeps coming back detached is retried forever but at a
+ * decaying rate. The ladder is reset by clearNetworkHeal once the container is
+ * seen healthy, so a later, unrelated episode starts from the bottom again.
+ *
+ * @param {string} identifier
+ * @returns {Promise<number>}
+ */
+async function networkHealWaitMs(identifier) {
+  const state = await getState(identifier);
+  const history = (state && state.networkHealHistory) || [];
+  if (history.length === 0) return 0;
+  const last = history[history.length - 1];
+  const index = Math.min(history.length, BACKOFF_DELAYS_MS.length - 1);
+  return Math.max(0, BACKOFF_DELAYS_MS[index] - (Date.now() - last));
+}
+
+/**
+ * Drops all network-heal state (the removal flag and the heal ladder) once the
+ * container is healthy again. Reads first so the healthy steady state - every
+ * reconcile of every attached container - costs a lookup, not a write.
+ *
+ * @param {string} identifier
+ */
+async function clearNetworkHeal(identifier) {
+  try {
+    const state = await getState(identifier);
+    if (!state) return;
+    if (state.networkHealRemoval !== true && !(state.networkHealHistory || []).length) return;
+    await setFields(identifier, { networkHealRemoval: false, networkHealHistory: [] });
+  } catch (err) {
+    // A stale flag only ever makes the reconciler MORE conservative (it keeps
+    // recreating instead of escalating to an uninstall), so a failed clear is safe
+    // to log and move on from - unlike a failed set, which must abort the remove.
+    log.error(`appsRuntimeState - failed to clear network heal state for ${identifier}: ${err.message}`);
+  }
+}
+
+/**
  * Records the last observed exit for diagnostics / tampering signals.
  *
  * @param {string} identifier
@@ -227,6 +326,10 @@ async function prepareCollection() {
           identifier,
           // a lock anywhere is a lock: never auto-start a deliberately stopped app
           operatorStopped: twins.some((t) => t.operatorStopped === true),
+          // likewise, a heal-removal anywhere means a heal may be mid-flight: keep
+          // the reconciler on the recreate path rather than the uninstall path
+          networkHealRemoval: twins.some((t) => t.networkHealRemoval === true),
+          networkHealHistory: [...new Set(twins.flatMap((t) => t.networkHealHistory || []))].sort((a, b) => a - b).slice(-MAX_HISTORY),
           restartHistory: [...new Set(twins.flatMap((t) => t.restartHistory || []))].sort((a, b) => a - b).slice(-MAX_HISTORY),
           updatedAt: Math.max(...twins.map((t) => t.updatedAt || 0)),
         };
@@ -255,6 +358,11 @@ module.exports = {
   isOperatorStopped,
   recordRestart,
   restartWaitMs,
+  setNetworkHealRemoval,
+  isNetworkHealRemoval,
+  recordNetworkHealAttempt,
+  networkHealWaitMs,
+  clearNetworkHeal,
   recordExit,
   remove,
   BACKOFF_DELAYS_MS,

@@ -185,6 +185,10 @@ async function startFluxFunctions() {
     await ensureIndex(database.collection(config.database.local.collections.activePaymentRequests), { createdAt: 1 }, { expireAfterSeconds: 3600 });
     await ensureIndex(database.collection(config.database.local.collections.completedPayments), { paymentId: 1 });
     await ensureIndex(database.collection(config.database.local.collections.completedPayments), { createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 });
+    // legacy pre-incident-schema rows expire via detectedAt; current incident
+    // documents expire via lastSeen. The tamper service purges pre-schema
+    // rows at startup, so the detectedAt pair only matters where old code
+    // still writes; drop it once the fleet is past the incident schema.
     await ensureIndex(
       database.collection(config.database.local.collections.appTamperingEvents),
       { detectedAt: 1 },
@@ -195,7 +199,25 @@ async function startFluxFunctions() {
       { appName: 1, detectedAt: -1 },
       { name: 'appName_detectedAt' },
     );
-    await appTamperingDetectionService.checkFrequentRestart();
+    await ensureIndex(
+      database.collection(config.database.local.collections.appTamperingEvents),
+      { lastSeen: 1 },
+      { expireAfterSeconds: 30 * 24 * 60 * 60, name: 'lastSeen_ttl' }, // 30 days
+    );
+    // upsert key of the incident rollup; unique so concurrent recorders
+    // cannot double-insert an incident. Partial: legacy rows lack incidentKey
+    // and would otherwise collide on null.
+    await ensureIndex(
+      database.collection(config.database.local.collections.appTamperingEvents),
+      { appName: 1, eventType: 1, incidentKey: 1 },
+      { unique: true, partialFilterExpression: { incidentKey: { $exists: true } }, name: 'incident_upsert' },
+    );
+    await ensureIndex(
+      database.collection(config.database.local.collections.appTamperingEvents),
+      { appName: 1, eventType: 1, lastSeen: -1 },
+      { name: 'appName_eventType_lastSeen' },
+    );
+    await appTamperingDetectionService.checkNodeReboot();
     // appsRuntimeState (localzelapps): merge any pre-unique-index duplicate docs,
     // then enforce one doc per component identifier
     await appsRuntimeState.prepareCollection();

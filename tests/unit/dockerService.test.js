@@ -258,6 +258,177 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('classifyContainerNetworkAttachment / isContainerDetachedFromNetwork tests', () => {
+    it('reports attached when the managed network carries an IP', () => {
+      const attachment = dockerService.classifyContainerNetworkAttachment({
+        HostConfig: { NetworkMode: 'fluxDockerNetwork_appx' },
+        State: { Running: true },
+        NetworkSettings: { Networks: { fluxDockerNetwork_appx: { IPAddress: '172.23.0.5' } } },
+      });
+
+      expect(attachment).to.deep.equal({
+        managed: true, running: true, networkMode: 'fluxDockerNetwork_appx', attached: true,
+      });
+      expect(dockerService.isContainerDetachedFromNetwork(attachment)).to.equal(false);
+    });
+
+    it('flags a running managed container with an empty Networks as detached', () => {
+      const attachment = dockerService.classifyContainerNetworkAttachment({
+        HostConfig: { NetworkMode: 'fluxDockerNetwork_appx' },
+        State: { Running: true },
+        NetworkSettings: { Networks: {} },
+      });
+
+      expect(attachment.managed).to.equal(true);
+      expect(attachment.attached).to.equal(false);
+      expect(dockerService.isContainerDetachedFromNetwork(attachment)).to.equal(true);
+    });
+
+    it('flags detached when the endpoint exists but has no IP (half-programmed)', () => {
+      const attachment = dockerService.classifyContainerNetworkAttachment({
+        HostConfig: { NetworkMode: 'fluxDockerNetwork_appx' },
+        State: { Running: true },
+        NetworkSettings: { Networks: { fluxDockerNetwork_appx: { IPAddress: '' } } },
+      });
+
+      expect(dockerService.isContainerDetachedFromNetwork(attachment)).to.equal(true);
+    });
+
+    it('does not flag a stopped container as detached', () => {
+      const attachment = dockerService.classifyContainerNetworkAttachment({
+        HostConfig: { NetworkMode: 'fluxDockerNetwork_appx' },
+        State: { Running: false },
+        NetworkSettings: { Networks: {} },
+      });
+
+      expect(attachment.running).to.equal(false);
+      expect(dockerService.isContainerDetachedFromNetwork(attachment)).to.equal(false);
+    });
+
+    it('never flags a non-managed (host-networked) container as detached', () => {
+      const attachment = dockerService.classifyContainerNetworkAttachment({
+        HostConfig: { NetworkMode: 'host' },
+        State: { Running: true },
+        NetworkSettings: { Networks: {} },
+      });
+
+      expect(attachment.managed).to.equal(false);
+      expect(dockerService.isContainerDetachedFromNetwork(attachment)).to.equal(false);
+    });
+
+    it('tolerates a partial/empty inspect object', () => {
+      const attachment = dockerService.classifyContainerNetworkAttachment({});
+      expect(attachment).to.deep.equal({
+        managed: false, running: false, networkMode: null, attached: false,
+      });
+    });
+
+    it('isContainerDetachedFromNetwork tolerates missing input', () => {
+      expect(dockerService.isContainerDetachedFromNetwork(undefined)).to.equal(false);
+      expect(dockerService.isContainerDetachedFromNetwork(null)).to.equal(false);
+    });
+  });
+
+  describe('dockerNetworkState tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('reports exists when the network inspects cleanly', async () => {
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ inspect: sinon.stub().resolves({ Name: 'fluxDockerNetwork_appx' }) });
+
+      await expect(dockerService.dockerNetworkState('fluxDockerNetwork_appx')).to.eventually.equal('exists');
+    });
+
+    it('reports absent only when docker itself confirms the network is not listed', async () => {
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ inspect: sinon.stub().rejects(new Error('no such network')) });
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([{ Name: 'bridge' }, { Name: 'fluxDockerNetwork_other' }]);
+
+      await expect(dockerService.dockerNetworkState('fluxDockerNetwork_appx')).to.eventually.equal('absent');
+    });
+
+    it('reports exists when the inspect failed transiently but the network IS listed', async () => {
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ inspect: sinon.stub().rejects(new Error('EAI_AGAIN')) });
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([{ Name: 'fluxDockerNetwork_appx' }]);
+
+      await expect(dockerService.dockerNetworkState('fluxDockerNetwork_appx')).to.eventually.equal('exists');
+    });
+
+    it('reports unknown (never absent) when docker cannot answer at all', async () => {
+      // the caller destroys a container on "absent", so an unreachable daemon must
+      // never be read as a missing network
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({ inspect: sinon.stub().rejects(new Error('connect ENOENT /var/run/docker.sock')) });
+      sinon.stub(Dockerode.prototype, 'listNetworks').rejects(new Error('connect ENOENT /var/run/docker.sock'));
+
+      await expect(dockerService.dockerNetworkState('fluxDockerNetwork_appx')).to.eventually.equal('unknown');
+    });
+  });
+
+  describe('getFreeFluxAppNetworkOctet tests', () => {
+    const net = (subnet) => ({ Name: 'fluxDockerNetwork_x', IPAM: { Config: [{ Subnet: subnet }] } });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('returns the lowest free octet (1) when only the base network exists', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([net('172.23.0.0/24')]);
+
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.equal(1);
+    });
+
+    it('returns the first gap when low octets are already taken', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(
+        ['172.23.0.0/24', '172.23.1.0/24', '172.23.2.0/24', '172.23.4.0/24'].map(net),
+      );
+
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.equal(3);
+    });
+
+    it('ignores subnets outside the 172.23.x.0/24 app range', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(
+        ['172.23.1.0/24', '10.0.0.0/24', null].map(net),
+      );
+
+      // only octet 1 is a used app subnet, so 2 is the lowest free
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.equal(2);
+    });
+
+    it('returns null when every 172.23.x.0/24 block is taken', async () => {
+      const all = [];
+      for (let octet = 0; octet <= 255; octet += 1) all.push(net(`172.23.${octet}.0/24`));
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(all);
+
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.be.null;
+    });
+
+    it('counts NON-flux networks too (docker enforces global subnet uniqueness)', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([
+        { Name: 'bridge', IPAM: { Config: [{ Subnet: '172.23.1.0/24' }] } },
+        net('172.23.2.0/24'),
+      ]);
+
+      // octet 1 (a non-flux network) and 2 (flux) are both used -> 3 is lowest free
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.equal(3);
+    });
+
+    it('treats excluded octets as used (collision-retry advancement)', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([net('172.23.0.0/24')]);
+
+      await expect(dockerService.getFreeFluxAppNetworkOctet(new Set([1, 2, 3]))).to.eventually.equal(4);
+    });
+
+    it('tolerates networks with no IPAM config', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([
+        { Name: 'host' },
+        { Name: 'none', IPAM: {} },
+        net('172.23.1.0/24'),
+      ]);
+
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.equal(2);
+    });
+  });
+
   describe('dockerContainerStats tests', () => {
     it('should return a valid stats object', async () => {
       const containerName = 'website';
