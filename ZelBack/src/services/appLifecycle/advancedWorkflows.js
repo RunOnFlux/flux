@@ -41,9 +41,6 @@ const appNetworkLinker = require('./appNetworkLinker');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
-// Legacy apps that use old gateway IP assignment method
-const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
-
 // Master/slave app tracking
 const mastersRunningGSyncthingApps = new Map();
 const timeTostartNewMasterApp = new Map();
@@ -921,47 +918,14 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     await appNetworkLinker.checkAppNetworkRequirements(appSpecifications);
 
     if (!isComponent) {
-      let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
-      if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
-        dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
-      }
-      const fluxNetworkStatus = {
-        status: `Checking Flux App network of ${appName}...`,
-      };
-      log.info(fluxNetworkStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(fluxNetworkStatus));
-        if (res.flush) res.flush();
-      }
-      let fluxNet = null;
-      for (let i = 0; i <= 20; i += 1) {
-        // eslint-disable-next-line no-await-in-loop
-        fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
-        if (fluxNet || appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
-          break;
-        }
-        dockerNetworkAddrValue = Math.floor(Math.random() * 256);
-      }
-      if (!fluxNet) {
-        throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
-      }
-      log.info(serviceHelper.ensureString(fluxNet));
-      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
-      const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
-      const accessRemovedRes = {
-        status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
-      };
-      if (res) {
-        res.write(serviceHelper.ensureString(accessRemovedRes));
-        if (res.flush) res.flush();
-      }
-      const fluxNetResponse = {
-        status: `Docker network of ${appName} initiated.`,
-      };
-      if (res) {
-        res.write(serviceHelper.ensureString(fluxNetResponse));
-        if (res.flush) res.flush();
-      }
+      // One creator for install and heal: idempotent, collision-safe, and
+      // exhaustion-bounded. Replaces the old random-octet + fixed-21-retry loop
+      // that could pick octet 0 (colliding with the base network) and throw while
+      // subnets were still free, escalating a soft-register to an uninstall.
+      // Dynamic require because appInstaller <-> advancedWorkflows is a circular
+      // dependency (dynamically required throughout this file); to be untangled in v9.
+      const appInstaller = require('./appInstaller');
+      await appInstaller.ensureAppDockerNetwork(appName, res);
     }
 
     const appInstallation = {

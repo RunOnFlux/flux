@@ -1473,6 +1473,34 @@ async function getFluxDockerNetworkSubnets() {
 }
 
 /**
+ * Returns the lowest free third octet for a new flux app network
+ * (172.23.<octet>.0/24). It scans EVERY docker network's subnet (not just flux
+ * ones) because docker enforces subnet uniqueness across all networks - a non-flux
+ * network sitting on a 172.23.x block must be treated as used or the create would
+ * fail. The optional excludeOctets lets a caller skip octets it has already lost a
+ * create race on this attempt, so a bounded collision retry keeps advancing to a
+ * genuinely free octet rather than re-picking the same one. Deterministic and
+ * reports exhaustion definitively (null) rather than guessing.
+ * @param {Set<number>} [excludeOctets] octets to treat as used (already tried/lost)
+ * @returns {Promise<number|null>} lowest free octet in 1..255, or null if none free
+ */
+async function getFreeFluxAppNetworkOctet(excludeOctets = new Set()) {
+  const networks = await docker.listNetworks();
+  const used = new Set(excludeOctets);
+  networks.forEach((network) => {
+    const configs = (network.IPAM && network.IPAM.Config) || [];
+    configs.forEach((cfg) => {
+      const match = /^172\.23\.(\d{1,3})\.0\/24$/.exec((cfg && cfg.Subnet) || '');
+      if (match) used.add(Number(match[1]));
+    });
+  });
+  for (let octet = 1; octet <= 255; octet += 1) {
+    if (!used.has(octet)) return octet;
+  }
+  return null;
+}
+
+/**
  * Creates flux application docker network if doesn't exist
  *
  * @returns {object} response
@@ -1878,6 +1906,7 @@ module.exports = {
   getDockerContainerOnly,
   getFluxDockerNetworkPhysicalInterfaceNames,
   getFluxDockerNetworkSubnets,
+  getFreeFluxAppNetworkOctet,
   migrateContainerRestartPolicies,
   pruneContainers,
   pruneImages,

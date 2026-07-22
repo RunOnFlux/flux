@@ -45,6 +45,7 @@ describe('containerHealthMonitor tests', () => {
     appInstallerStub = {
       installApplicationHard: sinon.stub().resolves(),
       installApplicationSoft: sinon.stub().resolves(),
+      ensureAppDockerNetwork: sinon.stub().resolves('network-ready'),
     };
 
     appUninstallerStub = {
@@ -119,6 +120,15 @@ describe('containerHealthMonitor tests', () => {
       const [componentSpec, mainAppName] = appInstallerStub.installApplicationSoft.firstCall.args;
       expect(componentSpec.name).to.equal('web');
       expect(mainAppName).to.equal('testapp');
+    });
+
+    it('ensures the app docker network before recreating any container', async () => {
+      // A pruned per-app network (docker prune / daemon restart) is created only
+      // at install time; without this the recreate loops on "network not found".
+      volumeServiceStub.verifyAppVolumeMount.resolves(true);
+      await containerHealthMonitor.recreateMissingContainers('web_testapp');
+      expect(appInstallerStub.ensureAppDockerNetwork.calledOnceWith('testapp')).to.be.true;
+      expect(appInstallerStub.ensureAppDockerNetwork.calledBefore(appInstallerStub.installApplicationSoft)).to.be.true;
     });
 
     it('hard-installs a single component when its volume is gone', async () => {

@@ -364,6 +364,71 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('getFreeFluxAppNetworkOctet tests', () => {
+    const net = (subnet) => ({ Name: 'fluxDockerNetwork_x', IPAM: { Config: [{ Subnet: subnet }] } });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('returns the lowest free octet (1) when only the base network exists', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([net('172.23.0.0/24')]);
+
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.equal(1);
+    });
+
+    it('returns the first gap when low octets are already taken', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(
+        ['172.23.0.0/24', '172.23.1.0/24', '172.23.2.0/24', '172.23.4.0/24'].map(net),
+      );
+
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.equal(3);
+    });
+
+    it('ignores subnets outside the 172.23.x.0/24 app range', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(
+        ['172.23.1.0/24', '10.0.0.0/24', null].map(net),
+      );
+
+      // only octet 1 is a used app subnet, so 2 is the lowest free
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.equal(2);
+    });
+
+    it('returns null when every 172.23.x.0/24 block is taken', async () => {
+      const all = [];
+      for (let octet = 0; octet <= 255; octet += 1) all.push(net(`172.23.${octet}.0/24`));
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(all);
+
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.be.null;
+    });
+
+    it('counts NON-flux networks too (docker enforces global subnet uniqueness)', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([
+        { Name: 'bridge', IPAM: { Config: [{ Subnet: '172.23.1.0/24' }] } },
+        net('172.23.2.0/24'),
+      ]);
+
+      // octet 1 (a non-flux network) and 2 (flux) are both used -> 3 is lowest free
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.equal(3);
+    });
+
+    it('treats excluded octets as used (collision-retry advancement)', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([net('172.23.0.0/24')]);
+
+      await expect(dockerService.getFreeFluxAppNetworkOctet(new Set([1, 2, 3]))).to.eventually.equal(4);
+    });
+
+    it('tolerates networks with no IPAM config', async () => {
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves([
+        { Name: 'host' },
+        { Name: 'none', IPAM: {} },
+        net('172.23.1.0/24'),
+      ]);
+
+      await expect(dockerService.getFreeFluxAppNetworkOctet()).to.eventually.equal(2);
+    });
+  });
+
   describe('dockerContainerStats tests', () => {
     it('should return a valid stats object', async () => {
       const containerName = 'website';
