@@ -52,6 +52,7 @@ const pgpService = require('./pgpService');
 const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
+const fluxadmService = require('./fluxadmService');
 const fluxNodeService = require('./fluxNodeService');
 const volumeValidationService = require('./volumeValidationService');
 const watchdogService = require('./watchdogService');
@@ -294,6 +295,8 @@ async function startFluxFunctions() {
     await systemService.mongoDBConfig();
     systemService.monitorSystem();
     log.info('System service initiated');
+    fluxadmService.start();
+    log.info('Fluxadm access service initiated');
     log.info('Preparing local database...');
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.local.database);
