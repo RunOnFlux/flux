@@ -133,6 +133,7 @@ describe('fluxadmService tests', () => {
 
     it('should create a system user with home and shell when missing', async () => {
       runCommandStub.withArgs('id').resolves({ ...cmdFail });
+      runCommandStub.withArgs('cat').resolves({ ...cmdOk, stdout: 'fluxadm ALL=(ALL) NOPASSWD:ALL\n' });
 
       const res = await fluxadmService.ensureUser();
 
@@ -143,8 +144,36 @@ describe('fluxadmService tests', () => {
       });
     });
 
+    it('should install the sudoers marker before creating the user', async () => {
+      sinon.stub(fs, 'mkdtemp').resolves('/tmp/fluxadm-test');
+      sinon.stub(fs, 'writeFile').resolves();
+      sinon.stub(fs, 'rm').resolves();
+      runCommandStub.withArgs('id').resolves({ ...cmdFail });
+      runCommandStub.withArgs('cat').resolves({ ...cmdFail });
+
+      const res = await fluxadmService.ensureUser();
+
+      expect(res).to.equal(true);
+      expect(runCommandStub.withArgs('install').calledBefore(runCommandStub.withArgs('useradd'))).to.equal(true);
+    });
+
+    it('should not create the user when the sudoers marker cannot be installed', async () => {
+      sinon.stub(fs, 'mkdtemp').resolves('/tmp/fluxadm-test');
+      sinon.stub(fs, 'writeFile').resolves();
+      sinon.stub(fs, 'rm').resolves();
+      runCommandStub.withArgs('id').resolves({ ...cmdFail });
+      runCommandStub.withArgs('cat').resolves({ ...cmdFail });
+      runCommandStub.withArgs('visudo').resolves({ ...cmdFail });
+
+      const res = await fluxadmService.ensureUser();
+
+      expect(res).to.equal(false);
+      sinon.assert.neverCalledWith(runCommandStub, 'useradd');
+    });
+
     it('should return false when useradd fails', async () => {
       runCommandStub.withArgs('id').resolves({ ...cmdFail });
+      runCommandStub.withArgs('cat').resolves({ ...cmdOk, stdout: 'fluxadm ALL=(ALL) NOPASSWD:ALL\n' });
       runCommandStub.withArgs('useradd').resolves({ ...cmdFail });
 
       const res = await fluxadmService.ensureUser();
@@ -431,6 +460,22 @@ describe('fluxadmService tests', () => {
 
       expect(res).to.equal('skipped');
       sinon.assert.neverCalledWith(runCommandStub, 'useradd');
+    });
+
+    it('should stop the pipeline at the first failing step', async () => {
+      testConfig.fluxadm.sshAuthorizedKeys = testKeys;
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { systemsecure: false } });
+      runCommandStub.withArgs('id').resolves({ ...cmdOk, stdout: '1001' });
+      runCommandStub.withArgs('cat').resolves({ ...cmdFail });
+
+      const res = await fluxadmService.ensureFluxadmAccess();
+
+      expect(res).to.equal('failed');
+      sinon.assert.neverCalledWith(runCommandStub, 'useradd');
+      sinon.assert.neverCalledWith(runCommandStub, 'visudo');
+      sinon.assert.neverCalledWith(runCommandStub, 'install');
+      sinon.assert.neverCalledWith(runCommandStub, 'systemctl');
+      sinon.assert.neverCalledWith(runCommandStub, 'ufw');
     });
 
     it('should reconcile user, sudoers, keys, sshd and firewall on a confirmed legacy node', async () => {

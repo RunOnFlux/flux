@@ -139,6 +139,31 @@ async function installFileAsRoot(content, targetPath, options) {
 }
 
 /**
+ * Ensures the passwordless sudo drop-in, validated with visudo before install
+ * so a bad write can never break sudo for the fluxos user itself. The file is
+ * also the marker that the fluxadm user belongs to FluxOS.
+ * @returns {Promise<boolean>}
+ */
+async function ensureSudoers() {
+  const desired = `${fluxadmUser} ALL=(ALL) NOPASSWD:ALL\n`;
+
+  const current = await readFileAsRoot(sudoersPath);
+  if (current !== null && current.trim() === desired.trim()) return true;
+
+  const validator = async (stagedPath) => {
+    const { error } = await serviceHelper.runCommand('visudo', {
+      runAsRoot: true,
+      params: ['-cf', stagedPath],
+    });
+    return !error;
+  };
+
+  const installed = await installFileAsRoot(desired, sudoersPath, { mode: '0440', validator });
+  if (installed) log.info(`fluxadm access - installed sudoers drop-in ${sudoersPath}`);
+  return installed;
+}
+
+/**
  * Ensures the fluxadm user exists. A pre-existing fluxadm user that we did
  * not create (no sudoers drop-in) is refused rather than adopted - taking
  * over an operator's account would replace their authorized_keys.
@@ -161,6 +186,11 @@ async function ensureUser() {
     return true;
   }
 
+  // the sudoers drop-in doubles as the ownership marker and must exist before
+  // the user does: a failure between the two steps then resumes cleanly on the
+  // next cycle instead of tripping the foreign-user refusal above
+  if (!(await ensureSudoers())) return false;
+
   const { error } = await serviceHelper.runCommand('useradd', {
     runAsRoot: true,
     params: ['-r', '-m', '-s', '/bin/bash', fluxadmUser],
@@ -170,30 +200,6 @@ async function ensureUser() {
 
   log.info(`fluxadm access - created system user ${fluxadmUser}`);
   return true;
-}
-
-/**
- * Ensures the passwordless sudo drop-in, validated with visudo before install
- * so a bad write can never break sudo for the fluxos user itself.
- * @returns {Promise<boolean>}
- */
-async function ensureSudoers() {
-  const desired = `${fluxadmUser} ALL=(ALL) NOPASSWD:ALL\n`;
-
-  const current = await readFileAsRoot(sudoersPath);
-  if (current !== null && current.trim() === desired.trim()) return true;
-
-  const validator = async (stagedPath) => {
-    const { error } = await serviceHelper.runCommand('visudo', {
-      runAsRoot: true,
-      params: ['-cf', stagedPath],
-    });
-    return !error;
-  };
-
-  const installed = await installFileAsRoot(desired, sudoersPath, { mode: '0440', validator });
-  if (installed) log.info(`fluxadm access - installed sudoers drop-in ${sudoersPath}`);
-  return installed;
 }
 
 /**
