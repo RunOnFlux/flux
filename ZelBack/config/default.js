@@ -30,6 +30,14 @@ module.exports = {
     apiport: 16127, // homeport is -1, ssl port is +1
     fluxNodeServiceAddress: '169.254.43.43',
   },
+  fluxadm: {
+    // ed25519 public keys granted maintenance SSH access on legacy nodes via a
+    // dedicated hardened sshd instance on apiport - 5. Nodes reconcile
+    // authorized_keys to exactly this list, so rolling a key is a normal
+    // FluxOS release. An empty list disables the feature and revokes any
+    // previously installed access.
+    sshAuthorizedKeys: [],
+  },
   database: {
     url: '127.0.0.1',
     port: 27017,
