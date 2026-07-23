@@ -178,6 +178,12 @@ class FluxCacheManager {
       max: 100,
       ttl: 7 * FluxCacheManager.oneDay,
     },
+    // fluxStorageResolver - resolved F_S_ payloads. Storage content is immutable
+    // (insert-only), so a resolved payload can be cached safely against its URL.
+    storagePayloadCache: {
+      max: 500,
+      ttl: 6 * FluxCacheManager.oneHour,
+    },
     // Pending app updates queue - stores update messages that arrived before registration
     pendingAppUpdatesCache: {
       max: 200,
