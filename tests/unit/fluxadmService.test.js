@@ -331,9 +331,12 @@ describe('fluxadmService tests', () => {
       sinon.stub(fs, 'rm').resolves();
     });
 
-    it('should disable the unit and empty authorized_keys when present', async () => {
+    it('should disable the unit, remove its files and empty authorized_keys when present', async () => {
       sinon.stub(fs, 'access').resolves();
-      runCommandStub.withArgs('cat').resolves({ ...cmdOk, stdout: `${testKeys[0]}\n` });
+      runCommandStub.withArgs('cat', sinon.match({ params: ['/etc/sudoers.d/fluxadm'] }))
+        .resolves({ ...cmdOk, stdout: 'fluxadm ALL=(ALL) NOPASSWD:ALL\n' });
+      runCommandStub.withArgs('cat', sinon.match({ params: ['/home/fluxadm/.ssh/authorized_keys'] }))
+        .resolves({ ...cmdOk, stdout: `${testKeys[0]}\n` });
 
       await fluxadmService.removeAccess();
 
@@ -341,6 +344,14 @@ describe('fluxadmService tests', () => {
         runAsRoot: true,
         logError: false,
         params: ['disable', '--now', 'fluxadm-sshd.service'],
+      });
+      sinon.assert.calledWithExactly(runCommandStub, 'rm', {
+        runAsRoot: true,
+        params: ['-f', '/etc/systemd/system/fluxadm-sshd.service', '/etc/ssh/fluxadm_sshd_config'],
+      });
+      sinon.assert.calledWithExactly(runCommandStub, 'systemctl', {
+        runAsRoot: true,
+        params: ['daemon-reload'],
       });
       sinon.assert.calledWithExactly(runCommandStub, 'install', {
         runAsRoot: true,
@@ -355,20 +366,52 @@ describe('fluxadmService tests', () => {
       await fluxadmService.removeAccess();
 
       sinon.assert.neverCalledWith(runCommandStub, 'systemctl');
+      sinon.assert.neverCalledWith(runCommandStub, 'rm');
+      sinon.assert.neverCalledWith(runCommandStub, 'install');
+    });
+
+    it('should never touch the keys of a fluxadm user without our sudoers drop-in', async () => {
+      sinon.stub(fs, 'access').rejects(new Error('missing'));
+      runCommandStub.withArgs('cat', sinon.match({ params: ['/etc/sudoers.d/fluxadm'] }))
+        .resolves({ ...cmdFail });
+      runCommandStub.withArgs('cat', sinon.match({ params: ['/home/fluxadm/.ssh/authorized_keys'] }))
+        .resolves({ ...cmdOk, stdout: 'ssh-ed25519 AAAA operator-own-key\n' });
+
+      await fluxadmService.removeAccess();
+
       sinon.assert.neverCalledWith(runCommandStub, 'install');
     });
   });
 
   describe('ensureFluxadmAccess tests', () => {
-    it('should run the removal path without consulting fluxbenchd when no keys are configured', async () => {
+    it('should run the removal path only on a confirmed legacy node when no keys are configured', async () => {
       sinon.stub(fs, 'access').rejects(new Error('missing'));
-      const benchStub = sinon.stub(benchmarkService, 'getBenchmarks');
+      const benchStub = sinon.stub(benchmarkService, 'getBenchmarks')
+        .resolves({ status: 'success', data: { systemsecure: false } });
       runCommandStub.withArgs('cat').resolves({ ...cmdFail });
 
       const res = await fluxadmService.ensureFluxadmAccess();
 
       expect(res).to.equal('reconciled');
-      sinon.assert.notCalled(benchStub);
+      sinon.assert.calledOnce(benchStub);
+    });
+
+    it('should not run the removal path while the ArcaneOS confirmation is indeterminate', async () => {
+      sinon.stub(benchmarkService, 'getBenchmarks').rejects(new Error('unreachable'));
+
+      const res = await fluxadmService.ensureFluxadmAccess();
+
+      expect(res).to.equal('deferred');
+      sinon.assert.notCalled(runCommandStub);
+    });
+
+    it('should not run the removal path when fluxbenchd reports ArcaneOS', async () => {
+      sinon.stub(benchmarkService, 'getBenchmarks').resolves({ status: 'success', data: { systemsecure: true } });
+
+      const res = await fluxadmService.ensureFluxadmAccess();
+
+      expect(res).to.equal('skipped');
+      sinon.assert.notCalled(runCommandStub);
     });
 
     it('should defer when the ArcaneOS confirmation is indeterminate', async () => {

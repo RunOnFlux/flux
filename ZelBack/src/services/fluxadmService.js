@@ -395,22 +395,39 @@ async function ensureFirewall(port) {
 }
 
 /**
- * Kill switch for an empty key list: stops and disables the maintenance sshd
- * and blanks any installed authorized_keys. The key file must be emptied too,
- * as the operator's own sshd would otherwise still accept the old key for the
- * fluxadm user on their port.
+ * Revocation path for an empty configured key list: removes the maintenance
+ * sshd instance installed by a previous release and empties authorized_keys.
+ * The key file must be emptied too, as the operator's own sshd would still
+ * accept the key for the fluxadm user on their port. Only ever touches a
+ * fluxadm user carrying our sudoers drop-in, never an operator's own user.
+ * Converges to a no-op: once removed (or never installed) nothing runs.
  * @returns {Promise<void>}
  */
 async function removeAccess() {
   const unitPresent = await fs.access(serviceUnitPath).then(() => true).catch(() => false);
+  const configPresent = await fs.access(sshdConfigPath).then(() => true).catch(() => false);
+
   if (unitPresent) {
     await serviceHelper.runCommand('systemctl', {
       runAsRoot: true,
       logError: false,
       params: ['disable', '--now', serviceName],
     });
-    log.info('fluxadm access - no keys configured, maintenance sshd disabled');
   }
+
+  if (unitPresent || configPresent) {
+    await serviceHelper.runCommand('rm', {
+      runAsRoot: true,
+      params: ['-f', serviceUnitPath, sshdConfigPath],
+    });
+    if (unitPresent) {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['daemon-reload'] });
+    }
+    log.info('fluxadm access - no keys configured, maintenance sshd removed');
+  }
+
+  const oursMarker = await readFileAsRoot(sudoersPath);
+  if (oursMarker === null) return;
 
   const currentKeys = await readFileAsRoot(authorizedKeysPath);
   if (currentKeys !== null && currentKeys.trim()) {
@@ -434,15 +451,17 @@ async function ensureFluxadmAccess() {
   if (isArcane) return 'skipped';
 
   try {
+    // every path below mutates the system, so nothing - including removal -
+    // runs without an explicit legacy confirmation
+    const legacyConfirmed = await confirmedLegacyNode();
+    if (legacyConfirmed === null) return 'deferred';
+    if (legacyConfirmed === false) return 'skipped';
+
     const keys = getConfiguredKeys();
     if (!keys.length) {
       await removeAccess();
       return 'reconciled';
     }
-
-    const legacyConfirmed = await confirmedLegacyNode();
-    if (legacyConfirmed === null) return 'deferred';
-    if (legacyConfirmed === false) return 'skipped';
 
     if (!(await ensureUser())) return 'failed';
     if (!(await ensureSudoers())) return 'failed';
