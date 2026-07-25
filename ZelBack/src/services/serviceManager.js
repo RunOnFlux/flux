@@ -510,7 +510,7 @@ async function startFluxFunctions() {
       // masterSlave self-gates on syncthingAppsFirstRun (the syncthing monitor's
       // first-run mount-safety must complete before any g: election), so it starts
       // concurrently rather than after a timed offset.
-      advancedWorkflows.masterSlaveApps(
+      advancedWorkflows.startMasterSlaveApps(
         globalState,
         appQueryService.installedApps,
         appQueryService.listRunningApps,
@@ -518,7 +518,7 @@ async function startFluxFunctions() {
         globalState.backupInProgress,
         globalState.restoreInProgress,
         https,
-      ); // stops and starts g: syncthing apps when a new master is required or changed.
+      ); // interval-scheduled: stops and starts g: syncthing apps when a new master is required or changed.
       setTimeout(() => {
         appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally, globalState); // Monitor SharedDB Apps.
       }, 60 * 1000);

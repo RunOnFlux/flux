@@ -42,6 +42,17 @@ async function dockerTerminalHandler(socket) {
       User: dockerUser,
     };
     container.exec(cmd, (err, exec) => {
+      // dockerode passes back a null exec when the daemon rejects the exec
+      // create (most commonly the container is not running - state created or
+      // exited). Without this guard the code below dereferences null
+      // (exec.start / exec.resize) and the resulting TypeError is thrown from
+      // inside this callback, which is unhandled and crashes the whole FluxOS
+      // process. Fail the terminal session cleanly instead.
+      if (err || !exec) {
+        log.error(`dockerTerminalHandler: exec create failed for ${nameOrId}: ${err ? err.message : 'no exec instance (is the container running?)'}`);
+        socket.emit('error', 'Error opening a terminal. Is the container running?');
+        return;
+      }
       const options = {
         Tty: true,
         stream: true,
@@ -57,9 +68,12 @@ async function dockerTerminalHandler(socket) {
       });
       /* eslint-disable no-shadow */
       exec.start(options, (err, stream) => {
-        if (err) {
-          log.error(err);
-          // socket.emit('error', 'Error executing the command.');
+        // Same defensive check as above: on failure stream can be null, and the
+        // stream.on(...) below would throw an unhandled TypeError out of this
+        // callback (crashing the process). Bail out cleanly instead.
+        if (err || !stream) {
+          log.error(`dockerTerminalHandler: exec start failed for ${nameOrId}: ${err ? err.message : 'no stream'}`);
+          socket.emit('error', 'Error executing the command.');
           return;
         }
         stream.on('data', (chunk) => {

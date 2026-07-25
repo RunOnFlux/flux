@@ -1552,4 +1552,85 @@ describe('advancedWorkflows tests', () => {
   // These should be tested in integration tests rather than unit tests.
   // masterSlaveApps is included above with basic tests, but full integration testing
   // is recommended for comprehensive coverage of the master-slave coordination logic.
+
+  describe('startMasterSlaveApps scheduler', () => {
+    let clock;
+    let globalStateMock;
+    let installedAppsStub;
+    let listRunningAppsStub;
+    let intervalMs;
+    // eslint-disable-next-line global-require
+    const https = require('https');
+
+    beforeEach(() => {
+      // eslint-disable-next-line global-require
+      const config = require('config');
+      intervalMs = config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000;
+
+      globalStateMock = {
+        installationInProgress: false,
+        removalInProgress: false,
+        softRedeployInProgress: false,
+        hardRedeployInProgress: false,
+        syncthingAppsFirstRun: false,
+        masterSlaveAppsRunning: false,
+      };
+
+      // Empty app list => masterSlaveApps completes a fast no-op pass each tick.
+      installedAppsStub = sinon.stub().resolves({ status: 'success', data: [] });
+      listRunningAppsStub = sinon.stub().resolves({ status: 'success', data: [] });
+
+      // eslint-disable-next-line global-require
+      const syncthingService = require('../../ZelBack/src/services/syncthingService');
+      sinon.stub(syncthingService, 'getHealth').resolves({ status: 'success', data: { status: 'OK' } });
+      // eslint-disable-next-line global-require
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake((apps) => Promise.resolve(apps));
+
+      clock = sinon.useFakeTimers();
+    });
+
+    afterEach(() => {
+      if (clock) clock.restore();
+      sinon.restore();
+    });
+
+    it('returns a control object and is active after start', () => {
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, installedAppsStub, listRunningAppsStub, new Map(), [], [], https,
+      );
+      expect(control).to.have.property('stop').that.is.a('function');
+      expect(control).to.have.property('isActive').that.is.a('function');
+      expect(control.isActive()).to.be.true;
+      control.stop();
+    });
+
+    it('stops ticking after stop() is called', async () => {
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, installedAppsStub, listRunningAppsStub, new Map(), [], [], https,
+      );
+      await clock.tickAsync(50); // let the immediate pass run
+      const callsBeforeStop = installedAppsStub.callCount;
+      control.stop();
+      expect(control.isActive()).to.be.false;
+      await clock.tickAsync(intervalMs * 3);
+      // no further passes after stop
+      expect(installedAppsStub.callCount).to.equal(callsBeforeStop);
+    });
+
+    it('keeps running across intervals - the scheduler does not die after one pass', async () => {
+      // This is the core guarantee of the fix: the previous recursive-finally
+      // reschedule could stop after a single pass, leaving g: apps unelected.
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, installedAppsStub, listRunningAppsStub, new Map(), [], [], https,
+      );
+      await clock.tickAsync(50); // immediate pass
+      expect(installedAppsStub.callCount).to.equal(1);
+      await clock.tickAsync(intervalMs); // next interval tick
+      expect(installedAppsStub.callCount).to.be.at.least(2);
+      await clock.tickAsync(intervalMs); // and again
+      expect(installedAppsStub.callCount).to.be.at.least(3);
+      control.stop();
+    });
+  });
 });

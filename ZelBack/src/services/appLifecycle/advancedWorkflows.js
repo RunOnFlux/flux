@@ -3941,9 +3941,87 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
   } finally {
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = false;
-    await serviceHelper.delay(config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000);
-    masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https);
   }
+}
+
+/**
+ * Interval-based scheduler for masterSlaveApps, replacing the previous recursive
+ * self-reschedule (a `masterSlaveApps(...)` call inside the function's own
+ * `finally`). That pattern was fragile in two ways, and either could permanently
+ * stop g: primary election with no recovery - leaving g: syncthing apps stuck in
+ * the `created` state (never elected) until a manual restart:
+ *   - a throw from the reschedule tail / an unhandled rejection in the recursion
+ *     chain broke the chain, and
+ *   - a pass that never settles (e.g. a docker or FDM call wedged while a
+ *     container was being torn down mid-failover) meant the `finally` - and thus
+ *     the only reschedule - never ran.
+ * A setInterval (level-triggered, self-healing) fires independently of any pass,
+ * mirroring syncthingApps(); the per-pass timeout below additionally guarantees a
+ * wedged pass can never hold the single-flight guard forever.
+ *
+ * @param {object} globalStateParam
+ * @param {Function} installedApps
+ * @param {Function} listRunningApps
+ * @param {Map} receiveOnlySyncthingAppsCache
+ * @param {Array} backupInProgressParam
+ * @param {Array} restoreInProgressParam
+ * @param {object} https
+ * @returns {{ stop: Function, isActive: Function }}
+ */
+function startMasterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https) {
+  let intervalId = null;
+  let isRunning = false;
+
+  const intervalMs = config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000;
+  // A single pass legitimately makes several timed calls (FDM across regions,
+  // peer /listrunningapps probes), so allow generous headroom - but never let a
+  // wedged pass block elections forever. On timeout the guard is released and the
+  // next tick starts a fresh pass; the abandoned pass is harmless (declare-only).
+  const maxPassMs = Math.max(intervalMs * 4, 2 * 60 * 1000);
+
+  const runPass = async () => {
+    // Single-flight: skip if the previous pass is still in flight so passes never
+    // overlap (a slow pass just yields the tick, same as the old sequential gap).
+    if (isRunning) {
+      log.info('masterSlaveApps: previous pass still running, skipping this iteration');
+      return;
+    }
+    isRunning = true;
+    try {
+      let timer;
+      const pass = masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https);
+      const watchdog = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`pass exceeded ${maxPassMs}ms`)), maxPassMs);
+      });
+      try {
+        await Promise.race([pass, watchdog]);
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (error) {
+      // masterSlaveApps swallows its own errors; this catches the watchdog
+      // timeout (and any unexpected throw) so a stuck pass can never tear down
+      // or permanently block the interval.
+      log.error(`startMasterSlaveApps: ${error.message} - releasing guard so the next tick runs a fresh pass`);
+    } finally {
+      isRunning = false;
+    }
+  };
+
+  // Run immediately, then keep running on a fixed interval.
+  runPass();
+  intervalId = setInterval(runPass, intervalMs);
+
+  return {
+    stop: () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+        log.info('masterSlaveApps: scheduler stopped');
+      }
+    },
+    isActive: () => intervalId !== null,
+  };
 }
 
 module.exports = {
@@ -3979,5 +4057,6 @@ module.exports = {
   checkAndRemoveEnterpriseAppsOnNonArcane,
   forceAppRemovals,
   masterSlaveApps,
+  startMasterSlaveApps,
   appDockerStart,
 };
