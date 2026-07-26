@@ -848,6 +848,33 @@ async function localAppSpecExists(appName) {
   }
 }
 
+// Restore the app's local spec row after this flow's own teardown deleted it
+// (the soft uninstall removes the row; the register's insert is what puts it
+// back). Keeping a failed redeploy is only coherent with the row present -
+// the reconciler converges what it can see - so a failure landing in that
+// window re-inserts the spec the flow was applying. The write mirrors the
+// register's insert (enterprise specs store blanked compose/contacts).
+// Returns false when the insert failed; the caller then leaves the app as an
+// orphan rather than destroying data - a mounted volume with no row is
+// recoverable, a deleted one is not.
+async function restoreLocalAppSpecRow(appSpecs) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const isEnterprise = Boolean(appSpecs.version >= 8 && appSpecs.enterprise);
+    const dbSpecs = JSON.parse(JSON.stringify(appSpecs));
+    if (isEnterprise) {
+      dbSpecs.compose = [];
+      dbSpecs.contacts = [];
+    }
+    const insertResult = await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
+    return !!insertResult;
+  } catch (error) {
+    log.error(`restoreLocalAppSpecRow - failed to restore the local record of ${appSpecs.name}: ${error.message}`);
+    return false;
+  }
+}
+
 // During a soft redeploy the app's synced data is preserved on disk, so the
 // components the redeploy touched are marked already-synced in
 // receiveOnlySyncthingAppsCache (the same marking the success path performs).
@@ -911,16 +938,12 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     globalState.installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
-      // the flag was just set above - leaving it latched on this return would
-      // starve every operation gated on isOperationInProgress node-wide
-      globalState.installationInProgress = false;
-      const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
-      log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        res.end();
-      }
-      return;
+      // routed through the catch below: the caller's teardown may already
+      // have deleted the local row at this point, so a bare return would
+      // strand the app half-redeployed - no row, nothing keeping, removing,
+      // or converging it. The catch clears the flag, restores the row and
+      // keeps, like any other mid-registration failure.
+      throw new Error('Failed to get Node Tier');
     }
     const appSpecifications = appSpecs;
     const appComponent = componentSpecs;
@@ -1112,31 +1135,38 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
-    // A failed soft redeploy never removes an app the reconciler can still
-    // see. The data volume was deliberately preserved (that is what makes the
-    // redeploy soft), so removal destroys established data over what is
-    // usually a node-local failure - a wedged daemon, a port that would not
-    // map, a resource query that blipped. With its local row present the spec
-    // and volume stay; the reconciler retries the install with the CURRENT
-    // spec on its backoff ladder, so a transient failure self-heals and a
-    // genuinely bad update converges to kept-down-with-data, the same contract
-    // as a failed recreate. A down instance stops broadcasting apprunning, so
-    // the network replaces it elsewhere through the normal spawner machinery.
-    // The kept app's g:/r: components must be re-marked synced, or the sync
-    // layer's first-encounter handling clears their data. Without the row
-    // (this catch can fire before the re-insert), keeping would orphan the
-    // volume - fall back to the full removal, which re-resolves the spec
-    // globally and cleans up.
-    if (await localAppSpecExists(appSpecs.name)) {
-      log.warn(`softRegisterAppLocally - ${appSpecs.name} failed during soft registration (${error.message}); keeping the app and its data for the reconciler, NOT removing`);
-      markSyncthingAppsSynced(appSpecs, componentSpecs);
-      if (res) res.end();
-      return;
+    // A failed soft redeploy NEVER removes the app. The data volume was
+    // deliberately preserved (that is what makes the redeploy soft), so
+    // removal destroys established data over what is usually a node-local
+    // failure - a wedged daemon, a port that would not map, a resource query
+    // that blipped. The spec and volume stay; the reconciler retries the
+    // install with the CURRENT spec on its backoff ladder, so a transient
+    // failure self-heals and a genuinely bad update converges to
+    // kept-down-with-data, the same contract as a failed recreate. A down
+    // instance stops broadcasting apprunning, so the network replaces it
+    // elsewhere through the normal spawner machinery. Keeping is only
+    // coherent with the local row present (the reconciler converges what it
+    // can see), and every soft register runs over an app that was installed
+    // here - so when this catch fires in the window between the caller's
+    // teardown deleting the row and the re-insert above, restore the row.
+    // The kept app's g:/r: components are then re-marked synced, or the sync
+    // layer's first-encounter handling clears their data.
+    if (!(await localAppSpecExists(appSpecs.name))) {
+      if (!(await restoreLocalAppSpecRow(appSpecs))) {
+        // no row and no way to write one: leave the app alone. An orphaned
+        // volume is recoverable (a later redeploy or reinstall re-adopts it);
+        // removing it here would destroy the only copy over a DB failure. No
+        // synced-mark either - a mark without a row would make an empty later
+        // install eligible for g: primary.
+        log.error(`softRegisterAppLocally - CRITICAL: ${appSpecs.name} failed during soft registration (${error.message}) and its local record could not be restored; leaving the app and its data untouched`);
+        if (res) res.end();
+        return;
+      }
+      log.warn(`softRegisterAppLocally - restored the local record of ${appSpecs.name} deleted by this redeploy's teardown`);
     }
-    log.warn(`softRegisterAppLocally - ${appSpecs.name} failed before its local record was restored (${error.message}); falling back to full local removal`);
-    // eslint-disable-next-line global-require
-    const appUninstaller = require('./appUninstaller');
-    appUninstaller.removeAppLocally(appSpecs.name, res, true);
+    log.warn(`softRegisterAppLocally - ${appSpecs.name} failed during soft registration (${error.message}); keeping the app and its data for the reconciler, NOT removing`);
+    markSyncthingAppsSynced(appSpecs, componentSpecs);
+    if (res) res.end();
   }
 }
 
@@ -1302,6 +1332,7 @@ async function softRemoveAppLocally(app, res) {
  * @param {object} res - Response object
  */
 async function softRedeploy(appSpecs, res) {
+  let hadLocalRow = false;
   try {
     if (globalState.removalInProgress) {
       log.warn('Another application is undergoing removal');
@@ -1370,6 +1401,12 @@ async function softRedeploy(appSpecs, res) {
       }
     }
 
+    // Read before the teardown so the catch can tell "this redeploy's own
+    // teardown deleted the row" (restore and keep - the data volume is still
+    // mounted) from "the app was never here" (fall back to removal). The
+    // keep-biased error default of the read is right here too: restoring
+    // beats removing on a guess.
+    hadLocalRow = await localAppSpecExists(appSpecs.name);
     globalState.softRedeployInProgress = true;
     log.info('Starting softRedeploy');
     try {
@@ -1398,19 +1435,30 @@ async function softRedeploy(appSpecs, res) {
     log.info('Error on softRedeploy');
     log.error(error);
     globalState.softRedeployInProgress = false;
-    // A failed soft redeploy never removes an app the reconciler can still see
-    // (see softRegisterAppLocally's catch for the full contract). This catch
-    // additionally fires for throws BEFORE the soft uninstall touched anything
-    // ('Flux App not found', spec formatting) - the row check handles those
-    // correctly too: row present + nothing torn down = keep is a no-op beyond
-    // the cache re-mark of components whose data is untouched; row absent on a
-    // node that never had the app = removeAppLocally on nothing to remove.
+    // A failed soft redeploy never removes an app this node holds (see
+    // softRegisterAppLocally's catch for the full contract). This catch spans
+    // the whole flow, so it can fire in the rowless window between the
+    // teardown's row delete and the register's re-insert (the redeploy delay,
+    // the requirements check) - restore the row and keep, exactly as the
+    // register's catch does. Only an app that was never locally installed
+    // (hadLocalRow false: 'Flux App not found', spec formatting) falls back
+    // to the full removal, which re-resolves the spec globally and cleans up
+    // local remnants - nothing of value exists here to keep.
     if (await localAppSpecExists(appSpecs.name)) {
       log.warn(`softRedeploy - ${appSpecs.name} failed (${error.message}); keeping the app and its data for the reconciler, NOT removing`);
       markSyncthingAppsSynced(appSpecs, undefined);
       return;
     }
-    log.warn(`softRedeploy - ${appSpecs.name} failed before its local record was restored (${error.message}); falling back to full local removal`);
+    if (hadLocalRow) {
+      if (await restoreLocalAppSpecRow(appSpecs)) {
+        log.warn(`softRedeploy - ${appSpecs.name} failed (${error.message}); restored the local record deleted by this redeploy's teardown, keeping the app and its data, NOT removing`);
+        markSyncthingAppsSynced(appSpecs, undefined);
+      } else {
+        log.error(`softRedeploy - CRITICAL: ${appSpecs.name} failed (${error.message}) and its local record could not be restored; leaving the app and its data untouched`);
+      }
+      return;
+    }
+    log.warn(`softRedeploy - ${appSpecs.name} failed and was never locally installed (${error.message}); removing local remnants`);
     // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
     await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);

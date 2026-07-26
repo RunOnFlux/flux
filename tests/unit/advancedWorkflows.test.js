@@ -1351,13 +1351,13 @@ describe('advancedWorkflows tests', () => {
       ).to.be.greaterThan(0);
     });
 
-    it('falls back to full removal - and does not mark synced - when the app has no local record', async () => {
-      // 'Flux App not found' (redeploy called on a node without the app, or a
-      // failure after the soft uninstall deleted the row and before the
-      // register restored it): keeping is incoherent - nothing converges an
-      // app the reconciler cannot see, and a stale synced-mark would make an
-      // empty later install eligible for g: primary. The catch must take the
-      // removal path and must NOT touch the cache.
+    it('falls back to full removal - and does not mark synced - when the app was never locally installed', async () => {
+      // 'Flux App not found': a redeploy called on a node without the app.
+      // Nothing of value exists here to keep - the removal fallback cleans up
+      // local remnants - and a stale synced-mark would make an empty later
+      // install eligible for g: primary, so the cache must stay untouched.
+      // (A failure after this redeploy's OWN teardown deleted the row is the
+      // opposite case: data on disk, row restored - pinned separately below.)
       const newAppSpecs = {
         name: 'TestAppGone',
         description: 'test app',
@@ -1383,6 +1383,155 @@ describe('advancedWorkflows tests', () => {
         globalState.receiveOnlySyncthingAppsCache.size,
         'marked synced for an app this node does not even have',
       ).to.equal(0);
+    });
+
+    // Shared fixture for the rowless-window tests: an installed v8 app with a
+    // g: component whose redeploy is mid-flight when the failure lands.
+    const rowlessWindowFixture = () => {
+      const composed = (repotag) => ({
+        name: 'frontend',
+        repotag,
+        containerData: 'g:/data',
+        ports: [31111],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: [80],
+        cpu: 0.1,
+        ram: 100,
+        hdd: 1,
+        tiered: false,
+      });
+      const base = {
+        name: 'TestApp',
+        description: 'test app',
+        owner: '1TESTOWNERADDRESS',
+        version: 8,
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 22000,
+        nodes: [],
+        staticip: false,
+        hash: 'testhash',
+        height: 1000,
+      };
+      return {
+        installedApp: { ...base, compose: [composed('repo/frontend:1.0')] },
+        newAppSpecs: { ...base, compose: [composed('repo/frontend:1.1')] },
+      };
+    };
+
+    // Mutable-row db stubs mirroring the real local-row lifecycle (soft remove
+    // deletes the row, the register's insert restores it). Returns accessors
+    // so tests can observe and preset the row.
+    const stubRowLifecycle = (initialRow) => {
+      const state = { localRow: initialRow };
+      sinon.stub(dbHelper, 'findInDatabase').callsFake(async () => (state.localRow ? [state.localRow] : []));
+      sinon.stub(dbHelper, 'findOneInDatabase').callsFake(async () => state.localRow);
+      sinon.stub(dbHelper, 'insertOneToDatabase').callsFake(async (db, col, doc) => { state.localRow = doc; return doc; });
+      sinon.stub(dbHelper, 'updateOneInDatabase').resolves();
+      sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves();
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').callsFake(async () => { const row = state.localRow; state.localRow = null; return row; });
+      return state;
+    };
+
+    it('restores the local record and keeps the app when the requirements check fails after teardown', async () => {
+      // The rowless window: this redeploy's own teardown deleted the row, and
+      // checkAppRequirements throws before the register restored it (a blipped
+      // geolocation/resource query - node-local, transient, and correlated
+      // across nodes during an image-update wave). The volume is still mounted
+      // with established data: the catch must put the row back and keep, never
+      // hand the app to removeAppLocally.
+      const { installedApp, newAppSpecs } = rowlessWindowFixture();
+      const rowState = stubRowLifecycle(installedApp);
+
+      const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      sinon.stub(appInstaller, 'checkAppRequirements').rejects(new Error('Node Geolocation not set. Aborting.'));
+      const installSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      sinon.stub(generalService, 'nodeTier').resolves('basic');
+      sinon.stub(serviceHelper, 'delay').resolves();
+
+      globalState.receiveOnlySyncthingAppsCache.clear();
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+
+      await advancedWorkflows.softRedeploy(newAppSpecs, res);
+
+      expect(removeSpy.called, 'a mid-flight failure removed the app and its data').to.equal(false);
+      expect(installSoft.called, 'the install must not run after the requirements check failed').to.equal(false);
+      expect(rowState.localRow, 'the local record deleted by the teardown was not restored').to.not.equal(null);
+      expect(rowState.localRow.name).to.equal('TestApp');
+      expect(
+        globalState.receiveOnlySyncthingAppsCache.size,
+        'the kept g: component was not re-marked synced',
+      ).to.be.greaterThan(0);
+    });
+
+    it('restores the local record and keeps the app when the register fails before its re-insert', async () => {
+      // Same window, register side: the caller's teardown already deleted the
+      // row, and ensureAppDockerNetwork throws before insertOneToDatabase ran.
+      // A soft register only ever runs over an app installed here, so the
+      // catch restores the row and keeps rather than removing.
+      const { newAppSpecs } = rowlessWindowFixture();
+      const rowState = stubRowLifecycle(null);
+
+      const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      sinon.stub(appInstaller, 'ensureAppDockerNetwork').rejects(new Error('docker daemon not responding'));
+      const installSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      sinon.stub(generalService, 'nodeTier').resolves('basic');
+      sinon.stub(serviceHelper, 'delay').resolves();
+
+      globalState.receiveOnlySyncthingAppsCache.clear();
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+
+      await advancedWorkflows.softRegisterAppLocally(newAppSpecs, undefined, res);
+
+      expect(removeSpy.called, 'a pre-insert register failure removed the app and its data').to.equal(false);
+      expect(installSoft.called).to.equal(false);
+      expect(rowState.localRow, 'the local record was not restored').to.not.equal(null);
+      expect(rowState.localRow.name).to.equal('TestApp');
+      expect(globalState.installationInProgress, 'the installation flag leaked').to.equal(false);
+      expect(
+        globalState.receiveOnlySyncthingAppsCache.size,
+        'the kept g: component was not re-marked synced',
+      ).to.be.greaterThan(0);
+    });
+
+    it('restores the local record and keeps the app when the node tier read fails mid-redeploy', async () => {
+      // nodeTier failing (a wedged/restarting daemon) used to early-return out
+      // of the register inside the rowless window: row deleted, containers
+      // gone, volume mounted, nothing keeping or removing or converging the
+      // app. It must route through the keep path like any other failure.
+      const { installedApp, newAppSpecs } = rowlessWindowFixture();
+      const rowState = stubRowLifecycle(installedApp);
+
+      const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      const installSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      sinon.stub(generalService, 'nodeTier').rejects(new Error('daemon wedged'));
+      sinon.stub(serviceHelper, 'delay').resolves();
+
+      globalState.receiveOnlySyncthingAppsCache.clear();
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+
+      await advancedWorkflows.softRedeploy(newAppSpecs, res);
+
+      expect(removeSpy.called, 'the tier failure removed the app and its data').to.equal(false);
+      expect(installSoft.called).to.equal(false);
+      expect(rowState.localRow, 'the local record was not restored').to.not.equal(null);
+      expect(globalState.installationInProgress, 'the installation flag leaked').to.equal(false);
+      expect(
+        globalState.receiveOnlySyncthingAppsCache.size,
+        'the kept g: component was not re-marked synced',
+      ).to.be.greaterThan(0);
     });
 
     it('should escalate to hard redeploy when component count changes for v8+ app', async () => {
