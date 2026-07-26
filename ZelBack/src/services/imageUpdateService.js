@@ -13,6 +13,7 @@ const appQueryService = require('./appQuery/appQueryService');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const registryCredentialHelper = require('./utils/registryCredentialHelper');
 const { ImageVerifier } = require('./utils/imageVerifier');
+const { systemArchitecture } = require('./appSystem/systemIntegration');
 const serviceHelper = require('./serviceHelper');
 const globalState = require('./utils/globalState');
 const fluxEventBus = require('./utils/fluxEventBus');
@@ -23,6 +24,10 @@ const DELAY_AFTER_REDEPLOY = config.fluxapps.imageUpdateDelayAfterRedeployMs || 
 const INITIAL_DELAY_MIN = config.fluxapps.imageUpdateInitialDelayMinMs || 10 * 60 * 1000;
 const INITIAL_DELAY_MAX = config.fluxapps.imageUpdateInitialDelayMaxMs || 30 * 60 * 1000;
 const DELAY_BETWEEN_COMPONENTS = config.fluxapps.imageUpdateDelayBetweenComponentsMs || 1000;
+
+// must match the installer's own set (appInstaller.js) - the pre-flight verify
+// below asks the same question the redeploy's install will ask
+const supportedArchitectures = ['amd64', 'arm64'];
 
 // Track the timers
 let checkIntervalTimer = null;
@@ -314,6 +319,43 @@ async function checkAppForUpdates(appSpec) {
 }
 
 /**
+ * Verifies EVERY component image of the app against the registry before any
+ * teardown. The soft redeploy verifies only after it has already stopped and
+ * removed the running containers, and its failure path removes the app and its
+ * data - so a mutable tag gone bad (over the size cap, wrong architecture,
+ * de-whitelisted) must be refused HERE, where refusal costs nothing: the app
+ * keeps running its current image and the refusal is logged each cycle. All
+ * components are checked, not just the changed one, because the redeploy will
+ * re-verify all of them and dies on any. A lookup that cannot be completed
+ * also refuses - an update that cannot be verified is not an update this cycle.
+ * @param {object} appSpec Application specification
+ * @returns {Promise<{ok: boolean, reason: string|null}>}
+ */
+async function verifyAppImagesForUpdate(appSpec) {
+  const architecture = await systemArchitecture();
+  const components = appSpec.version >= 4 && Array.isArray(appSpec.compose) ? appSpec.compose : [appSpec];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const component of components) {
+    const verifierOptions = { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures };
+    if (component.repoauth && appSpec.version >= 7) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const credentials = await registryCredentialHelper.getCredentials(component.repotag, component.repoauth, appSpec.version, appSpec.name);
+        if (credentials) verifierOptions.credentials = credentials;
+      } catch (credError) {
+        return { ok: false, reason: `credentials for ${component.repotag}: ${credError.message}` };
+      }
+    }
+    const verifier = new ImageVerifier(component.repotag, verifierOptions);
+    // eslint-disable-next-line no-await-in-loop
+    await verifier.verifyImage();
+    if (verifier.error) return { ok: false, reason: `${component.repotag}: ${verifier.errorDetail}` };
+    if (!verifier.supported) return { ok: false, reason: `${component.repotag}: architecture ${architecture} not supported` };
+  }
+  return { ok: true, reason: null };
+}
+
+/**
  * Triggers a soft redeploy for an app.
  * @param {object} appSpec Application specification
  * @returns {Promise<boolean>} True if redeploy was triggered, false otherwise
@@ -323,6 +365,13 @@ async function triggerAppUpdate(appSpec) {
     // Double-check globalState flags before triggering
     if (isOperationInProgress()) {
       log.warn(`Skipping redeploy for ${appSpec.name}: another operation in progress`);
+      return false;
+    }
+
+    const preflight = await verifyAppImagesForUpdate(appSpec);
+    if (!preflight.ok) {
+      log.warn(`Skipping image update for ${appSpec.name}: ${preflight.reason} - keeping the running image`);
+      fluxEventBus.publish('imageUpdate:updateRefused', { appName: appSpec.name, reason: preflight.reason });
       return false;
     }
 

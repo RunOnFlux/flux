@@ -51,6 +51,7 @@ let mockVerifierError = false;
 let mockVerifierErrorDetail = '';
 let mockVerifierErrorMeta = null;
 let mockDigestToReturn = null;
+let mockVerifierSupported = true;
 
 class MockImageVerifier {
   constructor(repotag, options) {
@@ -66,6 +67,15 @@ class MockImageVerifier {
     if (this.parseError || this.error) return null;
     return mockDigestToReturn;
   }
+
+  // the pre-flight verify reads error/errorDetail (set from the mock flags in
+  // the constructor, mirroring the real class's lookup-error recording) and
+  // the supported verdict after verifyImage()
+  async verifyImage() {}
+
+  get supported() {
+    return !this.error && mockVerifierSupported;
+  }
 }
 
 // Load module with stubs using noCallThru
@@ -76,6 +86,7 @@ const imageUpdateService = proxyquire('../../ZelBack/src/services/imageUpdateSer
   './appLifecycle/advancedWorkflows': advancedWorkflowsStub,
   './utils/registryCredentialHelper': registryCredentialHelperStub,
   './utils/imageVerifier': { ImageVerifier: MockImageVerifier },
+  './appSystem/systemIntegration': { systemArchitecture: async () => 'amd64' },
   './serviceHelper': serviceHelperStub,
   './utils/globalState': globalStateStub,
 });
@@ -115,6 +126,7 @@ describe('imageUpdateService tests', () => {
     mockVerifierParseError = false;
     mockVerifierError = false;
     mockVerifierErrorDetail = '';
+    mockVerifierSupported = true;
     mockVerifierErrorMeta = null;
     mockDigestToReturn = null;
   });
@@ -453,6 +465,33 @@ describe('imageUpdateService tests', () => {
       expect(result).to.equal(true);
       sinon.assert.calledOnce(advancedWorkflowsStub.softRedeploy);
       sinon.assert.calledWith(advancedWorkflowsStub.softRedeploy, appSpec, null);
+    });
+
+    it('refuses the update when the new image fails verification, keeping the running image', async () => {
+      // The soft redeploy verifies only AFTER tearing the running container
+      // down, and its failure path removes the app and its data - so a mutable
+      // tag gone bad (over the size cap, de-whitelisted) must be refused before
+      // anything is touched. Refusal costs nothing: the app keeps running.
+      mockVerifierError = true;
+      mockVerifierErrorDetail = 'Docker image: someorg/someimage:v1 size is over Flux limit';
+      const appSpec = { name: 'TestApp', version: 3, repotag: 'someorg/someimage:v1' };
+
+      const result = await imageUpdateService.triggerAppUpdate(appSpec);
+
+      expect(result).to.equal(false);
+      sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
+      const refused = logStub.warn.getCalls().some((c) => String(c.args[0]).includes('keeping the running image'));
+      expect(refused, 'the refusal must say why the update was skipped').to.equal(true);
+    });
+
+    it('refuses the update when the new image does not support this architecture', async () => {
+      mockVerifierSupported = false;
+      const appSpec = { name: 'TestApp', version: 3, repotag: 'someorg/someimage:v1' };
+
+      const result = await imageUpdateService.triggerAppUpdate(appSpec);
+
+      expect(result).to.equal(false);
+      sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
     });
 
     it('should return false when removal is in progress', async () => {
