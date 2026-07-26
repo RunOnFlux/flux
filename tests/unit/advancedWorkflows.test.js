@@ -1718,6 +1718,77 @@ describe('advancedWorkflows tests', () => {
       expect(setControllerDesired.calledWith(identifier, 'stopped', 'masterSlave standby')).to.equal(true);
     });
 
+    it('a start chain from a completed pass survives a later pass being abandoned', async () => {
+      // The start chain (two folder flips + a recursive permissions fix) legitimately
+      // outlives the 30s pass cadence, so it is dispatched without await. Abandonment
+      // must therefore be per-pass: when a LATER pass wedges and the watchdog gives up
+      // on it, a completed pass's still-running chain must go on to issue its start.
+      // Dropping it strands the g: app primaryless for another full cycle - every
+      // cycle, on a node whose passes routinely run past the watchdog.
+      const appName = 'gsurvive';
+      const identifier = `gcomp_${appName}`;
+      // eslint-disable-next-line global-require
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+      // eslint-disable-next-line global-require
+      const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+      // eslint-disable-next-line global-require
+      const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+      const appId = dockerService.getAppIdentifier(identifier);
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+
+      // FDM answers on every pass: no primary anywhere
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'success', data: { ips: [] } } });
+      sinon.stub(serviceHelper, 'runCommand').resolves(); // the chain's chmod
+      // pass 1 gets this node's address; pass 2 wedges here and gets abandoned
+      const localAddr = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
+      localAddr.onFirstCall().resolves('192.168.1.5:16127');
+      localAddr.returns(new Promise(() => {}));
+      // this node is the app's only location -> index 0, start immediately
+      sinon.stub(registryManager, 'appLocation').resolves([{ ip: '192.168.1.5:16127' }]);
+
+      // the chain parks on its first folder flip until the test releases it
+      let releaseChain;
+      const folders = (type) => ({ status: 'success', data: [{ id: 'f1', path: `${appsFolder}${appId}`, type }] });
+      const getConfigFolders = sinon.stub(syncthingService, 'getConfigFolders');
+      getConfigFolders.onFirstCall().returns(new Promise((resolve) => {
+        releaseChain = () => resolve(folders('receiveonly'));
+      }));
+      getConfigFolders.resolves(folders('sendreceive'));
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ name: appName, version: 8, compose: [{ name: 'gcomp', containerData: 'g:/data' }] }],
+      });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const cache = new Map();
+      cache.set(appId, { restarted: true }); // synced: eligible to become primary
+
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, installedApps, listRunningApps, cache, [], [], https,
+      );
+
+      // pass 1 completes and dispatches the chain, which parks on the folder flip
+      await clock.tickAsync(50);
+      expect(installedApps.callCount).to.equal(1);
+      expect(setControllerDesired.called, 'the chain acted before it was released').to.equal(false);
+
+      // pass 2 wedges on the local-address lookup; the watchdog abandons it
+      await clock.tickAsync(intervalMs + 50);
+      expect(installedApps.callCount).to.equal(2);
+      await clock.tickAsync(maxPassMs + 50);
+      control.stop();
+
+      // the completed pass's chain now finishes: its start must land
+      releaseChain();
+      await clock.tickAsync(50);
+
+      expect(
+        setControllerDesired.calledWith(identifier, 'running', 'masterSlave primary (synced)'),
+        "another pass's abandonment dropped a completed pass's start",
+      ).to.equal(true);
+      expect(setControllerDesired.callCount).to.equal(1);
+    });
+
     it('releases the global masterSlaveAppsRunning lock when it abandons a pass', async () => {
       // masterSlaveApps sets this true on entry and false in its own `finally` -
       // which a wedged pass never reaches. appInstaller reads it to gate

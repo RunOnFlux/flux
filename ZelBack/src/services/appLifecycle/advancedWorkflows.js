@@ -3,7 +3,6 @@ const util = require('util');
 const df = require('node-df');
 const fs = require('node:fs');
 const path = require('node:path');
-const nodecmd = require('node-cmd');
 const axios = require('axios');
 const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
@@ -42,15 +41,17 @@ const appNetworkLinker = require('./appNetworkLinker');
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 // Master/slave app tracking
-// Bumped whenever the scheduler abandons a wedged pass. A pass captures this on
-// entry and re-checks it before every mutating action, so a pass that unwedges
-// minutes later cannot act on a view of the world that has since been replaced.
-let masterSlavePassGeneration = 0;
+// The election pass the scheduler's watchdog is currently racing. Abandonment is
+// per-pass: the watchdog marks the pass it raced, and only that pass's pending
+// superseded()-guarded actions (the controller-state writes and folder flips) go
+// inert. A single shared epoch here would also invalidate still-in-flight start
+// chains dispatched by passes that completed normally - dropping the very start
+// the election exists to issue.
+let currentMasterSlavePass = null;
 const mastersRunningGSyncthingApps = new Map();
 const timeTostartNewMasterApp = new Map();
 
 // Promisified functions
-const cmdAsync = util.promisify(nodecmd.run);
 
 /**
  * Runs a command as root via execFile (no shell, args passed as params) and
@@ -1914,8 +1915,7 @@ async function applyPermissionsFix(appId) {
 
     // Apply 777 permissions to entire app directory recursively
     // This covers both appdata (primary mount) and all additional mounts at the same level
-    const execPERM = `sudo chmod -R 777 ${appPath}`;
-    await cmdAsync(execPERM);
+    await serviceHelper.runCommand('chmod', { params: ['-R', '777', appPath], runAsRoot: true });
 
     log.info(`Successfully applied permissions fix for app: ${appId} (includes appdata and all mount points)`);
     return true;
@@ -3534,14 +3534,15 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
   try {
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = true;
-    const generation = masterSlavePassGeneration;
+    const thisPass = { abandoned: false };
+    currentMasterSlavePass = thisPass;
     // A wedged pass keeps running after the scheduler gives up on it; anything it
     // does from then on is based on a stale FDM/docker view and can fight the pass
     // that replaced it (flipping a live primary's syncthing folder to receiveonly,
     // or issuing a start/stop that has since been reversed).
     const superseded = () => {
-      if (generation === masterSlavePassGeneration) return false;
-      log.warn(`masterSlaveApps: pass superseded (generation ${generation} -> ${masterSlavePassGeneration}), dropping pending action`);
+      if (!thisPass.abandoned) return false;
+      log.warn('masterSlaveApps: pass was abandoned by the scheduler watchdog, dropping pending action');
       return true;
     };
     // do not run if installationInProgress or removalInProgress or softRedeployInProgress or hardRedeployInProgress
@@ -4033,8 +4034,9 @@ function startMasterSlaveApps(globalStateParam, installedApps, listRunningApps, 
       // or permanently block the interval.
       // Invalidate the abandoned pass so it cannot mutate if it later unwedges,
       // and release the global lock it will never reach its own `finally` to clear
-      // (appInstaller gates performDockerCleanup on it).
-      masterSlavePassGeneration += 1;
+      // (appInstaller gates performDockerCleanup on it). Single-flight means the
+      // pass registered as current is exactly the one this watchdog raced.
+      if (currentMasterSlavePass) currentMasterSlavePass.abandoned = true;
       // eslint-disable-next-line no-param-reassign
       globalStateParam.masterSlaveAppsRunning = false;
       log.error(`startMasterSlaveApps: ${error.message} - releasing guard so the next tick runs a fresh pass`);
