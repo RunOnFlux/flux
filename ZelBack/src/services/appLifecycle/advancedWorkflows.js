@@ -1090,30 +1090,21 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
-    // A node condition - the daemon not ANSWERING - is never grounds to destroy
-    // an app and its data: the spec and volume stay in place and the reconciler
-    // converges when the node recovers. On this path the reachable stamp today
-    // is a bounded docker start timing out (the creates are deliberately
-    // unbounded here); provisionTimedOut is honoured for the same reason should
-    // a ceiling ever wrap this flow. Removal below is for a redeploy the node
-    // genuinely rejected. The kept app's g:/r: components must be re-marked
-    // synced, or the sync layer's first-encounter handling clears their data.
-    if (error.dockerRuntimeTimedOut || error.provisionTimedOut) {
-      log.warn(`softRegisterAppLocally - ${appSpecs.name} failed on a node condition (${error.message}); leaving the app for the reconciler, NOT removing`);
-      markSyncthingAppsSynced(appSpecs, componentSpecs);
-      if (res) res.end();
-      return;
-    }
-    const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
-    log.info(removeStatus);
-    log.warn(`REMOVAL REASON: Soft registration failure - ${appSpecs.name} failed during soft registration: ${error.message} (softRegisterAppLocally)`);
-    if (res) {
-      res.write(serviceHelper.ensureString(removeStatus));
-      if (res.flush) res.flush();
-    }
-    // eslint-disable-next-line global-require
-    const appUninstaller = require('./appUninstaller');
-    appUninstaller.removeAppLocally(appSpecs.name, res, true);
+    // A failed soft redeploy NEVER removes the app. The data volume was
+    // deliberately preserved (that is what makes the redeploy soft), so
+    // removal here destroys established data over what is usually a node-local
+    // failure - a wedged daemon, a port that would not map, a resource query
+    // that blipped. The spec and volume stay; the reconciler retries the
+    // install with the CURRENT spec on its backoff ladder, so a transient
+    // failure self-heals and a genuinely bad update converges to
+    // kept-down-with-data, the same contract as a failed recreate. A down
+    // instance stops broadcasting apprunning, so the network replaces it
+    // elsewhere through the normal spawner machinery - no removal needed for
+    // availability. The kept app's g:/r: components must be re-marked synced,
+    // or the sync layer's first-encounter handling clears their data.
+    log.warn(`softRegisterAppLocally - ${appSpecs.name} failed during soft registration (${error.message}); keeping the app and its data for the reconciler, NOT removing`);
+    markSyncthingAppsSynced(appSpecs, componentSpecs);
+    if (res) res.end();
   }
 }
 
@@ -1374,12 +1365,18 @@ async function softRedeploy(appSpecs, res) {
   } catch (error) {
     log.info('Error on softRedeploy');
     log.error(error);
-    log.warn(`REMOVAL REASON: Soft redeploy failure - ${appSpecs.name} failed during soft redeploy: ${error.message} (softRedeploy)`);
     globalState.softRedeployInProgress = false;
-    // eslint-disable-next-line global-require
-    const appUninstaller = require('./appUninstaller');
-    await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
-    log.info(`Cleanup completed for ${appSpecs.name} after soft redeploy failure`);
+    // A failed soft redeploy NEVER removes the app: the data volume was
+    // deliberately preserved, and this catch fires for node-local failures too
+    // (a requirements query that blipped, a port that would not map). The spec
+    // and volume stay; the reconciler retries the install with the current
+    // spec on its backoff ladder, so a transient failure self-heals and a
+    // genuinely bad update converges to kept-down-with-data - and a down
+    // instance is replaced elsewhere by the spawner through the normal
+    // apprunning machinery. The kept app's g:/r: components are re-marked
+    // synced so the sync layer's first-encounter handling cannot clear them.
+    log.warn(`softRedeploy - ${appSpecs.name} failed (${error.message}); keeping the app and its data for the reconciler, NOT removing`);
+    markSyncthingAppsSynced(appSpecs, undefined);
   }
 }
 
@@ -1555,10 +1552,15 @@ async function softRedeployComponent(appName, componentName, res) {
       globalState.softRedeployInProgress = false;
     } catch (error) {
       log.error(error);
-      log.warn(`REMOVAL REASON: Soft redeploy failure - ${appName} being removed after component ${fullComponentName} failed during soft redeploy: ${error.message} (softRedeployComponent)`);
       globalState.softRedeployInProgress = false;
-      await appUninstaller.removeAppLocally(appName, res, true, true, true);
-      log.info(`Cleanup completed for ${appName} after component ${fullComponentName} soft redeploy failure`);
+      // A failed soft redeploy NEVER removes - and especially not the WHOLE app
+      // over one component. The data volumes were deliberately preserved; the
+      // reconciler retries the component's install with the current spec on its
+      // backoff ladder. Re-marked synced so the sync layer's first-encounter
+      // handling cannot clear the surviving data. The error still surfaces to
+      // the caller - the redeploy did fail.
+      log.warn(`softRedeployComponent - ${fullComponentName} failed (${error.message}); keeping ${appName} and its data for the reconciler, NOT removing`);
+      markSyncthingAppsSynced(appSpecifications, componentSpec);
       throw error;
     }
   } catch (error) {

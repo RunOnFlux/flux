@@ -317,7 +317,7 @@ async function checkAppForUpdates(appSpec) {
 }
 
 /**
- * Asks, BEFORE any teardown, the same questions the redeploy's install will
+ * Asks, BEFORE any teardown, the IMAGE questions the redeploy's install will
  * ask: the blocked-repositories compliance check, then per component the
  * registry manifest evaluation (size cap, architecture). The soft redeploy
  * verifies only after it has already stopped and removed the running
@@ -330,6 +330,13 @@ async function checkAppForUpdates(appSpec) {
  * also refuses - an update that cannot be verified is not an update this
  * cycle - and a registry rate-limit is surfaced as such so the caller can
  * abort the whole cycle instead of hammering on.
+ *
+ * NOT covered: the install's node-side gates (hardware resources, network
+ * requirements, port mapping) still run after the teardown - port mapping
+ * cannot be pre-asked at all, mapping IS the action. A failure there no longer
+ * removes the app (a failed soft redeploy keeps the app and its data for the
+ * reconciler); the cost of missing them here is a torn-down app waiting on the
+ * reconciler's retry ladder instead of an untouched running one.
  * @param {object} appSpec Application specification
  * @returns {Promise<{ok: boolean, reason: string|null, rateLimited: boolean}>}
  */
@@ -382,8 +389,14 @@ async function triggerAppUpdate(appSpec) {
 
     const preflight = await verifyAppImagesForUpdate(appSpec);
     if (!preflight.ok) {
-      log.warn(`Skipping image update for ${appSpec.name}: ${preflight.reason} - keeping the running image`);
-      fluxEventBus.publish('imageUpdate:updateRefused', { appName: appSpec.name, reason: preflight.reason });
+      // a rate limit is the registry refusing to ANSWER - not a verdict on the
+      // image, and not this app's refusal to record
+      if (preflight.rateLimited) {
+        log.warn(`Image update pre-flight for ${appSpec.name} rate-limited by the registry - deferring, keeping the running image`);
+      } else {
+        log.warn(`Skipping image update for ${appSpec.name}: ${preflight.reason} - keeping the running image`);
+        fluxEventBus.publish('imageUpdate:updateRefused', { appName: appSpec.name, reason: preflight.reason });
+      }
       return { triggered: false, rateLimited: preflight.rateLimited };
     }
 

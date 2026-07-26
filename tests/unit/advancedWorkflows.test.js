@@ -1275,6 +1275,56 @@ describe('advancedWorkflows tests', () => {
       sinon.restore();
     });
 
+    it('keeps the app and its data when the soft install fails - a failed soft redeploy never removes', async () => {
+      // The data volume was deliberately preserved (that is what makes the
+      // redeploy soft), so the rollback removal destroyed established data
+      // over what is usually a node-local failure. The spec and volume must
+      // stay; the reconciler retries with the current spec on its ladder.
+      const installedApp = {
+        name: 'TestApp',
+        version: 8,
+        compose: [{ name: 'frontend', repotag: 'repo/frontend:1.0', containerData: 'g:/data' }],
+      };
+      const newAppSpecs = {
+        name: 'TestApp',
+        version: 8,
+        compose: [{ name: 'frontend', repotag: 'repo/frontend:1.1', containerData: 'g:/data' }],
+      };
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(installedApp);
+      sinon.stub(dbHelper, 'insertOneToDatabase').resolves();
+      sinon.stub(dbHelper, 'updateOneInDatabase').resolves();
+      sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves();
+
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      sinon.stub(appInstaller, 'installApplicationSoft').rejects(new Error('Error: Port 31111 FAILed to open.'));
+
+      // eslint-disable-next-line global-require
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(serviceHelper, 'delay').resolves();
+
+      // eslint-disable-next-line global-require
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.receiveOnlySyncthingAppsCache = new Map();
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+
+      await advancedWorkflows.softRedeploy(newAppSpecs, res);
+
+      expect(removeSpy.called, 'a failed soft redeploy removed the app and its data').to.equal(false);
+      expect(
+        globalState.receiveOnlySyncthingAppsCache.size,
+        'the kept g: component was not re-marked synced - the sync layer would clear its data',
+      ).to.be.greaterThan(0);
+    });
+
     it('should escalate to hard redeploy when component count changes for v8+ app', async () => {
       const installedApp = {
         name: 'TestApp',

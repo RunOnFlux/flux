@@ -67,7 +67,9 @@ class MockImageVerifier {
     this.options = options;
     this.parseError = mockVerifierParseError;
     this.error = mockVerifierParseError;
-    this.errorDetail = '';
+    // the real class's errorDetail getter serves the parse detail with no
+    // lookup call - only lookup/evaluation detail is recorded by the calls
+    this.errorDetail = mockVerifierParseError ? mockVerifierErrorDetail : '';
     this.errorMeta = null;
     this.verified = false;
   }
@@ -521,6 +523,21 @@ describe('imageUpdateService tests', () => {
       // cannot be fetched at all. Either way the redeploy would tear down and
       // then die into the removal path - so both must be refused up front.
       imageManagerStub.checkApplicationImagesCompliance.rejects(new Error('Unable to communicate with Flux Services! Try again later.'));
+      const appSpec = { name: 'TestApp', version: 3, repotag: 'someorg/someimage:v1' };
+
+      const result = await imageUpdateService.triggerAppUpdate(appSpec);
+
+      expect(result.triggered).to.equal(false);
+      sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
+    });
+
+    it('does not report a redeploy when another operation started during the pre-flight', async () => {
+      // The pre-flight is a real network walk; an install/removal can start
+      // under it. softRedeploy would bail on its own flags, and that must not
+      // be counted - and slept on - as a completed update.
+      imageManagerStub.checkApplicationImagesCompliance.callsFake(async () => {
+        globalStateStub.installationInProgress = true;
+      });
       const appSpec = { name: 'TestApp', version: 3, repotag: 'someorg/someimage:v1' };
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
