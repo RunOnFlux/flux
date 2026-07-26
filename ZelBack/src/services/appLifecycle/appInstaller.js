@@ -243,22 +243,6 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
  * @param {object} fullAppSpecs - Full app specifications
  * @returns {Promise<void>}
  */
-/**
- * Did the registry fail to ANSWER, as opposed to answering about the image? Only the
- * former is safe to ride out on a local copy. Reads the metadata ImageVerifier
- * already records for a failed lookup; a missing httpStatus means nothing replied,
- * which is the same class as a connection error. Anything else - a 4xx, a rejected
- * manifest - is the registry talking about the image, and is permanent.
- *
- * @param {object|null} errorMeta ImageVerifier.errorMeta
- * @returns {boolean}
- */
-function isRegistryUnreachable(errorMeta) {
-  if (!errorMeta) return false;
-  if (['network', 'rate_limit', 'server_error'].includes(errorMeta.errorType)) return true;
-  return errorMeta.httpStatus === null || errorMeta.httpStatus === undefined;
-}
-
 async function verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs, options = {}) {
   const allowLocalImageFallback = options.allowLocalImageFallback || false;
   // check image and its architecture
@@ -328,16 +312,12 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   let registryReachable = true;
 
   await imgVerifier.verifyImage();
-  // Read the failure metadata BEFORE throwing: throwIfError() calls resetErrors() in
-  // its own `finally`, so errorMeta is already null by the time the catch below runs.
-  const verifyErrorMeta = imgVerifier.errorMeta;
   try {
+    // throwIfError stamps registryErrorClass on the throw - the verifier's own
+    // transient/permanent verdict, so a definitive answer about the image (bad
+    // arch, over size, not whitelisted) can never read as "registry unreachable".
     imgVerifier.throwIfError();
   } catch (error) {
-    // The verifier records WHY the lookup failed; carry that forward so the decision
-    // below can tell "we never reached the registry" from "the registry answered
-    // about this image". No HTTP status at all means nothing answered.
-    if (isRegistryUnreachable(verifyErrorMeta)) error.registryErrorClass = 'transient';
     if (!await canRunFromLocalImage(error)) throw error;
     registryReachable = false;
     log.warn(`verifyAndPullImage - registry unreachable for ${appSpecifications.repotag}; continuing from the local image`);
@@ -1358,7 +1338,6 @@ module.exports = {
   ensureAppDockerNetwork,
   installApplicationHard,
   installApplicationSoft,
-  isRegistryUnreachable,
   installAppLocally,
   checkAppRequirements,
   testAppInstall,

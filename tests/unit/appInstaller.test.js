@@ -1,7 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
-const fs = require('fs');
 
 // The full-install dockerService stub, shared by every proxyquire setup that
 // drives registerAppLocally. Pass overrides for the few tests that need a
@@ -1382,55 +1381,37 @@ describe('appInstaller tests', () => {
     });
   });
 
-  describe('isRegistryUnreachable', () => {
-    // The shapes here are ImageVerifier's own, read from its errorMeta getter. The
-    // integration suite caught this predicate silently reading `undefined` because
-    // the accessor was named for the private field; these pin both the mapping and
-    // the accessor's existence, which is cheaper than a six-minute suite.
+  describe('image verify failure classification', () => {
+    // The transient/permanent split rides ON the error throwIfError throws
+    // (ImageVerifier.errorClass, stamped as registryErrorClass), so a definitive
+    // answer about the image - bad arch, over size, not whitelisted - can never
+    // read as "registry unreachable" and be ridden out on the local copy.
     const { ImageVerifier } = require('../../ZelBack/src/services/utils/imageVerifier');
 
-    it('errorMeta is destroyed by throwIfError, so it must be read first', () => {
-      // throwIfError() calls resetErrors() in its own finally. Reading errorMeta from
-      // the catch block therefore always yields null, and every failure classifies as
-      // permanent - which is exactly how the local-image fallback silently never fired.
-      const source = fs.readFileSync(
-        require.resolve('../../ZelBack/src/services/utils/imageVerifier'), 'utf8',
-      );
-      const throwIfErrorBody = source.slice(source.indexOf('throwIfError()'), source.indexOf('throwIfError()') + 400);
-      expect(throwIfErrorBody, 'throwIfError no longer resets - the capture-first dance may be removable')
-        .to.include('resetErrors()');
-
-      const installerSource = fs.readFileSync(
-        require.resolve('../../ZelBack/src/services/appLifecycle/appInstaller'), 'utf8',
-      );
-      const capture = installerSource.indexOf('const verifyErrorMeta = imgVerifier.errorMeta;');
-      const throwCall = installerSource.indexOf('imgVerifier.throwIfError();');
-      expect(capture, 'the failure metadata is never captured').to.be.greaterThan(-1);
-      expect(capture, 'metadata is captured after throwIfError has already wiped it').to.be.lessThan(throwCall);
+    it('exposes errorClass and errorMeta as getters', () => {
+      // Structural: cheaper than a six-minute integration cycle at catching a
+      // renamed accessor. errorMeta is still read by imageManager and
+      // imageUpdateService; errorClass is what throwIfError stamps.
+      ['errorClass', 'errorMeta'].forEach((name) => {
+        const descriptor = Object.getOwnPropertyDescriptor(ImageVerifier.prototype, name);
+        expect(descriptor && typeof descriptor.get, `ImageVerifier.${name} is not a getter`).to.equal('function');
+      });
     });
 
-    it('reads an accessor ImageVerifier actually exposes', () => {
-      const descriptor = Object.getOwnPropertyDescriptor(ImageVerifier.prototype, 'errorMeta');
-      expect(descriptor && typeof descriptor.get, 'ImageVerifier.errorMeta is not a getter').to.equal('function');
-    });
-
-    it('treats a request nothing answered as unreachable', () => {
-      // what a stopped registry produces: no response, so no status
-      expect(appInstaller.isRegistryUnreachable({ httpStatus: undefined, errorCode: null, errorType: 'http_error' })).to.equal(true);
-      expect(appInstaller.isRegistryUnreachable({ httpStatus: null, errorCode: 'ECONNREFUSED', errorType: 'network' })).to.equal(true);
-    });
-
-    it('treats rate limiting and server faults as unreachable', () => {
-      expect(appInstaller.isRegistryUnreachable({ httpStatus: 429, errorType: 'rate_limit' })).to.equal(true);
-      expect(appInstaller.isRegistryUnreachable({ httpStatus: 503, errorType: 'server_error' })).to.equal(true);
-    });
-
-    it('treats an answer about the image as permanent', () => {
-      // the registry replied - the image is genuinely absent or forbidden, and
-      // riding that out on a stale local copy would hide a real problem
-      expect(appInstaller.isRegistryUnreachable({ httpStatus: 404, errorType: 'http_error' })).to.equal(false);
-      expect(appInstaller.isRegistryUnreachable({ httpStatus: 403, errorType: 'http_error' })).to.equal(false);
-      expect(appInstaller.isRegistryUnreachable(null)).to.equal(false);
+    it('stamps the classification on the throw, before resetErrors wipes the meta it derives from', () => {
+      // A verdict that is not a could-not-ask answer must read permanent - the
+      // conservative direction: an unknown failure shape degrades to the strict
+      // behavior (no local-image fallback), never to riding out a real verdict.
+      const verifier = new ImageVerifier('not a parseable repotag');
+      expect(verifier.error, 'an unparseable tag should be an error').to.equal(true);
+      let thrown;
+      try {
+        verifier.throwIfError();
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown, 'throwIfError did not throw for a bad tag').to.not.equal(undefined);
+      expect(thrown.registryErrorClass).to.equal('permanent');
     });
   });
 });
