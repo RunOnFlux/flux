@@ -1738,7 +1738,7 @@ describe('advancedWorkflows tests', () => {
 
       // FDM answers on every pass: no primary anywhere
       sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'success', data: { ips: [] } } });
-      sinon.stub(serviceHelper, 'runCommand').resolves(); // the chain's chmod
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' }); // the chain's chmod
       // pass 1 gets this node's address; pass 2 wedges here and gets abandoned
       const localAddr = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
       localAddr.onFirstCall().resolves('192.168.1.5:16127');
@@ -1787,6 +1787,146 @@ describe('advancedWorkflows tests', () => {
         "another pass's abandonment dropped a completed pass's start",
       ).to.equal(true);
       expect(setControllerDesired.callCount).to.equal(1);
+    });
+
+    it('does not request a start when the permissions fix fails', async () => {
+      // runCommand reports failure via result.error, never a rejection. The chain
+      // must read that result - discarding it deadened the guard, and a node got
+      // elected write-side primary over data whose ownership it could not fix.
+      const appName = 'gpermfail';
+      const identifier = `gcomp_${appName}`;
+      // eslint-disable-next-line global-require
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+      // eslint-disable-next-line global-require
+      const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+      // eslint-disable-next-line global-require
+      const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+      const appId = dockerService.getAppIdentifier(identifier);
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'success', data: { ips: [] } } });
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: new Error('chmod: cannot access'), stdout: '', stderr: '' });
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.5:16127');
+      sinon.stub(registryManager, 'appLocation').resolves([{ ip: '192.168.1.5:16127' }]);
+      const getConfigFolders = sinon.stub(syncthingService, 'getConfigFolders')
+        .resolves({ status: 'success', data: [{ id: 'f1', path: `${appsFolder}${appId}`, type: 'receiveonly' }] });
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ name: appName, version: 8, compose: [{ name: 'gcomp', containerData: 'g:/data' }] }],
+      });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const cache = new Map();
+      cache.set(appId, { restarted: true });
+
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, installedApps, listRunningApps, cache, [], [], https,
+      );
+      await clock.tickAsync(50);
+      control.stop();
+
+      expect(
+        setControllerDesired.called,
+        'started a primary over data whose permissions fix failed',
+      ).to.equal(false);
+      expect(
+        getConfigFolders.callCount,
+        'flipped the folder to sendreceive after a failed permissions fix',
+      ).to.equal(1);
+    });
+
+    it('does not abandon a pass that is slow but still making progress', async () => {
+      // The watchdog judges silence, not total elapsed time: a pass with several
+      // g: apps against a degraded FDM legitimately outruns any fixed budget
+      // while advancing, and abandoning it drops the standby stops / primary
+      // starts for every app later in the list - on stable timings, the same
+      // tail every cycle.
+      const appNames = ['gslowa', 'gslowb'];
+      const identifiers = appNames.map((n) => `gcomp_${n}`);
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+
+      // FDM answers with another node as primary - after 3/4 of the watchdog
+      // budget, so two apps together far exceed the budget but each answer is
+      // fresh progress
+      const fdmDelayMs = Math.round(maxPassMs * 0.75);
+      sinon.stub(serviceHelper, 'axiosGet').callsFake(() => new Promise((resolve) => {
+        setTimeout(() => resolve({ data: { status: 'success', data: { ips: ['192.168.1.99'] } } }), fdmDelayMs);
+      }));
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.5:16127');
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: appNames.map((name) => ({ name, version: 8, compose: [{ name: 'gcomp', containerData: 'g:/data' }] })),
+      });
+      // both components run here, and FDM names another primary -> standby stops
+      const listRunningApps = sinon.stub().resolves({
+        status: 'success',
+        data: identifiers.map((id) => ({ Names: [`/flux${id}`] })),
+      });
+
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, installedApps, listRunningApps, new Map(), [], [], https,
+      );
+      await clock.tickAsync(2 * fdmDelayMs + 1000);
+      control.stop();
+
+      identifiers.forEach((id) => {
+        expect(
+          setControllerDesired.calledWith(id, 'stopped', 'masterSlave standby'),
+          `the slow-but-advancing pass was abandoned before it reached ${id}`,
+        ).to.equal(true);
+      });
+    });
+
+    it("an abandoned pass's late finally does not release the lock its replacement holds", async () => {
+      // The finally only clears masterSlaveAppsRunning when its pass is still
+      // current: an abandoned pass that unwedges minutes later must not clobber
+      // the lock the live pass set for itself.
+      const writes = [];
+      let running = false;
+      Object.defineProperty(globalStateMock, 'masterSlaveAppsRunning', {
+        configurable: true,
+        get: () => running,
+        set: (value) => { running = value; writes.push(value); },
+      });
+      // eslint-disable-next-line global-require
+      const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+      sinon.stub(registryManager, 'appLocation').resolves([]);
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'success', data: { ips: [] } } });
+      sinon.stub(syncthingService, 'getConfigFolders').resolves({ status: 'error' });
+
+      // pass 1 wedges on the address lookup and is abandoned; pass 2 wedges the
+      // same way and is still in flight when pass 1 is released
+      let releaseFirst;
+      const localAddr = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
+      localAddr.onFirstCall().returns(new Promise((resolve) => {
+        releaseFirst = () => resolve('192.168.1.5:16127');
+      }));
+      localAddr.returns(new Promise(() => {}));
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ name: 'glateclear', version: 8, compose: [{ name: 'gcomp', containerData: 'g:/data' }] }],
+      });
+
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, installedApps, listRunningAppsStub, new Map(), [], [], https,
+      );
+      await clock.tickAsync(50);
+      expect(writes).to.deep.equal([true]);
+
+      // the watchdog abandons pass 1 (writes false), and the next interval tick -
+      // possibly in the same timer batch - starts pass 2, which wedges too
+      await clock.tickAsync(maxPassMs + intervalMs);
+      expect(writes).to.deep.equal([true, false, true]);
+      control.stop();
+
+      releaseFirst(); // pass 1 unwedges and runs its finally
+      await clock.tickAsync(50);
+      expect(
+        writes,
+        "the abandoned pass's finally released the replacement's lock",
+      ).to.deep.equal([true, false, true]);
     });
 
     it('releases the global masterSlaveAppsRunning lock when it abandons a pass', async () => {

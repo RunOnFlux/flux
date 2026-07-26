@@ -1914,8 +1914,14 @@ async function applyPermissionsFix(appId) {
     log.info(`Applying permissions fix for app: ${appId}`);
 
     // Apply 777 permissions to entire app directory recursively
-    // This covers both appdata (primary mount) and all additional mounts at the same level
-    await serviceHelper.runCommand('chmod', { params: ['-R', '777', appPath], runAsRoot: true });
+    // This covers both appdata (primary mount) and all additional mounts at the same level.
+    // runCommand never rejects - failure comes back as result.error - and this result
+    // is the gate that keeps a node from being elected primary over data it could not
+    // fix. timeout: 0 because a recursive chmod over a large appdata tree legitimately
+    // outruns runCommand's 15-minute default, and a half-applied fix must read as
+    // failure, not be silently killed and reported as success.
+    const result = await serviceHelper.runCommand('chmod', { params: ['-R', '777', appPath], runAsRoot: true, timeout: 0 });
+    if (result.error) throw result.error;
 
     log.info(`Successfully applied permissions fix for app: ${appId} (includes appdata and all mount points)`);
     return true;
@@ -3531,10 +3537,12 @@ async function forceAppRemovals() {
  * @returns {Promise<void>}
  */
 async function masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https) {
+  // Declared outside the try so the finally can check ownership of the global
+  // flag against the pass that is current by the time it runs.
+  const thisPass = { abandoned: false, lastProgressAt: Date.now() };
   try {
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = true;
-    const thisPass = { abandoned: false };
     currentMasterSlavePass = thisPass;
     // A wedged pass keeps running after the scheduler gives up on it; anything it
     // does from then on is based on a stale FDM/docker view and can fight the pass
@@ -3644,6 +3652,13 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
+      // Progress heartbeat for the scheduler's watchdog. Every awaited call in
+      // this loop is individually bounded (10s FDM regions, 10s peer probes), so
+      // a pass that is merely SLOW - many g: apps, degraded FDM - keeps beating
+      // and keeps its actuations, while a pass wedged on one dead await goes
+      // silent and is abandoned. Same principle as the pull stall detector:
+      // silence is the failure, not elapsed time.
+      thisPass.lastProgressAt = Date.now();
       let fdmOk = true;
       let identifier;
       let needsToBeChecked = false;
@@ -3782,6 +3797,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 
                   // Check all nodes with lower index
                   for (let i = 0; i < index; i += 1) {
+                    // each probe is bounded at probeTimeoutMs; beat per probe so a
+                    // high-index node's long (but advancing) walk is not mistaken
+                    // for a wedged pass
+                    thisPass.lastProgressAt = Date.now();
                     const nodeToCheck = runningAppList[i];
                     if (!nodeToCheck) continue;
 
@@ -3969,8 +3988,14 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
   } catch (error) {
     log.error(`masterSlaveApps: ${error}`);
   } finally {
-    // eslint-disable-next-line no-param-reassign
-    globalStateParam.masterSlaveAppsRunning = false;
+    // Only the CURRENT pass owns the flag. An abandoned pass reaches this
+    // finally when it eventually unwedges - by then the watchdog has released
+    // the flag and a replacement pass may have set it true for itself; an
+    // unconditional clear here would clobber the live pass's lock.
+    if (currentMasterSlavePass === thisPass) {
+      // eslint-disable-next-line no-param-reassign
+      globalStateParam.masterSlaveAppsRunning = false;
+    }
   }
 }
 
@@ -4003,10 +4028,12 @@ function startMasterSlaveApps(globalStateParam, installedApps, listRunningApps, 
   let isRunning = false;
 
   const intervalMs = config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000;
-  // A single pass legitimately makes several timed calls (FDM across regions,
-  // peer /listrunningapps probes), so allow generous headroom - but never let a
-  // wedged pass block elections forever. On timeout the guard is released and the
-  // next tick starts a fresh pass.
+  // The watchdog judges a pass by SILENCE, not total elapsed time (the pull
+  // stall detector's principle): a pass with many g: apps or degraded FDM
+  // legitimately runs past any fixed budget while still advancing, and
+  // abandoning it drops the very elections it exists to make. The pass beats
+  // a heartbeat between its bounded awaits; only a heartbeat older than this
+  // means it is wedged on a single dead call.
   const maxPassMs = config.fluxapps.masterSlaveMaxPassMs ?? Math.max(intervalMs * 4, 2 * 60 * 1000);
 
   const runPass = async () => {
@@ -4020,8 +4047,22 @@ function startMasterSlaveApps(globalStateParam, installedApps, listRunningApps, 
     try {
       let timer;
       const pass = masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https);
+      // Deadline-extension timer: fires when the pass's heartbeat has been
+      // silent for maxPassMs, re-arming for the remainder whenever the pass
+      // has beaten in the meantime. A wedged pass is still abandoned exactly
+      // maxPassMs after its last sign of life.
       const watchdog = new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`pass exceeded ${maxPassMs}ms`)), maxPassMs);
+        const arm = (delayMs) => {
+          timer = setTimeout(() => {
+            const idleMs = Date.now() - (currentMasterSlavePass ? currentMasterSlavePass.lastProgressAt : 0);
+            if (idleMs >= maxPassMs) {
+              reject(new Error(`pass made no progress for ${Math.round(idleMs / 1000)}s`));
+            } else {
+              arm(maxPassMs - idleMs);
+            }
+          }, delayMs);
+        };
+        arm(maxPassMs);
       });
       try {
         await Promise.race([pass, watchdog]);
@@ -4033,9 +4074,11 @@ function startMasterSlaveApps(globalStateParam, installedApps, listRunningApps, 
       // timeout (and any unexpected throw) so a stuck pass can never tear down
       // or permanently block the interval.
       // Invalidate the abandoned pass so it cannot mutate if it later unwedges,
-      // and release the global lock it will never reach its own `finally` to clear
-      // (appInstaller gates performDockerCleanup on it). Single-flight means the
-      // pass registered as current is exactly the one this watchdog raced.
+      // and release the global lock it may never reach its own `finally` to clear
+      // (appInstaller gates performDockerCleanup on it; a pass wedged on a
+      // BOUNDED call does unwedge and reach its finally, where the ownership
+      // check keeps it from clobbering a replacement's lock). Single-flight
+      // means the pass registered as current is exactly the one this raced.
       if (currentMasterSlavePass) currentMasterSlavePass.abandoned = true;
       // eslint-disable-next-line no-param-reassign
       globalStateParam.masterSlaveAppsRunning = false;
