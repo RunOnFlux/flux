@@ -49,6 +49,14 @@ const dataDesired = new Map();
 const DATA_CLEAR_SETTLE_MS = 500;
 
 const inFlight = new Set(); // ids currently reconciling (per-key single-flight)
+// When each in-flight pass started, and when we last complained about it. A pass
+// that never settles never leaves inFlight, and from then on every enqueue for that
+// component is dropped silently - crash events, hourly sweeps, and the masterSlave
+// election's setControllerDesired alike. Production lost a component that way for
+// 18.5 hours without a single log line. This does not cancel or release anything;
+// it only makes the condition audible. Monotonic so a clock step cannot hide it.
+const inFlightSince = new Map();
+const inFlightWarnedAt = new Map();
 const dirty = new Set(); // ids re-requested while in flight -> reconcile again
 const bootPending = new Set(); // ids enqueued before the boot gate opened
 const backoffTimers = new Map(); // id -> scheduled retry timeout
@@ -114,6 +122,10 @@ const VOLUME_MOUNT_RETRY_MS = 30 * 1000;
 // the next pass finds the container and starts it (the same level-based contract as
 // the recreate-failed-but-container-exists re-check).
 const RECREATE_PROVISION_CAP_MS = config.fluxapps.recreateProvisionCapMs ?? 3 * 60 * 1000;
+
+// An in-flight pass older than this is stuck, not slow: it must sit above the
+// recreate ceiling above, which bounds the longest legitimate pass.
+const STUCK_RECONCILE_MS = config.fluxapps.reconcileStuckWarnMs ?? 20 * 60 * 1000;
 
 // identifiers whose missing backing image was already recorded as a tampering
 // event, so the paced retries don't re-record it every cycle
@@ -948,6 +960,8 @@ function runReconcile(identifier) {
     .catch((err) => log.error(`appReconciler - reconcile ${identifier} failed: ${err.message}`))
     .finally(() => {
       inFlight.delete(identifier);
+      inFlightSince.delete(identifier);
+      inFlightWarnedAt.delete(identifier);
       // one completed pass (actuated or deferred) is all the boot drain needs
       if (bootDraining.delete(identifier) && bootDraining.size === 0) {
         settleBootDrain('all boot reconciles completed a pass');
@@ -957,6 +971,26 @@ function runReconcile(identifier) {
         setImmediate(() => enqueue(identifier));
       }
     });
+}
+
+/**
+ * Report an in-flight pass that has outlived any legitimate one, so a component
+ * whose reconciles are being silently coalesced away is visible. Deliberately
+ * inert: the pass keeps its guard (reconcile mutates data, so releasing it early
+ * would let a start race a wipe) - the point is that the operator finds out in
+ * minutes rather than never. Re-warns once per window so a long stall keeps
+ * signalling instead of scrolling past once.
+ */
+function warnIfStuck(identifier) {
+  const startedAt = inFlightSince.get(identifier);
+  if (!startedAt) return;
+  const elapsedMs = Number((process.hrtime.bigint() - startedAt) / 1000000n);
+  if (elapsedMs < STUCK_RECONCILE_MS) return;
+  const lastWarned = inFlightWarnedAt.get(identifier);
+  if (lastWarned && elapsedMs - lastWarned < STUCK_RECONCILE_MS) return;
+  inFlightWarnedAt.set(identifier, elapsedMs);
+  log.error(`appReconciler - ${identifier} has been reconciling for ${Math.round(elapsedMs / 1000)}s; reconcile requests for it are being dropped`);
+  fluxEventBus.publish('reconciler:stuck', { identifier, elapsedMs });
 }
 
 /**
@@ -971,10 +1005,12 @@ function enqueue(rawIdentifier) {
     return;
   }
   if (inFlight.has(identifier)) {
+    warnIfStuck(identifier);
     dirty.add(identifier);
     return;
   }
   inFlight.add(identifier);
+  inFlightSince.set(identifier, process.hrtime.bigint());
   runReconcile(identifier);
 }
 

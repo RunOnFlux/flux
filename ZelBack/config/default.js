@@ -362,6 +362,13 @@ module.exports = {
     // A pull whose progress stream goes silent this long is a dead transfer, not a
     // slow one. Total pull time is unbounded while progress keeps flowing.
     pullStallMs: 90000,
+    // Ceiling on a short docker control-plane call (inspect, start). Mirrors
+    // kubelet's --runtime-request-timeout, which bounds runtime operations at 2min
+    // and exempts the long-running ones (pull, logs, exec, attach) - the same split
+    // used here. Measured docker start is ~2s p50 / ~3s p99 under load, so this is
+    // ~40x the worst observed case. NOT applied to stop, which legitimately runs for
+    // hours under a graceful shutdown and already declares its own grace via `t`.
+    dockerRuntimeOpTimeoutMs: 120000,
     // Absolute ceiling on a reconciler recreate's provisioning. The stall detector
     // above owns the dead-registry case, so this only guards the residual non-pull
     // steps (a sick disk mid volume-create, a hung docker create) from wedging the
@@ -369,6 +376,10 @@ module.exports = {
     // with no container present escalates to removeAppLocally, so a ceiling that
     // fired on a merely-slow pull would uninstall a healthy app.
     recreateProvisionCapMs: 900000,
+    // An in-flight reconcile older than this is stuck rather than slow, and every
+    // reconcile request for that component is being silently dropped. Reporting
+    // only - nothing is cancelled - so it sits above the recreate ceiling above.
+    reconcileStuckWarnMs: 1200000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

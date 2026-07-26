@@ -25,6 +25,38 @@ const appsFolder = `${appsFolderPath}/`;
 const docker = new Docker();
 
 /**
+ * Bound a short docker control-plane call so a wedged daemon cannot hold a caller
+ * forever. Mirrors kubelet's --runtime-request-timeout: it covers the quick runtime
+ * operations and deliberately exempts the long-running ones (pull has its own
+ * progress-based stall detection; stop legitimately runs for hours under a graceful
+ * shutdown and declares its own grace via `t`).
+ *
+ * The race frees the CALLER; it cannot cancel the underlying HTTP request. That is
+ * sufficient here - the callers retry, and both bounded operations are safe to
+ * repeat (inspect is read-only, and starting an already-running container is a
+ * no-op to docker).
+ *
+ * @param {Promise} operation
+ * @param {string} label used in the timeout error
+ * @returns {Promise}
+ */
+async function withRuntimeOpTimeout(operation, label) {
+  const timeoutMs = config.fluxapps.dockerRuntimeOpTimeoutMs ?? 2 * 60 * 1000;
+  let timer = null;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`docker ${label} exceeded ${Math.round(timeoutMs / 1000)}s`)), timeoutMs);
+        if (timer.unref) timer.unref();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Creates a docker container object with a given ID.
  *
  * @param {string} id
@@ -212,7 +244,7 @@ async function getDockerContainerByIdOrName(idOrName) {
 async function dockerContainerInspect(idOrName, options = {}) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-  const response = await dockerContainer.inspect(options);
+  const response = await withRuntimeOpTimeout(dockerContainer.inspect(options), `inspect ${idOrName}`);
   return response;
 }
 
@@ -1143,7 +1175,7 @@ async function appDockerStart(idOrName) {
     const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
     globalState.stoppingContainers.delete(getDockerName(idOrName));
-    await dockerContainer.start(); // may throw
+    await withRuntimeOpTimeout(dockerContainer.start(), `start ${idOrName}`); // may throw
 
     // Apply CFS burst after start — cgroup paths only exist once the container
     // is running. Eligibility was decided at appDockerCreate time and stamped
