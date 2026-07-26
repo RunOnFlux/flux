@@ -161,7 +161,10 @@ async function dockerCreateNetwork(options) {
   // this (ensureAppDockerNetwork) advances on rejection - a second create for
   // the same name would then DUPLICATE it (dockerd accepts duplicate names),
   // leaving the app unstartable. A rejection from here must always mean the
-  // daemon answered. A wedged daemon is bounded by the provision ceiling.
+  // daemon answered. On the reconciler's recreate paths a wedge is bounded by
+  // the provision ceiling; on the install paths it is not bounded at all - a
+  // pre-existing gap (the global installationInProgress flag has no watchdog)
+  // owned by the operation-registry redesign, not fixable at this call.
   const network = await docker.createNetwork(options);
   return network;
 }
@@ -1204,7 +1207,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   // ceiling ends a wedged pass with provisionTimedOut (a node condition, kept)
   // and tracks the still-running work in detachedProvisions; a lower bound here
   // settles early without either, which once turned a create-wedged daemon into
-  // a local uninstall of a never-started app.
+  // a local uninstall of a never-started app. The ceiling covers only the
+  // reconciler's recreate paths; on the install paths a wedge here is unbounded
+  // - a pre-existing gap owned by the operation-registry redesign.
   const app = await docker.createContainer(options).catch((error) => {
     log.error(error);
     throw error;

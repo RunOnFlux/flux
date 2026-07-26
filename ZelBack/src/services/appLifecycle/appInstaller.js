@@ -422,8 +422,11 @@ async function ensureAppDockerNetwork(appName, res) {
       // advancing to the next octet safe. A client-side timeout would break that
       // contract - the create could still land with this app's name, and a second
       // create for the same name duplicates it (dockerd accepts duplicate names),
-      // leaving the name ambiguous and the app unstartable with no self-heal. A
-      // daemon wedged here is bounded one level up by the provision ceiling.
+      // leaving the name ambiguous and the app unstartable with no self-heal. On
+      // the reconciler's recreate paths a wedge here is bounded by the provision
+      // ceiling; on the install paths it is not bounded at all - a pre-existing
+      // gap (installationInProgress has no watchdog) owned by the
+      // operation-registry redesign.
       // eslint-disable-next-line no-await-in-loop
       fluxNet = await dockerService.createFluxAppDockerNetwork(appName, octet).catch((error) => log.error(error));
       if (!fluxNet) tried.add(octet);

@@ -522,7 +522,8 @@ async function recreateMissing(identifier) {
     if (err.provisionTimedOut || err.dockerRuntimeTimedOut || (runtimeState && runtimeState.hasEverStarted)) {
       await appsRuntimeState.recordRestart(identifier);
       const wait = Math.max(await appsRuntimeState.restartWaitMs(identifier), MANAGED_RETRY_MS);
-      log.warn(`appReconciler - ${identifier} could not be recreated but has run here before; keeping it (down) and retrying in ${Math.round(wait / 1000)}s`);
+      const keepReason = (runtimeState && runtimeState.hasEverStarted) ? 'it has run here before' : 'the failure is a node condition';
+      log.warn(`appReconciler - ${identifier} could not be recreated but ${keepReason}; keeping it (down) and retrying in ${Math.round(wait / 1000)}s`);
       fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreateFailedKept', waitMs: wait });
       scheduleRetry(identifier, wait);
       return;

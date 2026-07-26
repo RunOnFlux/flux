@@ -1062,6 +1062,16 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
+    // A node condition - a daemon or provision step not ANSWERING (stamped by
+    // the runtime-op bounds and the recreate ceiling) - is never grounds to
+    // destroy an app and its data: the spec and volume stay in place and the
+    // reconciler's recreate path converges when the node recovers. Removal
+    // here is for a redeploy the node genuinely rejected.
+    if (error.dockerRuntimeTimedOut || error.provisionTimedOut) {
+      log.warn(`softRegisterAppLocally - ${appSpecs.name} failed on a node condition (${error.message}); leaving the app for the reconciler, NOT removing`);
+      if (res) res.end();
+      return;
+    }
     const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
     log.warn(`REMOVAL REASON: Soft registration failure - ${appSpecs.name} failed during soft registration: ${error.message} (softRegisterAppLocally)`);
@@ -3931,21 +3941,23 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     }
                   }
                 } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
+                  // A chain for this component is still running: keep the matured
+                  // slot so the next tick retries the moment it clears - and skip
+                  // the probe walk below, which a kept slot would otherwise re-pay
+                  // (index x 10s) on every pass for the life of the chain.
+                  if (permissionsFixInFlight.has(appId)) {
+                    log.info(`masterSlaveApps: promotion chain for ${identifier} still running, keeping its scheduled slot`);
+                    // eslint-disable-next-line no-continue
+                    continue;
+                  }
                   // Scheduled start time has arrived, check if lower-index nodes are running
                   // eslint-disable-next-line no-await-in-loop
                   const lowerNodeRunning = await checkLowerIndexNodesRunning();
                   if (!lowerNodeRunning) {
                     if (superseded()) return;
-                    // a chain for this component is still running - keep the matured
-                    // slot so the next tick retries the moment it clears, instead of
-                    // consuming the slot for a dispatch the guard will no-op
-                    if (permissionsFixInFlight.has(appId)) {
-                      log.info(`masterSlaveApps: promotion chain for ${identifier} still running, keeping its scheduled slot`);
-                    } else {
-                      requestMasterStartWithPermissionsFix(identifier, appId, superseded);
-                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
-                      timeTostartNewMasterApp.delete(identifier);
-                    }
+                    requestMasterStartWithPermissionsFix(identifier, appId, superseded);
+                    log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+                    timeTostartNewMasterApp.delete(identifier);
                   } else {
                     log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - lower-index node is already running`);
                     timeTostartNewMasterApp.delete(identifier);
