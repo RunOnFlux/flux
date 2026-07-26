@@ -78,7 +78,7 @@ async function uploadBlob(repo, data) {
     validateStatus: (s) => s === 202,
   });
 
-  const location = initRes.headers.location;
+  const { location } = initRes.headers;
   const separator = location.includes('?') ? '&' : '?';
   const putUrl = `${location}${separator}digest=${digest}`;
 

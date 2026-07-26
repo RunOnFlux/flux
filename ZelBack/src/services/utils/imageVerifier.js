@@ -380,9 +380,17 @@ class ImageVerifier {
       'ECONNABORTED',
       'ERR_CANCELED',
       'ENETUNREACH',
+      'ETIMEDOUT',
+      'ECONNRESET',
+      'ENOTFOUND',
+      'EAI_AGAIN',
+      'EHOSTUNREACH',
     ];
 
-    if (connectionErrors.includes(error.code)) {
+    // A request that got no HTTP response at all is a connectivity answer, not a
+    // registry verdict - route it with the coded connection errors rather than
+    // letting an undefined status read as an HTTP rejection below.
+    if (connectionErrors.includes(error.code) || (error.request && !error.response)) {
       this.#lookupErrorDetail = `Connection Error ${error.code}: ${this.rawImageTag} not available`;
       this.#lookupErrorMeta = {
         httpStatus: null,

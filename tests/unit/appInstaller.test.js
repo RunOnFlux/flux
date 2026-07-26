@@ -1398,6 +1398,19 @@ describe('appInstaller tests', () => {
       });
     });
 
+    it('classifies a connection nothing answered as transient', async () => {
+      // What a stopped or unreachable registry produces: a connection-level
+      // failure with NO HTTP response. That is an answer about connectivity,
+      // never about the image - it must read transient, or a registry outage
+      // reads as an image verdict and the recreate's local-image fallback is
+      // refused during the exact condition it exists for.
+      const verifier = new ImageVerifier('127.0.0.1:1/someorg/someimage:v1');
+      await verifier.verifyImage();
+      expect(verifier.error, 'a refused connection should be an error').to.equal(true);
+      expect(verifier.errorMeta && verifier.errorMeta.errorType).to.equal('network');
+      expect(verifier.errorClass).to.equal('transient');
+    });
+
     it('stamps the classification on the throw, before resetErrors wipes the meta it derives from', () => {
       // A verdict that is not a could-not-ask answer must read permanent - the
       // conservative direction: an unknown failure shape degrades to the strict
