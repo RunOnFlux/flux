@@ -1281,6 +1281,19 @@ describe('dockerService tests', () => {
       expect(result).to.equal(null);
     });
 
+    it('gives up on a pull request dockerd never answers', async () => {
+      // No stream, no progress events, nothing to re-arm the timer: the request
+      // phase itself is the silence. The timer is armed before the request, so a
+      // dockerd that never calls back is caught by the same detector.
+      sinon.stub(Dockerode.prototype, 'pull').callsFake(() => {});
+      let result;
+      dockerService.dockerPullStream({ repoTag: 'some/image:v1' }, null, (err) => { result = err; });
+
+      await clock.tickAsync(stallMs + 1000);
+      expect(result).to.be.an('error');
+      expect(result.message).to.include('stalled');
+    });
+
     it('reports a followProgress failure as an error, not a success', async () => {
       const harness = stubPull();
       let result;
@@ -1319,6 +1332,17 @@ describe('dockerService tests', () => {
 
       const started = dockerService.appDockerStart('wedged_wedged');
       const assertion = expect(started).to.eventually.be.rejectedWith(/exceeded/);
+      await clock.tickAsync(timeoutMs + 1000);
+      await assertion;
+    });
+
+    it('gives up on a container list that the daemon never answers', async () => {
+      // The reconciler's reachability probe lands here when an inspect times out,
+      // so an unbounded list would hand the wedged daemon back the single-flight
+      // the inspect ceiling just freed.
+      sinon.stub(Dockerode.prototype, 'listContainers').returns(new Promise(() => {}));
+      const listed = dockerService.dockerListContainers(true);
+      const assertion = expect(listed).to.eventually.be.rejectedWith(/exceeded/);
       await clock.tickAsync(timeoutMs + 1000);
       await assertion;
     });

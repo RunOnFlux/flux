@@ -193,7 +193,11 @@ async function dockerListContainers(all, limit, size, filter) {
     size,
     filter,
   };
-  const containers = await docker.listContainers(options);
+  // Bounded like the other short control-plane calls: the reconciler's own
+  // reachability probe lands here when an inspect times out, so an unbounded
+  // list would hand the wedged daemon back the single-flight the inspect
+  // ceiling just freed.
+  const containers = await withRuntimeOpTimeout(docker.listContainers(options), 'list containers');
   return containers;
 }
 
@@ -411,6 +415,10 @@ function dockerPullStream(pullConfig, res, callback) {
 
   pullOptions = { ...(pullOptions ?? {}), abortSignal: stallController.signal };
 
+  // Armed before the request, not from its callback: a dockerd that never answers
+  // the pull request at all is the same silence as a stalled transfer, and arming
+  // only on the answer would leave that phase unbounded.
+  armStall();
   docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {
       // report the followProgress error itself; this used to pass the outer `err`,
