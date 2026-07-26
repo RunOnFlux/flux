@@ -421,6 +421,14 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   const appId = dockerService.getAppIdentifier(identifier);
 
+  // A volume being created is by definition NOT synced: a surviving cache
+  // entry for this id describes a previous incarnation's on-disk state (e.g.
+  // a redeploy keep-mark re-planted while a same-app removal raced it) and
+  // would let this empty fresh install skip the new-install receiveonly
+  // protection and read as instantly ready for g: primary. Drop it so the
+  // sync layer treats the install as the clean slate it is.
+  globalState.receiveOnlySyncthingAppsCache.delete(appId);
+
   const searchSpace = {
     status: 'Searching available space...',
   };
@@ -3560,10 +3568,12 @@ async function reinstallOldApplications() {
               if (error.busyCollision) {
                 // a transient collision with another operation's flag, not a
                 // failed install: the components stay soft-uninstalled with
-                // the row and their data volumes intact, and the next
-                // reinstall pass completes the update. Removing here would
-                // destroy preserved data over a timing collision.
-                log.warn(`Redeployment of ${appSpecifications.name} deferred (${error.message}); keeping the app for the next pass`);
+                // the row and their data volumes intact. The row already
+                // carries the new spec (re-inserted before the component
+                // loop), so the reconciler recreates the missing components
+                // over the preserved volumes. Removing here would destroy
+                // preserved data over a timing collision.
+                log.warn(`Redeployment of ${appSpecifications.name} deferred (${error.message}); keeping the app for the reconciler`);
               } else {
                 log.warn(`REMOVAL REASON: Redeployment error - ${appSpecifications.name} failed during redeployment: ${error.message}`);
                 // eslint-disable-next-line no-await-in-loop

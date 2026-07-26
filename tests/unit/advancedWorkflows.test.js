@@ -1565,8 +1565,9 @@ describe('advancedWorkflows tests', () => {
       // whole app (containers, volumes, data, row, broadcast) on a real
       // registration failure - it must NOT do that when the register merely
       // collided with another operation's flag. The components stay
-      // soft-uninstalled with the row and data volumes intact; the next
-      // reinstall pass completes the update.
+      // soft-uninstalled with the row (already carrying the new spec) and
+      // data volumes intact; the reconciler recreates the missing
+      // components over the preserved volumes.
       const { installedApp, newAppSpecs } = rowlessWindowFixture();
       const localRowStart = { ...installedApp, hash: 'oldhash' };
       const globalSpec = { ...newAppSpecs, hash: 'newhash' };
@@ -1581,7 +1582,9 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').callsFake(async () => { localRow = null; });
       sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').callsFake(async () => { const row = localRow; localRow = null; return row; });
 
-      const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      // mirror the real removal's row delete so the record assertion below
+      // can actually fail if the catch takes the removal path
+      const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').callsFake(async () => { localRow = null; });
       sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
 
       sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
@@ -1600,10 +1603,38 @@ describe('advancedWorkflows tests', () => {
       expect(removeSpy.called, 'a busy collision force-removed the app and its data').to.equal(false);
       expect(registerHard.called, 'the equal-hdd component took the hard path').to.equal(false);
       expect(installSoft.called).to.equal(false);
-      expect(localRow, 'the app must keep its local record for the next pass').to.not.equal(null);
+      expect(localRow, 'the app must keep its local record for the reconciler').to.not.equal(null);
+    });
+
+    it('createAppVolume drops a stale synced-mark - a fresh volume is by definition not synced', async () => {
+      // a cache entry surviving from a previous incarnation (e.g. a redeploy
+      // keep-mark re-planted while a same-app removal raced it) would let the
+      // next fresh install skip the new-install receiveonly protection and
+      // read as instantly ready for g: primary
+      const { newAppSpecs } = rowlessWindowFixture();
+      const component = newAppSpecs.compose[0];
+      globalState.receiveOnlySyncthingAppsCache.set('fluxfrontend_TestApp', {
+        restarted: true, numberOfExecutionsRequired: 4, numberOfExecutions: 10,
+      });
+
+      // eslint-disable-next-line global-require
+      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
+      sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 100 });
+      // eslint-disable-next-line global-require
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      // abort the creation right after the stale-mark drop - the volume
+      // machinery itself is not under test
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'error' });
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'the aborting stub did not fire').to.not.equal(null);
       expect(
-        globalState.reinstallationOfOldAppsInProgress,
-        'the reinstall pass flag leaked',
+        globalState.receiveOnlySyncthingAppsCache.has('fluxfrontend_TestApp'),
+        'a fresh volume creation left a stale synced-mark in place',
       ).to.equal(false);
     });
 
