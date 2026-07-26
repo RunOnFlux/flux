@@ -244,8 +244,13 @@ async function getDockerContainerByIdOrName(idOrName) {
 async function dockerContainerInspect(idOrName, options = {}) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-  const response = await withRuntimeOpTimeout(dockerContainer.inspect(options), `inspect ${idOrName}`);
-  return response;
+  // A plain inspect reads local metadata and is bounded. `size: true` is a
+  // different operation: docker walks the container's whole filesystem to compute
+  // SizeRw/SizeRootFs, which on a large app volume legitimately takes minutes.
+  // Bounding that would report a storage figure of zero for exactly the apps whose
+  // usage matters most, so it keeps the daemon's own pace.
+  if (options.size) return dockerContainer.inspect(options);
+  return withRuntimeOpTimeout(dockerContainer.inspect(options), `inspect ${idOrName}`);
 }
 
 /**

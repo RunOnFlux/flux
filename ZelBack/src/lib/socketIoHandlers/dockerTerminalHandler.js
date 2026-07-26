@@ -8,10 +8,24 @@ const log = require('../log');
 async function dockerTerminalHandler(socket) {
   const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0]?.trim() || socket.handshake.address;
 
-  // This listener is async, so anything that throws inside it is an unhandled
-  // rejection and takes the whole FluxOS process down. Every failure has to leave
-  // through socket.emit('error', ...) instead - hence the blanket catch.
+  // Anything that throws in a socket.io listener is unhandled and takes the whole
+  // FluxOS process down, so every failure here has to leave through
+  // socket.emit('error', ...) instead.
+  //
+  // The try/catch below only covers this listener's own body - the dockerode and
+  // socket callbacks registered inside it run LATER, after the try has exited, so
+  // they are each wrapped in `guard` rather than relying on it.
   socket.on('exec', async (zelidauth, nameOrId, dockerCmd, dockerEnv, dockerUser) => {
+    // wrap a callback that runs outside this listener's try/catch
+    const guard = (label, fn) => (...args) => {
+      try {
+        return fn(...args);
+      } catch (error) {
+        log.error(`dockerTerminalHandler: ${label} for ${nameOrId}: ${error.message}`);
+        socket.emit('error', 'Terminal session error.');
+        return undefined;
+      }
+    };
     try {
       const auth = {
         zelidauth,
@@ -50,7 +64,7 @@ async function dockerTerminalHandler(socket) {
         Env: serviceHelper.commandStringToArray(dockerEnv),
         User: dockerUser,
       };
-      container.exec(cmd, (err, exec) => {
+      container.exec(cmd, guard('exec create', (err, exec) => {
         // dockerode passes back a null exec when the daemon rejects the exec
         // create (most commonly the container is not running - state created or
         // exited). Without this guard the code below dereferences null
@@ -70,13 +84,13 @@ async function dockerTerminalHandler(socket) {
           stderr: true,
           hijack: true,
         };
-        socket.on('resize', (data) => {
+        socket.on('resize', guard('resize', (data) => {
           const { rows, cols } = data;
           exec.resize({ h: rows, w: cols }, () => {
           });
-        });
+        }));
         /* eslint-disable no-shadow */
-        exec.start(options, (err, stream) => {
+        exec.start(options, guard('exec start', (err, stream) => {
           // Same defensive check as above: on failure stream can be null, and the
           // stream.on(...) below would throw an unhandled TypeError out of this
           // callback (crashing the process). Bail out cleanly instead.
@@ -85,20 +99,22 @@ async function dockerTerminalHandler(socket) {
             socket.emit('error', 'Error executing the command.');
             return;
           }
-          stream.on('data', (chunk) => {
+          stream.on('data', guard('stream data', (chunk) => {
             socket.emit('show', chunk.toString());
-          });
+          }));
 
-          socket.on('cmd', (data) => {
+          // the stream is destroyed the moment the container exits, so a keystroke
+          // arriving after that throws ERR_STREAM_DESTROYED out of this handler
+          socket.on('cmd', guard('cmd', (data) => {
             if (typeof data !== 'object') {
               stream.write(data);
             }
-          });
-        });
+          }));
+        }));
         socket.on('end', () => {
           log.info('--------end---------');
         });
-      });
+      }));
     } catch (error) {
       log.error(`dockerTerminalHandler: ${nameOrId}: ${error.message}`);
       socket.emit('error', 'Error opening a terminal.');
