@@ -121,15 +121,25 @@ describe('docker terminal fails cleanly and never crashes the node', function ()
     const pidBefore = await fluxosPid(client.container);
     expect(pidBefore).to.not.equal('');
 
-    // a real session: exec created, hijacked stream up, shell answering
+    // A real session against the harness stub image, which has no shell and no
+    // passwd: exec the one binary it carries (/bin/pause) as the image-default
+    // user. The pty echoes our keystrokes back regardless of the process reading
+    // them, so the first 'show' proves the hijacked stream is live.
     const socket = io(`${client.url}/terminal`, { transports: ['websocket'], reconnection: false, timeout: TERMINAL_TIMEOUT_MS });
     try {
-      await new Promise((resolve, reject) => {
+      let live = false;
+      const opened = new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('terminal never opened')), TERMINAL_TIMEOUT_MS);
-        socket.on('show', () => { clearTimeout(timer); resolve(); });
-        socket.on('error', (m) => { clearTimeout(timer); reject(new Error(`terminal error before kill: ${m}`)); });
+        socket.on('show', () => {
+          if (!live) { live = true; clearTimeout(timer); resolve(); }
+        });
+        // after the session is live, later socket errors are the handler
+        // REPORTING the killed stream - expected, and not a test failure
+        socket.on('error', (m) => {
+          if (!live) { clearTimeout(timer); reject(new Error(`terminal error before kill: ${m}`)); }
+        });
         socket.on('connect_error', (err) => { clearTimeout(timer); reject(new Error(`connect_error ${err.message}`)); });
-        socket.on('connect', () => socket.emit('exec', zelidauth, identifier, 'sh', '', 'root'));
+        socket.on('connect', () => socket.emit('exec', zelidauth, identifier, '/bin/pause', '', ''));
       });
 
       // Keystrokes racing the teardown: the hijacked docker socket dies with the
@@ -137,8 +147,9 @@ describe('docker terminal fails cleanly and never crashes the node', function ()
       // stream ('error', EPIPE). With no stream error listener that is an
       // uncaught exception -> exit(1) - invisible from outside once the
       // watchdog respawns, which is why the assertion is the pid.
-      const typer = setInterval(() => socket.emit('cmd', 'echo alive\n'), 20);
+      const typer = setInterval(() => socket.emit('cmd', 'x'), 20);
       try {
+        await opened;
         await execInContainer(client.container, `docker kill flux${identifier}`);
         await new Promise((res) => { setTimeout(res, 2000); });
       } finally {
