@@ -836,6 +836,34 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
+// During a soft redeploy the app's synced data is preserved on disk, so the
+// components the redeploy touched are marked already-synced in
+// receiveOnlySyncthingAppsCache (the same marking the success path performs).
+// The cache is in-memory (empty after a FluxOS restart), and without an entry
+// the syncthing state machine treats the surviving folder as a first encounter
+// - whose second-encounter handling REQUESTS A DATA CLEAR. So a failed redeploy
+// that keeps the app installed must mark the same scope the success path would
+// have: one component when the redeploy was per-component, all of them when it
+// was app-wide.
+function markSyncthingAppsSynced(appSpecs, componentSpecs) {
+  const components = appSpecs.version >= 4 && Array.isArray(appSpecs.compose)
+    ? (componentSpecs ? [componentSpecs] : appSpecs.compose).map((comp) => ({ containerData: comp.containerData, identifier: `${comp.name}_${appSpecs.name}` }))
+    : [{ containerData: appSpecs.containerData, identifier: appSpecs.name }];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const comp of components) {
+    const hasSyncthingData = comp.containerData && (comp.containerData.includes('g:') || comp.containerData.includes('r:'));
+    if (hasSyncthingData) {
+      const appId = dockerService.getAppIdentifier(comp.identifier);
+      globalState.receiveOnlySyncthingAppsCache.set(appId, {
+        restarted: true,
+        numberOfExecutionsRequired: 4,
+        numberOfExecutions: 10,
+      });
+      log.info(`Restored syncthing cache for ${appId} during soft redeploy`);
+    }
+  }
+}
+
 async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
@@ -1062,13 +1090,17 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
-    // A node condition - a daemon or provision step not ANSWERING (stamped by
-    // the runtime-op bounds and the recreate ceiling) - is never grounds to
-    // destroy an app and its data: the spec and volume stay in place and the
-    // reconciler's recreate path converges when the node recovers. Removal
-    // here is for a redeploy the node genuinely rejected.
+    // A node condition - the daemon not ANSWERING - is never grounds to destroy
+    // an app and its data: the spec and volume stay in place and the reconciler
+    // converges when the node recovers. On this path the reachable stamp today
+    // is a bounded docker start timing out (the creates are deliberately
+    // unbounded here); provisionTimedOut is honoured for the same reason should
+    // a ceiling ever wrap this flow. Removal below is for a redeploy the node
+    // genuinely rejected. The kept app's g:/r: components must be re-marked
+    // synced, or the sync layer's first-encounter handling clears their data.
     if (error.dockerRuntimeTimedOut || error.provisionTimedOut) {
       log.warn(`softRegisterAppLocally - ${appSpecs.name} failed on a node condition (${error.message}); leaving the app for the reconciler, NOT removing`);
+      markSyncthingAppsSynced(appSpecs, componentSpecs);
       if (res) res.end();
       return;
     }
