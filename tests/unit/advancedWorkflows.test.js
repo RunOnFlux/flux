@@ -12,6 +12,10 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+const generalService = require('../../ZelBack/src/services/generalService');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
+const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -1258,8 +1262,6 @@ describe('advancedWorkflows tests', () => {
 
     beforeEach(() => {
       // Reset global state
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
       globalState.removalInProgress = false;
       globalState.installationInProgress = false;
       globalState.softRedeployInProgress = false;
@@ -1278,51 +1280,109 @@ describe('advancedWorkflows tests', () => {
     it('keeps the app and its data when the soft install fails - a failed soft redeploy never removes', async () => {
       // The data volume was deliberately preserved (that is what makes the
       // redeploy soft), so the rollback removal destroyed established data
-      // over what is usually a node-local failure. The spec and volume must
-      // stay; the reconciler retries with the current spec on its ladder.
-      const installedApp = {
+      // over what is usually a node-local failure. With the local row present
+      // the spec and volume must stay; the reconciler retries with the
+      // current spec on its ladder.
+      const composed = (repotag) => ({
+        name: 'frontend',
+        repotag,
+        containerData: 'g:/data',
+        ports: [31111],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: [80],
+        cpu: 0.1,
+        ram: 100,
+        hdd: 1,
+        tiered: false,
+      });
+      const base = {
         name: 'TestApp',
+        description: 'test app',
+        owner: '1TESTOWNERADDRESS',
         version: 8,
-        compose: [{ name: 'frontend', repotag: 'repo/frontend:1.0', containerData: 'g:/data' }],
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 22000,
+        nodes: [],
+        staticip: false,
+        hash: 'testhash',
+        height: 1000,
       };
-      const newAppSpecs = {
-        name: 'TestApp',
-        version: 8,
-        compose: [{ name: 'frontend', repotag: 'repo/frontend:1.1', containerData: 'g:/data' }],
-      };
-      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(installedApp);
-      sinon.stub(dbHelper, 'insertOneToDatabase').resolves();
+      const installedApp = { ...base, compose: [composed('repo/frontend:1.0')] };
+      const newAppSpecs = { ...base, compose: [composed('repo/frontend:1.1')] };
+      // The stubs mirror the real local-row lifecycle: the soft remove
+      // deletes the row (so the register's already-installed check passes),
+      // the register's insert restores it (so the catch's row-exists gate
+      // sees it). A blanket always-returns-row stub aborts the register
+      // with 'already installed' and never reaches the install.
+      let localRow = installedApp;
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').callsFake(async () => (localRow ? [localRow] : []));
+      sinon.stub(dbHelper, 'findOneInDatabase').callsFake(async () => localRow);
+      sinon.stub(dbHelper, 'insertOneToDatabase').callsFake(async (db, col, doc) => { localRow = doc; return doc; });
       sinon.stub(dbHelper, 'updateOneInDatabase').resolves();
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves();
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').callsFake(async () => { const row = localRow; localRow = null; return row; });
 
-      // eslint-disable-next-line global-require
-      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
       const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
       sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
 
-      // eslint-disable-next-line global-require
-      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
       sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
-      sinon.stub(appInstaller, 'installApplicationSoft').rejects(new Error('Error: Port 31111 FAILed to open.'));
+      sinon.stub(appInstaller, 'ensureAppDockerNetwork').resolves();
+      const installSoft = sinon.stub(appInstaller, 'installApplicationSoft').rejects(new Error('Error: Port 31111 FAILed to open.'));
+      sinon.stub(generalService, 'nodeTier').resolves('basic');
 
-      // eslint-disable-next-line global-require
-      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       sinon.stub(serviceHelper, 'delay').resolves();
 
-      // eslint-disable-next-line global-require
-      const globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.receiveOnlySyncthingAppsCache = new Map();
+      // the property is getter-only: clear the real shared map, never reassign
+      globalState.receiveOnlySyncthingAppsCache.clear();
 
       const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
 
       await advancedWorkflows.softRedeploy(newAppSpecs, res);
 
+      expect(installSoft.called, 'the flow never reached the soft install - the test is not exercising the register-site keep').to.equal(true);
       expect(removeSpy.called, 'a failed soft redeploy removed the app and its data').to.equal(false);
       expect(
         globalState.receiveOnlySyncthingAppsCache.size,
         'the kept g: component was not re-marked synced - the sync layer would clear its data',
       ).to.be.greaterThan(0);
+    });
+
+    it('falls back to full removal - and does not mark synced - when the app has no local record', async () => {
+      // 'Flux App not found' (redeploy called on a node without the app, or a
+      // failure after the soft uninstall deleted the row and before the
+      // register restored it): keeping is incoherent - nothing converges an
+      // app the reconciler cannot see, and a stale synced-mark would make an
+      // empty later install eligible for g: primary. The catch must take the
+      // removal path and must NOT touch the cache.
+      const newAppSpecs = {
+        name: 'TestAppGone',
+        description: 'test app',
+        owner: '1TESTOWNERADDRESS',
+        version: 8,
+        compose: [{ name: 'frontend', repotag: 'repo/frontend:1.1', containerData: 'g:/data' }],
+      };
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+
+      const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      sinon.stub(serviceHelper, 'delay').resolves();
+
+      globalState.receiveOnlySyncthingAppsCache.clear();
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+
+      await advancedWorkflows.softRedeploy(newAppSpecs, res);
+
+      expect(removeSpy.called, 'the rowless failure did not fall back to removal').to.equal(true);
+      expect(
+        globalState.receiveOnlySyncthingAppsCache.size,
+        'marked synced for an app this node does not even have',
+      ).to.equal(0);
     });
 
     it('should escalate to hard redeploy when component count changes for v8+ app', async () => {

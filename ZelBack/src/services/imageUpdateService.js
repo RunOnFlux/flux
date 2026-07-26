@@ -321,10 +321,10 @@ async function checkAppForUpdates(appSpec) {
  * ask: the blocked-repositories compliance check, then per component the
  * registry manifest evaluation (size cap, architecture). The soft redeploy
  * verifies only after it has already stopped and removed the running
- * containers, and its failure path removes the app and its data - so a mutable
- * tag gone bad, a blocked repository, or a compliance list that cannot even be
- * fetched must all be refused HERE, where refusal costs nothing: the app keeps
- * running its current image and the refusal is logged each cycle. All
+ * containers - so a mutable tag gone bad, a blocked repository, or a
+ * compliance list that cannot even be fetched must all be refused HERE, where
+ * refusal costs nothing: the app keeps running its current image and the
+ * refusal is logged each cycle. All
  * components are checked, not just the changed one, because the redeploy will
  * re-verify all of them and dies on any. A lookup that cannot be completed
  * also refuses - an update that cannot be verified is not an update this
