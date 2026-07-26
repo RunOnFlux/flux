@@ -1585,7 +1585,7 @@ describe('advancedWorkflows tests', () => {
       // mirror the real removal's row delete so the record assertion below
       // can actually fail if the catch takes the removal path
       const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').callsFake(async () => { localRow = null; });
-      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+      const softUninstall = sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
 
       sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
       const registerHard = sinon.stub(appInstaller, 'registerAppLocally').resolves(true);
@@ -1598,6 +1598,13 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(serviceHelper, 'delay').callsFake(async () => { globalState.installationInProgress = true; });
 
       await advancedWorkflows.reinstallOldApplications();
+
+      // positive proof the collision path actually ran: the composed soft
+      // teardown must have happened, and the delay stub's flag must still be
+      // set - without these, a regression that skips the redeploy entirely
+      // (probability gate, hash comparison) would leave this test green
+      expect(softUninstall.called, 'the composed soft redeploy was never attempted').to.equal(true);
+      expect(globalState.installationInProgress, 'the collision was never armed').to.equal(true);
       globalState.installationInProgress = false;
 
       expect(removeSpy.called, 'a busy collision force-removed the app and its data').to.equal(false);
@@ -1606,11 +1613,12 @@ describe('advancedWorkflows tests', () => {
       expect(localRow, 'the app must keep its local record for the reconciler').to.not.equal(null);
     });
 
-    it('createAppVolume drops a stale synced-mark - a fresh volume is by definition not synced', async () => {
-      // a cache entry surviving from a previous incarnation (e.g. a redeploy
-      // keep-mark re-planted while a same-app removal raced it) would let the
-      // next fresh install skip the new-install receiveonly protection and
-      // read as instantly ready for g: primary
+    it('createAppVolume preserves the synced-mark when pre-flight aborts before any volume is touched', async () => {
+      // a hard recreate whose pre-flight fails (a resources query blip, out
+      // of space - the LIKELY population for failed recreates) leaves the
+      // existing volume and its data untouched. Stripping the mark there
+      // hands the intact data to the not-in-cache skip/second-encounter
+      // chain, which clears it.
       const { newAppSpecs } = rowlessWindowFixture();
       const component = newAppSpecs.compose[0];
       globalState.receiveOnlySyncthingAppsCache.set('fluxfrontend_TestApp', {
@@ -1619,11 +1627,9 @@ describe('advancedWorkflows tests', () => {
 
       // eslint-disable-next-line global-require
       const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
-      sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 100 });
+      sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
       // eslint-disable-next-line global-require
       const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
-      // abort the creation right after the stale-mark drop - the volume
-      // machinery itself is not under test
       sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'error' });
 
       let thrown = null;
@@ -1631,11 +1637,48 @@ describe('advancedWorkflows tests', () => {
         await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
       } catch (error) { thrown = error; }
 
-      expect(thrown, 'the aborting stub did not fire').to.not.equal(null);
+      expect(thrown, 'the pre-flight abort did not fire').to.not.equal(null);
+      expect(thrown.message).to.include('Unable to obtain locked system resources');
       expect(
         globalState.receiveOnlySyncthingAppsCache.has('fluxfrontend_TestApp'),
-        'a fresh volume creation left a stale synced-mark in place',
+        'an aborted pre-flight stripped the synced-mark of an app whose data is intact',
+      ).to.equal(true);
+      globalState.receiveOnlySyncthingAppsCache.clear();
+    });
+
+    it('createAppVolume drops a stale synced-mark at the point of no return', async () => {
+      // once fallocate runs the old volume state is gone: a cache entry
+      // surviving from the previous incarnation would let this fresh install
+      // skip the new-install receiveonly protection and read as instantly
+      // ready for g: primary
+      const { newAppSpecs } = rowlessWindowFixture();
+      const component = newAppSpecs.compose[0];
+      globalState.receiveOnlySyncthingAppsCache.set('fluxfrontend_TestApp', {
+        restarted: true, numberOfExecutionsRequired: 4, numberOfExecutions: 10,
+      });
+
+      // eslint-disable-next-line global-require
+      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
+      sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
+      // eslint-disable-next-line global-require
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      // let the flow reach the point of no return, then block the actual
+      // allocation - the drop must have happened by then
+      sinon.stub(serviceHelper, 'runCommand').callsFake(async (cmd) => (
+        cmd === 'fallocate' ? { error: new Error('fallocate blocked by test') } : {}));
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'the flow never reached the allocation').to.not.equal(null);
+      expect(
+        globalState.receiveOnlySyncthingAppsCache.has('fluxfrontend_TestApp'),
+        'the point of no return left a stale synced-mark in place',
       ).to.equal(false);
+      globalState.receiveOnlySyncthingAppsCache.clear();
     });
 
     it('stamps busy-guard throws so callers can tell a collision from a real failure', async () => {

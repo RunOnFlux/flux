@@ -421,14 +421,6 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   const appId = dockerService.getAppIdentifier(identifier);
 
-  // A volume being created is by definition NOT synced: a surviving cache
-  // entry for this id describes a previous incarnation's on-disk state (e.g.
-  // a redeploy keep-mark re-planted while a same-app removal raced it) and
-  // would let this empty fresh install skip the new-install receiveonly
-  // protection and read as instantly ready for g: primary. Drop it so the
-  // sync layer treats the install as the clean slate it is.
-  globalState.receiveOnlySyncthingAppsCache.delete(appId);
-
   const searchSpace = {
     status: 'Searching available space...',
   };
@@ -532,6 +524,16 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       volumeFile = path.join(appVolumesPath, `${appId}FLUXFSVOL`);
     }
 
+    // The point of no return: past here the previous incarnation's on-disk
+    // state is gone, so a surviving cache entry for this id is stale by
+    // definition (e.g. a redeploy keep-mark re-planted while a same-app
+    // removal raced it) and would let this empty fresh install skip the
+    // new-install receiveonly protection and read as instantly ready for g:
+    // primary. Dropped HERE and not at entry: a pre-flight abort (resources
+    // query, space checks) leaves the existing volume and its data untouched,
+    // and stripping the mark there would hand intact data to the
+    // not-in-cache skip/second-encounter chain, which clears it.
+    globalState.receiveOnlySyncthingAppsCache.delete(appId);
     await execAsRoot('fallocate', ['-l', `${appSpecifications.hdd}G`, volumeFile]);
     const allocateSpace2 = {
       status: 'Space allocated',
