@@ -134,6 +134,7 @@ describe('advancedWorkflows tests', () => {
         json: sinon.stub(),
         write: sinon.stub(),
         flush: sinon.stub(),
+        end: sinon.stub(),
         setHeader: sinon.stub(),
       };
     });
@@ -237,6 +238,7 @@ describe('advancedWorkflows tests', () => {
       res = {
         write: sinon.stub(),
         flush: sinon.stub(),
+        end: sinon.stub(),
       };
     });
 
@@ -351,6 +353,7 @@ describe('advancedWorkflows tests', () => {
       res = {
         write: sinon.stub(),
         flush: sinon.stub(),
+        end: sinon.stub(),
       };
     });
 
@@ -1508,6 +1511,93 @@ describe('advancedWorkflows tests', () => {
         globalState.receiveOnlySyncthingAppsCache.size,
         'the kept g: component was not re-marked synced',
       ).to.be.greaterThan(0);
+      globalState.installationInProgress = false;
+    });
+
+    it('defers to an in-progress removal - no restore, no mark, no removal - when one races into the redeploy window', async () => {
+      // A removal racing into the redeploy delay may be THIS app's own
+      // deliberate removal (removeAppLocally deletes the row last, and is not
+      // gated on softRedeployInProgress). Restoring the row here could
+      // resurrect an app the operator just removed; removing would race the
+      // remover. The catch must leave the state to the removal entirely: no
+      // restore, no synced-mark, no removal of its own - and it must not
+      // touch the remover's flag.
+      const { installedApp, newAppSpecs } = rowlessWindowFixture();
+      const rowState = stubRowLifecycle(installedApp);
+
+      const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      const installSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      sinon.stub(generalService, 'nodeTier').resolves('basic');
+      // the racing removal lands while this redeploy sits in its delay
+      sinon.stub(serviceHelper, 'delay').callsFake(async () => { globalState.removalInProgress = true; });
+
+      globalState.receiveOnlySyncthingAppsCache.clear();
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+
+      await advancedWorkflows.softRedeploy(newAppSpecs, res);
+
+      expect(removeSpy.called, 'the redeploy raced the remover with a removal of its own').to.equal(false);
+      expect(installSoft.called).to.equal(false);
+      expect(rowState.localRow, 'restored the row of an app a removal may be deliberately deleting').to.equal(null);
+      expect(
+        globalState.receiveOnlySyncthingAppsCache.size,
+        'marked synced during a removal - a rowless mark makes an empty later install eligible for g: primary',
+      ).to.equal(0);
+      expect(
+        globalState.removalInProgress,
+        'the remover\'s removalInProgress flag was cleared by a flow that does not own it',
+      ).to.equal(true);
+      expect(res.end.called, 'the API response was left open').to.equal(true);
+      globalState.removalInProgress = false;
+    });
+
+    it('stamps busy-guard throws so callers can tell a collision from a real failure', async () => {
+      // reinstallOldApplications' composed catch force-removes the whole app
+      // on any registration error; a transient flag collision must be
+      // distinguishable or a benign busy skip becomes data destruction.
+      const { newAppSpecs } = rowlessWindowFixture();
+
+      globalState.installationInProgress = true;
+      let installErr = null;
+      try {
+        await advancedWorkflows.softRegisterAppLocally(newAppSpecs, undefined, null);
+      } catch (error) { installErr = error; }
+      globalState.installationInProgress = false;
+      expect(installErr, 'the installation busy guard did not throw').to.not.equal(null);
+      expect(installErr.busyCollision).to.equal('installation');
+
+      globalState.removalInProgress = true;
+      let removalErr = null;
+      try {
+        await advancedWorkflows.softRegisterAppLocally(newAppSpecs, undefined, null);
+      } catch (error) { removalErr = error; }
+      globalState.removalInProgress = false;
+      expect(removalErr, 'the removal busy guard did not throw').to.not.equal(null);
+      expect(removalErr.busyCollision).to.equal('removal');
+    });
+
+    it('ends the response when the redeploy is refused by a busy guard', async () => {
+      // the top-of-function guards write a warning and return; without an end
+      // the API client hangs to a gateway timeout
+      const { newAppSpecs } = rowlessWindowFixture();
+
+      globalState.installationInProgress = true;
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+      await advancedWorkflows.softRedeploy(newAppSpecs, res);
+      globalState.installationInProgress = false;
+      expect(res.write.called, 'no busy warning was written').to.equal(true);
+      expect(res.end.called, 'softRedeploy busy guard left the response open').to.equal(true);
+
+      globalState.removalInProgress = true;
+      const res2 = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+      await advancedWorkflows.hardRedeploy(newAppSpecs, res2);
+      globalState.removalInProgress = false;
+      expect(res2.write.called, 'no busy warning was written').to.equal(true);
+      expect(res2.end.called, 'hardRedeploy busy guard left the response open').to.equal(true);
     });
 
     it('restores the local record and keeps the app when the register fails before its re-insert', async () => {

@@ -925,10 +925,17 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // from clearing installationInProgress - the flag belongs to the OTHER
   // operation here, not to this flow.
   if (globalState.removalInProgress) {
-    throw new Error('Another application is undergoing removal');
+    const busyError = new Error('Another application is undergoing removal');
+    // typed so callers can tell a transient flag collision (defer, the next
+    // pass retries) from a real registration failure - the reinstall path's
+    // catch removes the whole app on a real failure and must not on this
+    busyError.busyCollision = 'removal';
+    throw busyError;
   }
   if (globalState.installationInProgress) {
-    throw new Error('Another application is undergoing installation');
+    const busyError = new Error('Another application is undergoing installation');
+    busyError.busyCollision = 'installation';
+    throw busyError;
   }
   try {
     globalState.installationInProgress = true;
@@ -1335,7 +1342,7 @@ async function softRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1344,7 +1351,7 @@ async function softRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1353,7 +1360,7 @@ async function softRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1362,7 +1369,7 @@ async function softRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1443,6 +1450,18 @@ async function softRedeploy(appSpecs, res) {
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
+    if (error.busyCollision === 'removal') {
+      // a removal owns the app-state world right now - and it may be THIS
+      // app's own deliberate removal, whose row must stay deleted
+      // (removeAppLocally deletes the row last and is not gated on
+      // softRedeployInProgress). Restoring or marking here could resurrect a
+      // removed app; removing would race the remover. Hands off: if the
+      // removal was unrelated, the app is left rowless - a recoverable
+      // orphan the next redeploy or reinstall pass re-adopts.
+      log.warn(`softRedeploy - ${appSpecs.name} deferred (${error.message}); leaving state to the removal in progress`);
+      if (res) res.end();
+      return;
+    }
     // A failed soft redeploy never removes an app this node holds (see
     // softRegisterAppLocally's catch for the full contract). This catch spans
     // the whole flow, so it can fire in the rowless window between the
@@ -1489,7 +1508,7 @@ async function hardRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1498,7 +1517,7 @@ async function hardRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1507,7 +1526,7 @@ async function hardRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1516,7 +1535,7 @@ async function hardRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1565,7 +1584,7 @@ async function softRedeployComponent(appName, componentName, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1574,7 +1593,7 @@ async function softRedeployComponent(appName, componentName, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1583,7 +1602,7 @@ async function softRedeployComponent(appName, componentName, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1592,7 +1611,7 @@ async function softRedeployComponent(appName, componentName, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1684,7 +1703,7 @@ async function hardRedeployComponent(appName, componentName, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1693,7 +1712,7 @@ async function hardRedeployComponent(appName, componentName, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1702,7 +1721,7 @@ async function hardRedeployComponent(appName, componentName, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -1711,7 +1730,7 @@ async function hardRedeployComponent(appName, componentName, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        if (res.flush) res.flush();
+        res.end();
       }
       return;
     }
@@ -3550,10 +3569,19 @@ async function reinstallOldApplications() {
               await appDockerRestart(appSpecifications.name);
             } catch (error) {
               log.error(error);
-              log.warn(`REMOVAL REASON: Redeployment error - ${appSpecifications.name} failed during redeployment: ${error.message}`);
-              // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
-              log.info(`Cleanup completed for ${appSpecifications.name} after redeployment failure`);
+              if (error.busyCollision) {
+                // a transient collision with another operation's flag, not a
+                // failed install: the components stay soft-uninstalled with
+                // the row and their data volumes intact, and the next
+                // reinstall pass completes the update. Removing here would
+                // destroy preserved data over a timing collision.
+                log.warn(`Redeployment of ${appSpecifications.name} deferred (${error.message}); keeping the app for the next pass`);
+              } else {
+                log.warn(`REMOVAL REASON: Redeployment error - ${appSpecifications.name} failed during redeployment: ${error.message}`);
+                // eslint-disable-next-line no-await-in-loop
+                await appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
+                log.info(`Cleanup completed for ${appSpecifications.name} after redeployment failure`);
+              }
             }
           }
         }
