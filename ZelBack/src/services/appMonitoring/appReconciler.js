@@ -314,8 +314,9 @@ const everStartedMarked = new Set();
 // not the work. The pass's single-flight key is released, so without this the next
 // pass can take the appdata-clear branch and rm -rf the very directory the detached
 // provision is building into - or create a container the current desired state says
-// must be stopped. Membership here defers only the destructive branches; stops,
-// controller verdicts and the stuck-pass report all keep working.
+// must be stopped. Membership defers the whole actuation (stops included - a stop
+// issued mid-provision races the provision's own create/start step) until the
+// detached work settles and re-enqueues; every deferred pass says so in the log.
 const detachedProvisions = new Set();
 
 /**
@@ -887,9 +888,12 @@ async function reconcile(rawIdentifier) {
       // `actual` was sampled before the stop and the settle delay; re-read rather
       // than delete under whatever is true now. An rm -rf beneath a live container
       // corrupts it, so an unexpected runner aborts the wipe instead of racing it.
+      // "Cannot tell" (docker unreachable, or inspect failed with the container
+      // still listed) aborts too: the wipe needs a positive answer that nothing
+      // is running, not the absence of one.
       const beforeWipe = await dockerActual(identifier);
-      if (beforeWipe.running) {
-        log.error(`appReconciler - ${identifier} is running again at the point of the appdata clear; aborting the wipe and retrying`);
+      if (beforeWipe.running || !beforeWipe.reachable || beforeWipe.indeterminate) {
+        log.error(`appReconciler - ${identifier} is running again (or docker cannot confirm it stopped) at the point of the appdata clear; aborting the wipe and retrying`);
         scheduleRetry(identifier, MANAGED_RETRY_MS);
         return;
       }

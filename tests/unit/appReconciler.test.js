@@ -351,7 +351,12 @@ describe('appReconciler tests', () => {
     });
 
     it('records that docker started a component, so a later failed rebuild cannot delete it', async () => {
-      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+      // Status 'created' is the one state dockerActual will NOT mark as ever-run
+      // (the container has never started), so the only thing that can satisfy this
+      // assertion is the reconciler marking after its own successful start - the
+      // path the test exists to pin. An 'exited' stub here would pass via
+      // dockerActual's observation mark even with the post-start marking deleted.
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'created', ExitCode: 0 } });
 
       await appReconciler.reconcile('www_App');
 
@@ -359,6 +364,10 @@ describe('appReconciler tests', () => {
       expect(
         stubs.appsRuntimeState.setEverStarted.calledWith('www_App'),
         'a started component was never marked established, so it stays deletable',
+      ).to.be.true;
+      expect(
+        stubs.appsRuntimeState.setEverStarted.calledAfter(stubs.dockerService.appDockerStart),
+        'marked before the start was even attempted',
       ).to.be.true;
     });
 
@@ -698,6 +707,28 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('db_App');
       expect(stubs.dockerService.appDockerStop.calledWith('db_App')).to.be.true;
       sinon.assert.callOrder(stubs.dockerService.appDockerStop, stubs.dockerOperations.appDeleteDataInMountPoint);
+    });
+
+    it('aborts the wipe when docker cannot confirm the container stopped', async () => {
+      localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      // Running at entry; the stop lands, but by the pre-wipe re-read docker has
+      // become unreachable. "Cannot tell" reads as running:false from dockerActual,
+      // and an rm -rf needs a positive answer that nothing is running - containers
+      // outlive a crashed dockerd, so proceeding would wipe under a live one.
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      stubs.dockerService.appDockerStop.callsFake(async () => {
+        const connErr = new Error('connect ENOENT /var/run/docker.sock');
+        stubs.dockerService.dockerContainerInspect.rejects(connErr);
+        stubs.dockerService.dockerListContainers.rejects(connErr);
+      });
+      stubs.globalState.bootContainerStateSettled = false;
+      appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing reset');
+      stubs.globalState.bootContainerStateSettled = true;
+      await appReconciler.reconcile('db_App');
+      expect(
+        stubs.dockerOperations.appDeleteDataInMountPoint.called,
+        'wiped appdata on an indeterminate docker read',
+      ).to.be.false;
     });
 
     it('is one-shot: wipes first, then the next reconcile starts once the verdict is running', async () => {
