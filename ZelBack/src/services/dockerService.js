@@ -356,7 +356,10 @@ function classifyRegistryError(error) {
  */
 async function appDockerImageSize(repoTag) {
   try {
-    const image = await docker.getImage(repoTag).inspect();
+    // Bounded: this sits on the recreate path's local-image fallback decision, so
+    // a wedged daemon must produce an answer, not a hang. A timeout reads as 0 -
+    // "no usable local image" - which refuses the fallback, the conservative side.
+    const image = await withRuntimeOpTimeout(docker.getImage(repoTag).inspect(), `image inspect ${repoTag}`);
     return image?.Size ?? 0;
   } catch (error) {
     return 0;

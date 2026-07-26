@@ -1336,6 +1336,16 @@ describe('dockerService tests', () => {
       await assertion;
     });
 
+    it('answers 0 for an image size the daemon never reports', async () => {
+      // appDockerImageSize decides the local-image fallback on the recreate path;
+      // a hang here would pin the detached provision. A timeout must degrade to
+      // "no usable local image", which refuses the fallback.
+      sinon.stub(Dockerode.prototype, 'getImage').returns({ inspect: () => new Promise(() => {}) });
+      const size = dockerService.appDockerImageSize('some/image:v1');
+      await clock.tickAsync(timeoutMs + 1000);
+      expect(await size).to.equal(0);
+    });
+
     it('gives up on a container list that the daemon never answers', async () => {
       // The reconciler's reachability probe lands here when an inspect times out,
       // so an unbounded list would hand the wedged daemon back the single-flight
