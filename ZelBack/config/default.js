@@ -369,12 +369,13 @@ module.exports = {
     // ~40x the worst observed case. NOT applied to stop, which legitimately runs for
     // hours under a graceful shutdown and already declares its own grace via `t`.
     dockerRuntimeOpTimeoutMs: 120000,
-    // Absolute ceiling on a reconciler recreate's provisioning. The stall detector
-    // above owns the dead-registry case, so this only guards the residual non-pull
-    // steps (a sick disk mid volume-create, a hung docker create) from wedging the
-    // component's reconcile single-flight. Deliberately generous: a recreate failure
-    // with no container present escalates to removeAppLocally, so a ceiling that
-    // fired on a merely-slow pull would uninstall a healthy app.
+    // Absolute ceiling on a reconciler recreate's provisioning, so a wedged
+    // provision cannot hold the component's reconcile single-flight forever. The
+    // stall detector above is what distinguishes a dead transfer from a large one;
+    // this ceiling wraps the WHOLE provision, image pull included, so it can and
+    // will fire on an image that is downloading perfectly well. Hitting it is
+    // therefore treated as a node condition and never as a verdict on the app -
+    // the recreate is retried, never escalated to removal.
     recreateProvisionCapMs: 900000,
     // An in-flight reconcile older than this is stuck rather than slow, and every
     // reconcile request for that component is being silently dropped. Reporting

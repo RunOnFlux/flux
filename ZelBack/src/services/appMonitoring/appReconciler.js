@@ -306,10 +306,29 @@ async function getLocalComponentSpec(identifier) {
  *                               healthy app.
  *   - container NOT listed   -> docker itself confirms absence: vanished.
  */
+// Marking is durable, so it only ever needs to happen once per component per
+// process; the set keeps a steady-state reconcile from writing on every pass.
+const everStartedMarked = new Set();
+
+/**
+ * Record that docker has run this component here. Called from every point that
+ * observes it running - not just the reconciler's own start - because an app that
+ * has been up since installation would otherwise never be marked, and would stay
+ * eligible for deletion by a failed rebuild.
+ */
+async function markEverStarted(identifier) {
+  if (everStartedMarked.has(identifier)) return;
+  everStartedMarked.add(identifier);
+  await appsRuntimeState.setEverStarted(identifier);
+}
+
 async function dockerActual(identifier) {
   try {
     const info = await dockerService.dockerContainerInspect(identifier);
     const everRan = info.State && info.State.Status !== 'created';
+    // docker's own record that this component has run here: covers an app that has
+    // been up since install and would otherwise never be marked established
+    if (everRan) markEverStarted(identifier).catch(() => {});
     // docker's record of the last death - the truth even when the die event was
     // missed (reboot, FluxOS restart, stream gap). Zero value (0001-01-01) means
     // the container never finished.
@@ -400,12 +419,20 @@ async function recreateMissing(identifier) {
       await Promise.race([
         provision,
         new Promise((_, reject) => {
-          abortController.signal.addEventListener('abort', () => reject(new Error(`recreate provisioning exceeded ${Math.round(RECREATE_PROVISION_CAP_MS / 1000)}s, aborted`)), { once: true });
+          abortController.signal.addEventListener('abort', () => {
+            const capError = new Error(`recreate provisioning exceeded ${Math.round(RECREATE_PROVISION_CAP_MS / 1000)}s, aborted`);
+            // the ceiling wraps the whole provision, image pull included, so it can
+            // fire on a large image that is downloading perfectly well. That is a
+            // statement about this node right now, never a verdict on the app.
+            capError.provisionTimedOut = true;
+            reject(capError);
+          }, { once: true });
         }),
       ]);
     } finally {
       clearTimeout(capTimer);
     }
+    await markEverStarted(identifier);
     appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
     log.info(`appReconciler - recreated missing container ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated' });
@@ -438,7 +465,7 @@ async function recreateMissing(identifier) {
     // its data across the fleet. Only a fresh install that vanished before it ever
     // ran is removed, which is the case this removal was written for.
     const runtimeState = await appsRuntimeState.getState(identifier);
-    if (runtimeState && runtimeState.hasEverStarted) {
+    if (err.provisionTimedOut || (runtimeState && runtimeState.hasEverStarted)) {
       await appsRuntimeState.recordRestart(identifier);
       const wait = Math.max(await appsRuntimeState.restartWaitMs(identifier), MANAGED_RETRY_MS);
       log.warn(`appReconciler - ${identifier} could not be recreated but has run here before; keeping it (down) and retrying in ${Math.round(wait / 1000)}s`);
@@ -947,9 +974,7 @@ async function reconcile(rawIdentifier) {
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
   }
-  // docker accepted the start: from here this component is established on this
-  // node, and a later failed rebuild must not be allowed to destroy it
-  await appsRuntimeState.setEverStarted(identifier);
+  await markEverStarted(identifier);
   appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
   log.info(`appReconciler - ${identifier} restarted`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'started', exitCode: actual.exitCode });

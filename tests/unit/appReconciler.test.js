@@ -1379,6 +1379,17 @@ describe('appReconciler tests', () => {
       const capped = stubs.log.error.getCalls()
         .some((c) => String(c.args[0]).includes('exceeded') || String(c.args[0]).includes('aborted'));
       expect(capped, 'the pass never gave up on the provision').to.equal(true);
+
+      // The ceiling wraps the whole provision, image pull included, so it fires on a
+      // large image that is downloading perfectly well - the stall detector, which is
+      // what tells a dead transfer from a slow one, never trips because bytes keep
+      // moving. Escalating that to removal destroys a healthy app and its appdata for
+      // the sole offence of downloading slowly. Note this app has NEVER started here,
+      // so the established-component gate is not what is protecting it.
+      expect(
+        stubs.appUninstaller.removeAppLocally.called,
+        'a provision that hit the time ceiling deleted the app and its data',
+      ).to.equal(false);
     });
   });
 });
