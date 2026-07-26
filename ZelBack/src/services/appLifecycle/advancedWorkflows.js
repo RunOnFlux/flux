@@ -1450,18 +1450,6 @@ async function softRedeploy(appSpecs, res) {
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
-    if (error.busyCollision === 'removal') {
-      // a removal owns the app-state world right now - and it may be THIS
-      // app's own deliberate removal, whose row must stay deleted
-      // (removeAppLocally deletes the row last and is not gated on
-      // softRedeployInProgress). Restoring or marking here could resurrect a
-      // removed app; removing would race the remover. Hands off: if the
-      // removal was unrelated, the app is left rowless - a recoverable
-      // orphan the next redeploy or reinstall pass re-adopts.
-      log.warn(`softRedeploy - ${appSpecs.name} deferred (${error.message}); leaving state to the removal in progress`);
-      if (res) res.end();
-      return;
-    }
     // A failed soft redeploy never removes an app this node holds (see
     // softRegisterAppLocally's catch for the full contract). This catch spans
     // the whole flow, so it can fire in the rowless window between the

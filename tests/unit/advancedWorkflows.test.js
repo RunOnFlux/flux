@@ -1514,14 +1514,19 @@ describe('advancedWorkflows tests', () => {
       globalState.installationInProgress = false;
     });
 
-    it('defers to an in-progress removal - no restore, no mark, no removal - when one races into the redeploy window', async () => {
-      // A removal racing into the redeploy delay may be THIS app's own
-      // deliberate removal (removeAppLocally deletes the row last, and is not
-      // gated on softRedeployInProgress). Restoring the row here could
-      // resurrect an app the operator just removed; removing would race the
-      // remover. The catch must leave the state to the removal entirely: no
-      // restore, no synced-mark, no removal of its own - and it must not
-      // touch the remover's flag.
+    it('restores and keeps - without touching the remover\'s flag - when a removal races into the redeploy window', async () => {
+      // A removal racing into the redeploy delay is almost always for an
+      // UNRELATED app (removeAppLocally is not gated on
+      // softRedeployInProgress). Hands-off here would orphan THIS app
+      // permanently: its row is already deleted by its own teardown, nothing
+      // enumerates a rowless app, its volume vanishes from the resource
+      // accounting, and a later spawner re-selection reformats it. Restore
+      // and keep, like any other mid-flight failure. The same-app
+      // interleaving this could theoretically resurrect is self-correcting
+      // in all but a milliseconds window (the remover deletes the row LAST,
+      // so its own final delete undoes this restore) - and a removal that
+      // FINISHES before the register runs resurrects on the success path
+      // regardless, so hands-off bought nothing there either.
       const { installedApp, newAppSpecs } = rowlessWindowFixture();
       const rowState = stubRowLifecycle(installedApp);
 
@@ -1542,17 +1547,64 @@ describe('advancedWorkflows tests', () => {
 
       expect(removeSpy.called, 'the redeploy raced the remover with a removal of its own').to.equal(false);
       expect(installSoft.called).to.equal(false);
-      expect(rowState.localRow, 'restored the row of an app a removal may be deliberately deleting').to.equal(null);
+      expect(rowState.localRow, 'the local record deleted by the teardown was not restored').to.not.equal(null);
       expect(
         globalState.receiveOnlySyncthingAppsCache.size,
-        'marked synced during a removal - a rowless mark makes an empty later install eligible for g: primary',
-      ).to.equal(0);
+        'the kept g: component was not re-marked synced',
+      ).to.be.greaterThan(0);
       expect(
         globalState.removalInProgress,
         'the remover\'s removalInProgress flag was cleared by a flow that does not own it',
       ).to.equal(true);
       expect(res.end.called, 'the API response was left open').to.equal(true);
       globalState.removalInProgress = false;
+    });
+
+    it('reinstallOldApplications defers on a busy collision instead of force-removing the app', async () => {
+      // the headline contract: the composed-update catch force-removes the
+      // whole app (containers, volumes, data, row, broadcast) on a real
+      // registration failure - it must NOT do that when the register merely
+      // collided with another operation's flag. The components stay
+      // soft-uninstalled with the row and data volumes intact; the next
+      // reinstall pass completes the update.
+      const { installedApp, newAppSpecs } = rowlessWindowFixture();
+      const localRowStart = { ...installedApp, hash: 'oldhash' };
+      const globalSpec = { ...newAppSpecs, hash: 'newhash' };
+      const globalCollection = config.database.appsglobal.collections.appsInformation;
+
+      let localRow = localRowStart;
+      sinon.stub(dbHelper, 'findInDatabase').callsFake(async () => (localRow ? [localRow] : []));
+      sinon.stub(dbHelper, 'findOneInDatabase').callsFake(async (db, collection) => (
+        collection === globalCollection ? globalSpec : localRow));
+      sinon.stub(dbHelper, 'insertOneToDatabase').callsFake(async (db, col, doc) => { localRow = doc; return doc; });
+      sinon.stub(dbHelper, 'updateOneInDatabase').resolves();
+      sinon.stub(dbHelper, 'removeDocumentsFromCollection').callsFake(async () => { localRow = null; });
+      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').callsFake(async () => { const row = localRow; localRow = null; return row; });
+
+      const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      const registerHard = sinon.stub(appInstaller, 'registerAppLocally').resolves(true);
+      const installSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      sinon.stub(generalService, 'nodeTier').resolves('basic');
+      sinon.stub(generalService, 'checkSynced').resolves(true);
+      // deterministic 'redeploy this cycle' outcome for the probability roll
+      sinon.stub(Math, 'random').returns(0);
+      // the collision lands during the composed delay before the register
+      sinon.stub(serviceHelper, 'delay').callsFake(async () => { globalState.installationInProgress = true; });
+
+      await advancedWorkflows.reinstallOldApplications();
+      globalState.installationInProgress = false;
+
+      expect(removeSpy.called, 'a busy collision force-removed the app and its data').to.equal(false);
+      expect(registerHard.called, 'the equal-hdd component took the hard path').to.equal(false);
+      expect(installSoft.called).to.equal(false);
+      expect(localRow, 'the app must keep its local record for the next pass').to.not.equal(null);
+      expect(
+        globalState.reinstallationOfOldAppsInProgress,
+        'the reinstall pass flag leaked',
+      ).to.equal(false);
     });
 
     it('stamps busy-guard throws so callers can tell a collision from a real failure', async () => {
