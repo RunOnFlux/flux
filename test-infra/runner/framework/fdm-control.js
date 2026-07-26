@@ -33,6 +33,13 @@ export async function resetFdm() {
   return post('/reset');
 }
 
+// Slow every FDM /appips answer by ms (0 restores immediate answers). Each of a
+// pass's three region lookups pays the delay, so this is the knob for making an
+// election pass slow-but-healthy rather than failed.
+export async function setFdmDelay(ms) {
+  return post('/delay', { ms });
+}
+
 export async function getFdmState() {
   return get('/state');
 }

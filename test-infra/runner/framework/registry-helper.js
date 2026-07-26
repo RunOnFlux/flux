@@ -93,7 +93,12 @@ async function uploadBlob(repo, data) {
   return digest;
 }
 
-export async function pushImage(repo, tag, markerContent = 'v1') {
+// opts.layerSizeOverride inflates the manifest's CLAIMED layer size without
+// changing the blobs: the registry does not validate the claim, and the node's
+// image verifier trusts it - which is exactly how a mutable tag can grow past
+// the network's size cap. Lets a suite turn a healthy installed tag into one
+// the registry definitively rejects (size_limit), with no new bytes.
+export async function pushImage(repo, tag, markerContent = 'v1', opts = {}) {
   const gzippedLayer = buildLayerTar(markerContent);
   const layerDigest = await uploadBlob(repo, gzippedLayer);
 
@@ -119,7 +124,7 @@ export async function pushImage(repo, tag, markerContent = 'v1') {
     },
     layers: [{
       mediaType: 'application/vnd.docker.image.rootfs.diff.tar.gzip',
-      size: gzippedLayer.length,
+      size: opts.layerSizeOverride ?? gzippedLayer.length,
       digest: layerDigest,
     }],
   };

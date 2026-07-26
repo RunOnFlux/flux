@@ -13,6 +13,11 @@ const CONTROL_PORT = parseInt(process.env.CONTROL_PORT || '16131', 10);
 // which mirrors the real FDM returning an empty ips array (the node waits).
 const elected = new Map();
 
+// Per-request response delay (ms), driven by the control API. Sub-timeout values
+// model a degraded-but-answering FDM (each region lookup pays the delay), which
+// is how a suite makes an election pass SLOW without making it fail.
+let responseDelayMs = 0;
+
 // --- FDM API (what the FluxOS node polls) ---
 
 const app = express();
@@ -23,7 +28,9 @@ app.use(express.json());
 // An empty ips array is the "no primary set" path: the node keeps waiting.
 app.get('/appips/:app', (req, res) => {
   const ip = elected.get(req.params.app);
-  res.json({ status: 'success', data: { ips: ip ? [ip] : [] } });
+  const reply = () => res.json({ status: 'success', data: { ips: ip ? [ip] : [] } });
+  if (responseDelayMs > 0) setTimeout(reply, responseDelayMs);
+  else reply();
 });
 
 app.all('*', (req, res) => {
@@ -60,8 +67,15 @@ control.post('/clear/:app', (req, res) => {
   res.json({ ok: true });
 });
 
+// slow every /appips answer by ms (0 restores immediate answers)
+control.post('/delay', (req, res) => {
+  responseDelayMs = Number(req.body && req.body.ms) || 0;
+  res.json({ ok: true, ms: responseDelayMs });
+});
+
 control.post('/reset', (req, res) => {
   elected.clear();
+  responseDelayMs = 0;
   res.json({ ok: true });
 });
 

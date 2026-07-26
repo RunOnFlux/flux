@@ -6,7 +6,7 @@ import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
-import { clearMaster, electMaster, resetFdm } from '../framework/fdm-control.js';
+import { clearMaster, electMaster, resetFdm, setFdmDelay } from '../framework/fdm-control.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForReconcileActuated, assertNoEvent } from '../framework/wait.js';
@@ -54,7 +54,17 @@ describe('masterSlave election when FDM names no primary', function () {
 
   before(async function () {
     this.timeout(360000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // masterSlaveMaxPassMs compressed so the slow-FDM case can outrun the
+    // watchdog budget with two apps: one 3-region FDM walk at the stub's 8s
+    // delay is 24s of silence (under budget - the pass keeps beating between
+    // apps), while a two-app pass totals ~50s (over budget). Harmless to the
+    // other cases: their passes finish in milliseconds.
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 10,
+      tickerAutostart: false,
+      configOverrides: { fluxapps: { masterSlaveMaxPassMs: 30000 } },
+    });
     await bootAndPeer(env);
     await resetFdm();
     await resetSyncState();
@@ -126,5 +136,43 @@ describe('masterSlave election when FDM names no primary', function () {
     await waitForDown(a, appName, 'primary stopped');
 
     await waitForUp(b, appName, 'standby promoted with no FDM row', 180000);
+  });
+
+  it('still elects every app when FDM is slow - a pass over budget but advancing is not abandoned', async function () {
+    this.timeout(480000);
+    // A degraded-but-answering FDM makes every pass SLOW: each g: app pays a
+    // full 3-region walk at the stub's delay. With two apps the pass runs well
+    // past the watchdog budget - and the watchdog must judge silence, not total
+    // elapsed time. A wall-clock budget abandons every pass mid-list, so the
+    // app later in the list is never elected, every cycle, for as long as the
+    // degradation lasts: exactly the failover conditions elections exist for.
+    const appName2 = `e2eslowfdm${Date.now()}`;
+    const identifier2 = `${appName2}_${appName2}`;
+
+    await setFdmDelay(8000);
+    try {
+      await pushImage(appName2, 'v1');
+      const app2 = await buildSeedableSyncthingApp({ name: appName2, mode: 'g' });
+      const installAfters = holders.map((i) => env.clients[i].getLastEventId());
+      await installOnNodes(env, app2, holders);
+
+      const folder2 = `flux${appName2}_${appName2}`;
+      await Promise.all(holders.map(async (i, k) => {
+        await waitForReconcileActuated(env.clients[i], identifier2, 'dataCleared', 120000, { afterId: installAfters[k] });
+        await seedSyncScopedData(env, appName2, i);
+      }));
+      await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: folder2 })));
+
+      // the first app (still installed, still polled) makes every pass carry
+      // its slow FDM walk before this app's election is even reached
+      const clients = holders.map((i) => env.clients[i]);
+      const runningCount = async () => (await Promise.all(clients.map((c) => isUp(c, appName2)))).filter(Boolean).length;
+      await waitFor(async () => await runningCount() === 1, {
+        timeout: 300000, interval: 5000, label: 'second app elected under a slow FDM',
+      });
+      expect(await runningCount(), 'split brain under a slow FDM').to.equal(1);
+    } finally {
+      await setFdmDelay(0).catch(() => {});
+    }
   });
 });

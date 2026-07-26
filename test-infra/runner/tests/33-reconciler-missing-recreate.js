@@ -1,5 +1,7 @@
 import { describe, it, before, after } from 'mocha';
+import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
+import { pushImage } from '../framework/registry-helper.js';
 import { getAppContainerStatus, killAppContainer } from '../framework/container.js';
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
@@ -47,6 +49,37 @@ describe('reconciler recreates a missing container', function () {
     // docker is reachable, so exists:false is a genuine miss -> recreate
     await waitForReconcileActuated(client, identifier, 'recreated', 90000, { afterId });
     await waitForUp(client, appName, 'recreated and running again');
+  });
+
+  it('keeps the app down - not deleted, not run stale - when the registry answers with a verdict', async function () {
+    this.timeout(300000);
+    const client = env.clients[idx];
+    await waitForUp(client, appName, 'running before the tag is re-pushed');
+
+    // The mutable tag is re-pushed claiming layers over the network's size cap -
+    // the same bytes, an inflated manifest. The registry is UP and answering:
+    // this is a verdict ABOUT THE IMAGE, not a reachability problem, so the
+    // rebuild must neither ride it out on the local copy (that would run a
+    // spec-violating image the network just rejected) nor delete the app and
+    // its data (the image was legal when it installed; the owner can fix the
+    // tag). Down-with-backoff is the only correct state.
+    await pushImage(appName, 'v1', 'v1', { layerSizeOverride: 6 * 1024 * 1024 * 1024 });
+
+    const afterId = client.getLastEventId();
+    await killAppContainer(client.container, appName);
+
+    await waitForReconcileActuated(client, identifier, 'recreateFailedKept', 120000, { afterId });
+    const status = await getAppContainerStatus(client.container, appName, { all: true });
+    expect(
+      !status || !status.status.startsWith('Up'),
+      'ran the stale local image despite a definitive registry verdict',
+    ).to.equal(true);
+
+    // restore the honest tag: the keep path retries on the backoff ladder, so
+    // the app must come back with no operator action at all
+    await pushImage(appName, 'v1', 'v1');
+    await waitForReconcileActuated(client, identifier, 'recreated', 180000, { afterId: client.getLastEventId() });
+    await waitForUp(client, appName, 'recovered once the tag was honest again');
   });
 
   it('recreates from the LOCAL image when the registry is unreachable', async function () {
