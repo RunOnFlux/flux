@@ -1468,6 +1468,46 @@ describe('advancedWorkflows tests', () => {
         globalState.receiveOnlySyncthingAppsCache.size,
         'the kept g: component was not re-marked synced',
       ).to.be.greaterThan(0);
+      expect(res.end.called, 'the API response was left open - the client hangs to a gateway timeout').to.equal(true);
+    });
+
+    it('keeps the app - without stomping the other operation - when an install races into the redeploy window', async () => {
+      // The spawner has no softRedeployInProgress gate, so during the redeploy
+      // delay it can start installing an unrelated app and take
+      // installationInProgress. The register's busy guard used to bare-return:
+      // the redeploy then logged success with no row, no containers and an
+      // orphaned volume. The guard must surface as a failure (restore + keep),
+      // and the OTHER operation's flag must remain untouched - it is not ours
+      // to clear.
+      const { installedApp, newAppSpecs } = rowlessWindowFixture();
+      const rowState = stubRowLifecycle(installedApp);
+
+      const removeSpy = sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+      sinon.stub(appUninstaller, 'softUninstallComponent').resolves();
+
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves(true);
+      const installSoft = sinon.stub(appInstaller, 'installApplicationSoft').resolves();
+      sinon.stub(generalService, 'nodeTier').resolves('basic');
+      // the racing install lands while this redeploy sits in its delay
+      sinon.stub(serviceHelper, 'delay').callsFake(async () => { globalState.installationInProgress = true; });
+
+      globalState.receiveOnlySyncthingAppsCache.clear();
+
+      const res = { write: sinon.stub(), flush: sinon.stub(), end: sinon.stub() };
+
+      await advancedWorkflows.softRedeploy(newAppSpecs, res);
+
+      expect(removeSpy.called, 'the busy collision removed the app and its data').to.equal(false);
+      expect(installSoft.called, 'the install ran despite another operation holding the flag').to.equal(false);
+      expect(rowState.localRow, 'the local record deleted by the teardown was not restored').to.not.equal(null);
+      expect(
+        globalState.installationInProgress,
+        'the racing operation\'s installationInProgress flag was cleared by a flow that does not own it',
+      ).to.equal(true);
+      expect(
+        globalState.receiveOnlySyncthingAppsCache.size,
+        'the kept g: component was not re-marked synced',
+      ).to.be.greaterThan(0);
     });
 
     it('restores the local record and keeps the app when the register fails before its re-insert', async () => {

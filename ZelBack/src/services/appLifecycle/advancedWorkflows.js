@@ -915,26 +915,22 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // get applications specifics from app messages database
   // check if hash is in blockchain
   // register and launch according to specifications in message
-  // throw without catching
+  //
+  // The busy guards sit OUTSIDE the try and THROW: a soft register runs in
+  // the window where the caller's teardown already deleted the local row, so
+  // a bare return here would let the redeploy log success around an app with
+  // no row, no containers and an orphaned volume (the spawner is not gated on
+  // softRedeployInProgress, so a racing install can take the flag during the
+  // redeploy delay). Throwing from outside the try also keeps the catch below
+  // from clearing installationInProgress - the flag belongs to the OTHER
+  // operation here, not to this flow.
+  if (globalState.removalInProgress) {
+    throw new Error('Another application is undergoing removal');
+  }
+  if (globalState.installationInProgress) {
+    throw new Error('Another application is undergoing installation');
+  }
   try {
-    if (globalState.removalInProgress) {
-      const rStatus = messageHelper.createErrorMessage('Another application is undergoing removal');
-      log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        res.end();
-      }
-      return;
-    }
-    if (globalState.installationInProgress) {
-      const rStatus = messageHelper.createErrorMessage('Another application is undergoing installation');
-      log.error(rStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(rStatus));
-        res.end();
-      }
-      return;
-    }
     globalState.installationInProgress = true;
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
@@ -1435,6 +1431,18 @@ async function softRedeploy(appSpecs, res) {
     log.info('Error on softRedeploy');
     log.error(error);
     globalState.softRedeployInProgress = false;
+    // surface the failure on the streamed response; every branch below either
+    // ends it here or hands it to removeAppLocally, which ends it - a keep
+    // that leaves the stream open hangs the API client to a gateway timeout
+    if (res) {
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
+    }
     // A failed soft redeploy never removes an app this node holds (see
     // softRegisterAppLocally's catch for the full contract). This catch spans
     // the whole flow, so it can fire in the rowless window between the
@@ -1447,6 +1455,7 @@ async function softRedeploy(appSpecs, res) {
     if (await localAppSpecExists(appSpecs.name)) {
       log.warn(`softRedeploy - ${appSpecs.name} failed (${error.message}); keeping the app and its data for the reconciler, NOT removing`);
       markSyncthingAppsSynced(appSpecs, undefined);
+      if (res) res.end();
       return;
     }
     if (hadLocalRow) {
@@ -1456,6 +1465,7 @@ async function softRedeploy(appSpecs, res) {
       } else {
         log.error(`softRedeploy - CRITICAL: ${appSpecs.name} failed (${error.message}) and its local record could not be restored; leaving the app and its data untouched`);
       }
+      if (res) res.end();
       return;
     }
     log.warn(`softRedeploy - ${appSpecs.name} failed and was never locally installed (${error.message}); removing local remnants`);
