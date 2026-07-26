@@ -1346,6 +1346,27 @@ describe('dockerService tests', () => {
       expect(await size).to.equal(0);
     });
 
+    it('bounds the container create itself', () => {
+      // A daemon wedged on POST /containers/create while still answering
+      // inspects leaves the provision promise pending forever - which pins the
+      // component's reconcile single-flight. appDockerCreate's pre-create path
+      // (networks, IP allocation) talks to the real daemon and cannot run under
+      // fake timers, so pin the bound structurally; the network-create test
+      // below proves the same wrapper behaviorally.
+      // eslint-disable-next-line global-require
+      const fs = require('fs');
+      const source = fs.readFileSync(require.resolve('../../ZelBack/src/services/dockerService'), 'utf8');
+      expect(source, 'docker.createContainer is no longer bounded').to.match(/withRuntimeOpTimeout\(docker\.createContainer\(/);
+    });
+
+    it('gives up on a network create that the daemon never answers', async () => {
+      sinon.stub(Dockerode.prototype, 'createNetwork').returns(new Promise(() => {}));
+      const netted = dockerService.dockerCreateNetwork({ Name: 'fluxDockerNetwork_test' });
+      const assertion = expect(netted).to.eventually.be.rejectedWith(/exceeded/);
+      await clock.tickAsync(timeoutMs + 1000);
+      await assertion;
+    });
+
     it('gives up on a container list that the daemon never answers', async () => {
       // The reconciler's reachability probe lands here when an inspect times out,
       // so an unbounded list would hand the wedged daemon back the single-flight

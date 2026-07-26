@@ -26,6 +26,17 @@ async function dockerTerminalHandler(socket) {
         return undefined;
       }
     };
+    // Registered BEFORE the awaits below: a disconnect can land while auth and
+    // the docker lookups are still in flight (deterministically, for a client
+    // that emits 'exec' and closes), and a listener added after socket.io's
+    // single 'disconnect' emit never fires - leaking the hijacked stream and
+    // its exec for as long as the container lives.
+    let execStream = null;
+    let clientGone = false;
+    socket.on('disconnect', () => {
+      clientGone = true;
+      if (execStream) execStream.destroy();
+    });
     try {
       const auth = {
         zelidauth,
@@ -54,6 +65,10 @@ async function dockerTerminalHandler(socket) {
       socket.on('disconnect', () => {
         trackTerminalSession(zelidauth, analyticsAppName, 'close', clientIp, component);
       });
+
+      // the client may have gone away during the awaits above - do not create
+      // an exec nobody is attached to
+      if (clientGone || !socket.connected) return;
 
       const cmd = {
         AttachStdout: true,
@@ -112,9 +127,15 @@ async function dockerTerminalHandler(socket) {
             socket.emit('error', 'Terminal session error.');
           }));
 
-          // the client is gone: tear the exec stream down with it, so a hijacked
-          // docker socket can never outlive the terminal session it served
-          socket.on('disconnect', guard('stream teardown', () => stream.destroy()));
+          // Hand the stream to the disconnect teardown registered before the
+          // awaits, and close the race the other way: if the client vanished
+          // while exec.start was in flight, its disconnect has already fired
+          // and nothing else would ever destroy this stream.
+          execStream = stream;
+          if (clientGone || !socket.connected) {
+            stream.destroy();
+            return;
+          }
 
           // A keystroke racing the container's teardown fails ASYNCHRONOUSLY via
           // the stream's 'error' event (handled above) - a destroyed socket's

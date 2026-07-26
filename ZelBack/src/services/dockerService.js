@@ -148,7 +148,9 @@ function getAppDockerNameIdentifier(appName) {
  * @returns {object} Network
  */
 async function dockerCreateNetwork(options) {
-  const network = await docker.createNetwork(options);
+  // Bounded like the other short control-plane calls: a daemon wedged on
+  // network create would otherwise hold its caller's provision open forever.
+  const network = await withRuntimeOpTimeout(docker.createNetwork(options), `create network ${options && options.Name}`);
   return network;
 }
 
@@ -1185,7 +1187,12 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   }
   options.Env.push(`FLUX_APP_NAME=${appName}`);
 
-  const app = await docker.createContainer(options).catch((error) => {
+  // Bounded so a daemon wedged on POST /containers/create (while still
+  // answering inspects) cannot leave the provision promise pending forever -
+  // an unsettled provision pins its component's reconcile single-flight. The
+  // race only frees the caller; a create that lands late 409s the retry, which
+  // the reconciler already resolves via its "container now exists" re-check.
+  const app = await withRuntimeOpTimeout(docker.createContainer(options), `create ${identifier}`).catch((error) => {
     log.error(error);
     throw error;
   });
