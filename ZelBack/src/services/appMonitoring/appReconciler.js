@@ -105,6 +105,16 @@ const MANAGED_RETRY_MS = 5000;
 // won't spam, and keep deferring until it mounts
 const VOLUME_MOUNT_RETRY_MS = 30 * 1000;
 
+// A recreate is a full provision (registry verify + image pull), and a registry can
+// black-hole rather than refuse (dead IP behind a stale DNS cache): unbounded, one
+// hung pull wedges this component's reconcile single-flight forever - every later
+// trigger coalesces into a pass that never runs. Cap the provision so the pass
+// always terminates; the cap is a recreate failure like any other and the paced
+// retry re-drives it. A capped provision that completes detached later is harmless:
+// the next pass finds the container and starts it (the same level-based contract as
+// the recreate-failed-but-container-exists re-check).
+const RECREATE_PROVISION_CAP_MS = config.fluxapps.recreateProvisionCapMs ?? 3 * 60 * 1000;
+
 // identifiers whose missing backing image was already recorded as a tampering
 // event, so the paced retries don't re-record it every cycle
 const volumeMissingNoted = new Set();
@@ -366,7 +376,24 @@ async function recreateMissing(identifier) {
 
   await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
   try {
-    await containerHealthMonitor.recreateMissingContainers(identifier);
+    const abortController = new AbortController();
+    const capTimer = setTimeout(() => abortController.abort(), RECREATE_PROVISION_CAP_MS);
+    if (capTimer.unref) capTimer.unref();
+    const provision = containerHealthMonitor.recreateMissingContainers(identifier);
+    // a capped provision keeps running detached; its eventual rejection must land
+    // here, not as an unhandledRejection
+    provision.catch(() => {});
+    try {
+      // the race ends the PASS at the cap even if a sub-step ignores the signal
+      await Promise.race([
+        provision,
+        new Promise((_, reject) => {
+          abortController.signal.addEventListener('abort', () => reject(new Error(`recreate provisioning exceeded ${Math.round(RECREATE_PROVISION_CAP_MS / 1000)}s, aborted`)), { once: true });
+        }),
+      ]);
+    } finally {
+      clearTimeout(capTimer);
+    }
     appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
     log.info(`appReconciler - recreated missing container ${identifier}`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated' });

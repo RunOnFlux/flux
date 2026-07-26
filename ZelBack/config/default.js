@@ -359,6 +359,10 @@ module.exports = {
     masterSlaveStaggerMs: 180000, // per-index delay before a standby may claim an unclaimed primary
     masterSlaveProbeTimeoutMs: 10000, // probing the previous primary's /apps/listrunningapps
     masterSlaveFdmTimeoutMs: 10000, // FDM /appips lookup
+    // cap on a reconciler recreate's provisioning (registry verify + image pull): a
+    // black-holed registry must fail the recreate, not wedge the component's
+    // reconcile single-flight for the TCP stack's worst case
+    recreateProvisionCapMs: 180000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
