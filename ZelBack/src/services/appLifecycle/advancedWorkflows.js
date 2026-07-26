@@ -829,13 +829,6 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   }
 }
 
-/**
- * To soft register an app locally (with data volume already in existence). Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs soft install. If registration fails, the app is removed locally.
- * @param {object} appSpecs App specifications.
- * @param {object} componentSpecs Component specifications.
- * @param {object} res Response.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
- */
 // During a soft redeploy the app's synced data is preserved on disk, so the
 // components the redeploy touched are marked already-synced in
 // receiveOnlySyncthingAppsCache (the same marking the success path performs).
@@ -864,6 +857,13 @@ function markSyncthingAppsSynced(appSpecs, componentSpecs) {
   }
 }
 
+/**
+ * To soft register an app locally (with data volume already in existence). Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs soft install. If registration fails, the app is removed locally.
+ * @param {object} appSpecs App specifications.
+ * @param {object} componentSpecs Component specifications.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
 async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
