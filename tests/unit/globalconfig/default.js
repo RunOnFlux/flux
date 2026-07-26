@@ -115,6 +115,9 @@ module.exports = {
   fluxapps: {
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    // compressed so the wedge guards are reachable within a unit test's lifetime
+    recreateProvisionCapMs: 200,
+    reconcileStuckWarnMs: 50,
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.

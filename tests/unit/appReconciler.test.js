@@ -1296,4 +1296,53 @@ describe('appReconciler tests', () => {
       }
     });
   });
+
+  describe('wedge guards', () => {
+    // inFlight is released only in runReconcile's finally, so a pass that never
+    // settles keeps its key forever and every later enqueue for that component is
+    // dropped without a word. Production lost a component that way for 18.5 hours.
+    it('reports an in-flight pass that has outlived any legitimate one', async () => {
+      const stuck = deferred();
+      stubs.dbHelper.findOneInDatabase = sinon.stub().returns(stuck.promise);
+
+      appReconciler.enqueue('www_App'); // pass wedges reading the spec
+      await new Promise((res) => { setTimeout(res, 80); }); // past reconcileStuckWarnMs
+
+      appReconciler.enqueue('www_App'); // coalesces - and must not do so silently
+
+      const warned = stubs.log.error.getCalls()
+        .some((c) => String(c.args[0]).includes('has been reconciling for'));
+      expect(warned, 'a component whose reconciles are being dropped said nothing').to.equal(true);
+
+      stuck.resolve(localSpec);
+    });
+
+    it('says nothing about a pass that is merely in progress', async () => {
+      const inProgress = deferred();
+      stubs.dbHelper.findOneInDatabase = sinon.stub().returns(inProgress.promise);
+
+      appReconciler.enqueue('www_App');
+      appReconciler.enqueue('www_App'); // coalesces immediately - normal, not stuck
+
+      const warned = stubs.log.error.getCalls()
+        .some((c) => String(c.args[0]).includes('has been reconciling for'));
+      expect(warned, 'warned about a healthy in-flight pass').to.equal(false);
+
+      inProgress.resolve(localSpec);
+    });
+
+    it('fails a recreate whose provisioning never returns, instead of wedging on it', async () => {
+      // a registry can black-hole rather than refuse; unbounded, the hung provision
+      // holds this component's single-flight for the life of the process
+      stubs.dockerService.dockerContainerInspect.rejects(Object.assign(new Error('no such container'), { statusCode: 404 }));
+      stubs.dockerService.dockerListContainers.resolves([]);
+      stubs.containerHealthMonitor.recreateMissingContainers = sinon.stub().returns(new Promise(() => {}));
+
+      await appReconciler.reconcile('www_App');
+
+      const capped = stubs.log.error.getCalls()
+        .some((c) => String(c.args[0]).includes('exceeded') || String(c.args[0]).includes('aborted'));
+      expect(capped, 'the pass never gave up on the provision').to.equal(true);
+    });
+  });
 });
