@@ -485,7 +485,16 @@ async function recreateMissing(identifier) {
     // off, so a transient registry problem can never delete an established app and
     // its data across the fleet. Only a fresh install that vanished before it ever
     // ran is removed, which is the case this removal was written for.
-    const runtimeState = await appsRuntimeState.getState(identifier);
+    // The read is strict because the null branch here deletes the app: through
+    // getState a DB error reads as "never started". A failed read defers instead.
+    let runtimeState;
+    try {
+      runtimeState = await appsRuntimeState.getStateStrict(identifier);
+    } catch (stateReadError) {
+      log.warn(`appReconciler - cannot read runtime state for ${identifier} (${stateReadError.message}); keeping it and retrying in ${Math.round(MANAGED_RETRY_MS / 1000)}s`);
+      scheduleRetry(identifier, MANAGED_RETRY_MS);
+      return;
+    }
     if (err.provisionTimedOut || (runtimeState && runtimeState.hasEverStarted)) {
       await appsRuntimeState.recordRestart(identifier);
       const wait = Math.max(await appsRuntimeState.restartWaitMs(identifier), MANAGED_RETRY_MS);

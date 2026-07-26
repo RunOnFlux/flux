@@ -62,7 +62,7 @@ describe('appReconciler tests', () => {
         recordExit: sinon.stub().resolves(),
         // durable "docker has started this component here before". Default null keeps
         // the never-ran path, which is what the existing removal tests assert.
-        getState: sinon.stub().resolves(null),
+        getStateStrict: sinon.stub().resolves(null),
         setEverStarted: sinon.stub().resolves(),
         // durable "I removed this container for a network heal" flag + its own ladder
         isNetworkHealRemoval: sinon.stub().resolves(false),
@@ -317,7 +317,7 @@ describe('appReconciler tests', () => {
       // become unpullable, a bad update, or a registry that is merely unreachable
       // right now would otherwise delete the app AND its data on every node that
       // tries to recreate it.
-      stubs.appsRuntimeState.getState.resolves({ hasEverStarted: true });
+      stubs.appsRuntimeState.getStateStrict.resolves({ hasEverStarted: true });
       stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
       stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
       stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('registry unreachable'));
@@ -329,6 +329,25 @@ describe('appReconciler tests', () => {
         'deleted an established app over a failed rebuild',
       ).to.be.false;
       expect(stubs.appsRuntimeState.recordRestart.called, 'kept it but did not back off').to.be.true;
+    });
+
+    it('keeps the app when the runtime-state read fails, instead of reading the failure as "never started"', async () => {
+      // The gate reads via getStateStrict precisely so it can tell "never
+      // started" from "cannot tell". Deleting on "cannot tell" would let a
+      // transient DB blip destroy the app and its data.
+      stubs.appsRuntimeState.getStateStrict.rejects(new Error('mongo not available'));
+      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+      stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('boom'));
+
+      await appReconciler.reconcile('www_App');
+
+      expect(
+        stubs.appUninstaller.removeAppLocally.called,
+        'deleted the app on an indeterminate runtime-state read',
+      ).to.be.false;
+      const deferred = stubs.log.warn.getCalls().some((c) => /cannot read runtime state/.test(c.args[0]));
+      expect(deferred, 'should say why it kept the app').to.equal(true);
     });
 
     it('records that docker started a component, so a later failed rebuild cannot delete it', async () => {

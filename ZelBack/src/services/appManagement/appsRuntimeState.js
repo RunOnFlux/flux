@@ -53,6 +53,23 @@ async function getState(rawIdentifier) {
   }
 }
 
+/**
+ * Returns the runtime-state document like getState, but a read failure THROWS
+ * instead of degrading to null. For callers whose null branch is destructive:
+ * through getState a DB error is indistinguishable from "no document", so a
+ * transient read blip would read as "this component never ran here" and
+ * authorise destroying it. A read failure must be a failure, so the caller
+ * can defer instead of guess.
+ *
+ * @param {string} identifier
+ * @returns {Promise<object|null>} - throws if the state cannot be read
+ */
+async function getStateStrict(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  const database = collection();
+  return dbHelper.findOneInDatabase(database, appsRuntimeState, { identifier }, { projection: { _id: 0 } });
+}
+
 function isDuplicateKeyError(err) {
   return err && (err.code === 11000 || /E11000/.test(err.message || ''));
 }
@@ -372,6 +389,7 @@ async function prepareCollection() {
 module.exports = {
   prepareCollection,
   getState,
+  getStateStrict,
   setEverStarted,
   setOperatorStopped,
   isOperatorStopped,
