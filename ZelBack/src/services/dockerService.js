@@ -310,15 +310,43 @@ function dockerPullStream(pullConfig, res, callback) {
       throw new Error('Invalid login credentials for docker provided');
     }
   }
+  // A registry can black-hole rather than refuse (a dead IP behind a stale DNS
+  // cache), and an unbounded pull wedges whatever awaits it. A duration cap cannot
+  // tell a dead transfer from a large one - docker resumes completed layers but not
+  // partial ones, so any layer bigger than the cap's window could never finish.
+  // Silence is the signal, not elapsed time: every progress event re-arms the timer,
+  // so total pull time stays unbounded for as long as bytes are moving.
+  const stallWindowMs = config.fluxapps.pullStallMs ?? 90 * 1000;
+  const stallController = new AbortController();
+  let stallTimer = null;
+  let settled = false;
+
+  function done(error, output) {
+    if (settled) return;
+    settled = true;
+    clearTimeout(stallTimer);
+    callback(error, output);
+  }
+
+  function armStall() {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      done(new Error(`Pull of ${repoTag} stalled: no progress for ${Math.round(stallWindowMs / 1000)}s`));
+      stallController.abort();
+    }, stallWindowMs);
+    if (stallTimer.unref) stallTimer.unref();
+  }
+
+  pullOptions = { ...(pullOptions ?? {}), abortSignal: stallController.signal };
+
   docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {
-      if (error) {
-        callback(err);
-      } else {
-        callback(null, output);
-      }
+      // report the followProgress error itself; this used to pass the outer `err`,
+      // which is always null here, so a failed pull was reported as a success
+      done(error ?? null, output);
     }
     function onProgress(event) {
+      armStall();
       if (res) {
         res.write(serviceHelper.ensureString(event));
         if (res.flush) res.flush();
@@ -326,8 +354,9 @@ function dockerPullStream(pullConfig, res, callback) {
       log.info(event);
     }
     if (err) {
-      callback(err);
+      done(err);
     } else {
+      armStall();
       docker.modem.followProgress(mystream, onFinished, onProgress);
     }
   });

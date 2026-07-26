@@ -359,10 +359,16 @@ module.exports = {
     masterSlaveStaggerMs: 180000, // per-index delay before a standby may claim an unclaimed primary
     masterSlaveProbeTimeoutMs: 10000, // probing the previous primary's /apps/listrunningapps
     masterSlaveFdmTimeoutMs: 10000, // FDM /appips lookup
-    // cap on a reconciler recreate's provisioning (registry verify + image pull): a
-    // black-holed registry must fail the recreate, not wedge the component's
-    // reconcile single-flight for the TCP stack's worst case
-    recreateProvisionCapMs: 180000,
+    // A pull whose progress stream goes silent this long is a dead transfer, not a
+    // slow one. Total pull time is unbounded while progress keeps flowing.
+    pullStallMs: 90000,
+    // Absolute ceiling on a reconciler recreate's provisioning. The stall detector
+    // above owns the dead-registry case, so this only guards the residual non-pull
+    // steps (a sick disk mid volume-create, a hung docker create) from wedging the
+    // component's reconcile single-flight. Deliberately generous: a recreate failure
+    // with no container present escalates to removeAppLocally, so a ceiling that
+    // fired on a merely-slow pull would uninstall a healthy app.
+    recreateProvisionCapMs: 900000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
