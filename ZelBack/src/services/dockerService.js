@@ -242,8 +242,10 @@ async function getDockerContainerByIdOrName(idOrName) {
  * @returns {object}
  */
 async function dockerContainerInspect(idOrName, options = {}) {
-  // container ID or name
-  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+  // The name lookup is itself a docker call (listContainers), so it has to be
+  // bounded too - a ceiling that starts only after it would never fire against the
+  // wedged daemon it exists to defend against.
+  const dockerContainer = await withRuntimeOpTimeout(getDockerContainerByIdOrName(idOrName), `lookup ${idOrName}`);
   // A plain inspect reads local metadata and is bounded. `size: true` is a
   // different operation: docker walks the container's whole filesystem to compute
   // SizeRw/SizeRootFs, which on a large app volume legitimately takes minutes.
@@ -1210,7 +1212,7 @@ async function appDockerUpdateCpu(idOrName, nanoCpus) {
 async function appDockerStart(idOrName) {
   try {
     // container ID or name
-    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+    const dockerContainer = await withRuntimeOpTimeout(getDockerContainerByIdOrName(idOrName), `lookup ${idOrName}`);
 
     globalState.stoppingContainers.delete(getDockerName(idOrName));
     await withRuntimeOpTimeout(dockerContainer.start(), `start ${idOrName}`); // may throw
@@ -1221,7 +1223,7 @@ async function appDockerStart(idOrName) {
     // is reapplied on every start path (initial install, restart, recovery)
     // without each caller having to know about burst.
     try {
-      const containerInspect = await dockerContainer.inspect();
+      const containerInspect = await withRuntimeOpTimeout(dockerContainer.inspect(), `burst inspect ${idOrName}`);
       const dockerLabels = containerInspect.Config?.Labels || {};
       if (dockerLabels['flux.burst.eligible'] === 'true') {
         const cpuCores = parseFloat(dockerLabels['flux.burst.cores']);

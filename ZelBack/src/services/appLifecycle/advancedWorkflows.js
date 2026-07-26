@@ -2073,7 +2073,7 @@ async function appDockerRestart(appname) {
  * @param {string} appId - Application ID for syncthing folder
  * @returns {Promise<void>}
  */
-async function requestMasterStartWithPermissionsFix(appname, appId) {
+async function requestMasterStartWithPermissionsFix(appname, appId, superseded = () => false) {
   try {
     log.info(`Preparing masterSlave primary ${appname}: fixing permissions before start`);
 
@@ -2096,6 +2096,11 @@ async function requestMasterStartWithPermissionsFix(appname, appId) {
       return;
     }
 
+    // This chain is dispatched without await, so it outlives the pass that started
+    // it: the permissions fix and two syncthing folder flips take real time, and the
+    // watchdog can abandon that pass meanwhile. Guarding only the dispatch would let
+    // this stale write land on top of the decision that replaced it.
+    if (superseded()) return;
     // hand the run-state decision to the reconciler (the single container actuator)
     appReconciler.setControllerDesired(appname, 'running', 'masterSlave primary (synced)');
     log.info(`Requested start for masterSlave primary ${appname}`);
@@ -3814,7 +3819,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                   // Index 0: Start immediately if no history
                   if (superseded()) return;
-                  requestMasterStartWithPermissionsFix(identifier, appId);
+                  requestMasterStartWithPermissionsFix(identifier, appId, superseded);
                   log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && !ipsMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
                   // There was a previous master (not me), and it's no longer on FDM
@@ -3855,7 +3860,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // Previous master is not running, determine next primary
                   if (index === 0) {
                     if (superseded()) return;
-                  requestMasterStartWithPermissionsFix(identifier, appId);
+                  requestMasterStartWithPermissionsFix(identifier, appId, superseded);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                   } else {
                     const previousMasterIndex = runningAppList.findIndex((x) => ipsMatch(x.ip, mastersRunningGSyncthingApps.get(identifier)));
@@ -3876,7 +3881,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       const lowerNodeRunning = await checkLowerIndexNodesRunning();
                       if (!lowerNodeRunning) {
                         if (superseded()) return;
-                  requestMasterStartWithPermissionsFix(identifier, appId);
+                  requestMasterStartWithPermissionsFix(identifier, appId, superseded);
                         log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                       }
                     } else {
@@ -3890,7 +3895,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   const lowerNodeRunning = await checkLowerIndexNodesRunning();
                   if (!lowerNodeRunning) {
                     if (superseded()) return;
-                  requestMasterStartWithPermissionsFix(identifier, appId);
+                  requestMasterStartWithPermissionsFix(identifier, appId, superseded);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
                     timeTostartNewMasterApp.delete(identifier);
                   } else {
@@ -3949,7 +3954,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 
                 if (isReady) {
                   if (superseded()) return;
-                  requestMasterStartWithPermissionsFix(identifier, appId);
+                  requestMasterStartWithPermissionsFix(identifier, appId, superseded);
                   log.info(`masterSlaveApps: starting docker component:${identifier}`);
                 } else {
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
