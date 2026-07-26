@@ -190,7 +190,7 @@ async function getRemoteManifestDigest(repotag, repoauth, specVersion, appName) 
     const digest = await verifier.fetchManifestDigestOnly();
 
     if (verifier.error) {
-      const errorMeta = verifier.errorMeta;
+      const { errorMeta } = verifier;
       if (errorMeta && errorMeta.errorType === 'rate_limit') {
         log.warn(`Rate limited while checking ${repotag}`);
         return { error: 'rate_limited', digest: null };
