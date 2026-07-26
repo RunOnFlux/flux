@@ -444,13 +444,17 @@ app.get('/rest/db/status', (req, res) => {
   const inSyncBytes = ov?.inSyncBytes ?? 0;
   const state = ov?.state ?? 'idle';
   const receiveOnlyChangedFiles = ov?.receiveOnlyChangedFiles ?? 0;
+  // Real syncthing reports the file count alongside the byte total; the
+  // phantom guard keys on it. Default: bytes imply at least one file (a
+  // dirs-only payload pins globalFiles: 0 explicitly).
+  const globalFiles = ov?.globalFiles ?? (globalBytes > 0 ? 1 : 0);
   const needBytes = Math.max(0, globalBytes - inSyncBytes);
   res.json({
     errors: 0,
     globalBytes,
     globalDeleted: 0,
     globalDirectories: 0,
-    globalFiles: 0,
+    globalFiles,
     globalSymlinks: 0,
     globalTotalItems: 0,
     ignorePatterns: false,
@@ -628,10 +632,11 @@ control.get('/state', (req, res) => {
 control.post('/sync-state', (req, res) => {
   const {
     ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0, statusUnreadable = false,
+    globalFiles, // optional pin; omitted -> derived from globalBytes (dirs-only payloads pin 0)
   } = req.body;
   if (!folder) return res.status(400).json({ error: 'folder required' });
   syncOverrides.set(`${ip}|${folder}`, {
-    state, globalBytes, inSyncBytes, receiveOnlyChangedFiles, statusUnreadable,
+    state, globalBytes, inSyncBytes, receiveOnlyChangedFiles, statusUnreadable, globalFiles,
   });
   return res.json({ ok: true });
 });
@@ -652,7 +657,7 @@ control.post('/peer-completion', (req, res) => {
 // Device pause/resume calls observed for a node ip - how suites assert that the
 // stall ladder NUDGED (and did not restart syncthing or stop the container).
 control.get('/nudges', (req, res) => {
-  const ip = req.query.ip;
+  const { ip } = req.query;
   if (ip) return res.json({ nudges: nudgeLogs.get(ip) || [] });
   return res.json({ nudges: Object.fromEntries(Array.from(nudgeLogs.entries())) });
 });

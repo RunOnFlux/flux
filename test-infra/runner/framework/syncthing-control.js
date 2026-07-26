@@ -27,12 +27,14 @@ export async function getSyncthingState() {
   return get('/state');
 }
 
-// Raw setter for /rest/db/status.
+// Raw setter for /rest/db/status. globalFiles is optional: omitted, the stub
+// derives it from globalBytes (bytes imply at least one file); a dirs-only
+// payload pins globalFiles: 0 explicitly.
 export async function setSyncState({
-  ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0,
+  ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0, globalFiles,
 }) {
   return post('/sync-state', {
-    ip, folder, state, globalBytes, inSyncBytes, receiveOnlyChangedFiles,
+    ip, folder, state, globalBytes, inSyncBytes, receiveOnlyChangedFiles, globalFiles,
   });
 }
 

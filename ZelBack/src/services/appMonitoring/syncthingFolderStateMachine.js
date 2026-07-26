@@ -328,6 +328,9 @@ async function getFolderSyncCompletion(folderId) {
     if (statusResponse && statusResponse.status === 'success') {
       const {
         globalBytes = 0, inSyncBytes = 0, state, receiveOnlyChangedFiles = 0,
+        // null (not 0) when absent, so the phantom guard can tell "no files
+        // claimed" apart from "field not reported" and fall back safely
+        globalFiles = null,
       } = statusResponse.data;
 
       const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
@@ -336,6 +339,7 @@ async function getFolderSyncCompletion(folderId) {
         syncPercentage,
         globalBytes,
         inSyncBytes,
+        globalFiles,
         state,
         // local additions/modifications in a receiveonly folder; invisible to the
         // completion metrics above (they only count cluster data)

@@ -1268,6 +1268,65 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.isSafe).to.be.true;
     });
 
+    it('is unsafe when the index claims FILES over a surviving directory skeleton (files-aware)', async () => {
+      // the wiped-files case a directory skeleton must NOT mask: the index
+      // still lists real files (globalFiles > 0) while the disk holds only an
+      // empty appdata/ dir - syncthing would broadcast every missing FILE as a
+      // deletion; the bare dir protects nothing.
+      fsMock.promises.readdir.resolves([]); // appdata/ is empty
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('.stfolder', false), dirent('appdata', false),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 100000, inSyncBytes: 100000, globalFiles: 3, state: 'idle',
+        },
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('phantom_index_empty_disk');
+    });
+
+    it('is safe for a dirs-only payload when the index reports globalFiles 0 (files-aware)', async () => {
+      // the 2026-07-04 contract under the files-aware discriminator: dirs-only
+      // payload (globalBytes from directory accounting, zero files claimed)
+      // over a dirs-only disk is healthy - no file exists to be broadcast.
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('.stfolder', false), dirent('data', false),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 256, inSyncBytes: 256, globalFiles: 0, state: 'idle',
+        },
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.true;
+    });
+
+    it('is safe when the index claims files and the disk holds a sync-scoped file (files-aware)', async () => {
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('appdata', false), dirent('config.json'),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 100000, inSyncBytes: 100000, globalFiles: 1, state: 'idle',
+        },
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.true;
+    });
+
     it('falls back to the mount-level verdict when the sync status is unreadable', async () => {
       syncthingServiceMock.getDbStatus.rejects(new Error('syncthing down'));
 
