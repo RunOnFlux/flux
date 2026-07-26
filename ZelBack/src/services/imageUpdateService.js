@@ -14,6 +14,8 @@ const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const registryCredentialHelper = require('./utils/registryCredentialHelper');
 const { ImageVerifier } = require('./utils/imageVerifier');
 const { systemArchitecture } = require('./appSystem/systemIntegration');
+const { checkApplicationImagesCompliance } = require('./appSecurity/imageManager');
+const { supportedArchitectures } = require('./utils/appConstants');
 const serviceHelper = require('./serviceHelper');
 const globalState = require('./utils/globalState');
 const fluxEventBus = require('./utils/fluxEventBus');
@@ -24,10 +26,6 @@ const DELAY_AFTER_REDEPLOY = config.fluxapps.imageUpdateDelayAfterRedeployMs || 
 const INITIAL_DELAY_MIN = config.fluxapps.imageUpdateInitialDelayMinMs || 10 * 60 * 1000;
 const INITIAL_DELAY_MAX = config.fluxapps.imageUpdateInitialDelayMaxMs || 30 * 60 * 1000;
 const DELAY_BETWEEN_COMPONENTS = config.fluxapps.imageUpdateDelayBetweenComponentsMs || 1000;
-
-// must match the installer's own set (appInstaller.js) - the pre-flight verify
-// below asks the same question the redeploy's install will ask
-const supportedArchitectures = ['amd64', 'arm64'];
 
 // Track the timers
 let checkIntervalTimer = null;
@@ -319,19 +317,28 @@ async function checkAppForUpdates(appSpec) {
 }
 
 /**
- * Verifies EVERY component image of the app against the registry before any
- * teardown. The soft redeploy verifies only after it has already stopped and
- * removed the running containers, and its failure path removes the app and its
- * data - so a mutable tag gone bad (over the size cap, wrong architecture,
- * de-whitelisted) must be refused HERE, where refusal costs nothing: the app
- * keeps running its current image and the refusal is logged each cycle. All
+ * Asks, BEFORE any teardown, the same questions the redeploy's install will
+ * ask: the blocked-repositories compliance check, then per component the
+ * registry manifest evaluation (size cap, architecture). The soft redeploy
+ * verifies only after it has already stopped and removed the running
+ * containers, and its failure path removes the app and its data - so a mutable
+ * tag gone bad, a blocked repository, or a compliance list that cannot even be
+ * fetched must all be refused HERE, where refusal costs nothing: the app keeps
+ * running its current image and the refusal is logged each cycle. All
  * components are checked, not just the changed one, because the redeploy will
  * re-verify all of them and dies on any. A lookup that cannot be completed
- * also refuses - an update that cannot be verified is not an update this cycle.
+ * also refuses - an update that cannot be verified is not an update this
+ * cycle - and a registry rate-limit is surfaced as such so the caller can
+ * abort the whole cycle instead of hammering on.
  * @param {object} appSpec Application specification
- * @returns {Promise<{ok: boolean, reason: string|null}>}
+ * @returns {Promise<{ok: boolean, reason: string|null, rateLimited: boolean}>}
  */
 async function verifyAppImagesForUpdate(appSpec) {
+  try {
+    await checkApplicationImagesCompliance(appSpec);
+  } catch (complianceError) {
+    return { ok: false, reason: `compliance: ${complianceError.message}`, rateLimited: false };
+  }
   const architecture = await systemArchitecture();
   const components = appSpec.version >= 4 && Array.isArray(appSpec.compose) ? appSpec.compose : [appSpec];
   // eslint-disable-next-line no-restricted-syntax
@@ -343,36 +350,49 @@ async function verifyAppImagesForUpdate(appSpec) {
         const credentials = await registryCredentialHelper.getCredentials(component.repotag, component.repoauth, appSpec.version, appSpec.name);
         if (credentials) verifierOptions.credentials = credentials;
       } catch (credError) {
-        return { ok: false, reason: `credentials for ${component.repotag}: ${credError.message}` };
+        return { ok: false, reason: `credentials for ${component.repotag}: ${credError.message}`, rateLimited: false };
       }
     }
     const verifier = new ImageVerifier(component.repotag, verifierOptions);
     // eslint-disable-next-line no-await-in-loop
     await verifier.verifyImage();
-    if (verifier.error) return { ok: false, reason: `${component.repotag}: ${verifier.errorDetail}` };
-    if (!verifier.supported) return { ok: false, reason: `${component.repotag}: architecture ${architecture} not supported` };
+    if (verifier.error) {
+      const rateLimited = !!(verifier.errorMeta && verifier.errorMeta.errorType === 'rate_limit');
+      return { ok: false, reason: `${component.repotag}: ${verifier.errorDetail}`, rateLimited };
+    }
+    if (!verifier.supported) return { ok: false, reason: `${component.repotag}: architecture ${architecture} not supported`, rateLimited: false };
   }
-  return { ok: true, reason: null };
+  return { ok: true, reason: null, rateLimited: false };
 }
 
 /**
- * Triggers a soft redeploy for an app.
+ * Triggers a soft redeploy for an app, gated by the pre-flight verify.
  * @param {object} appSpec Application specification
- * @returns {Promise<boolean>} True if redeploy was triggered, false otherwise
+ * @returns {Promise<{triggered: boolean, rateLimited: boolean}>} whether the
+ *          redeploy ran, and whether the registry rate-limited the pre-flight
+ *          (the cycle should abort rather than walk on into more lookups)
  */
 async function triggerAppUpdate(appSpec) {
   try {
     // Double-check globalState flags before triggering
     if (isOperationInProgress()) {
       log.warn(`Skipping redeploy for ${appSpec.name}: another operation in progress`);
-      return false;
+      return { triggered: false, rateLimited: false };
     }
 
     const preflight = await verifyAppImagesForUpdate(appSpec);
     if (!preflight.ok) {
       log.warn(`Skipping image update for ${appSpec.name}: ${preflight.reason} - keeping the running image`);
       fluxEventBus.publish('imageUpdate:updateRefused', { appName: appSpec.name, reason: preflight.reason });
-      return false;
+      return { triggered: false, rateLimited: preflight.rateLimited };
+    }
+
+    // the pre-flight is a real network walk (seconds to tens of seconds), so
+    // an install/removal may have started under it - softRedeploy would bail
+    // on its own flags and this must not read as a completed update
+    if (isOperationInProgress()) {
+      log.warn(`Skipping redeploy for ${appSpec.name}: another operation started during the pre-flight`);
+      return { triggered: false, rateLimited: false };
     }
 
     log.info(`Triggering soft redeploy for ${appSpec.name}`);
@@ -383,10 +403,10 @@ async function triggerAppUpdate(appSpec) {
 
     fluxEventBus.publish('imageUpdate:redeployComplete', { appName: appSpec.name });
 
-    return true;
+    return { triggered: true, rateLimited: false };
   } catch (error) {
     log.error(`Error triggering redeploy for ${appSpec.name}: ${error.message}`);
-    return false;
+    return { triggered: false, rateLimited: false };
   }
 }
 
@@ -440,8 +460,12 @@ async function checkForImageUpdates() {
 
         if (updateStatus.needsUpdate) {
           // eslint-disable-next-line no-await-in-loop
-          const redeployTriggered = await triggerAppUpdate(appSpec);
-          if (redeployTriggered) {
+          const trigger = await triggerAppUpdate(appSpec);
+          if (trigger.rateLimited) {
+            log.warn('Rate limited by registry during pre-flight verify, aborting remaining checks this cycle');
+            break;
+          }
+          if (trigger.triggered) {
             updatesTriggered += 1;
             // Wait longer after triggering a redeploy
             // eslint-disable-next-line no-await-in-loop

@@ -27,6 +27,10 @@ const registryCredentialHelperStub = {
   getCredentials: sinon.stub(),
 };
 
+const imageManagerStub = {
+  checkApplicationImagesCompliance: sinon.stub().resolves(),
+};
+
 const serviceHelperStub = {
   delay: sinon.stub().resolves(),
 };
@@ -54,27 +58,39 @@ let mockDigestToReturn = null;
 let mockVerifierSupported = true;
 
 class MockImageVerifier {
+  // Mirrors the real class's recording semantics: the constructor knows only
+  // the parse verdict; lookup/evaluation state (error, errorDetail, errorMeta,
+  // supported) is recorded by the CALLS - so a caller that skips verifyImage()
+  // has no verdict and `supported` stays false, exactly like the real class.
   constructor(repotag, options) {
     this.repotag = repotag;
     this.options = options;
     this.parseError = mockVerifierParseError;
-    this.error = mockVerifierError;
+    this.error = mockVerifierParseError;
+    this.errorDetail = '';
+    this.errorMeta = null;
+    this.verified = false;
+  }
+
+  #recordLookup() {
+    this.error = this.parseError || mockVerifierError;
     this.errorDetail = mockVerifierErrorDetail;
     this.errorMeta = mockVerifierErrorMeta;
   }
 
   async fetchManifestDigestOnly() {
+    this.#recordLookup();
     if (this.parseError || this.error) return null;
     return mockDigestToReturn;
   }
 
-  // the pre-flight verify reads error/errorDetail (set from the mock flags in
-  // the constructor, mirroring the real class's lookup-error recording) and
-  // the supported verdict after verifyImage()
-  async verifyImage() {}
+  async verifyImage() {
+    this.#recordLookup();
+    this.verified = !this.error;
+  }
 
   get supported() {
-    return !this.error && mockVerifierSupported;
+    return this.verified && mockVerifierSupported;
   }
 }
 
@@ -87,6 +103,8 @@ const imageUpdateService = proxyquire('../../ZelBack/src/services/imageUpdateSer
   './utils/registryCredentialHelper': registryCredentialHelperStub,
   './utils/imageVerifier': { ImageVerifier: MockImageVerifier },
   './appSystem/systemIntegration': { systemArchitecture: async () => 'amd64' },
+  './appSecurity/imageManager': imageManagerStub,
+  './utils/appConstants': { supportedArchitectures: ['amd64', 'arm64'] },
   './serviceHelper': serviceHelperStub,
   './utils/globalState': globalStateStub,
 });
@@ -127,6 +145,9 @@ describe('imageUpdateService tests', () => {
     mockVerifierError = false;
     mockVerifierErrorDetail = '';
     mockVerifierSupported = true;
+
+    imageManagerStub.checkApplicationImagesCompliance.reset();
+    imageManagerStub.checkApplicationImagesCompliance.resolves();
     mockVerifierErrorMeta = null;
     mockDigestToReturn = null;
   });
@@ -462,7 +483,7 @@ describe('imageUpdateService tests', () => {
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
 
-      expect(result).to.equal(true);
+      expect(result.triggered).to.equal(true);
       sinon.assert.calledOnce(advancedWorkflowsStub.softRedeploy);
       sinon.assert.calledWith(advancedWorkflowsStub.softRedeploy, appSpec, null);
     });
@@ -478,7 +499,7 @@ describe('imageUpdateService tests', () => {
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
 
-      expect(result).to.equal(false);
+      expect(result.triggered).to.equal(false);
       sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
       const refused = logStub.warn.getCalls().some((c) => String(c.args[0]).includes('keeping the running image'));
       expect(refused, 'the refusal must say why the update was skipped').to.equal(true);
@@ -490,7 +511,34 @@ describe('imageUpdateService tests', () => {
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
 
-      expect(result).to.equal(false);
+      expect(result.triggered).to.equal(false);
+      sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
+    });
+
+    it('refuses the update when the compliance check fails - including a list that cannot be fetched', async () => {
+      // The install runs checkApplicationImagesCompliance BEFORE its verifier,
+      // and throws both on a blocked repository and when the blocked list
+      // cannot be fetched at all. Either way the redeploy would tear down and
+      // then die into the removal path - so both must be refused up front.
+      imageManagerStub.checkApplicationImagesCompliance.rejects(new Error('Unable to communicate with Flux Services! Try again later.'));
+      const appSpec = { name: 'TestApp', version: 3, repotag: 'someorg/someimage:v1' };
+
+      const result = await imageUpdateService.triggerAppUpdate(appSpec);
+
+      expect(result.triggered).to.equal(false);
+      sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
+    });
+
+    it('surfaces a registry rate-limit so the cycle can abort, instead of reading it as an image verdict', async () => {
+      mockVerifierError = true;
+      mockVerifierErrorDetail = 'Bad HTTP Status 429: someorg/someimage:v1 not available';
+      mockVerifierErrorMeta = { httpStatus: 429, errorCode: null, errorType: 'rate_limit' };
+      const appSpec = { name: 'TestApp', version: 3, repotag: 'someorg/someimage:v1' };
+
+      const result = await imageUpdateService.triggerAppUpdate(appSpec);
+
+      expect(result.triggered).to.equal(false);
+      expect(result.rateLimited, 'a 429 must abort the cycle, not walk on to more lookups').to.equal(true);
       sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
     });
 
@@ -500,7 +548,7 @@ describe('imageUpdateService tests', () => {
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
 
-      expect(result).to.equal(false);
+      expect(result.triggered).to.equal(false);
       sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
     });
 
@@ -510,7 +558,7 @@ describe('imageUpdateService tests', () => {
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
 
-      expect(result).to.equal(false);
+      expect(result.triggered).to.equal(false);
       sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
     });
 
@@ -520,7 +568,7 @@ describe('imageUpdateService tests', () => {
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
 
-      expect(result).to.equal(false);
+      expect(result.triggered).to.equal(false);
       sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
     });
 
@@ -530,7 +578,7 @@ describe('imageUpdateService tests', () => {
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
 
-      expect(result).to.equal(false);
+      expect(result.triggered).to.equal(false);
       sinon.assert.notCalled(advancedWorkflowsStub.softRedeploy);
     });
 
@@ -540,7 +588,7 @@ describe('imageUpdateService tests', () => {
 
       const result = await imageUpdateService.triggerAppUpdate(appSpec);
 
-      expect(result).to.equal(false);
+      expect(result.triggered).to.equal(false);
       sinon.assert.calledOnce(logStub.error);
     });
   });
