@@ -1673,7 +1673,12 @@ describe('advancedWorkflows tests', () => {
         await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
       } catch (error) { thrown = error; }
 
+      // assert WHICH error aborted before judging the cache: this test rides
+      // the host's real df output through the space pre-flight, and on a
+      // low-disk host the pre-flight throws first - that must read as "never
+      // reached the allocation", not as a phantom production regression
       expect(thrown, 'the flow never reached the allocation').to.not.equal(null);
+      expect(thrown.message, 'the flow aborted before the allocation').to.equal('fallocate blocked by test');
       expect(
         globalState.receiveOnlySyncthingAppsCache.has('fluxfrontend_TestApp'),
         'the point of no return left a stale synced-mark in place',
