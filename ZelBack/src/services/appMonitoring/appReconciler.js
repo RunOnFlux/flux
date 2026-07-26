@@ -327,8 +327,14 @@ const detachedProvisions = new Set();
  */
 async function markEverStarted(identifier) {
   if (everStartedMarked.has(identifier)) return;
-  everStartedMarked.add(identifier);
-  await appsRuntimeState.setEverStarted(identifier);
+  // Memoise only a write that landed. setEverStarted swallows a DB failure to
+  // false, and memoising that failure would block every later attempt for the
+  // life of the process - leaving an established component deletable by a
+  // failed rebuild, which is exactly what the flag exists to prevent. Left
+  // un-memoised, the next observation pass retries the write.
+  if (await appsRuntimeState.setEverStarted(identifier)) {
+    everStartedMarked.add(identifier);
+  }
 }
 
 async function dockerActual(identifier) {
@@ -407,6 +413,56 @@ async function effectiveDesiredRunning(identifier, spec, exitCode) {
 }
 
 /**
+ * Runs a container (re)provision under the recreate ceiling: the PASS ends at
+ * RECREATE_PROVISION_CAP_MS even if a sub-step ignores the abort signal, so a
+ * hung provision can never hold the per-key single-flight. The abandoned
+ * provision keeps running detached; it is tracked in detachedProvisions so no
+ * later pass can wipe or double-provision under it, and its eventual settlement
+ * re-enqueues the component so the current desired state decides what happens
+ * to whatever it built. A pass ended by the ceiling throws with
+ * provisionTimedOut set — a statement about this node right now, never a
+ * verdict on the app (the ceiling wraps the whole provision, image pull
+ * included, so it can fire on a large image that is downloading perfectly well).
+ */
+async function runCappedProvision(identifier, startProvision) {
+  const abortController = new AbortController();
+  const capTimer = setTimeout(() => abortController.abort(), RECREATE_PROVISION_CAP_MS);
+  if (capTimer.unref) capTimer.unref();
+  const provision = startProvision();
+  // a capped provision keeps running detached; its eventual rejection must land
+  // here, not as an unhandledRejection
+  provision.catch(() => {});
+  try {
+    // the race ends the PASS at the cap even if a sub-step ignores the signal
+    await Promise.race([
+      provision,
+      new Promise((_, reject) => {
+        abortController.signal.addEventListener('abort', () => {
+          const capError = new Error(`recreate provisioning exceeded ${Math.round(RECREATE_PROVISION_CAP_MS / 1000)}s, aborted`);
+          capError.provisionTimedOut = true;
+          reject(capError);
+        }, { once: true });
+      }),
+    ]);
+  } catch (raceError) {
+    // Only a pass the ceiling ABANDONED leaves work running behind it. Track that
+    // one, and re-reconcile when it eventually lands so the current desired state
+    // decides what happens to whatever it built. Doing this for a provision that
+    // completed inside its pass would re-enqueue every successful recreate.
+    if (raceError.provisionTimedOut) {
+      detachedProvisions.add(identifier);
+      provision.finally(() => {
+        detachedProvisions.delete(identifier);
+        enqueue(identifier);
+      }).catch(() => {});
+    }
+    throw raceError;
+  } finally {
+    clearTimeout(capTimer);
+  }
+}
+
+/**
  * Recreates a vanished container (no Docker event fires for absence), recording
  * the tampering signals and falling back to local removal on failure — the
  * behavior previously in containerHealthMonitor.monitorAndRecoverApps.
@@ -416,44 +472,7 @@ async function recreateMissing(identifier) {
 
   await appTamperingDetectionService.recordEvent(mainAppName, 'container_vanished', `Container ${identifier} missing, not found in Docker`);
   try {
-    const abortController = new AbortController();
-    const capTimer = setTimeout(() => abortController.abort(), RECREATE_PROVISION_CAP_MS);
-    if (capTimer.unref) capTimer.unref();
-    const provision = containerHealthMonitor.recreateMissingContainers(identifier);
-    // a capped provision keeps running detached; its eventual rejection must land
-    // here, not as an unhandledRejection
-    provision.catch(() => {});
-    try {
-      // the race ends the PASS at the cap even if a sub-step ignores the signal
-      await Promise.race([
-        provision,
-        new Promise((_, reject) => {
-          abortController.signal.addEventListener('abort', () => {
-            const capError = new Error(`recreate provisioning exceeded ${Math.round(RECREATE_PROVISION_CAP_MS / 1000)}s, aborted`);
-            // the ceiling wraps the whole provision, image pull included, so it can
-            // fire on a large image that is downloading perfectly well. That is a
-            // statement about this node right now, never a verdict on the app.
-            capError.provisionTimedOut = true;
-            reject(capError);
-          }, { once: true });
-        }),
-      ]);
-    } catch (raceError) {
-      // Only a pass the ceiling ABANDONED leaves work running behind it. Track that
-      // one, and re-reconcile when it eventually lands so the current desired state
-      // decides what happens to whatever it built. Doing this for a provision that
-      // completed inside its pass would re-enqueue every successful recreate.
-      if (raceError.provisionTimedOut) {
-        detachedProvisions.add(identifier);
-        provision.finally(() => {
-          detachedProvisions.delete(identifier);
-          enqueue(identifier);
-        }).catch(() => {});
-      }
-      throw raceError;
-    } finally {
-      clearTimeout(capTimer);
-    }
+    await runCappedProvision(identifier, () => containerHealthMonitor.recreateMissingContainers(identifier));
     await markEverStarted(identifier);
     appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
     log.info(`appReconciler - recreated missing container ${identifier}`);
@@ -525,7 +544,10 @@ async function recreateForNetworkHeal(identifier) {
     // softOnly: a hard install would REFORMAT the app's data volume (createAppVolume
     // fallocates + mke2fs). We removed a live container whose data was intact, so a
     // recreate that cannot verify the volume must fail and be retried - never wipe it.
-    await containerHealthMonitor.recreateMissingContainers(identifier, { softOnly: true });
+    // Capped like the vanished-path recreate: the container is already force-removed
+    // by this point, so a provision wedged on an unanswering daemon would otherwise
+    // hold this component's single-flight forever with no container and no way back.
+    await runCappedProvision(identifier, () => containerHealthMonitor.recreateMissingContainers(identifier, { softOnly: true }));
     appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
     log.info(`appReconciler - recreated ${identifier} to clear a detached network endpoint`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreated', reason: 'networkDetached' });

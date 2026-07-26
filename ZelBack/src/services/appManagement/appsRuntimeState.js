@@ -104,13 +104,20 @@ async function setFields(rawIdentifier, fields) {
  * vanished before it ever ran — the distinction the reconciler needs before it
  * will destroy an app and its data over a failed rebuild.
  *
+ * Returns whether the write landed: the reconciler memoises the mark per
+ * process, and memoising a write that was swallowed here would leave the
+ * component deletable for the life of the process with no retry.
+ *
  * @param {string} identifier
+ * @returns {Promise<boolean>}
  */
 async function setEverStarted(identifier) {
   try {
     await setFields(identifier, { hasEverStarted: true });
+    return true;
   } catch (err) {
     log.error(`appsRuntimeState - failed to record start for ${identifier}: ${err.message}`);
+    return false;
   }
 }
 

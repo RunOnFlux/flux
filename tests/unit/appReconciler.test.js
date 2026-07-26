@@ -63,7 +63,9 @@ describe('appReconciler tests', () => {
         // durable "docker has started this component here before". Default null keeps
         // the never-ran path, which is what the existing removal tests assert.
         getStateStrict: sinon.stub().resolves(null),
-        setEverStarted: sinon.stub().resolves(),
+        // resolves the real contract: true = the durable write landed (the
+        // reconciler only memoises a landed write)
+        setEverStarted: sinon.stub().resolves(true),
         // durable "I removed this container for a network heal" flag + its own ladder
         isNetworkHealRemoval: sinon.stub().resolves(false),
         setNetworkHealRemoval: sinon.stub().resolves(),
@@ -329,6 +331,29 @@ describe('appReconciler tests', () => {
         'deleted an established app over a failed rebuild',
       ).to.be.false;
       expect(stubs.appsRuntimeState.recordRestart.called, 'kept it but did not back off').to.be.true;
+    });
+
+    it('retries the established-mark when the durable write fails, instead of memoising the failure', async () => {
+      // Memoising a write that never landed would leave the component deletable
+      // by a failed rebuild for the life of the process - the next observation
+      // pass must retry, and only a landed write is memoised.
+      stubs.appsRuntimeState.setEverStarted.onFirstCall().resolves(false);
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+
+      await appReconciler.reconcile('www_App');
+      expect(stubs.appsRuntimeState.setEverStarted.callCount).to.equal(1);
+
+      await appReconciler.reconcile('www_App');
+      expect(
+        stubs.appsRuntimeState.setEverStarted.callCount,
+        'a failed mark write was never retried',
+      ).to.equal(2);
+
+      await appReconciler.reconcile('www_App');
+      expect(
+        stubs.appsRuntimeState.setEverStarted.callCount,
+        'a landed write should be memoised, not re-written every pass',
+      ).to.equal(2);
     });
 
     it('keeps the app when the runtime-state read fails, instead of reading the failure as "never started"', async () => {
@@ -1465,6 +1490,23 @@ describe('appReconciler tests', () => {
         stubs.appUninstaller.removeAppLocally.called,
         'a provision that hit the time ceiling deleted the app and its data',
       ).to.equal(false);
+    });
+
+    it('caps a network-heal recreate whose provisioning never returns, instead of wedging on it', async () => {
+      // The heal already force-removed the container, so a provision wedged on an
+      // unanswering daemon would otherwise pin a container-less component's
+      // single-flight for the process lifetime, with no way back to a container.
+      stubs.appsRuntimeState.isNetworkHealRemoval.resolves(true);
+      stubs.dockerService.dockerContainerInspect.rejects(Object.assign(new Error('no such container'), { statusCode: 404 }));
+      stubs.dockerService.dockerListContainers.resolves([]);
+      stubs.containerHealthMonitor.recreateMissingContainers = sinon.stub().returns(new Promise(() => {}));
+
+      await appReconciler.reconcile('www_App');
+
+      const healGaveUp = stubs.log.error.getCalls()
+        .some((c) => String(c.args[0]).includes('after network detach'));
+      expect(healGaveUp, 'the heal pass never gave up on the provision').to.equal(true);
+      expect(stubs.appUninstaller.removeAppLocally.called, 'the heal must never uninstall the app').to.equal(false);
     });
   });
 });
