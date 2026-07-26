@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const fs = require('fs');
 
 // The full-install dockerService stub, shared by every proxyquire setup that
 // drives registerAppLocally. Pass overrides for the few tests that need a
@@ -1387,6 +1388,26 @@ describe('appInstaller tests', () => {
     // the accessor was named for the private field; these pin both the mapping and
     // the accessor's existence, which is cheaper than a six-minute suite.
     const { ImageVerifier } = require('../../ZelBack/src/services/utils/imageVerifier');
+
+    it('errorMeta is destroyed by throwIfError, so it must be read first', () => {
+      // throwIfError() calls resetErrors() in its own finally. Reading errorMeta from
+      // the catch block therefore always yields null, and every failure classifies as
+      // permanent - which is exactly how the local-image fallback silently never fired.
+      const source = fs.readFileSync(
+        require.resolve('../../ZelBack/src/services/utils/imageVerifier'), 'utf8',
+      );
+      const throwIfErrorBody = source.slice(source.indexOf('throwIfError()'), source.indexOf('throwIfError()') + 400);
+      expect(throwIfErrorBody, 'throwIfError no longer resets - the capture-first dance may be removable')
+        .to.include('resetErrors()');
+
+      const installerSource = fs.readFileSync(
+        require.resolve('../../ZelBack/src/services/appLifecycle/appInstaller'), 'utf8',
+      );
+      const capture = installerSource.indexOf('const verifyErrorMeta = imgVerifier.errorMeta;');
+      const throwCall = installerSource.indexOf('imgVerifier.throwIfError();');
+      expect(capture, 'the failure metadata is never captured').to.be.greaterThan(-1);
+      expect(capture, 'metadata is captured after throwIfError has already wiped it').to.be.lessThan(throwCall);
+    });
 
     it('reads an accessor ImageVerifier actually exposes', () => {
       const descriptor = Object.getOwnPropertyDescriptor(ImageVerifier.prototype, 'errorMeta');

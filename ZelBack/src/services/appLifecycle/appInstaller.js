@@ -309,20 +309,35 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   // and never a policy. A registry that answers that the image is bad is a statement
   // about the image, not about this node, and still fails. Opt-in, so a fresh
   // install never silently proceeds on layers someone else left behind.
-  const canRunFromLocalImage = async (error) => allowLocalImageFallback
-    && error.registryErrorClass === 'transient'
-    && await dockerService.appDockerImageSize(appSpecifications.repotag) > 0;
+  const canRunFromLocalImage = async (error) => {
+    const transient = error.registryErrorClass === 'transient';
+    const localBytes = transient && allowLocalImageFallback
+      ? await dockerService.appDockerImageSize(appSpecifications.repotag)
+      : 0;
+    const usable = allowLocalImageFallback && transient && localBytes > 0;
+    if (!usable) {
+      // Say which condition ruled it out: a recreate that fails here goes on to be
+      // kept-but-down, and "why did it not use the copy it already had" is the first
+      // question anyone asks of that.
+      log.warn(`verifyAndPullImage - not falling back to the local image for ${appSpecifications.repotag}: `
+        + `fallbackAllowed=${allowLocalImageFallback} transient=${transient} localBytes=${localBytes} (${error.message})`);
+    }
+    return usable;
+  };
 
   let registryReachable = true;
 
   await imgVerifier.verifyImage();
+  // Read the failure metadata BEFORE throwing: throwIfError() calls resetErrors() in
+  // its own `finally`, so errorMeta is already null by the time the catch below runs.
+  const verifyErrorMeta = imgVerifier.errorMeta;
   try {
     imgVerifier.throwIfError();
   } catch (error) {
-    // The verifier already records WHY the lookup failed; carry that forward so the
-    // decision below can tell "we never reached the registry" from "the registry
-    // answered about this image". No HTTP status at all means nothing answered.
-    if (isRegistryUnreachable(imgVerifier.errorMeta)) error.registryErrorClass = 'transient';
+    // The verifier records WHY the lookup failed; carry that forward so the decision
+    // below can tell "we never reached the registry" from "the registry answered
+    // about this image". No HTTP status at all means nothing answered.
+    if (isRegistryUnreachable(verifyErrorMeta)) error.registryErrorClass = 'transient';
     if (!await canRunFromLocalImage(error)) throw error;
     registryReachable = false;
     log.warn(`verifyAndPullImage - registry unreachable for ${appSpecifications.repotag}; continuing from the local image`);
