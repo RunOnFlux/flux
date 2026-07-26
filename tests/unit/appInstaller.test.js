@@ -1380,4 +1380,36 @@ describe('appInstaller tests', () => {
       expect(writes.some((w) => w && w.status && w.status.includes('already exists'))).to.be.true;
     });
   });
+
+  describe('isRegistryUnreachable', () => {
+    // The shapes here are ImageVerifier's own, read from its errorMeta getter. The
+    // integration suite caught this predicate silently reading `undefined` because
+    // the accessor was named for the private field; these pin both the mapping and
+    // the accessor's existence, which is cheaper than a six-minute suite.
+    const { ImageVerifier } = require('../../ZelBack/src/services/utils/imageVerifier');
+
+    it('reads an accessor ImageVerifier actually exposes', () => {
+      const descriptor = Object.getOwnPropertyDescriptor(ImageVerifier.prototype, 'errorMeta');
+      expect(descriptor && typeof descriptor.get, 'ImageVerifier.errorMeta is not a getter').to.equal('function');
+    });
+
+    it('treats a request nothing answered as unreachable', () => {
+      // what a stopped registry produces: no response, so no status
+      expect(appInstaller.isRegistryUnreachable({ httpStatus: undefined, errorCode: null, errorType: 'http_error' })).to.equal(true);
+      expect(appInstaller.isRegistryUnreachable({ httpStatus: null, errorCode: 'ECONNREFUSED', errorType: 'network' })).to.equal(true);
+    });
+
+    it('treats rate limiting and server faults as unreachable', () => {
+      expect(appInstaller.isRegistryUnreachable({ httpStatus: 429, errorType: 'rate_limit' })).to.equal(true);
+      expect(appInstaller.isRegistryUnreachable({ httpStatus: 503, errorType: 'server_error' })).to.equal(true);
+    });
+
+    it('treats an answer about the image as permanent', () => {
+      // the registry replied - the image is genuinely absent or forbidden, and
+      // riding that out on a stale local copy would hide a real problem
+      expect(appInstaller.isRegistryUnreachable({ httpStatus: 404, errorType: 'http_error' })).to.equal(false);
+      expect(appInstaller.isRegistryUnreachable({ httpStatus: 403, errorType: 'http_error' })).to.equal(false);
+      expect(appInstaller.isRegistryUnreachable(null)).to.equal(false);
+    });
+  });
 });
