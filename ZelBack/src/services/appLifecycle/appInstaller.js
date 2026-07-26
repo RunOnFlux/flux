@@ -287,30 +287,55 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
     pullConfig.authToken = authToken;
   }
 
-  await imgVerifier.verifyImage();
-  imgVerifier.throwIfError();
+  // Pull-first keeps a recreate fresh (a same-tag pull is a cheap manifest check).
+  // The local image only substitutes when the registry cannot be REACHED and the
+  // bits are already here, so the stale-run window is exactly the outage's duration
+  // and never a policy. A registry that answers that the image is bad is a statement
+  // about the image, not about this node, and still fails. Opt-in, so a fresh
+  // install never silently proceeds on layers someone else left behind.
+  const canRunFromLocalImage = async (error) => allowLocalImageFallback
+    && error.registryErrorClass === 'transient'
+    && await dockerService.appDockerImageSize(appSpecifications.repotag) > 0;
 
-  if (!imgVerifier.supported) {
-    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
+  let registryReachable = true;
+
+  await imgVerifier.verifyImage();
+  try {
+    imgVerifier.throwIfError();
+  } catch (error) {
+    // The verifier already records WHY the lookup failed; carry that forward so the
+    // decision below can tell "we never reached the registry" from "the registry
+    // answered about this image". No HTTP status at all means nothing answered.
+    const meta = imgVerifier.lookupErrorMeta;
+    const unreachable = meta && (
+      meta.errorType === 'network'
+      || meta.errorType === 'rate_limit'
+      || meta.errorType === 'server_error'
+      || meta.httpStatus === null
+      || meta.httpStatus === undefined
+    );
+    if (unreachable) error.registryErrorClass = 'transient';
+    if (!await canRunFromLocalImage(error)) throw error;
+    registryReachable = false;
+    log.warn(`verifyAndPullImage - registry unreachable for ${appSpecifications.repotag}; continuing from the local image`);
   }
 
-  // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
-  pullConfig.provider = imgVerifier.provider;
+  // A registry we could not reach cannot have told us the architecture is wrong, and
+  // there is nothing to pull - the image we are about to run is the one already here.
+  if (registryReachable) {
+    if (!imgVerifier.supported) {
+      throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
+    }
 
-  try {
-    await dockerPullStreamPromise(pullConfig, res);
-  } catch (error) {
-    // Pull-first keeps a recreate fresh (a same-tag pull is a cheap manifest
-    // check); the local image only substitutes when the registry cannot be
-    // REACHED and the bits are already here, so the stale-run window is exactly
-    // the outage's duration and never a policy. A registry that answers that the
-    // image is bad is a statement about the image, not this node - that rethrows.
-    // Opt-in, so a fresh install never silently proceeds on someone else's layers.
-    const localImagePresent = allowLocalImageFallback
-      && error.registryErrorClass === 'transient'
-      && await dockerService.appDockerImageSize(appSpecifications.repotag) > 0;
-    if (!localImagePresent) throw error;
-    log.warn(`verifyAndPullImage - registry unreachable for ${appSpecifications.repotag}; continuing from the local image`);
+    // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
+    pullConfig.provider = imgVerifier.provider;
+
+    try {
+      await dockerPullStreamPromise(pullConfig, res);
+    } catch (error) {
+      if (!await canRunFromLocalImage(error)) throw error;
+      log.warn(`verifyAndPullImage - registry unreachable for ${appSpecifications.repotag}; continuing from the local image`);
+    }
   }
 
   const pullStatus = {

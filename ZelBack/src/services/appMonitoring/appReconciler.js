@@ -310,6 +310,14 @@ async function getLocalComponentSpec(identifier) {
 // process; the set keeps a steady-state reconcile from writing on every pass.
 const everStartedMarked = new Set();
 
+// A provision abandoned by the ceiling keeps running: Promise.race ends the PASS,
+// not the work. The pass's single-flight key is released, so without this the next
+// pass can take the appdata-clear branch and rm -rf the very directory the detached
+// provision is building into - or create a container the current desired state says
+// must be stopped. Membership here defers only the destructive branches; stops,
+// controller verdicts and the stuck-pass report all keep working.
+const detachedProvisions = new Set();
+
 /**
  * Record that docker has run this component here. Called from every point that
  * observes it running - not just the reconciler's own start - because an app that
@@ -429,6 +437,19 @@ async function recreateMissing(identifier) {
           }, { once: true });
         }),
       ]);
+    } catch (raceError) {
+      // Only a pass the ceiling ABANDONED leaves work running behind it. Track that
+      // one, and re-reconcile when it eventually lands so the current desired state
+      // decides what happens to whatever it built. Doing this for a provision that
+      // completed inside its pass would re-enqueue every successful recreate.
+      if (raceError.provisionTimedOut) {
+        detachedProvisions.add(identifier);
+        provision.finally(() => {
+          detachedProvisions.delete(identifier);
+          enqueue(identifier);
+        }).catch(() => {});
+      }
+      throw raceError;
     } finally {
       clearTimeout(capTimer);
     }
@@ -835,6 +856,17 @@ async function reconcile(rawIdentifier) {
   // loss window). Stop first - an rm -rf under a live container corrupts it - then
   // wipe, then drop the flag. The wipe path is keyed by the on-disk (flux-prefixed)
   // folder name, while the stop takes the bare id (dockerService re-prefixes).
+  // A provision from an abandoned pass may be creating volumes and containers under
+  // this very path right now. Wiping it, or launching a second provision alongside
+  // the first, is exactly the race the single-flight exists to prevent - defer until
+  // the detached one lands, which re-enqueues us.
+  if (detachedProvisions.has(identifier)) {
+    log.warn(`appReconciler - ${identifier} has a provision still running from an abandoned pass; deferring`);
+    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'provisionDetached' });
+    scheduleRetry(identifier, MANAGED_RETRY_MS);
+    return;
+  }
+
   if (dataDesired.get(identifier) === 'clear') {
     try {
       if (actual.running) {
@@ -843,6 +875,15 @@ async function reconcile(rawIdentifier) {
         fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'dataClear' });
       }
       await serviceHelper.delay(DATA_CLEAR_SETTLE_MS);
+      // `actual` was sampled before the stop and the settle delay; re-read rather
+      // than delete under whatever is true now. An rm -rf beneath a live container
+      // corrupts it, so an unexpected runner aborts the wipe instead of racing it.
+      const beforeWipe = await dockerActual(identifier);
+      if (beforeWipe.running) {
+        log.error(`appReconciler - ${identifier} is running again at the point of the appdata clear; aborting the wipe and retrying`);
+        scheduleRetry(identifier, MANAGED_RETRY_MS);
+        return;
+      }
       await dockerOperations.appDeleteDataInMountPoint(dockerService.getAppIdentifier(identifier));
     } catch (err) {
       // A failed stop/wipe is the only actuation path here that would otherwise drop

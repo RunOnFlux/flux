@@ -647,7 +647,13 @@ describe('appReconciler tests', () => {
 
     it('stops a running container before wiping (no rm -rf under a live container)', async () => {
       localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
+      // docker reports it running until the stop lands, then stopped - the reconciler
+      // re-reads immediately before the wipe, so a stub frozen at "running" would be
+      // asserting that it deletes under a live container
       stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      stubs.dockerService.appDockerStop.callsFake(async () => {
+        stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+      });
       stubs.globalState.bootContainerStateSettled = false;
       appReconciler.requestStopAndClearData('fluxdb_App', 'syncthing reset');
       stubs.globalState.bootContainerStateSettled = true;
