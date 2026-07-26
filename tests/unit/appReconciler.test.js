@@ -292,6 +292,25 @@ describe('appReconciler tests', () => {
       expect(stubs.appUninstaller.removeAppLocally.calledOnceWith('App', null, false, true, true)).to.be.true;
     });
 
+    it('re-marks a reinstalled component, instead of trusting a memo the uninstall invalidated', async () => {
+      // markEverStarted memoises per process to avoid writing on every steady-state
+      // pass. An uninstall deletes the durable flag that memo stands in for, so if the
+      // memo outlives it the reinstalled component is never re-marked - and spends the
+      // rest of the process eligible for deletion by a failed rebuild.
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      await appReconciler.reconcile('www_App');
+      expect(stubs.appsRuntimeState.setEverStarted.callCount, 'never marked on first run').to.equal(1);
+
+      // the uninstall seam appUninstaller drives via onComponentRemoved
+      appReconciler.clearControllerDesired('www_App');
+
+      await appReconciler.reconcile('www_App');
+      expect(
+        stubs.appsRuntimeState.setEverStarted.callCount,
+        'a reinstalled component was never re-marked, so a failed rebuild would delete it',
+      ).to.equal(2);
+    });
+
     it('keeps a component docker has started here before, instead of deleting it and its data', async () => {
       // The removal above is for a fresh install that vanished before it ever ran.
       // An established component must survive the same failure: an image that has

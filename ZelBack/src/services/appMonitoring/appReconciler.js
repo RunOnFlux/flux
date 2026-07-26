@@ -1184,6 +1184,12 @@ function clearControllerDesired(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   controllerDesired.delete(identifier);
   dataDesired.delete(identifier);
+  // The uninstall that triggers this also deleted the component's durable runtime
+  // state, including the hasEverStarted flag the memo below stands in for. Keeping
+  // the memo would stop a reinstalled component from ever being re-marked, so it
+  // would spend the rest of this process eligible for deletion by a failed rebuild -
+  // silently undoing the protection, for every app redeployed since FluxOS started.
+  everStartedMarked.delete(identifier);
 }
 
 // --- lifecycle -----------------------------------------------------------

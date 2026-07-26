@@ -414,8 +414,11 @@ function dockerPullStream(pullConfig, res, callback) {
   docker.pull(repoTag, pullOptions, (err, mystream) => {
     function onFinished(error, output) {
       // report the followProgress error itself; this used to pass the outer `err`,
-      // which is always null here, so a failed pull was reported as a success
-      done(error ?? null, output);
+      // which is always null here, so a failed pull was reported as a success. It
+      // needs the same reachability classification as the request-level error: a
+      // transfer that dies mid-stream is the registry going away, not a verdict on
+      // the image.
+      done(error ? classifyRegistryError(error) : null, output);
     }
     function onProgress(event) {
       armStall();
