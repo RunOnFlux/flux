@@ -1327,6 +1327,57 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.isSafe).to.be.true;
     });
 
+    it('counts files under a NESTED backup directory as synced payload (root-anchored exclusion)', async () => {
+      // .stignore pins '/backup' - root-anchored - so syncthing DOES index a
+      // nested backup/ dir and its files. The disk walk must count them too,
+      // or an app whose only files live under a nested dir named backup (a
+      // database dump app) reads as a phantom index and is held down healthy.
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('.stfolder', false), dirent('appdata', false),
+      ]);
+      fsMock.promises.readdir.withArgs('/apps/test-app/appdata').resolves([
+        dirent('backup', false),
+      ]);
+      fsMock.promises.readdir.withArgs('/apps/test-app/appdata/backup').resolves([
+        dirent('dump.sql'),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 100000, inSyncBytes: 100000, globalFiles: 1, state: 'idle',
+        },
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.true;
+    });
+
+    it('still ignores the ROOT backup directory - its files are outside the sync scope', async () => {
+      // root /backup is what .stignore excludes: files there are invisible to
+      // the index, so a disk holding ONLY root-backup files under an index
+      // that claims synced files is still a phantom.
+      fsMock.promises.readdir.resolves([]);
+      fsMock.promises.readdir.withArgs('/apps/test-app').resolves([
+        dirent('.stignore'), dirent('.stfolder', false), dirent('backup', false),
+      ]);
+      fsMock.promises.readdir.withArgs('/apps/test-app/backup').resolves([
+        dirent('dump.sql'),
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 100000, inSyncBytes: 100000, globalFiles: 3, state: 'idle',
+        },
+      });
+
+      const result = await stateMachine.verifySendReceiveFolderSafety('test-app', '/apps/test-app');
+
+      expect(result.isSafe).to.be.false;
+      expect(result.reason).to.equal('phantom_index_empty_disk');
+    });
+
     it('falls back to the mount-level verdict when the sync status is unreadable', async () => {
       syncthingServiceMock.getDbStatus.rejects(new Error('syncthing down'));
 

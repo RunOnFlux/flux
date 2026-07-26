@@ -73,8 +73,11 @@ function noteSafetyObservation(appId, observation, logFn, message) {
  * @param {string} dirPath - Directory to scan
  * @param {number} limit - Stop counting once this many entries are found
  * @param {{excludeNames?: string[], excludeDirs?: string[], countDirs?: boolean}} options -
- *   Skips, and whether a (non-excluded) directory counts as content in its own
- *   right rather than only as a subtree to descend into.
+ *   Skips (applied at the ROOT level only, mirroring .stignore's anchored
+ *   '/backup' pattern - syncthing DOES sync a nested dir with an excluded
+ *   name, so the walk must count it), and whether a (non-excluded) directory
+ *   counts as content in its own right rather than only as a subtree to
+ *   descend into.
  * @returns {Promise<number>} Number of entries found (capped at limit)
  */
 async function countFilesUpTo(dirPath, limit, { excludeNames = [], excludeDirs = [], countDirs = false } = {}) {
@@ -82,6 +85,7 @@ async function countFilesUpTo(dirPath, limit, { excludeNames = [], excludeDirs =
   const pending = [dirPath];
   while (pending.length > 0 && count < limit) {
     const current = pending.pop();
+    const atRoot = current === dirPath;
     let entries;
     try {
       // eslint-disable-next-line no-await-in-loop
@@ -94,7 +98,7 @@ async function countFilesUpTo(dirPath, limit, { excludeNames = [], excludeDirs =
     // eslint-disable-next-line no-restricted-syntax
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (excludeDirs.includes(entry.name)) {
+        if (atRoot && excludeDirs.includes(entry.name)) {
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -108,7 +112,7 @@ async function countFilesUpTo(dirPath, limit, { excludeNames = [], excludeDirs =
           if (count >= limit) break;
         }
         pending.push(path.join(current, entry.name));
-      } else if (entry.isFile() && !excludeNames.includes(entry.name)) {
+      } else if (entry.isFile() && !(atRoot && excludeNames.includes(entry.name))) {
         count += 1;
         if (count >= limit) break;
       }
