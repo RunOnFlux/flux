@@ -103,8 +103,23 @@ async function dockerTerminalHandler(socket) {
             socket.emit('show', chunk.toString());
           }));
 
-          // the stream is destroyed the moment the container exits, so a keystroke
-          // arriving after that throws ERR_STREAM_DESTROYED out of this handler
+          // The hijacked stream is the raw upgraded docker socket, and node
+          // detaches its own error handler at upgrade - so without this listener
+          // a write racing the exec teardown (EPIPE on a keystroke as the shell
+          // exits) is an uncaught exception that exits the whole process.
+          stream.on('error', guard('stream error', (error) => {
+            log.error(`dockerTerminalHandler: stream error for ${nameOrId}: ${error.message}`);
+            socket.emit('error', 'Terminal session error.');
+          }));
+
+          // the client is gone: tear the exec stream down with it, so a hijacked
+          // docker socket can never outlive the terminal session it served
+          socket.on('disconnect', guard('stream teardown', () => stream.destroy()));
+
+          // A keystroke racing the container's teardown fails ASYNCHRONOUSLY via
+          // the stream's 'error' event (handled above) - a destroyed socket's
+          // write() just returns false. The type filter is what stops a
+          // non-string payload throwing synchronously out of write().
           socket.on('cmd', guard('cmd', (data) => {
             if (typeof data !== 'object') {
               stream.write(data);

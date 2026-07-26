@@ -113,6 +113,45 @@ describe('docker terminal fails cleanly and never crashes the node', function ()
     await env?.teardown();
   });
 
+  // Ordered first: it needs the live container the before-hook waited for; the
+  // stopped-container case below deliberately leaves the app down.
+  it('survives a container killed under a live terminal session', async function () {
+    this.timeout(180000);
+
+    const pidBefore = await fluxosPid(client.container);
+    expect(pidBefore).to.not.equal('');
+
+    // a real session: exec created, hijacked stream up, shell answering
+    const socket = io(`${client.url}/terminal`, { transports: ['websocket'], reconnection: false, timeout: TERMINAL_TIMEOUT_MS });
+    try {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('terminal never opened')), TERMINAL_TIMEOUT_MS);
+        socket.on('show', () => { clearTimeout(timer); resolve(); });
+        socket.on('error', (m) => { clearTimeout(timer); reject(new Error(`terminal error before kill: ${m}`)); });
+        socket.on('connect_error', (err) => { clearTimeout(timer); reject(new Error(`connect_error ${err.message}`)); });
+        socket.on('connect', () => socket.emit('exec', zelidauth, identifier, 'sh', '', 'root'));
+      });
+
+      // Keystrokes racing the teardown: the hijacked docker socket dies with the
+      // exec, and a write landing in that window fails ASYNCHRONOUSLY on the
+      // stream ('error', EPIPE). With no stream error listener that is an
+      // uncaught exception -> exit(1) - invisible from outside once the
+      // watchdog respawns, which is why the assertion is the pid.
+      const typer = setInterval(() => socket.emit('cmd', 'echo alive\n'), 20);
+      try {
+        await execInContainer(client.container, `docker kill flux${identifier}`);
+        await new Promise((res) => { setTimeout(res, 2000); });
+      } finally {
+        clearInterval(typer);
+      }
+    } finally {
+      socket.close();
+    }
+
+    expect(await fluxosPid(client.container), 'FluxOS restarted - the stream error crashed the process').to.equal(pidBefore);
+    expect(await apiAlive(client)).to.equal(true);
+  });
+
   it('reports an error instead of crashing when the container is not running', async function () {
     this.timeout(180000);
 
