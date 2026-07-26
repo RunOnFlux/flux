@@ -139,38 +139,50 @@ describe('masterSlave election when FDM names no primary', function () {
   });
 
   it('still elects every app when FDM is slow - a pass over budget but advancing is not abandoned', async function () {
-    this.timeout(480000);
+    this.timeout(600000);
     // A degraded-but-answering FDM makes every pass SLOW: each g: app pays a
-    // full 3-region walk at the stub's delay. With two apps the pass runs well
-    // past the watchdog budget - and the watchdog must judge silence, not total
-    // elapsed time. A wall-clock budget abandons every pass mid-list, so the
-    // app later in the list is never elected, every cycle, for as long as the
-    // degradation lasts: exactly the failover conditions elections exist for.
-    const appName2 = `e2eslowfdm${Date.now()}`;
-    const identifier2 = `${appName2}_${appName2}`;
+    // full 3-region walk at the stub's delay (24s at 8s/region). The watchdog
+    // must judge silence, not total elapsed time: a wall-clock budget abandons
+    // every pass at the same point mid-list, so the app past that point is
+    // never elected, every cycle, for as long as the degradation lasts -
+    // exactly the failover conditions elections exist for. TWO new apps make
+    // the discriminator honest on every holder: the first app's dispatch lands
+    // inside any budget (~24s), the second's can only land at ~48s+ - past the
+    // 30s budget - so only a silence-judging watchdog lets it be elected.
+    // (The suite's original app cannot serve as the prefix: it is
+    // operator-stopped on one holder, whose passes skip it before the walk.)
+    const stamp = Date.now();
+    const names = [`e2eslowa${stamp}`, `e2eslowb${stamp}`];
 
     await setFdmDelay(8000);
     try {
-      await pushImage(appName2, 'v1');
-      const app2 = await buildSeedableSyncthingApp({ name: appName2, mode: 'g' });
-      const installAfters = holders.map((i) => env.clients[i].getLastEventId());
-      await installOnNodes(env, app2, holders);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const name of names) {
+        const id = `${name}_${name}`;
+        // eslint-disable-next-line no-await-in-loop
+        await pushImage(name, 'v1');
+        // eslint-disable-next-line no-await-in-loop
+        const app = await buildSeedableSyncthingApp({ name, mode: 'g' });
+        const installAfters = holders.map((i) => env.clients[i].getLastEventId());
+        // eslint-disable-next-line no-await-in-loop
+        await installOnNodes(env, app, holders);
+        // eslint-disable-next-line no-await-in-loop
+        await Promise.all(holders.map(async (i, k) => {
+          await waitForReconcileActuated(env.clients[i], id, 'dataCleared', 120000, { afterId: installAfters[k] });
+          await seedSyncScopedData(env, name, i);
+        }));
+        // eslint-disable-next-line no-await-in-loop
+        await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: `flux${id}` })));
+      }
 
-      const folder2 = `flux${appName2}_${appName2}`;
-      await Promise.all(holders.map(async (i, k) => {
-        await waitForReconcileActuated(env.clients[i], identifier2, 'dataCleared', 120000, { afterId: installAfters[k] });
-        await seedSyncScopedData(env, appName2, i);
-      }));
-      await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: folder2 })));
-
-      // the first app (still installed, still polled) makes every pass carry
-      // its slow FDM walk before this app's election is even reached
       const clients = holders.map((i) => env.clients[i]);
-      const runningCount = async () => (await Promise.all(clients.map((c) => isUp(c, appName2)))).filter(Boolean).length;
-      await waitFor(async () => await runningCount() === 1, {
-        timeout: 300000, interval: 5000, label: 'second app elected under a slow FDM',
+      const runningCount = async (name) => (await Promise.all(clients.map((c) => isUp(c, name)))).filter(Boolean).length;
+      // the LAST app in the list is the one a wall-clock watchdog starves
+      await waitFor(async () => await runningCount(names[1]) === 1, {
+        timeout: 300000, interval: 5000, label: 'tail app elected under a slow FDM',
       });
-      expect(await runningCount(), 'split brain under a slow FDM').to.equal(1);
+      expect(await runningCount(names[1]), 'split brain under a slow FDM').to.equal(1);
+      expect(await runningCount(names[0]), 'head app lost its election under a slow FDM').to.equal(1);
     } finally {
       await setFdmDelay(0).catch(() => {});
     }

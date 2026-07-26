@@ -417,6 +417,13 @@ async function ensureAppDockerNetwork(appName, res) {
       if (octet === null) {
         throw new Error(`Flux App network of ${appName} failed to initiate. No free 172.23.x.0/24 subnet available on this node.`);
       }
+      // The create is awaited UNBOUNDED on purpose: a rejection here always means
+      // the daemon ANSWERED (subnet taken, name conflict), which is what makes
+      // advancing to the next octet safe. A client-side timeout would break that
+      // contract - the create could still land with this app's name, and a second
+      // create for the same name duplicates it (dockerd accepts duplicate names),
+      // leaving the name ambiguous and the app unstartable with no self-heal. A
+      // daemon wedged here is bounded one level up by the provision ceiling.
       // eslint-disable-next-line no-await-in-loop
       fluxNet = await dockerService.createFluxAppDockerNetwork(appName, octet).catch((error) => log.error(error));
       if (!fluxNet) tried.add(octet);

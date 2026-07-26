@@ -515,7 +515,11 @@ async function recreateMissing(identifier) {
       scheduleRetry(identifier, MANAGED_RETRY_MS);
       return;
     }
-    if (err.provisionTimedOut || (runtimeState && runtimeState.hasEverStarted)) {
+    // dockerRuntimeTimedOut joins provisionTimedOut here: a bounded docker call
+    // timing out INSIDE the provision settles the pass early with the same
+    // meaning as the ceiling - the daemon did not answer. Reading it as a
+    // recreate failure would let a wedged daemon delete a never-started app.
+    if (err.provisionTimedOut || err.dockerRuntimeTimedOut || (runtimeState && runtimeState.hasEverStarted)) {
       await appsRuntimeState.recordRestart(identifier);
       const wait = Math.max(await appsRuntimeState.restartWaitMs(identifier), MANAGED_RETRY_MS);
       log.warn(`appReconciler - ${identifier} could not be recreated but has run here before; keeping it (down) and retrying in ${Math.round(wait / 1000)}s`);

@@ -3936,9 +3936,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   const lowerNodeRunning = await checkLowerIndexNodesRunning();
                   if (!lowerNodeRunning) {
                     if (superseded()) return;
-                  requestMasterStartWithPermissionsFix(identifier, appId, superseded);
-                    log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
-                    timeTostartNewMasterApp.delete(identifier);
+                    // a chain for this component is still running - keep the matured
+                    // slot so the next tick retries the moment it clears, instead of
+                    // consuming the slot for a dispatch the guard will no-op
+                    if (permissionsFixInFlight.has(appId)) {
+                      log.info(`masterSlaveApps: promotion chain for ${identifier} still running, keeping its scheduled slot`);
+                    } else {
+                      requestMasterStartWithPermissionsFix(identifier, appId, superseded);
+                      log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+                      timeTostartNewMasterApp.delete(identifier);
+                    }
                   } else {
                     log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - lower-index node is already running`);
                     timeTostartNewMasterApp.delete(identifier);

@@ -333,6 +333,24 @@ describe('appReconciler tests', () => {
       expect(stubs.appsRuntimeState.recordRestart.called, 'kept it but did not back off').to.be.true;
     });
 
+    it('keeps the app when a bounded docker call timed out inside the provision', async () => {
+      // A runtime-op timeout is the daemon not ANSWERING - the same statement
+      // about the node as the provision ceiling, arriving through a different
+      // throw. Reading it as a recreate failure would let a wedged daemon
+      // delete a never-started app and its data.
+      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerListContainers.resolves([]);
+      stubs.containerHealthMonitor.recreateMissingContainers = sinon.stub()
+        .rejects(Object.assign(new Error('docker start www_App exceeded 120s'), { dockerRuntimeTimedOut: true }));
+
+      await appReconciler.reconcile('www_App');
+
+      expect(
+        stubs.appUninstaller.removeAppLocally.called,
+        'uninstalled the app over a node condition',
+      ).to.be.false;
+    });
+
     it('retries the established-mark when the durable write fails, instead of memoising the failure', async () => {
       // Memoising a write that never landed would leave the component deletable
       // by a failed rebuild for the life of the process - the next observation

@@ -31,10 +31,14 @@ const docker = new Docker();
  * progress-based stall detection; stop legitimately runs for hours under a graceful
  * shutdown and declares its own grace via `t`).
  *
- * The race frees the CALLER; it cannot cancel the underlying HTTP request. That is
- * sufficient here - the callers retry, and both bounded operations are safe to
- * repeat (inspect is read-only, and starting an already-running container is a
- * no-op to docker).
+ * The race frees the CALLER; it cannot cancel the underlying HTTP request, which
+ * may still land later. The reads are safe to repeat; the creates are NOT - a
+ * create that lands after its timeout makes a blind retry collide (or worse,
+ * duplicate: dockerd accepts a second network with the same name). Callers on
+ * create paths must re-check for the thing by name before retrying, and every
+ * consumer of the rejection must read it as dockerRuntimeTimedOut says: the
+ * daemon did not ANSWER - a statement about this node right now, never a
+ * refusal and never a verdict on the app.
  *
  * @param {Promise} operation
  * @param {string} label used in the timeout error
@@ -47,7 +51,11 @@ async function withRuntimeOpTimeout(operation, label) {
     return await Promise.race([
       operation,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`docker ${label} exceeded ${Math.round(timeoutMs / 1000)}s`)), timeoutMs);
+        timer = setTimeout(() => {
+          const timeoutError = new Error(`docker ${label} exceeded ${Math.round(timeoutMs / 1000)}s`);
+          timeoutError.dockerRuntimeTimedOut = true;
+          reject(timeoutError);
+        }, timeoutMs);
         if (timer.unref) timer.unref();
       }),
     ]);
@@ -148,9 +156,13 @@ function getAppDockerNameIdentifier(appName) {
  * @returns {object} Network
  */
 async function dockerCreateNetwork(options) {
-  // Bounded like the other short control-plane calls: a daemon wedged on
-  // network create would otherwise hold its caller's provision open forever.
-  const network = await withRuntimeOpTimeout(docker.createNetwork(options), `create network ${options && options.Name}`);
+  // Deliberately NOT under the runtime-op timeout: a create that times out
+  // client-side can still land in the daemon, and the octet-retry loop above
+  // this (ensureAppDockerNetwork) advances on rejection - a second create for
+  // the same name would then DUPLICATE it (dockerd accepts duplicate names),
+  // leaving the app unstartable. A rejection from here must always mean the
+  // daemon answered. A wedged daemon is bounded by the provision ceiling.
+  const network = await docker.createNetwork(options);
   return network;
 }
 
@@ -1187,12 +1199,13 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   }
   options.Env.push(`FLUX_APP_NAME=${appName}`);
 
-  // Bounded so a daemon wedged on POST /containers/create (while still
-  // answering inspects) cannot leave the provision promise pending forever -
-  // an unsettled provision pins its component's reconcile single-flight. The
-  // race only frees the caller; a create that lands late 409s the retry, which
-  // the reconciler already resolves via its "container now exists" re-check.
-  const app = await withRuntimeOpTimeout(docker.createContainer(options), `create ${identifier}`).catch((error) => {
+  // Deliberately NOT under the runtime-op timeout: settling the provision with
+  // a plain timeout would bypass the recreate ceiling's classification - the
+  // ceiling ends a wedged pass with provisionTimedOut (a node condition, kept)
+  // and tracks the still-running work in detachedProvisions; a lower bound here
+  // settles early without either, which once turned a create-wedged daemon into
+  // a local uninstall of a never-started app.
+  const app = await docker.createContainer(options).catch((error) => {
     log.error(error);
     throw error;
   });

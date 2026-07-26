@@ -1346,25 +1346,17 @@ describe('dockerService tests', () => {
       expect(await size).to.equal(0);
     });
 
-    it('bounds the container create itself', () => {
-      // A daemon wedged on POST /containers/create while still answering
-      // inspects leaves the provision promise pending forever - which pins the
-      // component's reconcile single-flight. appDockerCreate's pre-create path
-      // (networks, IP allocation) talks to the real daemon and cannot run under
-      // fake timers, so pin the bound structurally; the network-create test
-      // below proves the same wrapper behaviorally.
+    it('does NOT bound the creates - a create rejection must always mean the daemon answered', () => {
+      // A create that times out client-side can still land in the daemon: the
+      // octet-retry loop advances on rejection (a second same-name create
+      // DUPLICATES the network), and a provision settled by a plain timeout
+      // bypasses the recreate ceiling's kept-not-deleted classification. The
+      // creates are bounded one level up, by the provision ceiling.
       // eslint-disable-next-line global-require
       const fs = require('fs');
       const source = fs.readFileSync(require.resolve('../../ZelBack/src/services/dockerService'), 'utf8');
-      expect(source, 'docker.createContainer is no longer bounded').to.match(/withRuntimeOpTimeout\(docker\.createContainer\(/);
-    });
-
-    it('gives up on a network create that the daemon never answers', async () => {
-      sinon.stub(Dockerode.prototype, 'createNetwork').returns(new Promise(() => {}));
-      const netted = dockerService.dockerCreateNetwork({ Name: 'fluxDockerNetwork_test' });
-      const assertion = expect(netted).to.eventually.be.rejectedWith(/exceeded/);
-      await clock.tickAsync(timeoutMs + 1000);
-      await assertion;
+      expect(source, 'docker.createContainer must not run under the runtime-op timeout').to.not.match(/withRuntimeOpTimeout\(docker\.createContainer\(/);
+      expect(source, 'docker.createNetwork must not run under the runtime-op timeout').to.not.match(/withRuntimeOpTimeout\(docker\.createNetwork\(/);
     });
 
     it('gives up on a container list that the daemon never answers', async () => {
