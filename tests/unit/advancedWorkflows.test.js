@@ -458,17 +458,12 @@ describe('advancedWorkflows tests', () => {
   describe('masterSlaveApps tests', () => {
     let globalState;
     let serviceHelperStub;
-    let serviceHelperDelayStub;
     let fluxNetworkHelperStub;
     let registryManagerStub;
     let dockerServiceStub;
     let syncthingServiceStub;
-    let syncthingServiceHealthStub;
-    let decryptEnterpriseAppsStub;
-    let recursionCounter;
 
     beforeEach(() => {
-      recursionCounter = 0;
       globalState = require('../../ZelBack/src/services/utils/globalState');
       globalState.masterSlaveAppsRunning = false;
       globalState.installationInProgress = false;
@@ -483,16 +478,6 @@ describe('advancedWorkflows tests', () => {
       const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
       serviceHelperStub = sinon.stub(serviceHelper, 'axiosGet');
 
-      // Stub delay to prevent recursive calls - after first call, block recursion
-      serviceHelperDelayStub = sinon.stub(serviceHelper, 'delay').callsFake(async () => {
-        recursionCounter += 1;
-        if (recursionCounter > 1) {
-          // Prevent recursion by returning a promise that never resolves
-          return new Promise(() => {});
-        }
-        return Promise.resolve();
-      });
-
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
       fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress');
 
@@ -504,14 +489,14 @@ describe('advancedWorkflows tests', () => {
 
       const syncthingService = require('../../ZelBack/src/services/syncthingService');
       syncthingServiceStub = sinon.stub(syncthingService, 'getConfigFolders');
-      syncthingServiceHealthStub = sinon.stub(syncthingService, 'getHealth').resolves({
+      sinon.stub(syncthingService, 'getHealth').resolves({
         status: 'success',
         data: { status: 'OK' },
       });
 
       // Stub decryptEnterpriseApps to return apps as-is
       const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
-      decryptEnterpriseAppsStub = sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake((apps) => Promise.resolve(apps));
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake((apps) => Promise.resolve(apps));
 
       // Stub database connection to prevent actual DB access
       sinon.stub(dbHelper, 'databaseConnection').returns({
@@ -1263,7 +1248,6 @@ describe('advancedWorkflows tests', () => {
 
   describe('softRedeploy component structure change handling tests', () => {
     let findInDatabaseStub;
-    let databaseConnectionStub;
 
     beforeEach(() => {
       // Reset global state
@@ -1275,7 +1259,7 @@ describe('advancedWorkflows tests', () => {
       globalState.hardRedeployInProgress = false;
 
       // Setup database connection stub
-      databaseConnectionStub = sinon.stub(dbHelper, 'databaseConnection').returns({
+      sinon.stub(dbHelper, 'databaseConnection').returns({
         db: () => ({}),
       });
     });
@@ -1559,6 +1543,7 @@ describe('advancedWorkflows tests', () => {
     let installedAppsStub;
     let listRunningAppsStub;
     let intervalMs;
+    let maxPassMs;
     // eslint-disable-next-line global-require
     const https = require('https');
 
@@ -1566,6 +1551,7 @@ describe('advancedWorkflows tests', () => {
       // eslint-disable-next-line global-require
       const config = require('config');
       intervalMs = config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000;
+      maxPassMs = config.fluxapps.masterSlaveMaxPassMs ?? Math.max(intervalMs * 4, 2 * 60 * 1000);
 
       globalStateMock = {
         installationInProgress: false,
@@ -1630,6 +1616,82 @@ describe('advancedWorkflows tests', () => {
       expect(installedAppsStub.callCount).to.be.at.least(2);
       await clock.tickAsync(intervalMs); // and again
       expect(installedAppsStub.callCount).to.be.at.least(3);
+      control.stop();
+    });
+
+    // The watchdog is the whole reason the scheduler exists. Production died with a
+    // pass wedged on an un-timed-out await (installedApps/listRunningApps have no
+    // timeout), so the `finally` that held the only reschedule never ran and
+    // elections stopped for 18h on a node that never restarted. These three cover
+    // the contract: hold the guard while in flight, release it on timeout, run a
+    // fresh pass after.
+    const wedgedPass = () => new Promise(() => {});
+
+    it('skips a tick while the previous pass is still in flight', async () => {
+      const hanging = sinon.stub().callsFake(wedgedPass);
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, hanging, listRunningAppsStub, new Map(), [], [], https,
+      );
+      await clock.tickAsync(50); // immediate pass, wedges on installedApps
+      expect(hanging.callCount).to.equal(1);
+
+      // ticks land while the pass is still running - single-flight must not
+      // stack a second concurrent pass on top of it
+      await clock.tickAsync(intervalMs * 2);
+      expect(hanging.callCount).to.equal(1);
+      control.stop();
+    });
+
+    it('runs a fresh pass after the watchdog abandons a wedged one', async () => {
+      let calls = 0;
+      // first pass never settles; later passes complete normally
+      const installedApps = sinon.stub().callsFake(() => {
+        calls += 1;
+        return calls === 1 ? wedgedPass() : Promise.resolve({ status: 'success', data: [] });
+      });
+
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, installedApps, listRunningAppsStub, new Map(), [], [], https,
+      );
+      await clock.tickAsync(50);
+      expect(installedApps.callCount).to.equal(1);
+
+      // nothing runs while the pass is wedged
+      await clock.tickAsync(intervalMs * 2);
+      expect(installedApps.callCount).to.equal(1);
+
+      // past the watchdog: the guard is released and the next tick runs again
+      await clock.tickAsync(maxPassMs + intervalMs + 50);
+      expect(installedApps.callCount, 'watchdog never released the single-flight guard').to.be.at.least(2);
+      control.stop();
+    });
+
+    it('releases the global masterSlaveAppsRunning lock when it abandons a pass', async () => {
+      // masterSlaveApps sets this true on entry and false in its own `finally` -
+      // which a wedged pass never reaches. appInstaller reads it to gate
+      // performDockerCleanup, so if the scheduler does not clear it alongside its
+      // own guard it stays set for the life of the process.
+      const writes = [];
+      let running = false;
+      Object.defineProperty(globalStateMock, 'masterSlaveAppsRunning', {
+        configurable: true,
+        get: () => running,
+        set: (value) => { running = value; writes.push(value); },
+      });
+
+      // every pass wedges, so masterSlaveApps itself can never write false -
+      // any false here came from the scheduler releasing the lock
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, sinon.stub().callsFake(wedgedPass), listRunningAppsStub, new Map(), [], [], https,
+      );
+      await clock.tickAsync(50);
+      expect(writes).to.deep.equal([true]);
+
+      await clock.tickAsync(maxPassMs + 50);
+      expect(
+        writes.includes(false),
+        'a wedged pass leaves globalState.masterSlaveAppsRunning set forever',
+      ).to.equal(true);
       control.stop();
     });
   });

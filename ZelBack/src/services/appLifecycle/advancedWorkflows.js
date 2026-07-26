@@ -42,6 +42,10 @@ const appNetworkLinker = require('./appNetworkLinker');
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 // Master/slave app tracking
+// Bumped whenever the scheduler abandons a wedged pass. A pass captures this on
+// entry and re-checks it before every mutating action, so a pass that unwedges
+// minutes later cannot act on a view of the world that has since been replaced.
+let masterSlavePassGeneration = 0;
 const mastersRunningGSyncthingApps = new Map();
 const timeTostartNewMasterApp = new Map();
 
@@ -3525,6 +3529,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
   try {
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = true;
+    const generation = masterSlavePassGeneration;
+    // A wedged pass keeps running after the scheduler gives up on it; anything it
+    // does from then on is based on a stale FDM/docker view and can fight the pass
+    // that replaced it (flipping a live primary's syncthing folder to receiveonly,
+    // or issuing a start/stop that has since been reversed).
+    const superseded = () => {
+      if (generation === masterSlavePassGeneration) return false;
+      log.warn(`masterSlaveApps: pass superseded (generation ${generation} -> ${masterSlavePassGeneration}), dropping pending action`);
+      return true;
+    };
     // do not run if installationInProgress or removalInProgress or softRedeployInProgress or hardRedeployInProgress
     if (globalStateParam.installationInProgress || globalStateParam.removalInProgress || globalStateParam.softRedeployInProgress || globalStateParam.hardRedeployInProgress) {
       return;
@@ -3578,9 +3592,13 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       rejectUnauthorized: false,
     });
     const axiosOptions = {
-      timeout: 10000,
+      timeout: config.fluxapps.masterSlaveFdmTimeoutMs ?? 10000,
       httpsAgent: agent,
     };
+    // A standby waits index * this before it may claim an unclaimed primary, so
+    // lower-index nodes get first refusal instead of every holder racing to start.
+    const staggerMs = config.fluxapps.masterSlaveStaggerMs ?? 3 * 60 * 1000;
+    const probeTimeoutMs = config.fluxapps.masterSlaveProbeTimeoutMs ?? 10 * 1000;
 
     // Cleanup stale entries from maps to prevent memory leaks
     const validIdentifiers = new Set();
@@ -3754,7 +3772,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   if (index <= 0) return false; // Index 0 or not found, no lower nodes to check
 
                   const { CancelToken } = axios;
-                  const timeout = 10 * 1000;
+                  const timeout = probeTimeoutMs;
 
                   // Check all nodes with lower index
                   for (let i = 0; i < index; i += 1) {
@@ -3795,6 +3813,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 
                 if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                   // Index 0: Start immediately if no history
+                  if (superseded()) return;
                   requestMasterStartWithPermissionsFix(identifier, appId);
                   log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && !ipsMatch(mastersRunningGSyncthingApps.get(identifier), localSocketAddr)) {
@@ -3802,7 +3821,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   const { CancelToken } = axios;
                   const source = CancelToken.source();
                   let isResolved = false;
-                  const timeout = 10 * 1000; // 10 seconds
+                  const timeout = probeTimeoutMs;
                   setTimeout(() => {
                     if (!isResolved) {
                       source.cancel('Operation canceled by the user.');
@@ -3835,7 +3854,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                   // Previous master is not running, determine next primary
                   if (index === 0) {
-                    requestMasterStartWithPermissionsFix(identifier, appId);
+                    if (superseded()) return;
+                  requestMasterStartWithPermissionsFix(identifier, appId);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                   } else {
                     const previousMasterIndex = runningAppList.findIndex((x) => ipsMatch(x.ip, mastersRunningGSyncthingApps.get(identifier)));
@@ -3843,19 +3863,20 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     if (previousMasterIndex >= 0) {
                       log.info(`masterSlaveApps: app:${installedApp.name} had primary running at index: ${previousMasterIndex}`);
                       if (index > previousMasterIndex) {
-                        timetoStartApp += (index - 1) * 3 * 60 * 1000;
+                        timetoStartApp += (index - 1) * staggerMs;
                       } else {
-                        timetoStartApp += index * 3 * 60 * 1000;
+                        timetoStartApp += index * staggerMs;
                       }
                     } else {
-                      timetoStartApp += index * 3 * 60 * 1000;
+                      timetoStartApp += index * staggerMs;
                     }
                     if (timetoStartApp <= Date.now()) {
                       // Time to start, but check if lower-index nodes are running
                       // eslint-disable-next-line no-await-in-loop
                       const lowerNodeRunning = await checkLowerIndexNodesRunning();
                       if (!lowerNodeRunning) {
-                        requestMasterStartWithPermissionsFix(identifier, appId);
+                        if (superseded()) return;
+                  requestMasterStartWithPermissionsFix(identifier, appId);
                         log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index}`);
                       }
                     } else {
@@ -3868,7 +3889,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // eslint-disable-next-line no-await-in-loop
                   const lowerNodeRunning = await checkLowerIndexNodesRunning();
                   if (!lowerNodeRunning) {
-                    requestMasterStartWithPermissionsFix(identifier, appId);
+                    if (superseded()) return;
+                  requestMasterStartWithPermissionsFix(identifier, appId);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
                     timeTostartNewMasterApp.delete(identifier);
                   } else {
@@ -3877,7 +3899,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)) {
                   // Non-primary node with no history - schedule start based on index
-                  const timetoStartApp = Date.now() + (index * 3 * 60 * 1000);
+                  const timetoStartApp = Date.now() + (index * staggerMs);
                   log.info(`masterSlaveApps: scheduling app:${installedApp.name} index: ${index} to start at ${timetoStartApp.toString()}`);
                   timeTostartNewMasterApp.set(identifier, timetoStartApp);
                 } else {
@@ -3894,6 +3916,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
               if (!ipsMatch(localSocketAddr, ip) && runningAppsNames.includes(identifier)) {
                 // Stop only the g: component on this standby node. Non-g siblings (e.g. a DB
                 // cluster component that needs all instances running) must keep running.
+                if (superseded()) return;
                 appReconciler.setControllerDesired(identifier, 'stopped', 'masterSlave standby');
                 log.info(`masterSlaveApps: requesting stop of component:${identifier} - primary runs on ip:${ip}, localSocketAddr is: ${localSocketAddr}`);
               } else if (ipsMatch(localSocketAddr, ip) && !runningAppsNames.includes(identifier)) {
@@ -3925,6 +3948,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 }
 
                 if (isReady) {
+                  if (superseded()) return;
                   requestMasterStartWithPermissionsFix(identifier, appId);
                   log.info(`masterSlaveApps: starting docker component:${identifier}`);
                 } else {
@@ -3976,8 +4000,8 @@ function startMasterSlaveApps(globalStateParam, installedApps, listRunningApps, 
   // A single pass legitimately makes several timed calls (FDM across regions,
   // peer /listrunningapps probes), so allow generous headroom - but never let a
   // wedged pass block elections forever. On timeout the guard is released and the
-  // next tick starts a fresh pass; the abandoned pass is harmless (declare-only).
-  const maxPassMs = Math.max(intervalMs * 4, 2 * 60 * 1000);
+  // next tick starts a fresh pass.
+  const maxPassMs = config.fluxapps.masterSlaveMaxPassMs ?? Math.max(intervalMs * 4, 2 * 60 * 1000);
 
   const runPass = async () => {
     // Single-flight: skip if the previous pass is still in flight so passes never
@@ -4002,6 +4026,12 @@ function startMasterSlaveApps(globalStateParam, installedApps, listRunningApps, 
       // masterSlaveApps swallows its own errors; this catches the watchdog
       // timeout (and any unexpected throw) so a stuck pass can never tear down
       // or permanently block the interval.
+      // Invalidate the abandoned pass so it cannot mutate if it later unwedges,
+      // and release the global lock it will never reach its own `finally` to clear
+      // (appInstaller gates performDockerCleanup on it).
+      masterSlavePassGeneration += 1;
+      // eslint-disable-next-line no-param-reassign
+      globalStateParam.masterSlaveAppsRunning = false;
       log.error(`startMasterSlaveApps: ${error.message} - releasing guard so the next tick runs a fresh pass`);
     } finally {
       isRunning = false;

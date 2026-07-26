@@ -127,6 +127,10 @@ module.exports = {
     imageUpdateDelayAfterRedeployMs: 1000,
     imageUpdateDelayBetweenComponentsMs: 100,
     masterSlaveIntervalMs: 3000, // compressed g: FDM election cycle (prod 30s)
+    masterSlaveMaxPassMs: 12000, // compressed wedged-pass watchdog (prod 120s)
+    masterSlaveStaggerMs: 9000, // compressed per-index standby stagger (prod 180s)
+    masterSlaveProbeTimeoutMs: 5000, // compressed previous-primary probe (prod 10s)
+    masterSlaveFdmTimeoutMs: 5000, // compressed FDM lookup (prod 10s)
     installation: { probability: 100, delay: 5 },
     removal: { probability: 25, delay: 5 },
     redeploy: { probability: 2, delay: 1, composedDelay: 1 },
