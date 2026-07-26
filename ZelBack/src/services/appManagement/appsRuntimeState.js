@@ -80,6 +80,24 @@ async function setFields(rawIdentifier, fields) {
 }
 
 /**
+ * Marks that docker has accepted at least one start of this component on this
+ * node. Durable, and cleared only by remove().
+ *
+ * This is what separates an established component from a fresh install that
+ * vanished before it ever ran — the distinction the reconciler needs before it
+ * will destroy an app and its data over a failed rebuild.
+ *
+ * @param {string} identifier
+ */
+async function setEverStarted(identifier) {
+  try {
+    await setFields(identifier, { hasEverStarted: true });
+  } catch (err) {
+    log.error(`appsRuntimeState - failed to record start for ${identifier}: ${err.message}`);
+  }
+}
+
+/**
  * Sets the operator stop lock. This is the highest-priority desired-state
  * input — when true the reconciler must never auto-start the component. A
  * deliberate (re)start (operatorStopped=false, also install/redeploy) clears
@@ -354,6 +372,7 @@ async function prepareCollection() {
 module.exports = {
   prepareCollection,
   getState,
+  setEverStarted,
   setOperatorStopped,
   isOperatorStopped,
   recordRestart,

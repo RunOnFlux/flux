@@ -60,6 +60,10 @@ describe('appReconciler tests', () => {
         restartWaitMs: sinon.stub().resolves(0),
         recordRestart: sinon.stub().resolves(),
         recordExit: sinon.stub().resolves(),
+        // durable "docker has started this component here before". Default null keeps
+        // the never-ran path, which is what the existing removal tests assert.
+        getState: sinon.stub().resolves(null),
+        setEverStarted: sinon.stub().resolves(),
         // durable "I removed this container for a network heal" flag + its own ladder
         isNetworkHealRemoval: sinon.stub().resolves(false),
         setNetworkHealRemoval: sinon.stub().resolves(),
@@ -286,6 +290,38 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.appTamperingDetectionService.recordEvent.calledWithMatch('App', 'recreation_failed')).to.be.true;
       expect(stubs.appUninstaller.removeAppLocally.calledOnceWith('App', null, false, true, true)).to.be.true;
+    });
+
+    it('keeps a component docker has started here before, instead of deleting it and its data', async () => {
+      // The removal above is for a fresh install that vanished before it ever ran.
+      // An established component must survive the same failure: an image that has
+      // become unpullable, a bad update, or a registry that is merely unreachable
+      // right now would otherwise delete the app AND its data on every node that
+      // tries to recreate it.
+      stubs.appsRuntimeState.getState.resolves({ hasEverStarted: true });
+      stubs.dockerService.dockerContainerInspect.rejects(new TypeError("Cannot read properties of undefined (reading 'Id')"));
+      stubs.dockerService.dockerListContainers.resolves([]); // probe: docker is up
+      stubs.containerHealthMonitor.recreateMissingContainers.rejects(new Error('registry unreachable'));
+
+      await appReconciler.reconcile('www_App');
+
+      expect(
+        stubs.appUninstaller.removeAppLocally.called,
+        'deleted an established app over a failed rebuild',
+      ).to.be.false;
+      expect(stubs.appsRuntimeState.recordRestart.called, 'kept it but did not back off').to.be.true;
+    });
+
+    it('records that docker started a component, so a later failed rebuild cannot delete it', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStart.called).to.be.true;
+      expect(
+        stubs.appsRuntimeState.setEverStarted.calledWith('www_App'),
+        'a started component was never marked established, so it stays deletable',
+      ).to.be.true;
     });
 
     // "Vanished" requires docker to CONFIRM absence: the reachability probe

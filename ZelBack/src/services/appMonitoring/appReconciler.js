@@ -431,7 +431,22 @@ async function recreateMissing(identifier) {
     if (appTamperingDetectionService.isNetworkMissingError(err.message)) {
       await appTamperingDetectionService.recordEvent(mainAppName, 'network_pruned', `Docker network missing during recreation: ${err.message}`);
     }
-    log.warn(`REMOVAL REASON: Container recreation failure - ${mainAppName} (appReconciler)`);
+    // A component that docker has started here before is NOT destroyed over a
+    // failed rebuild - an image that has become unpullable, a bad update, or a
+    // registry that is merely unreachable right now. It degrades to DOWN and backs
+    // off, so a transient registry problem can never delete an established app and
+    // its data across the fleet. Only a fresh install that vanished before it ever
+    // ran is removed, which is the case this removal was written for.
+    const runtimeState = await appsRuntimeState.getState(identifier);
+    if (runtimeState && runtimeState.hasEverStarted) {
+      await appsRuntimeState.recordRestart(identifier);
+      const wait = Math.max(await appsRuntimeState.restartWaitMs(identifier), MANAGED_RETRY_MS);
+      log.warn(`appReconciler - ${identifier} could not be recreated but has run here before; keeping it (down) and retrying in ${Math.round(wait / 1000)}s`);
+      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'recreateFailedKept', waitMs: wait });
+      scheduleRetry(identifier, wait);
+      return;
+    }
+    log.warn(`REMOVAL REASON: Container recreation failure (never ran here) - ${mainAppName} (appReconciler)`);
     await appUninstaller.removeAppLocally(mainAppName, null, false, true, true);
   }
 }
@@ -932,6 +947,9 @@ async function reconcile(rawIdentifier) {
     scheduleRetry(identifier, MANAGED_RETRY_MS);
     return;
   }
+  // docker accepted the start: from here this component is established on this
+  // node, and a later failed rebuild must not be allowed to destroy it
+  await appsRuntimeState.setEverStarted(identifier);
   appInspector.startAppMonitoring(identifier, globalState.appsMonitored);
   log.info(`appReconciler - ${identifier} restarted`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'started', exitCode: actual.exitCode });
