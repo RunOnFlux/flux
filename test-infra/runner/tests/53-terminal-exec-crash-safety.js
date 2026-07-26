@@ -142,14 +142,19 @@ describe('docker terminal fails cleanly and never crashes the node', function ()
         socket.on('connect', () => socket.emit('exec', zelidauth, identifier, '/bin/pause', '', ''));
       });
 
-      // Keystrokes racing the teardown: the hijacked docker socket dies with the
-      // exec, and a write landing in that window fails ASYNCHRONOUSLY on the
-      // stream ('error', EPIPE). With no stream error listener that is an
-      // uncaught exception -> exit(1) - invisible from outside once the
-      // watchdog respawns, which is why the assertion is the pid.
+      // A write in flight when the hijacked docker socket dies fails
+      // ASYNCHRONOUSLY on the stream ('error', EPIPE). With no stream error
+      // listener that is an uncaught exception -> exit(1) - invisible from
+      // outside once the watchdog respawns, which is why the assertion is the
+      // pid. Writes AFTER the socket is destroyed return false silently, so a
+      // trickle of keystrokes almost never lands in the window - instead flood
+      // the pty, which the exec'd pause process never drains: the backpressured
+      // bytes queued in the socket when the kill lands are the EPIPE, made
+      // deterministic.
       const typer = setInterval(() => socket.emit('cmd', 'x'), 20);
       try {
         await opened;
+        for (let i = 0; i < 8; i += 1) socket.emit('cmd', 'x'.repeat(131072));
         await execInContainer(client.container, `docker kill flux${identifier}`);
         await new Promise((res) => { setTimeout(res, 2000); });
       } finally {
