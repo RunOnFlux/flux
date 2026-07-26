@@ -40,6 +40,10 @@ const appNetworkLinker = require('./appNetworkLinker');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
+// Monotonic milliseconds for durations/heartbeats: wall-clock (Date.now) steps
+// under NTP, and a stepped clock must never fake or hide a pass's progress.
+const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
+
 // Master/slave app tracking
 // The election pass the scheduler's watchdog is currently racing. Abandonment is
 // per-pass: the watchdog marks the pass it raced, and only that pass's pending
@@ -50,6 +54,10 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 let currentMasterSlavePass = null;
 const mastersRunningGSyncthingApps = new Map();
 const timeTostartNewMasterApp = new Map();
+// One primary-promotion chain (folder flips + recursive permissions fix) per
+// component at a time - the 30s scheduler dispatches without await, and the fix
+// legitimately runs for minutes on a large tree.
+const permissionsFixInFlight = new Set();
 
 // Promisified functions
 
@@ -1917,10 +1925,11 @@ async function applyPermissionsFix(appId) {
     // This covers both appdata (primary mount) and all additional mounts at the same level.
     // runCommand never rejects - failure comes back as result.error - and this result
     // is the gate that keeps a node from being elected primary over data it could not
-    // fix. timeout: 0 because a recursive chmod over a large appdata tree legitimately
-    // outruns runCommand's 15-minute default, and a half-applied fix must read as
-    // failure, not be silently killed and reported as success.
-    const result = await serviceHelper.runCommand('chmod', { params: ['-R', '777', appPath], runAsRoot: true, timeout: 0 });
+    // fix. The budget is generous (a cold walk of a huge tree outruns runCommand's
+    // 15-minute default legitimately) but finite: a wedged walk must eventually
+    // surface as a failed fix, and a killed half-applied fix must read as failure.
+    const timeout = config.fluxapps.permissionsFixTimeoutMs ?? 60 * 60 * 1000;
+    const result = await serviceHelper.runCommand('chmod', { params: ['-R', '777', appPath], runAsRoot: true, timeout });
     if (result.error) throw result.error;
 
     log.info(`Successfully applied permissions fix for app: ${appId} (includes appdata and all mount points)`);
@@ -2080,6 +2089,15 @@ async function appDockerRestart(appname) {
  * @returns {Promise<void>}
  */
 async function requestMasterStartWithPermissionsFix(appname, appId, superseded = () => false) {
+  // The scheduler re-decides every 30s and dispatches this chain without await,
+  // and the permissions fix legitimately runs for minutes on a large tree - so
+  // without this guard every tick would stack another full-tree chmod on top of
+  // the one still walking, each dirtying the inodes the previous is fixing.
+  if (permissionsFixInFlight.has(appId)) {
+    log.info(`Preparing masterSlave primary ${appname}: previous permissions-fix chain still running, skipping this dispatch`);
+    return;
+  }
+  permissionsFixInFlight.add(appId);
   try {
     log.info(`Preparing masterSlave primary ${appname}: fixing permissions before start`);
 
@@ -2113,6 +2131,8 @@ async function requestMasterStartWithPermissionsFix(appname, appId, superseded =
   } catch (error) {
     log.error(`Error preparing masterSlave primary ${appname}: ${error.message}`);
     // leave it stopped if the permissions-fix workflow failed
+  } finally {
+    permissionsFixInFlight.delete(appId);
   }
 }
 
@@ -3539,7 +3559,7 @@ async function forceAppRemovals() {
 async function masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https) {
   // Declared outside the try so the finally can check ownership of the global
   // flag against the pass that is current by the time it runs.
-  const thisPass = { abandoned: false, lastProgressAt: Date.now() };
+  const thisPass = { abandoned: false, lastProgressAt: monotonicMs() };
   try {
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = true;
@@ -3652,13 +3672,14 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
-      // Progress heartbeat for the scheduler's watchdog. Every awaited call in
-      // this loop is individually bounded (10s FDM regions, 10s peer probes), so
-      // a pass that is merely SLOW - many g: apps, degraded FDM - keeps beating
-      // and keeps its actuations, while a pass wedged on one dead await goes
-      // silent and is abandoned. Same principle as the pull stall detector:
-      // silence is the failure, not elapsed time.
-      thisPass.lastProgressAt = Date.now();
+      // Progress heartbeat for the scheduler's watchdog. The network calls in
+      // this loop are individually bounded (10s FDM regions, 10s peer probes),
+      // so a pass that is merely SLOW - many g: apps, degraded FDM - keeps
+      // beating and keeps its actuations, while a pass wedged on one dead await
+      // (including the unbounded DB read below) goes silent and is abandoned.
+      // Same principle as the pull stall detector: silence is the failure, not
+      // elapsed time.
+      thisPass.lastProgressAt = monotonicMs();
       let fdmOk = true;
       let identifier;
       let needsToBeChecked = false;
@@ -3800,7 +3821,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     // each probe is bounded at probeTimeoutMs; beat per probe so a
                     // high-index node's long (but advancing) walk is not mistaken
                     // for a wedged pass
-                    thisPass.lastProgressAt = Date.now();
+                    thisPass.lastProgressAt = monotonicMs();
                     const nodeToCheck = runningAppList[i];
                     if (!nodeToCheck) continue;
 
@@ -4054,11 +4075,13 @@ function startMasterSlaveApps(globalStateParam, installedApps, listRunningApps, 
       const watchdog = new Promise((_, reject) => {
         const arm = (delayMs) => {
           timer = setTimeout(() => {
-            const idleMs = Date.now() - (currentMasterSlavePass ? currentMasterSlavePass.lastProgressAt : 0);
+            const idleMs = monotonicMs() - (currentMasterSlavePass ? currentMasterSlavePass.lastProgressAt : 0);
             if (idleMs >= maxPassMs) {
               reject(new Error(`pass made no progress for ${Math.round(idleMs / 1000)}s`));
             } else {
-              arm(maxPassMs - idleMs);
+              // clamped: the sources are monotonic, but a nonsense delta must
+              // degrade to a prompt re-check, never a 32-bit setTimeout overflow
+              arm(Math.min(maxPassMs, Math.max(1, maxPassMs - idleMs)));
             }
           }, delayMs);
         };

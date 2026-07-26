@@ -355,7 +355,11 @@ module.exports = {
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
     masterSlaveIntervalMs: 30000, // masterSlave (g:) FDM election cycle
-    masterSlaveMaxPassMs: 120000, // abandon a masterSlave pass wedged this long, so the next cycle still runs
+    masterSlaveMaxPassMs: 120000, // abandon a masterSlave pass SILENT this long (heartbeat-based), so the next cycle still runs
+    // The primary-promotion chmod -R over the whole appdata tree: generous (a cold
+    // walk of a huge tree is legitimate work) but finite, so a wedged walk surfaces
+    // as a failed fix instead of running forever.
+    permissionsFixTimeoutMs: 3600000,
     masterSlaveStaggerMs: 180000, // per-index delay before a standby may claim an unclaimed primary
     masterSlaveProbeTimeoutMs: 10000, // probing the previous primary's /apps/listrunningapps
     masterSlaveFdmTimeoutMs: 10000, // FDM /appips lookup

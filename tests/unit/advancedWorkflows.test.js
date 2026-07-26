@@ -1789,6 +1789,61 @@ describe('advancedWorkflows tests', () => {
       expect(setControllerDesired.callCount).to.equal(1);
     });
 
+    it('does not stack a second permissions-fix chain while one is still running', async () => {
+      // The scheduler dispatches the chain without await every 30s, and the
+      // recursive chmod legitimately runs for minutes - unguarded, every tick
+      // stacks another full-tree walk over the inodes the previous one is
+      // still fixing, with no self-termination.
+      const appName = 'gstack';
+      const identifier = `gcomp_${appName}`;
+      // eslint-disable-next-line global-require
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+      // eslint-disable-next-line global-require
+      const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+      // eslint-disable-next-line global-require
+      const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+      const appId = dockerService.getAppIdentifier(identifier);
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'success', data: { ips: [] } } });
+      sinon.stub(serviceHelper, 'runCommand').resolves({ error: null, stdout: '', stderr: '' });
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves('192.168.1.5:16127');
+      sinon.stub(registryManager, 'appLocation').resolves([{ ip: '192.168.1.5:16127' }]);
+
+      // the first chain parks on its first folder flip; later passes keep
+      // electing and re-dispatching the whole time
+      let releaseChain;
+      const folders = (type) => ({ status: 'success', data: [{ id: 'f1', path: `${appsFolder}${appId}`, type }] });
+      const getConfigFolders = sinon.stub(syncthingService, 'getConfigFolders');
+      getConfigFolders.onFirstCall().returns(new Promise((resolve) => {
+        releaseChain = () => resolve(folders('receiveonly'));
+      }));
+      getConfigFolders.resolves(folders('sendreceive'));
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ name: appName, version: 8, compose: [{ name: 'gcomp', containerData: 'g:/data' }] }],
+      });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const cache = new Map();
+      cache.set(appId, { restarted: true });
+
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, installedApps, listRunningApps, cache, [], [], https,
+      );
+      await clock.tickAsync(3 * intervalMs + 50); // pass 1 dispatches; passes 2-4 re-decide
+      expect(installedApps.callCount).to.be.at.least(3);
+      expect(
+        getConfigFolders.callCount,
+        'a second chain was dispatched while the first was still running',
+      ).to.equal(1);
+      control.stop();
+
+      releaseChain();
+      await clock.tickAsync(50);
+      expect(setControllerDesired.calledOnceWith(identifier, 'running', 'masterSlave primary (synced)')).to.equal(true);
+    });
+
     it('does not request a start when the permissions fix fails', async () => {
       // runCommand reports failure via result.error, never a rejection. The chain
       // must read that result - discarding it deadened the guard, and a node got
