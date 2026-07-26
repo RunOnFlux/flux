@@ -75,12 +75,12 @@ async function recreateMissingContainers(componentIdentifier, options = {}) {
       // volume not mounted
     }
     if (volumeMounted) {
-      await appInstaller.installApplicationSoft(componentSpec, mainAppName, true, null, appSpec);
+      await appInstaller.installApplicationSoft(componentSpec, mainAppName, true, null, appSpec, { allowLocalImageFallback: true });
     } else {
       if (softOnly) {
         throw new Error(`Cannot recreate ${componentIdentifier} without reformatting its volume: the data volume for ${mainAppName} could not be verified as mounted`);
       }
-      await appInstaller.installApplicationHard(componentSpec, mainAppName, true, null, appSpec);
+      await appInstaller.installApplicationHard(componentSpec, mainAppName, true, null, appSpec, false, { allowLocalImageFallback: true });
     }
   } else {
     for (const componentSpec of appSpec.compose) {
@@ -99,13 +99,13 @@ async function recreateMissingContainers(componentIdentifier, options = {}) {
       }
       if (volumeMounted) {
         // eslint-disable-next-line no-await-in-loop
-        await appInstaller.installApplicationSoft(componentSpec, mainAppName, true, null, appSpec);
+        await appInstaller.installApplicationSoft(componentSpec, mainAppName, true, null, appSpec, { allowLocalImageFallback: true });
       } else {
         if (softOnly) {
           throw new Error(`Cannot recreate ${componentIdentifier} without reformatting its volume: the data volume for ${mainAppName} could not be verified as mounted`);
         }
         // eslint-disable-next-line no-await-in-loop
-        await appInstaller.installApplicationHard(componentSpec, mainAppName, true, null, appSpec);
+        await appInstaller.installApplicationHard(componentSpec, mainAppName, true, null, appSpec, false, { allowLocalImageFallback: true });
       }
     }
   }

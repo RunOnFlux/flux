@@ -243,7 +243,8 @@ async function setupApplicationPorts(appSpecifications, appName, isComponent, re
  * @param {object} fullAppSpecs - Full app specifications
  * @returns {Promise<void>}
  */
-async function verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+async function verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs, options = {}) {
+  const allowLocalImageFallback = options.allowLocalImageFallback || false;
   // check image and its architecture
   const architecture = await systemArchitecture();
   if (!supportedArchitectures.includes(architecture)) {
@@ -296,8 +297,21 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
   pullConfig.provider = imgVerifier.provider;
 
-  // eslint-disable-next-line no-unused-vars
-  await dockerPullStreamPromise(pullConfig, res);
+  try {
+    await dockerPullStreamPromise(pullConfig, res);
+  } catch (error) {
+    // Pull-first keeps a recreate fresh (a same-tag pull is a cheap manifest
+    // check); the local image only substitutes when the registry cannot be
+    // REACHED and the bits are already here, so the stale-run window is exactly
+    // the outage's duration and never a policy. A registry that answers that the
+    // image is bad is a statement about the image, not this node - that rethrows.
+    // Opt-in, so a fresh install never silently proceeds on someone else's layers.
+    const localImagePresent = allowLocalImageFallback
+      && error.registryErrorClass === 'transient'
+      && await dockerService.appDockerImageSize(appSpecifications.repotag) > 0;
+    if (!localImagePresent) throw error;
+    log.warn(`verifyAndPullImage - registry unreachable for ${appSpecifications.repotag}; continuing from the local image`);
+  }
 
   const pullStatus = {
     status: isComponent ? `Pulling component ${appSpecifications.name} of Flux App ${appName}` : `Pulling global Flux App ${appName} was successful`,
@@ -823,7 +837,7 @@ async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res)
  * @param {boolean} test - Whether this is a test installation
  * @returns {Promise<void>} Installation result
  */
-async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false) {
+async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false, options = {}) {
   // Verify the apps this app must be networked with (networkWith token) are
   // installed locally and owned by the same owner. Enforced here too — not just
   // in registerAppLocally — so direct callers that bypass it (container health
@@ -835,7 +849,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
 
   // Verify and pull Docker image
-  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
+  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs, options);
 
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
@@ -925,7 +939,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  * @param {object} fullAppSpecs Full app specifications.
  * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs, options = {}) {
   // Verify the apps this app must be networked with (networkWith token) are
   // installed locally and owned by the same owner. Enforced here too — not just
   // in softRegisterAppLocally — so direct callers that bypass it (container
@@ -937,7 +951,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   await setupApplicationPorts(appSpecifications, appName, isComponent, res);
 
   // Verify and pull Docker image
-  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
+  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs, options);
 
   const createApp = {
     status: isComponent ? `Creating component ${appSpecifications.name} of local Flux App ${appName}` : `Creating local Flux App ${appName}`,

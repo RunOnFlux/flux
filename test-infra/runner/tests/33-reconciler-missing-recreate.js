@@ -1,16 +1,14 @@
 import { describe, it, before, after } from 'mocha';
 import { createTestEnv } from '../framework/test-env.js';
 import { getAppContainerStatus, killAppContainer } from '../framework/container.js';
-import {
-  waitFor, waitForReconcileActuated, waitForAppRemoved,
-} from '../framework/wait.js';
+import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, seedSimpleApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // A vanished container (no Docker event fires for absence) is recreated by the
-// reconciler when Docker is reachable. If recreation itself fails — e.g. the
-// image can no longer be pulled — the reconciler records the tampering signal
-// and removes the app locally, exactly as the old containerHealthMonitor did.
+// reconciler when Docker is reachable. A registry that cannot be reached does not
+// stop that: the layers are already on disk, so the rebuild rides the outage out on
+// the local image rather than leaving the customer down or destroying the app.
 
 async function waitForUp(client, appName, label) {
   await waitFor(async () => {
@@ -51,21 +49,23 @@ describe('reconciler recreates a missing container', function () {
     await waitForUp(client, appName, 'recreated and running again');
   });
 
-  it('uninstalls locally when recreation fails (image unpullable)', async function () {
+  it('recreates from the LOCAL image when the registry is unreachable', async function () {
     this.timeout(180000);
     const client = env.clients[idx];
-    await waitForUp(client, appName, 'running before forced recreate failure');
+    await waitForUp(client, appName, 'running before the registry goes away');
 
-    // make the recreate genuinely fail: stop the registry so the recreate's pull
-    // (verifyAndPullImage -> dockerPullStreamPromise) errors for real. No spec
-    // mutation — the image is simply unavailable, like a deleted/tampered image.
+    // This assertion used to be "uninstalls locally when recreation fails". A
+    // registry outage is a condition of this node right now, not a verdict on the
+    // app: the layers are already on disk from the install, so the rebuild rides the
+    // outage out on them. Deleting the app - and its appdata, fleet-wide - because a
+    // registry blinked is the behaviour this replaces.
     await env.containers.registry.stop();
 
     const afterId = client.getLastEventId();
     await killAppContainer(client.container, appName);
 
-    // recreate fails -> the reconciler reports it and removes the app locally
-    await waitForReconcileActuated(client, identifier, 'recreateFailed', 120000, { afterId });
-    await waitForAppRemoved(client, appName, 60000, { afterId });
+    await waitForReconcileActuated(client, identifier, 'recreated', 120000, { afterId });
+    // reaching Up at all proves it was neither removed nor left down
+    await waitForUp(client, appName, 'recreated from the local image during the outage');
   });
 });

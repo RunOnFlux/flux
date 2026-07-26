@@ -327,6 +327,36 @@ async function dockerContainerChanges(idOrName) {
  * @param {object} res Response.
  * @param {function} callback Callback.
  */
+// Could the registry not be REACHED, as opposed to answering that the image is
+// bad? Only the former is safe to ride out on a local copy: an unreachable
+// registry is a condition of this node right now, while a rejected manifest is a
+// statement about the image. Anything unrecognised stays unclassified, so the
+// caller treats it as permanent - the conservative direction.
+const TRANSIENT_REGISTRY_CODES = ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE'];
+
+function classifyRegistryError(error) {
+  if (!error) return error;
+  if (TRANSIENT_REGISTRY_CODES.includes(error.code)) error.registryErrorClass = 'transient';
+  return error;
+}
+
+/**
+ * Bytes of a locally-held image, or 0 when it is not present. Used to decide
+ * whether a recreate can proceed on the copy already on disk when the registry
+ * cannot be reached.
+ *
+ * @param {string} repoTag
+ * @returns {Promise<number>}
+ */
+async function appDockerImageSize(repoTag) {
+  try {
+    const image = await docker.getImage(repoTag).inspect();
+    return image?.Size ?? 0;
+  } catch (error) {
+    return 0;
+  }
+}
+
 function dockerPullStream(pullConfig, res, callback) {
   const { repoTag, provider, authToken } = pullConfig;
   let pullOptions;
@@ -368,7 +398,10 @@ function dockerPullStream(pullConfig, res, callback) {
   function armStall() {
     clearTimeout(stallTimer);
     stallTimer = setTimeout(() => {
-      done(new Error(`Pull of ${repoTag} stalled: no progress for ${Math.round(stallWindowMs / 1000)}s`));
+      const stallError = new Error(`Pull of ${repoTag} stalled: no progress for ${Math.round(stallWindowMs / 1000)}s`);
+      // the registry is not answering; the image itself may be perfectly fine
+      stallError.registryErrorClass = 'transient';
+      done(stallError);
       stallController.abort();
     }, stallWindowMs);
     if (stallTimer.unref) stallTimer.unref();
@@ -391,7 +424,7 @@ function dockerPullStream(pullConfig, res, callback) {
       log.info(event);
     }
     if (err) {
-      done(err);
+      done(classifyRegistryError(err));
     } else {
       armStall();
       docker.modem.followProgress(mystream, onFinished, onProgress);
@@ -1962,6 +1995,7 @@ module.exports = {
   dockerLogsFix,
   dockerNetworkInspect,
   dockerPullStream,
+  appDockerImageSize,
   dockerRemoveNetwork,
   dockerVersion,
   getAppDockerNameIdentifier,
