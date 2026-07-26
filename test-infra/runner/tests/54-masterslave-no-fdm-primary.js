@@ -82,12 +82,18 @@ describe('masterSlave election when FDM names no primary', function () {
 
   it('starts exactly one instance when FDM has never named a primary', async function () {
     this.timeout(180000);
-    const [a, b] = holders.map((i) => env.clients[i]);
+    const clients = holders.map((i) => env.clients[i]);
+    const runningCount = async () => (await Promise.all(clients.map((c) => isUp(c, appName)))).filter(Boolean).length;
 
-    // FDM is empty from resetFdm: index 0 takes it immediately, and the higher
-    // index must hold off rather than race it
-    await waitForUp(a, appName, 'index-0 holder elected with no FDM row');
-    expect(await isUp(b, appName), 'both holders running - split brain on cold start').to.equal(false);
+    // FDM is empty from resetFdm, so the holders settle this between themselves.
+    // Which one wins is not ours to predict: the election ranks candidates by their
+    // position in the app's location list, not by harness node order. The invariant
+    // is the count - one of them takes it, and the other holds off rather than
+    // racing it onto the same shared volume.
+    await waitFor(async () => await runningCount() === 1, {
+      timeout: 90000, interval: 2000, label: 'exactly one holder elected with no FDM row',
+    });
+    expect(await runningCount(), 'both holders running - split brain on cold start').to.equal(1);
   });
 
   it('does not start a second instance when the FDM row disappears', async function () {

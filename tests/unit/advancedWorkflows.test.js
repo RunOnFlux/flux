@@ -5,6 +5,13 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const https = require('https');
+const config = require('config');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
+const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -1544,12 +1551,8 @@ describe('advancedWorkflows tests', () => {
     let listRunningAppsStub;
     let intervalMs;
     let maxPassMs;
-    // eslint-disable-next-line global-require
-    const https = require('https');
 
     beforeEach(() => {
-      // eslint-disable-next-line global-require
-      const config = require('config');
       intervalMs = config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000;
       maxPassMs = config.fluxapps.masterSlaveMaxPassMs ?? Math.max(intervalMs * 4, 2 * 60 * 1000);
 
@@ -1566,11 +1569,7 @@ describe('advancedWorkflows tests', () => {
       installedAppsStub = sinon.stub().resolves({ status: 'success', data: [] });
       listRunningAppsStub = sinon.stub().resolves({ status: 'success', data: [] });
 
-      // eslint-disable-next-line global-require
-      const syncthingService = require('../../ZelBack/src/services/syncthingService');
       sinon.stub(syncthingService, 'getHealth').resolves({ status: 'success', data: { status: 'OK' } });
-      // eslint-disable-next-line global-require
-      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
       sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake((apps) => Promise.resolve(apps));
 
       clock = sinon.useFakeTimers();
@@ -1664,6 +1663,59 @@ describe('advancedWorkflows tests', () => {
       await clock.tickAsync(maxPassMs + intervalMs + 50);
       expect(installedApps.callCount, 'watchdog never released the single-flight guard').to.be.at.least(2);
       control.stop();
+    });
+
+    it('a pass abandoned by the watchdog cannot act when it later unwedges', async () => {
+      // The watchdog frees the guard but cannot cancel the pass, and production
+      // passes stalled 810s and 1050s and then RESUMED. A pass waking up that stale
+      // must not flip a live primary's syncthing folder or write controller state
+      // on a view of the world that has since been replaced.
+      const appName = 'gapp';
+      const identifier = `gcomp_${appName}`;
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'success', data: { ips: ['192.168.1.99'] } } });
+
+      // this node is a standby (FDM names another primary) with the g: component
+      // running, which is the branch that writes desired-stopped
+      let releaseLocalAddr;
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').returns(new Promise((resolve) => {
+        releaseLocalAddr = () => resolve('192.168.1.5:16127');
+      }));
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ name: appName, version: 8, compose: [{ name: 'gcomp', containerData: 'g:/data' }] }],
+      });
+      const listRunningApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ Names: [`/flux${identifier}`] }],
+      });
+
+      const control = advancedWorkflows.startMasterSlaveApps(
+        globalStateMock, installedApps, listRunningApps, new Map(), [], [], https,
+      );
+
+      // pass 1 reaches the FDM lookup then wedges before it can decide
+      await clock.tickAsync(50);
+      expect(setControllerDesired.called, 'acted before it had this node address').to.equal(false);
+
+      // watchdog abandons it - generation moves on, and the next tick starts a fresh
+      // pass which legitimately decides this node is a standby
+      await clock.tickAsync(maxPassMs + 50);
+      control.stop();
+
+      // ...and only now does the abandoned pass's wedged call return. Both passes
+      // are now resolving against the same stubs, so without the generation check
+      // the decision is written twice - once by a pass whose view of FDM is
+      // maxPassMs stale. Exactly one write is the contract.
+      releaseLocalAddr();
+      await clock.tickAsync(50);
+
+      expect(
+        setControllerDesired.callCount,
+        'the abandoned pass wrote controller state on top of the pass that replaced it',
+      ).to.equal(1);
+      expect(setControllerDesired.calledWith(identifier, 'stopped', 'masterSlave standby')).to.equal(true);
     });
 
     it('releases the global masterSlaveAppsRunning lock when it abandons a pass', async () => {

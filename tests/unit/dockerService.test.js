@@ -4,10 +4,16 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const Dockerode = require('dockerode');
+const config = require('config');
 const sinon = require('sinon');
 const path = require('path');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
+
+// docker-modem is a transitive dependency of dockerode, so reach its prototype
+// through an instance rather than importing it directly. dockerService's own docker
+// instance shares this prototype, which is what makes stubbing it effective.
+const modemPrototype = Object.getPrototypeOf(new Dockerode().modem);
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -1207,6 +1213,114 @@ describe('dockerService tests', () => {
       };
 
       await expect(dockerService.appDockerCreate(nodeApp, appName, true)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'forEach\')');
+    });
+  });
+
+  describe('dockerPullStream stall detection', () => {
+    // A pull is judged by silence, not elapsed time: a large image on a slow link is
+    // healthy, a black-holed registry is not, and only the progress stream can tell
+    // them apart. These pin that contract plus the error-reporting fix.
+    let clock;
+    let stallMs;
+
+    beforeEach(() => {
+      stallMs = config.fluxapps.pullStallMs ?? 90 * 1000;
+      clock = sinon.useFakeTimers();
+    });
+
+    afterEach(() => {
+      if (clock) clock.restore();
+      sinon.restore();
+    });
+
+    // drives docker.pull + followProgress so the test controls when progress arrives
+    function stubPull() {
+      const harness = {};
+      sinon.stub(Dockerode.prototype, 'pull').callsFake((repoTag, opts, cb) => {
+        harness.pullOptions = opts;
+        cb(null, {});
+      });
+      // modem is an instance property, so the stub goes on docker-modem's prototype
+      sinon.stub(modemPrototype, 'followProgress').callsFake((stream, onFinished, onProgress) => {
+        harness.onFinished = onFinished;
+        harness.onProgress = onProgress;
+      });
+      return harness;
+    }
+
+    it('aborts a pull whose progress stream goes silent', async () => {
+      const harness = stubPull();
+      let result;
+      dockerService.dockerPullStream({ repoTag: 'some/image:v1' }, null, (err) => { result = err; });
+
+      await clock.tickAsync(stallMs - 1000);
+      expect(result, 'gave up while still inside the stall window').to.equal(undefined);
+
+      await clock.tickAsync(2000);
+      expect(result).to.be.an('error');
+      expect(result.message).to.include('stalled');
+      expect(harness.pullOptions.abortSignal.aborted, 'transfer was not aborted').to.equal(true);
+    });
+
+    it('lets a slow pull run indefinitely while progress keeps arriving', async () => {
+      const harness = stubPull();
+      let result;
+      let finished = false;
+      dockerService.dockerPullStream({ repoTag: 'some/image:v1' }, null, (err) => { result = err; finished = true; });
+
+      // ten stall windows of steady progress - far longer than any fixed cap would
+      // allow, and correct: bytes are moving
+      for (let i = 0; i < 10; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await clock.tickAsync(stallMs - 1000);
+        harness.onProgress({ status: 'Downloading' });
+      }
+      expect(finished, 'a healthy long pull was aborted').to.equal(false);
+
+      harness.onFinished(null, 'done');
+      expect(result).to.equal(null);
+    });
+
+    it('reports a followProgress failure as an error, not a success', async () => {
+      const harness = stubPull();
+      let result;
+      let called = false;
+      dockerService.dockerPullStream({ repoTag: 'some/image:v1' }, null, (err) => { result = err; called = true; });
+
+      harness.onFinished(new Error('manifest unknown'));
+
+      expect(called).to.equal(true);
+      // used to pass the outer `err` (always null here), so a failed pull looked fine
+      expect(result).to.be.an('error');
+      expect(result.message).to.equal('manifest unknown');
+    });
+  });
+
+  describe('short docker calls are bounded', () => {
+    let clock;
+    let timeoutMs;
+
+    beforeEach(() => {
+      timeoutMs = config.fluxapps.dockerRuntimeOpTimeoutMs ?? 2 * 60 * 1000;
+      clock = sinon.useFakeTimers();
+    });
+
+    afterEach(() => {
+      if (clock) clock.restore();
+      sinon.restore();
+    });
+
+    it('gives up on a start that the daemon never answers', async () => {
+      sinon.stub(Dockerode.prototype, 'listContainers').resolves([{ Id: 'abc', Names: ['/fluxwedged_wedged'] }]);
+      sinon.stub(Dockerode.prototype, 'getContainer').returns({
+        start: () => new Promise(() => {}), // daemon never replies
+        inspect: sinon.stub().resolves({}),
+      });
+
+      const started = dockerService.appDockerStart('wedged_wedged');
+      const assertion = expect(started).to.eventually.be.rejectedWith(/exceeded/);
+      await clock.tickAsync(timeoutMs + 1000);
+      await assertion;
     });
   });
 });
