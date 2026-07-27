@@ -6,6 +6,36 @@ const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { FluxEventBus } = fluxEventBus;
 
 describe('FluxEventBus tests', () => {
+  describe('event id continuity across a restart', () => {
+    it('mints ids above anything the previous process served', () => {
+      // A consumer filtering on last-seen-id (any SSE client sending
+      // Last-Event-ID, and the integration harness's afterId) must not have its
+      // whole post-restart stream discarded. A fresh bus stands in for the
+      // process that replaces this one.
+      const before = new FluxEventBus(true);
+      before.publish('test:a', {});
+      before.publish('test:b', {});
+      const lastIdServed = before.since(0).pop().id;
+
+      // Stand in for the seconds a real restart takes. Constructing the second
+      // bus directly would assert that two constructions are more than a
+      // microsecond apart, which is a property of the machine rather than of the
+      // seeding. Waiting for the clock to pass the ids already served makes the
+      // assertion below hold by construction; it costs a microsecond or two.
+      let clockNow = Number(process.hrtime.bigint() / 1000n);
+      while (clockNow <= lastIdServed) clockNow = Number(process.hrtime.bigint() / 1000n);
+
+      const afterRestart = new FluxEventBus(true);
+      afterRestart.publish('test:c', {});
+      const firstIdAfter = afterRestart.since(0)[0].id;
+
+      expect(
+        firstIdAfter,
+        'a restarted bus reused ids the previous process had already served - every post-restart event is invisible to a last-seen-id consumer',
+      ).to.be.greaterThan(lastIdServed);
+    });
+  });
+
   describe('singleton (disabled by default config)', () => {
     it('should report disabled', () => {
       expect(fluxEventBus.enabled).to.equal(false);
@@ -90,6 +120,18 @@ describe('FluxEventBus tests', () => {
       const all = bus.since(0);
       const none = bus.since(all[0].id);
       expect(none).to.deep.equal([]);
+    });
+
+    it('should return every event when exactly at capacity', () => {
+      // The ring is full but has overwritten nothing - the boundary where
+      // since()'s wrapped/not-wrapped choice flips.
+      for (let i = 0; i < 1024; i++) {
+        bus.publish('fill', { i });
+      }
+      const events = bus.since(0);
+      expect(events).to.have.length(1024);
+      expect(events[0].data.i).to.equal(0);
+      expect(events[events.length - 1].data.i).to.equal(1023);
     });
 
     it('should wrap ring buffer when full', () => {

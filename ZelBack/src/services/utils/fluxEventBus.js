@@ -16,6 +16,7 @@ function sseWrite(res, data) {
 class FluxEventBus extends EventEmitter {
   #buffer;
   #writeIndex;
+  #writeCount;
   #nextId;
   #enabled;
 
@@ -23,7 +24,20 @@ class FluxEventBus extends EventEmitter {
     super();
     this.#buffer = new Array(RING_BUFFER_SIZE);
     this.#writeIndex = 0;
-    this.#nextId = 1;
+    // How many events this bus has published, which is what since() needs to
+    // know whether the ring has wrapped. Kept separate from #nextId: ids are
+    // seeded from the clock and carry no count information.
+    this.#writeCount = 0;
+    // Seeded from the monotonic clock (microseconds since boot) so event ids
+    // stay monotonic across a FluxOS restart on a running host: a fresh process
+    // mints ids larger than anything the previous one served, so a consumer
+    // filtering on last-seen-id - any SSE client sending Last-Event-ID - does
+    // not silently discard every post-restart event. Starting from 1 made the
+    // whole post-restart stream invisible to such a consumer until the counter
+    // happened to climb past the id it last saw, which on a busy node is never.
+    // Not monotonic across a HOST reboot (the clock restarts near zero), which
+    // is fine - no consumer survives one.
+    this.#nextId = Number(process.hrtime.bigint() / 1000n);
     this.#enabled = enabled ?? (config.has('testEventStream') && config.get('testEventStream') === true);
   }
 
@@ -39,16 +53,18 @@ class FluxEventBus extends EventEmitter {
     };
     this.#buffer[this.#writeIndex] = entry;
     this.#writeIndex = (this.#writeIndex + 1) % RING_BUFFER_SIZE;
+    this.#writeCount += 1;
     try {
       this.emit('event', entry);
     } catch (err) { log.error(`FluxEventBus listener error: ${err.message}`); }
   }
 
   since(afterId) {
-    const totalWritten = this.#nextId - 1;
-    const count = Math.min(totalWritten, RING_BUFFER_SIZE);
+    const count = Math.min(this.#writeCount, RING_BUFFER_SIZE);
     if (count === 0) return [];
-    const startIdx = totalWritten > RING_BUFFER_SIZE ? this.#writeIndex : 0;
+    // Once the ring has wrapped, the oldest surviving entry is the one about to
+    // be overwritten; before that it is slot 0.
+    const startIdx = this.#writeCount > RING_BUFFER_SIZE ? this.#writeIndex : 0;
     const result = [];
     for (let i = 0; i < count; i++) {
       const idx = (startIdx + i) % RING_BUFFER_SIZE;
