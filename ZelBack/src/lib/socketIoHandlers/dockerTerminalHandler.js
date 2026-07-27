@@ -33,15 +33,26 @@ async function dockerTerminalHandler(socket) {
     // its exec for as long as the container lives.
     let execStream = null;
     let clientGone = false;
+    let analyticsOpened = false;
+    // Derived synchronously from nameOrId so the disconnect listener below can
+    // own BOTH halves of the analytics pair. A close listener registered later
+    // (after the awaits) can never fire when the client left during them -
+    // socket.io emits 'disconnect' exactly once - which is how an 'open' ends up
+    // recorded with no matching 'close'.
+    const mainAppName = nameOrId.split('_')[1] || nameOrId;
+    const parts = nameOrId.split('_');
+    const component = parts.length > 1 ? parts[0].replace(/^(zel|flux)/, '') || null : null;
+    const analyticsAppName = parts.length > 1 ? mainAppName : mainAppName.replace(/^(zel|flux)/, '');
     socket.on('disconnect', () => {
       clientGone = true;
       if (execStream) execStream.destroy();
+      // pairs whatever was opened, regardless of where in the flow we were
+      if (analyticsOpened) trackTerminalSession(zelidauth, analyticsAppName, 'close', clientIp, component);
     });
     try {
       const auth = {
         zelidauth,
       };
-      const mainAppName = nameOrId.split('_')[1] || nameOrId;
       // Authorise BEFORE touching Docker: the lookup below is a remote-controlled
       // operation on an attacker-supplied name, and must not be reachable by an
       // unauthenticated caller.
@@ -58,17 +69,15 @@ async function dockerTerminalHandler(socket) {
         return;
       }
 
-      const parts = nameOrId.split('_');
-      const component = parts.length > 1 ? parts[0].replace(/^(zel|flux)/, '') || null : null;
-      const analyticsAppName = parts.length > 1 ? mainAppName : mainAppName.replace(/^(zel|flux)/, '');
-      trackTerminalSession(zelidauth, analyticsAppName, 'open', clientIp, component);
-      socket.on('disconnect', () => {
-        trackTerminalSession(zelidauth, analyticsAppName, 'close', clientIp, component);
-      });
-
-      // the client may have gone away during the awaits above - do not create
-      // an exec nobody is attached to
+      // the client may have gone away during the awaits above - do not create an
+      // exec nobody is attached to, and do not record a session that never
+      // happened. This check has to precede the analytics open: a client that
+      // left during the awaits has already had its 'disconnect' delivered, so
+      // nothing downstream can close a session opened after it.
       if (clientGone || !socket.connected) return;
+
+      trackTerminalSession(zelidauth, analyticsAppName, 'open', clientIp, component);
+      analyticsOpened = true;
 
       const cmd = {
         AttachStdout: true,
