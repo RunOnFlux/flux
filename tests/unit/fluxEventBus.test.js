@@ -6,6 +6,28 @@ const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 const { FluxEventBus } = fluxEventBus;
 
 describe('FluxEventBus tests', () => {
+  describe('event id continuity across a restart', () => {
+    it('mints ids above anything the previous process served', () => {
+      // A consumer filtering on last-seen-id (any SSE client sending
+      // Last-Event-ID, and the integration harness's afterId) must not have its
+      // whole post-restart stream discarded. A fresh bus stands in for the
+      // process that replaces this one.
+      const before = new FluxEventBus(true);
+      before.publish('test:a', {});
+      before.publish('test:b', {});
+      const lastIdServed = before.since(0).pop().id;
+
+      const afterRestart = new FluxEventBus(true);
+      afterRestart.publish('test:c', {});
+      const firstIdAfter = afterRestart.since(0)[0].id;
+
+      expect(
+        firstIdAfter,
+        'a restarted bus reused ids the previous process had already served - every post-restart event is invisible to a last-seen-id consumer',
+      ).to.be.greaterThan(lastIdServed);
+    });
+  });
+
   describe('singleton (disabled by default config)', () => {
     it('should report disabled', () => {
       expect(fluxEventBus.enabled).to.equal(false);

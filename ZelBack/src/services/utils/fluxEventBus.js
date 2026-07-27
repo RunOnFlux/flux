@@ -23,7 +23,16 @@ class FluxEventBus extends EventEmitter {
     super();
     this.#buffer = new Array(RING_BUFFER_SIZE);
     this.#writeIndex = 0;
-    this.#nextId = 1;
+    // Seeded from the monotonic clock (microseconds since boot) so event ids
+    // stay monotonic across a FluxOS restart on a running host: a fresh process
+    // mints ids larger than anything the previous one served, so a consumer
+    // filtering on last-seen-id - any SSE client sending Last-Event-ID - does
+    // not silently discard every post-restart event. Starting from 1 made the
+    // whole post-restart stream invisible to such a consumer until the counter
+    // happened to climb past the id it last saw, which on a busy node is never.
+    // Not monotonic across a HOST reboot (the clock restarts near zero), which
+    // is fine - no consumer survives one.
+    this.#nextId = Number(process.hrtime.bigint() / 1000n);
     this.#enabled = enabled ?? (config.has('testEventStream') && config.get('testEventStream') === true);
   }
 
