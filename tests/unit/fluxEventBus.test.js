@@ -17,6 +17,14 @@ describe('FluxEventBus tests', () => {
       before.publish('test:b', {});
       const lastIdServed = before.since(0).pop().id;
 
+      // Stand in for the seconds a real restart takes. Constructing the second
+      // bus directly would assert that two constructions are more than a
+      // microsecond apart, which is a property of the machine rather than of the
+      // seeding. Waiting for the clock to pass the ids already served makes the
+      // assertion below hold by construction; it costs a microsecond or two.
+      let clockNow = Number(process.hrtime.bigint() / 1000n);
+      while (clockNow <= lastIdServed) clockNow = Number(process.hrtime.bigint() / 1000n);
+
       const afterRestart = new FluxEventBus(true);
       afterRestart.publish('test:c', {});
       const firstIdAfter = afterRestart.since(0)[0].id;
