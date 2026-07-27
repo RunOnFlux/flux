@@ -5,6 +5,10 @@ module.exports = {
   daemon: { host: '198.18.0.3' },
   benchmark: { host: '198.18.0.3' },
   upnp: { gatewayUrl: '', nodeIp: '' },
+  // Empty disables analytics. The app default is the live cloudaudit endpoint and
+  // the fleet network has egress, so without this a run reports suite activity -
+  // generated app names, fixture identities, 198.18.x addresses - as real traffic.
+  analytics: { url: '' },
   // compressed decider cadence: the syncthing readiness/stall loop runs every 3s
   // and a stall is declared after 4 no-progress cycles (~12s) instead of ~5min.
   syncthing: {
