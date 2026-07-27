@@ -3854,17 +3854,13 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     const ipToCheck = extractIp(node.ip);
                     const portToCheck = extractPort(node.ip);
                     const source = CancelToken.source();
-                    let isResolved = false;
-
-                    setTimeout(() => {
-                      if (!isResolved) {
-                        source.cancel('Operation canceled by timeout.');
-                      }
-                    }, timeout);
+                    // Cleared once the request settles: every probe otherwise leaves a
+                    // live 10s timer behind, and this runs for each peer on every pass
+                    // until the component is running locally.
+                    const cancelTimer = setTimeout(() => source.cancel('Operation canceled by timeout.'), timeout);
 
                     try {
                       const response = await axios.get(`http://${ipToCheck}:${portToCheck}/apps/listrunningapps`, { timeout, cancelToken: source.token });
-                      isResolved = true;
                       const appsRunning = response.data.data;
                       // Match on the g: component identifier, not the app name: non-g siblings
                       // (e.g. a DB cluster component) run on every node and must not be mistaken
@@ -3874,9 +3870,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                         return true;
                       }
                     } catch (error) {
-                      isResolved = true;
                       log.info(`masterSlaveApps: Failed to check peer node ${i} at ${ipToCheck} for app:${installedApp.name}, error: ${error.message}`);
                       // an unreachable peer is treated as not-running
+                    } finally {
+                      clearTimeout(cancelTimer);
                     }
                     return false;
                   });
@@ -3903,13 +3900,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // There was a previous master (not me), and it's no longer on FDM
                   const { CancelToken } = axios;
                   const source = CancelToken.source();
-                  let isResolved = false;
                   const timeout = 10 * 1000; // 10 seconds
-                  setTimeout(() => {
-                    if (!isResolved) {
-                      source.cancel('Operation canceled by the user.');
-                    }
-                  }, timeout * 2);
+                  // Cleared once the request settles, so a completed check leaves no
+                  // live timer behind.
+                  const cancelTimer = setTimeout(() => source.cancel('Operation canceled by the user.'), timeout * 2);
                   const previousMasterIp = mastersRunningGSyncthingApps.get(identifier);
                   // Look up the correct port from runningAppList since FDM API returns IP without port
                   const previousMasterNode = runningAppList.find((x) => ipsMatch(x.ip, previousMasterIp));
@@ -3919,7 +3913,6 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   try {
                     // eslint-disable-next-line no-await-in-loop
                     const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
-                    isResolved = true;
                     const appsRunning = response.data.data;
                     // Match on the g: component identifier, not the app name: non-g siblings
                     // running on the previous master must not be mistaken for the master/slave
@@ -3930,7 +3923,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     }
                   } catch (error) {
                     log.info(`masterSlaveApps: Failed to reach previous master at ${ipToCheckAppRunning}:${portToCheckAppRunning} for app:${installedApp.name}, will proceed with primary selection. Error: ${error.message}`);
-                    isResolved = true;
+                  } finally {
+                    clearTimeout(cancelTimer);
                   }
                   if (previousMasterStillRunning) {
                     // Only THIS app is settled - the previous master still holds it,
