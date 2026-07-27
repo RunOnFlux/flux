@@ -793,6 +793,36 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
     });
 
+    it('probes every peer at once, so an unreachable fleet costs one timeout and not N', async () => {
+      const appName = 'peerconcurrentapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const runPass = electionFixture(appName, 'zel_peerconcurrentapp', [
+        '192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127',
+      ]);
+      serviceHelperStub.resolves({ data: [] });
+
+      // Hold every probe open and release them only once all have been issued.
+      // Probing one peer at a time cannot get past the first: its await never
+      // settles, so the second request is never sent and the count stays at 1.
+      // That is the shape being pinned - probed serially, an unreachable fleet
+      // blocks the promotion for the SUM of its peers' timeouts, on a path that
+      // re-runs every 30s until the component is actually running.
+      const release = [];
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(() => new Promise((resolve) => { release.push(resolve); }));
+
+      const pass = runPass();
+      for (let tick = 0; tick < 50 && axiosGetStub.callCount < 3; tick += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+
+      expect(axiosGetStub.callCount).to.equal(3);
+
+      release.forEach((resolve) => resolve({ data: { data: [] } }));
+      await pass;
+    });
+
     it('should handle apps with g: containerData (master-slave mode)', async () => {
       const appName = 'masterslaveapp';
       dockerServiceStub.returns('zel_masterslaveapp');

@@ -3815,6 +3815,18 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 // peer is treated as not-running so a network fault cannot strand an
                 // app forever. It narrows the window rather than closing it; real
                 // mutual exclusion needs a lease, which is out of scope here.
+                // Probed CONCURRENTLY, not in sequence. Each probe is bounded at
+                // 10s, and an unreachable peer burns the whole budget, so a
+                // sequential walk costs 10s x peers - paid on the promotion path,
+                // repeatedly (the component is not running locally for the whole
+                // duration of the permissions fix, so every 30s pass re-enters
+                // here), and ahead of every later g: app in the same pass. Running
+                // them together bounds the wait at one timeout regardless of peer
+                // count. The per-probe timeout is deliberately NOT shortened: this
+                // check fails open, so a peer that answers slowly must still be
+                // given its full budget or a live primary reads as absent and we
+                // start a second writer - the exact outcome the probe exists to
+                // prevent.
                 const checkPeersRunning = async (scope) => {
                   const limit = scope === 'all' ? runningAppList.length : index;
                   if (limit <= 0) return false; // not found, or no lower nodes to check
@@ -3822,13 +3834,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   const { CancelToken } = axios;
                   const timeout = 10 * 1000;
 
+                  const peers = [];
                   for (let i = 0; i < limit; i += 1) {
                     if (i === index) continue; // never probe ourselves
-                    const nodeToCheck = runningAppList[i];
-                    if (!nodeToCheck) continue;
+                    if (runningAppList[i]) peers.push({ i, node: runningAppList[i] });
+                  }
+                  if (!peers.length) return false;
 
-                    const ipToCheck = extractIp(nodeToCheck.ip);
-                    const portToCheck = extractPort(nodeToCheck.ip);
+                  const probes = peers.map(async ({ i, node }) => {
+                    const ipToCheck = extractIp(node.ip);
+                    const portToCheck = extractPort(node.ip);
                     const source = CancelToken.source();
                     let isResolved = false;
 
@@ -3839,7 +3854,6 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     }, timeout);
 
                     try {
-                      // eslint-disable-next-line no-await-in-loop
                       const response = await axios.get(`http://${ipToCheck}:${portToCheck}/apps/listrunningapps`, { timeout, cancelToken: source.token });
                       isResolved = true;
                       const appsRunning = response.data.data;
@@ -3853,10 +3867,13 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     } catch (error) {
                       isResolved = true;
                       log.info(`masterSlaveApps: Failed to check peer node ${i} at ${ipToCheck} for app:${installedApp.name}, error: ${error.message}`);
-                      // Continue checking other nodes
+                      // an unreachable peer is treated as not-running
                     }
-                  }
-                  return false;
+                    return false;
+                  });
+
+                  const found = await Promise.all(probes);
+                  return found.some(Boolean);
                 };
                 const checkLowerIndexNodesRunning = () => checkPeersRunning('lower');
 
