@@ -15,6 +15,7 @@
     "eventsource": "^4.1.0",
     "mocha": "^11.7.5",
     "mongodb": "^7.2.0",
+    "socket.io-client": "~4.8.1",
     "testcontainers": "^11.14.0"
   }
 }
