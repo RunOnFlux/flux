@@ -3,8 +3,11 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
 const sinon = require('sinon');
+const axios = require('axios');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+const log = require('../../ZelBack/src/lib/log');
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -463,8 +466,7 @@ describe('advancedWorkflows tests', () => {
     let registryManagerStub;
     let dockerServiceStub;
     let syncthingServiceStub;
-    let syncthingServiceHealthStub;
-    let decryptEnterpriseAppsStub;
+    let axiosGetStub;
     let recursionCounter;
 
     beforeEach(() => {
@@ -504,20 +506,28 @@ describe('advancedWorkflows tests', () => {
 
       const syncthingService = require('../../ZelBack/src/services/syncthingService');
       syncthingServiceStub = sinon.stub(syncthingService, 'getConfigFolders');
-      syncthingServiceHealthStub = sinon.stub(syncthingService, 'getHealth').resolves({
+      sinon.stub(syncthingService, 'getHealth').resolves({
         status: 'success',
         data: { status: 'OK' },
       });
 
       // Stub decryptEnterpriseApps to return apps as-is
       const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
-      decryptEnterpriseAppsStub = sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake((apps) => Promise.resolve(apps));
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake((apps) => Promise.resolve(apps));
 
       // Stub database connection to prevent actual DB access
       sinon.stub(dbHelper, 'databaseConnection').returns({
         db: () => ({}),
       });
       sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+
+      // The peer probe hits /apps/listrunningapps on the other nodes in the
+      // location list. Unstubbed these become real network calls with a 10s
+      // ceiling each, so every election test would hang on unroutable fixture
+      // IPs. Default to unreachable - which the probe treats as not-running,
+      // matching a peer that cannot be contacted - and let the tests that care
+      // override it.
+      axiosGetStub = sinon.stub(axios, 'get').rejects(new Error('peer unreachable (test default)'));
     });
 
     it('should skip execution if installation is in progress', async () => {
@@ -621,6 +631,296 @@ describe('advancedWorkflows tests', () => {
       expect(installedApps.called).to.be.true;
       // But FDM should not be queried since app is skipped
       expect(serviceHelperStub.called).to.be.false;
+    });
+
+    // Shared fixture for the recovery tests below: a v3 g: app with this node in
+    // the location list. `peers` are the other nodes, in election order.
+    const electionFixture = (appName, peers = []) => {
+      // Mirror getAppIdentifier: a name that is neither zel- nor flux-prefixed gets
+      // `flux`. The container names peers report are this exact string, and the
+      // election compares whole names, so a stand-in value would not match.
+      const appId = `flux${appName}`;
+      dockerServiceStub.returns(appId);
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ name: appName, version: 3, containerData: 'g:/syncdata' }],
+      });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const receiveOnlyCache = new Map();
+      receiveOnlyCache.set(appId, { restarted: true });
+      fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+      // Election order is runningSince ascending, with ip only as a tiebreak. Give
+      // explicit, distinct timestamps so this node is unambiguously index 0 on the
+      // primary key rather than relying on how two IPs happen to sort as strings.
+      registryManagerStub.resolves([
+        { name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' },
+        ...peers.map((ip, n) => ({ name: appName, ip, runningSince: `2026-01-01T00:0${n + 1}:00.000Z` })),
+      ]);
+      syncthingServiceStub.resolves({
+        status: 'success',
+        data: [{ path: `/root/.flux/ZelApps/${appId}`, type: 'sendreceive' }],
+      });
+
+      // masterSlaveApps re-invokes itself from its own finally, so a single call
+      // otherwise executes the election twice and every count assertion doubles.
+      // Let exactly one full pass run: the first delay resolves but arms the
+      // installation gate so the recursive pass returns at the top, and the second
+      // delay never resolves so the chain stops there.
+      let delayCalls = 0;
+      serviceHelperDelayStub.resetBehavior();
+      serviceHelperDelayStub.callsFake(async () => {
+        delayCalls += 1;
+        if (delayCalls === 1) {
+          globalState.installationInProgress = true;
+          return undefined;
+        }
+        return new Promise(() => {});
+      });
+
+      return async () => {
+        delayCalls = 0;
+        globalState.installationInProgress = false;
+        await advancedWorkflows.masterSlaveApps(
+          globalState, installedApps, listRunningApps, receiveOnlyCache, [], [], require('https'),
+        );
+      };
+    };
+
+    const linesMatching = (logInfo, needle) => logInfo.getCalls()
+      .map((call) => String(call.args[0]))
+      .filter((msg) => msg.includes(needle));
+
+    it('announces the exclusion once when a g: component is operator-stopped, not every cycle', async () => {
+      const appName = 'opstoppedapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(true);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName);
+
+      await runPass();
+
+      // positive proof the skip branch is what ran: election never reached FDM
+      expect(serviceHelperStub.called).to.be.false;
+      expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'operator-stopped')[0]).to.include(appName);
+
+      // a second 30s cycle must NOT repeat it - the latch is what makes the line
+      // affordable at election cadence
+      await runPass();
+      expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(1);
+    });
+
+    it('announces again after the operator lock is lifted and re-applied', async () => {
+      const appName = 'relockapp';
+      const operatorStopped = sinon.stub(appsRuntimeState, 'isOperatorStopped');
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName);
+      serviceHelperStub.resolves({ data: [] });
+
+      operatorStopped.resetBehavior();
+      operatorStopped.resolves(true);
+      await runPass();
+      expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(1);
+
+      // operator starts it again - the latch must clear
+      operatorStopped.resetBehavior();
+      operatorStopped.resolves(false);
+      await runPass();
+      expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(1);
+
+      // and a fresh stop must be announced rather than swallowed by a stale latch
+      operatorStopped.resetBehavior();
+      operatorStopped.resolves(true);
+      await runPass();
+      expect(linesMatching(logInfo, 'operator-stopped')).to.have.lengthOf(2);
+    });
+
+    it('lets a stopped last-primary be elected again by clearing its own stale record', async () => {
+      const appName = 'lastprimaryapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+
+      // Cycle 1: FDM names THIS node as primary, so the node records itself.
+      serviceHelperStub.resetBehavior();
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.5'] } } });
+      await runPass();
+
+      // Judge only what the SECOND cycle does - cycle 1 legitimately starts the app
+      // (FDM named this node), and crediting that start to the eviction would make
+      // this test pass with the fix removed.
+      logInfo.resetHistory();
+
+      // Cycle 2: the app has been stopped and FDM no longer names a primary. The
+      // node is index 0 and remembers ITSELF, which disqualifies it from both the
+      // no-history start and the previous-primary branch. Without the eviction it
+      // logs "conditions not met" forever and the app never returns.
+      serviceHelperStub.resetBehavior();
+      serviceHelperStub.resolves({ data: [] });
+      await runPass();
+
+      expect(linesMatching(logInfo, 'cleared this node\'s own stale primary record')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'conditions not met')).to.have.lengthOf(0);
+    });
+
+    it('does not start at index 0 while a peer is already running the component', async () => {
+      const appName = 'peerbusyapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] }); // FDM: no primary registered yet
+
+      // the peer IS running it - FDM simply has not caught up yet
+      axiosGetStub.resetBehavior();
+      axiosGetStub.resolves({ data: { data: [{ Names: [`/flux${appName}`] }] } });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('starts at index 0 when no peer is running the component', async () => {
+      const appName = 'peerfreeapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+
+      // peer answers, and is NOT running the component
+      axiosGetStub.resetBehavior();
+      axiosGetStub.resolves({ data: { data: [{ Names: ['/fluxsomethingelse'] }] } });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
+    });
+
+    it('does not mistake a longer-named app on a peer for this component', async () => {
+      // The peer runs `<app>1`, a different app whose name merely starts the same
+      // way - simplexsmp against simplexsmp1 on the live network. A substring test
+      // reads that as this component being live and declines to start, forever.
+      const appName = 'prefixapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.resolves({ data: { data: [{ Names: [`/flux${appName}1`] }] } });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    it('probes every peer at once, so an unreachable fleet costs one timeout and not N', async () => {
+      const appName = 'peerconcurrentapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const runPass = electionFixture(appName, [
+        '192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127',
+      ]);
+      serviceHelperStub.resolves({ data: [] });
+
+      // Hold every probe open and release them only once all have been issued.
+      // Probing one peer at a time cannot get past the first: its await never
+      // settles, so the second request is never sent and the count stays at 1.
+      // That is the shape being pinned - probed serially, an unreachable fleet
+      // blocks the promotion for the SUM of its peers' timeouts, on a path that
+      // re-runs every 30s until the component is actually running.
+      const release = [];
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(() => new Promise((resolve) => { release.push(resolve); }));
+
+      const pass = runPass();
+      for (let tick = 0; tick < 50 && axiosGetStub.callCount < 3; tick += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
+
+      expect(axiosGetStub.callCount).to.equal(3);
+
+      release.forEach((resolve) => resolve({ data: { data: [] } }));
+      await pass;
+    });
+
+    it('keeps electing later g: apps when an earlier one is still held by its previous master', async () => {
+      // Two g: apps on one node. The first is settled - its previous master (the
+      // peer) still holds it, so there is nothing to elect. That must not cost the
+      // SECOND app its cycle. Abandoning the pass here is invisible in the logs,
+      // which is the failure this whole area keeps producing.
+      const first = 'starvedfirst';
+      const second = 'starvedsecond';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+
+      dockerServiceStub.callsFake((name) => `flux${name}`);
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          { name: first, version: 3, containerData: 'g:/syncdata' },
+          { name: second, version: 3, containerData: 'g:/syncdata' },
+        ],
+      });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const receiveOnlyCache = new Map([
+        [`flux${first}`, { restarted: true }],
+        [`flux${second}`, { restarted: true }],
+      ]);
+      fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+      // This node is index 0 for both, so the second app is startable the moment
+      // it is reached - which makes "was it reached?" unambiguous.
+      registryManagerStub.callsFake(async (name) => [
+        { name, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' },
+        { name, ip: '192.168.1.90:16127', runningSince: '2026-01-01T00:01:00.000Z' },
+      ]);
+      syncthingServiceStub.resolves({
+        status: 'success',
+        data: [
+          { path: `/root/.flux/ZelApps/flux${first}`, type: 'sendreceive' },
+          { path: `/root/.flux/ZelApps/flux${second}`, type: 'sendreceive' },
+        ],
+      });
+
+      let delayCalls = 0;
+      serviceHelperDelayStub.resetBehavior();
+      serviceHelperDelayStub.callsFake(async () => {
+        delayCalls += 1;
+        if (delayCalls === 1) {
+          globalState.installationInProgress = true;
+          return undefined;
+        }
+        return new Promise(() => {});
+      });
+      const runPass = async () => {
+        delayCalls = 0;
+        globalState.installationInProgress = false;
+        await advancedWorkflows.masterSlaveApps(
+          globalState, installedApps, listRunningApps, receiveOnlyCache, [], [], require('https'),
+        );
+      };
+
+      // Cycle 1: FDM names the PEER as primary for both, so this node records it
+      // as the previous master for each.
+      serviceHelperStub.resetBehavior();
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+      await runPass();
+      logInfo.resetHistory();
+
+      // Cycle 2: FDM reports no primary for either. The peer answers, and is still
+      // running the FIRST app only - so app one is settled and app two is free.
+      serviceHelperStub.resetBehavior();
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.resolves({ data: { data: [{ Names: [`/flux${first}`] }] } });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, `component:${first} is not on fdm but previous master is running it`)).to.have.lengthOf(1);
+      // the assertion that discriminates: the pass carried on to the second app
+      expect(linesMatching(logInfo, `starting docker component:${second}`)).to.have.lengthOf(1);
     });
 
     it('should handle apps with g: containerData (master-slave mode)', async () => {
@@ -1263,7 +1563,6 @@ describe('advancedWorkflows tests', () => {
 
   describe('softRedeploy component structure change handling tests', () => {
     let findInDatabaseStub;
-    let databaseConnectionStub;
 
     beforeEach(() => {
       // Reset global state
@@ -1275,7 +1574,7 @@ describe('advancedWorkflows tests', () => {
       globalState.hardRedeployInProgress = false;
 
       // Setup database connection stub
-      databaseConnectionStub = sinon.stub(dbHelper, 'databaseConnection').returns({
+      sinon.stub(dbHelper, 'databaseConnection').returns({
         db: () => ({}),
       });
     });
@@ -1545,11 +1844,88 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
-  // Note: verifyAppUpdateParameters, createAppVolume,
-  // getPeerAppsInstallingErrorMessages, and stopSyncthingApp are
-  // complex integration functions or HTTP request handlers that require extensive
-  // mocking of database connections, HTTP requests, and external services.
-  // These should be tested in integration tests rather than unit tests.
-  // masterSlaveApps is included above with basic tests, but full integration testing
-  // is recommended for comprehensive coverage of the master-slave coordination logic.
+  describe('createAppVolume synced-mark invalidation', () => {
+    const identifier = 'fluxfrontend_TestApp';
+    const component = { name: 'frontend', hdd: 1 };
+    let volGlobalState;
+
+    const armSyncedMark = () => {
+      volGlobalState.receiveOnlySyncthingAppsCache.set(identifier, {
+        restarted: true, numberOfExecutionsRequired: 4, numberOfExecutions: 10,
+      });
+    };
+
+    beforeEach(() => {
+      volGlobalState = require('../../ZelBack/src/services/utils/globalState');
+      volGlobalState.receiveOnlySyncthingAppsCache.clear();
+      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
+      sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
+    });
+
+    afterEach(() => {
+      volGlobalState.receiveOnlySyncthingAppsCache.clear();
+    });
+
+    it('preserves the synced-mark when the pre-flight aborts before any volume is touched', async () => {
+      // a recreate whose pre-flight fails (a resources-query blip, or out of
+      // space - the LIKELY population for failed recreates) leaves the existing
+      // volume and its data untouched. Stripping the mark there would hand
+      // intact data to the not-in-cache skip / second-encounter chain, which
+      // clears it.
+      armSyncedMark();
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'error' });
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'the pre-flight abort did not fire').to.not.equal(null);
+      expect(thrown.message).to.include('Unable to obtain locked system resources');
+      expect(
+        volGlobalState.receiveOnlySyncthingAppsCache.has(identifier),
+        'an aborted pre-flight stripped the synced-mark of an app whose data is intact',
+      ).to.equal(true);
+    });
+
+    it('drops a stale synced-mark at the point of no return', async () => {
+      // once the allocation runs the old volume state is gone: a cache entry
+      // surviving from the previous incarnation would let this fresh install
+      // skip the new-install receiveonly protection and read as instantly
+      // ready to become g: primary.
+      armSyncedMark();
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      // let the flow reach the point of no return, then block the allocation
+      // itself - the drop must already have happened by then
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').callsFake(async (cmd) => (
+        cmd === 'fallocate' ? { error: new Error('fallocate blocked by test') } : {}));
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      // assert WHICH error aborted before judging the cache: this test rides
+      // the host's real df output through the space pre-flight, so on a
+      // low-disk host the pre-flight throws first - that must read as "never
+      // reached the allocation", not as a phantom production regression
+      expect(thrown, 'the flow never reached the allocation').to.not.equal(null);
+      expect(thrown.message, 'the flow aborted before the allocation').to.equal('fallocate blocked by test');
+      expect(
+        volGlobalState.receiveOnlySyncthingAppsCache.has(identifier),
+        'the point of no return left a stale synced-mark in place',
+      ).to.equal(false);
+    });
+  });
+
+  // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and
+  // stopSyncthingApp are complex integration functions or HTTP request handlers
+  // that require extensive mocking of database connections, HTTP requests, and
+  // external services. These should be tested in integration tests rather than
+  // unit tests. masterSlaveApps is included above with basic tests, but full
+  // integration testing is recommended for comprehensive coverage of the
+  // master-slave coordination logic.
 });
