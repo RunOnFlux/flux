@@ -114,6 +114,18 @@ describe('FluxEventBus tests', () => {
       expect(none).to.deep.equal([]);
     });
 
+    it('should return every event when exactly at capacity', () => {
+      // The ring is full but has overwritten nothing - the boundary where
+      // since()'s wrapped/not-wrapped choice flips.
+      for (let i = 0; i < 1024; i++) {
+        bus.publish('fill', { i });
+      }
+      const events = bus.since(0);
+      expect(events).to.have.length(1024);
+      expect(events[0].data.i).to.equal(0);
+      expect(events[events.length - 1].data.i).to.equal(1023);
+    });
+
     it('should wrap ring buffer when full', () => {
       for (let i = 0; i < 1100; i++) {
         bus.publish('fill', { i });
