@@ -62,8 +62,13 @@ async function dockerTerminalHandler(socket) {
         return;
       }
       // getDockerContainerByIdOrName reads .Id off an undefined lookup result when
-      // the container is absent, so this rejects rather than returning null.
-      const container = await dockerService.getDockerContainerByIdOrName(nameOrId).catch(() => null);
+      // the container is absent, so this rejects rather than returning null. An
+      // unreachable daemon rejects here too and reaches the client as the same
+      // "not found" - log the cause so the two are distinguishable.
+      const container = await dockerService.getDockerContainerByIdOrName(nameOrId).catch((error) => {
+        log.error(`dockerTerminalHandler: container lookup failed for ${nameOrId}: ${error.message}`);
+        return null;
+      });
       if (!container) {
         socket.emit('error', 'Container not found.');
         return;
