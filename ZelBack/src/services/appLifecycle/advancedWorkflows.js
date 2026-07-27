@@ -3924,7 +3924,14 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     isResolved = true;
                   }
                   if (previousMasterStillRunning) {
-                    return;
+                    // Only THIS app is settled - the previous master still holds it,
+                    // so there is nothing to elect. Returning here would abandon the
+                    // whole pass and silently skip every remaining g: app, for as
+                    // long as FDM keeps failing to report a primary that is in fact
+                    // running (its registration lag makes that a routine state, not
+                    // an exotic one).
+                    // eslint-disable-next-line no-continue
+                    continue;
                   }
                   // Previous master is not running, determine next primary
                   if (index === 0) {

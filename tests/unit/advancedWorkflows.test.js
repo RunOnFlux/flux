@@ -823,6 +823,83 @@ describe('advancedWorkflows tests', () => {
       await pass;
     });
 
+    it('keeps electing later g: apps when an earlier one is still held by its previous master', async () => {
+      // Two g: apps on one node. The first is settled - its previous master (the
+      // peer) still holds it, so there is nothing to elect. That must not cost the
+      // SECOND app its cycle. Abandoning the pass here is invisible in the logs,
+      // which is the failure this whole area keeps producing.
+      const first = 'starvedfirst';
+      const second = 'starvedsecond';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+
+      dockerServiceStub.callsFake((name) => `zel_${name}`);
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          { name: first, version: 3, containerData: 'g:/syncdata' },
+          { name: second, version: 3, containerData: 'g:/syncdata' },
+        ],
+      });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const receiveOnlyCache = new Map([
+        [`zel_${first}`, { restarted: true }],
+        [`zel_${second}`, { restarted: true }],
+      ]);
+      fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+      // This node is index 0 for both, so the second app is startable the moment
+      // it is reached - which makes "was it reached?" unambiguous.
+      registryManagerStub.callsFake(async (name) => [
+        { name, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' },
+        { name, ip: '192.168.1.90:16127', runningSince: '2026-01-01T00:01:00.000Z' },
+      ]);
+      syncthingServiceStub.resolves({
+        status: 'success',
+        data: [
+          { path: `/root/.flux/ZelApps/zel_${first}`, type: 'sendreceive' },
+          { path: `/root/.flux/ZelApps/zel_${second}`, type: 'sendreceive' },
+        ],
+      });
+
+      let delayCalls = 0;
+      serviceHelperDelayStub.resetBehavior();
+      serviceHelperDelayStub.callsFake(async () => {
+        delayCalls += 1;
+        if (delayCalls === 1) {
+          globalState.installationInProgress = true;
+          return undefined;
+        }
+        return new Promise(() => {});
+      });
+      const runPass = async () => {
+        delayCalls = 0;
+        globalState.installationInProgress = false;
+        await advancedWorkflows.masterSlaveApps(
+          globalState, installedApps, listRunningApps, receiveOnlyCache, [], [], require('https'),
+        );
+      };
+
+      // Cycle 1: FDM names the PEER as primary for both, so this node records it
+      // as the previous master for each.
+      serviceHelperStub.resetBehavior();
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+      await runPass();
+      logInfo.resetHistory();
+
+      // Cycle 2: FDM reports no primary for either. The peer answers, and is still
+      // running the FIRST app only - so app one is settled and app two is free.
+      serviceHelperStub.resetBehavior();
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.resolves({ data: { data: [{ Names: [`/flux${first}`] }] } });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, `component:${first} is not on fdm but previous master is running it`)).to.have.lengthOf(1);
+      // the assertion that discriminates: the pass carried on to the second app
+      expect(linesMatching(logInfo, `starting docker component:${second}`)).to.have.lengthOf(1);
+    });
+
     it('should handle apps with g: containerData (master-slave mode)', async () => {
       const appName = 'masterslaveapp';
       dockerServiceStub.returns('zel_masterslaveapp');
