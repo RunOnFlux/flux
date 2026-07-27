@@ -54,6 +54,13 @@ const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 let currentMasterSlavePass = null;
 const mastersRunningGSyncthingApps = new Map();
 const timeTostartNewMasterApp = new Map();
+// Components already reported as operator-stopped, so the exclusion is announced
+// on entry (and again after a restart) instead of every 30s cycle. An operator
+// stop is durable in the DB, so without a line here a g: app sits unelected
+// indefinitely with the election loop emitting nothing at all - indistinguishable
+// in the logs from a loop that has died, which is exactly how it has been
+// misread. Cleared when the lock lifts so a later stop announces again.
+const operatorStoppedNoted = new Set();
 // One primary-promotion chain (folder flips + recursive permissions fix) per
 // component at a time - the 30s scheduler dispatches without await, and the fix
 // legitimately runs for minutes on a large tree.
@@ -3837,6 +3844,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       }
     }
 
+    // Remove stale entries from operatorStoppedNoted (silently - the entry is a
+    // reporting latch, not state anyone acts on, and the app going away is not
+    // itself an election event worth a line)
+    // eslint-disable-next-line no-restricted-syntax
+    for (const identifier of operatorStoppedNoted) {
+      if (!validIdentifiers.has(identifier)) {
+        operatorStoppedNoted.delete(identifier);
+      }
+    }
+
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       // Progress heartbeat for the scheduler's watchdog. The network calls in
@@ -3877,9 +3894,14 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         // operator explicitly stopped this g: component; don't elect or act on it
         // eslint-disable-next-line no-await-in-loop
         if (await appsRuntimeState.isOperatorStopped(identifier)) {
+          if (!operatorStoppedNoted.has(identifier)) {
+            operatorStoppedNoted.add(identifier);
+            log.info(`masterSlaveApps: ${identifier} is operator-stopped - excluded from primary election until it is started`);
+          }
           // eslint-disable-next-line no-continue
           continue;
         }
+        operatorStoppedNoted.delete(identifier);
         // Get master IP from FDM using the new /appips endpoint
         // eslint-disable-next-line no-await-in-loop
         const fdmResult = await getMasterIpFromFdm(installedApp.name, axiosOptions);

@@ -16,6 +16,8 @@ const generalService = require('../../ZelBack/src/services/generalService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
 const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+const log = require('../../ZelBack/src/lib/log');
 
 describe('advancedWorkflows tests', () => {
   afterEach(() => {
@@ -620,6 +622,81 @@ describe('advancedWorkflows tests', () => {
       expect(installedApps.called).to.be.true;
       // But FDM should not be queried since app is skipped
       expect(serviceHelperStub.called).to.be.false;
+    });
+
+    it('announces the exclusion once when a g: component is operator-stopped, not every cycle', async () => {
+      const appName = 'operatorstoppedapp';
+      dockerServiceStub.returns('zel_operatorstoppedapp');
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(true);
+      const logInfo = sinon.stub(log, 'info');
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ name: appName, version: 3, containerData: 'g:/syncdata' }],
+      });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+
+      const runPass = () => advancedWorkflows.masterSlaveApps(
+        globalState, installedApps, listRunningApps, new Map(), [], [], https,
+      );
+      const announcements = () => logInfo.getCalls()
+        .map((call) => String(call.args[0]))
+        .filter((msg) => msg.includes('operator-stopped'));
+
+      await runPass();
+
+      // positive proof the skip branch is what ran: election never reached FDM
+      expect(serviceHelperStub.called).to.be.false;
+      expect(announcements()).to.have.lengthOf(1);
+      expect(announcements()[0]).to.include(appName);
+
+      // a second 30s cycle must NOT repeat it - the latch is what makes the line
+      // affordable at election cadence
+      await runPass();
+      expect(announcements()).to.have.lengthOf(1);
+    });
+
+    it('announces again after the operator lock is lifted and re-applied', async () => {
+      const appName = 'relockapp';
+      dockerServiceStub.returns('zel_relockapp');
+      const operatorStopped = sinon.stub(appsRuntimeState, 'isOperatorStopped');
+      const logInfo = sinon.stub(log, 'info');
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ name: appName, version: 3, containerData: 'g:/syncdata' }],
+      });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+
+      // the un-stopped pass runs the real election, so give it what it reads
+      serviceHelperStub.resolves({ data: [] });
+      fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+      registryManagerStub.resolves([{ name: appName, ip: '192.168.1.5:16127', runningSince: null }]);
+      syncthingServiceStub.resolves({ status: 'success', data: [] });
+
+      const runPass = () => advancedWorkflows.masterSlaveApps(
+        globalState, installedApps, listRunningApps, new Map(), [], [], https,
+      );
+      const announcements = () => logInfo.getCalls()
+        .map((call) => String(call.args[0]))
+        .filter((msg) => msg.includes('operator-stopped'));
+
+      operatorStopped.resetBehavior();
+      operatorStopped.resolves(true);
+      await runPass();
+      expect(announcements()).to.have.lengthOf(1);
+
+      // operator starts it again - the latch must clear
+      operatorStopped.resetBehavior();
+      operatorStopped.resolves(false);
+      await runPass();
+      expect(announcements()).to.have.lengthOf(1);
+
+      // and a fresh stop must be announced rather than swallowed by a stale latch
+      operatorStopped.resetBehavior();
+      operatorStopped.resolves(true);
+      await runPass();
+      expect(announcements()).to.have.lengthOf(2);
     });
 
     it('should handle apps with g: containerData (master-slave mode)', async () => {
