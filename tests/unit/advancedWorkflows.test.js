@@ -1714,11 +1714,88 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
-  // Note: verifyAppUpdateParameters, createAppVolume,
-  // getPeerAppsInstallingErrorMessages, and stopSyncthingApp are
-  // complex integration functions or HTTP request handlers that require extensive
-  // mocking of database connections, HTTP requests, and external services.
-  // These should be tested in integration tests rather than unit tests.
-  // masterSlaveApps is included above with basic tests, but full integration testing
-  // is recommended for comprehensive coverage of the master-slave coordination logic.
+  describe('createAppVolume synced-mark invalidation', () => {
+    const identifier = 'fluxfrontend_TestApp';
+    const component = { name: 'frontend', hdd: 1 };
+    let volGlobalState;
+
+    const armSyncedMark = () => {
+      volGlobalState.receiveOnlySyncthingAppsCache.set(identifier, {
+        restarted: true, numberOfExecutionsRequired: 4, numberOfExecutions: 10,
+      });
+    };
+
+    beforeEach(() => {
+      volGlobalState = require('../../ZelBack/src/services/utils/globalState');
+      volGlobalState.receiveOnlySyncthingAppsCache.clear();
+      const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
+      sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
+    });
+
+    afterEach(() => {
+      volGlobalState.receiveOnlySyncthingAppsCache.clear();
+    });
+
+    it('preserves the synced-mark when the pre-flight aborts before any volume is touched', async () => {
+      // a recreate whose pre-flight fails (a resources-query blip, or out of
+      // space - the LIKELY population for failed recreates) leaves the existing
+      // volume and its data untouched. Stripping the mark there would hand
+      // intact data to the not-in-cache skip / second-encounter chain, which
+      // clears it.
+      armSyncedMark();
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'error' });
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      expect(thrown, 'the pre-flight abort did not fire').to.not.equal(null);
+      expect(thrown.message).to.include('Unable to obtain locked system resources');
+      expect(
+        volGlobalState.receiveOnlySyncthingAppsCache.has(identifier),
+        'an aborted pre-flight stripped the synced-mark of an app whose data is intact',
+      ).to.equal(true);
+    });
+
+    it('drops a stale synced-mark at the point of no return', async () => {
+      // once the allocation runs the old volume state is gone: a cache entry
+      // surviving from the previous incarnation would let this fresh install
+      // skip the new-install receiveonly protection and read as instantly
+      // ready to become g: primary.
+      armSyncedMark();
+      const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
+      sinon.stub(resourceQueryService, 'appsResources').resolves({ status: 'success', data: { appsHddLocked: 0 } });
+      // let the flow reach the point of no return, then block the allocation
+      // itself - the drop must already have happened by then
+      const svcHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(svcHelper, 'runCommand').callsFake(async (cmd) => (
+        cmd === 'fallocate' ? { error: new Error('fallocate blocked by test') } : {}));
+
+      let thrown = null;
+      try {
+        await advancedWorkflows.createAppVolume(component, 'TestApp', true, null);
+      } catch (error) { thrown = error; }
+
+      // assert WHICH error aborted before judging the cache: this test rides
+      // the host's real df output through the space pre-flight, so on a
+      // low-disk host the pre-flight throws first - that must read as "never
+      // reached the allocation", not as a phantom production regression
+      expect(thrown, 'the flow never reached the allocation').to.not.equal(null);
+      expect(thrown.message, 'the flow aborted before the allocation').to.equal('fallocate blocked by test');
+      expect(
+        volGlobalState.receiveOnlySyncthingAppsCache.has(identifier),
+        'the point of no return left a stale synced-mark in place',
+      ).to.equal(false);
+    });
+  });
+
+  // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and
+  // stopSyncthingApp are complex integration functions or HTTP request handlers
+  // that require extensive mocking of database connections, HTTP requests, and
+  // external services. These should be tested in integration tests rather than
+  // unit tests. masterSlaveApps is included above with basic tests, but full
+  // integration testing is recommended for comprehensive coverage of the
+  // master-slave coordination logic.
 });

@@ -518,6 +518,18 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       volumeFile = path.join(appVolumesPath, `${appId}FLUXFSVOL`);
     }
 
+    // A volume being created is by definition not synced, so any surviving
+    // receiveOnlySyncthingAppsCache entry for this component describes a dead
+    // incarnation. Left in place it lets a fresh install skip the new-install
+    // receiveonly protection and read as instantly ready to become g: primary.
+    // Dropped HERE rather than at function entry: the pre-flight above (df,
+    // node specs, resources query, space checks) can abort with the existing
+    // volume and its data untouched - and out-of-space is exactly the likely
+    // population for failed recreates. Stripping the mark on an aborted
+    // pre-flight would hand intact data to the not-in-cache skip /
+    // second-encounter chain, which clears it. The allocation below is the
+    // first act that cannot be undone.
+    globalState.receiveOnlySyncthingAppsCache.delete(appId);
     await execAsRoot('fallocate', ['-l', `${appSpecifications.hdd}G`, volumeFile]);
     const allocateSpace2 = {
       status: 'Space allocated',
