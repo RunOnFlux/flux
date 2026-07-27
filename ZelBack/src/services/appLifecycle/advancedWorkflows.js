@@ -3827,6 +3827,15 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 // given its full budget or a live primary reads as absent and we
                 // start a second writer - the exact outcome the probe exists to
                 // prevent.
+                // Docker reports names with a leading slash, and getAppIdentifier
+                // yields exactly the container name for this component. Compare whole
+                // names: a substring test also matches a longer app whose name merely
+                // begins the same way - myapp against myapp2, or simplexsmp against
+                // simplexsmp1 - and a false positive here means the component is never
+                // started at all.
+                const peerRunsThisComponent = (appsRunning) => appsRunning.some(
+                  (app) => (app.Names || []).some((name) => name.replace(/^\//, '') === appId),
+                );
                 const checkPeersRunning = async (scope) => {
                   const limit = scope === 'all' ? runningAppList.length : index;
                   if (limit <= 0) return false; // not found, or no lower nodes to check
@@ -3860,7 +3869,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       // Match on the g: component identifier, not the app name: non-g siblings
                       // (e.g. a DB cluster component) run on every node and must not be mistaken
                       // for the master/slave component being active there.
-                      if (appsRunning.find((app) => app.Names[0].includes(identifier))) {
+                      if (peerRunsThisComponent(appsRunning)) {
                         log.info(`masterSlaveApps: component:${identifier} is running on peer node (index ${i}) at ${ipToCheck}, will not start`);
                         return true;
                       }
@@ -3915,7 +3924,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     // Match on the g: component identifier, not the app name: non-g siblings
                     // running on the previous master must not be mistaken for the master/slave
                     // component still being active there.
-                    if (appsRunning.find((app) => app.Names[0].includes(identifier))) {
+                    if (peerRunsThisComponent(appsRunning)) {
                       log.info(`masterSlaveApps: component:${identifier} is not on fdm but previous master is running it at: ${ipToCheckAppRunning}:${portToCheckAppRunning}`);
                       previousMasterStillRunning = true;
                     }

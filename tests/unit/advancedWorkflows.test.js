@@ -635,7 +635,11 @@ describe('advancedWorkflows tests', () => {
 
     // Shared fixture for the recovery tests below: a v3 g: app with this node in
     // the location list. `peers` are the other nodes, in election order.
-    const electionFixture = (appName, appId, peers = []) => {
+    const electionFixture = (appName, peers = []) => {
+      // Mirror getAppIdentifier: a name that is neither zel- nor flux-prefixed gets
+      // `flux`. The container names peers report are this exact string, and the
+      // election compares whole names, so a stand-in value would not match.
+      const appId = `flux${appName}`;
       dockerServiceStub.returns(appId);
       const installedApps = sinon.stub().resolves({
         status: 'success',
@@ -690,7 +694,7 @@ describe('advancedWorkflows tests', () => {
       const appName = 'opstoppedapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(true);
       const logInfo = sinon.stub(log, 'info');
-      const runPass = electionFixture(appName, 'zel_opstoppedapp');
+      const runPass = electionFixture(appName);
 
       await runPass();
 
@@ -709,7 +713,7 @@ describe('advancedWorkflows tests', () => {
       const appName = 'relockapp';
       const operatorStopped = sinon.stub(appsRuntimeState, 'isOperatorStopped');
       const logInfo = sinon.stub(log, 'info');
-      const runPass = electionFixture(appName, 'zel_relockapp');
+      const runPass = electionFixture(appName);
       serviceHelperStub.resolves({ data: [] });
 
       operatorStopped.resetBehavior();
@@ -734,7 +738,7 @@ describe('advancedWorkflows tests', () => {
       const appName = 'lastprimaryapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
-      const runPass = electionFixture(appName, 'zel_lastprimaryapp', ['192.168.1.90:16127']);
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
 
       // Cycle 1: FDM names THIS node as primary, so the node records itself.
       serviceHelperStub.resetBehavior();
@@ -763,7 +767,7 @@ describe('advancedWorkflows tests', () => {
       const appName = 'peerbusyapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
-      const runPass = electionFixture(appName, 'zel_peerbusyapp', ['192.168.1.90:16127']);
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves({ data: [] }); // FDM: no primary registered yet
 
       // the peer IS running it - FDM simply has not caught up yet
@@ -780,7 +784,7 @@ describe('advancedWorkflows tests', () => {
       const appName = 'peerfreeapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
-      const runPass = electionFixture(appName, 'zel_peerfreeapp', ['192.168.1.90:16127']);
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
       serviceHelperStub.resolves({ data: [] });
 
       // peer answers, and is NOT running the component
@@ -793,10 +797,29 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
     });
 
+    it('does not mistake a longer-named app on a peer for this component', async () => {
+      // The peer runs `<app>1`, a different app whose name merely starts the same
+      // way - simplexsmp against simplexsmp1 on the live network. A substring test
+      // reads that as this component being live and declines to start, forever.
+      const appName = 'prefixapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.resolves({ data: { data: [{ Names: [`/flux${appName}1`] }] } });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
     it('probes every peer at once, so an unreachable fleet costs one timeout and not N', async () => {
       const appName = 'peerconcurrentapp';
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
-      const runPass = electionFixture(appName, 'zel_peerconcurrentapp', [
+      const runPass = electionFixture(appName, [
         '192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127',
       ]);
       serviceHelperStub.resolves({ data: [] });
@@ -833,7 +856,7 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
 
-      dockerServiceStub.callsFake((name) => `zel_${name}`);
+      dockerServiceStub.callsFake((name) => `flux${name}`);
       const installedApps = sinon.stub().resolves({
         status: 'success',
         data: [
@@ -843,8 +866,8 @@ describe('advancedWorkflows tests', () => {
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
       const receiveOnlyCache = new Map([
-        [`zel_${first}`, { restarted: true }],
-        [`zel_${second}`, { restarted: true }],
+        [`flux${first}`, { restarted: true }],
+        [`flux${second}`, { restarted: true }],
       ]);
       fluxNetworkHelperStub.resolves('192.168.1.5:16127');
       // This node is index 0 for both, so the second app is startable the moment
@@ -856,8 +879,8 @@ describe('advancedWorkflows tests', () => {
       syncthingServiceStub.resolves({
         status: 'success',
         data: [
-          { path: `/root/.flux/ZelApps/zel_${first}`, type: 'sendreceive' },
-          { path: `/root/.flux/ZelApps/zel_${second}`, type: 'sendreceive' },
+          { path: `/root/.flux/ZelApps/flux${first}`, type: 'sendreceive' },
+          { path: `/root/.flux/ZelApps/flux${second}`, type: 'sendreceive' },
         ],
       });
 
