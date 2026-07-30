@@ -36,12 +36,14 @@ function defaultGeoResponse(ip) {
 const app = express();
 app.use(express.json());
 
-// GitHub raw content endpoints
-app.get('/helpers/blockedrepositories.json', (req, res) => {
+// Policy documents. Served at the repo root (the fluxos-network-policy layout,
+// config.policy.baseUrl) and at the retired /helpers/ paths (the RunOnFlux/flux
+// layout, config.github.rawBaseUrl) so one stub covers nodes from either era.
+app.get(['/blockedrepositories.json', '/helpers/blockedrepositories.json'], (req, res) => {
   res.json(state.blockedRepositories);
 });
 
-app.get('/helpers/vettedrepositories.json', (req, res) => {
+app.get(['/vettedrepositories.json', '/helpers/vettedrepositories.json'], (req, res) => {
   res.json(state.vettedRepositories);
 });
 
@@ -49,7 +51,7 @@ app.get('/helpers/repositories.json', (req, res) => {
   res.json(state.whitelistedRepositories);
 });
 
-app.get('/helpers/tamperingblockednodes.json', (req, res) => {
+app.get(['/tamperingblockednodes.json', '/helpers/tamperingblockednodes.json'], (req, res) => {
   res.json(state.tamperingBlocklist);
 });
 
