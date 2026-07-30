@@ -22,8 +22,8 @@ describe('appTamperingBlocklistService tests', () => {
             collections: { appTamperingEvents: 'apptamperingevents' },
           },
         },
-        github: {
-          rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
+        policy: {
+          baseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main',
         },
       },
       '../lib/log': {
@@ -96,20 +96,20 @@ describe('appTamperingBlocklistService tests', () => {
       sinon.assert.calledOnce(serviceHelperStub.axiosGet);
     });
 
-    it('returns [] on axios failure', async () => {
+    it('returns null on axios failure - could-not-fetch is not an empty list', async () => {
       serviceHelperStub.axiosGet.rejects(new Error('network timeout'));
 
       const result = await service.fetchBlocklist();
 
-      expect(result).to.deep.equal([]);
+      expect(result).to.equal(null);
     });
 
-    it('returns [] when response shape is unexpected', async () => {
+    it('returns null when response shape is unexpected', async () => {
       serviceHelperStub.axiosGet.resolves({ data: { notAnArray: true } });
 
       const result = await service.fetchBlocklist();
 
-      expect(result).to.deep.equal([]);
+      expect(result).to.equal(null);
     });
   });
 
@@ -217,6 +217,21 @@ describe('appTamperingBlocklistService tests', () => {
 
       expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
       expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
+    });
+
+    it('keeps an active DOS when the blocklist cannot be fetched', async () => {
+      // an unreadable blocklist is not an empty one: falling through would
+      // take the clear branch and a github outage would undo enforcement
+      serviceHelperStub.axiosGet.rejects(new Error('github outage'));
+      fluxNetworkHelperStub.getStickyDosMessage.returns(
+        `Node flagged via tampering blocklist: tamper score 99, txhash ${MOCK_TXHASH}`,
+      );
+      setTamperScore(100);
+
+      await service.enforceBlocklist();
+
+      expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
     });
 
     it('does nothing when txhash is not on the blocklist', async () => {

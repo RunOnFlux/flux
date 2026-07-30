@@ -345,7 +345,7 @@ describe('imageManager tests', () => {
       expect(result).to.deep.equal(blockedRepos);
       sinon.assert.calledWith(
         serviceHelper.axiosGet,
-        'https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/blockedrepositories.json',
+        'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main/blockedrepositories.json',
       );
     });
 
