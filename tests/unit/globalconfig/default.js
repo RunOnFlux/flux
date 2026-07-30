@@ -35,6 +35,7 @@ module.exports = {
         activePaymentRequests: 'activepaymentrequests',
         completedPayments: 'completedpayments',
         geolocation: 'geolocation',
+        policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
         benchmark: 'benchmark',
       },
     },
@@ -393,6 +394,9 @@ module.exports = {
   github: {
     rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
     apiBaseUrl: 'https://api.github.com',
+  },
+  policy: {
+    baseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main',
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',
