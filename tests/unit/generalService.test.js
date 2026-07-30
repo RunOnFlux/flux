@@ -778,44 +778,20 @@ describe('generalService tests', () => {
   });
 
   describe('whitelistedRepositories tests', () => {
-    const axiosProperResponse = {
-      status: 'success',
-      data: [
-        'yurinnick/folding-at-home:latest',
-        'kadena/chainweb-node:latest',
-        't1dev/dibi-fetch:latest',
-        'thetrunk/rates-api:latest',
-        'runonflux/kadena-chainweb-node:2.7',
-      ],
-    };
-
     afterEach(() => {
       sinon.restore();
     });
 
-    it('should return whitelisted repos', async () => {
-      sinon.stub(serviceHelper, 'axiosGet').returns(axiosProperResponse);
+    it('should answer the deprecated endpoint with an empty list and no fetch', async () => {
+      const axiosStub = sinon.stub(serviceHelper, 'axiosGet');
       const res = generateResponse();
 
       await generalService.whitelistedRepositories(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, axiosProperResponse);
-    });
-
-    it('should return whitelisted repos', async () => {
-      const errResp = {
-        name: 'error',
-        message: 'error message',
-        code: 403,
-      };
-      sinon.stub(serviceHelper, 'axiosGet').rejects(errResp);
-      const res = generateResponse();
-
-      await generalService.whitelistedRepositories(undefined, res);
-
+      sinon.assert.notCalled(axiosStub);
       sinon.assert.calledOnceWithExactly(res.json, {
-        status: 'error',
-        data: errResp,
+        status: 'success',
+        data: [],
       });
     });
   });

@@ -448,7 +448,7 @@ module.exports = (app) => {
   app.post('/apps/calculatefiatandfluxprice', (req, res) => { // returns price in usd and flux for both new registration of app and update of app
     appSpecHelpers.getAppFiatAndFluxPrice(req, res);
   });
-  app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
+  app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => { // deprecated: whitelist retired, always returns []
     generalService.whitelistedRepositories(req, res);
   });
   app.post('/apps/verifyappregistrationspecifications', (req, res) => { // returns formatted app specifications

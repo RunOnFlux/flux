@@ -653,7 +653,7 @@ async function trySpawningGlobalApplication() {
 
     // eslint-disable-next-line no-restricted-syntax
     for (const componentToInstall of compositedSpecification) {
-      // check image is whitelisted and repotag is available for download
+      // check repotag is available for download
       // eslint-disable-next-line no-await-in-loop
       await imageManager.verifyRepository(componentToInstall.repotag, {
         repoauth: componentToInstall.repoauth,

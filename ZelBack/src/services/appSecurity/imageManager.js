@@ -36,11 +36,9 @@ function classifyVerificationError(error, errorMeta) {
         return { ttlMs: 2 * FluxCacheManager.oneHour, reason: 'Rate limiting (429)' };
       case 'server_error':
         return { ttlMs: 3 * FluxCacheManager.oneHour, reason: 'Server error (5xx)' };
-      case 'whitelist_fetch_error':
       case 'auth_unavailable':
         return { ttlMs: 2 * FluxCacheManager.oneHour, reason: 'Temporary service issue' };
       // Permanent errors - longer cache
-      case 'not_whitelisted':
       case 'invalid_format':
       case 'unsupported_architecture':
       case 'unsupported_media_type':
@@ -288,7 +286,7 @@ async function getUserBlockedRepositores() {
       return cacheUserBlockedRepos;
     }
 
-    const userconfig = globalThis.userconfig;
+    const { userconfig } = globalThis;
     const userBlockedRepos = userconfig.initial.blockedRepositories || [];
     if (userBlockedRepos.length === 0) {
       return userBlockedRepos;
