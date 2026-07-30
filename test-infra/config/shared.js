@@ -49,6 +49,12 @@ module.exports = {
     ipApiBaseUrl: 'http://198.18.0.6:3000',
     statsApiBaseUrl: 'http://198.18.0.6:3000',
   },
+  // the stub 404s iplocation.json, so harness nodes run tableless - the /16
+  // arithmetic fallback, which is the posture suite 62 exercises - and never
+  // call out to github
+  policy: {
+    baseUrl: 'http://198.18.0.6:3000',
+  },
   fluxapps: {
     minOutgoing: 4,
     minIncoming: 2,
