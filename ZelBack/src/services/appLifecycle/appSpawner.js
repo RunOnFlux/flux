@@ -18,6 +18,7 @@ const hwRequirements = require('../appRequirements/hwRequirements');
 const portManager = require('../appNetwork/portManager');
 const appUtilities = require('../utils/appUtilities');
 const mountParser = require('../utils/mountParser');
+const placementFeasibility = require('../appPlacement/placementFeasibility');
 const systemIntegration = require('../appSystem/systemIntegration');
 const globalState = require('../utils/globalState');
 const enterpriseNetwork = require('../utils/enterpriseNetwork');
@@ -30,7 +31,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 let appsCountAvailableToInstallOnMyNode = 0;
 
 const collisionWaitMs = config.fluxapps.installCollisionWaitMs;
-const spawnReconfirmDelayMs = config.fluxapps.spawnReconfirmDelayMs;
+const { spawnReconfirmDelayMs } = config.fluxapps;
 const nonEnterpriseSpawnDelayMs = config.fluxapps.nonEnterpriseSpawnDelayMs ?? 2 * 60 * 1000;
 
 let spawnLoopRunning = false;
@@ -155,7 +156,7 @@ async function trySpawningGlobalApplication() {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const currentHeight = syncStatus.data.height;
     const ponFork = config.fluxapps.daemonPONFork;
-    const blocksLasting = config.fluxapps.blocksLasting;
+    const { blocksLasting } = config.fluxapps;
     const minBlocksAllowance = config.fluxapps.newMinBlocksAllowance;
     const pipeline = [
       // Filter out apps that are expired or expiring within minBlocksAllowance (100) blocks
@@ -459,21 +460,36 @@ async function trySpawningGlobalApplication() {
     }
 
     const localIp = extractIp(localSocketAddr);
-    const lastIndex = localIp.lastIndexOf('.');
-    const secondLastIndex = localIp.substring(0, lastIndex).lastIndexOf('.');
-    const ipPrefix = localIp.substring(0, secondLastIndex + 1); // includes the '.' e.g. "192.168."
+
+    // Owner-pinned placement is the owner's choice; the diversity share does
+    // not second-guess it. This applies only when THIS node is pinned - a v8+
+    // app spawning on an off-list node is still subject to the share.
+    let pinnedHere = false;
+    if (syncthingApp) {
+      pinnedHere = await placementFeasibility.isNodePinnedHere(appSpecifications, localSocketAddr);
+    }
+
+    // A synced app may only be refused when a better-placed candidate provably
+    // exists: this domain is refused once it holds its share of the instances,
+    // computed over the app's eligible candidate set - never refused outright.
+    let placementShare = null;
+    let myDomain = null;
+    if (syncthingApp && !pinnedHere) {
+      placementShare = await placementFeasibility.placementFeasibility(appSpecifications, minInstances);
+      myDomain = placementFeasibility.faultDomain(localIp);
+      if (!placementShare.placeable) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and has no eligible candidates under the current placement table`);
+        return shortDelayTime;
+      }
+      const heldInMine = placementFeasibility.countHeldInDomain(runningAppList, myDomain)
+        + placementFeasibility.countHeldInDomain(installingAppList, myDomain);
+      if (heldInMine >= placementShare.maxPerDomain) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already holds ${heldInMine} of its ${placementShare.maxPerDomain}-instance share (${placementShare.domainCount} eligible domains)`);
+        return shortDelayTime;
+      }
+    }
 
     if (syncthingApp) {
-      let sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
-      if (sameIpRangeNode) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
-        return shortDelayTime;
-      }
-      sameIpRangeNode = installingAppList.find((location) => location.ip.startsWith(ipPrefix));
-      if (sameIpRangeNode) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
-        return shortDelayTime;
-      }
       if (!appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater && runningAppList.length < 6) {
         // check if there are connectivity to all nodes
         // eslint-disable-next-line no-restricted-syntax
@@ -703,27 +719,28 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    if (syncthingApp) {
-      const sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
-      if (sameIpRangeNode) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
+    if (syncthingApp && !pinnedHere && placementShare) {
+      // Re-check the domain share against the propagated lists. Running
+      // instances consume the share outright; among simultaneous installing
+      // claimants the earliest broadcasts win the remainder - the
+      // generalisation of the old oldest-wins resolver to shares above one.
+      const runningInMine = placementFeasibility.countHeldInDomain(runningAppList, myDomain);
+      const remainingShare = placementShare.maxPerDomain - runningInMine;
+      if (remainingShare <= 0) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already runs ${runningInMine} of its ${placementShare.maxPerDomain}-instance share`);
         return shortDelayTime;
       }
-      const sameIpRangeInstallingNodes = installingAppList.filter((location) => location.ip.startsWith(ipPrefix));
-      if (sameIpRangeInstallingNodes.length > 0) {
-        // Find the node with the oldest broadcastedAt (first to start installing)
-        const oldestNode = sameIpRangeInstallingNodes.reduce((oldest, current) => {
-          if (!oldest.broadcastedAt) return current;
-          if (!current.broadcastedAt) return oldest;
-          return current.broadcastedAt < oldest.broadcastedAt ? current : oldest;
-        });
-        // If our node is not the oldest one, skip - let the first node continue
-        if (!socketAddressesMatch(oldestNode.ip, localSocketAddr)) {
-          log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
-          return shortDelayTime;
-        }
-        // Our node is the oldest - we were first, continue with installation
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing, we are the first node in ip range to start installing, continuing`);
+      const claimantsInMine = installingAppList
+        .filter((location) => placementFeasibility.faultDomain(location.ip) === myDomain)
+        .sort((a, b) => (a.broadcastedAt ?? Number.MAX_SAFE_INTEGER) - (b.broadcastedAt ?? Number.MAX_SAFE_INTEGER));
+      const myIndex = claimantsInMine.findIndex((location) => socketAddressesMatch(location.ip, localSocketAddr));
+      const claimantsAhead = myIndex === -1 ? claimantsInMine.length : myIndex;
+      if (claimantsAhead >= remainingShare) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and ${claimantsAhead} earlier claimants in fault domain ${myDomain} fill its remaining share of ${remainingShare}`);
+        return shortDelayTime;
+      }
+      if (claimantsInMine.length > 1) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing, this node is claim ${claimantsAhead + 1} of ${remainingShare} remaining in fault domain ${myDomain}, continuing`);
       }
     }
 

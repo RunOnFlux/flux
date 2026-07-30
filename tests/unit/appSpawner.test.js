@@ -10,6 +10,16 @@ describe('appSpawner tests', () => {
   let aggregateStub;
   let delayStub;
   let daemonSyncStub;
+  let placementFeasibilityStub;
+
+  // /16 fault-domain arithmetic, mirroring placementFeasibility's no-table fallback
+  function testFaultDomain(address) {
+    if (typeof address !== 'string' || !address) return null;
+    const ip = address.split(':')[0];
+    const parts = ip.split('.');
+    if (parts.length !== 4) return null;
+    return `net:${parts[0]}.${parts[1]}.0.0/16`;
+  }
 
   function createConfigStub(overrides = {}) {
     return {
@@ -49,6 +59,22 @@ describe('appSpawner tests', () => {
     }
 
     logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
+    placementFeasibilityStub = {
+      isNodePinnedHere: sinon.stub().resolves(opts.pinnedHere ?? false),
+      placementFeasibility: sinon.stub().resolves({
+        instances: 3,
+        candidateCount: 10,
+        domainCount: 10,
+        maxPerDomain: 1,
+        placeable: true,
+        tableAvailable: false,
+        tableGenerated: null,
+        ...opts.placementShare,
+      }),
+      faultDomain: testFaultDomain,
+      countHeldInDomain: (locations, domainKey) => (locations ?? [])
+        .filter((location) => testFaultDomain(location.ip) === domainKey).length,
+    };
     aggregateStub = sinon.stub().resolves(opts.aggregateResult || []);
     // First delay resolves normally, subsequent calls reject to break recursion
     delayStub = sinon.stub();
@@ -95,7 +121,18 @@ describe('appSpawner tests', () => {
       },
       '../appDatabase/registryManager': {
         appLocation: sinon.stub().resolves(opts.appLocations || []),
-        appInstallingLocation: sinon.stub().resolves([]),
+        // The list after the collision wait includes this node's own claim; tests
+        // exercising the post-broadcast share resolver provide it via
+        // opts.finalInstallingLocations (returned from the 4th fetch onwards).
+        appInstallingLocation: (() => {
+          const stub = sinon.stub();
+          stub.callsFake(() => Promise.resolve(
+            (opts.finalInstallingLocations && stub.callCount > 3)
+              ? opts.finalInstallingLocations
+              : (opts.installingLocations || []),
+          ));
+          return stub;
+        })(),
         getApplicationGlobalSpecifications: sinon.stub().resolves(opts.appSpec || null),
         expireGlobalApplications: sinon.stub().resolves(),
         storeAppInstallingMessage: sinon.stub().resolves(),
@@ -158,6 +195,7 @@ describe('appSpawner tests', () => {
       './appUninstaller': {
         removeAppLocally: sinon.stub().resolves(),
       },
+      '../appPlacement/placementFeasibility': placementFeasibilityStub,
     });
   }
 
@@ -531,7 +569,7 @@ describe('appSpawner tests', () => {
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       const deferredForSyncthing = logStub.info.args.some(
-        (a) => typeof a[0] === 'string' && a[0].includes('uses syncthing and it is already spawned on Fluxnode with same ip range'),
+        (a) => typeof a[0] === 'string' && a[0].includes('of its 1-instance share'),
       );
       return { installStub, deferredForSyncthing };
     }
@@ -565,6 +603,124 @@ describe('appSpawner tests', () => {
       const { installStub, deferredForSyncthing } = await runSpawnAttempt(composedSpec('logs:/var/log'));
       expect(deferredForSyncthing).to.be.false;
       expect(installStub.called).to.be.true;
+    });
+  });
+
+  describe('placement diversity share', () => {
+    // The local node's IP is 192.168.1.1 (benchmark stub); locations in
+    // 192.168.x.x share its /16 fault domain without being the same IP.
+    const sameDomainLocation = [{ ip: '192.168.50.50:16127' }];
+
+    const spawnableApp = {
+      name: 'testApp',
+      actual: 1,
+      required: 3,
+      nodes: [],
+      geolocation: [],
+      hash: 'abc123',
+      version: 7,
+      enterprise: false,
+      owner: 'testOwner',
+    };
+
+    const syncedSpec = {
+      name: 'testApp',
+      hash: 'abc123',
+      version: 7,
+      instances: 3,
+      compose: [{ name: 'comp0', repotag: 'testimage:latest', containerData: 'g:/data' }],
+    };
+
+    async function runAttempt(opts = {}) {
+      const installStub = sinon.stub().resolves(true);
+      buildModule({
+        aggregateResult: [spawnableApp],
+        appSpec: syncedSpec,
+        installStub,
+        ...opts,
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      const logged = (needle) => logStub.info.args.some(
+        (a) => typeof a[0] === 'string' && a[0].includes(needle),
+      );
+      return { installStub, logged };
+    }
+
+    it('REGRESSION GUARD (the Bahrain incident): installs when the single eligible domain holds the whole share', async () => {
+      // one domain, instances 3 -> the domain's share is all 3; one already
+      // running here must NOT block the second. Pre-change code refused forever.
+      const { installStub } = await runAttempt({
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 1, maxPerDomain: 3 },
+      });
+      expect(installStub.called).to.be.true;
+      expect(placementFeasibilityStub.placementFeasibility.calledWith(syncedSpec, 3)).to.be.true;
+    });
+
+    it('stands aside when many domains are eligible and this one holds its share', async () => {
+      const { installStub, logged } = await runAttempt({
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      expect(installStub.called).to.be.false;
+      expect(logged('already holds 1 of its 1-instance share')).to.be.true;
+    });
+
+    it('with two eligible domains and a share of two, installs at one held and refuses at two', async () => {
+      const first = await runAttempt({
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 2, maxPerDomain: 2 },
+      });
+      expect(first.installStub.called).to.be.true;
+
+      const second = await runAttempt({
+        appLocations: [{ ip: '192.168.50.50:16127' }, { ip: '192.168.60.60:16137' }],
+        placementShare: { domainCount: 2, maxPerDomain: 2 },
+      });
+      expect(second.installStub.called).to.be.false;
+      expect(second.logged('already holds 2 of its 2-instance share')).to.be.true;
+    });
+
+    it('skips without installing when the table reports no eligible candidates', async () => {
+      const { installStub, logged } = await runAttempt({
+        placementShare: { placeable: false, domainCount: 0, candidateCount: 0 },
+      });
+      expect(installStub.called).to.be.false;
+      expect(logged('no eligible candidates')).to.be.true;
+    });
+
+    it('bypasses the share entirely when the owner pinned this node', async () => {
+      const { installStub } = await runAttempt({
+        pinnedHere: true,
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      expect(installStub.called).to.be.true;
+      expect(placementFeasibilityStub.placementFeasibility.called).to.be.false;
+    });
+
+    it('yields the remaining share to an earlier claimant after the collision wait', async () => {
+      const { installStub, logged } = await runAttempt({
+        placementShare: { domainCount: 3, maxPerDomain: 1 },
+        finalInstallingLocations: [
+          { ip: '192.168.2.2:16127', broadcastedAt: 1000 },
+          { ip: '192.168.1.1:16127', broadcastedAt: 2000 },
+        ],
+      });
+      expect(installStub.called).to.be.false;
+      expect(logged('earlier claimants in fault domain')).to.be.true;
+    });
+
+    it('proceeds as the earliest claimant after the collision wait', async () => {
+      const { installStub, logged } = await runAttempt({
+        placementShare: { domainCount: 3, maxPerDomain: 1 },
+        finalInstallingLocations: [
+          { ip: '192.168.1.1:16127', broadcastedAt: 1000 },
+          { ip: '192.168.2.2:16127', broadcastedAt: 2000 },
+        ],
+      });
+      expect(installStub.called).to.be.true;
+      expect(logged('claim 1 of 1 remaining in fault domain')).to.be.true;
     });
   });
 

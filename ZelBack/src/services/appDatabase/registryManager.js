@@ -9,6 +9,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
+const placementFeasibility = require('../appPlacement/placementFeasibility');
 const {
   SIGTERM_EXPIRY_MS,
   globalAppsInformation,
@@ -1796,6 +1797,10 @@ async function registerAppGlobalyApi(req, res) {
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await appValidator.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      // surface an impossible or diversity-constrained placement at the front
+      // door, while the spec is still decrypted (log-only; response unchanged)
+      await placementFeasibility.warnOnConstrainedPlacement(appSpecFormatted, 'registerAppGlobalyApi');
 
       if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax

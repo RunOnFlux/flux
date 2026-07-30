@@ -16,6 +16,7 @@ const {
 } = require('../utils/appConstants');
 const { specificationFormatter, findCommonArchitectures } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const placementFeasibility = require('../appPlacement/placementFeasibility');
 const enterpriseConfig = require('../utils/enterpriseConfig');
 const portManager = require('../appNetwork/portManager');
 const { peerManager } = require('../utils/peerState');
@@ -1375,6 +1376,10 @@ async function verifyAppRegistrationParameters(req, res) {
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      // surface an impossible or diversity-constrained placement at the front
+      // door, while the spec is still decrypted (log-only; response unchanged)
+      await placementFeasibility.warnOnConstrainedPlacement(appSpecFormatted, 'verifyAppRegistrationParameters');
 
       if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax

@@ -28,6 +28,7 @@ const fileSystemManager = require('./services/appSystem/fileSystemManager');
 const cryptographicKeys = require('./services/appMessaging/cryptographicKeys');
 const registryManager = require('./services/appDatabase/registryManager');
 const appValidator = require('./services/appRequirements/appValidator');
+const placementFeasibility = require('./services/appPlacement/placementFeasibility');
 const appSpecHelpers = require('./services/utils/appSpecHelpers');
 const appInspector = require('./services/appManagement/appInspector');
 const appController = require('./services/appManagement/appController');
@@ -455,6 +456,9 @@ module.exports = (app) => {
   });
   app.post('/apps/verifyappupdatespecifications', (req, res) => { // returns formatted app specifications
     appValidator.verifyAppUpdateApi(req, res);
+  });
+  app.post('/apps/placementfeasibility', (req, res) => { // fault domains and per-domain instance share for a prospective spec
+    placementFeasibility.placementFeasibilityAPI(req, res);
   });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
     deploymentInfoService.deploymentInformation(req, res);
