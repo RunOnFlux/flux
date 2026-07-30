@@ -99,6 +99,30 @@ function buildColumns(rows, version, artifact) {
 }
 
 /**
+ * The org list is stored as one UTF-8 buffer plus offsets rather than an array
+ * of strings: a hundred thousand tiny string objects cost megabytes of heap
+ * where the buffer form costs well under one. Tokens decode on demand for log
+ * lines and API responses.
+ * @param {string[]} orgs Artifact org tokens
+ * @returns {{orgBlob: Buffer, orgOffsets: Uint32Array}}
+ */
+function orgColumns(orgs) {
+  const parts = orgs.map((org) => Buffer.from(org, 'utf8'));
+  const orgOffsets = new Uint32Array(parts.length + 1);
+  parts.forEach((part, i) => { orgOffsets[i + 1] = orgOffsets[i] + part.length; });
+  return { orgBlob: Buffer.concat(parts), orgOffsets };
+}
+
+/**
+ * Decode one org token from the loaded table's buffer.
+ * @param {number} i Org index
+ * @returns {string}
+ */
+function orgAt(i) {
+  return table.orgBlob.toString('utf8', table.orgOffsets[i], table.orgOffsets[i + 1]);
+}
+
+/**
  * Install a new table artifact, replacing any previous one.
  * Throws on a malformed artifact and leaves the previous table in place.
  * @param {object|string|Buffer} rawArtifact Parsed artifact object, or its JSON text
@@ -120,7 +144,7 @@ function setArtifact(rawArtifact) {
     sources: artifact.sources ?? {},
     countries: artifact.countries,
     continents: artifact.continents,
-    orgs: artifact.orgs,
+    ...orgColumns(artifact.orgs),
     regions: artifact.regions ?? [],
     v4: buildColumns(artifact.v4, 4, artifact),
     v6: buildColumns(artifact.v6, 6, artifact),
@@ -187,7 +211,7 @@ function lookup(ip) {
   if (hit === -1 || ends[hit] < needle) return null;
   const cc = columns.ccIdx[hit] >= 0 ? table.countries[columns.ccIdx[hit]] : null;
   return {
-    org: columns.orgIdx[hit] >= 0 ? table.orgs[columns.orgIdx[hit]] : null,
+    org: columns.orgIdx[hit] >= 0 ? orgAt(columns.orgIdx[hit]) : null,
     block: `${cidrUtils.formatIp(BigInt(starts[hit]), parsed.version)}-${cidrUtils.formatIp(BigInt(ends[hit]), parsed.version)}`,
     countryCode: cc,
     continentCode: cc !== null ? (table.continents[cc] ?? null) : null,
