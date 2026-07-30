@@ -32,19 +32,22 @@ const SUPPORTED_FORMAT = 1;
 let table = null;
 
 /**
- * Validate one row list and convert it to {starts, ends, orgIdx, ccIdx, regionIdx}
- * columnar form with BigInt bounds, verifying sort order and non-overlap.
+ * Validate one row list and convert it to columnar form, verifying sort order
+ * and non-overlap. Bounds are Uint32Array for v4 and plain BigInt arrays for
+ * v6; the org/cc/region indexes are Int32Array with -1 for "none". Typed
+ * columns keep the resident footprint at a few MB where boxed values cost
+ * tens - this table lives in every node's memory for the process lifetime.
  * @param {Array} rows Raw artifact rows
  * @param {6|4} version IP version of the rows
  * @param {object} artifact The full artifact, for index bounds
  * @returns {object} Columnar representation
  */
 function buildColumns(rows, version, artifact) {
-  const starts = [];
-  const ends = [];
-  const orgIdx = [];
-  const ccIdx = [];
-  const regionIdx = [];
+  const starts = version === 4 ? new Uint32Array(rows.length) : [];
+  const ends = version === 4 ? new Uint32Array(rows.length) : [];
+  const orgIdx = new Int32Array(rows.length);
+  const ccIdx = new Int32Array(rows.length);
+  const regionIdx = new Int32Array(rows.length);
   let previousEnd = -1n;
   rows.forEach((row, i) => {
     if (!Array.isArray(row) || row.length < 4) {
@@ -53,8 +56,8 @@ function buildColumns(rows, version, artifact) {
     let start;
     let end;
     if (version === 4) {
-      if (!Number.isInteger(row[0]) || !Number.isInteger(row[1])) {
-        throw new Error(`iplocation artifact: non-integer v4 bounds at row ${i}`);
+      if (!Number.isInteger(row[0]) || !Number.isInteger(row[1]) || row[0] < 0 || row[1] > 0xFFFFFFFF) {
+        throw new Error(`iplocation artifact: invalid v4 bounds at row ${i}`);
       }
       start = BigInt(row[0]);
       end = BigInt(row[1]);
@@ -81,11 +84,16 @@ function buildColumns(rows, version, artifact) {
     if (region !== null && (!Number.isInteger(region) || region < 0 || region >= (artifact.regions ?? []).length)) {
       throw new Error(`iplocation artifact: region index out of range at v${version} row ${i}`);
     }
-    starts.push(start);
-    ends.push(end);
-    orgIdx.push(org);
-    ccIdx.push(cc);
-    regionIdx.push(region);
+    if (version === 4) {
+      starts[i] = row[0];
+      ends[i] = row[1];
+    } else {
+      starts.push(start);
+      ends.push(end);
+    }
+    orgIdx[i] = org ?? -1;
+    ccIdx[i] = cc ?? -1;
+    regionIdx[i] = region ?? -1;
   });
   return { starts, ends, orgIdx, ccIdx, regionIdx, version };
 }
@@ -162,27 +170,28 @@ function lookup(ip) {
   const parsed = cidrUtils.parseIp(ip);
   if (!parsed) return null;
   const columns = parsed.version === 4 ? table.v4 : table.v6;
+  const needle = parsed.version === 4 ? Number(parsed.value) : parsed.value;
   const { starts, ends } = columns;
   let lo = 0;
   let hi = starts.length - 1;
   let hit = -1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1; // eslint-disable-line no-bitwise
-    if (starts[mid] <= parsed.value) {
+    if (starts[mid] <= needle) {
       hit = mid;
       lo = mid + 1;
     } else {
       hi = mid - 1;
     }
   }
-  if (hit === -1 || ends[hit] < parsed.value) return null;
-  const cc = columns.ccIdx[hit] !== null ? table.countries[columns.ccIdx[hit]] : null;
+  if (hit === -1 || ends[hit] < needle) return null;
+  const cc = columns.ccIdx[hit] >= 0 ? table.countries[columns.ccIdx[hit]] : null;
   return {
-    org: columns.orgIdx[hit] !== null ? table.orgs[columns.orgIdx[hit]] : null,
-    block: `${cidrUtils.formatIp(starts[hit], parsed.version)}-${cidrUtils.formatIp(ends[hit], parsed.version)}`,
+    org: columns.orgIdx[hit] >= 0 ? table.orgs[columns.orgIdx[hit]] : null,
+    block: `${cidrUtils.formatIp(BigInt(starts[hit]), parsed.version)}-${cidrUtils.formatIp(BigInt(ends[hit]), parsed.version)}`,
     countryCode: cc,
     continentCode: cc !== null ? (table.continents[cc] ?? null) : null,
-    region: columns.regionIdx[hit] !== null ? table.regions[columns.regionIdx[hit]] : null,
+    region: columns.regionIdx[hit] >= 0 ? table.regions[columns.regionIdx[hit]] : null,
   };
 }
 
