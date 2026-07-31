@@ -1,6 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import {
@@ -69,8 +70,10 @@ describe('placement share spreads synced instances across table fault domains', 
     // splits each /24 into equal last-octet buckets, so the bucket index is
     // the domain: this asserts the instances actually spread rather than
     // landing anywhere and passing on count alone.
-    const buckets = placed.map((location) => {
-      const lastOctet = Number(location.ip.split(':')[0].split('.')[3]);
+    // waitForInstanceCount resolves to node INDICES, not locations.
+    const subnet = getSubnetConfig();
+    const buckets = placed.map((nodeIndex) => {
+      const lastOctet = Number(subnet.nodeIp(nodeIndex + 1).split('.')[3]);
       return Math.floor(lastOctet / Math.ceil(256 / 3));
     });
     expect(new Set(buckets).size, `expected 3 distinct fault domains, got buckets ${buckets}`).to.equal(3);
