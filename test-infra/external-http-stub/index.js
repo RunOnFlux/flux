@@ -1,3 +1,4 @@
+const zlib = require('zlib');
 const express = require('express');
 
 const PORT = parseInt(process.env.STUB_PORT || '3000', 10);
@@ -7,8 +8,27 @@ const CONTROL_PORT = parseInt(process.env.CONTROL_PORT || '3001', 10);
 const HARNESS_NET_START = (198 * 2 ** 24) + (18 * 2 ** 16);
 const HARNESS_NET_END = HARNESS_NET_START + (2 * 2 ** 16) - 1;
 
+const GEO_MAGIC = 'FLXGEO';
+const GEO_FORMAT = 2;
+
+let lastGenerated = 0;
+
 /**
- * An iplocation artifact for the harness range.
+ * A distinct ISO timestamp for every regeneration. Nodes key their cached
+ * per-node locations on the table's `generated` and invalidate them when it
+ * changes, so two artifacts published in the same millisecond must still
+ * differ or the second split is never seen.
+ * @returns {string} ISO timestamp
+ */
+function nextGenerated() {
+  lastGenerated = Math.max(Date.now(), lastGenerated + 1);
+  return new Date(lastGenerated).toISOString();
+}
+
+/**
+ * An iplocation artifact for the harness range. The same rows feed both served
+ * representations: this object is what /iplocation.json serves, and
+ * encodeGeoTable turns it into the format-2 /iplocation.bin.gz.
  *
  * `domains: 1` (the default) puts the whole fleet in one organisation, which
  * is the single-fault-domain posture the tableless fallback produced - suites
@@ -43,17 +63,108 @@ function buildIpLocationArtifact(domains, subnet) {
   }
   return {
     format: 1,
-    generated: '2026-07-31T00:00:00Z',
+    generated: nextGenerated(),
     sources: { harness: 'stub' },
     countries,
     continents: {
       DE: 'EU', FR: 'EU', NL: 'EU', FI: 'EU', BH: 'AS',
     },
     orgs,
-    regions: [],
+    // the vocabulary a real build publishes; no harness range claims one, so
+    // every row's region stays "none" in both representations
+    regions: ['DE-HE', 'FR-IDF', 'NL-NH', 'FI-18', 'BH-13'],
     v4,
     v6: [],
   };
+}
+
+/**
+ * Append one unsigned LEB128 varint. Plain arithmetic rather than shifts:
+ * range bounds run past 2^31 (198.18.0.0 is 3,323,068,416), which the signed
+ * 32-bit shift operators cannot carry.
+ * @param {number[]} bytes Output byte list, appended in place
+ * @param {number} value Non-negative integer
+ */
+function writeVarint(bytes, value) {
+  let remaining = value;
+  while (remaining >= 0x80) {
+    bytes.push((remaining % 0x80) + 0x80);
+    remaining = Math.floor(remaining / 0x80);
+  }
+  bytes.push(remaining);
+}
+
+/**
+ * Encode a format-1 artifact as the format-2 wire artifact iplocation.bin.gz.
+ *
+ * Layout, little-endian, gzipped whole: magic FLXGEO, version byte 2, u32
+ * header length, the UTF-8 JSON header, u32 row count, then five unsigned
+ * LEB128 varints per row - gap (start - previousEnd - 1, previousEnd starting
+ * at -1), len (end - start), then org, country and region as their table index
+ * PLUS ONE, with 0 meaning "none".
+ *
+ * Throws on anything a strict reader rejects, so the stub cannot publish bytes
+ * it presents as well-formed and are not. The one reader rule it cannot meet
+ * is the truncation floor (>= 1,500,000 rows): a harness fleet's table is a
+ * few hundred rows, so the FluxOS store's floor has to be configurable for the
+ * harness - that is the store-side change, noted here because this is where
+ * the short artifact comes from.
+ * @param {object} artifact Format-1 artifact
+ * @returns {Buffer} gzipped format-2 bytes
+ */
+function encodeGeoTable(artifact) {
+  const { countries, orgs, v4 } = artifact;
+  const regions = artifact.regions ?? [];
+  const header = Buffer.from(JSON.stringify({
+    generated: artifact.generated,
+    sources: artifact.sources,
+    countries,
+    continents: artifact.continents,
+    orgs,
+    regions,
+  }), 'utf8');
+  const preamble = Buffer.alloc(GEO_MAGIC.length + 1 + 4);
+  preamble.write(GEO_MAGIC, 0, 'ascii');
+  preamble.writeUInt8(GEO_FORMAT, GEO_MAGIC.length);
+  preamble.writeUInt32LE(header.length, GEO_MAGIC.length + 1);
+  const rowCount = Buffer.alloc(4);
+  rowCount.writeUInt32LE(v4.length, 0);
+  const rows = [];
+  let previousEnd = -1;
+  v4.forEach(([start, end, org, cc, region], i) => {
+    if (!Number.isInteger(start) || !Number.isInteger(end) || end < start || start <= previousEnd) {
+      throw new Error(`row ${i}: bounds unsorted, overlapping or not integers`);
+    }
+    const indexes = [(org ?? -1) + 1, (cc ?? -1) + 1, (region ?? -1) + 1];
+    const limits = [orgs.length, countries.length, regions.length];
+    indexes.forEach((index, column) => {
+      if (!Number.isInteger(index) || index < 0 || index > limits[column]) {
+        throw new Error(`row ${i}: index out of table bounds`);
+      }
+    });
+    writeVarint(rows, start - previousEnd - 1);
+    writeVarint(rows, end - start);
+    indexes.forEach((index) => writeVarint(rows, index));
+    previousEnd = end;
+  });
+  return zlib.gzipSync(Buffer.concat([preamble, header, rowCount, Buffer.from(rows)]));
+}
+
+/**
+ * The wire artifact for whatever is being served. A caller-supplied malformed
+ * artifact (the reject-and-keep suites) has no valid format-2 encoding, so the
+ * binary route serves its gzipped JSON: bytes that fetch cleanly and fail the
+ * reader exactly like their JSON counterpart.
+ * @param {object|null} artifact Format-1 artifact, or null for no artifact
+ * @returns {Buffer|null}
+ */
+function encodeIpLocationBinary(artifact) {
+  if (!artifact) return null;
+  try {
+    return encodeGeoTable(artifact);
+  } catch {
+    return zlib.gzipSync(Buffer.from(JSON.stringify(artifact), 'utf8'));
+  }
 }
 
 const state = {
@@ -63,9 +174,26 @@ const state = {
   tamperingBlocklist: [],
   latestRelease: { tag_name: 'v0.0.0', name: 'stub-release' },
   geolocation: {},
-  // null serves a 404, which leaves nodes tableless on the /16 arithmetic
-  ipLocation: buildIpLocationArtifact(1),
+  // published below; null in either representation serves a 404, which leaves
+  // nodes tableless on the /16 arithmetic
+  ipLocation: null,
+  ipLocationBinary: null,
+  ipLocationVersion: 0,
 };
+
+/**
+ * Publish one artifact in both representations. Both bodies and the version
+ * their etags carry move in a single synchronous step, so no fetch can catch
+ * the stub serving a JSON artifact and a binary from different splits.
+ * @param {object|null} artifact Format-1 artifact, or null to serve 404s
+ */
+function serveIpLocation(artifact) {
+  state.ipLocation = artifact;
+  state.ipLocationBinary = encodeIpLocationBinary(artifact);
+  state.ipLocationVersion += 1;
+}
+
+serveIpLocation(buildIpLocationArtifact(1));
 
 function defaultGeoResponse(ip) {
   return {
@@ -118,13 +246,32 @@ app.get('/iplocation.json', (req, res) => {
     return;
   }
   const body = JSON.stringify(state.ipLocation);
-  const etag = `"iplocation-${state.ipLocationVersion ?? 0}"`;
+  const etag = `"iplocation-${state.ipLocationVersion}"`;
   res.set('ETag', etag);
   if (req.headers['if-none-match'] === etag) {
     res.status(304).end();
     return;
   }
   res.type('application/json').send(body);
+});
+
+// The same artifact in the format-2 wire encoding. Both routes stay served:
+// the two node lineages sharing this stub fetch different ones. Content-Encoding
+// is deliberately not set - the gzip is the artifact's own framing rather than a
+// transfer encoding, and a client that transparently inflated it would hand the
+// reader the wrong bytes.
+app.get('/iplocation.bin.gz', (req, res) => {
+  if (!state.ipLocationBinary) {
+    res.status(404).json({ error: 'no artifact configured' });
+    return;
+  }
+  const etag = `"iplocationbin-${state.ipLocationVersion}"`;
+  res.set('ETag', etag);
+  if (req.headers['if-none-match'] === etag) {
+    res.status(304).end();
+    return;
+  }
+  res.type('application/octet-stream').send(state.ipLocationBinary);
 });
 
 // GitHub API endpoints
@@ -172,7 +319,8 @@ const control = express();
 control.use(express.json());
 
 control.get('/state', (req, res) => {
-  res.json(state);
+  // the wire artifact is opaque bytes; its size is the readable part
+  res.json({ ...state, ipLocationBinary: undefined, ipLocationBinaryBytes: state.ipLocationBinary?.length ?? 0 });
 });
 
 control.post('/blocked-repos', (req, res) => {
@@ -214,13 +362,17 @@ control.post('/iplocation', (req, res) => {
   // { domains: n } serves a generated artifact splitting each /24 n ways;
   // { artifact: {...} } serves a caller-supplied one (malformed included, to
   // exercise reject-and-keep); { artifact: null } serves a 404 (tableless).
+  // Whichever it is, both /iplocation.json and /iplocation.bin.gz follow it.
   if (Object.prototype.hasOwnProperty.call(req.body, 'artifact')) {
-    state.ipLocation = req.body.artifact;
+    serveIpLocation(req.body.artifact);
   } else {
-    state.ipLocation = buildIpLocationArtifact(req.body.domains ?? 1, req.body.subnet);
+    serveIpLocation(buildIpLocationArtifact(req.body.domains ?? 1, req.body.subnet));
   }
-  state.ipLocationVersion = (state.ipLocationVersion ?? 0) + 1;
-  res.json({ ok: true, ranges: state.ipLocation ? state.ipLocation.v4.length : 0 });
+  res.json({
+    ok: true,
+    ranges: state.ipLocation?.v4?.length ?? 0,
+    bytes: state.ipLocationBinary?.length ?? 0,
+  });
 });
 
 control.post('/reset', (req, res) => {
@@ -230,8 +382,7 @@ control.post('/reset', (req, res) => {
   state.tamperingBlocklist = [];
   state.latestRelease = { tag_name: 'v0.0.0', name: 'stub-release' };
   state.geolocation = {};
-  state.ipLocation = buildIpLocationArtifact(1);
-  state.ipLocationVersion = (state.ipLocationVersion ?? 0) + 1;
+  serveIpLocation(buildIpLocationArtifact(1));
   res.json({ ok: true });
 });
 
