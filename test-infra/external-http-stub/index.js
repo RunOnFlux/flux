@@ -23,6 +23,14 @@ const GEO_FILLER_START = 16 * 2 ** 24;
 const GEO_FILLER_END = GEO_FILLER_START + GEO_FILLER_ROWS - 1;
 const GEO_FILLER_ORGS = ['harness:filler-0', 'harness:filler-1'];
 
+// The artifact's country and region vocabularies, index-aligned: regions[k] is
+// a region OF countries[k]. The split gives organisation k country k, so the
+// region it may carry is the one belonging to that same country - a row whose
+// region contradicts its country would describe a geography no real build
+// publishes.
+const GEO_COUNTRIES = ['DE', 'FR', 'NL', 'FI', 'BH'];
+const GEO_REGIONS = ['DE-HE', 'FR-IDF', 'NL-NH', 'FI-18', 'BH-13'];
+
 let fillerBytesCache = null;
 
 /**
@@ -61,6 +69,39 @@ function nextGenerated() {
 }
 
 /**
+ * Which region each organisation's addresses carry.
+ *
+ * Organisation k takes GEO_REGIONS[k % GEO_REGIONS.length] - the region of the
+ * country the split already gives it - EXCEPT the last organisation, which
+ * carries none. A regioned fleet therefore holds both nodes whose region the
+ * table proves and nodes whose region it does not carry, which is what the
+ * region-pin semantics need on both sides: a pin is satisfied only by a proven
+ * region, and a region deny catches only a proven region.
+ *
+ * Without regions every organisation carries none, which is the artifact every
+ * other suite sees.
+ * @param {number} domains How many organisations the fleet is split across
+ * @param {boolean} withRegions Whether to assign regions at all
+ * @returns {{table: string[], assigned: object, unassigned: string[]}}
+ */
+function regionAssignment(domains, withRegions) {
+  const orgCount = Math.max(domains, 1);
+  const assigned = {};
+  for (let org = 0; org < orgCount; org += 1) {
+    assigned[org] = withRegions && org !== orgCount - 1
+      ? GEO_REGIONS[org % GEO_REGIONS.length]
+      : null;
+  }
+  const taken = new Set(Object.values(assigned).filter((region) => region !== null));
+  return {
+    table: [...GEO_REGIONS],
+    assigned,
+    // regions the vocabulary publishes that no address in this artifact claims
+    unassigned: GEO_REGIONS.filter((region) => !taken.has(region)),
+  };
+}
+
+/**
  * An iplocation artifact for the harness range. The same rows feed both served
  * representations: this object is what /iplocation.json serves, and
  * encodeGeoTable turns it into the format-2 /iplocation.bin.gz.
@@ -76,25 +117,38 @@ function nextGenerated() {
  * puts the whole fleet in one bucket; interleaving is what actually splits it.
  * Everything outside that /24 stays in one organisation, so the artifact is a
  * few hundred ranges rather than a hundred thousand.
+ *
+ * `withRegions` additionally gives every row the region its organisation
+ * carries (see regionAssignment), as the optional fifth row element. Without
+ * it the rows stay four elements long and no row claims a region, so both
+ * representations are byte-identical to what a caller that never asks for
+ * regions has always been served.
  * @param {number} domains How many organisations to split across
  * @param {string} [subnet] Dotted /24 prefix to split, e.g. '198.18.5'
+ * @param {boolean} [withRegions] Whether rows carry a region
  * @returns {object} artifact in format 1
  */
-function buildIpLocationArtifact(domains, subnet) {
+function buildIpLocationArtifact(domains, subnet, withRegions = false) {
   const orgs = Array.from({ length: Math.max(domains, 1) }, (unused, i) => `harness:org-${i}`);
-  const countries = ['DE', 'FR', 'NL', 'FI', 'BH'];
+  const countries = GEO_COUNTRIES;
+  const { assigned } = regionAssignment(domains, withRegions);
+  // a row is [start, end, orgIdx, ccIdx] and, once regions are asked for,
+  // [start, end, orgIdx, ccIdx, regionIdx] with null for "no region"
+  const row = (start, end, org, cc) => (withRegions
+    ? [start, end, org, cc, assigned[org] === null ? null : GEO_REGIONS.indexOf(assigned[org])]
+    : [start, end, org, cc]);
   const v4 = [];
   if (domains <= 1 || !subnet) {
-    v4.push([HARNESS_NET_START, HARNESS_NET_END, 0, 0]);
+    v4.push(row(HARNESS_NET_START, HARNESS_NET_END, 0, 0));
   } else {
     const [a, b, c] = subnet.split('.').map(Number);
     const base = (a * 2 ** 24) + (b * 2 ** 16) + (c * 2 ** 8);
-    if (base > HARNESS_NET_START) v4.push([HARNESS_NET_START, base - 1, 0, 0]);
+    if (base > HARNESS_NET_START) v4.push(row(HARNESS_NET_START, base - 1, 0, 0));
     for (let octet = 0; octet < 256; octet += 1) {
       const org = octet % domains;
-      v4.push([base + octet, base + octet, org, org % countries.length]);
+      v4.push(row(base + octet, base + octet, org, org % countries.length));
     }
-    if (base + 255 < HARNESS_NET_END) v4.push([base + 256, HARNESS_NET_END, 0, 0]);
+    if (base + 255 < HARNESS_NET_END) v4.push(row(base + 256, HARNESS_NET_END, 0, 0));
   }
   return {
     format: 1,
@@ -105,9 +159,9 @@ function buildIpLocationArtifact(domains, subnet) {
       DE: 'EU', FR: 'EU', NL: 'EU', FI: 'EU', BH: 'AS',
     },
     orgs,
-    // the vocabulary a real build publishes; no harness range claims one, so
-    // every row's region stays "none" in both representations
-    regions: ['DE-HE', 'FR-IDF', 'NL-NH', 'FI-18', 'BH-13'],
+    // the vocabulary a real build publishes; which of them any row claims is
+    // regionAssignment's business
+    regions: GEO_REGIONS,
     v4,
     v6: [],
   };
@@ -328,7 +382,7 @@ app.get('/json/:ip', (req, res) => {
 
 // Geolocation: stats.runonflux.io format (fallback)
 app.get('/fluxlocation/:ip', (req, res) => {
-  const ip = req.params.ip;
+  const { ip } = req.params;
   const custom = state.geolocation[ip];
   const geo = { ...defaultGeoResponse(ip), ...custom };
   res.json({
@@ -397,18 +451,26 @@ control.delete('/geolocation/:ip', (req, res) => {
 
 control.post('/iplocation', (req, res) => {
   // { domains: n } serves a generated artifact splitting each /24 n ways;
+  // adding { regions: true } gives each split address the region of its
+  // organisation, the last organisation carrying none (see regionAssignment) -
+  // omit it and the artifact carries no region at all, exactly as before.
   // { artifact: {...} } serves a caller-supplied one (malformed included, to
   // exercise reject-and-keep); { artifact: null } serves a 404 (tableless).
   // Whichever it is, both /iplocation.json and /iplocation.bin.gz follow it.
+  let regions = null; // a caller-supplied artifact has no assignment to report
   if (Object.prototype.hasOwnProperty.call(req.body, 'artifact')) {
     serveIpLocation(req.body.artifact);
   } else {
-    serveIpLocation(buildIpLocationArtifact(req.body.domains ?? 1, req.body.subnet));
+    const domains = req.body.domains ?? 1;
+    const withRegions = req.body.regions === true;
+    serveIpLocation(buildIpLocationArtifact(domains, req.body.subnet, withRegions));
+    regions = regionAssignment(domains, withRegions);
   }
   res.json({
     ok: true,
     ranges: state.ipLocation?.v4?.length ?? 0,
     bytes: state.ipLocationBinary?.length ?? 0,
+    regions,
   });
 });
 
