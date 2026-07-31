@@ -617,7 +617,10 @@ async function placementFeasibilityAPI(req, res) {
     const response = messageHelper.createDataMessage(await placementAdvice(req.body ?? {}));
     res.json(response);
   } catch (error) {
-    log.error(error);
+    // rejected input and unavailable data are both ordinary answers on an
+    // unauthenticated endpoint - a stack per bad request would let anyone
+    // fill the error log
+    log.warn(`placementFeasibilityAPI - ${error.message}`);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
     if (error.statusCode) res.status(error.statusCode);
     res.json(errorResponse);
@@ -712,7 +715,7 @@ async function placementLocationsAPI(req, res) {
     const response = messageHelper.createDataMessage(await placementLocations());
     res.json(response);
   } catch (error) {
-    log.error(error);
+    log.warn(`placementLocationsAPI - ${error.message}`);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
     if (error.statusCode) res.status(error.statusCode);
     res.json(errorResponse);
