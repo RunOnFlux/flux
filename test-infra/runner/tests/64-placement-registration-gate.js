@@ -77,11 +77,12 @@ describe('placement gate at registration and the advice endpoint', function () {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ domains: 3, subnet: getSubnetConfig().base }),
     });
-    // A four-node mesh settles at three peers per node, but the direction
-    // split oscillates: mutual connections are de-duplicated (close code 4001),
-    // so one side becomes inbound and outbound never reaches N-1. These are the
-    // counts the mesh actually reaches, measured, not the ten-node defaults.
-    await bootAndPeer(env, { minOutbound: 2, minInbound: 1 });
+    // The deterministic ring has node i dial i+1..i+minOutgoing, and mutual
+    // pairs are de-duplicated, so in a four-node fleet node 0 settles at one
+    // outbound and two inbound - the split is an artefact of the ring size, not
+    // something this suite depends on. It needs a peered, healthy node to ask
+    // questions of, so it waits for one connection in each direction.
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     // the repotag must exist in the harness registry: registration verifies it
     // before it ever reaches the placement gate, and a Docker Hub tag has
     // nowhere to resolve from inside the fleet's internal network
