@@ -6,31 +6,54 @@
 // store's artifact contract exactly: same registry key, same GridFS bucket and
 // record shape (policyArtifactRepository, shared verbatim), same conditional
 // requests, and the same rejection rule - bytes the reader throws on are never
-// cached and never displace a good stored copy. The store will restore the
-// cache this module populated; no node refetches across the transition.
+// cached and never displace a good stored copy. The policy store will restore
+// the cache this module populated; no node refetches across the transition.
 //
 // AT REBASE: delete this module and its serviceManager start call, and wire
-//   policyStore.onArtifact('ipLocationTable', (bytes) => ipLocationTable.setArtifact(bytes));
-// beside policyStore.startSync() instead.
+//   policyStore.onArtifact('ipLocationTable', (bytes) => ipLocationStore.setArtifact(bytes));
+// beside policyStore.startSync() instead. The rows live in mongo and the ingest
+// marker names the baseline they came from, so their boot restore only
+// re-ingests when the artifact's generated timestamp differs from the marker's.
 
 const config = require('config');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
+const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const policyArtifactRepository = require('../appDatabase/policyArtifactRepository');
-const ipLocationTable = require('./ipLocationTable');
+const ipLocationStore = require('./ipLocationStore');
 
 const ARTIFACT_NAME = 'ipLocationTable'; // registry key, shared with policyStore
-const ARTIFACT_FILE = 'iplocation.json';
+const ARTIFACT_FILE = 'iplocation.bin.gz';
 const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const RETRY_INTERVAL_MS = 10 * 60 * 1000; // only while the node holds no table at all
 const MAX_RETRY_ATTEMPTS = 5; // 10m, 20m, 40m, 80m, 160m - then the daily refresh
-const FETCH_TIMEOUT_MS = 120 * 1000; // 8.5 MB over slow uplinks; never gates boot
+const FETCH_TIMEOUT_MS = 120 * 1000; // 4.2 MB over slow uplinks; never gates boot
 
 let etag = null;
 let refreshInterval = null;
 let retryTimer = null;
 let retryAttempt = 0;
 let started = false;
+let nodeLocationPass = null;
+
+/**
+ * Bring the per-node location view in line with the current node list. Several
+ * paths want this after they change something, and a single pass at a time is
+ * enough for all of them - a second concurrent pass would look up exactly the
+ * addresses the first is already writing.
+ * @returns {Promise<void>}
+ */
+function refreshNodeLocations() {
+  if (nodeLocationPass) return nodeLocationPass;
+  nodeLocationPass = fluxCommunicationUtils.deterministicFluxList()
+    .then((nodeList) => ipLocationStore.refreshNodeLocations(nodeList))
+    .then(({ refreshed, dropped }) => {
+      if (refreshed || dropped) log.info(`ipLocationSync - node locations refreshed: ${refreshed} written, ${dropped} dropped`);
+    })
+    .catch((error) => log.warn(`ipLocationSync - node location refresh failed: ${error.message}`))
+    .finally(() => { nodeLocationPass = null; });
+  return nodeLocationPass;
+}
 
 /**
  * Fetch the artifact if it changed, install it, and cache it. A malformed
@@ -55,7 +78,7 @@ async function refresh() {
     const served = (res.headers && (res.headers.etag ?? res.headers.ETag)) ?? null;
     try {
       // before the cache write, so a malformed artifact never displaces a good stored copy
-      ipLocationTable.setArtifact(bytes);
+      await ipLocationStore.setArtifact(bytes);
     } catch (error) {
       // Remember the etag of bytes this build cannot read, so the next attempt
       // is a 304 rather than another full download of the same broken
@@ -67,6 +90,8 @@ async function refresh() {
     await policyArtifactRepository.writeArtifactBytes(ARTIFACT_NAME, bytes, etag)
       .catch((error) => log.warn(`ipLocationSync - failed to cache artifact: ${error.message}`));
     log.info('ipLocationSync - iplocation table refreshed');
+    // a new baseline invalidates every node location document
+    refreshNodeLocations();
     return true;
   } catch (error) {
     log.warn(`ipLocationSync - failed to refresh from ${url}, keeping current table: ${error.message}`);
@@ -83,7 +108,11 @@ async function refresh() {
 function scheduleRefresh() {
   refresh()
     .then((installed) => {
-      if (installed || ipLocationTable.hasTable()) {
+      // The node list drifts while the table does not, so a 304 still leaves
+      // nodes that joined since the last pass without a location document.
+      // An install has already asked for the pass this would repeat.
+      if (!installed) refreshNodeLocations();
+      if (installed || ipLocationStore.status().ready) {
         retryAttempt = 0;
         return;
       }
@@ -105,32 +134,46 @@ function scheduleRefresh() {
 }
 
 /**
- * Restore the last-good artifact from GridFS, then refresh in the background
- * and daily thereafter. Placement needs no table to run - it degrades to
- * status-quo /16 arithmetic - so nothing here ever gates boot. Idempotent.
- * Call after mongo is up.
+ * Adopt the stored baseline - or restore the last-good artifact from GridFS -
+ * then refresh in the background and daily thereafter. Placement needs no table
+ * to run - it degrades to status-quo /16 arithmetic - so nothing here ever
+ * gates boot. Idempotent. Call after mongo is up.
  */
 async function startSync() {
   if (started) return;
   started = true;
-  // The cache restore is best-effort: a database that is briefly unavailable
-  // at this moment must not cost this process its table for the rest of its
-  // life, so a failure here still leaves the fetch and the refresh loop armed.
+  // The restore is best-effort: a database that is briefly unavailable at this
+  // moment must not cost this process its table for the rest of its life, so a
+  // failure here still leaves the fetch and the refresh loop armed.
   try {
+    const adopted = await ipLocationStore.adoptPersistedStatus();
     await policyArtifactRepository.sweepOrphanedArtifacts(ARTIFACT_NAME);
     const record = await policyArtifactRepository.getArtifactRecord(ARTIFACT_NAME);
-    const bytes = record ? await policyArtifactRepository.readArtifactBytes(record.fileId) : null;
-    if (bytes) {
-      try {
-        ipLocationTable.setArtifact(bytes);
-        ({ etag } = record);
-        log.info('ipLocationSync - iplocation table restored from cache');
-      } catch (error) {
-        // A stored copy this build cannot read (a downgrade, a corrupt write)
-        // must not leave the next refresh answering 304 for bytes we are not
-        // actually holding - drop the etag so the refetch is unconditional.
-        etag = null;
-        log.error(`ipLocationSync - stored iplocation table rejected, will refetch: ${error.message}`);
+    if (adopted) {
+      // The rows are already in mongo under the marker's baseline; re-ingesting
+      // the same two million of them to learn what the marker already says buys
+      // nothing. The etag still comes from the record so the daily refresh is a
+      // conditional request rather than a full download.
+      etag = record?.etag ?? null;
+      refreshNodeLocations();
+    } else {
+      const bytes = record ? await policyArtifactRepository.readArtifactBytes(record.fileId) : null;
+      if (bytes) {
+        try {
+          await ipLocationStore.setArtifact(bytes);
+          ({ etag } = record);
+          log.info('ipLocationSync - iplocation table restored from cache');
+          refreshNodeLocations();
+        } catch (error) {
+          // A stored copy this build cannot read must not leave the next
+          // refresh answering 304 for bytes we are not actually holding - drop
+          // the etag so the refetch is unconditional. This is also the upgrade
+          // path: a node that cached the previous JSON artifact holds bytes
+          // whose magic this reader rejects, and the unconditional refetch
+          // below is what brings it the binary one.
+          etag = null;
+          log.error(`ipLocationSync - stored iplocation table rejected, will refetch: ${error.message}`);
+        }
       }
     }
   } catch (error) {

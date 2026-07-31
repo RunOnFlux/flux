@@ -479,18 +479,21 @@ async function trySpawningGlobalApplication() {
     // exists: this domain is refused once it holds its share of the instances,
     // computed over the app's eligible candidate set - never refused outright.
     let placementShare = null;
+    let placementDomainOf = null;
     let myDomain = null;
     if (syncthingApp && !pinnedHere) {
-      placementShare = await placementFeasibility.placementFeasibility(appSpecifications, minInstances);
-      myDomain = placementFeasibility.faultDomain(localIp);
+      const computation = await placementFeasibility.placementComputation(appSpecifications, minInstances);
+      placementShare = computation.feasibility;
+      placementDomainOf = computation.domainOf;
+      myDomain = placementDomainOf(localIp);
       // No `placeable` gate here, deliberately. This node reached the placement
       // check having passed its own geolocation filter, so it is itself an
       // eligible candidate - a table that resolves zero candidates network-wide
       // is contradicting the node's own location rather than proving the app
       // unplaceable, and refusing on that would strand the app everywhere.
       // Install-time geolocation checks remain authoritative.
-      const heldInMine = placementFeasibility.countHeldInDomain(runningAppList, myDomain)
-        + placementFeasibility.countHeldInDomain(installingAppList, myDomain);
+      const heldInMine = await placementFeasibility.countHeldInDomain(runningAppList, myDomain, placementDomainOf)
+        + await placementFeasibility.countHeldInDomain(installingAppList, myDomain, placementDomainOf);
       if (heldInMine >= placementShare.maxPerDomain) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already holds ${heldInMine} of its ${placementShare.maxPerDomain}-instance share (${placementShare.domainCount} eligible domains)`);
         return shortDelayTime;
@@ -728,18 +731,20 @@ async function trySpawningGlobalApplication() {
     }
 
     if (syncthingApp && !pinnedHere && placementShare) {
-      // Re-check the domain share against the propagated lists. Running
-      // instances consume the share outright; among simultaneous installing
-      // claimants the earliest broadcasts win the remainder - the
+      // Re-check the domain share against the propagated lists, keyed by the
+      // same computation that produced the share - a fresher view of the
+      // network would move nodes between domains the share was never computed
+      // for. Running instances consume the share outright; among simultaneous
+      // installing claimants the earliest broadcasts win the remainder - the
       // generalisation of the old oldest-wins resolver to shares above one.
-      const runningInMine = placementFeasibility.countHeldInDomain(runningAppList, myDomain);
+      const runningInMine = await placementFeasibility.countHeldInDomain(runningAppList, myDomain, placementDomainOf);
       const remainingShare = placementShare.maxPerDomain - runningInMine;
       if (remainingShare <= 0) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already runs ${runningInMine} of its ${placementShare.maxPerDomain}-instance share`);
         return shortDelayTime;
       }
       const claimantsInMine = installingAppList
-        .filter((location) => placementFeasibility.faultDomain(location.ip) === myDomain)
+        .filter((location) => placementDomainOf(location.ip) === myDomain)
         .sort((a, b) => (a.broadcastedAt ?? Number.MAX_SAFE_INTEGER) - (b.broadcastedAt ?? Number.MAX_SAFE_INTEGER));
       const myIndex = claimantsInMine.findIndex((location) => socketAddressesMatch(location.ip, localSocketAddr));
       const claimantsAhead = myIndex === -1 ? claimantsInMine.length : myIndex;

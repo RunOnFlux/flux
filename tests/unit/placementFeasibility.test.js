@@ -2,34 +2,69 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
-const ipLocationTable = require('../../ZelBack/src/services/appPlacement/ipLocationTable');
 const cidrUtils = require('../../ZelBack/src/services/utils/cidrUtils');
 
 function v4Int(ip) {
   return Number(cidrUtils.parseIp(ip).value);
 }
 
-// Bahrain block + a Bulgarian block in the same /16, Hetzner's /15, and a
-// German org - enough geography for every eligibility direction.
-function fixtureArtifact() {
+const GENERATED = '2026-07-30T00:00:00Z';
+const CONTINENTS = {
+  BH: 'AS', BG: 'EU', FI: 'EU', DE: 'EU',
+};
+
+// Bahrain block + a Bulgarian block in the same /16, Hetzner's /15, a German
+// org, and a German block with no organisation - enough geography for every
+// eligibility direction and every rung of the fault-domain ladder.
+const RANGES = [
+  {
+    start: '10.10.0.0', end: '10.10.255.255', o: null, c: 'DE',
+  },
+  {
+    start: '65.108.0.0', end: '65.109.255.255', o: 'hetzner', c: 'FI',
+  },
+  {
+    start: '80.95.16.0', end: '80.95.19.255', o: 'bg-isp', c: 'BG',
+  },
+  {
+    start: '80.95.208.0', end: '80.95.223.255', o: 'etisalcom', c: 'BH',
+  },
+  {
+    start: '91.20.0.0', end: '91.20.255.255', o: 'de-isp', c: 'DE',
+  },
+];
+
+function rangeFor(ip) {
+  const value = v4Int(ip);
+  return RANGES.find((range) => v4Int(range.start) <= value && value <= v4Int(range.end)) ?? null;
+}
+
+/** What ipLocationStore.lookup resolves for an address. */
+function storeLookup(ip) {
+  const range = rangeFor(ip);
+  if (!range) return null;
   return {
-    format: 1,
-    generated: '2026-07-30T00:00:00Z',
-    sources: { ripencc: 'test' },
-    countries: ['BH', 'BG', 'FI', 'DE'],
-    continents: {
-      BH: 'AS', BG: 'EU', FI: 'EU', DE: 'EU',
-    },
-    orgs: ['ripencc:etisalcom', 'ripencc:bg-isp', 'ripencc:hetzner', 'ripencc:de-isp'],
-    regions: [],
-    v4: [
-      [v4Int('10.10.0.0'), v4Int('10.10.255.255'), null, 3], // DE block with no org id
-      [v4Int('65.108.0.0'), v4Int('65.109.255.255'), 2, 2],
-      [v4Int('80.95.16.0'), v4Int('80.95.19.255'), 1, 1],
-      [v4Int('80.95.208.0'), v4Int('80.95.223.255'), 0, 0],
-      [v4Int('91.20.0.0'), v4Int('91.20.255.255'), 3, 3],
-    ],
-    v6: [],
+    org: range.o,
+    // no allocation means no block: the /16 rung applies instead
+    block: range.o === null ? null : { start: v4Int(range.start), end: v4Int(range.end) },
+    countryCode: range.c,
+    continentCode: CONTINENTS[range.c],
+    region: null,
+  };
+}
+
+/** The nodelocations document the store's refresh pass writes for an address. */
+function locationDoc(ip) {
+  const range = rangeFor(ip);
+  return {
+    _id: ip,
+    o: range?.o ?? null,
+    bs: range?.o ? v4Int(range.start) : null,
+    be: range?.o ? v4Int(range.end) : null,
+    c: range?.c ?? null,
+    n: range ? CONTINENTS[range.c] : null,
+    r: null,
+    g: GENERATED,
   };
 }
 
@@ -47,58 +82,118 @@ const deNodes = [
   { ip: '91.20.3.3:16127', tier: 'NIMBUS' },
   { ip: '10.10.4.4:16127', tier: 'CUMULUS' },
 ];
+const unresolvedNode = { ip: '203.0.113.7:16127', tier: 'CUMULUS' };
+
+// every address any test puts in the node list; the view carries a document per
+// node, exactly as the store's refresh pass leaves it
+const VIEWED_IPS = [...bhNodes, bgNode, ...fiNodes, ...deNodes, unresolvedNode]
+  .map((node) => node.ip.split(':')[0]);
 
 describe('placementFeasibility tests', () => {
   let placementFeasibility;
   let deterministicFluxListStub;
   let collateralStub;
   let totalHWStub;
+  let storeStub;
   let logStub;
 
+  // The node holds the fixture baseline: the status is ready and the node
+  // location view carries a document for every fixture address.
+  function useTable() {
+    storeStub.status.returns({ ready: true, generated: GENERATED, rowCount: RANGES.length });
+    storeStub.continentForCountry.callsFake((country) => CONTINENTS[country] ?? null);
+    storeStub.getNodeLocations.resolves(VIEWED_IPS.map(locationDoc));
+  }
+
   beforeEach(() => {
-    ipLocationTable.clear();
     deterministicFluxListStub = sinon.stub().resolves([]);
     collateralStub = sinon.stub().resolves({ txhash: 'aa'.repeat(32), txindex: 0 });
     totalHWStub = sinon.stub().returns({ cpu: 1, ram: 1000, hdd: 10 });
     logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
+    storeStub = {
+      status: sinon.stub().returns({ ready: false, generated: null, rowCount: 0 }),
+      continentForCountry: sinon.stub().returns(null),
+      getNodeLocations: sinon.stub().resolves([]),
+      lookup: sinon.stub().callsFake(async (ip) => storeLookup(ip)),
+    };
     placementFeasibility = proxyquire('../../ZelBack/src/services/appPlacement/placementFeasibility', {
       '../fluxCommunicationUtils': { deterministicFluxList: deterministicFluxListStub },
       '../generalService': { obtainNodeCollateralInformation: collateralStub },
       '../appRequirements/hwRequirements': { totalAppHWRequirements: totalHWStub },
+      './ipLocationStore': storeStub,
       '../../lib/log': logStub,
     });
   });
 
-  after(() => ipLocationTable.clear());
-
   describe('faultDomain', () => {
-    it('keys on organisation when the table resolves one', () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
-      expect(placementFeasibility.faultDomain('65.108.1.1')).to.equal('org:ripencc:hetzner');
-      expect(placementFeasibility.faultDomain('65.109.2.2:16127')).to.equal('org:ripencc:hetzner');
+    it('keys on organisation when the table resolves one', async () => {
+      expect(await placementFeasibility.faultDomain('65.108.1.1')).to.equal('org:hetzner');
+      expect(await placementFeasibility.faultDomain('65.109.2.2:16127')).to.equal('org:hetzner');
     });
 
-    it('keys on the allocation block when the range has no organisation', () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
-      expect(placementFeasibility.faultDomain('10.10.4.4')).to.equal('blk:10.10.0.0-10.10.255.255');
+    it('falls to /16 when the covering range has no organisation - no allocation, no block rung', async () => {
+      expect(await placementFeasibility.faultDomain('10.10.4.4')).to.equal('net:10.10.0.0/16');
     });
 
-    it('falls back to /16 arithmetic without a table or on a gap', () => {
-      expect(placementFeasibility.faultDomain('80.95.213.209:16127')).to.equal('net:80.95.0.0/16');
-      ipLocationTable.setArtifact(fixtureArtifact());
-      expect(placementFeasibility.faultDomain('203.0.113.7')).to.equal('net:203.0.0.0/16');
+    it('falls back to /16 arithmetic on a gap in the table', async () => {
+      expect(await placementFeasibility.faultDomain('203.0.113.7')).to.equal('net:203.0.0.0/16');
     });
 
-    it('separates the false /16 merges the old key made', () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+    it('separates the false /16 merges the old key made', async () => {
       // same /16, different countries and orgs - distinct domains now
-      expect(placementFeasibility.faultDomain('80.95.213.209'))
-        .to.not.equal(placementFeasibility.faultDomain('80.95.16.10'));
+      expect(await placementFeasibility.faultDomain('80.95.213.209'))
+        .to.not.equal(await placementFeasibility.faultDomain('80.95.16.10'));
     });
 
-    it('returns null on unparseable input', () => {
-      expect(placementFeasibility.faultDomain('garbage')).to.equal(null);
-      expect(placementFeasibility.faultDomain(null)).to.equal(null);
+    it('returns null on unparseable input', async () => {
+      expect(await placementFeasibility.faultDomain('garbage')).to.equal(null);
+      expect(await placementFeasibility.faultDomain(null)).to.equal(null);
+    });
+
+    // the degrade contract: a store that cannot be read is the same placement
+    // decision as no table, never the absence of a domain
+    it('falls back to /16 when the store cannot be read', async () => {
+      const unavailable = new Error('connection reset');
+      unavailable.code = 'IPLOCATION_STORE_UNAVAILABLE';
+      storeStub.lookup.rejects(unavailable);
+      expect(await placementFeasibility.faultDomain('65.108.1.1')).to.equal('net:65.108.0.0/16');
+    });
+  });
+
+  describe('the computation domain function', () => {
+    async function domainOf(address, nodes = [...bhNodes, ...deNodes, unresolvedNode]) {
+      useTable();
+      deterministicFluxListStub.resolves(nodes);
+      const { domainOf: fromSnapshot } = await placementFeasibility.placementComputation({ instances: 1 }, 1);
+      return fromSnapshot(address);
+    }
+
+    it('keys on the organisation the view carries', async () => {
+      expect(await domainOf('80.95.213.209:16127')).to.equal('org:etisalcom');
+    });
+
+    it('keys on the allocation block when a document carries one without an organisation', async () => {
+      useTable();
+      storeStub.getNodeLocations.resolves([{
+        _id: '80.95.213.209', o: null, bs: v4Int('80.95.208.0'), be: v4Int('80.95.223.255'), c: 'BH', n: 'AS', r: null, g: GENERATED,
+      }]);
+      deterministicFluxListStub.resolves([...bhNodes]);
+      const { domainOf: fromSnapshot } = await placementFeasibility.placementComputation({ instances: 1 }, 1);
+      expect(fromSnapshot('80.95.213.209:16127')).to.equal(`blk:${v4Int('80.95.208.0')}-${v4Int('80.95.223.255')}`);
+    });
+
+    it('falls to /16 for a document with neither, and for an address the view does not carry', async () => {
+      expect(await domainOf('10.10.4.4:16127')).to.equal('net:10.10.0.0/16');
+      expect(await domainOf('198.51.100.9:16127')).to.equal('net:198.51.0.0/16');
+    });
+
+    it('reads the view once, however many addresses are keyed', async () => {
+      useTable();
+      deterministicFluxListStub.resolves([...bhNodes, ...deNodes]);
+      const { domainOf: fromSnapshot } = await placementFeasibility.placementComputation({ instances: 1 }, 1);
+      [...bhNodes, ...deNodes].forEach((node) => fromSnapshot(node.ip));
+      expect(storeStub.getNodeLocations.callCount).to.equal(1);
+      expect(storeStub.lookup.called).to.equal(false);
     });
   });
 
@@ -160,7 +255,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('normalises structured entries, upcasing and prefixing', () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       const { normalized } = placementFeasibility.normalizeGeolocation([
         { continent: 'EU' },
         { continent: 'eu', country: 'fi' },
@@ -170,7 +265,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('derives the continent from the table and rejects contradictions', () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       expect(placementFeasibility.normalizeGeolocation([{ country: 'FI' }]).normalized).to.deep.equal(['acEU_FI']);
       expect(() => placementFeasibility.normalizeGeolocation([{ continent: 'AS', country: 'FI' }]))
         .to.throw('is in EU, not AS');
@@ -187,7 +282,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('coarsens structured region entries to their country and flags them', () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       const { normalized, coarsened } = placementFeasibility.normalizeGeolocation([
         { country: 'FI', region: 'FI-18' },
         'acEU_FI_Uusimaa',
@@ -216,7 +311,7 @@ describe('placementFeasibility tests', () => {
 
   describe('placementFeasibility', () => {
     it('computes the Bahrain incident: one domain takes the whole instance count', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes]);
       const result = await placementFeasibility.placementFeasibility({ geolocation: ['acAS_BH'], instances: 3 });
       expect(result.candidateCount).to.equal(3);
@@ -224,19 +319,20 @@ describe('placementFeasibility tests', () => {
       expect(result.maxPerDomain).to.equal(3);
       expect(result.placeable).to.equal(true);
       expect(result.tableAvailable).to.equal(true);
+      expect(result.tableGenerated).to.equal(GENERATED);
     });
 
     it('keeps an unrestricted app spread across many domains', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes]);
       const result = await placementFeasibility.placementFeasibility({ geolocation: [], instances: 3 });
-      // etisalcom, bg-isp, hetzner, de-isp, and the org-less DE block
+      // etisalcom, bg-isp, hetzner, de-isp, and the org-less DE range on /16
       expect(result.domainCount).to.equal(5);
       expect(result.maxPerDomain).to.equal(1);
     });
 
     it('raises the share only as far as shallow domains require', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       // 3 BH candidates in one domain + 1 BG candidate in another; 3 instances
       // ceil(3/2)=2 but BG can only absorb 1, so the level settles at 2 anyway;
       // with 4 instances the level must reach 3
@@ -258,11 +354,26 @@ describe('placementFeasibility tests', () => {
       expect(result.maxPerDomain).to.equal(1);
     });
 
+    // The degrade contract, at the level that matters most: an unreadable store
+    // must land where "no table" lands, never on a proof of impossibility.
+    it('a store that cannot be read never reads as zero candidates', async () => {
+      useTable();
+      const unavailable = new Error('MongoServerSelectionError');
+      unavailable.code = 'IPLOCATION_STORE_UNAVAILABLE';
+      storeStub.getNodeLocations.rejects(unavailable);
+      deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes]);
+      const result = await placementFeasibility.placementFeasibility({ geolocation: ['acAS_BH'], instances: 3 });
+      expect(result.candidateCount).to.equal(8);
+      expect(result.domainCount).to.equal(5);
+      expect(result.placeable).to.equal(true);
+      expect(result.tableAvailable).to.equal(false);
+      expect(result.tableGenerated).to.equal(null);
+    });
 
     it('counts only the pinned pool when the spec carries a nodes list', async () => {
       // a nodes list is a closed pool - counting the whole network would
       // compute a share against fault domains the app can never use
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes]);
       const result = await placementFeasibility.placementFeasibility({
         geolocation: [],
@@ -276,7 +387,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('matches a pinned pool by collateral outpoint as well as socket address', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([
         { ...bhNodes[0], txhash: 'ab'.repeat(32), outidx: 0 },
         { ...fiNodes[0], txhash: 'cd'.repeat(32), outidx: 1 },
@@ -290,28 +401,49 @@ describe('placementFeasibility tests', () => {
     });
 
     it('reports unplaceable when no candidate matches', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...fiNodes, ...deNodes]);
       const result = await placementFeasibility.placementFeasibility({ geolocation: ['acAS_BH'], instances: 3 });
       expect(result.candidateCount).to.equal(0);
       expect(result.domainCount).to.equal(0);
       expect(result.placeable).to.equal(false);
     });
+
+    it('counts a node the view does not carry - a lagging view never excludes', async () => {
+      useTable();
+      storeStub.getNodeLocations.resolves(VIEWED_IPS.filter((ip) => !ip.startsWith('80.95.2')).map(locationDoc));
+      deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
+      const result = await placementFeasibility.placementFeasibility({ geolocation: ['acAS_BH'], instances: 3 });
+      // the three Bahrain nodes have no document yet, so their location cannot
+      // be disproved: they count, on /16 domains
+      expect(result.candidateCount).to.equal(3);
+      expect(result.domainCount).to.equal(1);
+    });
   });
 
   describe('countHeldInDomain', () => {
-    it('counts locations by fault domain from socket addresses', () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
-      const locations = [
-        { ip: '80.95.215.211:16167' },
-        { ip: '80.95.213.209:16127' },
-        { ip: '80.95.16.10:16127' },
-        { ip: '65.108.1.1:16127' },
-      ];
-      const bhDomain = placementFeasibility.faultDomain('80.95.213.209');
-      expect(placementFeasibility.countHeldInDomain(locations, bhDomain)).to.equal(2);
-      expect(placementFeasibility.countHeldInDomain([], bhDomain)).to.equal(0);
-      expect(placementFeasibility.countHeldInDomain(locations, null)).to.equal(0);
+    const locations = [
+      { ip: '80.95.215.211:16167' },
+      { ip: '80.95.213.209:16127' },
+      { ip: '80.95.16.10:16127' },
+      { ip: '65.108.1.1:16127' },
+    ];
+
+    it('counts locations by fault domain from socket addresses', async () => {
+      const bhDomain = await placementFeasibility.faultDomain('80.95.213.209');
+      expect(await placementFeasibility.countHeldInDomain(locations, bhDomain)).to.equal(2);
+      expect(await placementFeasibility.countHeldInDomain([], bhDomain)).to.equal(0);
+      expect(await placementFeasibility.countHeldInDomain(locations, null)).to.equal(0);
+    });
+
+    it('keys from a computation snapshot when one is passed, without a lookup each', async () => {
+      useTable();
+      deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes]);
+      const { domainOf } = await placementFeasibility.placementComputation({ instances: 3 }, 3);
+      storeStub.lookup.resetHistory();
+      expect(await placementFeasibility.countHeldInDomain(locations, 'org:etisalcom', domainOf)).to.equal(2);
+      expect(await placementFeasibility.countHeldInDomain(locations, 'org:hetzner', domainOf)).to.equal(1);
+      expect(storeStub.lookup.called).to.equal(false);
     });
   });
 
@@ -337,7 +469,7 @@ describe('placementFeasibility tests', () => {
     };
 
     it('warns when a synced app spans fewer domains than instances and returns the feasibility', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
       const result = await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller');
       expect(result.domainCount).to.equal(1);
@@ -347,7 +479,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('rejects a spec with fewer eligible nodes than instances', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([bhNodes[0], ...fiNodes]);
       await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller').then(
         () => { throw new Error('expected rejection'); },
@@ -362,7 +494,7 @@ describe('placementFeasibility tests', () => {
       // zero is indistinguishable from the table mis-attributing that
       // geography, and install eligibility is decided by each node's own
       // ip-api self-report - not provable, so not refusable
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...fiNodes, ...deNodes]);
       const result = await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller');
       expect(result.candidateCount).to.equal(0);
@@ -370,7 +502,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('rejects an impossible non-synced spec too', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([bhNodes[0], ...fiNodes]);
       await placementFeasibility.checkPlacementFeasibility({
         name: 'plain', version: 7, instances: 3, geolocation: ['acAS_BH'], compose: [{ containerData: '/data' }],
@@ -381,7 +513,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('accepts non-synced and unconstrained placements without warning', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...bhNodes, ...fiNodes, ...deNodes, bgNode]);
       const nonSynced = await placementFeasibility.checkPlacementFeasibility({
         name: 'plain', version: 7, instances: 3, geolocation: ['acAS_BH'], compose: [{ containerData: '/data' }],
@@ -397,7 +529,7 @@ describe('placementFeasibility tests', () => {
     it('never gates an update that changes nothing placement-relevant', async () => {
       // renewals and cancellations are expire-only updates; an app that is
       // already infeasible must still be renewable and cancellable
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...fiNodes]);
       const previous = { ...syncedBahrainSpec, expire: 22000 };
       const cancellation = { ...syncedBahrainSpec, expire: 1 };
@@ -407,7 +539,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('gates an update that narrows placement', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([bhNodes[0], ...fiNodes]);
       const previous = { ...syncedBahrainSpec, geolocation: [] };
       await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller', previous).then(
@@ -447,7 +579,7 @@ describe('placementFeasibility tests', () => {
     }
 
     it('answers the deploy-form question for a constrained geography', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
       const response = await run({
         instances: 3,
@@ -463,7 +595,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('reports an unsatisfiable request', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([bhNodes[0]]);
       const response = await run({ instances: 3, geolocation: ['acAS_BH'] });
       expect(response.data.satisfiable).to.equal(false);
@@ -471,7 +603,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('treats a non-synced compose as unconstrained', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...bhNodes]);
       const response = await run({
         instances: 3,
@@ -494,7 +626,7 @@ describe('placementFeasibility tests', () => {
 
   describe('placementAdvice', () => {
     it('evaluates structured entries and echoes the normalised spec strings', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
       const advice = await placementFeasibility.placementAdvice({
         instances: 3,
@@ -510,12 +642,8 @@ describe('placementFeasibility tests', () => {
       expect(advice.coarsenedEntries).to.deep.equal([]);
     });
 
-
-
-
-
     it('accepts the v9 placement shape and echoes the normalised spec strings', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
       const advice = await placementFeasibility.placementAdvice({
         instances: 3,
@@ -578,11 +706,11 @@ describe('placementFeasibility tests', () => {
 
   describe('placementLocations', () => {
     it('builds the continent/country tree with domains and tier mixes', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
-      deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes, { ip: '203.0.113.7:16127', tier: 'CUMULUS' }]);
+      useTable();
+      deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes, unresolvedNode]);
       const locations = await placementFeasibility.placementLocations();
       expect(locations.tableAvailable).to.equal(true);
-      expect(locations.tableGenerated).to.equal('2026-07-30T00:00:00Z');
+      expect(locations.tableGenerated).to.equal(GENERATED);
       expect(locations.total).to.deep.equal({ nodes: 9, domains: 6 });
       expect(locations.unresolved).to.equal(1);
       expect(locations.continents.AS.countries.BH).to.deep.equal({ nodes: 3, domains: 1, tiers: { CUMULUS: 2, NIMBUS: 1 } });
@@ -590,6 +718,9 @@ describe('placementFeasibility tests', () => {
       expect(locations.continents.EU.domains).to.equal(4);
       expect(locations.continents.EU.countries.FI).to.deep.equal({ nodes: 2, domains: 1, tiers: { STRATUS: 2 } });
       expect(locations.continents.EU.countries.DE).to.deep.equal({ nodes: 2, domains: 2, tiers: { NIMBUS: 1, CUMULUS: 1 } });
+      // one pass over the view, not a lookup per node
+      expect(storeStub.getNodeLocations.callCount).to.equal(1);
+      expect(storeStub.lookup.called).to.equal(false);
     });
 
     it('is unavailable without a table - the tree is the product', async () => {
@@ -602,11 +733,21 @@ describe('placementFeasibility tests', () => {
         },
       );
     });
+
+    it('is unavailable when the view cannot be read', async () => {
+      useTable();
+      storeStub.getNodeLocations.rejects(new Error('MongoServerSelectionError'));
+      deterministicFluxListStub.resolves([...bhNodes]);
+      await placementFeasibility.placementLocations().then(
+        () => { throw new Error('expected rejection'); },
+        (error) => expect(error.statusCode).to.equal(503),
+      );
+    });
   });
 
   describe('unavailable data states', () => {
     it('an empty node list is missing data, never zero candidates', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([]);
       await placementFeasibility.placementFeasibility({ geolocation: [], instances: 3 }).then(
         () => { throw new Error('expected rejection'); },
@@ -615,7 +756,7 @@ describe('placementFeasibility tests', () => {
     });
 
     it('an empty node list never rejects a registration as impossible', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
+      useTable();
       deterministicFluxListStub.resolves([]);
       const result = await placementFeasibility.checkPlacementFeasibility({
         name: 'bootWindow', version: 7, instances: 3, geolocation: ['acAS_BH'], compose: [{ containerData: 'g:/data' }],

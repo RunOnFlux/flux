@@ -26,6 +26,11 @@
 // This module holds no fetch logic. The artifact arrives via setArtifact() from
 // whatever distribution layer feeds it; absence of a table is a valid state
 // every consumer must handle.
+//
+// Two things outlive the process alongside the rows: an ingest marker naming
+// the baseline the collection holds, so a boot adopts it instead of re-ingesting
+// the same two million rows, and the per-node view (nodelocations) placement
+// reads in one query rather than a lookup per node.
 
 const zlib = require('node:zlib');
 const util = require('node:util');
@@ -33,6 +38,7 @@ const config = require('config');
 const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
 const cidrUtils = require('../utils/cidrUtils');
+const { bareIp } = require('../utils/socketAddressUtils');
 
 const gunzip = util.promisify(zlib.gunzip);
 
@@ -52,11 +58,20 @@ const MAX_TOKEN_LENGTH = 64;
 // A u32 needs at most five LEB128 bytes; every field of a row is a u32.
 const MAX_VARINT_BYTES = 5;
 const STORE_UNAVAILABLE = 'IPLOCATION_STORE_UNAVAILABLE';
+// The marker shares policyDocuments with the artifact record, under its own id.
+const INGEST_MARKER_ID = 'ipLocationTableIngest';
+// A point lookup costs well under a millisecond; eight in flight fill a fleet's
+// worth of node locations in about a second without crowding the API's queries.
+const NODE_LOOKUP_CONCURRENCY = 8;
 
 const ipRangesCollection = config.database.local.collections.ipRanges;
 const ipRangesNextCollection = `${ipRangesCollection}_next`;
+const nodeLocationsCollection = config.database.local.collections.nodeLocations;
+const policyDocumentsCollection = config.database.local.collections.policyDocuments;
 
 let status = { ready: false, generated: null, rowCount: 0 };
+// country -> continent, from the header of whatever baseline this node holds
+let continentByCountry = new Map();
 let minimumRowCount = MIN_ROW_COUNT;
 
 /**
@@ -306,6 +321,33 @@ async function fillStagingCollection(buf, parsed, database) {
 }
 
 /**
+ * Record which baseline the live collection holds. Written after the swap, so
+ * a marker never names rows that are not there; a failure to write it costs one
+ * re-ingest on the next boot and nothing else, which is why it does not fail
+ * the ingest.
+ * @param {object} database Local apps database
+ * @param {object} parsed parseHeader() result
+ */
+async function writeIngestMarker(database, parsed) {
+  await dbHelper.findOneAndUpdateInDatabase(
+    database,
+    policyDocumentsCollection,
+    { _id: INGEST_MARKER_ID },
+    {
+      $set: {
+        generated: parsed.header.generated,
+        rowCount: parsed.rowCount,
+        // the header's country -> continent map, so a boot that adopts the
+        // stored table can answer continentForCountry without the artifact
+        continents: Object.fromEntries(parsed.continents),
+        ingestedAt: Date.now(),
+      },
+    },
+    { upsert: true },
+  ).catch((error) => log.warn(`ipLocationStore - could not record the ingest marker: ${error.message}`));
+}
+
+/**
  * Install a new baseline: validate the artifact end to end, build a fresh
  * collection, then swap it in with one rename. Throws - and leaves both the
  * live collection and the reported status exactly as they were - on a
@@ -334,8 +376,61 @@ async function setArtifact(bytes) {
   await database.renameCollection(ipRangesNextCollection, ipRangesCollection, { dropTarget: true });
 
   status = { ready: true, generated: parsed.header.generated, rowCount: parsed.rowCount };
+  continentByCountry = parsed.continents;
+  await writeIngestMarker(database, parsed);
   log.info(`ipLocationStore - baseline installed: ${parsed.rowCount} ranges, generated ${parsed.header.generated}`);
   return { generated: status.generated, rowCount: status.rowCount };
+}
+
+/**
+ * Adopt the baseline this node already holds. The rows survive a restart in
+ * mongo, so a boot that finds the marker is already serving the baseline it
+ * names - re-ingesting the same artifact would cost two million writes to
+ * arrive back exactly here. The marker is written only after the swap, and the
+ * swap is atomic, so nothing further needs verifying.
+ * @returns {Promise<boolean>} true when a stored ingest was adopted
+ */
+async function adoptPersistedStatus() {
+  const database = db();
+  if (!database) return false;
+  let marker;
+  try {
+    marker = await dbHelper.findOneInDatabase(database, policyDocumentsCollection, { _id: INGEST_MARKER_ID });
+  } catch (error) {
+    log.warn(`ipLocationStore - could not read the ingest marker: ${error.message}`);
+    return false;
+  }
+  if (!marker || typeof marker.generated !== 'string' || !marker.generated) return false;
+  status = { ready: true, generated: marker.generated, rowCount: marker.rowCount ?? 0 };
+  continentByCountry = new Map(Object.entries(marker.continents ?? {}));
+  log.info(`ipLocationStore - adopted the stored baseline: ${status.rowCount} ranges, generated ${status.generated}`);
+  return true;
+}
+
+/**
+ * Continent code for an ISO 3166-1 country code, from the header of the
+ * baseline this node holds.
+ * @param {string} countryCode ISO 3166-1 alpha-2 code
+ * @returns {string | null} null without a table, or when the country is unknown
+ */
+function continentForCountry(countryCode) {
+  if (!status.ready) return null;
+  return continentByCountry.get(countryCode) ?? null;
+}
+
+/**
+ * The whole per-node location view in one query - the read placement makes for
+ * every computation, in place of a lookup per node.
+ * @returns {Promise<Array<object>>}
+ */
+async function getNodeLocations() {
+  const database = db();
+  if (!database) throw unavailable('no database connection');
+  try {
+    return await dbHelper.findInDatabase(database, nodeLocationsCollection, {});
+  } catch (error) {
+    throw unavailable(error.message);
+  }
 }
 
 /**
@@ -381,6 +476,88 @@ async function lookup(ip) {
 }
 
 /**
+ * Bring the per-node view in line with the node list: documents derived from an
+ * older baseline are dropped whole, and every listed address without one is
+ * looked up and written. A lookup that fails leaves that node without a
+ * document, which reads downstream as an unresolved location - the /16 rung -
+ * so one failure never fails the pass.
+ * @param {Array<{ip: string}>} nodeList The deterministic node list
+ * @returns {Promise<{refreshed: number, dropped: number}>}
+ */
+async function refreshNodeLocations(nodeList) {
+  // without a baseline there is nothing to derive a location from, and the
+  // documents already held stay as they are
+  if (!status.ready) return { refreshed: 0, dropped: 0 };
+  const database = db();
+  if (!database) throw unavailable('no database connection');
+
+  let dropped = 0;
+  let held;
+  try {
+    const removal = await dbHelper.removeDocumentsFromCollection(
+      database,
+      nodeLocationsCollection,
+      { g: { $ne: status.generated } },
+    );
+    dropped = removal?.deletedCount ?? 0;
+    held = await dbHelper.findInDatabase(database, nodeLocationsCollection, {}, { projection: { _id: 1 } });
+  } catch (error) {
+    throw unavailable(error.message);
+  }
+
+  const known = new Set((held ?? []).map((doc) => doc._id));
+  const missing = [];
+  (nodeList ?? []).forEach((node) => {
+    const ip = bareIp(node?.ip);
+    if (!ip || known.has(ip)) return;
+    known.add(ip);
+    missing.push(ip);
+  });
+
+  let refreshed = 0;
+  let failure = null;
+  let cursor = 0;
+  const fill = async () => {
+    while (cursor < missing.length) {
+      const ip = missing[cursor];
+      cursor += 1;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const hit = await lookup(ip);
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.updateOneInDatabase(
+          database,
+          nodeLocationsCollection,
+          { _id: ip },
+          {
+            $set: {
+              o: hit?.org ?? null,
+              // no allocation means no block rung: the /16 rung applies instead
+              bs: hit?.block?.start ?? null,
+              be: hit?.block?.end ?? null,
+              c: hit?.countryCode ?? null,
+              n: hit?.continentCode ?? null,
+              r: hit?.region ?? null,
+              g: status.generated,
+            },
+          },
+          { upsert: true },
+        );
+        refreshed += 1;
+      } catch (error) {
+        failure = failure ?? error;
+      }
+    }
+  };
+  await Promise.all(Array.from(
+    { length: Math.min(NODE_LOOKUP_CONCURRENCY, missing.length) },
+    () => fill(),
+  ));
+  if (failure) log.warn(`ipLocationStore - some node locations could not be refreshed: ${failure.message}`);
+  return { refreshed, dropped };
+}
+
+/**
  * What this process holds, from memory - never a database call.
  * @returns {{ready: boolean, generated: string|null, rowCount: number}}
  */
@@ -394,6 +571,7 @@ function currentStatus() {
  */
 function clear() {
   status = { ready: false, generated: null, rowCount: 0 };
+  continentByCountry = new Map();
   minimumRowCount = MIN_ROW_COUNT;
 }
 
@@ -409,6 +587,10 @@ function setMinimumRowCount(rows) {
 
 module.exports = {
   setArtifact,
+  adoptPersistedStatus,
+  continentForCountry,
+  getNodeLocations,
+  refreshNodeLocations,
   lookup,
   status: currentStatus,
   clear,

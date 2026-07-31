@@ -61,19 +61,24 @@ describe('appSpawner tests', () => {
     logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
     placementFeasibilityStub = {
       isNodePinnedHere: sinon.stub().resolves(opts.pinnedHere ?? false),
-      placementFeasibility: sinon.stub().resolves({
-        instances: 3,
-        candidateCount: 10,
-        domainCount: 10,
-        maxPerDomain: 1,
-        placeable: true,
-        tableAvailable: false,
-        tableGenerated: null,
-        ...opts.placementShare,
+      // one computation carries both the share and the domain function it was
+      // computed with - the spawner keys every domain through the latter
+      placementComputation: sinon.stub().resolves({
+        feasibility: {
+          instances: 3,
+          candidateCount: 10,
+          domainCount: 10,
+          maxPerDomain: 1,
+          placeable: true,
+          tableAvailable: false,
+          tableGenerated: null,
+          ...opts.placementShare,
+        },
+        domainOf: testFaultDomain,
       }),
-      faultDomain: testFaultDomain,
-      countHeldInDomain: (locations, domainKey) => (locations ?? [])
-        .filter((location) => testFaultDomain(location.ip) === domainKey).length,
+      faultDomain: sinon.stub().callsFake(async (address) => testFaultDomain(address)),
+      countHeldInDomain: async (locations, domainKey, domainOf) => (locations ?? [])
+        .filter((location) => (domainOf ?? testFaultDomain)(location.ip) === domainKey).length,
     };
     aggregateStub = sinon.stub().resolves(opts.aggregateResult || []);
     // First delay resolves normally, subsequent calls reject to break recursion
@@ -654,7 +659,7 @@ describe('appSpawner tests', () => {
         placementShare: { domainCount: 1, maxPerDomain: 3 },
       });
       expect(installStub.called).to.be.true;
-      expect(placementFeasibilityStub.placementFeasibility.calledWith(syncedSpec, 3)).to.be.true;
+      expect(placementFeasibilityStub.placementComputation.calledWith(syncedSpec, 3)).to.be.true;
     });
 
     it('stands aside when many domains are eligible and this one holds its share', async () => {
@@ -701,7 +706,7 @@ describe('appSpawner tests', () => {
         placementShare: { domainCount: 10, maxPerDomain: 1 },
       });
       expect(installStub.called).to.be.true;
-      expect(placementFeasibilityStub.placementFeasibility.called).to.be.false;
+      expect(placementFeasibilityStub.placementComputation.called).to.be.false;
     });
 
     it('treats a nodes list longer than the instance count as a pool, not a pin', async () => {
@@ -740,6 +745,17 @@ describe('appSpawner tests', () => {
       });
       expect(installStub.called).to.be.true;
       expect(logged('claim 1 of 1 remaining in fault domain')).to.be.true;
+    });
+
+    it('keys the post-wait re-check from the same computation, not a fresh one', async () => {
+      // the share and the domains it is measured against must come from one
+      // view of the network, so the wait must not recompute either
+      const { installStub } = await runAttempt({
+        placementShare: { domainCount: 3, maxPerDomain: 1 },
+        finalInstallingLocations: [{ ip: '192.168.1.1:16127', broadcastedAt: 1000 }],
+      });
+      expect(installStub.called).to.be.true;
+      expect(placementFeasibilityStub.placementComputation.callCount).to.equal(1);
     });
   });
 

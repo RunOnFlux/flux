@@ -17,6 +17,14 @@ function extractIp(address) {
   return address.split(':')[0];
 }
 
+// Bare IP from a node-list or app-location address. IPv6 literals pass through
+// whole; anything else is treated as ip[:port].
+function bareIp(address) {
+  if (typeof address !== 'string' || !address) return null;
+  if (address.includes('.') || !address.includes(':')) return extractIp(address);
+  return address;
+}
+
 function extractPort(address) {
   if (!address) return DEFAULT_API_PORT;
   const parts = address.split(':');
@@ -63,6 +71,7 @@ module.exports = {
   DEFAULT_API_PORT,
   normalizeSocketAddress,
   extractIp,
+  bareIp,
   extractPort,
   parseSocketAddress,
   socketAddressesMatch,

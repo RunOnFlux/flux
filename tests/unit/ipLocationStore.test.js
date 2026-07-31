@@ -10,6 +10,9 @@ const { expect } = chai;
 
 const IP_RANGES = 'ipranges';
 const IP_RANGES_NEXT = 'ipranges_next';
+const NODE_LOCATIONS = 'nodelocations';
+const POLICY_DOCUMENTS = 'policydocuments';
+const INGEST_MARKER_ID = 'ipLocationTableIngest';
 
 function v4Int(ip) {
   return Number(cidrUtils.parseIp(ip).value);
@@ -94,6 +97,7 @@ describe('ipLocationStore tests', () => {
   let store;
   let database;
   let dbHelperStub;
+  let logStub;
 
   function loadStore() {
     return proxyquire('../../ZelBack/src/services/appPlacement/ipLocationStore', {
@@ -101,24 +105,31 @@ describe('ipLocationStore tests', () => {
         database: {
           local: {
             database: 'zelfluxlocal',
-            collections: { ipRanges: IP_RANGES, nodeLocations: 'nodelocations' },
+            collections: {
+              ipRanges: IP_RANGES,
+              nodeLocations: NODE_LOCATIONS,
+              policyDocuments: POLICY_DOCUMENTS,
+            },
           },
         },
       },
-      '../../lib/log': {
-        info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(),
-      },
+      '../../lib/log': logStub,
       '../dbHelper': dbHelperStub,
     });
   }
 
   beforeEach(() => {
+    logStub = { info: sinon.stub(), warn: sinon.stub(), error: sinon.stub() };
     database = { renameCollection: sinon.stub().resolves() };
     dbHelperStub = {
       databaseConnection: sinon.stub().returns({ db: sinon.stub().returns(database) }),
       dropCollection: sinon.stub().resolves(),
       insertManyToDatabase: sinon.stub().callsFake(async (db, collection, docs) => ({ insertedCount: docs.length })),
       findInDatabase: sinon.stub().resolves([]),
+      findOneInDatabase: sinon.stub().resolves(null),
+      findOneAndUpdateInDatabase: sinon.stub().resolves({}),
+      updateOneInDatabase: sinon.stub().resolves({}),
+      removeDocumentsFromCollection: sinon.stub().resolves({ deletedCount: 0 }),
     };
     store = loadStore();
     // the fixtures carry four rows, not a real baseline's two million
@@ -474,6 +485,242 @@ describe('ipLocationStore tests', () => {
     it('does not treat an ordinary artifact rejection as store unavailable', async () => {
       const error = await store.setArtifact(Buffer.from('not gzipped')).catch((err) => err);
       expect(store.isStoreUnavailable(error)).to.equal(false);
+    });
+  });
+
+  describe('ingest marker', () => {
+    it('records the ingested baseline, after the swap', async () => {
+      await store.setArtifact(fixtureArtifact());
+
+      sinon.assert.calledOnce(dbHelperStub.findOneAndUpdateInDatabase);
+      const [, collection, query, update, options] = dbHelperStub.findOneAndUpdateInDatabase.firstCall.args;
+      expect(collection).to.equal(POLICY_DOCUMENTS);
+      expect(query).to.eql({ _id: INGEST_MARKER_ID });
+      expect(options).to.eql({ upsert: true });
+      expect(update.$set.generated).to.equal('2026-07-31T00:00:00Z');
+      expect(update.$set.rowCount).to.equal(4);
+      expect(update.$set.continents).to.eql({ BH: 'AS', BG: 'EU', FI: 'EU' });
+      expect(update.$set.ingestedAt).to.be.a('number');
+      // a marker that named rows the collection does not hold would be a lie
+      sinon.assert.callOrder(database.renameCollection, dbHelperStub.findOneAndUpdateInDatabase);
+    });
+
+    it('warns but does not fail the ingest when the marker cannot be written', async () => {
+      dbHelperStub.findOneAndUpdateInDatabase.rejects(new Error('not authorized'));
+
+      const result = await store.setArtifact(fixtureArtifact());
+
+      expect(result).to.eql({ generated: '2026-07-31T00:00:00Z', rowCount: 4 });
+      expect(store.status().ready).to.equal(true);
+    });
+  });
+
+  describe('adoptPersistedStatus', () => {
+    const marker = {
+      _id: INGEST_MARKER_ID,
+      generated: '2026-07-31T00:00:00Z',
+      rowCount: 2126447,
+      continents: { BH: 'AS', BG: 'EU', FI: 'EU' },
+      ingestedAt: 1,
+    };
+
+    it('adopts the stored baseline and its continents, without touching the rows', async () => {
+      dbHelperStub.findOneInDatabase.resolves(marker);
+
+      expect(await store.adoptPersistedStatus()).to.equal(true);
+      expect(store.status()).to.eql({ ready: true, generated: '2026-07-31T00:00:00Z', rowCount: 2126447 });
+      expect(store.continentForCountry('BH')).to.equal('AS');
+      expect(store.continentForCountry('CZ')).to.equal(null);
+      sinon.assert.calledWithExactly(
+        dbHelperStub.findOneInDatabase,
+        database,
+        POLICY_DOCUMENTS,
+        { _id: INGEST_MARKER_ID },
+      );
+      expect(dbHelperStub.findInDatabase.called).to.equal(false);
+    });
+
+    it('reports no adoption when there is no marker, and holds no table', async () => {
+      expect(await store.adoptPersistedStatus()).to.equal(false);
+      expect(store.status().ready).to.equal(false);
+    });
+
+    it('reports no adoption for a marker without a baseline name', async () => {
+      dbHelperStub.findOneInDatabase.resolves({ _id: INGEST_MARKER_ID, rowCount: 12 });
+      expect(await store.adoptPersistedStatus()).to.equal(false);
+      expect(store.status().ready).to.equal(false);
+    });
+
+    it('reports no adoption when the marker cannot be read, or mongo is not connected', async () => {
+      dbHelperStub.findOneInDatabase.rejects(new Error('connection reset'));
+      expect(await store.adoptPersistedStatus()).to.equal(false);
+
+      dbHelperStub.databaseConnection.returns(null);
+      expect(await store.adoptPersistedStatus()).to.equal(false);
+      expect(store.status().ready).to.equal(false);
+    });
+  });
+
+  describe('continentForCountry', () => {
+    it('answers from the ingested header, and null without a table', async () => {
+      expect(store.continentForCountry('BH')).to.equal(null);
+
+      await store.setArtifact(fixtureArtifact());
+      expect(store.continentForCountry('BH')).to.equal('AS');
+      expect(store.continentForCountry('FI')).to.equal('EU');
+      expect(store.continentForCountry('CZ')).to.equal(null);
+
+      store.clear();
+      expect(store.continentForCountry('BH')).to.equal(null);
+    });
+  });
+
+  describe('node locations', () => {
+    const bahrainRow = {
+      _id: v4Int('80.95.208.0'), e: v4Int('80.95.223.255'), o: 'a1b2c3d4e5f6', c: 'BH', n: 'AS', r: null,
+    };
+    const orglessRow = {
+      _id: v4Int('91.0.0.0'), e: v4Int('91.0.0.255'), o: null, c: 'BG', n: 'EU', r: null,
+    };
+
+    // findInDatabase serves two collections here: the covering-row lookup over
+    // the baseline, and the view's own documents
+    function serveView(held = []) {
+      dbHelperStub.findInDatabase = sinon.stub().callsFake(async (db, collection, query) => {
+        if (collection === NODE_LOCATIONS) return held;
+        const needle = query._id.$lte;
+        return [bahrainRow, orglessRow]
+          .filter((row) => row._id <= needle)
+          .sort((a, b) => b._id - a._id)
+          .slice(0, 1);
+      });
+    }
+
+    async function withTable() {
+      await store.setArtifact(fixtureArtifact());
+      dbHelperStub.findOneAndUpdateInDatabase.resetHistory();
+    }
+
+    it('reads the whole view in one query', async () => {
+      const docs = [{ _id: '80.95.213.209', o: 'a1b2c3d4e5f6' }];
+      dbHelperStub.findInDatabase.resolves(docs);
+
+      expect(await store.getNodeLocations()).to.equal(docs);
+      sinon.assert.calledWithExactly(dbHelperStub.findInDatabase, database, NODE_LOCATIONS, {});
+    });
+
+    it('surfaces a view read failure as store unavailable', async () => {
+      dbHelperStub.findInDatabase.rejects(new Error('connection reset'));
+      const error = await store.getNodeLocations().then((value) => value, (err) => err);
+      expect(store.isStoreUnavailable(error)).to.equal(true);
+
+      dbHelperStub.databaseConnection.returns(null);
+      const noConnection = await store.getNodeLocations().then((value) => value, (err) => err);
+      expect(store.isStoreUnavailable(noConnection)).to.equal(true);
+    });
+
+    it('does nothing without a baseline to derive locations from', async () => {
+      expect(await store.refreshNodeLocations([{ ip: '80.95.213.209:16127' }])).to.eql({ refreshed: 0, dropped: 0 });
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.equal(false);
+      expect(dbHelperStub.updateOneInDatabase.called).to.equal(false);
+    });
+
+    it('drops documents derived from an older baseline', async () => {
+      await withTable();
+      serveView();
+      dbHelperStub.removeDocumentsFromCollection.resolves({ deletedCount: 4212 });
+
+      const result = await store.refreshNodeLocations([]);
+
+      sinon.assert.calledWithExactly(
+        dbHelperStub.removeDocumentsFromCollection,
+        database,
+        NODE_LOCATIONS,
+        { g: { $ne: '2026-07-31T00:00:00Z' } },
+      );
+      expect(result.dropped).to.equal(4212);
+    });
+
+    it('writes only the addresses the view is missing, in the document shape', async () => {
+      await withTable();
+      serveView([{ _id: '80.95.213.209' }]);
+
+      const result = await store.refreshNodeLocations([
+        { ip: '80.95.213.209:16127' }, // already held
+        { ip: '80.95.215.211:16167' },
+        { ip: '91.0.0.7:16127' },
+        { ip: '203.0.113.7:16127' },
+      ]);
+
+      expect(result.refreshed).to.equal(3);
+      const written = new Map(dbHelperStub.updateOneInDatabase.getCalls()
+        .map((call) => [call.args[2]._id, call.args[3].$set]));
+      expect(dbHelperStub.updateOneInDatabase.getCalls().every((call) => call.args[1] === NODE_LOCATIONS
+        && call.args[4].upsert === true)).to.equal(true);
+      expect(written.has('80.95.213.209')).to.equal(false);
+      expect(written.get('80.95.215.211')).to.eql({
+        o: 'a1b2c3d4e5f6',
+        bs: v4Int('80.95.208.0'),
+        be: v4Int('80.95.223.255'),
+        c: 'BH',
+        n: 'AS',
+        r: null,
+        g: '2026-07-31T00:00:00Z',
+      });
+      // no organisation means no block rung - the /16 rung applies downstream
+      expect(written.get('91.0.0.7')).to.eql({
+        o: null, bs: null, be: null, c: 'BG', n: 'EU', r: null, g: '2026-07-31T00:00:00Z',
+      });
+      // an address no row covers is still recorded, as an unresolved location
+      expect(written.get('203.0.113.7')).to.eql({
+        o: null, bs: null, be: null, c: null, n: null, r: null, g: '2026-07-31T00:00:00Z',
+      });
+    });
+
+    it('keeps going past a lookup that fails, and warns once', async () => {
+      await withTable();
+      serveView();
+      dbHelperStub.updateOneInDatabase
+        .onFirstCall().rejects(new Error('write timed out'))
+        .onSecondCall().rejects(new Error('write timed out again'));
+
+      const result = await store.refreshNodeLocations([
+        { ip: '80.95.215.211:16167' },
+        { ip: '91.0.0.7:16127' },
+        { ip: '80.95.213.209:16127' },
+      ]);
+
+      expect(result.refreshed).to.equal(1);
+      const warnings = logStub.warn.args.filter((a) => a[0].includes('could not be refreshed'));
+      expect(warnings).to.have.length(1);
+      expect(warnings[0][0]).to.include('write timed out');
+    });
+
+    it('keeps eight lookups in flight', async () => {
+      await withTable();
+      serveView();
+      const held = [];
+      dbHelperStub.updateOneInDatabase = sinon.stub().callsFake(
+        () => new Promise((resolve) => { held.push(resolve); }),
+      );
+      const nodeList = Array.from({ length: 20 }, (unused, i) => ({ ip: `80.95.208.${i}:16127` }));
+
+      const pending = store.refreshNodeLocations(nodeList);
+      await new Promise(setImmediate);
+      expect(held.length).to.equal(8);
+
+      const drain = setInterval(() => held.splice(0).forEach((resolve) => resolve({})), 0);
+      const result = await pending;
+      clearInterval(drain);
+
+      expect(result.refreshed).to.equal(20);
+    });
+
+    it('surfaces a failed drop or view read as store unavailable', async () => {
+      await withTable();
+      dbHelperStub.removeDocumentsFromCollection.rejects(new Error('not authorized'));
+      const error = await store.refreshNodeLocations([]).then((value) => value, (err) => err);
+      expect(store.isStoreUnavailable(error)).to.equal(true);
     });
   });
 
