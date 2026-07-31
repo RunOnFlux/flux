@@ -424,11 +424,24 @@ function releaseBootLock() {
 }
 
 export async function createTestEnv({ hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
+  // The boot-lock queue wait must not count against the suite's hook budget.
+  // Mocha enforces a hook's timeout twice: the watchdog timer (which would fire
+  // MID-QUEUE whenever the queue alone outlasts the budget), and a completion-time
+  // duration check that fails any hook whose TOTAL elapsed time exceeds the
+  // timeout VALUE — so merely re-setting the same value re-arms the watchdog but
+  // still fails the hook once it completes. Disable the timeout while queued
+  // (queue liveness is the lock's own job: a dead owner's claim is reclaimed),
+  // then set declared + queued: that value passes the duration check with exactly
+  // the declared budget left for the boot, and setting it re-arms the watchdog.
+  // Hooks that disabled their timeout (0) are left disabled.
+  const declaredMs = (hookCtx && typeof hookCtx.timeout === 'function') ? hookCtx.timeout() : 0;
+  if (declaredMs > 0) hookCtx.timeout(0);
+  const queuedFrom = process.hrtime.bigint();
   await acquireBootLock();
-  // The queue wait above must not count against the suite's hook budget. Mocha
-  // re-arms a running hook's watchdog from "now" when timeout() is set, so
-  // restart it with the suite's own declared value at the moment boot begins.
-  if (hookCtx && typeof hookCtx.timeout === 'function') hookCtx.timeout(hookCtx.timeout());
+  if (declaredMs > 0) {
+    const queuedMs = Number((process.hrtime.bigint() - queuedFrom) / 1000000n);
+    hookCtx.timeout(declaredMs + queuedMs);
+  }
   const networkName = await createNetwork();
   const env = makeEnvShell(networkName);
   activeEnvs.add(env);
