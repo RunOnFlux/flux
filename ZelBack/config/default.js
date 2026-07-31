@@ -456,10 +456,6 @@ module.exports = {
     // default branch. Releases predating this still read RunOnFlux/flux helpers/, so both
     // copies are kept in step until minimumFluxOSAllowedVersion is above all of them.
     baseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main',
-    // The smallest row count a published iplocation baseline can legitimately
-    // have. A structurally-valid-but-truncated generation must never replace a
-    // good table; the real table carries ~2M rows.
-    ipLocationRowFloor: 1500000,
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',

@@ -11,6 +11,41 @@ const HARNESS_NET_END = HARNESS_NET_START + (2 * 2 ** 16) - 1;
 const GEO_MAGIC = 'FLXGEO';
 const GEO_FORMAT = 2;
 
+// The FluxOS store refuses any baseline below its truncation floor - a
+// fleet-integrity constant, deliberately not configurable. The harness
+// artifact therefore ships at real scale: this many one-address filler rows
+// in space no harness fleet touches (16.0.0.0 up), alternating between two
+// filler organisations so no reader could collapse them, ahead of the fleet
+// rows. Only the binary artifact is padded; the format-1 JSON reader has no
+// floor, and thirty megabytes of JSON per fetch would buy nothing.
+const GEO_FILLER_ROWS = 1500000;
+const GEO_FILLER_START = 16 * 2 ** 24;
+const GEO_FILLER_END = GEO_FILLER_START + GEO_FILLER_ROWS - 1;
+const GEO_FILLER_ORGS = ['harness:filler-0', 'harness:filler-1'];
+
+let fillerBytesCache = null;
+
+/**
+ * The filler section's row bytes, identical for every artifact: encoded once,
+ * reused on every regeneration. Filler org indices are 0 and 1 - the two
+ * filler organisations lead the combined orgs table, so these bytes never
+ * depend on the fleet split being served.
+ * @returns {Buffer}
+ */
+function fillerBytes() {
+  if (fillerBytesCache) return fillerBytesCache;
+  const bytes = [];
+  for (let i = 0; i < GEO_FILLER_ROWS; i += 1) {
+    writeVarint(bytes, i === 0 ? GEO_FILLER_START : 0); // gap (prevEnd starts at -1)
+    writeVarint(bytes, 0); // single-address row
+    writeVarint(bytes, (i % 2) + 1); // filler org index + 1
+    writeVarint(bytes, 1); // countries[0]
+    writeVarint(bytes, 0); // no region
+  }
+  fillerBytesCache = Buffer.from(bytes);
+  return fillerBytesCache;
+}
+
 let lastGenerated = 0;
 
 /**
@@ -120,7 +155,9 @@ function encodeGeoTable(artifact) {
     sources: artifact.sources,
     countries,
     continents: artifact.continents,
-    orgs,
+    // the two filler organisations lead, so fleet org indices shift by two
+    // in the wire artifact - and by nothing anywhere else
+    orgs: [...GEO_FILLER_ORGS, ...orgs],
     regions,
   }), 'utf8');
   const preamble = Buffer.alloc(GEO_MAGIC.length + 1 + 4);
@@ -128,15 +165,15 @@ function encodeGeoTable(artifact) {
   preamble.writeUInt8(GEO_FORMAT, GEO_MAGIC.length);
   preamble.writeUInt32LE(header.length, GEO_MAGIC.length + 1);
   const rowCount = Buffer.alloc(4);
-  rowCount.writeUInt32LE(v4.length, 0);
+  rowCount.writeUInt32LE(GEO_FILLER_ROWS + v4.length, 0);
   const rows = [];
-  let previousEnd = -1;
+  let previousEnd = GEO_FILLER_END;
   v4.forEach(([start, end, org, cc, region], i) => {
     if (!Number.isInteger(start) || !Number.isInteger(end) || end < start || start <= previousEnd) {
-      throw new Error(`row ${i}: bounds unsorted, overlapping or not integers`);
+      throw new Error(`row ${i}: bounds unsorted, overlapping, below the filler space or not integers`);
     }
-    const indexes = [(org ?? -1) + 1, (cc ?? -1) + 1, (region ?? -1) + 1];
-    const limits = [orgs.length, countries.length, regions.length];
+    const indexes = [org === null || org === undefined ? 0 : org + 1 + GEO_FILLER_ORGS.length, (cc ?? -1) + 1, (region ?? -1) + 1];
+    const limits = [orgs.length + GEO_FILLER_ORGS.length, countries.length, regions.length];
     indexes.forEach((index, column) => {
       if (!Number.isInteger(index) || index < 0 || index > limits[column]) {
         throw new Error(`row ${i}: index out of table bounds`);
@@ -147,7 +184,7 @@ function encodeGeoTable(artifact) {
     indexes.forEach((index) => writeVarint(rows, index));
     previousEnd = end;
   });
-  return zlib.gzipSync(Buffer.concat([preamble, header, rowCount, Buffer.from(rows)]));
+  return zlib.gzipSync(Buffer.concat([preamble, header, rowCount, fillerBytes(), Buffer.from(rows)]));
 }
 
 /**

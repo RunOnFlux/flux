@@ -47,12 +47,11 @@ const SUPPORTED_VERSION = 2;
 // magic(6) + version(1) + u32 header length
 const HEADER_OFFSET = 11;
 const IPV4_MAX = 0xffffffff;
-// A structurally valid but truncated generation must not replace a good table.
-// Configurable (config.policy.ipLocationRowFloor) because a harness fleet's
-// artifact is a few hundred rows; anything but a positive integer falls back
-// to the production floor.
-const configuredFloor = config.policy?.ipLocationRowFloor;
-const MIN_ROW_COUNT = Number.isInteger(configuredFloor) && configuredFloor >= 1 ? configuredFloor : 1500000;
+// A structurally valid but truncated generation must not replace a good
+// table. A fleet-integrity invariant, deliberately NOT configuration: a knob
+// would let a single node (or a config-generation defect) switch the
+// protection off. The harness publishes padded real-scale artifacts instead.
+const MIN_ROW_COUNT = 1500000;
 const INSERT_BATCH_SIZE = 10000;
 const MAX_BATCHES_IN_FLIGHT = 4;
 // Bounds what one artifact string can cost in a document. Not a vocabulary

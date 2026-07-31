@@ -57,8 +57,6 @@ module.exports = {
   // splits the fleet n ways. Nothing here ever calls out to github.
   policy: {
     baseUrl: 'http://198.18.0.6:3000',
-    // a harness fleet's location artifact is a few hundred rows, not 2M
-    ipLocationRowFloor: 1,
   },
   fluxapps: {
     minOutgoing: 4,
