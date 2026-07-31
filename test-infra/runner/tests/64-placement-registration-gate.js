@@ -2,7 +2,11 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
-import { bootAndPeer } from '../framework/reconciler-suite.js';
+import {
+  waitForDaemonReady, waitForNodeStatus, waitForExplorerReady, waitForOrchestratorStarted,
+  waitForBlockProcessed, waitForPeerThreshold,
+} from '../framework/wait.js';
+import { advanceBlock, startTicker, stopTicker } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // The registration front door and the placement advice endpoint, against a
@@ -69,7 +73,19 @@ describe('placement gate at registration and the advice endpoint', function () {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ domains: 3, subnet: getSubnetConfig().base }),
     });
-    await bootAndPeer(env);
+    // NOT bootAndPeer: it hardcodes outbound >= 4, which a four-node fleet can
+    // never reach (three peers is the ceiling). waitForPeerThreshold waits on
+    // the node's own peers:thresholdReached, which is sized to the fleet.
+    await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
+    await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
+    await waitForExplorerReady(env.clients[0]);
+    await waitForOrchestratorStarted(env.clients[0]);
+    await advanceBlock();
+    await waitForBlockProcessed(env.clients[0], () => true, 20000);
+    await env.startDiscovery();
+    await waitForPeerThreshold(env.clients[0], 120000);
+    await startTicker();
+    await stopTicker();
     [node] = env.clients;
   });
 
