@@ -139,6 +139,11 @@ class FluxRpc {
 
     this.auth = options.auth || null;
     this.mode = options.mode || 'fluxd';
+    // A unix socket path routes the request over that socket instead of TCP.
+    // The uri is then only used for the Host header, and no credentials are
+    // sent: reaching the socket at all is what authorizes the caller, and the
+    // socket's own permissions decide that.
+    this.socketPath = options.socketPath || null;
     // Originally, this timeout was 60s. However, it got lowered to 10s. Which,
     // due to the chaintips call, is too low. On a Stratus (with average CPU) this
     // call was about 14s. Now we set it to defauolt 60s here, and the callee can
@@ -152,7 +157,12 @@ class FluxRpc {
     this.controller = options.controller || new fluxController.FluxController();
 
     // we don't use the serviceHelper methods here to avoid adding these calls to debug
-    this.#instance = axios.create({ baseURL: this.url, auth: this.auth, timeout });
+    this.#instance = axios.create({
+      baseURL: this.url,
+      auth: this.socketPath ? null : this.auth,
+      timeout,
+      ...(this.socketPath ? { socketPath: this.socketPath } : {}),
+    });
 
     this.methods = FluxRpc.#methodMap[this.mode];
   }

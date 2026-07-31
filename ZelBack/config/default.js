@@ -100,6 +100,11 @@ module.exports = {
     rpcport: 16224,
     porttestnet: 26225,
     rpcporttestnet: 26224,
+    // Local socket to the benchmark daemon, used when one is present. Its file
+    // permissions authorize the caller, so nothing is sent over it to prove who
+    // we are. Installs whose daemon does not offer one simply never find it and
+    // keep using the port above.
+    socketPath: '/run/fluxbenchd/full.sock',
   },
   daemon: {
     host: '127.0.0.1',
