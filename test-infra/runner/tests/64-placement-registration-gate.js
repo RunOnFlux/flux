@@ -68,18 +68,20 @@ describe('placement gate at registration and the advice endpoint', function () {
       tickerAutostart: false,
       // minOutgoing is BOTH the app-submission door and the number of outgoing
       // connections each node establishes (fluxCommunication.js's
-      // minDeterministicOutPeers), so it has to be reachable within the fleet:
-      // at 3 every node connects to the other three and the mesh is complete.
-      // Setting it lower than the peer wait expects is what leaves a fleet
-      // sitting below the threshold forever.
-      configOverrides: { fluxapps: { minOutgoing: 3, minIncoming: 2 } },
+      // minDeterministicOutPeers), so the fleet, this value and the peer wait
+      // below all have to agree.
+      configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1 } },
     });
     await fetch(`${env.stubControl}/iplocation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ domains: 3, subnet: getSubnetConfig().base }),
     });
-    await bootAndPeer(env);
+    // A four-node mesh settles at three peers per node, but the direction
+    // split oscillates: mutual connections are de-duplicated (close code 4001),
+    // so one side becomes inbound and outbound never reaches N-1. These are the
+    // counts the mesh actually reaches, measured, not the ten-node defaults.
+    await bootAndPeer(env, { minOutbound: 2, minInbound: 1 });
     // the repotag must exist in the harness registry: registration verifies it
     // before it ever reaches the placement gate, and a Docker Hub tag has
     // nowhere to resolve from inside the fleet's internal network
