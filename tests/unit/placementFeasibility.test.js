@@ -150,6 +150,66 @@ describe('placementFeasibility tests', () => {
     });
   });
 
+  describe('normalizeGeolocation', () => {
+    it('passes spec strings through verbatim, including legacy styles', () => {
+      const { normalized, coarsened } = placementFeasibility.normalizeGeolocation(['acAS_BH', 'a!cEU_DE', 'aEU', 'bFR', '']);
+      expect(normalized).to.deep.equal(['acAS_BH', 'a!cEU_DE', 'aEU', 'bFR', '']);
+      expect(coarsened).to.deep.equal([]);
+    });
+
+    it('normalises structured entries, upcasing and prefixing', () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      const { normalized } = placementFeasibility.normalizeGeolocation([
+        { continent: 'EU' },
+        { continent: 'eu', country: 'fi' },
+        { country: 'BH', forbidden: true },
+      ]);
+      expect(normalized).to.deep.equal(['acEU', 'acEU_FI', 'a!cAS_BH']);
+    });
+
+    it('derives the continent from the table and rejects contradictions', () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      expect(placementFeasibility.normalizeGeolocation([{ country: 'FI' }]).normalized).to.deep.equal(['acEU_FI']);
+      expect(() => placementFeasibility.normalizeGeolocation([{ continent: 'AS', country: 'FI' }]))
+        .to.throw('is in EU, not AS');
+      expect(() => placementFeasibility.normalizeGeolocation([{ country: 'CZ' }]))
+        .to.throw('unknown country code CZ');
+    });
+
+    it('needs an explicit continent when no table can derive it', () => {
+      expect(() => placementFeasibility.normalizeGeolocation([{ country: 'CZ' }]))
+        .to.throw('include continent');
+      // with the continent given, an unverifiable country passes through
+      expect(placementFeasibility.normalizeGeolocation([{ continent: 'EU', country: 'CZ' }]).normalized)
+        .to.deep.equal(['acEU_CZ']);
+    });
+
+    it('validates region entries and flags them as coarsened', () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      const { normalized, coarsened } = placementFeasibility.normalizeGeolocation([
+        { country: 'FI', region: 'FI-18' },
+        'acEU_FI_Uusimaa',
+        'acEU_FI_ALL',
+      ]);
+      expect(normalized).to.deep.equal(['acEU_FI_FI-18', 'acEU_FI_Uusimaa', 'acEU_FI_ALL']);
+      expect(coarsened).to.deep.equal(['acEU_FI_FI-18', 'acEU_FI_Uusimaa']);
+      expect(() => placementFeasibility.normalizeGeolocation([{ region: 'FI-18' }])).to.throw('requires its country');
+      expect(() => placementFeasibility.normalizeGeolocation([{ country: 'DE', region: 'FI-18' }])).to.throw('does not belong to DE');
+      expect(() => placementFeasibility.normalizeGeolocation([{ country: 'FI', region: 'Uusimaa' }])).to.throw('not an ISO 3166-2');
+    });
+
+    it('rejects malformed entries', () => {
+      expect(() => placementFeasibility.normalizeGeolocation([42])).to.throw('Invalid geolocation');
+      expect(() => placementFeasibility.normalizeGeolocation([null])).to.throw('Invalid geolocation');
+      expect(() => placementFeasibility.normalizeGeolocation([[]])).to.throw('Invalid geolocation');
+      expect(() => placementFeasibility.normalizeGeolocation([{}])).to.throw('continent or country is required');
+      expect(() => placementFeasibility.normalizeGeolocation([{ continent: 'XX' }])).to.throw('unknown continent code XX');
+      expect(() => placementFeasibility.normalizeGeolocation([{ country: 'FIN' }])).to.throw('not an ISO 3166-1');
+      expect(() => placementFeasibility.normalizeGeolocation([{ continent: 'EU', forbidden: 'yes' }])).to.throw('forbidden must be a boolean');
+      expect(() => placementFeasibility.normalizeGeolocation([`ac${'X'.repeat(60)}`])).to.throw('Invalid geolocation specified');
+    });
+  });
+
   describe('appFitsTier', () => {
     it('rejects a tier whose capacity the app exceeds and accepts larger tiers', () => {
       totalHWStub.callsFake((spec, tier) => (tier === 'basic'
@@ -349,6 +409,102 @@ describe('placementFeasibility tests', () => {
       expect(tooMany.status).to.equal('error');
       const badGeo = await run({ instances: 3, geolocation: [42] });
       expect(badGeo.status).to.equal('error');
+    });
+  });
+
+  describe('placementAdvice', () => {
+    it('evaluates structured entries and echoes the normalised spec strings', async () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
+      const advice = await placementFeasibility.placementAdvice({
+        instances: 3,
+        geolocation: ['acAS_BH', { continent: 'EU', country: 'FI', forbidden: true }],
+        compose: [{ containerData: 'g:/data' }],
+      });
+      expect(advice.normalizedGeolocation).to.deep.equal(['acAS_BH', 'a!cEU_FI']);
+      expect(advice.candidateCount).to.equal(3);
+      expect(advice.domainCount).to.equal(1);
+      expect(advice.syncedApp).to.equal(true);
+      expect(advice.constrained).to.equal(true);
+      expect(advice.coarsenedEntries).to.deep.equal([]);
+    });
+
+    it('narrows candidates by compose sizing', async () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      totalHWStub.callsFake((spec) => {
+        if (spec.version <= 3) return { cpu: spec.cpu, ram: spec.ram, hdd: spec.hdd };
+        let cpu = 0; let ram = 0; let hdd = 0;
+        (spec.compose ?? []).forEach((component) => { cpu += component.cpu; ram += component.ram; hdd += component.hdd; });
+        return { cpu, ram, hdd };
+      });
+      deterministicFluxListStub.resolves([...bhNodes, bgNode]);
+      const advice = await placementFeasibility.placementAdvice({
+        instances: 3,
+        geolocation: [],
+        compose: [{ containerData: 'g:/data', cpu: 4, ram: 4000, hdd: 50 }],
+      });
+      // the two CUMULUS Bahrain nodes cannot hold 4 cores
+      expect(advice.candidateCount).to.equal(2);
+      expect(advice.domainCount).to.equal(2);
+    });
+
+    it('narrows candidates by top-level sizing for containerData bodies', async () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      totalHWStub.callsFake((spec) => (spec.version <= 3
+        ? { cpu: spec.cpu, ram: spec.ram, hdd: spec.hdd }
+        : { cpu: 1, ram: 1000, hdd: 10 }));
+      deterministicFluxListStub.resolves([...bhNodes, bgNode]);
+      const advice = await placementFeasibility.placementAdvice({
+        instances: 3,
+        geolocation: [],
+        containerData: 'g:/data',
+        cpu: 4,
+        ram: 4000,
+        hdd: 50,
+      });
+      expect(advice.candidateCount).to.equal(2);
+    });
+
+    it('rejects invalid sizing and oversized geolocation lists', async () => {
+      const rejects = async (body, message) => {
+        try {
+          await placementFeasibility.placementAdvice(body);
+          throw new Error('expected rejection');
+        } catch (error) {
+          expect(error.message).to.include(message);
+        }
+      };
+      await rejects({ instances: 3, compose: [{ cpu: 'lots' }] }, 'Invalid component 0 cpu');
+      await rejects({ instances: 3, cpu: -1 }, 'Invalid cpu');
+      await rejects({ instances: 3, compose: ['nope'] }, 'Invalid compose component');
+      await rejects({ instances: 3, geolocation: Array(11).fill('acEU') }, 'Invalid geolocation');
+      await rejects({ instances: 0 }, 'Invalid instances');
+    });
+  });
+
+  describe('placementLocations', () => {
+    it('builds the continent/country tree with domains and tier mixes', async () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes, { ip: '203.0.113.7:16127', tier: 'CUMULUS' }]);
+      const locations = await placementFeasibility.placementLocations();
+      expect(locations.tableAvailable).to.equal(true);
+      expect(locations.tableGenerated).to.equal('2026-07-30T00:00:00Z');
+      expect(locations.total).to.deep.equal({ nodes: 9, domains: 6 });
+      expect(locations.unresolved).to.equal(1);
+      expect(locations.continents.AS.countries.BH).to.deep.equal({ nodes: 3, domains: 1, tiers: { CUMULUS: 2, NIMBUS: 1 } });
+      expect(locations.continents.EU.nodes).to.equal(5);
+      expect(locations.continents.EU.domains).to.equal(4);
+      expect(locations.continents.EU.countries.FI).to.deep.equal({ nodes: 2, domains: 1, tiers: { STRATUS: 2 } });
+      expect(locations.continents.EU.countries.DE).to.deep.equal({ nodes: 2, domains: 2, tiers: { NIMBUS: 1, CUMULUS: 1 } });
+    });
+
+    it('serves totals only when no table is loaded', async () => {
+      deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes]);
+      const locations = await placementFeasibility.placementLocations();
+      expect(locations.tableAvailable).to.equal(false);
+      expect(locations.total).to.deep.equal({ nodes: 8, domains: 5 });
+      expect(locations.unresolved).to.equal(8);
+      expect(locations.continents).to.deep.equal({});
     });
   });
 

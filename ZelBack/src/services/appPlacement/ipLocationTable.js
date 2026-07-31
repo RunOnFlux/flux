@@ -183,6 +183,17 @@ function clear() {
 }
 
 /**
+ * Continent code for an ISO 3166-1 country code, from the loaded table's
+ * country -> continent map.
+ * @param {string} countryCode ISO 3166-1 alpha-2 code
+ * @returns {string | null} null when no table is loaded or the country is unknown
+ */
+function continentForCountry(countryCode) {
+  if (!table) return null;
+  return table.continents[countryCode] ?? null;
+}
+
+/**
  * Locate an IP in the table.
  * @param {string} ip Bare IP address (no port)
  * @returns {{org: string|null, block: string, countryCode: string|null,
@@ -224,5 +235,6 @@ module.exports = {
   hasTable,
   tableInfo,
   clear,
+  continentForCountry,
   lookup,
 };

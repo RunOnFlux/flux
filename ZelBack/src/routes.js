@@ -460,6 +460,9 @@ module.exports = (app) => {
   app.post('/apps/placementfeasibility', (req, res) => { // fault domains and per-domain instance share for a prospective spec
     placementFeasibility.placementFeasibilityAPI(req, res);
   });
+  app.get('/apps/placementlocations', cache('30 seconds'), (req, res) => { // node, fault-domain and tier counts per continent/country
+    placementFeasibility.placementLocationsAPI(req, res);
+  });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
     deploymentInfoService.deploymentInformation(req, res);
   });
