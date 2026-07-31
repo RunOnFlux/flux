@@ -69,7 +69,7 @@ export async function installOnNodes(env, app, indices, { timeout = 120000 } = {
   return indices;
 }
 
-export async function bootAndPeer(env) {
+export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   for (const client of env.clients) await waitForDaemonReady(client);
   await Promise.all(env.clients.map(
     (c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000),
@@ -79,8 +79,17 @@ export async function bootAndPeer(env) {
     await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
   }
   await env.startDiscovery();
-  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
-  await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
+  // A node cannot peer with itself, so a fleet of N has a ceiling of N-1. The
+  // defaults are the values the ten-node spawner suites have always used
+  // (min(4, 9) = 4, min(2, 9) = 2, so their behaviour is unchanged); a smaller
+  // fleet drops to its own ceiling rather than waiting out the timeout on a
+  // constant it can never reach. Peering is a property of the fleet, not a
+  // literal.
+  const ceiling = Math.max(env.clients.length - 1, 1);
+  const outboundTarget = minOutbound ?? Math.min(4, ceiling);
+  const inboundTarget = minInbound ?? Math.min(2, ceiling);
+  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= outboundTarget, 120000);
+  await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= inboundTarget, 120000);
   await startTicker();
 }
 

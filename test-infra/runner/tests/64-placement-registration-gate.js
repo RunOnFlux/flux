@@ -2,11 +2,9 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
-import {
-  waitForDaemonReady, waitForNodeStatus, waitForExplorerReady, waitForOrchestratorStarted,
-  waitForBlockProcessed, waitForPeerThreshold,
-} from '../framework/wait.js';
-import { advanceBlock, startTicker, stopTicker } from '../framework/daemon-control.js';
+import { bootAndPeer } from '../framework/reconciler-suite.js';
+import { pushTestApp } from '../framework/registry-helper.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // The registration front door and the placement advice endpoint, against a
@@ -23,6 +21,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // allowed through - an unresolvable geography, a missing table, a spec whose
 // count the network can meet.
 
+const APP_IMAGE = 'e2e-gate-probe';
+
 const SIGNED_SPEC_BASE = {
   version: 7,
   name: 'placementgateprobe',
@@ -31,7 +31,7 @@ const SIGNED_SPEC_BASE = {
   compose: [{
     name: 'probe',
     description: 'probe component',
-    repotag: 'runonflux/website:latest',
+    repotag: `${REGISTRY_REPO_HOST}/${APP_IMAGE}:v1`,
     ports: [31151],
     domains: [''],
     environmentParameters: [],
@@ -73,19 +73,11 @@ describe('placement gate at registration and the advice endpoint', function () {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ domains: 3, subnet: getSubnetConfig().base }),
     });
-    // NOT bootAndPeer: it hardcodes outbound >= 4, which a four-node fleet can
-    // never reach (three peers is the ceiling). waitForPeerThreshold waits on
-    // the node's own peers:thresholdReached, which is sized to the fleet.
-    await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
-    await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
-    await waitForExplorerReady(env.clients[0]);
-    await waitForOrchestratorStarted(env.clients[0]);
-    await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], () => true, 20000);
-    await env.startDiscovery();
-    await waitForPeerThreshold(env.clients[0], 120000);
-    await startTicker();
-    await stopTicker();
+    await bootAndPeer(env);
+    // the repotag must exist in the harness registry: registration verifies it
+    // before it ever reaches the placement gate, and a Docker Hub tag has
+    // nowhere to resolve from inside the fleet's internal network
+    await pushTestApp(APP_IMAGE);
     [node] = env.clients;
   });
 
