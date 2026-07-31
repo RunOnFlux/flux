@@ -20,6 +20,12 @@ const { benchmark: benchmarkCollection } = config.database.local.collections;
 const validTiers = ['CUMULUS', 'NIMBUS', 'STRATUS'];
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
+// Failures that mean "this transport didn't work", as opposed to the daemon
+// answering with an error. Only these discard the cached client.
+const CONNECTION_ERROR_CODES = new Set([
+  'ECONNREFUSED', 'ENOENT', 'EACCES', 'ECONNRESET', 'EPIPE',
+]);
+
 let benchdClient = null;
 let lastDbUpdateTimestamp = 0;
 
@@ -30,12 +36,35 @@ async function buildBenchdClient() {
 
   const exists = await fs.stat(fluxbenchdPath).catch(() => false);
 
+  const { initial: { testnet: isTestnet } } = globalThis.userconfig;
+
+  // Prefer the local socket wherever the benchmark daemon offers one. Its file
+  // permissions are what authorize us, so nothing is sent to prove who we are
+  // and no credential is stored anywhere for something else to read. A daemon
+  // that doesn't offer one leaves no socket to find, which is what keeps this
+  // a no-op on installs that predate it -- there is no version to detect and
+  // no order the two have to be upgraded in.
+  const socketPath = config.benchmark.socketPath || null;
+  const socketUsable = socketPath
+    ? await fs.stat(socketPath).then((s) => s.isSocket()).catch(() => false)
+    : false;
+
+  if (socketUsable) {
+    // No auth: the socket already established it. Deliberately no fallback to
+    // the credential path -- a daemon exposing a socket withholds the shared
+    // password, so falling back would only turn a clear failure into a
+    // confusing one.
+    benchdClient = new fluxRpc.FluxRpc(`http://${config.benchmark.host}`, {
+      socketPath, timeout: 10_000, mode: 'fluxbenchd',
+    });
+    return benchdClient;
+  }
+
   const prefix = exists ? 'flux' : 'zel';
 
   const username = `${prefix}benchuser`;
   const password = `${prefix}benchpassword`;
 
-  const { initial: { testnet: isTestnet } } = globalThis.userconfig;
   const portId = isTestnet ? 'rpcporttestnet' : 'rpcport';
   const rpcPort = config.benchmark[portId];
 
@@ -67,6 +96,12 @@ async function executeCall(rpc, params) {
     const successResponse = messageHelper.createDataMessage(data);
     callResponse = successResponse;
   } catch (error) {
+    // Which transport the daemon offers can change under us: it publishes its
+    // socket as it starts, so a client built while it was down was built
+    // against whatever existed then. Drop the cached client on a connection
+    // failure so the next call re-resolves, rather than holding a stale
+    // transport until FluxOS itself restarts.
+    if (CONNECTION_ERROR_CODES.has(error.code)) benchdClient = null;
     const daemonError = messageHelper.createErrorMessage(error.message, error.name, error.code);
     callResponse = daemonError;
   }
