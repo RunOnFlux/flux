@@ -18,6 +18,7 @@ const hwRequirements = require('../appRequirements/hwRequirements');
 const portManager = require('../appNetwork/portManager');
 const appUtilities = require('../utils/appUtilities');
 const mountParser = require('../utils/mountParser');
+const ipLocationStore = require('../appPlacement/ipLocationStore');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 const systemIntegration = require('../appSystem/systemIntegration');
 const globalState = require('../utils/globalState');
@@ -295,10 +296,26 @@ async function trySpawningGlobalApplication() {
         }
         return app.nodes.length === 0 || app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)) || app.version >= 8;
       });
-      // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('a!c')).length === 0 || !app.geolocation.find((loc) => loc.startsWith('a!c') && `a!c${myNodeLocation}`.startsWith(loc.replace('_NONE', '')))));
-      // filter apps that dont have geolocation or have and match my node geolocation
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('ac')).length === 0 || app.geolocation.find((loc) => loc.startsWith('ac') && `ac${myNodeLocation}`.startsWith(loc))));
+      // Selection uses the SAME eligibility implementation as candidate
+      // counting and the install gate - one truth table everywhere. The node's
+      // own location: self-reported continent and country, region from its own
+      // published table. Selection may only over-include (the installer
+      // re-checks with the same rules); the old string-prefix filters here
+      // hid every table-vocabulary region pin from spawning and stripped
+      // _NONE, which turned a no-op deny into a whole-country selection ban.
+      const [myContinentCode, myCountryCode] = (myNodeLocation ?? '').split('_');
+      let myTableRegion = null;
+      try {
+        const localHit = await ipLocationStore.lookup(extractIp(localSocketAddr));
+        myTableRegion = localHit?.region ?? null;
+      } catch (error) {
+        // store unreadable = region unknown; selection over-includes and the
+        // installer arbitrates
+      }
+      const myLocation = { continentCode: myContinentCode ?? null, countryCode: myCountryCode ?? null, region: myTableRegion };
+      globalAppNamesLocation = globalAppNamesLocation.filter(
+        (app) => placementFeasibility.nodeLocationMatchesGeolocation(myLocation, app.geolocation),
+      );
       globalAppNamesLocation = enterpriseNetwork.filterAppsByOwnership(globalAppNamesLocation, isEnterprise);
 
       appsCountAvailableToInstallOnMyNode = globalAppNamesLocation.length + appsSyncthingToBeCheckedLater.length + appsToBeCheckedLater.length;

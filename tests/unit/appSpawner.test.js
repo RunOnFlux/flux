@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const realPlacementFeasibility = require('../../ZelBack/src/services/appPlacement/placementFeasibility');
 
 describe('appSpawner tests', () => {
   let appSpawner;
@@ -60,6 +61,10 @@ describe('appSpawner tests', () => {
 
     logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
     placementFeasibilityStub = {
+      // the selection filter runs the real shared matcher - a pure function;
+      // re-stating its semantics in a stub is the defect class the parity
+      // suite exists to prevent
+      nodeLocationMatchesGeolocation: realPlacementFeasibility.nodeLocationMatchesGeolocation,
       isNodePinnedHere: sinon.stub().resolves(opts.pinnedHere ?? false),
       // one computation carries both the share and the domain function it was
       // computed with - the spawner keys every domain through the latter
@@ -163,7 +168,11 @@ describe('appSpawner tests', () => {
       },
       '../appSystem/systemIntegration': {
         systemArchitecture: sinon.stub().resolves('amd64'),
-        nodeFullGeolocation: sinon.stub().returns('US-NY'),
+        nodeFullGeolocation: sinon.stub().returns(opts.nodeGeoString ?? 'US-NY'),
+      },
+      '../appPlacement/ipLocationStore': {
+        lookup: opts.storeLookup ?? sinon.stub().resolves(null),
+        isStoreUnavailable: () => false,
       },
       '../utils/globalState': globalStateStub,
       '../geolocationService': {
@@ -293,6 +302,55 @@ describe('appSpawner tests', () => {
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       expect(infoLogged('selected to try to spawn')).to.be.true;
+    });
+
+    describe('geolocation selection filter', () => {
+      // Selection shares one eligibility implementation with counting and the
+      // install gate. The old string-prefix filters hid every table-vocabulary
+      // region pin from spawning (ip-api never returns ISO codes) and stripped
+      // _NONE, turning a no-op deny into a whole-country selection ban - both
+      // proven against the pre-fix filters verbatim before this rework.
+      const HESSE = { region: 'DE-HE' };
+
+      function geoModule(geolocation, lookupResult) {
+        buildModule({
+          aggregateResult: [makeApp({ geolocation })],
+          nodeGeoString: 'EU_DE_Hesse',
+          storeLookup: sinon.stub().resolves(lookupResult === undefined ? null : {
+            org: 'aabbccddeeff', block: null, countryCode: 'DE', continentCode: 'EU', region: lookupResult.region,
+          }),
+        });
+      }
+
+      it('selects a table-vocabulary region pin on a node the table places in it', async () => {
+        geoModule(['acEU_DE_DE-HE'], HESSE);
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+        expect(infoLogged('selected to try to spawn')).to.be.true;
+      });
+
+      it('does not select a region pin when the table places this node elsewhere', async () => {
+        geoModule(['acEU_DE_DE-HE'], { region: 'DE-BY' });
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+        expect(infoLogged('No app currently to be processed')).to.be.true;
+      });
+
+      it('does not select a region pin when its own region is unknown - a pin needs proof', async () => {
+        geoModule(['acEU_DE_DE-HE'], undefined);
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+        expect(infoLogged('No app currently to be processed')).to.be.true;
+      });
+
+      it('keeps selecting an a!c.._NONE app - the deny is a no-op, not a country ban', async () => {
+        geoModule(['acEU', 'a!cEU_DE_NONE'], HESSE);
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+        expect(infoLogged('selected to try to spawn')).to.be.true;
+      });
+
+      it('selects a legacy name-shaped region pin at country granularity - the installer arbitrates', async () => {
+        geoModule(['acEU_DE_Bavaria'], HESSE);
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+        expect(infoLogged('selected to try to spawn')).to.be.true;
+      });
     });
   });
 
