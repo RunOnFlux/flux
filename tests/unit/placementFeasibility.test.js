@@ -311,7 +311,19 @@ describe('placementFeasibility tests', () => {
     });
   });
 
-  describe('warnOnConstrainedPlacement', () => {
+  describe('placementCategory', () => {
+    it('grades impossible, constrained and ok placements', () => {
+      expect(placementFeasibility.placementCategory({ candidateCount: 2, domainCount: 2, instances: 3 }, true)).to.equal('impossible');
+      expect(placementFeasibility.placementCategory({ candidateCount: 3, domainCount: 1, instances: 3 }, true)).to.equal('constrained');
+      expect(placementFeasibility.placementCategory({ candidateCount: 3, domainCount: 3, instances: 3 }, true)).to.equal('ok');
+      // diversity only constrains synced apps
+      expect(placementFeasibility.placementCategory({ candidateCount: 3, domainCount: 1, instances: 3 }, false)).to.equal('ok');
+      // impossible outranks constrained, and applies to non-synced apps too
+      expect(placementFeasibility.placementCategory({ candidateCount: 1, domainCount: 1, instances: 3 }, false)).to.equal('impossible');
+    });
+  });
+
+  describe('checkPlacementFeasibility', () => {
     const syncedBahrainSpec = {
       name: 'wordpressLike',
       version: 7,
@@ -323,39 +335,53 @@ describe('placementFeasibility tests', () => {
     it('warns when a synced app spans fewer domains than instances and returns the feasibility', async () => {
       ipLocationTable.setArtifact(fixtureArtifact());
       deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
-      const result = await placementFeasibility.warnOnConstrainedPlacement(syncedBahrainSpec, 'testCaller');
+      const result = await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller');
       expect(result.domainCount).to.equal(1);
       const warned = logStub.warn.args.some((a) => typeof a[0] === 'string'
         && a[0].includes('testCaller') && a[0].includes('will co-locate'));
       expect(warned).to.equal(true);
     });
 
-    it('warns when there are fewer eligible nodes than instances', async () => {
+    it('rejects a spec with fewer eligible nodes than instances', async () => {
       ipLocationTable.setArtifact(fixtureArtifact());
       deterministicFluxListStub.resolves([...fiNodes]);
-      await placementFeasibility.warnOnConstrainedPlacement(syncedBahrainSpec, 'testCaller');
-      const warned = logStub.warn.args.some((a) => typeof a[0] === 'string'
-        && a[0].includes('only 0 eligible nodes'));
-      expect(warned).to.equal(true);
+      await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller').then(
+        () => { throw new Error('expected rejection'); },
+        (error) => {
+          expect(error.message).to.include('only 0 eligible nodes');
+          expect(error.message).to.include('Widen the allowed locations');
+        },
+      );
     });
 
-    it('does nothing for non-synced apps or unconstrained placements', async () => {
+    it('rejects an impossible non-synced spec too', async () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      deterministicFluxListStub.resolves([...fiNodes]);
+      await placementFeasibility.checkPlacementFeasibility({
+        name: 'plain', version: 7, instances: 3, geolocation: ['acAS_BH'], compose: [{ containerData: '/data' }],
+      }, 'testCaller').then(
+        () => { throw new Error('expected rejection'); },
+        (error) => expect(error.message).to.include('eligible nodes'),
+      );
+    });
+
+    it('accepts non-synced and unconstrained placements without warning', async () => {
       ipLocationTable.setArtifact(fixtureArtifact());
       deterministicFluxListStub.resolves([...bhNodes, ...fiNodes, ...deNodes, bgNode]);
-      const nonSynced = await placementFeasibility.warnOnConstrainedPlacement({
+      const nonSynced = await placementFeasibility.checkPlacementFeasibility({
         name: 'plain', version: 7, instances: 3, geolocation: ['acAS_BH'], compose: [{ containerData: '/data' }],
       }, 'testCaller');
-      expect(nonSynced).to.equal(null);
-      const spread = await placementFeasibility.warnOnConstrainedPlacement({
+      expect(nonSynced.candidateCount).to.equal(3);
+      const spread = await placementFeasibility.checkPlacementFeasibility({
         ...syncedBahrainSpec, geolocation: [],
       }, 'testCaller');
       expect(spread.domainCount).to.be.greaterThan(2);
       expect(logStub.warn.called).to.equal(false);
     });
 
-    it('never throws - a failed check logs and returns null', async () => {
+    it('a failed computation logs and returns null - only proven impossibility rejects', async () => {
       deterministicFluxListStub.rejects(new Error('state not ready'));
-      const result = await placementFeasibility.warnOnConstrainedPlacement(syncedBahrainSpec, 'testCaller');
+      const result = await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller');
       expect(result).to.equal(null);
       expect(logStub.warn.args.some((a) => a[0].includes('placement feasibility check failed'))).to.equal(true);
     });
@@ -388,6 +414,7 @@ describe('placementFeasibility tests', () => {
       deterministicFluxListStub.resolves([bhNodes[0]]);
       const response = await run({ instances: 3, geolocation: ['acAS_BH'] });
       expect(response.data.satisfiable).to.equal(false);
+      expect(response.data.category).to.equal('impossible');
     });
 
     it('treats a non-synced compose as unconstrained', async () => {
@@ -426,6 +453,7 @@ describe('placementFeasibility tests', () => {
       expect(advice.domainCount).to.equal(1);
       expect(advice.syncedApp).to.equal(true);
       expect(advice.constrained).to.equal(true);
+      expect(advice.category).to.equal('constrained');
       expect(advice.coarsenedEntries).to.deep.equal([]);
     });
 

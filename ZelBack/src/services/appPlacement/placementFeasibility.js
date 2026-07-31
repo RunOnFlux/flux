@@ -13,6 +13,12 @@
 // the network has today - never toward stacking instances. A missing table, an
 // unresolvable location, a region-granularity pin the table cannot answer: all
 // degrade to the status quo.
+//
+// The same principle at the entry level: an ALLOWED restriction the table
+// cannot fully resolve over-includes (a region-level pin admits the whole
+// country), while a FORBIDDEN restriction it cannot resolve is not applied at
+// all. A constraint never strands an app on missing data, and a ban never
+// applies to a node it cannot be proven to cover.
 
 const config = require('config');
 const log = require('../../lib/log');
@@ -237,31 +243,61 @@ async function isNodePinnedHere(appSpecifications, localSocketAddr) {
 }
 
 /**
- * Warn when a user-facing registration or update path accepts a synced app
- * whose requested geography cannot spread its instances. Called from the API
- * front door only - never from p2p message verification, where nodes with
- * different table versions must not disagree about message validity.
+ * The placement category of a computed feasibility - the availability promise
+ * the network can make for the spec:
+ *   'impossible'  - fewer eligible nodes than instances, even though every
+ *                   approximation counts TOWARD eligibility, so the shortfall
+ *                   is proven. The spec can never reach its instance count;
+ *                   registration rejects it.
+ *   'constrained' - the instance count is reachable, but a synced app's
+ *                   instances outnumber its fault domains, so some instances
+ *                   must share a provider. Deliverable, with less resiliency
+ *                   than the instance count implies; registration warns.
+ *   'ok'          - the requested count and diversity are both deliverable.
+ * @param {object} feasibility A placementFeasibility() result
+ * @param {boolean} syncedApp Whether the spec has synced components
+ * @returns {'impossible'|'constrained'|'ok'}
+ */
+function placementCategory(feasibility, syncedApp) {
+  if (feasibility.candidateCount < feasibility.instances) return 'impossible';
+  if (syncedApp && feasibility.domainCount < feasibility.instances) return 'constrained';
+  return 'ok';
+}
+
+/**
+ * Enforce placement feasibility on the user-facing registration and update
+ * paths: an impossible spec is rejected before it is paid for, a constrained
+ * synced spec is accepted with a warning. Called from the API front door
+ * only - never from p2p message verification, where nodes with different
+ * table versions must not disagree about message validity. A failure to
+ * COMPUTE feasibility never rejects: without the computation there is no
+ * proof, and only proven impossibility may refuse a registration.
  * @param {object} appSpecFormatted Formatted app specifications
  * @param {string} caller Log prefix identifying the calling path
- * @returns {Promise<object|null>} The feasibility, or null when not applicable
+ * @returns {Promise<object|null>} The feasibility, or null when it could not
+ *   be computed
+ * @throws When the spec provably cannot reach its instance count
  */
-async function warnOnConstrainedPlacement(appSpecFormatted, caller) {
+async function checkPlacementFeasibility(appSpecFormatted, caller) {
+  let synced;
+  let feasibility;
   try {
-    const synced = appSpecFormatted.version <= 3
+    synced = appSpecFormatted.version <= 3
       ? mountParser.isSyncedComponent(appSpecFormatted.containerData)
       : (appSpecFormatted.compose ?? []).some((component) => mountParser.isSyncedComponent(component.containerData));
-    if (!synced) return null;
-    const feasibility = await placementFeasibility(appSpecFormatted);
-    if (feasibility.candidateCount < feasibility.instances) {
-      log.warn(`${caller} - App ${appSpecFormatted.name} requests ${feasibility.instances} instances but only ${feasibility.candidateCount} eligible nodes exist for its geolocation and tier`);
-    } else if (feasibility.domainCount < feasibility.instances) {
-      log.warn(`${caller} - App ${appSpecFormatted.name} requests ${feasibility.instances} instances across ${feasibility.domainCount} fault domain(s); synced instances will co-locate up to ${feasibility.maxPerDomain} per domain`);
-    }
-    return feasibility;
+    feasibility = await placementFeasibility(appSpecFormatted);
   } catch (error) {
     log.warn(`${caller} - placement feasibility check failed: ${error.message}`);
     return null;
   }
+  const category = placementCategory(feasibility, synced);
+  if (category === 'impossible') {
+    throw new Error(`App ${appSpecFormatted.name} requests ${feasibility.instances} instances but only ${feasibility.candidateCount} eligible nodes exist for its geolocation and tier requirements. Widen the allowed locations or lower the instance count.`);
+  }
+  if (category === 'constrained') {
+    log.warn(`${caller} - App ${appSpecFormatted.name} requests ${feasibility.instances} instances across ${feasibility.domainCount} fault domain(s); synced instances will co-locate up to ${feasibility.maxPerDomain} per domain`);
+  }
+  return feasibility;
 }
 
 /**
@@ -464,6 +500,7 @@ async function placementAdvice(spec) {
   return {
     ...feasibility,
     syncedApp: synced,
+    category: placementCategory(feasibility, synced),
     // diversity below the requested count: some fault domain must hold more than one instance
     constrained: synced && feasibility.domainCount < feasibility.instances,
     // with the water-filled share, any count up to the candidate pool is reachable
@@ -581,9 +618,10 @@ module.exports = {
   nodeLocationMatchesGeolocation,
   appFitsTier,
   placementFeasibility,
+  placementCategory,
   countHeldInDomain,
   isNodePinnedHere,
-  warnOnConstrainedPlacement,
+  checkPlacementFeasibility,
   normalizeGeolocation,
   placementAdvice,
   placementFeasibilityAPI,
