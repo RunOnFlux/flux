@@ -647,8 +647,14 @@ async function cachedFeasibility(normalized, instances) {
   const now = process.hrtime.bigint();
   if (hit && Number(now - hit.at) / 1e6 < ADVICE_CACHE_TTL_MS) return hit.value;
   const value = await placementFeasibility({ geolocation: normalized, instances }, instances);
-  if (adviceCache.size >= ADVICE_CACHE_MAX) adviceCache.clear();
-  adviceCache.set(key, { at: now, value });
+  // a geo-restricted answer that degraded mid-computation (the view became
+  // unreadable after the availability gate passed) must not outlive the blip:
+  // caching it would keep answering 503 for a window after the store recovers
+  const geoRestricted = normalized.some((entry) => entry !== '');
+  if (!geoRestricted || value.tableAvailable) {
+    if (adviceCache.size >= ADVICE_CACHE_MAX) adviceCache.clear();
+    adviceCache.set(key, { at: now, value });
+  }
   return value;
 }
 
@@ -697,6 +703,14 @@ async function placementAdvice(spec) {
     synced = mountParser.isSyncedComponent(spec.containerData);
   }
   const feasibility = await cachedFeasibility(normalized, instances);
+  // the availability gate above raced the computation: a store that became
+  // unreadable in between degrades the numbers to the /16 posture, which for
+  // a geo-restricted question is the whole network - unavailable, not advice
+  if (normalized.some((value) => value !== '') && !feasibility.tableAvailable) {
+    const error = new Error('The IP location table is not available yet - geolocation feasibility cannot be answered');
+    error.statusCode = 503;
+    throw error;
+  }
   return {
     ...feasibility,
     syncedApp: synced,

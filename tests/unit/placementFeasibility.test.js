@@ -828,6 +828,27 @@ describe('placementFeasibility tests', () => {
       expect(advice.candidateCount).to.equal(4);
     });
 
+    it('geo-restricted advice that degrades mid-computation is unavailable, and the blip is not cached', async () => {
+      // the availability gate passes (status ready) but the view read fails:
+      // the numbers degrade to the /16 posture, which for a geo question is
+      // the whole network - that must 503, and must not poison the memo for
+      // the window after the store recovers
+      useTable();
+      storeStub.getNodeLocations.rejects(new Error('MongoServerSelectionError'));
+      deterministicFluxListStub.resolves([...bhNodes, bgNode]);
+      await placementFeasibility.placementAdvice({ instances: 3, geolocation: ['acAS_BH'] }).then(
+        () => { throw new Error('expected rejection'); },
+        (error) => {
+          expect(error.statusCode).to.equal(503);
+          expect(error.message).to.include('not available yet');
+        },
+      );
+      storeStub.getNodeLocations.resolves(VIEWED_IPS.map(locationDoc));
+      const advice = await placementFeasibility.placementAdvice({ instances: 3, geolocation: ['acAS_BH'] });
+      expect(advice.tableAvailable).to.equal(true);
+      expect(advice.candidateCount).to.be.greaterThan(0);
+    });
+
     it('the API answers 503 for unavailable states', async () => {
       const res = { json: sinon.stub(), status: sinon.stub() };
       await placementFeasibility.placementFeasibilityAPI({ body: { instances: 3, geolocation: ['acAS_BH'] } }, res);
