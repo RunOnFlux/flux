@@ -704,6 +704,13 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       syncthing: { ip: SYNCTHING_IP },
       github: { rawBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, apiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       geolocation: { ipApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, statsApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      // Every base URL a node fetches from belongs here, not just in
+      // config/shared.js: a run claims its own /24, so an address baked into the
+      // shared config is only correct for the run that happens to claim the
+      // first one. A policy URL left pointing at another run's subnet is
+      // unreachable, and the fetch stalls the spawn attempt rather than failing
+      // it - the app is simply never installed, with nothing logged.
+      policy: { baseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
     };
     const nodeConfig = mergeConfigs(infraOverride, mergeConfigs(configOverrides, nodeConfigOverrides[i]));
     nodeEnv.NODE_CONFIG = JSON.stringify(nodeConfig);
