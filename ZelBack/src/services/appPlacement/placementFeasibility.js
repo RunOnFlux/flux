@@ -178,6 +178,13 @@ function domainShareLevel(domainSizes, instances) {
 async function placementFeasibility(appSpecifications, minInstances) {
   const instances = minInstances ?? appSpecifications.instances ?? config.fluxapps.minimumInstances;
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+  if (!Array.isArray(nodeList) || nodeList.length === 0) {
+    // an empty node list is missing data, not an empty network - reporting
+    // zero candidates would read as proven impossibility to the callers
+    const error = new Error('Node list is not available yet');
+    error.statusCode = 503;
+    throw error;
+  }
   const tableAvailable = ipLocationTable.hasTable();
   const geoRestricted = (appSpecifications.geolocation ?? []).length > 0;
 
@@ -489,6 +496,15 @@ async function placementAdvice(spec) {
     throw new Error('Invalid instances specified');
   }
   const { normalized, coarsened } = normalizeGeolocation(geolocationEntries(spec));
+  // advice differs from enforcement here: the registration gate stays
+  // permissive without a table (nothing is provable), but serving a
+  // geo-restricted ANSWER computed over the whole network would advise a
+  // purchase on numbers that mean nothing - say unavailable instead
+  if (normalized.some((value) => value !== '') && !ipLocationTable.hasTable()) {
+    const error = new Error('The IP location table is not available yet - geolocation feasibility cannot be answered');
+    error.statusCode = 503;
+    throw error;
+  }
   let synced = true;
   if (Array.isArray(spec.compose)) {
     synced = spec.compose.some((component) => mountParser.isSyncedComponent(component?.containerData));
@@ -522,6 +538,7 @@ async function placementFeasibilityAPI(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    if (error.statusCode) res.status(error.statusCode);
     res.json(errorResponse);
   }
 }
@@ -537,6 +554,13 @@ async function placementFeasibilityAPI(req, res) {
  *   continents: object}>}
  */
 async function placementLocations() {
+  if (!ipLocationTable.hasTable()) {
+    // the tree IS the product here - totals over /16 fallback domains are
+    // not the placement geography, so absence of the table is unavailability
+    const error = new Error('The IP location table is not available yet');
+    error.statusCode = 503;
+    throw error;
+  }
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
   const tableAvailable = ipLocationTable.hasTable();
   const totalDomains = new Set();
@@ -609,6 +633,7 @@ async function placementLocationsAPI(req, res) {
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    if (error.statusCode) res.status(error.statusCode);
     res.json(errorResponse);
   }
 }

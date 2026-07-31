@@ -389,7 +389,7 @@ describe('placementFeasibility tests', () => {
 
   describe('placementFeasibilityAPI', () => {
     function run(body) {
-      const res = { json: sinon.stub() };
+      const res = { json: sinon.stub(), status: sinon.stub() };
       return placementFeasibility.placementFeasibilityAPI({ body }, res).then(() => res.json.firstCall.args[0]);
     }
 
@@ -560,13 +560,61 @@ describe('placementFeasibility tests', () => {
       expect(locations.continents.EU.countries.DE).to.deep.equal({ nodes: 2, domains: 2, tiers: { NIMBUS: 1, CUMULUS: 1 } });
     });
 
-    it('serves totals only when no table is loaded', async () => {
+    it('is unavailable without a table - the tree is the product', async () => {
       deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes]);
-      const locations = await placementFeasibility.placementLocations();
-      expect(locations.tableAvailable).to.equal(false);
-      expect(locations.total).to.deep.equal({ nodes: 8, domains: 5 });
-      expect(locations.unresolved).to.equal(8);
-      expect(locations.continents).to.deep.equal({});
+      await placementFeasibility.placementLocations().then(
+        () => { throw new Error('expected rejection'); },
+        (error) => {
+          expect(error.statusCode).to.equal(503);
+          expect(error.message).to.include('not available yet');
+        },
+      );
+    });
+  });
+
+  describe('unavailable data states', () => {
+    it('an empty node list is missing data, never zero candidates', async () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      deterministicFluxListStub.resolves([]);
+      await placementFeasibility.placementFeasibility({ geolocation: [], instances: 3 }).then(
+        () => { throw new Error('expected rejection'); },
+        (error) => expect(error.statusCode).to.equal(503),
+      );
+    });
+
+    it('an empty node list never rejects a registration as impossible', async () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      deterministicFluxListStub.resolves([]);
+      const result = await placementFeasibility.checkPlacementFeasibility({
+        name: 'bootWindow', version: 7, instances: 3, geolocation: ['acAS_BH'], compose: [{ containerData: 'g:/data' }],
+      }, 'testCaller');
+      expect(result).to.equal(null);
+      expect(logStub.warn.args.some((a) => a[0].includes('placement feasibility check failed'))).to.equal(true);
+    });
+
+    it('geo-restricted advice without a table is unavailable, not whole-network numbers', async () => {
+      deterministicFluxListStub.resolves([...bhNodes, bgNode]);
+      await placementFeasibility.placementAdvice({ instances: 3, geolocation: ['acAS_BH'] }).then(
+        () => { throw new Error('expected rejection'); },
+        (error) => expect(error.statusCode).to.equal(503),
+      );
+    });
+
+    it('unrestricted advice still answers without a table', async () => {
+      deterministicFluxListStub.resolves([...bhNodes, bgNode]);
+      const advice = await placementFeasibility.placementAdvice({ instances: 3, geolocation: [''] });
+      expect(advice.tableAvailable).to.equal(false);
+      expect(advice.candidateCount).to.equal(4);
+    });
+
+    it('the API answers 503 for unavailable states', async () => {
+      const res = { json: sinon.stub(), status: sinon.stub() };
+      await placementFeasibility.placementFeasibilityAPI({ body: { instances: 3, geolocation: ['acAS_BH'] } }, res);
+      expect(res.status.calledWith(503)).to.equal(true);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      const locationsRes = { json: sinon.stub(), status: sinon.stub() };
+      await placementFeasibility.placementLocationsAPI({}, locationsRes);
+      expect(locationsRes.status.calledWith(503)).to.equal(true);
     });
   });
 

@@ -73,6 +73,9 @@ function requireHttps(req, res, next) {
 }
 
 const cache = apicache.middleware;
+// caching a transient 503 would pin "unavailable" for the cache window after
+// the data arrives - only successful answers are worth keeping
+const cacheSuccessOnly = (req, res) => res.statusCode === 200;
 
 module.exports = (app) => {
   // GET PUBLIC methods
@@ -460,7 +463,7 @@ module.exports = (app) => {
   app.post('/apps/placementfeasibility', (req, res) => { // fault domains and per-domain instance share for a prospective spec
     placementFeasibility.placementFeasibilityAPI(req, res);
   });
-  app.get('/apps/placementlocations', cache('30 seconds'), (req, res) => { // node, fault-domain and tier counts per continent/country
+  app.get('/apps/placementlocations', cache('30 seconds', cacheSuccessOnly), (req, res) => { // node, fault-domain and tier counts per continent/country
     placementFeasibility.placementLocationsAPI(req, res);
   });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
