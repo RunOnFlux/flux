@@ -1445,6 +1445,12 @@ async function validateAppUpdate(appSpecification) {
 
   await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
+  // placement feasibility applies to updates too: a narrowed geolocation,
+  // raised instance count or grown sizing must not buy a spec the network
+  // provably cannot satisfy - the redeploy would strip the out-of-geo
+  // instances and leave the app below its count, or at zero
+  await placementFeasibility.checkPlacementFeasibility(appSpecFormatted, 'validateAppUpdate');
+
   if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
     // eslint-disable-next-line no-restricted-syntax
     for (const appComponent of appSpecFormatted.compose) {
