@@ -353,6 +353,48 @@ function normalizeGeolocation(entries) {
 }
 
 /**
+ * The geolocation input of a prospective spec, in either accepted shape: the
+ * spec's flat geolocation array (spec strings and/or structured entries), or
+ * the v9 placement shape - geoAllow/geoDeny arrays of structured entries,
+ * exactly what a v9 spec's placement carries - so the deploy form can pass
+ * one object to both this endpoint and the spec it registers. Returns the
+ * mixed entry list normalizeGeolocation consumes.
+ * @param {object} spec Request body
+ * @returns {Array<string|object>}
+ */
+function geolocationEntries(spec) {
+  const hasPlacementShape = spec.geoAllow !== undefined || spec.geoDeny !== undefined;
+  if (!hasPlacementShape) {
+    const entries = spec.geolocation ?? [];
+    // 10 entries is the registration limit - nothing beyond it can be bought
+    if (!Array.isArray(entries) || entries.length > 10) {
+      throw new Error('Invalid geolocation specified');
+    }
+    return entries;
+  }
+  if (spec.geolocation !== undefined) {
+    throw new Error('Provide either geolocation or geoAllow/geoDeny, not both');
+  }
+  const entries = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const [name, list, forbidden] of [['geoAllow', spec.geoAllow, false], ['geoDeny', spec.geoDeny, true]]) {
+    if (list === undefined || list === null) continue; // eslint-disable-line no-continue
+    // the v9 schema caps each list at 100 entries
+    if (!Array.isArray(list) || list.length > 100) {
+      throw new Error(`Invalid ${name} specified`);
+    }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const entry of list) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry) || entry.forbidden !== undefined) {
+        throw new Error(`Invalid ${name} specified`);
+      }
+      entries.push({ ...entry, forbidden });
+    }
+  }
+  return entries;
+}
+
+/**
  * The sizing portion of a prospective spec, validated for the tier-fit
  * arithmetic. Compose sizing wins over top-level fields, mirroring
  * totalAppHWRequirements' version branches; a body with no sizing yields a
@@ -394,14 +436,15 @@ function buildSizedSpec(spec) {
  * truly hold, and the spec-string geolocation that was evaluated.
  * Geolocation entries are spec strings ('acEU_CZ', 'a!cEU', legacy
  * 'aEU'/'bFR') or structured { continent?, country?, region?, forbidden? }
- * objects; the structured form is normalised to spec strings, and
- * normalizedGeolocation echoes exactly what was evaluated so the caller can
- * register it verbatim. coarsenedEntries lists entries whose region part
- * placement cannot honour at region granularity. Compose or top-level sizing
- * narrows candidates to the tiers that can hold the app. Throws on invalid
- * input.
- * @param {object} spec Prospective spec { instances?, geolocation?,
- *   compose? | containerData?, cpu/ram/hdd? }
+ * objects; the v9 placement shape ({ geoAllow, geoDeny } arrays) is accepted
+ * in place of the flat array. The structured forms are normalised to spec
+ * strings, and normalizedGeolocation echoes exactly what was evaluated so
+ * the caller can register it verbatim. coarsenedEntries lists entries whose
+ * region part placement cannot honour at region granularity. Compose or
+ * top-level sizing narrows candidates to the tiers that can hold the app.
+ * Throws on invalid input.
+ * @param {object} spec Prospective spec { instances?, geolocation? |
+ *   geoAllow?/geoDeny?, compose? | containerData?, cpu/ram/hdd? }
  * @returns {Promise<object>} Feasibility plus the advice fields
  */
 async function placementAdvice(spec) {
@@ -409,12 +452,7 @@ async function placementAdvice(spec) {
   if (!Number.isInteger(instances) || instances < 1 || instances > config.fluxapps.maximumInstances) {
     throw new Error('Invalid instances specified');
   }
-  const geolocationInput = spec.geolocation ?? [];
-  // 10 entries is the registration limit - nothing beyond it can be bought
-  if (!Array.isArray(geolocationInput) || geolocationInput.length > 10) {
-    throw new Error('Invalid geolocation specified');
-  }
-  const { normalized, coarsened } = normalizeGeolocation(geolocationInput);
+  const { normalized, coarsened } = normalizeGeolocation(geolocationEntries(spec));
   let synced = true;
   if (Array.isArray(spec.compose)) {
     synced = spec.compose.some((component) => mountParser.isSyncedComponent(component?.containerData));

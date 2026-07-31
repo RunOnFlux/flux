@@ -465,6 +465,40 @@ describe('placementFeasibility tests', () => {
       expect(advice.candidateCount).to.equal(2);
     });
 
+    it('accepts the v9 placement shape and echoes the normalised spec strings', async () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
+      const advice = await placementFeasibility.placementAdvice({
+        instances: 3,
+        geoAllow: [{ continent: 'AS', country: 'BH' }],
+        geoDeny: [{ country: 'FI' }],
+        compose: [{ containerData: 'g:/data' }],
+      });
+      expect(advice.normalizedGeolocation).to.deep.equal(['acAS_BH', 'a!cEU_FI']);
+      expect(advice.candidateCount).to.equal(3);
+      expect(advice.domainCount).to.equal(1);
+    });
+
+    it('rejects mixing the flat and placement geolocation shapes', async () => {
+      const mixed = placementFeasibility.placementAdvice({
+        instances: 3,
+        geolocation: ['acEU'],
+        geoAllow: [{ continent: 'EU' }],
+      });
+      await mixed.then(
+        () => { throw new Error('expected rejection'); },
+        (error) => expect(error.message).to.include('not both'),
+      );
+      const forbiddenInside = placementFeasibility.placementAdvice({
+        instances: 3,
+        geoAllow: [{ continent: 'EU', forbidden: true }],
+      });
+      await forbiddenInside.then(
+        () => { throw new Error('expected rejection'); },
+        (error) => expect(error.message).to.include('Invalid geoAllow'),
+      );
+    });
+
     it('rejects invalid sizing and oversized geolocation lists', async () => {
       const rejects = async (body, message) => {
         try {
