@@ -21,7 +21,7 @@ const RANGES = [
     start: '10.10.0.0', end: '10.10.255.255', o: null, c: 'DE',
   },
   {
-    start: '65.108.0.0', end: '65.109.255.255', o: 'hetzner', c: 'FI',
+    start: '65.108.0.0', end: '65.109.255.255', o: 'hetzner', c: 'FI', r: 'FI-11',
   },
   {
     start: '80.95.16.0', end: '80.95.19.255', o: 'bg-isp', c: 'BG',
@@ -63,7 +63,7 @@ function locationDoc(ip) {
     be: range?.o ? v4Int(range.end) : null,
     c: range?.c ?? null,
     n: range ? CONTINENTS[range.c] : null,
-    r: null,
+    r: range?.r ?? null,
     g: GENERATED,
   };
 }
@@ -281,20 +281,45 @@ describe('placementFeasibility tests', () => {
         .to.deep.equal(['acEU_CZ']);
     });
 
-    it('coarsens structured region entries to their country and flags them', () => {
+    it('emits table-vocabulary regions and coarsens only legacy-shaped parts', () => {
       useTable();
       const { normalized, coarsened } = placementFeasibility.normalizeGeolocation([
         { country: 'FI', region: 'FI-18' },
         'acEU_FI_Uusimaa',
         'acEU_FI_ALL',
+        'a!cNA_US_US-HI',
       ]);
-      // the ISO region is NOT emitted: install-time matching compares against
-      // ip-api region names, so a spec carrying 'FI-18' would match no node
-      expect(normalized).to.deep.equal(['acEU_FI', 'acEU_FI_Uusimaa', 'acEU_FI_ALL']);
-      expect(coarsened).to.deep.equal(['acEU_FI', 'acEU_FI_Uusimaa']);
+      // the ISO region IS emitted - placement and the installer both resolve
+      // it through the published table; only legacy-shaped parts (ip-api
+      // names) are answered at country granularity and reported as coarsened
+      expect(normalized).to.deep.equal(['acEU_FI_FI-18', 'acEU_FI_Uusimaa', 'acEU_FI_ALL', 'a!cNA_US_US-HI']);
+      expect(coarsened).to.deep.equal(['acEU_FI_Uusimaa']);
       expect(() => placementFeasibility.normalizeGeolocation([{ region: 'FI-18' }])).to.throw('requires its country');
       expect(() => placementFeasibility.normalizeGeolocation([{ country: 'DE', region: 'FI-18' }])).to.throw('does not belong to DE');
       expect(() => placementFeasibility.normalizeGeolocation([{ country: 'FI', region: 'Uusimaa' }])).to.throw('not an ISO 3166-2');
+    });
+
+    it('matches table-vocabulary regions at region granularity', () => {
+      const matches = placementFeasibility.nodeLocationMatchesGeolocation;
+      const inRegion = { continentCode: 'EU', countryCode: 'FI', region: 'FI-18' };
+      const outOfRegion = { continentCode: 'EU', countryCode: 'FI', region: 'FI-11' };
+      const regionUnknown = { continentCode: 'EU', countryCode: 'FI', region: null };
+      // allow: strict where the node's region is known, country-granularity where not
+      expect(matches(inRegion, ['acEU_FI_FI-18'])).to.equal(true);
+      expect(matches(outOfRegion, ['acEU_FI_FI-18'])).to.equal(false);
+      expect(matches(regionUnknown, ['acEU_FI_FI-18'])).to.equal(true);
+      // deny: applies only where provable
+      expect(matches(inRegion, ['acEU', 'a!cEU_FI_FI-18'])).to.equal(false);
+      expect(matches(outOfRegion, ['acEU', 'a!cEU_FI_FI-18'])).to.equal(true);
+      expect(matches(regionUnknown, ['acEU', 'a!cEU_FI_FI-18'])).to.equal(true);
+      // legacy-shaped parts keep country granularity in both directions
+      expect(matches(outOfRegion, ['acEU_FI_Uusimaa'])).to.equal(true);
+      expect(matches(inRegion, ['acEU', 'a!cEU_FI_Uusimaa'])).to.equal(true);
+      // _NONE is never a table region part and never widens a ban
+      expect(matches(inRegion, ['acEU', 'a!cEU_FI_NONE'])).to.equal(true);
+      // a region part belonging to a different country than the entry names is
+      // legacy-shaped, not a table pin
+      expect(matches(outOfRegion, ['acEU_FI_DE-BY'])).to.equal(true);
     });
 
     it('rejects malformed entries', () => {
@@ -497,6 +522,29 @@ describe('placementFeasibility tests', () => {
       useTable();
       deterministicFluxListStub.resolves([...fiNodes, ...deNodes]);
       const result = await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller');
+      expect(result.candidateCount).to.equal(0);
+      expect(logStub.warn.args.some((a) => a[0].includes('may not cover it'))).to.equal(true);
+    });
+
+    it('rejects a pure table-region pin that resolves zero candidates', async () => {
+      // both ends read the same table for these entries, so a total miss is
+      // proof, not mistrust - registering it sells a deployment that cannot start
+      useTable();
+      deterministicFluxListStub.resolves([...fiNodes, ...deNodes]);
+      await placementFeasibility.checkPlacementFeasibility({
+        name: 'regionPinned', version: 7, instances: 2, geolocation: ['acEU_FI_FI-18'], compose: [{ containerData: 'r:/data' }],
+      }, 'testCaller').then(
+        () => { throw new Error('expected rejection'); },
+        (error) => expect(error.message).to.include('Widen the allowed locations'),
+      );
+    });
+
+    it('keeps the zero-candidate allowance when any allow entry is not a region pin', async () => {
+      useTable();
+      deterministicFluxListStub.resolves([...fiNodes, ...deNodes]);
+      const result = await placementFeasibility.checkPlacementFeasibility({
+        name: 'mixedPin', version: 7, instances: 2, geolocation: ['acEU_FI_FI-18', 'acAS_BH'], compose: [{ containerData: 'r:/data' }],
+      }, 'testCaller');
       expect(result.candidateCount).to.equal(0);
       expect(logStub.warn.args.some((a) => a[0].includes('may not cover it'))).to.equal(true);
     });

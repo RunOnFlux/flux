@@ -42,32 +42,74 @@ const GEO_SPECS = [
   ['aEU'],
   ['bFI'],
   ['aEU', 'bFI'],
+  // the table's own region vocabulary - full ISO 3166-2
+  ['acEU_FI_FI-18'],
+  ['acNA_US_US-CA'],
+  ['a!cEU_FI_FI-18'],
+  ['a!cNA_US_US-HI'],
+  ['acEU_FI_FI-18', 'acAS_BH'],
+  ['acEU', 'a!cEU_FI_FI-18'],
 ];
 
-// node locations spanning both sides of every boundary above
+// node locations spanning both sides of every boundary above. tableRegion is
+// what the published table resolves for the node's address (null = the table
+// carries no region there); regionName stays the ip-api self-report.
 const NODE_LOCATIONS = [
-  { continentCode: 'EU', countryCode: 'FI', regionName: 'Uusimaa' },
-  { continentCode: 'EU', countryCode: 'FI', regionName: 'Pirkanmaa' },
-  { continentCode: 'EU', countryCode: 'DE', regionName: 'Bavaria' },
-  { continentCode: 'EU', countryCode: 'RU', regionName: 'Moscow' },
-  { continentCode: 'AS', countryCode: 'BH', regionName: 'Manama' },
-  { continentCode: 'NA', countryCode: 'US', regionName: 'California' },
-  { continentCode: 'NA', countryCode: 'US', regionName: 'Hawaii' },
-  { continentCode: 'NA', countryCode: 'CA', regionName: 'Ontario' },
-  { continentCode: 'SA', countryCode: 'BR', regionName: 'Sao Paulo' },
+  { continentCode: 'EU', countryCode: 'FI', regionName: 'Uusimaa', tableRegion: 'FI-18' },
+  { continentCode: 'EU', countryCode: 'FI', regionName: 'Pirkanmaa', tableRegion: 'FI-11' },
+  { continentCode: 'EU', countryCode: 'FI', regionName: 'Uusimaa', tableRegion: null },
+  { continentCode: 'EU', countryCode: 'DE', regionName: 'Bavaria', tableRegion: 'DE-BY' },
+  { continentCode: 'EU', countryCode: 'RU', regionName: 'Moscow', tableRegion: null },
+  { continentCode: 'AS', countryCode: 'BH', regionName: 'Manama', tableRegion: 'BH-13' },
+  { continentCode: 'NA', countryCode: 'US', regionName: 'California', tableRegion: 'US-CA' },
+  { continentCode: 'NA', countryCode: 'US', regionName: 'Hawaii', tableRegion: 'US-HI' },
+  { continentCode: 'NA', countryCode: 'CA', regionName: 'Ontario', tableRegion: 'CA-ON' },
+  { continentCode: 'SA', countryCode: 'BR', regionName: 'Sao Paulo', tableRegion: null },
 ];
+
+/**
+ * The filter-side location for a node: what the candidate filter reads from
+ * the nodelocations view. The SAME table values the installer's own lookup
+ * resolves - one table, two consumers, which is the invariant under test.
+ */
+function filterLocation(nodeGeo) {
+  return {
+    continentCode: nodeGeo.continentCode,
+    countryCode: nodeGeo.countryCode,
+    region: nodeGeo.tableRegion ?? null,
+  };
+}
 
 /**
  * Does the real install-time gate accept this node for this spec?
  * Runs the actual hwRequirements implementation with the node's geolocation
- * stubbed - not a reimplementation of it, which would defeat the purpose.
+ * and its table lookup stubbed - not a reimplementation of it, which would
+ * defeat the purpose. The lookup stub returns the same table values the
+ * filter side sees, because on a real node they are the same table.
  */
+const installerGates = new Map();
+
 async function installerAccepts(geolocation, nodeGeo) {
-  const hwRequirements = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
-    '../geolocationService': { getNodeGeolocation: sinon.stub().resolves(nodeGeo) },
-  });
+  // one proxied module per node location, not per call - the stubs are fixed
+  // per node and the grid re-visits each node once per spec shape
+  const key = JSON.stringify(nodeGeo);
+  if (!installerGates.has(key)) {
+    installerGates.set(key, proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
+      '../geolocationService': { getNodeGeolocation: sinon.stub().resolves({ ...nodeGeo, ip: '203.0.113.10' }) },
+      '../appPlacement/ipLocationStore': {
+        lookup: sinon.stub().resolves(nodeGeo.tableRegion === undefined ? null : {
+          org: 'aabbccddeeff',
+          block: { start: 0, end: 0 },
+          countryCode: nodeGeo.countryCode,
+          continentCode: nodeGeo.continentCode,
+          region: nodeGeo.tableRegion,
+        }),
+        isStoreUnavailable: () => false,
+      },
+    }));
+  }
   try {
-    await hwRequirements.checkAppGeolocationRequirements({ version: 7, geolocation });
+    await installerGates.get(key).checkAppGeolocationRequirements({ version: 7, geolocation });
     return true;
   } catch (error) {
     return false;
@@ -83,12 +125,9 @@ describe('placement eligibility parity with install-time geolocation', () => {
       for (const nodeGeo of NODE_LOCATIONS) {
         // eslint-disable-next-line no-await-in-loop
         const accepted = await installerAccepts(geolocation, nodeGeo);
-        const counted = placementFeasibility.nodeLocationMatchesGeolocation(
-          { continentCode: nodeGeo.continentCode, countryCode: nodeGeo.countryCode },
-          geolocation,
-        );
+        const counted = placementFeasibility.nodeLocationMatchesGeolocation(filterLocation(nodeGeo), geolocation);
         if (accepted && !counted) {
-          underCounted.push(`${JSON.stringify(geolocation)} vs ${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`);
+          underCounted.push(`${JSON.stringify(geolocation)} vs ${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}/${nodeGeo.tableRegion}`);
         }
       }
     }
@@ -113,16 +152,41 @@ describe('placement eligibility parity with install-time geolocation', () => {
       for (const nodeGeo of NODE_LOCATIONS) {
         // eslint-disable-next-line no-await-in-loop
         const accepted = await installerAccepts(geolocation, nodeGeo);
-        const counted = placementFeasibility.nodeLocationMatchesGeolocation(
-          { continentCode: nodeGeo.continentCode, countryCode: nodeGeo.countryCode },
-          geolocation,
-        );
+        const counted = placementFeasibility.nodeLocationMatchesGeolocation(filterLocation(nodeGeo), geolocation);
         if (!accepted && counted) {
           overCounted.push(`${JSON.stringify(geolocation)} vs ${nodeGeo.continentCode}_${nodeGeo.countryCode}`);
         }
       }
     }
     expect(overCounted, `candidate filter counted nodes the installer refuses:\n  ${overCounted.join('\n  ')}`).to.deep.equal([]);
+  });
+
+  it('agrees with the installer exactly at table-resolvable region granularity', async () => {
+    // For region entries in the table's own vocabulary, on nodes whose region
+    // the table knows, filter and installer read the same table - so they must
+    // agree in BOTH directions. Divergence here is not over-inclusion, it is
+    // one of the two implementations misreading the shared vocabulary.
+    const isoRegionSpecs = GEO_SPECS.filter((entries) => entries.length
+      && entries.every((entry) => {
+        const body = entry.startsWith('a!c') ? entry.slice(3) : entry.slice(2);
+        const parts = body.split('_');
+        return parts.length <= 2 || /^[A-Z]{2}-[A-Z0-9]{1,3}$/.test(parts[2]);
+      }));
+    const regionKnown = NODE_LOCATIONS.filter((nodeGeo) => nodeGeo.tableRegion);
+    const diverged = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const geolocation of isoRegionSpecs) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const nodeGeo of regionKnown) {
+        // eslint-disable-next-line no-await-in-loop
+        const accepted = await installerAccepts(geolocation, nodeGeo);
+        const counted = placementFeasibility.nodeLocationMatchesGeolocation(filterLocation(nodeGeo), geolocation);
+        if (accepted !== counted) {
+          diverged.push(`${JSON.stringify(geolocation)} vs ${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.tableRegion}: installer=${accepted} filter=${counted}`);
+        }
+      }
+    }
+    expect(diverged, `filter and installer disagree on shared vocabulary:\n  ${diverged.join('\n  ')}`).to.deep.equal([]);
   });
 
   it('counts a node whose location the table cannot resolve at all', async () => {

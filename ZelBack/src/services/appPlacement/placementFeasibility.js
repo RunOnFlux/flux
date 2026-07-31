@@ -118,13 +118,31 @@ async function faultDomain(address) {
 }
 
 /**
+ * Whether a region part of a geolocation entry is in the table's own
+ * vocabulary: a full ISO 3166-2 code belonging to the entry's country part.
+ * Anything else - ip-api region names, _NONE, retired codes - is
+ * legacy-shaped and keeps country-granularity semantics.
+ * @param {string} part The entry's region part
+ * @param {string} countryPart The entry's country part
+ * @returns {boolean}
+ */
+function isTableRegionPart(part, countryPart) {
+  return /^[A-Z]{2}-[A-Z0-9]{1,3}$/.test(part ?? '') && part.slice(0, 2) === countryPart;
+}
+
+/**
  * Whether a node location satisfies an app's geolocation specification.
  * Mirrors the install-time semantics of checkAppGeolocationRequirements:
- * exact match at continent, continent_country or the _ALL variants. Entries at
- * region granularity are matched at country granularity - the table's region
- * vocabulary (ISO 3166-2) differs from the spec's (ip-api region names), and
- * over-approximating errs strict.
- * @param {{continentCode: string|null, countryCode: string|null}} loc Node location
+ * exact match at continent, continent_country, the _ALL variants, and - for
+ * region parts in the table's own ISO 3166-2 vocabulary - at region
+ * granularity, read from the same table the installer resolves its own
+ * region through. Legacy-shaped region parts (ip-api names) are matched at
+ * country granularity: strict-matching them against the table's vocabulary
+ * would exclude nodes the installer accepts. A node whose region the table
+ * does not carry matches allows at country granularity and is never excluded
+ * by a region deny - the proof asymmetry.
+ * @param {{continentCode: string|null, countryCode: string|null,
+ *   region: string|null}} loc Node location
  * @param {string[]} geolocation App spec geolocation entries
  * @returns {boolean}
  */
@@ -139,22 +157,35 @@ function nodeLocationMatchesGeolocation(loc, geolocation) {
   const matchesEntry = (value) => {
     if (value === 'ALL' || value === loc.continentCode || value === `${loc.continentCode}_ALL`) return true;
     const parts = value.split('_');
-    // country level and deeper: continent_country must match; region granularity
-    // is matched at country granularity (see module comment)
-    return parts.length >= 2 && `${parts[0]}_${parts[1]}` === contCountry;
+    if (parts.length < 2 || `${parts[0]}_${parts[1]}` !== contCountry) return false;
+    // A region pin in the table's vocabulary matches at region granularity
+    // when the node's region is known; unknown still admits at country
+    // granularity (an allow over-includes, never strands). Legacy-shaped
+    // parts stay at country granularity (see the function comment).
+    if (parts.length >= 3 && isTableRegionPart(parts[2], parts[1]) && loc.region) {
+      return parts[2] === loc.region;
+    }
+    return true;
   };
 
   // eslint-disable-next-line no-restricted-syntax
   for (const entry of forbidden) {
     const v = entry.slice(3);
-    // Forbidden entries exclude only at granularities the table resolves; a
-    // region-level ban cannot be proven to apply, so it does not exclude.
+    // Forbidden entries exclude only at granularities the table resolves.
     // _NONE is a region part like any other and must NOT be stripped:
     // install-time compares the whole entry against the node's real region
     // name, so 'a!cEU_DE_NONE' bans nothing there, and stripping it here
     // would ban all of DE - a node excluded from the candidate count that
     // the installer would have accepted.
     if (v === loc.continentCode || v === contCountry) return false;
+    // A deny at region granularity applies only where it is provable: the
+    // part is in the table's vocabulary AND the node's region is known and
+    // equal. Legacy-named parts stay unprovable and do not exclude.
+    const parts = v.split('_');
+    if (parts.length >= 3 && `${parts[0]}_${parts[1]}` === contCountry
+      && isTableRegionPart(parts[2], parts[1]) && loc.region && parts[2] === loc.region) {
+      return false;
+    }
   }
   if (allowed.length) {
     return allowed.some((entry) => matchesEntry(entry.slice(2)));
@@ -248,7 +279,7 @@ async function placementComputation(appSpecifications, minInstances) {
       const doc = byIp.get(ip);
       // a node the view does not carry has no provable location, and an
       // unprovable location counts
-      const loc = doc ? { continentCode: doc.n ?? null, countryCode: doc.c ?? null } : null;
+      const loc = doc ? { continentCode: doc.n ?? null, countryCode: doc.c ?? null, region: doc.r ?? null } : null;
       if (!nodeLocationMatchesGeolocation(loc, appSpecifications.geolocation)) continue; // eslint-disable-line no-continue
     }
     const domain = domainOf(ip);
@@ -420,15 +451,26 @@ async function checkPlacementFeasibility(appSpecFormatted, caller, previousSpec)
   const category = placementCategory(feasibility, synced);
   const geoRestricted = (appSpecFormatted.geolocation ?? []).length > 0;
   if (category === 'impossible') {
-    // A geo-restricted request that resolves to NO candidate at all is the one
-    // shortfall this node cannot stand behind. Candidate countries come from
-    // the published table (registry allocations plus geofeeds) while install
-    // eligibility is decided by each node's own ip-api self-report, and the
-    // two disagree for some ranges - a total miss is indistinguishable from
-    // the table simply mis-attributing that geography. Some candidates
-    // resolving proves the attribution works there, so a shortfall above zero
-    // is real and refusable.
-    if (geoRestricted && feasibility.candidateCount === 0) {
+    // A geo-restricted request that resolves to NO candidate at all is a
+    // shortfall this node usually cannot stand behind. Candidate countries
+    // come from the published table while country-level install eligibility
+    // is decided by each node's own ip-api self-report, and the two disagree
+    // for some ranges - a total miss there is indistinguishable from the
+    // table mis-attributing that geography. Some candidates resolving proves
+    // the attribution works, so a shortfall above zero is real and refusable.
+    //
+    // The one exception is a spec whose every allow entry is a region pin in
+    // the table's own vocabulary: the installer resolves its region through
+    // the same table this count reads, so zero candidates means zero nodes
+    // whose installer would accept - registering it sells a deployment that
+    // provably cannot start. Same source on both ends turns the miss into
+    // proof, and proof rejects.
+    const allows = (appSpecFormatted.geolocation ?? []).filter((x) => typeof x === 'string' && x.startsWith('ac'));
+    const allTableRegionPins = allows.length > 0 && allows.every((entry) => {
+      const parts = entry.slice(2).split('_');
+      return parts.length >= 3 && isTableRegionPart(parts[2], parts[1]);
+    });
+    if (geoRestricted && feasibility.candidateCount === 0 && !allTableRegionPins) {
       log.warn(`${caller} - App ${appSpecFormatted.name} resolves no eligible node for its geolocation; the location table may not cover it, so the registration is allowed`);
       return feasibility;
     }
@@ -499,22 +541,23 @@ function normalizeStructuredEntry(entry) {
   }
   const parts = [resolvedContinent];
   if (country) parts.push(country);
-  // The region is deliberately dropped rather than emitted. Install-time
-  // matching compares a spec's region against the node's ip-api regionName
-  // ('Uusimaa'), while this vocabulary is ISO 3166-2 ('FI-18'), so an emitted
-  // region would match no node anywhere and the caller registers a spec that
-  // installs nowhere. Coarsening to the country is reported back in
-  // coarsenedEntries; the caller keeps what it asked for and learns that
-  // placement answers it at country granularity.
+  // The region is emitted in the table's vocabulary (full ISO 3166-2, already
+  // validated to belong to its country above). Placement matches it at region
+  // granularity wherever the table knows a node's region, and the installer
+  // resolves its own region through the same table - one vocabulary end to
+  // end. Nodes the table cannot place at region granularity still match
+  // allows at country granularity and are never excluded by a region deny.
+  if (region) parts.push(region);
   return `${entry.forbidden === true ? 'a!c' : 'ac'}${parts.join('_')}`;
 }
 
 /**
  * Normalise a mixed geolocation array: spec strings pass through verbatim,
  * structured entries become spec strings. Also reports which normalised
- * entries carry a region part, which placement cannot honour at region
- * granularity - allowed entries match at country granularity, forbidden
- * entries cannot be applied at all.
+ * entries carry a region part placement can only honour at country
+ * granularity: legacy-shaped parts (ip-api names) outside the table's
+ * ISO 3166-2 vocabulary. Structured entries always emit table-vocabulary
+ * regions, so they are never coarsened.
  * @param {Array<string|object>} entries Geolocation entries, either syntax
  * @returns {{normalized: string[], coarsened: string[]}}
  */
@@ -524,18 +567,18 @@ function normalizeGeolocation(entries) {
     if (typeof entry === 'string') {
       if (entry.length > 50) throw new Error('Invalid geolocation specified');
       // a spec string the caller already holds keeps its region part - it is
-      // theirs to register - but placement still answers it at country
+      // theirs to register - but a legacy-shaped part is answered at country
       // granularity, so report it
       const body = entry.startsWith('a!c') ? entry.slice(3) : (entry.startsWith('ac') ? entry.slice(2) : null);
       const parts = body ? body.split('_') : [];
-      if (parts.length >= 3 && parts[2] !== 'ALL' && parts[2] !== 'NONE') coarsened.push(entry);
+      if (parts.length >= 3 && parts[2] !== 'ALL' && parts[2] !== 'NONE'
+        && !isTableRegionPart(parts[2], parts[1])) {
+        coarsened.push(entry);
+      }
       return entry;
     }
     if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
-      const value = normalizeStructuredEntry(entry);
-      // the region was dropped on the way out (see normalizeStructuredEntry)
-      if (entry.region) coarsened.push(value);
-      return value;
+      return normalizeStructuredEntry(entry);
     }
     throw new Error('Invalid geolocation specified');
   });

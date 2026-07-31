@@ -1072,6 +1072,74 @@ describe('hwRequirements tests', () => {
     });
   });
 
+  describe('checkAppGeolocationRequirements with table-vocabulary regions', () => {
+    const geoNode = {
+      ip: '203.0.113.10', continentCode: 'EU', countryCode: 'FI', regionName: 'Uusimaa',
+    };
+
+    function gateWith(lookupResult) {
+      return proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
+        '../geolocationService': { getNodeGeolocation: sinon.stub().resolves(geoNode) },
+        '../appPlacement/ipLocationStore': {
+          lookup: lookupResult instanceof Error
+            ? sinon.stub().rejects(lookupResult)
+            : sinon.stub().resolves(lookupResult),
+          isStoreUnavailable: () => false,
+        },
+      });
+    }
+
+    const inRegion = {
+      org: 'aabbccddeeff', block: null, countryCode: 'FI', continentCode: 'EU', region: 'FI-18',
+    };
+    const otherRegion = { ...inRegion, region: 'FI-11' };
+    const regionUnknown = { ...inRegion, region: null };
+
+    it('accepts an ISO region allow when the table places this node in it', async () => {
+      const ok = await gateWith(inRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
+      expect(ok).to.equal(true);
+    });
+
+    it('rejects an ISO region allow when the table places this node elsewhere', async () => {
+      try {
+        await gateWith(otherRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('not matching');
+      }
+    });
+
+    it('accepts an ISO region allow at country granularity when its own region is unknown', async () => {
+      const ok = await gateWith(regionUnknown).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
+      expect(ok).to.equal(true);
+    });
+
+    it('treats an unreadable store exactly like an unknown region', async () => {
+      const err = new Error('iplocation store unavailable: no database connection');
+      err.code = 'IPLOCATION_STORE_UNAVAILABLE';
+      const ok = await gateWith(err).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
+      expect(ok).to.equal(true);
+    });
+
+    it('applies an ISO region deny only on proof', async () => {
+      try {
+        await gateWith(inRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU', 'a!cEU_FI_FI-18'] });
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('forbidden');
+      }
+      const okElsewhere = await gateWith(otherRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU', 'a!cEU_FI_FI-18'] });
+      expect(okElsewhere).to.equal(true);
+      const okUnknown = await gateWith(regionUnknown).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU', 'a!cEU_FI_FI-18'] });
+      expect(okUnknown).to.equal(true);
+    });
+
+    it('keeps legacy name matching untouched alongside the table form', async () => {
+      const ok = await gateWith(otherRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] });
+      expect(ok).to.equal(true);
+    });
+  });
+
   describe('exported functions', () => {
     it('should export requirement checking functions', () => {
       expect(hwRequirements.totalAppHWRequirements).to.be.a('function');
