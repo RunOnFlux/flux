@@ -27,11 +27,16 @@ export class HttpPollWaitStrategy {
   #startupTimeoutSet = false;
   #pollIntervalMs;
   #probeTimeoutMs;
+  #validate;
 
-  constructor(url, { pollIntervalMs = 500, probeTimeoutMs = 2000 } = {}) {
+  // `validate` inspects the response beyond res.ok — needed when the target
+  // returns 200 with an error body while a dependency (e.g. mongo) is still
+  // coming up. Defaults to res.ok when omitted.
+  constructor(url, { pollIntervalMs = 500, probeTimeoutMs = 2000, validate = null } = {}) {
     this.#url = url;
     this.#pollIntervalMs = pollIntervalMs;
     this.#probeTimeoutMs = probeTimeoutMs;
+    this.#validate = validate;
   }
 
   withStartupTimeout(startupTimeoutMs) {
@@ -53,7 +58,7 @@ export class HttpPollWaitStrategy {
     while (Date.now() < deadline) {
       try {
         const res = await fetch(this.#url, { signal: AbortSignal.timeout(this.#probeTimeoutMs) });
-        if (res.ok) return;
+        if (this.#validate ? await this.#validate(res) : res.ok) return;
       } catch {
         // not serving yet — keep polling until the deadline
       }

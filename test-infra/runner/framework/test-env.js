@@ -423,6 +423,20 @@ function releaseBootLock() {
   }
 }
 
+// A node is ready when it can SERVE AUTH, not merely HTTP: the first thing every
+// suite does against a fresh or restarted node is authenticate (startDiscovery),
+// and /id/loginphrase needs the mongo connection, which comes up after express
+// starts answering /flux/version. During that window the route returns 200 with
+// an error body, so readiness must validate the body, not just res.ok.
+function nodeReadyWaitStrategy(nodeIp) {
+  const validate = async (res) => {
+    if (!res.ok) return false;
+    const body = await res.json().catch(() => null);
+    return !!(body && body.status === 'success');
+  };
+  return new HttpPollWaitStrategy(`http://${nodeIp}:16127/id/loginphrase`, { validate });
+}
+
 export async function createTestEnv({ hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
   // The boot-lock queue wait must not count against the suite's hook budget.
   // Mocha enforces a hook's timeout twice: the watchdog timer (which would fire
@@ -726,7 +740,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       .withBindMounts(bindMounts)
       .withLogConsumer(logCollector)
       .withEnvironment(nodeEnv)
-      .withWaitStrategy(new HttpPollWaitStrategy(`http://${nodeIp}:16127/flux/version`).withStartupTimeout(120000));
+      .withWaitStrategy(nodeReadyWaitStrategy(nodeIp).withStartupTimeout(120000));
 
     nodeConfigs.push({ index: i, builder, ip: nodeIp, num: i + 1, logCollector, bootIdDir });
   }
@@ -851,8 +865,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       if (clients[index]) clients[index].disconnectEventStream();
       const container = fluxNodes[index].container;
       const saved = container.waitStrategy;
-      const nodeUrl = `http://${fluxNodes[index].ip}:16127/flux/version`;
-      container.waitStrategy = new HttpPollWaitStrategy(nodeUrl);
+      container.waitStrategy = nodeReadyWaitStrategy(fluxNodes[index].ip);
       try {
         await container.restart({ timeout });
       } finally {
