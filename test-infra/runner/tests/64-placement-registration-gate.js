@@ -54,6 +54,17 @@ const SIGNED_SPEC_BASE = {
 describe('placement gate at registration and the advice endpoint', function () {
   let env;
   let node;
+
+  // verifyappregistrationspecifications is a legacy req.on('data') handler:
+  // express.json() consumes the stream first when the request carries
+  // application/json, so its 'end' never fires and the request hangs until the
+  // test times out. Send it as text/plain, which is what leaves the body for
+  // the handler to read.
+  const verifyRegistration = (spec) => node.post(
+    '/apps/verifyappregistrationspecifications',
+    spec,
+    { 'Content-Type': 'text/plain' },
+  );
   dumpLogsOnFailure(() => env);
 
   before(async function () {
@@ -150,7 +161,7 @@ describe('placement gate at registration and the advice endpoint', function () {
 
   it('refuses a registration whose instance count the network provably cannot meet', async function () {
     this.timeout(60000);
-    const response = await node.post('/apps/verifyappregistrationspecifications', {
+    const response = await verifyRegistration({
       ...SIGNED_SPEC_BASE,
       name: `gatereject${Date.now()}`,
       instances: 6, // four eligible nodes exist
@@ -162,7 +173,7 @@ describe('placement gate at registration and the advice endpoint', function () {
 
   it('accepts a registration the network can satisfy', async function () {
     this.timeout(60000);
-    const response = await node.post('/apps/verifyappregistrationspecifications', {
+    const response = await verifyRegistration({
       ...SIGNED_SPEC_BASE,
       name: `gateaccept${Date.now()}`,
       instances: 3,
@@ -175,7 +186,7 @@ describe('placement gate at registration and the advice endpoint', function () {
     // no harness node resolves to Bahrain, so the shortfall is total - which is
     // indistinguishable from the table mis-attributing that country, and the
     // gate must not refuse on it
-    const response = await node.post('/apps/verifyappregistrationspecifications', {
+    const response = await verifyRegistration({
       ...SIGNED_SPEC_BASE,
       name: `gateunknown${Date.now()}`,
       instances: 3,
