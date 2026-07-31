@@ -66,7 +66,13 @@ describe('placement gate at registration and the advice endpoint', function () {
       hookCtx: this,
       nodes: 4,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1, minUniqueIpsOutgoing: 2, minUniqueIpsIncoming: 1 } },
+      // minOutgoing is BOTH the app-submission door and the number of outgoing
+      // connections each node establishes (fluxCommunication.js's
+      // minDeterministicOutPeers), so it has to be reachable within the fleet:
+      // at 3 every node connects to the other three and the mesh is complete.
+      // Setting it lower than the peer wait expects is what leaves a fleet
+      // sitting below the threshold forever.
+      configOverrides: { fluxapps: { minOutgoing: 3, minIncoming: 2 } },
     });
     await fetch(`${env.stubControl}/iplocation`, {
       method: 'POST',
