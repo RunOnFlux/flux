@@ -24,20 +24,12 @@ const config = require('config');
 const log = require('../../lib/log');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const generalService = require('../generalService');
-const hwRequirements = require('../appRequirements/hwRequirements');
 const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
 const cidrUtils = require('../utils/cidrUtils');
 const mountParser = require('../utils/mountParser');
 const { extractIp, socketAddressesMatch } = require('../utils/socketAddressUtils');
 const ipLocationTable = require('./ipLocationTable');
-
-// deterministic node list tier -> app spec tier suffix and fluxSpecifics key
-const TIER_MAP = {
-  CUMULUS: { hwTier: 'basic', capsKey: 'cumulus' },
-  NIMBUS: { hwTier: 'super', capsKey: 'nimbus' },
-  STRATUS: { hwTier: 'bamf', capsKey: 'stratus' },
-};
 
 // geonames/ip-api continent convention - the same vocabulary the location
 // table's country -> continent map uses
@@ -122,55 +114,21 @@ function nodeLocationMatchesGeolocation(loc, geolocation) {
 }
 
 /**
- * Whether an app's hardware requirements fit a node tier.
- *
- * The bound is the tier's nominal capacity WITHOUT the system reserve
- * subtracted, and that is deliberate: a tier is a collateral class, not a
- * hardware guarantee, so a real node of a tier meets or exceeds the nominal
- * figure and install-time sizes against its actual hardware. Subtracting the
- * reserve here would exclude nodes that would in fact accept the app, which
- * is the wrong direction for this module (see the header) - it would refuse
- * a deployable app rather than over-count candidates.
- *
- * Unknown tiers and unsizable specs count as fitting, same direction.
- * @param {object} appSpecifications App specifications
- * @param {string} listTier Tier as carried in the deterministic node list
- * @returns {boolean}
+ * The node-list entries an app may be placed on. A spec carrying a non-empty
+ * `nodes` list is a closed pool - v7 enforces it at install
+ * (checkAppNodesRequirements) and only enterprise owners may carry it from v8
+ * on - so the candidate set IS that list. Counting the whole network for such
+ * an app computes a share against fault domains it can never use, which
+ * strands it below its instance count.
+ * @param {Array<object>} nodeList The deterministic node list
+ * @param {string[]} pinned The spec's nodes entries (socket addresses or outpoints)
+ * @returns {Array<object>}
  */
-function appFitsTier(appSpecifications, listTier) {
-  const tier = TIER_MAP[listTier];
-  if (!tier) return true;
-  const caps = {
-    cpu: config.fluxSpecifics.cpu[tier.capsKey],
-    ram: config.fluxSpecifics.ram[tier.capsKey],
-    hdd: config.fluxSpecifics.hdd[tier.capsKey],
-  };
-  try {
-    const needs = hwRequirements.totalAppHWRequirements(appSpecifications, tier.hwTier);
-    if (!Number.isFinite(needs.cpu) || !Number.isFinite(needs.ram) || !Number.isFinite(needs.hdd)) {
-      return true; // spec carries no sizing - cannot prove it does not fit
-    }
-    return needs.cpu * 10 <= caps.cpu && needs.ram <= caps.ram && needs.hdd <= caps.hdd;
-  } catch (error) {
-    log.warn(`placementFeasibility - could not size app for tier ${listTier}: ${error.message}`);
-    return true;
-  }
-}
-
-/**
- * Tier fit for every tier in the node list vocabulary, computed once.
- * Sizing a spec is proportional to its component count, so evaluating it per
- * node would multiply an attacker-chosen component count by the whole node
- * list on an unauthenticated endpoint; there are only three tiers.
- * @param {object} appSpecifications App specifications
- * @returns {Map<string, boolean>}
- */
-function tierFitTable(appSpecifications) {
-  const fits = new Map();
-  Object.keys(TIER_MAP).forEach((listTier) => {
-    fits.set(listTier, appFitsTier(appSpecifications, listTier));
-  });
-  return fits;
+function pooledNodes(nodeList, pinned) {
+  if (!pinned.length) return nodeList;
+  const outpoints = new Set(pinned);
+  return nodeList.filter((node) => pinned.some((entry) => socketAddressesMatch(entry, node.ip))
+    || outpoints.has(`${node.txhash}:${node.outidx}`));
 }
 
 /**
@@ -214,13 +172,18 @@ async function placementFeasibility(appSpecifications, minInstances) {
   const geoRestricted = (appSpecifications.geolocation ?? []).length > 0;
 
   const domains = new Map(); // fault domain -> candidate count
-  const tierFits = tierFitTable(appSpecifications);
+  // Tier is deliberately NOT a filter. A tier is a collateral class, not a
+  // hardware guarantee: install-time sizes an app against the node's actual
+  // CPU, RAM and disk, so a node whose hardware exceeds its tier's nominal
+  // figure accepts apps this arithmetic would have ruled out. Excluding on
+  // the nominal figure therefore refuses deployable apps, and no bound this
+  // module can compute is a proof of unfitness. Install time enforces it.
+  const candidates = pooledNodes(nodeList, appSpecifications.nodes ?? []);
   let candidateCount = 0;
   // eslint-disable-next-line no-restricted-syntax
-  for (const node of nodeList) {
+  for (const node of candidates) {
     const ip = bareIp(node.ip);
     if (!ip) continue; // eslint-disable-line no-continue
-    if (tierFits.get(node.tier) === false) continue; // eslint-disable-line no-continue
     if (geoRestricted && tableAvailable) {
       const loc = ipLocationTable.lookup(ip);
       if (!nodeLocationMatchesGeolocation(loc, appSpecifications.geolocation)) continue; // eslint-disable-line no-continue
@@ -328,6 +291,14 @@ function placementShape(spec) {
  */
 function changesPlacement(next, previous) {
   if (!previous) return true; // nothing to compare against - gate it
+  // An enterprise spec is stored with its compose stripped, and a previous
+  // spec that could not be decrypted arrives here in that stripped form. It
+  // is not comparable, and reading the difference as a placement change would
+  // gate exactly the renewals and cancellations this exists to let through.
+  const strippedPrevious = previous.version >= 8
+    && (previous.compose ?? []).length === 0
+    && (next.compose ?? []).length > 0;
+  if (strippedPrevious) return false;
   return placementShape(next) !== placementShape(previous);
 }
 
@@ -363,7 +334,20 @@ async function checkPlacementFeasibility(appSpecFormatted, caller, previousSpec)
     return null;
   }
   const category = placementCategory(feasibility, synced);
+  const geoRestricted = (appSpecFormatted.geolocation ?? []).length > 0;
   if (category === 'impossible') {
+    // A geo-restricted request that resolves to NO candidate at all is the one
+    // shortfall this node cannot stand behind. Candidate countries come from
+    // the published table (registry allocations plus geofeeds) while install
+    // eligibility is decided by each node's own ip-api self-report, and the
+    // two disagree for some ranges - a total miss is indistinguishable from
+    // the table simply mis-attributing that geography. Some candidates
+    // resolving proves the attribution works there, so a shortfall above zero
+    // is real and refusable.
+    if (geoRestricted && feasibility.candidateCount === 0) {
+      log.warn(`${caller} - App ${appSpecFormatted.name} resolves no eligible node for its geolocation; the location table may not cover it, so the registration is allowed`);
+      return feasibility;
+    }
     throw new Error(`App ${appSpecFormatted.name} requests ${feasibility.instances} instances but only ${feasibility.candidateCount} eligible nodes exist for its geolocation and tier requirements. Widen the allowed locations or lower the instance count.`);
   }
   if (category === 'constrained') {
@@ -391,6 +375,10 @@ function normalizeStructuredEntry(entry) {
   const field = (value, name) => {
     if (value === undefined || value === null) return null;
     if (typeof value !== 'string') throw new Error(`Invalid geolocation entry: ${name} must be a string`);
+    // capped before it can reach a rejection message: these endpoints are
+    // unauthenticated, and an unbounded value echoed into an error would let
+    // a caller write arbitrary volume into the node's logs
+    if (value.length > 20) throw new Error(`Invalid geolocation entry: ${name} is too long`);
     return value.trim().toUpperCase();
   };
   const continent = field(entry.continent, 'continent');
@@ -512,40 +500,29 @@ function geolocationEntries(spec) {
   return entries;
 }
 
+// The advice endpoint is unauthenticated and each answer costs a full pass
+// over the node list, so identical questions share one computation for a
+// short window. The node list and the table both change on far longer
+// timescales than this, and the map is bounded so a caller cannot grow it.
+const ADVICE_CACHE_TTL_MS = 30 * 1000;
+const ADVICE_CACHE_MAX = 200;
+const adviceCache = new Map();
+
 /**
- * The sizing portion of a prospective spec, validated for the tier-fit
- * arithmetic. Compose sizing wins over top-level fields, mirroring
- * totalAppHWRequirements' version branches; a body with no sizing yields a
- * spec that fits every tier.
- * @param {object} spec Request body
- * @returns {object} version + sizing fields for totalAppHWRequirements
+ * placementFeasibility for a normalised advice request, memoised.
+ * @param {string[]} normalized Normalised geolocation spec strings
+ * @param {number} instances Requested instance count
+ * @returns {Promise<object>}
  */
-function buildSizedSpec(spec) {
-  const sizeField = (value, name) => {
-    if (value === undefined || value === null) return undefined;
-    const number = serviceHelper.ensureNumber(value);
-    if (!Number.isFinite(number) || number < 0) throw new Error(`Invalid ${name} specified`);
-    return number;
-  };
-  if (Array.isArray(spec.compose)) {
-    const compose = spec.compose.map((component, index) => {
-      if (!component || typeof component !== 'object' || Array.isArray(component)) {
-        throw new Error('Invalid compose component specified');
-      }
-      return {
-        cpu: sizeField(component.cpu, `component ${index} cpu`),
-        ram: sizeField(component.ram, `component ${index} ram`),
-        hdd: sizeField(component.hdd, `component ${index} hdd`),
-      };
-    });
-    return { version: 4, compose };
-  }
-  return {
-    version: 1,
-    cpu: sizeField(spec.cpu, 'cpu'),
-    ram: sizeField(spec.ram, 'ram'),
-    hdd: sizeField(spec.hdd, 'hdd'),
-  };
+async function cachedFeasibility(normalized, instances) {
+  const key = JSON.stringify([instances, normalized]);
+  const hit = adviceCache.get(key);
+  const now = process.hrtime.bigint();
+  if (hit && Number(now - hit.at) / 1e6 < ADVICE_CACHE_TTL_MS) return hit.value;
+  const value = await placementFeasibility({ geolocation: normalized, instances }, instances);
+  if (adviceCache.size >= ADVICE_CACHE_MAX) adviceCache.clear();
+  adviceCache.set(key, { at: now, value });
+  return value;
 }
 
 /**
@@ -592,8 +569,7 @@ async function placementAdvice(spec) {
   } else if (typeof spec.containerData === 'string') {
     synced = mountParser.isSyncedComponent(spec.containerData);
   }
-  const sized = buildSizedSpec(spec);
-  const feasibility = await placementFeasibility({ ...sized, geolocation: normalized, instances }, instances);
+  const feasibility = await cachedFeasibility(normalized, instances);
   return {
     ...feasibility,
     syncedApp: synced,
@@ -725,7 +701,6 @@ async function placementLocationsAPI(req, res) {
 module.exports = {
   faultDomain,
   nodeLocationMatchesGeolocation,
-  appFitsTier,
   placementFeasibility,
   placementCategory,
   changesPlacement,

@@ -84,7 +84,11 @@ async function isArcaneOs() {
 async function computeTamperScore() {
   try {
     const db = dbHelper.databaseConnection();
-    if (!db) return 0;
+    // null, never 0: a score this node could not read is not a score of zero,
+    // and returning zero would take the clear branch and release a node this
+    // service had deliberately DOSed - the same distinction the blocklist
+    // fetch makes between could-not-ask and nothing-listed
+    if (!db) return null;
     const database = db.db(config.database.local.database);
     const pipeline = [
       { $match: { schemaVersion: { $gte: 1 } } },
@@ -94,7 +98,7 @@ async function computeTamperScore() {
     return incidents.reduce((score, incident) => score + (incident.severity ?? 0), 0);
   } catch (error) {
     log.warn(`appTamperingBlocklist - failed to compute tamper score: ${error.message}`);
-    return 0;
+    return null;
   }
 }
 
@@ -170,6 +174,13 @@ async function enforceBlocklist() {
   // DOSed - an outage would undo enforcement rather than postpone it.
   if (blocklist === null) {
     log.warn('appTamperingBlocklist - blocklist unavailable, skipping this tick');
+    return;
+  }
+
+  // Same rule for the other input to the decision: an unreadable score cannot
+  // clear an active DOS.
+  if (tamperScore === null) {
+    log.warn('appTamperingBlocklist - tamper score unavailable, skipping this tick');
     return;
   }
 

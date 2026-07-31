@@ -461,18 +461,17 @@ async function trySpawningGlobalApplication() {
 
     const localIp = extractIp(localSocketAddr);
 
-    // Owner-pinned placement is the owner's choice; the diversity share does
-    // not second-guess it. Two limits on that: it applies only when THIS node
-    // is pinned (a v8+ app spawning on an off-list node is still subject to
-    // the share), and only when the list is short enough to BE an assignment.
-    // `nodes` may carry up to 120 entries against an instance count as low as
-    // one, and a candidate pool that large expresses no co-location intent -
-    // treating it as a pin would let every instance of a synced app stack in
-    // one fault domain.
+    // An owner who names exactly as many nodes as instances has assigned the
+    // placement, and the diversity share does not second-guess it. A longer
+    // list is a candidate pool - `nodes` may carry up to 120 entries against
+    // an instance count as low as one - so the share still governs, computed
+    // over that pool (placementFeasibility restricts its candidate set to it).
+    // The bypass applies only when THIS node is named: a v8+ app spawning on
+    // an off-list node is subject to the share either way.
     let pinnedHere = false;
     if (syncthingApp) {
       const pinList = appSpecifications.nodes ?? [];
-      pinnedHere = pinList.length <= minInstances
+      pinnedHere = pinList.length > 0 && pinList.length <= minInstances
         && await placementFeasibility.isNodePinnedHere(appSpecifications, localSocketAddr);
     }
 

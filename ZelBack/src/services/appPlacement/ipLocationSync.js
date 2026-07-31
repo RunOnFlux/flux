@@ -23,11 +23,13 @@ const ARTIFACT_NAME = 'ipLocationTable'; // registry key, shared with policyStor
 const ARTIFACT_FILE = 'iplocation.json';
 const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const RETRY_INTERVAL_MS = 10 * 60 * 1000; // only while the node holds no table at all
+const MAX_RETRY_ATTEMPTS = 5; // 10m, 20m, 40m, 80m, 160m - then the daily refresh
 const FETCH_TIMEOUT_MS = 120 * 1000; // 8.5 MB over slow uplinks; never gates boot
 
 let etag = null;
 let refreshInterval = null;
 let retryTimer = null;
+let retryAttempt = 0;
 let started = false;
 
 /**
@@ -50,9 +52,18 @@ async function refresh() {
     const res = await serviceHelper.axiosGet(url, options);
     if (res.status === 304) return false;
     const bytes = Buffer.from(res.data);
-    // before the cache write, so a malformed artifact never displaces a good stored copy
-    ipLocationTable.setArtifact(bytes);
-    etag = (res.headers && (res.headers.etag ?? res.headers.ETag)) ?? null;
+    const served = (res.headers && (res.headers.etag ?? res.headers.ETag)) ?? null;
+    try {
+      // before the cache write, so a malformed artifact never displaces a good stored copy
+      ipLocationTable.setArtifact(bytes);
+    } catch (error) {
+      // Remember the etag of bytes this build cannot read, so the next attempt
+      // is a 304 rather than another full download of the same broken
+      // artifact. A corrected publication carries a new etag and is fetched.
+      etag = served;
+      throw error;
+    }
+    etag = served;
     await policyArtifactRepository.writeArtifactBytes(ARTIFACT_NAME, bytes, etag)
       .catch((error) => log.warn(`ipLocationSync - failed to cache artifact: ${error.message}`));
     log.info('ipLocationSync - iplocation table refreshed');
@@ -72,11 +83,22 @@ async function refresh() {
 function scheduleRefresh() {
   refresh()
     .then((installed) => {
-      if (installed || ipLocationTable.hasTable() || retryTimer) return;
+      if (installed || ipLocationTable.hasTable()) {
+        retryAttempt = 0;
+        return;
+      }
+      if (retryTimer || retryAttempt >= MAX_RETRY_ATTEMPTS) return;
+      // Exponential backoff with a cap on attempts: a boot-time network gap
+      // clears in minutes, while a published artifact this build cannot read
+      // never clears, and retrying it forever would have every node in the
+      // fleet re-downloading the same broken file on a fixed interval. After
+      // the attempts are spent the daily refresh is the only retry.
+      const delay = RETRY_INTERVAL_MS * 2 ** retryAttempt;
+      retryAttempt += 1;
       retryTimer = setTimeout(() => {
         retryTimer = null;
         scheduleRefresh();
-      }, RETRY_INTERVAL_MS);
+      }, delay);
       if (retryTimer.unref) retryTimer.unref();
     })
     .catch((error) => log.error(`ipLocationSync - refresh error: ${error.message}`));
@@ -127,6 +149,7 @@ function stopSync() {
   if (retryTimer) clearTimeout(retryTimer);
   refreshInterval = null;
   retryTimer = null;
+  retryAttempt = 0;
   started = false;
   etag = null;
 }

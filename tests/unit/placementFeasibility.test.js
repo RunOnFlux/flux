@@ -212,25 +212,6 @@ describe('placementFeasibility tests', () => {
     });
   });
 
-  describe('appFitsTier', () => {
-    it('rejects a tier whose capacity the app exceeds and accepts larger tiers', () => {
-      totalHWStub.callsFake((spec, tier) => (tier === 'basic'
-        ? { cpu: 4, ram: 30000, hdd: 100 }
-        : { cpu: 4, ram: 20000, hdd: 100 }));
-      expect(placementFeasibility.appFitsTier({}, 'CUMULUS')).to.equal(false);
-      expect(placementFeasibility.appFitsTier({}, 'NIMBUS')).to.equal(true);
-      expect(placementFeasibility.appFitsTier({}, 'STRATUS')).to.equal(true);
-    });
-
-    it('treats unknown tiers and unsizable specs as fitting', () => {
-      expect(placementFeasibility.appFitsTier({}, 'MYSTERY')).to.equal(true);
-      totalHWStub.returns({ cpu: NaN, ram: NaN, hdd: NaN });
-      expect(placementFeasibility.appFitsTier({}, 'CUMULUS')).to.equal(true);
-      totalHWStub.throws(new Error('boom'));
-      expect(placementFeasibility.appFitsTier({}, 'CUMULUS')).to.equal(true);
-    });
-  });
-
   describe('placementFeasibility', () => {
     it('computes the Bahrain incident: one domain takes the whole instance count', async () => {
       ipLocationTable.setArtifact(fixtureArtifact());
@@ -275,16 +256,35 @@ describe('placementFeasibility tests', () => {
       expect(result.maxPerDomain).to.equal(1);
     });
 
-    it('excludes nodes whose tier cannot hold the app', async () => {
+
+    it('counts only the pinned pool when the spec carries a nodes list', async () => {
+      // a nodes list is a closed pool - counting the whole network would
+      // compute a share against fault domains the app can never use
       ipLocationTable.setArtifact(fixtureArtifact());
-      totalHWStub.callsFake((spec, tier) => (tier === 'basic'
-        ? { cpu: 40, ram: 90000, hdd: 900 }
-        : { cpu: 1, ram: 1000, hdd: 10 }));
-      deterministicFluxListStub.resolves([...bhNodes, bgNode]);
-      const result = await placementFeasibility.placementFeasibility({ geolocation: [], instances: 3 });
-      // the two CUMULUS Bahrain nodes drop out
-      expect(result.candidateCount).to.equal(2);
-      expect(result.domainCount).to.equal(2);
+      deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes]);
+      const result = await placementFeasibility.placementFeasibility({
+        geolocation: [],
+        instances: 3,
+        nodes: bhNodes.map((node) => node.ip),
+      });
+      expect(result.candidateCount).to.equal(3);
+      expect(result.domainCount).to.equal(1);
+      // one domain absorbs all three - the pool converges instead of stranding
+      expect(result.maxPerDomain).to.equal(3);
+    });
+
+    it('matches a pinned pool by collateral outpoint as well as socket address', async () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      deterministicFluxListStub.resolves([
+        { ...bhNodes[0], txhash: 'ab'.repeat(32), outidx: 0 },
+        { ...fiNodes[0], txhash: 'cd'.repeat(32), outidx: 1 },
+      ]);
+      const result = await placementFeasibility.placementFeasibility({
+        geolocation: [],
+        instances: 1,
+        nodes: [`${'cd'.repeat(32)}:1`],
+      });
+      expect(result.candidateCount).to.equal(1);
     });
 
     it('reports unplaceable when no candidate matches', async () => {
@@ -346,19 +346,30 @@ describe('placementFeasibility tests', () => {
 
     it('rejects a spec with fewer eligible nodes than instances', async () => {
       ipLocationTable.setArtifact(fixtureArtifact());
-      deterministicFluxListStub.resolves([...fiNodes]);
+      deterministicFluxListStub.resolves([bhNodes[0], ...fiNodes]);
       await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller').then(
         () => { throw new Error('expected rejection'); },
         (error) => {
-          expect(error.message).to.include('only 0 eligible nodes');
+          expect(error.message).to.include('only 1 eligible nodes');
           expect(error.message).to.include('Widen the allowed locations');
         },
       );
     });
 
+    it('does not reject when the geography resolves no candidate at all', async () => {
+      // zero is indistinguishable from the table mis-attributing that
+      // geography, and install eligibility is decided by each node's own
+      // ip-api self-report - not provable, so not refusable
+      ipLocationTable.setArtifact(fixtureArtifact());
+      deterministicFluxListStub.resolves([...fiNodes, ...deNodes]);
+      const result = await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller');
+      expect(result.candidateCount).to.equal(0);
+      expect(logStub.warn.args.some((a) => a[0].includes('may not cover it'))).to.equal(true);
+    });
+
     it('rejects an impossible non-synced spec too', async () => {
       ipLocationTable.setArtifact(fixtureArtifact());
-      deterministicFluxListStub.resolves([...fiNodes]);
+      deterministicFluxListStub.resolves([bhNodes[0], ...fiNodes]);
       await placementFeasibility.checkPlacementFeasibility({
         name: 'plain', version: 7, instances: 3, geolocation: ['acAS_BH'], compose: [{ containerData: '/data' }],
       }, 'testCaller').then(
@@ -395,7 +406,7 @@ describe('placementFeasibility tests', () => {
 
     it('gates an update that narrows placement', async () => {
       ipLocationTable.setArtifact(fixtureArtifact());
-      deterministicFluxListStub.resolves([...fiNodes]);
+      deterministicFluxListStub.resolves([bhNodes[0], ...fiNodes]);
       const previous = { ...syncedBahrainSpec, geolocation: [] };
       await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller', previous).then(
         () => { throw new Error('expected rejection'); },
@@ -497,72 +508,9 @@ describe('placementFeasibility tests', () => {
       expect(advice.coarsenedEntries).to.deep.equal([]);
     });
 
-    it('narrows candidates by compose sizing', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
-      totalHWStub.callsFake((spec) => {
-        if (spec.version <= 3) return { cpu: spec.cpu, ram: spec.ram, hdd: spec.hdd };
-        let cpu = 0; let ram = 0; let hdd = 0;
-        (spec.compose ?? []).forEach((component) => { cpu += component.cpu; ram += component.ram; hdd += component.hdd; });
-        return { cpu, ram, hdd };
-      });
-      deterministicFluxListStub.resolves([...bhNodes, bgNode]);
-      const advice = await placementFeasibility.placementAdvice({
-        instances: 3,
-        geolocation: [],
-        compose: [{ containerData: 'g:/data', cpu: 5, ram: 4000, hdd: 50 }],
-      });
-      // the two CUMULUS Bahrain nodes cannot hold 5 cores
-      expect(advice.candidateCount).to.equal(2);
-      expect(advice.domainCount).to.equal(2);
-    });
 
-    it('counts a node whose tier nominally reserves less than the app needs', async () => {
-      // The tier is a collateral class, not a hardware guarantee: a real
-      // CUMULUS node exceeds the nominal figure, so a spec between
-      // (nominal - reserve) and nominal must not be excluded here - install
-      // time sizes against the node's actual hardware.
-      ipLocationTable.setArtifact(fixtureArtifact());
-      totalHWStub.callsFake(() => ({ cpu: 1, ram: 5500, hdd: 50 }));
-      deterministicFluxListStub.resolves([...bhNodes, bgNode]);
-      const advice = await placementFeasibility.placementAdvice({
-        instances: 3,
-        geolocation: [],
-        compose: [{ containerData: 'g:/data', cpu: 1, ram: 5500, hdd: 50 }],
-      });
-      expect(advice.candidateCount).to.equal(4);
-      expect(advice.category).to.not.equal('impossible');
-    });
 
-    it('sizes the app once per tier, not once per node', async () => {
-      // an unauthenticated endpoint must not multiply an attacker-chosen
-      // component count by the node list
-      ipLocationTable.setArtifact(fixtureArtifact());
-      totalHWStub.resetHistory();
-      deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes]);
-      await placementFeasibility.placementAdvice({
-        instances: 3,
-        geolocation: [],
-        compose: [{ containerData: 'g:/data', cpu: 1, ram: 100, hdd: 1 }],
-      });
-      expect(totalHWStub.callCount).to.equal(3);
-    });
 
-    it('narrows candidates by top-level sizing for containerData bodies', async () => {
-      ipLocationTable.setArtifact(fixtureArtifact());
-      totalHWStub.callsFake((spec) => (spec.version <= 3
-        ? { cpu: spec.cpu, ram: spec.ram, hdd: spec.hdd }
-        : { cpu: 1, ram: 1000, hdd: 10 }));
-      deterministicFluxListStub.resolves([...bhNodes, bgNode]);
-      const advice = await placementFeasibility.placementAdvice({
-        instances: 3,
-        geolocation: [],
-        containerData: 'g:/data',
-        cpu: 5,
-        ram: 4000,
-        hdd: 50,
-      });
-      expect(advice.candidateCount).to.equal(2);
-    });
 
     it('accepts the v9 placement shape and echoes the normalised spec strings', async () => {
       ipLocationTable.setArtifact(fixtureArtifact());
@@ -612,7 +560,7 @@ describe('placementFeasibility tests', () => {
       await rejectsEmpty([]);
     });
 
-    it('rejects invalid sizing and oversized geolocation lists', async () => {
+    it('rejects oversized geolocation lists and bad instance counts', async () => {
       const rejects = async (body, message) => {
         try {
           await placementFeasibility.placementAdvice(body);
@@ -621,9 +569,6 @@ describe('placementFeasibility tests', () => {
           expect(error.message).to.include(message);
         }
       };
-      await rejects({ instances: 3, compose: [{ cpu: 'lots' }] }, 'Invalid component 0 cpu');
-      await rejects({ instances: 3, cpu: -1 }, 'Invalid cpu');
-      await rejects({ instances: 3, compose: ['nope'] }, 'Invalid compose component');
       await rejects({ instances: 3, geolocation: Array(11).fill('acEU') }, 'Invalid geolocation');
       await rejects({ instances: 0 }, 'Invalid instances');
     });

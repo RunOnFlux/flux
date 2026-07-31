@@ -96,23 +96,48 @@ describe('ipLocationSync tests', () => {
     expect(logStub.warn.args.some((a) => a[0].includes('could not restore the cached table'))).to.equal(true);
   });
 
-  it('retries on a short interval while the node holds no table at all', async () => {
+  it('retries with backoff while the node holds no table, then stops', async () => {
     const clock = sinon.useFakeTimers();
     try {
       axiosGetStub.rejects(new Error('dns not up yet'));
       await ipLocationSync.startSync();
       expect(axiosGetStub.callCount).to.equal(1);
-      // the daily interval has not elapsed; the no-table retry has
-      await clock.tickAsync(10 * 60 * 1000);
-      expect(axiosGetStub.callCount).to.equal(2);
-      // once a table is held, the short retry stops
+      // 10m, 20m, 40m, 80m, 160m - each attempt waits twice as long
+      const delays = [10, 20, 40, 80, 160];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const [index, minutes] of delays.entries()) {
+        // eslint-disable-next-line no-await-in-loop
+        await clock.tickAsync(minutes * 60 * 1000);
+        expect(axiosGetStub.callCount).to.equal(index + 2);
+      }
+      // attempts are spent: no further retry, only the daily refresh remains
+      await clock.tickAsync(6 * 60 * 60 * 1000);
+      expect(axiosGetStub.callCount).to.equal(delays.length + 1);
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('stops retrying as soon as a table is held', async () => {
+    const clock = sinon.useFakeTimers();
+    try {
+      axiosGetStub.rejects(new Error('dns not up yet'));
+      await ipLocationSync.startSync();
       tableStub.hasTable.returns(true);
       await clock.tickAsync(10 * 60 * 1000);
       const afterTable = axiosGetStub.callCount;
-      await clock.tickAsync(10 * 60 * 1000);
+      await clock.tickAsync(60 * 60 * 1000);
       expect(axiosGetStub.callCount).to.equal(afterTable);
     } finally {
       clock.restore();
     }
+  });
+
+  it('remembers the etag of bytes it could not read, so the retry is a 304', async () => {
+    tableStub.setArtifact.throws(new Error('unsupported format 2'));
+    await ipLocationSync.refresh();
+    axiosGetStub.resolves({ status: 304, data: Buffer.alloc(0), headers: {} });
+    await ipLocationSync.refresh();
+    expect(axiosGetStub.secondCall.args[1].headers['If-None-Match']).to.equal('"v1"');
   });
 });
