@@ -1,6 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
+import { getSubnetConfig } from '../framework/subnet-config.js';
 import { bootAndPeer } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -57,7 +58,7 @@ describe('placement gate at registration and the advice endpoint', function () {
     await fetch(`${env.stubControl}/iplocation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domains: 3 }),
+      body: JSON.stringify({ domains: 3, subnet: getSubnetConfig().base }),
     });
     await bootAndPeer(env);
     [node] = env.clients;

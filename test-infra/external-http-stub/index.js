@@ -15,27 +15,31 @@ const HARNESS_NET_END = HARNESS_NET_START + (2 * 2 ** 16) - 1;
  * written against that keep their meaning while now exercising the real table
  * reader rather than skipping it.
  *
- * `domains: n` splits each /24 into n organisations by last octet, so a fleet
- * inside one /24 spans n fault domains. That is the shape the /16 key could
- * never express and the reason the placement share exists.
- * @param {number} domains How many organisations to split the range across
+ * `domains: n` with a `subnet` (`198.18.5`) assigns that /24's addresses to n
+ * organisations ROUND-ROBIN, one range per address. The harness gives its
+ * nodes consecutive addresses from .10, so anything coarser than per-address
+ * puts the whole fleet in one bucket; interleaving is what actually splits it.
+ * Everything outside that /24 stays in one organisation, so the artifact is a
+ * few hundred ranges rather than a hundred thousand.
+ * @param {number} domains How many organisations to split across
+ * @param {string} [subnet] Dotted /24 prefix to split, e.g. '198.18.5'
  * @returns {object} artifact in format 1
  */
-function buildIpLocationArtifact(domains) {
-  const orgs = Array.from({ length: domains }, (unused, i) => `harness:org-${i}`);
+function buildIpLocationArtifact(domains, subnet) {
+  const orgs = Array.from({ length: Math.max(domains, 1) }, (unused, i) => `harness:org-${i}`);
   const countries = ['DE', 'FR', 'NL', 'FI', 'BH'];
   const v4 = [];
-  if (domains === 1) {
+  if (domains <= 1 || !subnet) {
     v4.push([HARNESS_NET_START, HARNESS_NET_END, 0, 0]);
   } else {
-    const bucket = Math.ceil(256 / domains);
-    for (let base = HARNESS_NET_START; base < HARNESS_NET_END; base += 256) {
-      for (let i = 0; i < domains; i += 1) {
-        const start = base + (i * bucket);
-        const end = Math.min(base + ((i + 1) * bucket) - 1, base + 255);
-        if (start <= end) v4.push([start, end, i, i % countries.length]);
-      }
+    const [a, b, c] = subnet.split('.').map(Number);
+    const base = (a * 2 ** 24) + (b * 2 ** 16) + (c * 2 ** 8);
+    if (base > HARNESS_NET_START) v4.push([HARNESS_NET_START, base - 1, 0, 0]);
+    for (let octet = 0; octet < 256; octet += 1) {
+      const org = octet % domains;
+      v4.push([base + octet, base + octet, org, org % countries.length]);
     }
+    if (base + 255 < HARNESS_NET_END) v4.push([base + 256, HARNESS_NET_END, 0, 0]);
   }
   return {
     format: 1,
@@ -213,7 +217,7 @@ control.post('/iplocation', (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body, 'artifact')) {
     state.ipLocation = req.body.artifact;
   } else {
-    state.ipLocation = buildIpLocationArtifact(req.body.domains ?? 1);
+    state.ipLocation = buildIpLocationArtifact(req.body.domains ?? 1, req.body.subnet);
   }
   state.ipLocationVersion = (state.ipLocationVersion ?? 0) + 1;
   res.json({ ok: true, ranges: state.ipLocation ? state.ipLocation.v4.length : 0 });

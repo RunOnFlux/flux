@@ -36,7 +36,7 @@ describe('placement share spreads synced instances across table fault domains', 
     const response = await fetch(`${env.stubControl}/iplocation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domains: 3 }),
+      body: JSON.stringify({ domains: 3, subnet: getSubnetConfig().base }),
     });
     expect(response.ok, 'stub accepted the split artifact').to.equal(true);
     await bootAndPeer(env);
@@ -70,11 +70,13 @@ describe('placement share spreads synced instances across table fault domains', 
     // splits each /24 into equal last-octet buckets, so the bucket index is
     // the domain: this asserts the instances actually spread rather than
     // landing anywhere and passing on count alone.
-    // waitForInstanceCount resolves to node INDICES, not locations.
+    // waitForInstanceCount resolves to node INDICES, not locations. The stub
+    // assigns the /24's addresses round-robin, so an address's organisation is
+    // its last octet modulo the domain count.
     const subnet = getSubnetConfig();
     const buckets = placed.map((nodeIndex) => {
       const lastOctet = Number(subnet.nodeIp(nodeIndex + 1).split('.')[3]);
-      return Math.floor(lastOctet / Math.ceil(256 / 3));
+      return lastOctet % 3;
     });
     expect(new Set(buckets).size, `expected 3 distinct fault domains, got buckets ${buckets}`).to.equal(3);
   });
