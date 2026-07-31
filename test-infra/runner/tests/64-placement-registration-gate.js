@@ -54,9 +54,16 @@ describe('placement gate at registration and the advice endpoint', function () {
 
   before(async function () {
     this.timeout(360000);
-    // 10 nodes: the shared mesh minimums (minOutgoing 4 / minIncoming 2) are
-    // not satisfiable by a smaller fleet, so peering never completes
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // A four-node fleet is all this suite needs - it asks the API questions,
+    // it does not place anything. The shared mesh minimums are sized for the
+    // ten-node spawner suites, so lower them to what four nodes can satisfy
+    // rather than paying for six idle nodes.
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 4,
+      tickerAutostart: false,
+      configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1, minUniqueIpsOutgoing: 2, minUniqueIpsIncoming: 1 } },
+    });
     await fetch(`${env.stubControl}/iplocation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -85,9 +92,9 @@ describe('placement gate at registration and the advice endpoint', function () {
     });
     expect(response.status).to.equal('success');
     expect(response.data.tableAvailable, 'nodes fetched and parsed the artifact').to.equal(true);
-    // three organisations across a ten-node fleet
+    // .10 .11 .12 .13 round-robin across three organisations
     expect(response.data.domainCount).to.equal(3);
-    expect(response.data.candidateCount).to.equal(10);
+    expect(response.data.candidateCount).to.equal(4);
     expect(response.data.category).to.equal('ok');
   });
 
@@ -106,7 +113,7 @@ describe('placement gate at registration and the advice endpoint', function () {
   it('reports an impossible placement when the count exceeds the eligible pool', async function () {
     this.timeout(60000);
     const response = await node.post('/apps/placementfeasibility', {
-      instances: 12,
+      instances: 6,
       geolocation: [],
       compose: [{ containerData: 'g:/data' }],
     });
@@ -119,7 +126,7 @@ describe('placement gate at registration and the advice endpoint', function () {
     const response = await node.get('/apps/placementlocations');
     expect(response.status).to.equal('success');
     expect(response.data.tableAvailable).to.equal(true);
-    expect(response.data.total.nodes).to.equal(10);
+    expect(response.data.total.nodes).to.equal(4);
     expect(response.data.total.domains).to.equal(3);
     expect(response.data.unresolved, 'the table resolves every harness node').to.equal(0);
   });
@@ -129,7 +136,7 @@ describe('placement gate at registration and the advice endpoint', function () {
     const response = await node.post('/apps/verifyappregistrationspecifications', {
       ...SIGNED_SPEC_BASE,
       name: `gatereject${Date.now()}`,
-      instances: 12, // ten eligible nodes exist
+      instances: 6, // four eligible nodes exist
     });
     expect(response.status).to.equal('error');
     expect(response.data.message).to.include('eligible nodes');
