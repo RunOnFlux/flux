@@ -139,7 +139,9 @@ describe('placementFeasibility tests', () => {
       expect(placementFeasibility.nodeLocationMatchesGeolocation(fi, ['a!cEU'])).to.equal(false);
       // a region-level ban cannot be proven to cover the node - do not exclude
       expect(placementFeasibility.nodeLocationMatchesGeolocation(de, ['a!cEU_DE_Bavaria'])).to.equal(true);
-      expect(placementFeasibility.nodeLocationMatchesGeolocation(de, ['a!cEU_DE_NONE'])).to.equal(false);
+      // _NONE is a region part: install-time compares it against the node's
+      // real region name and bans nothing, so neither may this
+      expect(placementFeasibility.nodeLocationMatchesGeolocation(de, ['a!cEU_DE_NONE'])).to.equal(true);
     });
 
     it('supports the legacy aXX/bXX style', () => {

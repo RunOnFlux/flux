@@ -49,9 +49,12 @@ module.exports = {
     ipApiBaseUrl: 'http://198.18.0.6:3000',
     statsApiBaseUrl: 'http://198.18.0.6:3000',
   },
-  // the stub 404s iplocation.json, so harness nodes run tableless - the /16
-  // arithmetic fallback, which is the posture suite 62 exercises - and never
-  // call out to github
+  // the stub serves iplocation.json, so harness nodes exercise the real table
+  // reader rather than skipping it. Its default artifact puts the whole
+  // harness range in ONE organisation, which is the single-fault-domain
+  // posture the tableless fallback produced - suites written against that keep
+  // their meaning. POST /iplocation {domains:n} to the stub's control port
+  // splits the fleet n ways. Nothing here ever calls out to github.
   policy: {
     baseUrl: 'http://198.18.0.6:3000',
   },

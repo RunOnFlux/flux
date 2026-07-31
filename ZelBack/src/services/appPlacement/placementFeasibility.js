@@ -84,9 +84,8 @@ function nodeLocationMatchesGeolocation(loc, geolocation) {
   const forbidden = entries.filter((x) => x.startsWith('a!c'));
 
   const matchesEntry = (value) => {
-    const v = value.replace(/_NONE$/, '');
-    if (v === 'ALL' || v === loc.continentCode || v === `${loc.continentCode}_ALL`) return true;
-    const parts = v.split('_');
+    if (value === 'ALL' || value === loc.continentCode || value === `${loc.continentCode}_ALL`) return true;
+    const parts = value.split('_');
     // country level and deeper: continent_country must match; region granularity
     // is matched at country granularity (see module comment)
     return parts.length >= 2 && `${parts[0]}_${parts[1]}` === contCountry;
@@ -94,9 +93,14 @@ function nodeLocationMatchesGeolocation(loc, geolocation) {
 
   // eslint-disable-next-line no-restricted-syntax
   for (const entry of forbidden) {
-    const v = entry.slice(3).replace(/_NONE$/, '');
-    // forbidden entries exclude only at granularities the table resolves;
-    // a region-level ban cannot be proven to apply, so it does not exclude
+    const v = entry.slice(3);
+    // Forbidden entries exclude only at granularities the table resolves; a
+    // region-level ban cannot be proven to apply, so it does not exclude.
+    // _NONE is a region part like any other and must NOT be stripped:
+    // install-time compares the whole entry against the node's real region
+    // name, so 'a!cEU_DE_NONE' bans nothing there, and stripping it here
+    // would ban all of DE - a node excluded from the candidate count that
+    // the installer would have accepted.
     if (v === loc.continentCode || v === contCountry) return false;
   }
   if (allowed.length) {
