@@ -193,15 +193,21 @@ function writeVarint(bytes, value) {
  * PLUS ONE, with 0 meaning "none".
  *
  * Throws on anything a strict reader rejects, so the stub cannot publish bytes
- * it presents as well-formed and are not. The one reader rule it cannot meet
- * is the truncation floor (>= 1,500,000 rows): a harness fleet's table is a
- * few hundred rows, so the FluxOS store's floor has to be configurable for the
- * harness - that is the store-side change, noted here because this is where
- * the short artifact comes from.
+ * it presents as well-formed and are not - with one deliberate exception,
+ * `pad: false`. The padded artifact is the one every suite wants: it meets the
+ * reader's truncation floor (>= 1,500,000 rows), which is a fleet-integrity
+ * invariant rather than a knob. `pad: false` drops the filler section and
+ * publishes the fleet rows alone - a structurally valid artifact whose row
+ * count is a few hundred, i.e. FLOOR BAIT BY DESIGN, and the only way a
+ * harness fleet can exercise the floor at all. Everything else about the two
+ * encodings is identical, header included: the filler organisations still lead
+ * the orgs table, so fleet row indices do not move and the padded encoding is
+ * byte-identical to what a caller that never passes `pad` has always been served.
  * @param {object} artifact Format-1 artifact
+ * @param {{pad?: boolean}} [options] pad: false omits the filler rows
  * @returns {Buffer} gzipped format-2 bytes
  */
-function encodeGeoTable(artifact) {
+function encodeGeoTable(artifact, { pad = true } = {}) {
   const { countries, orgs, v4 } = artifact;
   const regions = artifact.regions ?? [];
   const header = Buffer.from(JSON.stringify({
@@ -219,12 +225,12 @@ function encodeGeoTable(artifact) {
   preamble.writeUInt8(GEO_FORMAT, GEO_MAGIC.length);
   preamble.writeUInt32LE(header.length, GEO_MAGIC.length + 1);
   const rowCount = Buffer.alloc(4);
-  rowCount.writeUInt32LE(GEO_FILLER_ROWS + v4.length, 0);
+  rowCount.writeUInt32LE((pad ? GEO_FILLER_ROWS : 0) + v4.length, 0);
   const rows = [];
-  let previousEnd = GEO_FILLER_END;
+  let previousEnd = pad ? GEO_FILLER_END : -1;
   v4.forEach(([start, end, org, cc, region], i) => {
     if (!Number.isInteger(start) || !Number.isInteger(end) || end < start || start <= previousEnd) {
-      throw new Error(`row ${i}: bounds unsorted, overlapping, below the filler space or not integers`);
+      throw new Error(`row ${i}: bounds unsorted, overlapping, below the rows already written or not integers`);
     }
     const indexes = [org === null || org === undefined ? 0 : org + 1 + GEO_FILLER_ORGS.length, (cc ?? -1) + 1, (region ?? -1) + 1];
     const limits = [orgs.length + GEO_FILLER_ORGS.length, countries.length, regions.length];
@@ -238,25 +244,47 @@ function encodeGeoTable(artifact) {
     indexes.forEach((index) => writeVarint(rows, index));
     previousEnd = end;
   });
-  return zlib.gzipSync(Buffer.concat([preamble, header, rowCount, fillerBytes(), Buffer.from(rows)]));
+  const sections = [preamble, header, rowCount];
+  if (pad) sections.push(fillerBytes());
+  sections.push(Buffer.from(rows));
+  return zlib.gzipSync(Buffer.concat(sections));
 }
 
 /**
- * The wire artifact for whatever is being served. A caller-supplied malformed
- * artifact (the reject-and-keep suites) has no valid format-2 encoding, so the
- * binary route serves its gzipped JSON: bytes that fetch cleanly and fail the
- * reader exactly like their JSON counterpart.
+ * The wire artifact for whatever is being served, and the row count its header
+ * claims. A caller-supplied malformed artifact (the reject-and-keep suites) has
+ * no valid format-2 encoding, so the binary route serves its gzipped JSON:
+ * bytes that fetch cleanly and fail the reader exactly like their JSON
+ * counterpart - and no row count, because those bytes carry none.
  * @param {object|null} artifact Format-1 artifact, or null for no artifact
- * @returns {Buffer|null}
+ * @param {{pad?: boolean}} [options] pad: false omits the filler rows
+ * @returns {{bytes: Buffer|null, rowCount: number|null}}
  */
-function encodeIpLocationBinary(artifact) {
-  if (!artifact) return null;
+function encodeIpLocationBinary(artifact, { pad = true } = {}) {
+  if (!artifact) return { bytes: null, rowCount: null };
   try {
-    return encodeGeoTable(artifact);
+    return {
+      bytes: encodeGeoTable(artifact, { pad }),
+      rowCount: (pad ? GEO_FILLER_ROWS : 0) + artifact.v4.length,
+    };
   } catch {
-    return zlib.gzipSync(Buffer.from(JSON.stringify(artifact), 'utf8'));
+    return { bytes: zlib.gzipSync(Buffer.from(JSON.stringify(artifact), 'utf8')), rowCount: null };
   }
 }
+
+/**
+ * Fetch counters for one artifact route, from zero. Both representations are
+ * counted separately: the two node lineages sharing this stub fetch different
+ * ones, and a suite asserting "this node did not download the artifact again"
+ * must not have its answer moved by the other route.
+ * @returns {{total: number, ok: number, notModified: number, missing: number}}
+ */
+function newRouteCounters() {
+  return { total: 0, ok: 0, notModified: 0, missing: 0 };
+}
+
+const IPLOCATION_JSON_ROUTE = '/iplocation.json';
+const IPLOCATION_BINARY_ROUTE = '/iplocation.bin.gz';
 
 const state = {
   blockedRepositories: [],
@@ -270,18 +298,51 @@ const state = {
   ipLocation: null,
   ipLocationBinary: null,
   ipLocationVersion: 0,
+  // the row count the served binary's header claims; null when the served bytes
+  // are not a format-2 artifact at all
+  ipLocationRowCount: null,
+  // per-route fetch counters SINCE THE CURRENT ARTIFACT WAS PUBLISHED. A
+  // publication is the only thing that resets them, so a suite reads them as
+  // "what the fleet did about THIS artifact": which nodes downloaded it (ok),
+  // which found their copy current (notModified) and which found none at all
+  // (missing, a 404). The lifecycle suites assert against these rather than
+  // inferring a refetch from a node's own logs.
+  ipLocationFetches: {
+    [IPLOCATION_JSON_ROUTE]: newRouteCounters(),
+    [IPLOCATION_BINARY_ROUTE]: newRouteCounters(),
+  },
 };
+
+/**
+ * Count one artifact fetch.
+ * @param {string} route Which representation was fetched
+ * @param {'ok'|'notModified'|'missing'} outcome What it was answered with
+ */
+function countIpLocationFetch(route, outcome) {
+  const counters = state.ipLocationFetches[route];
+  counters.total += 1;
+  counters[outcome] += 1;
+}
 
 /**
  * Publish one artifact in both representations. Both bodies and the version
  * their etags carry move in a single synchronous step, so no fetch can catch
  * the stub serving a JSON artifact and a binary from different splits.
  * @param {object|null} artifact Format-1 artifact, or null to serve 404s
+ * @param {{pad?: boolean}} [options] pad: false publishes the binary without
+ *   the filler rows - below the reader's truncation floor by design
  */
-function serveIpLocation(artifact) {
+function serveIpLocation(artifact, { pad = true } = {}) {
+  const { bytes, rowCount } = encodeIpLocationBinary(artifact, { pad });
   state.ipLocation = artifact;
-  state.ipLocationBinary = encodeIpLocationBinary(artifact);
+  state.ipLocationBinary = bytes;
+  state.ipLocationRowCount = rowCount;
   state.ipLocationVersion += 1;
+  // a new artifact is a new question for the fleet: count the answers to it
+  state.ipLocationFetches = {
+    [IPLOCATION_JSON_ROUTE]: newRouteCounters(),
+    [IPLOCATION_BINARY_ROUTE]: newRouteCounters(),
+  };
 }
 
 serveIpLocation(buildIpLocationArtifact(1));
@@ -331,8 +392,9 @@ app.get(['/tamperingblockednodes.json', '/helpers/tamperingblockednodes.json'], 
 
 // The IP location artifact. Served with a strong etag so the conditional
 // refresh path (If-None-Match -> 304) is exercised, not just the first fetch.
-app.get('/iplocation.json', (req, res) => {
+app.get(IPLOCATION_JSON_ROUTE, (req, res) => {
   if (!state.ipLocation) {
+    countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'missing');
     res.status(404).json({ error: 'no artifact configured' });
     return;
   }
@@ -340,9 +402,11 @@ app.get('/iplocation.json', (req, res) => {
   const etag = `"iplocation-${state.ipLocationVersion}"`;
   res.set('ETag', etag);
   if (req.headers['if-none-match'] === etag) {
+    countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'notModified');
     res.status(304).end();
     return;
   }
+  countIpLocationFetch(IPLOCATION_JSON_ROUTE, 'ok');
   res.type('application/json').send(body);
 });
 
@@ -351,17 +415,20 @@ app.get('/iplocation.json', (req, res) => {
 // is deliberately not set - the gzip is the artifact's own framing rather than a
 // transfer encoding, and a client that transparently inflated it would hand the
 // reader the wrong bytes.
-app.get('/iplocation.bin.gz', (req, res) => {
+app.get(IPLOCATION_BINARY_ROUTE, (req, res) => {
   if (!state.ipLocationBinary) {
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'missing');
     res.status(404).json({ error: 'no artifact configured' });
     return;
   }
   const etag = `"iplocationbin-${state.ipLocationVersion}"`;
   res.set('ETag', etag);
   if (req.headers['if-none-match'] === etag) {
+    countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'notModified');
     res.status(304).end();
     return;
   }
+  countIpLocationFetch(IPLOCATION_BINARY_ROUTE, 'ok');
   res.type('application/octet-stream').send(state.ipLocationBinary);
 });
 
@@ -410,7 +477,8 @@ const control = express();
 control.use(express.json());
 
 control.get('/state', (req, res) => {
-  // the wire artifact is opaque bytes; its size is the readable part
+  // the wire artifact is opaque bytes; its size, its claimed row count and the
+  // per-route fetch counters (ipLocationFetches) are the readable parts
   res.json({ ...state, ipLocationBinary: undefined, ipLocationBinaryBytes: state.ipLocationBinary?.length ?? 0 });
 });
 
@@ -456,19 +524,28 @@ control.post('/iplocation', (req, res) => {
   // omit it and the artifact carries no region at all, exactly as before.
   // { artifact: {...} } serves a caller-supplied one (malformed included, to
   // exercise reject-and-keep); { artifact: null } serves a 404 (tableless).
-  // Whichever it is, both /iplocation.json and /iplocation.bin.gz follow it.
+  // Adding { pad: false } publishes the binary WITHOUT the filler rows, i.e.
+  // below the reader's truncation floor - floor bait, and the only artifact
+  // here a healthy node is expected to refuse.
+  // Whichever it is, both /iplocation.json and /iplocation.bin.gz follow it,
+  // and the fetch counters start again from zero.
+  const pad = req.body.pad !== false;
   let regions = null; // a caller-supplied artifact has no assignment to report
   if (Object.prototype.hasOwnProperty.call(req.body, 'artifact')) {
-    serveIpLocation(req.body.artifact);
+    serveIpLocation(req.body.artifact, { pad });
   } else {
     const domains = req.body.domains ?? 1;
     const withRegions = req.body.regions === true;
-    serveIpLocation(buildIpLocationArtifact(domains, req.body.subnet, withRegions));
+    serveIpLocation(buildIpLocationArtifact(domains, req.body.subnet, withRegions), { pad });
     regions = regionAssignment(domains, withRegions);
   }
   res.json({
     ok: true,
     ranges: state.ipLocation?.v4?.length ?? 0,
+    // what the served binary's header claims, filler included - null when the
+    // bytes are not a format-2 artifact
+    rowCount: state.ipLocationRowCount,
+    padded: pad,
     bytes: state.ipLocationBinary?.length ?? 0,
     regions,
   });

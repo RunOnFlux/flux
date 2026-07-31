@@ -249,6 +249,20 @@ describe('placement honours region pins on proof from the shared table', functio
     // deliverable with less resiliency than the count implies
     expect(pinned.data.category).to.equal('constrained');
 
+    // The v9 structured shape asks the same question and must get the same
+    // answer, normalised to the same spec string - the deploy form passes one
+    // object to this endpoint and to the spec it registers.
+    const structured = await node.post('/apps/placementfeasibility', {
+      instances: inRegionA.length,
+      geoAllow: [{ continent: continents[countryOf(regionA)], country: countryOf(regionA), region: regionA }],
+      compose: [{ containerData: 'g:/data' }],
+    });
+    expect(structured.status).to.equal('success');
+    expect(structured.data.normalizedGeolocation).to.deep.equal([allowRegion(regionA)]);
+    expect(structured.data.candidateCount).to.equal(inRegionA.length);
+    expect(structured.data.domainCount).to.equal(1);
+    expect(structured.data.coarsenedEntries).to.deep.equal([]);
+
     // The same question for a region the vocabulary publishes, in a country the
     // fleet IS in, that no address claims: the nodes there have no provable
     // region, so none of them is a candidate. Nothing about the country - which
