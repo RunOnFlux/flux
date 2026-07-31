@@ -304,10 +304,11 @@ describe('placementFeasibility tests', () => {
       const inRegion = { continentCode: 'EU', countryCode: 'FI', region: 'FI-18' };
       const outOfRegion = { continentCode: 'EU', countryCode: 'FI', region: 'FI-11' };
       const regionUnknown = { continentCode: 'EU', countryCode: 'FI', region: null };
-      // allow: strict where the node's region is known, country-granularity where not
+      // allow: a pin is a promise, matched on proof only - unknown region is
+      // not a candidate for a region pin
       expect(matches(inRegion, ['acEU_FI_FI-18'])).to.equal(true);
       expect(matches(outOfRegion, ['acEU_FI_FI-18'])).to.equal(false);
-      expect(matches(regionUnknown, ['acEU_FI_FI-18'])).to.equal(true);
+      expect(matches(regionUnknown, ['acEU_FI_FI-18'])).to.equal(false);
       // deny: applies only where provable
       expect(matches(inRegion, ['acEU', 'a!cEU_FI_FI-18'])).to.equal(false);
       expect(matches(outOfRegion, ['acEU', 'a!cEU_FI_FI-18'])).to.equal(true);

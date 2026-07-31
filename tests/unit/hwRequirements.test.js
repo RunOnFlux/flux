@@ -1109,16 +1109,24 @@ describe('hwRequirements tests', () => {
       }
     });
 
-    it('accepts an ISO region allow at country granularity when its own region is unknown', async () => {
-      const ok = await gateWith(regionUnknown).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
-      expect(ok).to.equal(true);
+    it('rejects an ISO region allow when its own region is unknown - a pin needs proof', async () => {
+      try {
+        await gateWith(regionUnknown).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('not matching');
+      }
     });
 
     it('treats an unreadable store exactly like an unknown region', async () => {
       const err = new Error('iplocation store unavailable: no database connection');
       err.code = 'IPLOCATION_STORE_UNAVAILABLE';
-      const ok = await gateWith(err).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
-      expect(ok).to.equal(true);
+      try {
+        await gateWith(err).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
+        expect.fail('should have thrown');
+      } catch (error) {
+        expect(error.message).to.include('not matching');
+      }
     });
 
     it('applies an ISO region deny only on proof', async () => {

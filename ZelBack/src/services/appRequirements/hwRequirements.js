@@ -179,12 +179,12 @@ async function checkAppGeolocationRequirements(appSpecs) {
     // The table's vocabulary for this node's own location: full ISO 3166-2,
     // resolved through the same published table the candidate filter counts
     // with, so the two cannot disagree about this node. Region entries in
-    // that vocabulary follow the proof asymmetry the spec defines: a known
-    // region matches an allow (and a deny) exactly; an unknown region - no
-    // table, no covering row, no region there, store unreadable - still
-    // matches an allow at country granularity and is never caught by a deny.
-    // A pin is only ever enforced on proof, so missing data cannot strand an
-    // app, and the installer's truth table is the candidate filter's.
+    // that vocabulary match on proof only, in both directions: an allow is
+    // satisfied - and a deny applies - exactly when this node's table region
+    // is known and equal. An unknown region (no table, no covering row, no
+    // region there, store unreadable) satisfies no region pin and is caught
+    // by no region deny. The installer's truth table is the candidate
+    // filter's.
     let myTableRegion = null;
     let myTableContCountry = myNodeLocationContCountry;
     try {
@@ -201,10 +201,9 @@ async function checkAppGeolocationRequirements(appSpecs) {
       return parts.length >= 3 && /^[A-Z]{2}-[A-Z0-9]{1,3}$/.test(parts[2]) && parts[2].slice(0, 2) === parts[1];
     };
     const matchesTableRegionEntry = (value) => {
-      if (!isTableRegionEntry(value)) return false;
+      if (!isTableRegionEntry(value) || !myTableRegion) return false;
       const parts = value.split('_');
-      if (`${parts[0]}_${parts[1]}` !== myTableContCountry) return false;
-      return myTableRegion ? parts[2] === myTableRegion : true;
+      return `${parts[0]}_${parts[1]}` === myTableContCountry && parts[2] === myTableRegion;
     };
     if (appContinent && !geoC.length && !geoCForbidden.length) { // backwards old style compatible. Can be removed after a month
       if (appContinent.slice(1) !== nodeGeo.continentCode) {
@@ -218,11 +217,8 @@ async function checkAppGeolocationRequirements(appSpecs) {
     }
     geoCForbidden.forEach((locationNotAllowed) => {
       const v = locationNotAllowed.slice(3);
-      // a table-vocabulary region deny applies only on proof: this node's
-      // region is known AND equal (matchesTableRegionEntry is true with an
-      // unknown region, which is precisely when a deny must NOT fire)
       if (v === myNodeLocationContinent || v === myNodeLocationContCountry || v === myNodeLocationFull
-        || (isTableRegionEntry(v) && myTableRegion && matchesTableRegionEntry(v))) {
+        || matchesTableRegionEntry(v)) {
         throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
       }
     });

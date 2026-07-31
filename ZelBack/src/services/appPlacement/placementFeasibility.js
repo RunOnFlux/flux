@@ -139,8 +139,9 @@ function isTableRegionPart(part, countryPart) {
  * region through. Legacy-shaped region parts (ip-api names) are matched at
  * country granularity: strict-matching them against the table's vocabulary
  * would exclude nodes the installer accepts. A node whose region the table
- * does not carry matches allows at country granularity and is never excluded
- * by a region deny - the proof asymmetry.
+ * does not carry satisfies NO table-vocabulary region pin - a pin is a
+ * promise, matched on proof only - and is never excluded by a region deny,
+ * which also demands proof. Enforce on proof, ban on proof.
  * @param {{continentCode: string|null, countryCode: string|null,
  *   region: string|null}} loc Node location
  * @param {string[]} geolocation App spec geolocation entries
@@ -158,12 +159,14 @@ function nodeLocationMatchesGeolocation(loc, geolocation) {
     if (value === 'ALL' || value === loc.continentCode || value === `${loc.continentCode}_ALL`) return true;
     const parts = value.split('_');
     if (parts.length < 2 || `${parts[0]}_${parts[1]}` !== contCountry) return false;
-    // A region pin in the table's vocabulary matches at region granularity
-    // when the node's region is known; unknown still admits at country
-    // granularity (an allow over-includes, never strands). Legacy-shaped
-    // parts stay at country granularity (see the function comment).
-    if (parts.length >= 3 && isTableRegionPart(parts[2], parts[1]) && loc.region) {
-      return parts[2] === loc.region;
+    // A region pin in the table's vocabulary is a promise, so it matches on
+    // proof only: the node's region is known and equal. A node whose region
+    // the table does not carry is NOT a candidate for a region pin - it
+    // would deliver "the country, probably" against a spec that bought the
+    // region. Legacy-shaped parts stay at country granularity (see the
+    // function comment).
+    if (parts.length >= 3 && isTableRegionPart(parts[2], parts[1])) {
+      return loc.region ? parts[2] === loc.region : false;
     }
     return true;
   };
@@ -543,10 +546,10 @@ function normalizeStructuredEntry(entry) {
   if (country) parts.push(country);
   // The region is emitted in the table's vocabulary (full ISO 3166-2, already
   // validated to belong to its country above). Placement matches it at region
-  // granularity wherever the table knows a node's region, and the installer
-  // resolves its own region through the same table - one vocabulary end to
-  // end. Nodes the table cannot place at region granularity still match
-  // allows at country granularity and are never excluded by a region deny.
+  // granularity and the installer resolves its own region through the same
+  // table - one vocabulary end to end, enforced on proof in both directions:
+  // a node the table cannot place at region granularity satisfies no region
+  // pin and is caught by no region deny.
   if (region) parts.push(region);
   return `${entry.forbidden === true ? 'a!c' : 'ac'}${parts.join('_')}`;
 }
