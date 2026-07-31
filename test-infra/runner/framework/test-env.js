@@ -16,6 +16,7 @@ import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
 import { getSubnetConfig, REGISTRY_ALIAS, REGISTRY_REPO_HOST } from './subnet-config.js';
 import { closeDb } from './db-client.js';
+import { clearInfraDeath, infraDeathError, reportInfraDeath } from './infra-death.js';
 import { stubPeerClient } from './stub-peer-helper.js';
 import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
@@ -178,6 +179,119 @@ async function removeNetwork(networkName) {
   await network.remove().catch(() => {});
 }
 
+// Register a container the whole run depends on with the death watch below.
+// A suite that stops one on purpose - suite 33 stops the registry so a recreate's
+// image pull fails for real - marks it through testcontainers' own pre-stop hook,
+// which StartedGenericContainer.stop() awaits before it stops the container, so
+// the `die` that follows is never read as a death.
+function watchInfra(env, name, container) {
+  const entry = { name, container, expected: false };
+  container.containerIsStopping = async () => { entry.expected = true; };
+  env.infraContainers.push(entry);
+}
+
+function handleContainerDie(env, line) {
+  // Teardown stops these containers deliberately (exit 0/137/143); every exit
+  // from that point on is ours. Exit code is NOT the guard - an OOM-killed mongo
+  // exits 137 exactly like a stopped one, and that voids the run just as surely.
+  if (env.stopping) return;
+  let event;
+  try {
+    event = JSON.parse(line);
+  } catch {
+    return; // garbled frame - the next line is authoritative
+  }
+  const id = event.Actor?.ID ?? event.id;
+  const entry = env.infraContainers.find((c) => c.container.getId() === id);
+  if (!entry || entry.expected) return;
+  // The daemon reports exitCode as a string attribute; timeNano is the death's own
+  // clock, which is what a reader correlates against the node logs.
+  const exitCode = event.Actor?.Attributes?.exitCode ?? 'unknown';
+  const ms = event.timeNano
+    ? Number(event.timeNano) / 1e6
+    : ((event.time && event.time * 1000) || Date.now());
+  reportInfraDeath({ name: entry.name, exitCode, at: new Date(ms).toISOString() });
+}
+
+// Docker emits a `die` event for every container exit. An infra container dying
+// while the env is meant to be alive voids the run, so trip the shared
+// kill-switch on the first one: every wait in flight then fails AT the death
+// naming it, instead of half a minute later as a generic timeout (see
+// infra-death.js). Event-driven off the daemon's own stream - the deaths this
+// catches happen 38-91s into a fleet boot, so a poll would either miss the window
+// or cost more than the watch.
+//
+// The stream is host-wide (other runs' fleets, every node, every app container),
+// so deaths are matched by id against THIS env's registered infra containers.
+async function startInfraDeathWatch(env) {
+  const client = await getContainerRuntimeClient();
+  const stream = await client.container.dockerode.getEvents({
+    filters: { type: ['container'], event: ['die'] },
+  });
+  stream.setEncoding('utf-8');
+  let partial = '';
+  stream.on('data', (chunk) => {
+    // newline-delimited JSON; a chunk boundary can split a line
+    const lines = (partial + chunk).split('\n');
+    partial = lines.pop();
+    for (const line of lines) {
+      if (line.trim()) handleContainerDie(env, line);
+    }
+  });
+  // A socket that goes away with the stream is not an error worth surfacing, and
+  // the watch must never be the reason a mocha process stays alive.
+  stream.on('error', () => {});
+  stream.socket?.unref?.();
+  env.infraWatch = {
+    stop() {
+      stream.removeAllListeners('data');
+      stream.destroy();
+    },
+  };
+}
+
+// Docker's log endpoint frames stdout and stderr into 8-byte-headed chunks for
+// any container without a TTY, which is every container here. Undo the framing so
+// what lands on disk is the plain text a reader expects; a header that is not a
+// valid stream type means the output was never framed, so the rest passes through
+// as-is. follow:false makes the read self-terminating — the daemon closes the
+// response at the end of the log, so this needs no timer to know when it is done.
+function demuxDockerLogs(raw) {
+  const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(String(raw));
+  const parts = [];
+  let i = 0;
+  while (i + 8 <= buf.length) {
+    const streamType = buf.readUInt8(i);
+    const length = buf.readUInt32BE(i + 4);
+    if (streamType > 2 || i + 8 + length > buf.length) break;
+    parts.push(buf.subarray(i + 8, i + 8 + length).toString('utf-8'));
+    i += 8 + length;
+  }
+  if (i < buf.length) parts.push(buf.subarray(i).toString('utf-8'));
+  return parts.join('');
+}
+
+// stdout/stderr of every infra container, read from the daemon on demand: nothing
+// streams these during the run the way the nodes' log collectors do, and until
+// now they were never captured at all - which is why the mongo SIGSEGV that
+// voided three suites has no explanation on disk. Best-effort per container: a
+// container the suite stopped on purpose is already removed, and a log fetch that
+// fails must never mask the failure being dumped.
+async function readInfraLogs(infraContainers) {
+  if (!infraContainers.length) return [];
+  const client = await getContainerRuntimeClient();
+  return Promise.all(infraContainers.map(async ({ name, container }) => {
+    try {
+      const raw = await client.container.dockerode
+        .getContainer(container.getId())
+        .logs({ stdout: true, stderr: true, follow: false, timestamps: true });
+      return { name, text: demuxDockerLogs(raw) };
+    } catch (err) {
+      return { name, text: '', error: err.message };
+    }
+  }));
+}
+
 // Every env this process ever booted, including partially-built ones whose boot
 // threw. log-on-failure falls back to this when the suite's own `env` variable
 // was never assigned (createTestEnv threw inside a before-hook) — the one case
@@ -205,6 +319,8 @@ function makeEnvShell(networkName) {
   const nodeConfigs = []; // per real node: { index, ip, num, logCollector, bootIdDir, ... }
   const volumeNames = [];
   const eventSnapshots = new Map(); // node index -> SSE events captured at teardown
+  const infraContainers = []; // { name, container, expected } - infra only, never nodes
+  let infraLogSnapshot = null; // infra logs captured at teardown when the run is void
   let tornDown = false;
 
   const env = {
@@ -214,7 +330,12 @@ function makeEnvShell(networkName) {
     clients,
     nodeConfigs,
     volumeNames,
+    infraContainers,
     stubPeerClients: new Map(),
+    // The death watch (armed by createTestEnv) reads both: `stopping` tells it
+    // the exits from here on are ours, `infraWatch` is its docker event stream.
+    stopping: false,
+    infraWatch: null,
     get nodeCount() { return clients.length; },
     get lastNodeIndex() { return clients.length - 1; },
 
@@ -242,10 +363,36 @@ function makeEnvShell(networkName) {
       return [...byIndex.values()].sort((a, b) => a.index - b.index);
     },
 
+    // Per-infra-container stdout/stderr for the failure dump. Live off the daemon
+    // while the containers exist; the teardown snapshot afterwards. Never rejects:
+    // the caller is already reporting a failure and must not lose it to this.
+    async infraDiagnostics() {
+      if (infraLogSnapshot) return infraLogSnapshot;
+      return readInfraLogs(infraContainers)
+        .catch((err) => [{ name: 'infra', text: '', error: err.message }]);
+    },
+
     async teardown() {
       if (tornDown) return;
       tornDown = true;
       const warn = (label, err) => console.warn(`teardown [${networkName}] ${label}: ${err.message}`);
+      // Everything stopped below exits on purpose. Silence the death watch BEFORE
+      // the first stop so a deliberate exit can never be reported as INFRA-DEAD:
+      // the flag covers events already queued on the stream, closing it covers
+      // the rest.
+      env.stopping = true;
+      try {
+        env.infraWatch?.stop();
+      } catch (err) {
+        warn('infra death watch', err);
+      }
+      // When the run is already void, the dump that wants the crash log runs
+      // AFTER this teardown (it is an after-all hook) and stopping a container
+      // removes it, taking its logs with it. Snapshot them first - exactly why
+      // the SSE buffers are snapshotted below.
+      if (infraDeathError()) {
+        infraLogSnapshot = await readInfraLogs(infraContainers).catch(() => null);
+      }
       // disconnectEventStream wipes the client's event buffer — snapshot first so
       // a failure dump running after teardown still has the events
       clients.forEach((client, i) => {
@@ -459,8 +606,14 @@ export async function createTestEnv({ hookCtx = null, nodes = 1, deferredNodes =
   const networkName = await createNetwork();
   const env = makeEnvShell(networkName);
   activeEnvs.add(env);
+  // A previous env's death must not fail this one's waits.
+  clearInfraDeath();
 
   try {
+    // Armed before anything starts: the deaths this catches land 38-91s after
+    // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
+    // boot's own.
+    await startInfraDeathWatch(env);
     await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
     return env;
   } catch (err) {
@@ -501,7 +654,8 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
 
   // Health check timeout must be < interval — Docker's health state machine
   // produces spurious "unhealthy" on container restart when timeout >= interval.
-  const mongo = await new StaticIpContainer('mongo:8')
+  // Pinned by digest so a crash can be bisected across image updates.
+  const mongo = await new StaticIpContainer('mongo:8@sha256:a706cb4e493bcd0262f345b3b0c78732ca0e54301f0d7bbe2b66f26313ce7ccb')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
     .withStaticIp(networkName, MONGO_IP)
     .withWaitStrategy(new TcpPollWaitStrategy(MONGO_IP, 27017))
@@ -514,6 +668,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .start();
   started.push(mongo);
   containers.mongo = mongo;
+  watchInfra(env, 'mongo', mongo);
 
   await seedMongo(MONGO_IP, nodes, bootContext, { dataCenter });
 
@@ -542,6 +697,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .start();
   started.push(daemonStub);
   containers.daemonStub = daemonStub;
+  watchInfra(env, 'daemonStub', daemonStub);
 
   // Render the deterministic node list for this run: identity from the committed
   // fixture, addresses from subnet-config (the single source of truth for node IPs).
@@ -590,6 +746,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .start();
   started.push(syncthingStub);
   containers.syncthingStub = syncthingStub;
+  watchInfra(env, 'syncthingStub', syncthingStub);
 
   const externalStub = await new StaticIpContainer(image('flux-e2e-external-http-stub'))
     .withStaticIp(networkName, EXTERNAL_STUB_IP)
@@ -604,6 +761,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .start();
   started.push(externalStub);
   containers.externalStub = externalStub;
+  watchInfra(env, 'externalStub', externalStub);
 
   const fdmStub = await new StaticIpContainer(image('flux-e2e-fdm-stub'))
     .withStaticIp(networkName, FDM_IP, fdmHostnames())
@@ -618,6 +776,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .start();
   started.push(fdmStub);
   containers.fdmStub = fdmStub;
+  watchInfra(env, 'fdmStub', fdmStub);
 
   if (!dataCenter) {
     for (let i = 1; i <= nodes; i++) {
@@ -649,6 +808,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .start();
   started.push(registry);
   containers.registry = registry;
+  watchInfra(env, 'registry', registry);
 
   // Seed the default spec image so every env's registry can satisfy
   // registration verification and installs for buildAppSpec/buildSeedableApp

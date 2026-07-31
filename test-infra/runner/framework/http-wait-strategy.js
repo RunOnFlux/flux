@@ -1,3 +1,5 @@
+import { throwIfInfraDead } from './infra-death.js';
+
 // A testcontainers WaitStrategy that polls an HTTP URL until it responds OK,
 // bypassing Docker's health state machine entirely.
 //
@@ -56,6 +58,10 @@ export class HttpPollWaitStrategy {
   async waitUntilReady() {
     const deadline = Date.now() + this.#startupTimeoutMs;
     while (Date.now() < deadline) {
+      // An infra container died while this one was coming up: nothing that
+      // depends on it can answer, so surface the death instead of spending the
+      // full startup budget proving mongo is gone.
+      throwIfInfraDead();
       try {
         const res = await fetch(this.#url, { signal: AbortSignal.timeout(this.#probeTimeoutMs) });
         if (this.#validate ? await this.#validate(res) : res.ok) return;
