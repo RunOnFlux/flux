@@ -88,6 +88,15 @@ const INITIAL_HEIGHT = 2100000;
 const RUN_LABEL = process.env.E2E_RUN_LABEL || '';
 const runLabels = () => (RUN_LABEL ? { 'flux-e2e-run': RUN_LABEL } : {});
 
+// Image tag for every image this harness builds and runs. One box hosts more
+// than one branch's harness work at a time, and the image names are fixed, so
+// an untagged rebuild silently replaces whatever the other branch had built -
+// the "assume all images are the other branch's" trap. Build with
+// `FLUX_E2E_TAG=<slug> ./build-images.sh` and run with the same value set;
+// the default keeps single-branch use exactly as it was.
+const IMAGE_TAG = process.env.FLUX_E2E_TAG || 'latest';
+const image = (name) => `${name}:${IMAGE_TAG}`;
+
 // masterSlaveApps resolves the FDM by hostname (getMasterIpFromFdm tries EU/USA/ASIA
 // regions, server index from getFdmIndex by the app name's first letter). Every
 // reachable FDM hostname must resolve to the stub for any app name, otherwise the
@@ -274,7 +283,7 @@ function makeEnvShell(networkName) {
           // throwaway container and retry, so even a wedged fleet cleans up.
           try {
             const helper = await cleanupClient.container.dockerode.createContainer({
-              Image: 'flux-e2e-fluxos-01',
+              Image: image('flux-e2e-fluxos-01'),
               Entrypoint: ['bash', '-c', 'chattr -R -i /v/flux-apps 2>/dev/null; true'],
               HostConfig: { Binds: [`${volName}:/v`], CapAdd: ['LINUX_IMMUTABLE'] },
             });
@@ -481,7 +490,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
 
   await seedMongo(MONGO_IP, nodes, bootContext, { dataCenter });
 
-  const daemonStub = await new StaticIpContainer('flux-e2e-daemon-stub')
+  const daemonStub = await new StaticIpContainer(image('flux-e2e-daemon-stub'))
     .withStaticIp(networkName, DAEMON_IP)
     .withEnvironment({
       FLUX_TEST_HARNESS: 'true',
@@ -541,7 +550,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     }
   }
 
-  const syncthingStub = await new StaticIpContainer('flux-e2e-syncthing-stub')
+  const syncthingStub = await new StaticIpContainer(image('flux-e2e-syncthing-stub'))
     .withStaticIp(networkName, SYNCTHING_IP)
     .withEnvironment({ SYNCTHING_PORT: '8384', CONTROL_PORT: '8385' })
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${SYNCTHING_IP}:8384/rest/noauth/health`))
@@ -555,7 +564,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   started.push(syncthingStub);
   containers.syncthingStub = syncthingStub;
 
-  const externalStub = await new StaticIpContainer('flux-e2e-external-http-stub')
+  const externalStub = await new StaticIpContainer(image('flux-e2e-external-http-stub'))
     .withStaticIp(networkName, EXTERNAL_STUB_IP)
     .withEnvironment({ STUB_PORT: '3000', CONTROL_PORT: '3001' })
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${EXTERNAL_STUB_IP}:3001/health`))
@@ -569,7 +578,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   started.push(externalStub);
   containers.externalStub = externalStub;
 
-  const fdmStub = await new StaticIpContainer('flux-e2e-fdm-stub')
+  const fdmStub = await new StaticIpContainer(image('flux-e2e-fdm-stub'))
     .withStaticIp(networkName, FDM_IP, fdmHostnames())
     .withEnvironment({ FDM_PORT: '16130', CONTROL_PORT: '16131' })
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${FDM_IP}:16131/health`))
@@ -690,7 +699,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     // state machine: under a contended 10-node fleet boot, Wait.forHealthCheck()
     // tears the fleet down on a transient "unhealthy" even when FluxOS is up. See
     // http-wait-strategy.js for the full rationale.
-    const builder = new StaticIpContainer('flux-e2e-fluxos-01')
+    const builder = new StaticIpContainer(image('flux-e2e-fluxos-01'))
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
       .withExtraHosts(fdmExtraHosts(FDM_IP))
@@ -717,7 +726,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     const nodeIp = subnet.nodeIp(stubIdx + 1);
     const key = nodeKey(stubIdx + 1);
 
-    const stub = await new StaticIpContainer('flux-e2e-peer-stub')
+    const stub = await new StaticIpContainer(image('flux-e2e-peer-stub'))
       .withStaticIp(networkName, nodeIp)
       .withEnvironment({
         FLUX_TEST_HARNESS: 'true',
