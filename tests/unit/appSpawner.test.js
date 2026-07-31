@@ -681,22 +681,41 @@ describe('appSpawner tests', () => {
       expect(second.logged('already holds 2 of its 2-instance share')).to.be.true;
     });
 
-    it('skips without installing when the table reports no eligible candidates', async () => {
-      const { installStub, logged } = await runAttempt({
-        placementShare: { placeable: false, domainCount: 0, candidateCount: 0 },
+    it('installs anyway when the table resolves no candidates - this node is one', async () => {
+      // A zero-candidate answer contradicts the local node, which reached this
+      // check having passed its own geolocation filter. Refusing would strand
+      // the app on every node; install-time geo checks stay authoritative.
+      const { installStub } = await runAttempt({
+        placementShare: {
+          placeable: false, domainCount: 0, candidateCount: 0, maxPerDomain: 3,
+        },
       });
-      expect(installStub.called).to.be.false;
-      expect(logged('no eligible candidates')).to.be.true;
+      expect(installStub.called).to.be.true;
     });
 
     it('bypasses the share entirely when the owner pinned this node', async () => {
       const { installStub } = await runAttempt({
         pinnedHere: true,
+        appSpec: { ...syncedSpec, nodes: ['192.168.1.1:16127', '10.0.0.2:16127', '10.0.0.3:16127'] },
         appLocations: sameDomainLocation,
         placementShare: { domainCount: 10, maxPerDomain: 1 },
       });
       expect(installStub.called).to.be.true;
       expect(placementFeasibilityStub.placementFeasibility.called).to.be.false;
+    });
+
+    it('treats a nodes list longer than the instance count as a pool, not a pin', async () => {
+      // `nodes` may carry up to 120 entries against 3 instances - membership in
+      // a pool that large expresses no co-location intent, so the share applies
+      const manyNodes = Array.from({ length: 30 }, (unused, i) => `10.0.0.${i + 1}:16127`);
+      const { installStub, logged } = await runAttempt({
+        pinnedHere: true,
+        appSpec: { ...syncedSpec, nodes: manyNodes },
+        appLocations: sameDomainLocation,
+        placementShare: { domainCount: 10, maxPerDomain: 1 },
+      });
+      expect(installStub.called).to.be.false;
+      expect(logged('already holds')).to.be.true;
     });
 
     it('yields the remaining share to an earlier claimant after the collision wait', async () => {

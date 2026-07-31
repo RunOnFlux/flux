@@ -17,7 +17,7 @@ describe('ipLocationSync tests', () => {
       writeArtifactBytes: sinon.stub().resolves(true),
       sweepOrphanedArtifacts: sinon.stub().resolves(0),
     };
-    tableStub = { setArtifact: sinon.stub() };
+    tableStub = { setArtifact: sinon.stub(), hasTable: sinon.stub().returns(false) };
     logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
     ipLocationSync = proxyquire('../../ZelBack/src/services/appPlacement/ipLocationSync', {
       '../serviceHelper': { axiosGet: axiosGetStub },
@@ -86,5 +86,33 @@ describe('ipLocationSync tests', () => {
     await ipLocationSync.startSync();
     expect(repositoryStub.sweepOrphanedArtifacts.calledOnce).to.equal(true);
     expect(logStub.warn.args.some((a) => a[0].includes('keeping current table'))).to.equal(true);
+  });
+
+  it('still fetches when the cache read fails - a database blip must not cost the table', async () => {
+    repositoryStub.getArtifactRecord.rejects(new Error('MongoServerSelectionError'));
+    await ipLocationSync.startSync();
+    expect(axiosGetStub.called).to.equal(true);
+    expect(tableStub.setArtifact.called).to.equal(true);
+    expect(logStub.warn.args.some((a) => a[0].includes('could not restore the cached table'))).to.equal(true);
+  });
+
+  it('retries on a short interval while the node holds no table at all', async () => {
+    const clock = sinon.useFakeTimers();
+    try {
+      axiosGetStub.rejects(new Error('dns not up yet'));
+      await ipLocationSync.startSync();
+      expect(axiosGetStub.callCount).to.equal(1);
+      // the daily interval has not elapsed; the no-table retry has
+      await clock.tickAsync(10 * 60 * 1000);
+      expect(axiosGetStub.callCount).to.equal(2);
+      // once a table is held, the short retry stops
+      tableStub.hasTable.returns(true);
+      await clock.tickAsync(10 * 60 * 1000);
+      const afterTable = axiosGetStub.callCount;
+      await clock.tickAsync(10 * 60 * 1000);
+      expect(axiosGetStub.callCount).to.equal(afterTable);
+    } finally {
+      clock.restore();
+    }
   });
 });

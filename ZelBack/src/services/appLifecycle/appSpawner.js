@@ -462,11 +462,18 @@ async function trySpawningGlobalApplication() {
     const localIp = extractIp(localSocketAddr);
 
     // Owner-pinned placement is the owner's choice; the diversity share does
-    // not second-guess it. This applies only when THIS node is pinned - a v8+
-    // app spawning on an off-list node is still subject to the share.
+    // not second-guess it. Two limits on that: it applies only when THIS node
+    // is pinned (a v8+ app spawning on an off-list node is still subject to
+    // the share), and only when the list is short enough to BE an assignment.
+    // `nodes` may carry up to 120 entries against an instance count as low as
+    // one, and a candidate pool that large expresses no co-location intent -
+    // treating it as a pin would let every instance of a synced app stack in
+    // one fault domain.
     let pinnedHere = false;
     if (syncthingApp) {
-      pinnedHere = await placementFeasibility.isNodePinnedHere(appSpecifications, localSocketAddr);
+      const pinList = appSpecifications.nodes ?? [];
+      pinnedHere = pinList.length <= minInstances
+        && await placementFeasibility.isNodePinnedHere(appSpecifications, localSocketAddr);
     }
 
     // A synced app may only be refused when a better-placed candidate provably
@@ -477,10 +484,12 @@ async function trySpawningGlobalApplication() {
     if (syncthingApp && !pinnedHere) {
       placementShare = await placementFeasibility.placementFeasibility(appSpecifications, minInstances);
       myDomain = placementFeasibility.faultDomain(localIp);
-      if (!placementShare.placeable) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and has no eligible candidates under the current placement table`);
-        return shortDelayTime;
-      }
+      // No `placeable` gate here, deliberately. This node reached the placement
+      // check having passed its own geolocation filter, so it is itself an
+      // eligible candidate - a table that resolves zero candidates network-wide
+      // is contradicting the node's own location rather than proving the app
+      // unplaceable, and refusing on that would strand the app everywhere.
+      // Install-time geolocation checks remain authoritative.
       const heldInMine = placementFeasibility.countHeldInDomain(runningAppList, myDomain)
         + placementFeasibility.countHeldInDomain(installingAppList, myDomain);
       if (heldInMine >= placementShare.maxPerDomain) {

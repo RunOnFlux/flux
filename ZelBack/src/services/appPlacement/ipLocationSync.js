@@ -22,10 +22,12 @@ const ipLocationTable = require('./ipLocationTable');
 const ARTIFACT_NAME = 'ipLocationTable'; // registry key, shared with policyStore
 const ARTIFACT_FILE = 'iplocation.json';
 const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const RETRY_INTERVAL_MS = 10 * 60 * 1000; // only while the node holds no table at all
 const FETCH_TIMEOUT_MS = 120 * 1000; // 8.5 MB over slow uplinks; never gates boot
 
 let etag = null;
 let refreshInterval = null;
+let retryTimer = null;
 let started = false;
 
 /**
@@ -62,6 +64,25 @@ async function refresh() {
 }
 
 /**
+ * Run a refresh, and while the node holds NO table at all, retry on a short
+ * interval instead of waiting out the daily one. A node whose first fetch
+ * lands in a boot-time network gap would otherwise spend a full day computing
+ * /16 fault domains while the rest of the fleet uses organisations.
+ */
+function scheduleRefresh() {
+  refresh()
+    .then((installed) => {
+      if (installed || ipLocationTable.hasTable() || retryTimer) return;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        scheduleRefresh();
+      }, RETRY_INTERVAL_MS);
+      if (retryTimer.unref) retryTimer.unref();
+    })
+    .catch((error) => log.error(`ipLocationSync - refresh error: ${error.message}`));
+}
+
+/**
  * Restore the last-good artifact from GridFS, then refresh in the background
  * and daily thereafter. Placement needs no table to run - it degrades to
  * status-quo /16 arithmetic - so nothing here ever gates boot. Idempotent.
@@ -70,10 +91,13 @@ async function refresh() {
 async function startSync() {
   if (started) return;
   started = true;
-  await policyArtifactRepository.sweepOrphanedArtifacts(ARTIFACT_NAME);
-  const record = await policyArtifactRepository.getArtifactRecord(ARTIFACT_NAME);
-  if (record) {
-    const bytes = await policyArtifactRepository.readArtifactBytes(record.fileId);
+  // The cache restore is best-effort: a database that is briefly unavailable
+  // at this moment must not cost this process its table for the rest of its
+  // life, so a failure here still leaves the fetch and the refresh loop armed.
+  try {
+    await policyArtifactRepository.sweepOrphanedArtifacts(ARTIFACT_NAME);
+    const record = await policyArtifactRepository.getArtifactRecord(ARTIFACT_NAME);
+    const bytes = record ? await policyArtifactRepository.readArtifactBytes(record.fileId) : null;
     if (bytes) {
       try {
         ipLocationTable.setArtifact(bytes);
@@ -87,11 +111,11 @@ async function startSync() {
         log.error(`ipLocationSync - stored iplocation table rejected, will refetch: ${error.message}`);
       }
     }
+  } catch (error) {
+    log.warn(`ipLocationSync - could not restore the cached table, fetching instead: ${error.message}`);
   }
-  refresh().catch((error) => log.error(`ipLocationSync - refresh error: ${error.message}`));
-  refreshInterval = setInterval(() => {
-    refresh().catch((error) => log.error(`ipLocationSync - refresh error: ${error.message}`));
-  }, REFRESH_INTERVAL_MS);
+  scheduleRefresh();
+  refreshInterval = setInterval(scheduleRefresh, REFRESH_INTERVAL_MS);
   if (refreshInterval.unref) refreshInterval.unref();
 }
 
@@ -100,7 +124,9 @@ async function startSync() {
  */
 function stopSync() {
   if (refreshInterval) clearInterval(refreshInterval);
+  if (retryTimer) clearTimeout(retryTimer);
   refreshInterval = null;
+  retryTimer = null;
   started = false;
   etag = null;
 }

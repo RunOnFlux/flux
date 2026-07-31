@@ -122,8 +122,17 @@ function nodeLocationMatchesGeolocation(loc, geolocation) {
 }
 
 /**
- * Whether an app's hardware requirements fit a node tier's nominal capacity.
- * Unknown tiers count as fitting - over-approximation errs strict.
+ * Whether an app's hardware requirements fit a node tier.
+ *
+ * The bound is the tier's nominal capacity WITHOUT the system reserve
+ * subtracted, and that is deliberate: a tier is a collateral class, not a
+ * hardware guarantee, so a real node of a tier meets or exceeds the nominal
+ * figure and install-time sizes against its actual hardware. Subtracting the
+ * reserve here would exclude nodes that would in fact accept the app, which
+ * is the wrong direction for this module (see the header) - it would refuse
+ * a deployable app rather than over-count candidates.
+ *
+ * Unknown tiers and unsizable specs count as fitting, same direction.
  * @param {object} appSpecifications App specifications
  * @param {string} listTier Tier as carried in the deterministic node list
  * @returns {boolean}
@@ -132,9 +141,9 @@ function appFitsTier(appSpecifications, listTier) {
   const tier = TIER_MAP[listTier];
   if (!tier) return true;
   const caps = {
-    cpu: config.fluxSpecifics.cpu[tier.capsKey] - config.lockedSystemResources.cpu,
-    ram: config.fluxSpecifics.ram[tier.capsKey] - config.lockedSystemResources.ram,
-    hdd: config.fluxSpecifics.hdd[tier.capsKey] - config.lockedSystemResources.hdd,
+    cpu: config.fluxSpecifics.cpu[tier.capsKey],
+    ram: config.fluxSpecifics.ram[tier.capsKey],
+    hdd: config.fluxSpecifics.hdd[tier.capsKey],
   };
   try {
     const needs = hwRequirements.totalAppHWRequirements(appSpecifications, tier.hwTier);
@@ -146,6 +155,22 @@ function appFitsTier(appSpecifications, listTier) {
     log.warn(`placementFeasibility - could not size app for tier ${listTier}: ${error.message}`);
     return true;
   }
+}
+
+/**
+ * Tier fit for every tier in the node list vocabulary, computed once.
+ * Sizing a spec is proportional to its component count, so evaluating it per
+ * node would multiply an attacker-chosen component count by the whole node
+ * list on an unauthenticated endpoint; there are only three tiers.
+ * @param {object} appSpecifications App specifications
+ * @returns {Map<string, boolean>}
+ */
+function tierFitTable(appSpecifications) {
+  const fits = new Map();
+  Object.keys(TIER_MAP).forEach((listTier) => {
+    fits.set(listTier, appFitsTier(appSpecifications, listTier));
+  });
+  return fits;
 }
 
 /**
@@ -189,12 +214,13 @@ async function placementFeasibility(appSpecifications, minInstances) {
   const geoRestricted = (appSpecifications.geolocation ?? []).length > 0;
 
   const domains = new Map(); // fault domain -> candidate count
+  const tierFits = tierFitTable(appSpecifications);
   let candidateCount = 0;
   // eslint-disable-next-line no-restricted-syntax
   for (const node of nodeList) {
     const ip = bareIp(node.ip);
     if (!ip) continue; // eslint-disable-line no-continue
-    if (!appFitsTier(appSpecifications, node.tier)) continue; // eslint-disable-line no-continue
+    if (tierFits.get(node.tier) === false) continue; // eslint-disable-line no-continue
     if (geoRestricted && tableAvailable) {
       const loc = ipLocationTable.lookup(ip);
       if (!nodeLocationMatchesGeolocation(loc, appSpecifications.geolocation)) continue; // eslint-disable-line no-continue
@@ -272,6 +298,40 @@ function placementCategory(feasibility, syncedApp) {
 }
 
 /**
+ * The placement-relevant sizing of a spec: the fields that decide how many
+ * nodes could hold it. Compared between an update and the spec it replaces.
+ * @param {object} spec Formatted app specifications
+ * @returns {string} A comparable digest
+ */
+function placementShape(spec) {
+  const components = spec.version <= 3
+    ? [{ cpu: spec.cpu, ram: spec.ram, hdd: spec.hdd, tiered: spec.tiered }]
+    : (spec.compose ?? []).map((c) => ({
+      cpu: c.cpu, ram: c.ram, hdd: c.hdd, tiered: c.tiered,
+    }));
+  return JSON.stringify({
+    instances: spec.instances ?? null,
+    geolocation: [...(spec.geolocation ?? [])].sort(),
+    components,
+  });
+}
+
+/**
+ * Whether an update changes anything placement depends on. An update that
+ * touches none of it - an expire-only renewal, a cancellation (expire: 1), a
+ * description or environment edit - must never be refused by the placement
+ * gate: the owner is not making placement worse, and refusing would strand
+ * them with an app they can neither renew nor cancel.
+ * @param {object} next The update's formatted specifications
+ * @param {object} previous The specifications it replaces
+ * @returns {boolean}
+ */
+function changesPlacement(next, previous) {
+  if (!previous) return true; // nothing to compare against - gate it
+  return placementShape(next) !== placementShape(previous);
+}
+
+/**
  * Enforce placement feasibility on the user-facing registration and update
  * paths: an impossible spec is rejected before it is paid for, a constrained
  * synced spec is accepted with a warning. Called from the API front door
@@ -279,13 +339,18 @@ function placementCategory(feasibility, syncedApp) {
  * table versions must not disagree about message validity. A failure to
  * COMPUTE feasibility never rejects: without the computation there is no
  * proof, and only proven impossibility may refuse a registration.
+ *
+ * On an update path, pass the previous specifications: an update that does
+ * not change placement is never gated (see changesPlacement).
  * @param {object} appSpecFormatted Formatted app specifications
  * @param {string} caller Log prefix identifying the calling path
+ * @param {object} [previousSpec] The specifications an update replaces
  * @returns {Promise<object|null>} The feasibility, or null when it could not
- *   be computed
+ *   be computed or the check did not apply
  * @throws When the spec provably cannot reach its instance count
  */
-async function checkPlacementFeasibility(appSpecFormatted, caller) {
+async function checkPlacementFeasibility(appSpecFormatted, caller, previousSpec) {
+  if (previousSpec && !changesPlacement(appSpecFormatted, previousSpec)) return null;
   let synced;
   let feasibility;
   try {
@@ -362,7 +427,13 @@ function normalizeStructuredEntry(entry) {
   }
   const parts = [resolvedContinent];
   if (country) parts.push(country);
-  if (region) parts.push(region);
+  // The region is deliberately dropped rather than emitted. Install-time
+  // matching compares a spec's region against the node's ip-api regionName
+  // ('Uusimaa'), while this vocabulary is ISO 3166-2 ('FI-18'), so an emitted
+  // region would match no node anywhere and the caller registers a spec that
+  // installs nowhere. Coarsening to the country is reported back in
+  // coarsenedEntries; the caller keeps what it asked for and learns that
+  // placement answers it at country granularity.
   return `${entry.forbidden === true ? 'a!c' : 'ac'}${parts.join('_')}`;
 }
 
@@ -376,21 +447,25 @@ function normalizeStructuredEntry(entry) {
  * @returns {{normalized: string[], coarsened: string[]}}
  */
 function normalizeGeolocation(entries) {
+  const coarsened = [];
   const normalized = entries.map((entry) => {
     if (typeof entry === 'string') {
       if (entry.length > 50) throw new Error('Invalid geolocation specified');
+      // a spec string the caller already holds keeps its region part - it is
+      // theirs to register - but placement still answers it at country
+      // granularity, so report it
+      const body = entry.startsWith('a!c') ? entry.slice(3) : (entry.startsWith('ac') ? entry.slice(2) : null);
+      const parts = body ? body.split('_') : [];
+      if (parts.length >= 3 && parts[2] !== 'ALL' && parts[2] !== 'NONE') coarsened.push(entry);
       return entry;
     }
     if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
-      return normalizeStructuredEntry(entry);
+      const value = normalizeStructuredEntry(entry);
+      // the region was dropped on the way out (see normalizeStructuredEntry)
+      if (entry.region) coarsened.push(value);
+      return value;
     }
     throw new Error('Invalid geolocation specified');
-  });
-  const coarsened = normalized.filter((value) => {
-    const body = value.startsWith('a!c') ? value.slice(3) : (value.startsWith('ac') ? value.slice(2) : null);
-    if (!body) return false; // legacy aXX/bXX entries have no region part
-    const parts = body.split('_');
-    return parts.length >= 3 && parts[2] !== 'ALL';
   });
   return { normalized, coarsened };
 }
@@ -491,6 +566,12 @@ function buildSizedSpec(spec) {
  * @returns {Promise<object>} Feasibility plus the advice fields
  */
 async function placementAdvice(spec) {
+  // An unparsed body reaches here as {} - answering about a default spec would
+  // advise a purchase the caller never described. This endpoint requires
+  // Content-Type: application/json, which is what makes req.body exist.
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec) || Object.keys(spec).length === 0) {
+    throw new Error('Empty or unparsed request body - send JSON with Content-Type: application/json');
+  }
   const instances = serviceHelper.ensureNumber(spec.instances ?? config.fluxapps.minimumInstances);
   if (!Number.isInteger(instances) || instances < 1 || instances > config.fluxapps.maximumInstances) {
     throw new Error('Invalid instances specified');
@@ -644,6 +725,7 @@ module.exports = {
   appFitsTier,
   placementFeasibility,
   placementCategory,
+  changesPlacement,
   countHeldInDomain,
   isNodePinnedHere,
   checkPlacementFeasibility,

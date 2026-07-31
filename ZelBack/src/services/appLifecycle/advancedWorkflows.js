@@ -2740,12 +2740,6 @@ async function updateAppGlobaly(params) {
   const appRequirements = require('../appRequirements/appValidator');
   await appRequirements.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
-  // placement feasibility applies to updates too: a narrowed geolocation,
-  // raised instance count or grown sizing must not buy a spec the network
-  // provably cannot satisfy - the redeploy would strip the out-of-geo
-  // instances and leave the app below its count, or at zero
-  await placementFeasibility.checkPlacementFeasibility(appSpecFormatted, 'updateAppGlobaly');
-
   if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
     // eslint-disable-next-line no-restricted-syntax
     for (const appComponent of appSpecFormatted.compose) {
@@ -2807,6 +2801,14 @@ async function updateAppGlobaly(params) {
 
   // Validate structural compatibility
   await validateApplicationUpdateCompatibility(appSpecFormatted, appInfo);
+
+  // placement feasibility applies to updates too: a narrowed geolocation,
+  // raised instance count or grown sizing must not buy a spec the network
+  // provably cannot satisfy - the redeploy would strip the out-of-geo
+  // instances and leave the app below its count, or at zero. Placed after the
+  // previous spec is resolved so an update that changes nothing
+  // placement-relevant - a renewal, a cancellation - is never refused.
+  await placementFeasibility.checkPlacementFeasibility(appSpecFormatted, 'updateAppGlobaly', previousAppSpec);
 
   if (isEnterprise) {
     appSpecFormatted.contacts = [];

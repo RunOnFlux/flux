@@ -184,15 +184,17 @@ describe('placementFeasibility tests', () => {
         .to.deep.equal(['acEU_CZ']);
     });
 
-    it('validates region entries and flags them as coarsened', () => {
+    it('coarsens structured region entries to their country and flags them', () => {
       ipLocationTable.setArtifact(fixtureArtifact());
       const { normalized, coarsened } = placementFeasibility.normalizeGeolocation([
         { country: 'FI', region: 'FI-18' },
         'acEU_FI_Uusimaa',
         'acEU_FI_ALL',
       ]);
-      expect(normalized).to.deep.equal(['acEU_FI_FI-18', 'acEU_FI_Uusimaa', 'acEU_FI_ALL']);
-      expect(coarsened).to.deep.equal(['acEU_FI_FI-18', 'acEU_FI_Uusimaa']);
+      // the ISO region is NOT emitted: install-time matching compares against
+      // ip-api region names, so a spec carrying 'FI-18' would match no node
+      expect(normalized).to.deep.equal(['acEU_FI', 'acEU_FI_Uusimaa', 'acEU_FI_ALL']);
+      expect(coarsened).to.deep.equal(['acEU_FI', 'acEU_FI_Uusimaa']);
       expect(() => placementFeasibility.normalizeGeolocation([{ region: 'FI-18' }])).to.throw('requires its country');
       expect(() => placementFeasibility.normalizeGeolocation([{ country: 'DE', region: 'FI-18' }])).to.throw('does not belong to DE');
       expect(() => placementFeasibility.normalizeGeolocation([{ country: 'FI', region: 'Uusimaa' }])).to.throw('not an ISO 3166-2');
@@ -379,6 +381,44 @@ describe('placementFeasibility tests', () => {
       expect(logStub.warn.called).to.equal(false);
     });
 
+    it('never gates an update that changes nothing placement-relevant', async () => {
+      // renewals and cancellations are expire-only updates; an app that is
+      // already infeasible must still be renewable and cancellable
+      ipLocationTable.setArtifact(fixtureArtifact());
+      deterministicFluxListStub.resolves([...fiNodes]);
+      const previous = { ...syncedBahrainSpec, expire: 22000 };
+      const cancellation = { ...syncedBahrainSpec, expire: 1 };
+      const result = await placementFeasibility.checkPlacementFeasibility(cancellation, 'testCaller', previous);
+      expect(result).to.equal(null);
+      expect(deterministicFluxListStub.called).to.equal(false);
+    });
+
+    it('gates an update that narrows placement', async () => {
+      ipLocationTable.setArtifact(fixtureArtifact());
+      deterministicFluxListStub.resolves([...fiNodes]);
+      const previous = { ...syncedBahrainSpec, geolocation: [] };
+      await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller', previous).then(
+        () => { throw new Error('expected rejection'); },
+        (error) => expect(error.message).to.include('eligible nodes'),
+      );
+    });
+
+    it('changesPlacement sees geolocation, instances and sizing, and ignores the rest', () => {
+      const base = {
+        version: 7, instances: 3, geolocation: ['acEU'], compose: [{ cpu: 1, ram: 100, hdd: 1 }],
+      };
+      const { changesPlacement } = placementFeasibility;
+      expect(changesPlacement(base, { ...base, expire: 5000 })).to.equal(false);
+      expect(changesPlacement(base, { ...base, geolocation: ['acEU'] })).to.equal(false);
+      // order alone is not a change
+      expect(changesPlacement({ ...base, geolocation: ['acEU', 'acNA'] }, { ...base, geolocation: ['acNA', 'acEU'] })).to.equal(false);
+      expect(changesPlacement(base, { ...base, instances: 5 })).to.equal(true);
+      expect(changesPlacement(base, { ...base, geolocation: ['acAS_BH'] })).to.equal(true);
+      expect(changesPlacement(base, { ...base, compose: [{ cpu: 8, ram: 100, hdd: 1 }] })).to.equal(true);
+      // no previous spec to compare against - gate it
+      expect(changesPlacement(base, null)).to.equal(true);
+    });
+
     it('a failed computation logs and returns null - only proven impossibility rejects', async () => {
       deterministicFluxListStub.rejects(new Error('state not ready'));
       const result = await placementFeasibility.checkPlacementFeasibility(syncedBahrainSpec, 'testCaller');
@@ -469,11 +509,42 @@ describe('placementFeasibility tests', () => {
       const advice = await placementFeasibility.placementAdvice({
         instances: 3,
         geolocation: [],
-        compose: [{ containerData: 'g:/data', cpu: 4, ram: 4000, hdd: 50 }],
+        compose: [{ containerData: 'g:/data', cpu: 5, ram: 4000, hdd: 50 }],
       });
-      // the two CUMULUS Bahrain nodes cannot hold 4 cores
+      // the two CUMULUS Bahrain nodes cannot hold 5 cores
       expect(advice.candidateCount).to.equal(2);
       expect(advice.domainCount).to.equal(2);
+    });
+
+    it('counts a node whose tier nominally reserves less than the app needs', async () => {
+      // The tier is a collateral class, not a hardware guarantee: a real
+      // CUMULUS node exceeds the nominal figure, so a spec between
+      // (nominal - reserve) and nominal must not be excluded here - install
+      // time sizes against the node's actual hardware.
+      ipLocationTable.setArtifact(fixtureArtifact());
+      totalHWStub.callsFake(() => ({ cpu: 1, ram: 5500, hdd: 50 }));
+      deterministicFluxListStub.resolves([...bhNodes, bgNode]);
+      const advice = await placementFeasibility.placementAdvice({
+        instances: 3,
+        geolocation: [],
+        compose: [{ containerData: 'g:/data', cpu: 1, ram: 5500, hdd: 50 }],
+      });
+      expect(advice.candidateCount).to.equal(4);
+      expect(advice.category).to.not.equal('impossible');
+    });
+
+    it('sizes the app once per tier, not once per node', async () => {
+      // an unauthenticated endpoint must not multiply an attacker-chosen
+      // component count by the node list
+      ipLocationTable.setArtifact(fixtureArtifact());
+      totalHWStub.resetHistory();
+      deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes]);
+      await placementFeasibility.placementAdvice({
+        instances: 3,
+        geolocation: [],
+        compose: [{ containerData: 'g:/data', cpu: 1, ram: 100, hdd: 1 }],
+      });
+      expect(totalHWStub.callCount).to.equal(3);
     });
 
     it('narrows candidates by top-level sizing for containerData bodies', async () => {
@@ -486,7 +557,7 @@ describe('placementFeasibility tests', () => {
         instances: 3,
         geolocation: [],
         containerData: 'g:/data',
-        cpu: 4,
+        cpu: 5,
         ram: 4000,
         hdd: 50,
       });
@@ -525,6 +596,20 @@ describe('placementFeasibility tests', () => {
         () => { throw new Error('expected rejection'); },
         (error) => expect(error.message).to.include('Invalid geoAllow'),
       );
+    });
+
+    it('refuses an empty or unparsed body instead of answering about a default spec', async () => {
+      const rejectsEmpty = async (body) => {
+        try {
+          await placementFeasibility.placementAdvice(body);
+          throw new Error('expected rejection');
+        } catch (error) {
+          expect(error.message).to.include('Empty or unparsed request body');
+        }
+      };
+      await rejectsEmpty({});
+      await rejectsEmpty(undefined);
+      await rejectsEmpty([]);
     });
 
     it('rejects invalid sizing and oversized geolocation lists', async () => {
