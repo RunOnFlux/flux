@@ -88,8 +88,20 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   const ceiling = Math.max(env.clients.length - 1, 1);
   const outboundTarget = minOutbound ?? Math.min(4, ceiling);
   const inboundTarget = minInbound ?? Math.min(2, ceiling);
-  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= outboundTarget, 120000);
-  await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= inboundTarget, 120000);
+  // Polled, not awaited on a peers:added event. That event is edge-triggered:
+  // a small fleet finishes peering in a handful of events, so if the counts are
+  // already satisfied when the listener attaches, nothing further is ever
+  // published and the wait burns its full timeout on a condition that is
+  // already true. The REST counts are the state itself.
+  const node = env.clients[0];
+  await waitFor(
+    async () => {
+      const [outgoing, incoming] = await Promise.all([node.getPeers(), node.getIncomingPeers()]);
+      return (outgoing.data?.length ?? 0) >= outboundTarget
+        && (incoming.data?.length ?? 0) >= inboundTarget;
+    },
+    { timeout: 120000, interval: 2000, label: `>=${outboundTarget} outbound and >=${inboundTarget} inbound peers` },
+  );
   await startTicker();
 }
 
