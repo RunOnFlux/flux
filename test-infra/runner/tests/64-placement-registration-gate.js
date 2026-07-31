@@ -23,33 +23,40 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const APP_IMAGE = 'e2e-gate-probe';
 
-const SIGNED_SPEC_BASE = {
-  version: 7,
-  name: 'placementgateprobe',
-  description: 'placement gate probe',
-  owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-  compose: [{
-    name: 'probe',
-    description: 'probe component',
-    repotag: `${REGISTRY_REPO_HOST}/${APP_IMAGE}:v1`,
-    ports: [31151],
-    domains: [''],
-    environmentParameters: [],
-    commands: [],
-    containerPorts: [8080],
-    containerData: 'g:/data',
-    cpu: 0.1,
-    ram: 100,
-    hdd: 1,
-    tiered: false,
-  }],
-  instances: 3,
-  contacts: [],
-  geolocation: [],
-  expire: 22000,
-  nodes: [],
-  staticip: false,
-};
+// The v8 spec shape the harness seeds with (seed-helper.buildSeedableApp): the
+// registration validator runs in full before the placement gate is reached, so
+// a hand-rolled spec fails on a missing field long before it proves anything
+// about placement.
+function gateSpec({ name, instances = 3, geolocation = [] }) {
+  return {
+    version: 8,
+    name,
+    description: `placement gate probe ${name}`,
+    owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    compose: [{
+      name: 'probe',
+      description: 'probe component',
+      repotag: `${REGISTRY_REPO_HOST}/${APP_IMAGE}:v1`,
+      ports: [31151],
+      domains: [''],
+      environmentParameters: [],
+      commands: [],
+      containerPorts: [80],
+      containerData: 'g:/appdata',
+      cpu: 0.1,
+      ram: 100,
+      hdd: 1,
+      repoauth: '',
+    }],
+    instances,
+    contacts: [],
+    geolocation,
+    expire: 22000,
+    nodes: [],
+    staticip: false,
+    enterprise: '',
+  };
+}
 
 describe('placement gate at registration and the advice endpoint', function () {
   let env;
@@ -161,11 +168,10 @@ describe('placement gate at registration and the advice endpoint', function () {
 
   it('refuses a registration whose instance count the network provably cannot meet', async function () {
     this.timeout(60000);
-    const response = await verifyRegistration({
-      ...SIGNED_SPEC_BASE,
+    const response = await verifyRegistration(gateSpec({
       name: `gatereject${Date.now()}`,
       instances: 6, // four eligible nodes exist
-    });
+    }));
     expect(response.status).to.equal('error');
     expect(response.data.message).to.include('eligible nodes');
     expect(response.data.message).to.include('Widen the allowed locations');
@@ -173,11 +179,10 @@ describe('placement gate at registration and the advice endpoint', function () {
 
   it('accepts a registration the network can satisfy', async function () {
     this.timeout(60000);
-    const response = await verifyRegistration({
-      ...SIGNED_SPEC_BASE,
+    const response = await verifyRegistration(gateSpec({
       name: `gateaccept${Date.now()}`,
       instances: 3,
-    });
+    }));
     expect(response.status).to.equal('success');
   });
 
@@ -186,12 +191,11 @@ describe('placement gate at registration and the advice endpoint', function () {
     // no harness node resolves to Bahrain, so the shortfall is total - which is
     // indistinguishable from the table mis-attributing that country, and the
     // gate must not refuse on it
-    const response = await verifyRegistration({
-      ...SIGNED_SPEC_BASE,
+    const response = await verifyRegistration(gateSpec({
       name: `gateunknown${Date.now()}`,
       instances: 3,
       geolocation: ['acAS_BH'],
-    });
+    }));
     expect(response.status).to.equal('success');
   });
 });
