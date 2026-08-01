@@ -4010,7 +4010,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - lower-index node is already running`);
                     timeTostartNewMasterApp.delete(identifier);
                   }
-                } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)
+                } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier)
                   && receiveOnlySyncthingAppsCache.get(appId)?.designatedLeader) {
                   // The state machine's confirmed designated leader is the only
                   // instance that can seed a newborn app: at genesis every other
@@ -4031,6 +4031,13 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     requestMasterStartWithPermissionsFix(identifier, appId);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} - designated leader seeds without the index stagger`);
                   }
+                  // Any stagger already scheduled for this node is moot: the seed has
+                  // just been handled here, and leaving the entry lets the scheduled
+                  // branch start it a second time when that time arrives. Whether the
+                  // schedule was set before the election confirmed the leader - which
+                  // is a race this branch has to win, not defer to - or after, the
+                  // answer is the same.
+                  timeTostartNewMasterApp.delete(identifier);
                   // The claim covers genesis only, and nothing else retracts it:
                   // once the folder is sendreceive the state machine returns on its
                   // already-syncing branch and never reaches the election again.

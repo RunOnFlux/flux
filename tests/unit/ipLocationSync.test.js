@@ -40,7 +40,15 @@ describe('ipLocationSync tests', () => {
   }
 
   beforeEach(buildModule);
-  afterEach(() => ipLocationSync.stopSync());
+  afterEach(() => {
+    // Safety net for the fake-clock tests below. Each restores its own clock in a
+    // finally, but mocha abandons a timed-out test INSIDE its await, so that finally
+    // never runs and the clock stays installed - the next useFakeTimers then throws
+    // "Can't install fake timers twice" and one timeout is reported as two failures,
+    // the second of them in an unrelated test. Restoring here cannot leak.
+    if (typeof setTimeout.clock === 'object') setTimeout.clock.uninstall();
+    return ipLocationSync.stopSync();
+  });
 
   it('fetches the binary artifact, installs and caches it with its etag', async () => {
     const replaced = await ipLocationSync.refresh();
@@ -142,7 +150,13 @@ describe('ipLocationSync tests', () => {
     expect(logStub.warn.args.some((a) => a[0].includes('could not restore the cached table'))).to.equal(true);
   });
 
-  it('retries with backoff while the node holds no table, then stops', async () => {
+  // The fake-clock tests below drive hours of simulated time, and tickAsync yields
+  // to the real event loop on every timer it fires. Their real-time cost therefore
+  // tracks how busy the process is, not what they assert, so mocha's 2s default is
+  // an arbitrary bound on them - one they exceed on a loaded box while testing
+  // nothing about wall-clock speed.
+  it('retries with backoff while the node holds no table, then stops', async function () {
+    this.timeout(20000);
     const clock = sinon.useFakeTimers();
     try {
       axiosGetStub.rejects(new Error('dns not up yet'));
@@ -164,7 +178,8 @@ describe('ipLocationSync tests', () => {
     }
   });
 
-  it('stops retrying as soon as a table is held', async () => {
+  it('stops retrying as soon as a table is held', async function () {
+    this.timeout(20000);
     const clock = sinon.useFakeTimers();
     try {
       axiosGetStub.rejects(new Error('dns not up yet'));

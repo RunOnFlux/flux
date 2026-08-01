@@ -817,6 +817,36 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
     });
 
+    it('seeds a confirmed leader even when a stagger was already scheduled for it', async () => {
+      // The election runs on its own cadence and the state machine confirms the
+      // leader on another, so a pass can schedule the stagger before the leadership
+      // is known. A seed that then defers to that schedule waits index*3min on peers
+      // that cannot become ready, which is the wait the claim exists to skip.
+      const appName = 'seedafterscheduleapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const cache = new Map([[`flux${appName}`, { restarted: true }]]);
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
+      );
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      // pass one: not yet the confirmed leader, so the stagger gets scheduled
+      await runPass();
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
+
+      // pass two: leadership confirmed. The pending schedule must not hold it back.
+      logInfo.resetHistory();
+      cache.get(`flux${appName}`).designatedLeader = true;
+      await runPass();
+
+      expect(linesMatching(logInfo, 'seeds without the index stagger')).to.have.lengthOf(1);
+    });
+
     it('does not start when a peer has committed to the component but has no container yet', async () => {
       // The masterSlave primary path fixes ownership on the persistent data before
       // it starts anything, so a committed peer legitimately has no container for
