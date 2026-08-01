@@ -89,7 +89,8 @@ const syncthingEventsConsumerMock = {
   stop: sinon.stub().resolves(),
   isRunning: sinon.stub().returns(false),
   getFolderErrors: sinon.stub(),
-  drainErroredFolderIds: sinon.stub().returns([]),
+  mountVerifyPendingIds: sinon.stub().returns([]),
+  resolveMountVerify: sinon.stub(),
 };
 
 // Load module with mocked dependencies
@@ -153,8 +154,9 @@ describe('syncthingMonitor tests', () => {
     syncthingEventsConsumerMock.start.reset();
     syncthingEventsConsumerMock.stop.reset();
     syncthingEventsConsumerMock.stop.resolves();
-    syncthingEventsConsumerMock.drainErroredFolderIds.reset();
-    syncthingEventsConsumerMock.drainErroredFolderIds.returns([]);
+    syncthingEventsConsumerMock.mountVerifyPendingIds.reset();
+    syncthingEventsConsumerMock.mountVerifyPendingIds.returns([]);
+    syncthingEventsConsumerMock.resolveMountVerify.reset();
 
     volumeServiceMock.ensureAppVolumeMounted.reset();
     volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: true, alreadyMounted: true });
@@ -320,20 +322,21 @@ describe('syncthingMonitor tests', () => {
       syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: true, isMounted: true, fileCount: 1 });
     });
 
-    it('demotes a sendreceive folder over an unrepairable mount while skipping the cycle', async function () {
+    it('demotes a sendreceive folder over an unrepairable mount while skipping the cycle, and resolves the flag', async function () {
       // syncthing raised FolderErrors for the folder (storage went bad), the
       // repair fails (no backing image) -> the cycle is skipped, but a folder
       // left sendreceive over the bad mount could still broadcast its disk
-      // state - it must be demoted and its container held before bailing
+      // state - it must be demoted and its container held before bailing.
+      // The demotion is patched directly, no config pre-read: the safety
+      // action is never conditioned on a read that could silently fail.
       mockInstalledAppsFn.resolves({
         status: 'success',
         data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
       });
-      syncthingEventsConsumerMock.drainErroredFolderIds.returns(['testapp']);
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['testapp']);
       syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'unmounted_with_content' });
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
-      syncthingServiceMock.getConfigFolders.resolves({ data: [{ id: 'testapp', type: 'sendreceive' }] });
-      syncthingServiceMock.adjustConfigFolders.resolves();
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       monitorControl = syncthingMonitor.syncthingApps(
         mockState,
@@ -344,19 +347,25 @@ describe('syncthingMonitor tests', () => {
 
       sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'patch', { type: 'receiveonly' }, 'testapp');
       sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'testapp', 'stopped');
+      // the action completed - only now is the flag resolved
+      sinon.assert.calledWithExactly(syncthingEventsConsumerMock.resolveMountVerify, 'testapp');
       // the cycle itself was skipped - per-app processing never ran
       sinon.assert.notCalled(syncthingServiceMock.getDeviceId);
     });
 
-    it('does not re-patch an unsafe folder that is already receiveonly', async function () {
+    it('keeps the flag standing when the demotion fails, so the next pass retries', async function () {
+      // the exact defect class this design exists for: the one pass with the
+      // signal hits a transient failure - under the old drained-edge contract
+      // the signal was already consumed and the demotion was permanently
+      // missed, silently
       mockInstalledAppsFn.resolves({
         status: 'success',
         data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
       });
-      syncthingEventsConsumerMock.drainErroredFolderIds.returns(['testapp']);
-      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['testapp']);
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'unmounted_with_content' });
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
-      syncthingServiceMock.getConfigFolders.resolves({ data: [{ id: 'testapp', type: 'receiveonly' }] });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'error', data: { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED 127.0.0.1:8384' } });
 
       monitorControl = syncthingMonitor.syncthingApps(
         mockState,
@@ -365,8 +374,73 @@ describe('syncthingMonitor tests', () => {
       );
       await clock.tickAsync(100);
 
-      sinon.assert.notCalled(syncthingServiceMock.adjustConfigFolders);
+      sinon.assert.notCalled(syncthingEventsConsumerMock.resolveMountVerify);
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
+    it('resolves a flagged folder syncthing does not know without holding its container', async function () {
+      // 4xx from the patch means "no such folder": the app does not sync, so
+      // there is nothing to demote and nothing left to act on
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['testapp']);
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'unmounted_with_content' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'error', data: { code: 'ERR_BAD_REQUEST', name: 'AxiosError', message: 'Request failed with status code 404' } });
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWithExactly(syncthingEventsConsumerMock.resolveMountVerify, 'testapp');
+      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
+    it('resolves the flag when the folder verifies safe, and processing continues', async function () {
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['testapp']);
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: true, isMounted: true, fileCount: 3 });
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWithExactly(syncthingEventsConsumerMock.resolveMountVerify, 'testapp');
+      sinon.assert.notCalled(syncthingServiceMock.adjustConfigFolders);
+      // the cycle was NOT skipped
+      sinon.assert.called(syncthingServiceMock.getDeviceId);
+    });
+
+    it('resolves a flagged folder no installed app carries', async function () {
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['ghostfolder']);
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWithExactly(syncthingEventsConsumerMock.resolveMountVerify, 'ghostfolder');
     });
 
     it('should start the events consumer (edge accelerator) and stop it on shutdown', async () => {

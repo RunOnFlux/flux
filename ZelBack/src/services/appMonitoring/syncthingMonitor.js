@@ -70,42 +70,44 @@ async function verifyAppFolderMountWithRepair(appId, appFolder) {
 
 /**
  * Check if app folders are properly mounted
- * Returns list of apps whose folders are not mounted yet
  * Uses verifyFolderMountSafety to detect folders that exist but aren't properly mounted
  * @param {Array} appsInstalled - List of installed apps
- * @returns {Promise<Array>} List of apps with unmounted folders
+ * @returns {Promise<{unmountedApps: Array, verifiedSafeIds: string[]}>} Apps with
+ *  unmounted folders, and the folder ids that verified safe (so a pending
+ *  mount-verify flag on them can be resolved)
  */
 async function checkAppFolderMounts(appsInstalled) {
   const unmountedApps = [];
+  const verifiedSafeIds = [];
+
+  const verifyOne = async (appId, appName) => {
+    const appFolder = `${appsFolder}${appId}`;
+    const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder);
+    if (mountSafety.isSafe) {
+      verifiedSafeIds.push(appId);
+    } else {
+      // Folder exists but mount is not safe (empty and not mounted - likely unmounted loop device)
+      unmountedApps.push({ appId, appName, reason: mountSafety.reason });
+    }
+  };
 
   // eslint-disable-next-line no-restricted-syntax
   for (const installedApp of appsInstalled) {
     if (installedApp.version <= 3) {
       // Legacy app - single folder
-      const appId = dockerService.getAppIdentifier(installedApp.name);
-      const appFolder = `${appsFolder}${appId}`;
       // eslint-disable-next-line no-await-in-loop
-      const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder);
-      if (!mountSafety.isSafe) {
-        // Folder exists but mount is not safe (empty and not mounted - likely unmounted loop device)
-        unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
-      }
+      await verifyOne(dockerService.getAppIdentifier(installedApp.name), installedApp.name);
     } else {
       // Newer app - check each component
       // eslint-disable-next-line no-restricted-syntax
       for (const component of installedApp.compose || []) {
-        const appId = dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`);
-        const appFolder = `${appsFolder}${appId}`;
         // eslint-disable-next-line no-await-in-loop
-        const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder);
-        if (!mountSafety.isSafe) {
-          unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
-        }
+        await verifyOne(dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`), installedApp.name);
       }
     }
   }
 
-  return unmountedApps;
+  return { unmountedApps, verifiedSafeIds };
 }
 
 /**
@@ -357,12 +359,37 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // halts the folder and raises FolderErrors, and only the flagged folders
     // are verified here (checkAppFolderMounts repairs an unmounted volume
     // itself when the backing image still exists, so a non-empty unmountedApps
-    // means repair failed too).
-    const erroredFolderIds = new Set(syncthingEventsConsumer.drainErroredFolderIds());
+    // means repair failed too). The flags are a durable level, resolved only
+    // by a completed outcome below - never consumed by being read - so a pass
+    // that fails mid-action leaves the flag standing and the next pass
+    // retries; the guard does not depend on FolderErrors ever re-firing.
+    const pendingFolderIds = syncthingEventsConsumer.mountVerifyPendingIds();
     const appsToVerify = state.syncthingAppsFirstRun
       ? appsInstalled.data
-      : appsMatchingFolderIds(appsInstalled.data, [...erroredFolderIds]);
-    const unmountedApps = appsToVerify.length > 0 ? await checkAppFolderMounts(appsToVerify) : [];
+      : appsMatchingFolderIds(appsInstalled.data, pendingFolderIds);
+    // A flagged folder no installed app carries can never be acted on -
+    // resolve it rather than re-match it forever (the uninstall already
+    // removed whatever the flag was protecting).
+    if (!state.syncthingAppsFirstRun && pendingFolderIds.length > 0) {
+      const matchable = new Set();
+      // eslint-disable-next-line no-restricted-syntax
+      for (const installedApp of appsToVerify) {
+        if (installedApp.version <= 3) {
+          matchable.add(dockerService.getAppIdentifier(installedApp.name));
+        } else {
+          (installedApp.compose || []).forEach(
+            (component) => matchable.add(dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`)),
+          );
+        }
+      }
+      pendingFolderIds.filter((id) => !matchable.has(id))
+        .forEach((id) => syncthingEventsConsumer.resolveMountVerify(id));
+    }
+    const { unmountedApps, verifiedSafeIds } = appsToVerify.length > 0
+      ? await checkAppFolderMounts(appsToVerify)
+      : { unmountedApps: [], verifiedSafeIds: [] };
+    // safe mount = the condition the flag exists for is gone
+    verifiedSafeIds.forEach((id) => syncthingEventsConsumer.resolveMountVerify(id));
     if (unmountedApps.length > 0) {
       const unmountedList = unmountedApps.map((app) => app.appId).join(', ');
       log.warn(`syncthingAppsCore - Skipping processing: ${unmountedApps.length} app folders not mounted yet: ${unmountedList}`);
@@ -371,21 +398,31 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       // Never leave an unsafe-mount folder sendreceive while processing is
       // skipped: the syncthing daemon keeps running as configured, so an
       // un-demoted sendreceive folder over a bad mount can still broadcast its
-      // (leaked or missing) disk state to the healthy peers. Demote those
-      // folders and hold their containers before bailing - idempotent, and the
-      // normal receiveonly machinery re-promotes once the mount is healthy.
-      const foldersResp = await syncthingService.getConfigFolders();
-      const folders = Array.isArray(foldersResp?.data) ? foldersResp.data : [];
+      // (leaked or missing) disk state to the healthy peers. The demotion is
+      // patched directly, with no config pre-read: a safety action must not be
+      // conditioned on a fallible read whose failure silently reads as
+      // "nothing to protect" (that exact silent no-op once cost a gate run).
+      // The patch is safe to repeat - syncthing restarts a folder only when
+      // its config actually changed (model.go CommitConfiguration diffs
+      // RequiresRestartOnly) - and a folder syncthing does not know answers
+      // 404, which means "not a syncthing app", not a failure. The normal
+      // receiveonly machinery re-promotes once the mount is healthy.
       // eslint-disable-next-line no-restricted-syntax
       for (const { appId, reason } of unmountedApps) {
-        const folder = folders.find((f) => f.id === appId);
-        if (folder && folder.type === 'sendreceive') {
-          log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder is sendreceive over an unsafe mount (${reason}); switching to receiveonly and holding the container`);
-          // eslint-disable-next-line no-await-in-loop
-          await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, appId).catch((err) => {
-            log.error(`syncthingAppsCore - Failed to switch ${appId} to receiveonly: ${err.message}`);
-          });
+        // eslint-disable-next-line no-await-in-loop
+        const patchResponse = await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, appId);
+        if (patchResponse.status === 'success') {
+          log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder over an unsafe mount (${reason}); switched to receiveonly and holding the container`);
           appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
+          syncthingEventsConsumer.resolveMountVerify(appId);
+        } else if (patchResponse.data?.code === 'ERR_BAD_REQUEST') {
+          // 4xx: syncthing has no such folder - this app does not sync, so
+          // there is nothing to demote and nothing left to act on
+          syncthingEventsConsumer.resolveMountVerify(appId);
+        } else {
+          // transient failure: the flag stays standing and the next pass
+          // retries the demotion - loudly, never silently
+          log.error(`syncthingAppsCore - SAFETY BLOCK FAILED for ${appId} (${reason}): ${patchResponse.data?.message || 'unknown error'}; retrying next pass`);
         }
       }
       return;
@@ -482,7 +519,10 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       localSocketAddr,
       localDeviceId,
       state,
-      erroredFolderIds,
+      // the folders flagged when the pass began: the state machine re-verifies
+      // exactly these on its own decision points (resolution of the flag by
+      // this pass does not retract the request to look)
+      erroredFolderIds: new Set(pendingFolderIds),
       allFoldersResp,
       allDevicesResp,
       devicesConfiguration,

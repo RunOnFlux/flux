@@ -300,9 +300,13 @@ app.put('/rest/config/folders/:id', (req, res) => {
 
 app.patch('/rest/config/folders/:id', (req, res) => {
   const state = reqState(req);
-  const existing = state.folders.get(req.params.id) || { id: req.params.id };
+  // real syncthing: PATCH modifies an existing folder and 404s an unknown id
+  // (PUT is the upsert). The monitor's safety demotion reads that 404 as
+  // "not a syncthing folder", so the distinction is load-bearing.
+  const existing = state.folders.get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'not found' });
   state.folders.set(req.params.id, { ...existing, ...req.body });
-  res.json({});
+  return res.json({});
 });
 
 app.delete('/rest/config/folders/:id', (req, res) => {
