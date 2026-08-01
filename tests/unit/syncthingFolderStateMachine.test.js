@@ -105,7 +105,7 @@ describe('syncthingFolderStateMachine tests', () => {
     axiosMock.get.reset();
     // default: no peer holds a writable copy, so the promotion path is unchanged
     // for every test that is not about this probe
-    axiosMock.get.resolves({ data: { data: [] } });
+    axiosMock.get.resolves({ data: { data: { ready: true, folders: [] } } });
     appUninstallerMock.removeAppLocally.resolves();
     appReconcilerMock.setControllerDesired.reset();
     appReconcilerMock.requestStopAndClearData.reset();
@@ -386,13 +386,60 @@ describe('syncthingFolderStateMachine tests', () => {
         { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
         { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
       ]);
-      axiosMock.get.resolves({ data: { data: ['test-app'] } });
+      axiosMock.get.resolves({ data: { data: { ready: true, folders: ['test-app'] } } });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.restarted).to.not.equal(true);
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
+    it('waits on a peer that has not determined its own folder state yet', async () => {
+      // A booting peer cannot tell "I hold nothing" from "I have not looked", so its
+      // empty list is not a clearance - a fleet-wide restart puts every holder of an
+      // app in that state at once, and reading it as free promotes all of them.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.resolves({ data: { data: { ready: false, folders: [] } } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted).to.not.equal(true);
+    });
+
+    it('promotes once that peer has determined it holds nothing', async () => {
+      // The wait needs no bound because it resolves itself: the peer completes its
+      // pass and answers, or it stops responding and becomes the unreachable case,
+      // which does not block.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.onFirstCall().resolves({ data: { data: { ready: false, folders: [] } } });
+      axiosMock.get.resolves({ data: { data: { ready: true, folders: [] } } });
+
+      const waited = await stateMachine.manageFolderSyncState(mockParams);
+      expect(waited.syncthingFolder.type).to.equal('receiveonly');
+
+      mockParams.syncthingFolder = { id: 'test-app', type: 'receiveonly', path: '/test/path' };
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      expect(result.cache.restarted).to.be.true;
     });
 
     it('promotes when no peer holds the writable copy', async () => {
@@ -405,7 +452,7 @@ describe('syncthingFolderStateMachine tests', () => {
         { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
         { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
       ]);
-      axiosMock.get.resolves({ data: { data: [] } });
+      axiosMock.get.resolves({ data: { data: { ready: true, folders: [] } } });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 

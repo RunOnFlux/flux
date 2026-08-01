@@ -448,7 +448,29 @@ describe('appQueryService tests', () => {
 
       const result = await appQueryService.promotedFolders();
 
-      expect(result).to.deep.equal(['fluxa_a', 'fluxb_b']);
+      expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a', 'fluxb_b'] });
+    });
+
+    it('answers not-ready before the monitor has ever read the folder config', async () => {
+      // The state that made this necessary: holding nothing and not having looked
+      // are the same empty set but opposite answers, and a booting node that IS
+      // holding a folder would otherwise read as free and be promoted alongside.
+      globalState.promotedFolderIds = null;
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      const result = await appQueryService.promotedFolders();
+
+      expect(result).to.deep.equal({ ready: false, folders: [] });
+    });
+
+    it('distinguishes holding nothing from not having looked', async () => {
+      globalState.promotedFolderIds = new Set();
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      const result = await appQueryService.promotedFolders();
+
+      expect(result.folders).to.deep.equal([]);
+      expect(result.ready, 'an empty set after a real read is a genuine answer').to.equal(true);
     });
 
     it('touches no backend, so an anonymous caller cannot amplify into syncthing', async () => {
@@ -472,7 +494,7 @@ describe('appQueryService tests', () => {
       globalState.promotedFolderIds = new Set(['fluxa_a']); // b demoted to receiveonly
       const result = await appQueryService.promotedFolders();
 
-      expect(result).to.deep.equal(['fluxa_a']);
+      expect(result.folders).to.deep.equal(['fluxa_a']);
     });
   });
 

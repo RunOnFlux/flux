@@ -7,7 +7,10 @@ import { appOwnerKey } from '../framework/keys.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
-import { setSynced, resetSyncState, setFolderPatchDelay } from '../framework/syncthing-control.js';
+import {
+  setSynced, resetSyncState, setFolderPatchDelay, getSyncthingState,
+} from '../framework/syncthing-control.js';
+import { restartFluxos } from '../framework/container.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import {
@@ -59,6 +62,18 @@ describe('primary election under a divergent placement order', function () {
     holders.map((i) => isUp(env.clients[i], appName)),
   )).filter(Boolean).length;
 
+  // Nodes whose folder for this app is sendreceive - the ones holding a WRITABLE
+  // copy. Distinct from countUp: running the container and owning the data are
+  // separate decisions, made by different code on different orderings, and the
+  // failure this suite exists for is two nodes owning the data.
+  const writableHolders = async (appName) => {
+    const folder = `flux${appName}_${appName}`;
+    const state = await getSyncthingState();
+    return (state.nodes || [])
+      .filter((node) => (node.folders || []).some((f) => f.id === folder && f.type === 'sendreceive'))
+      .map((node) => node.ip);
+  };
+
   const deploy = async (appName) => {
     await pushImage(appName, 'v1');
     const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g' });
@@ -107,6 +122,54 @@ describe('primary election under a divergent placement order', function () {
       { timeout: 100000, interval: 3000, label: 'seed starts well inside its index stagger' },
     );
     expect(await countUp(orderApp), 'more than one holder started at genesis').to.equal(1);
+  });
+
+  it('leaves exactly one holder owning the writable copy', async function () {
+    this.timeout(240000);
+    // The data election and the run election are separate decisions on separate
+    // orderings, and each node decides from the holder list it can see at the time.
+    // The first-placed node is briefly the only holder it knows of and seeds on
+    // that basis - correct, since somebody must seed an empty folder. A node that
+    // can see further then wins the tiebreak among the holders IT can see and seeds
+    // too, and neither revisits it, because a promoted folder never re-enters the
+    // election. Two writable copies of the same data, permanently.
+    //
+    // Held rather than sampled: the second promotion arrives seconds after the
+    // first, so a single reading taken early passes on a fleet that is about to
+    // diverge.
+    const deadline = Date.now() + 90000;
+    let holdersWritable = [];
+    while (Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      holdersWritable = await writableHolders(orderApp);
+      expect(holdersWritable.length, `more than one node holds the writable copy: ${holdersWritable.join(', ')}`).to.be.lessThan(2);
+      // eslint-disable-next-line no-await-in-loop
+      await sleepUnlessInfraDead(3000);
+    }
+    expect(holdersWritable.length, 'nobody ever took the writable copy').to.equal(1);
+  });
+
+  it('does not read a restarting holder as free to promote over', async function () {
+    this.timeout(420000);
+    // A node that has just restarted has not yet read its own folder config, so it
+    // cannot tell "I hold nothing" from "I have not looked". Answering the first
+    // invites a peer to promote over a folder it is still holding - and a
+    // fleet-wide restart puts every holder of an app in that state together.
+    const before = await writableHolders(orderApp);
+    expect(before.length, 'fixture: one holder must own the writable copy before the restart').to.equal(1);
+
+    await restartFluxos(env.clients[holders[0]].container);
+
+    // Watched across the whole restart: the window is exactly while the node is
+    // back up and answering but has not completed a monitor pass.
+    const deadline = Date.now() + 180000;
+    while (Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      const writable = await writableHolders(orderApp);
+      expect(writable.length, `a peer promoted while a holder was restarting: ${writable.join(', ')}`).to.be.lessThan(2);
+      // eslint-disable-next-line no-await-in-loop
+      await sleepUnlessInfraDead(3000);
+    }
   });
 
   it('starts no second writer when the primary is released back to the election', async function () {

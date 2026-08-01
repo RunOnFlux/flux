@@ -280,15 +280,25 @@ async function heldComponents(req, res) {
  * rate limiting of its own. It is also then O(1), so it needs no response cache
  * and carries no staleness beyond one monitor pass.
  *
+ * `ready` is what stops a booting node being read as a free one. Before the
+ * monitor's first pass this node cannot distinguish "I hold nothing" from "I have
+ * not looked", and answering the first would invite a peer to promote alongside a
+ * folder this node is already holding. The asker treats an unready peer as a
+ * reason to wait rather than a clearance.
+ *
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message carrying an array of folder ids.
+ * @returns {object} Message carrying { ready, folders }.
  */
 async function promotedFolders(req, res) {
   try {
     // eslint-disable-next-line global-require
     const globalState = require('../utils/globalState');
-    const response = messageHelper.createDataMessage([...globalState.promotedFolderIds]);
+    const ids = globalState.promotedFolderIds;
+    const response = messageHelper.createDataMessage({
+      ready: ids !== null,
+      folders: ids === null ? [] : [...ids],
+    });
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);

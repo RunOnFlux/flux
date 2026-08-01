@@ -385,20 +385,32 @@ function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers =
 /**
  * The first peer found already holding a writable copy of this folder, or null.
  *
- * Probed concurrently and bounded, like the election's other peer probe. It fails
- * OPEN by design: an unreachable peer reads as not-promoted, so a network fault
- * cannot leave an app with no writable copy anywhere - the cold-start standoff,
- * where every holder defers and nothing ever seeds. It therefore narrows the
- * window rather than closing it; two nodes that both check before either promotes
- * still both promote. Closing that needs the consensus-grounded election the
- * residual-limitation note above describes.
+ * Two answers block, for different reasons, and the difference is the whole point
+ * of asking:
+ *
+ *   UNREACHABLE does not block. The peer may be gone entirely, and a dead node
+ *   must never be able to strand an app with no writable copy anywhere - the
+ *   cold-start standoff, where every holder defers and nothing seeds.
+ *
+ *   UNREADY does block, with no bound and none needed. The peer is alive and
+ *   saying it cannot answer yet, which is a live node that may already be holding.
+ *   It resolves itself: the peer finishes its first monitor pass and answers, or
+ *   it stops responding and becomes the unreachable case above. A peer that stays
+ *   alive and permanently unreadable is the one case that waits indefinitely, and
+ *   waiting is right there - promoting because we gave up is exactly the second
+ *   writer this exists to prevent, and a stalled app is visible where diverged
+ *   data is not.
+ *
+ * It narrows the window rather than closing it: two nodes that both ask before
+ * either promotes still both promote. Closing that needs the consensus-grounded
+ * election the residual-limitation note above describes.
  *
  * @param {string} appId Folder id
  * @param {Array} peers App location entries
  * @param {string} localSocketAddr This node's socket address
- * @returns {Promise<string|null>} The holding peer's ip, or null
+ * @returns {Promise<{ip: string, reason: string}|null>} The blocking peer, or null
  */
-async function findPeerWithPromotedFolder(appId, peers, localSocketAddr) {
+async function findPeerBlockingPromotion(appId, peers, localSocketAddr) {
   const others = (peers || []).filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
   if (!others.length) return null;
 
@@ -407,17 +419,25 @@ async function findPeerWithPromotedFolder(appId, peers, localSocketAddr) {
     const port = extractPort(peer.ip);
     try {
       const response = await axios.get(`http://${ip}:${port}/apps/promotedfolders`, { timeout: PROMOTED_PROBE_TIMEOUT_MS });
-      const promoted = response.data?.data;
-      return Array.isArray(promoted) && promoted.includes(appId) ? peer.ip : null;
+      const answer = response.data?.data;
+      // A peer that has not completed its first monitor pass cannot tell "I hold
+      // nothing" from "I have not looked", so its empty list is not a clearance.
+      if (!answer || answer.ready !== true) return { ip: peer.ip, holding: false };
+      const folders = answer.folders;
+      return { ip: peer.ip, holding: Array.isArray(folders) && folders.includes(appId), ready: true };
     } catch (error) {
-      // treated as not-promoted; see the fail-open note above
-      log.info(`findPeerWithPromotedFolder - ${appId}: could not read ${ip}: ${error.message}`);
+      // unreachable - fails open, see the note above
+      log.info(`findPeerBlockingPromotion - ${appId}: could not read ${ip}: ${error.message}`);
       return null;
     }
   });
 
-  const holders = (await Promise.all(probes)).filter(Boolean);
-  return holders[0] || null;
+  const answers = (await Promise.all(probes)).filter(Boolean);
+  const holder = answers.find((answer) => answer.holding);
+  if (holder) return { ip: holder.ip, reason: 'already holds the writable copy' };
+  const unready = answers.find((answer) => !answer.ready);
+  if (unready) return { ip: unready.ip, reason: 'has not determined its folder state yet' };
+  return null;
 }
 
 /**
@@ -708,9 +728,9 @@ async function handleReceiveOnlyTransition(params) {
     // tiebreak among the holders it can see and seeds too, and neither revisits it,
     // because a promoted folder never re-enters this election. So the last check
     // before promoting is whether somebody already has.
-    const peerHoldingWritable = await findPeerWithPromotedFolder(appId, runningAppList, localSocketAddr);
-    if (peerHoldingWritable) {
-      log.info(`handleReceiveOnlyTransition - ${appId} won the election but ${peerHoldingWritable} already holds the writable copy; staying receiveonly and syncing from it`);
+    const blocker = await findPeerBlockingPromotion(appId, runningAppList, localSocketAddr);
+    if (blocker) {
+      log.info(`handleReceiveOnlyTransition - ${appId} won the election but ${blocker.ip} ${blocker.reason}; staying receiveonly`);
       syncthingFolder.type = 'receiveonly';
       return { syncthingFolder, cache };
     }

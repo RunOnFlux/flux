@@ -47,7 +47,15 @@ const stoppingContainers = new Set();
 // folder of their own. Kept here rather than read from syncthing per request:
 // the route is unauthenticated, and an on-demand read would be an amplifier into
 // syncthing on a node any peer can reach.
-let promotedFolderIds = new Set();
+//
+// null until the monitor's first validated read, and a Set from then on. "I hold
+// nothing writable" and "I have not looked yet" are the same empty set but
+// opposite answers to a peer deciding whether to promote, so they must not be the
+// same value: a node that IS holding a folder would otherwise read as free, and
+// the peer would promote alongside it. On a booting node that pass is not
+// immediate, and a fleet-wide restart puts every holder of an app in the state at
+// once. Same null-is-no-opinion convention appReconciler's controllerDesired uses.
+let promotedFolderIds = null;
 
 
 // Cache references - these will be initialized from cacheManager
