@@ -49,6 +49,8 @@ const appReconcilerMock = {
   enqueue: sinon.stub(),
 };
 const appUninstallerMock = { removeAppLocally: sinon.stub().resolves() };
+// the pre-promotion peer probe (/apps/promotedfolders)
+const axiosMock = { get: sinon.stub() };
 
 // a directory entry as fs.readdir({ withFileTypes: true }) returns it
 const dirent = (name, isFile = true) => ({
@@ -68,6 +70,7 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
   // stub new collaborators so the unit test doesn't load the real module graph
   './appReconciler': appReconcilerMock,
   '../appLifecycle/appUninstaller': appUninstallerMock,
+  axios: axiosMock,
 });
 
 describe('syncthingFolderStateMachine tests', () => {
@@ -99,6 +102,10 @@ describe('syncthingFolderStateMachine tests', () => {
     appTamperingDetectionServiceMock.recordEvent.reset();
     appTamperingDetectionServiceMock.recordEvent.resolves();
     appUninstallerMock.removeAppLocally.reset();
+    axiosMock.get.reset();
+    // default: no peer holds a writable copy, so the promotion path is unchanged
+    // for every test that is not about this probe
+    axiosMock.get.resolves({ data: { data: [] } });
     appUninstallerMock.removeAppLocally.resolves();
     appReconcilerMock.setControllerDesired.reset();
     appReconcilerMock.requestStopAndClearData.reset();
@@ -364,6 +371,67 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache.designatedLeader).to.be.true;
       // the start is now declared to the reconciler, not done imperatively here
       sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
+    });
+
+    it('stays receiveonly when a peer already holds the writable copy', async () => {
+      // Winning is not the same as winning first. The peer decided from a smaller
+      // view of the holder list and promoted; promoting here too would leave two
+      // writable copies of the same folder, and neither node revisits it.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.resolves({ data: { data: ['test-app'] } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted).to.not.equal(true);
+      sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
+    });
+
+    it('promotes when no peer holds the writable copy', async () => {
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.resolves({ data: { data: [] } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      expect(result.cache.restarted).to.be.true;
+    });
+
+    it('promotes when the peers cannot be reached, rather than leaving nobody writable', async () => {
+      // Fails open on purpose: a probe that cannot answer must not be able to make
+      // every holder defer, which is the cold-start standoff where nothing seeds and
+      // the app never starts at all.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      expect(result.cache.restarted).to.be.true;
     });
 
     it('should not self-promote to leader on a single observation (debounce)', async () => {

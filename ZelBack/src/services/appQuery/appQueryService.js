@@ -4,6 +4,7 @@ const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
+const syncthingService = require('../syncthingService');
 const appConstants = require('../utils/appConstants');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -262,6 +263,44 @@ async function heldComponents(req, res) {
 }
 
 /**
+ * Syncthing folder ids this node has promoted to sendreceive - the folders it
+ * holds the writable copy of.
+ *
+ * Asked by a peer before it promotes a folder of its own. Promotion is decided
+ * from each node's own view of the holder list, and those views fill in at
+ * different moments, so two nodes can each conclude they are the one - the first
+ * while it is briefly the only holder it knows of, the second once it can see
+ * more and wins the tiebreak among them. Neither revisits the decision, because a
+ * promoted folder never re-enters the election. Nothing else carries this: folder
+ * type is local syncthing config, and at genesis the promoted node has no data
+ * yet, so the has-data signal is silent exactly when it is needed.
+ *
+ * Uncached - a stale answer here is a second writable copy.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message carrying an array of folder ids.
+ */
+async function promotedFolders(req, res) {
+  try {
+    const folders = messageHelper.dataOrThrow(await syncthingService.getConfigFolders());
+    const promoted = (folders || [])
+      .filter((folder) => folder.type === 'sendreceive')
+      .map((folder) => folder.id);
+    const response = messageHelper.createDataMessage(promoted);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
  * List all apps (both running and installed)
  * @param {object} req Request.
  * @param {object} res Response.
@@ -405,6 +444,7 @@ module.exports = {
   decryptEnterpriseApps,
   listRunningApps,
   heldComponents,
+  promotedFolders,
   listAllApps,
   getlatestApplicationSpecificationAPI,
   getApplicationOriginalOwner,

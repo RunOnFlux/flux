@@ -381,6 +381,11 @@ module.exports = (app) => {
   app.get('/apps/heldcomponents', (req, res) => {
     appQueryService.heldComponents(req, res);
   });
+  // likewise: read before a folder is promoted, to find a peer that already holds
+  // the writable copy
+  app.get('/apps/promotedfolders', (req, res) => {
+    appQueryService.promotedFolders(req, res);
+  });
   app.get('/apps/listallapps', cache('30 seconds'), (req, res) => {
     appQueryService.listAllApps(req, res);
   });

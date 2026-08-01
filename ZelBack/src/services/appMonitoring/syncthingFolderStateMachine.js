@@ -1,6 +1,7 @@
 // Syncthing Folder State Machine - Manages folder sync transitions
 const fs = require('node:fs');
 const path = require('node:path');
+const axios = require('axios');
 const log = require('../../lib/log');
 const dockerService = require('../dockerService');
 const appReconciler = require('./appReconciler');
@@ -11,7 +12,7 @@ const serviceHelper = require('../serviceHelper');
 const volumeService = require('../utils/volumeService');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
-const { socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { socketAddressesMatch, extractIp, extractPort } = require('../utils/socketAddressUtils');
 const {
   LEADER_CONFIRM_COUNT,
   SYNC_COMPLETE_PERCENTAGE,
@@ -22,6 +23,10 @@ const {
   STALL_REMOVE_MIN_NUDGES,
   ACTIVE_FOLDER_STATES,
 } = require('./syncthingMonitorConstants');
+
+// Bounded like the election's other peer probe: this runs only on the pass a node
+// is about to promote, and a slow peer must not hold the promotion open.
+const PROMOTED_PROBE_TIMEOUT_MS = 10 * 1000;
 
 const { isPathMounted } = volumeService;
 
@@ -378,6 +383,44 @@ function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers =
 }
 
 /**
+ * The first peer found already holding a writable copy of this folder, or null.
+ *
+ * Probed concurrently and bounded, like the election's other peer probe. It fails
+ * OPEN by design: an unreachable peer reads as not-promoted, so a network fault
+ * cannot leave an app with no writable copy anywhere - the cold-start standoff,
+ * where every holder defers and nothing ever seeds. It therefore narrows the
+ * window rather than closing it; two nodes that both check before either promotes
+ * still both promote. Closing that needs the consensus-grounded election the
+ * residual-limitation note above describes.
+ *
+ * @param {string} appId Folder id
+ * @param {Array} peers App location entries
+ * @param {string} localSocketAddr This node's socket address
+ * @returns {Promise<string|null>} The holding peer's ip, or null
+ */
+async function findPeerWithPromotedFolder(appId, peers, localSocketAddr) {
+  const others = (peers || []).filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
+  if (!others.length) return null;
+
+  const probes = others.map(async (peer) => {
+    const ip = extractIp(peer.ip);
+    const port = extractPort(peer.ip);
+    try {
+      const response = await axios.get(`http://${ip}:${port}/apps/promotedfolders`, { timeout: PROMOTED_PROBE_TIMEOUT_MS });
+      const promoted = response.data?.data;
+      return Array.isArray(promoted) && promoted.includes(appId) ? peer.ip : null;
+    } catch (error) {
+      // treated as not-promoted; see the fail-open note above
+      log.info(`findPeerWithPromotedFolder - ${appId}: could not read ${ip}: ${error.message}`);
+      return null;
+    }
+  });
+
+  const holders = (await Promise.all(probes)).filter(Boolean);
+  return holders[0] || null;
+}
+
+/**
  * Handle first run scenario for an app/component
  * @param {Object} params - Parameters
  * @returns {Promise<Object>} Updated folder config and cache
@@ -656,6 +699,21 @@ async function handleReceiveOnlyTransition(params) {
   // subsumes the data-version check) - a separate, proposed redesign, out of scope here.
   if (isLeader) {
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers, confirmed ${cache.leaderStreak}x), starting immediately`);
+
+    // Winning the election is not the same as being the first to win it. Each node
+    // decides from its own view of the holder list, and those views fill in at
+    // different moments: the first-placed node is briefly the only holder it knows
+    // of and seeds on that basis, which is correct - somebody has to seed an empty
+    // folder or the app never starts. A node that can see further then wins the
+    // tiebreak among the holders it can see and seeds too, and neither revisits it,
+    // because a promoted folder never re-enters this election. So the last check
+    // before promoting is whether somebody already has.
+    const peerHoldingWritable = await findPeerWithPromotedFolder(appId, runningAppList, localSocketAddr);
+    if (peerHoldingWritable) {
+      log.info(`handleReceiveOnlyTransition - ${appId} won the election but ${peerHoldingWritable} already holds the writable copy; staying receiveonly and syncing from it`);
+      syncthingFolder.type = 'receiveonly';
+      return { syncthingFolder, cache };
+    }
 
     // A folder must pass the sendreceive safety verification BEFORE it ever
     // flips - the seed included. An empty cold-start folder passes (empty index
