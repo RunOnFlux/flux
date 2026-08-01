@@ -354,6 +354,17 @@ async function getFolderSyncCompletion(folderId) {
  * @param {string} localSocketAddr - The current node's IP address
  * @returns {boolean} True if this node is the designated leader
  */
+// Lowest IP among the holders - the deterministic pick every node computes
+// identically. Identity only: it says nothing about whether that node still exists.
+function lowestIpHolder(allPeersList) {
+  const sorted = [...(allPeersList || [])].sort((a, b) => {
+    if (a.ip < b.ip) return -1;
+    if (a.ip > b.ip) return 1;
+    return 0;
+  });
+  return sorted[0]?.ip ?? null;
+}
+
 function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers = true) {
   if (!allPeersList || allPeersList.length === 0) {
     return false; // Be conservative - wait for peers to broadcast
@@ -382,16 +393,63 @@ function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers =
   // re-broadcast time and propagates with per-node delay, so on a fresh cluster each
   // node can momentarily order the timestamps differently and every node elects itself
   // (split-brain). The lowest IP is the single, agreed cold-start seed.
-  const sortedPeers = [...allPeersList].sort((a, b) => {
-    if (a.ip < b.ip) return -1;
-    if (a.ip > b.ip) return 1;
-    return 0;
-  });
-
-  const leader = sortedPeers[0];
-  const isLeader = socketAddressesMatch(leader?.ip, localSocketAddr);
+  const leader = lowestIpHolder(allPeersList);
+  const isLeader = socketAddressesMatch(leader, localSocketAddr);
 
   return isLeader && allPeersList.some((peer) => socketAddressesMatch(peer.ip, localSocketAddr));
+}
+
+/**
+ * Whether this node can show that a holder is gone, rather than merely silent to
+ * it. Same question the promotion check asks, one step earlier: the election picks
+ * by identity and has no liveness in it, so a holder that dies keeps being elected
+ * by everyone else and they defer to it until its location broadcast expires -
+ * 125 minutes, with the app down throughout.
+ *
+ * Answered from this node's own connectivity, which is the only half it can know:
+ * a node still trading pings with the fleet is watching one holder fall over, a
+ * node whose peers have all gone quiet is the one that fell over and must keep
+ * deferring - the holder is very likely still serving on the other side of the
+ * split.
+ *
+ * @param {string} holderIp
+ * @returns {Promise<boolean>}
+ */
+async function holderIsGone(holderIp) {
+  const ip = extractIp(holderIp);
+  const port = extractPort(holderIp);
+  try {
+    await axios.get(`http://${ip}:${port}/apps/promotedfolders`, { timeout: PROMOTED_PROBE_TIMEOUT_MS });
+    return false;
+  } catch (error) {
+    const { responding, total } = fluxCommunication.peerResponsiveness();
+    const connected = total > 0 && responding >= Math.ceil(total * MIN_RESPONDING_PEER_FRACTION);
+    if (!connected) {
+      log.info(`holderIsGone - ${ip} is unreachable, but only ${responding} of this node's ${total} peers are answering; treating this node as the isolated one`);
+      return false;
+    }
+    return true;
+  }
+}
+
+/**
+ * The holder list with the elected leader removed when this node can show it is
+ * gone. One holder per pass: if the next-lowest is also gone, the following pass
+ * drops that one too, so a run of failures converges without a loop here. Every
+ * survivor drops the same holder and then picks the same lowest IP of what is
+ * left, so they agree without coordinating, and the promotion check still catches
+ * any second node that acts on it.
+ *
+ * @param {Array<Object>} allPeersList
+ * @param {string} localSocketAddr
+ * @returns {Promise<Array<Object>>}
+ */
+async function holderListExcludingDead(allPeersList, localSocketAddr) {
+  const leader = lowestIpHolder(allPeersList);
+  if (!leader || socketAddressesMatch(leader, localSocketAddr)) return allPeersList;
+  if (!await holderIsGone(leader)) return allPeersList;
+  log.warn(`holderListExcludingDead - elected holder ${leader} is gone and this node's own connectivity is healthy; re-electing without it`);
+  return allPeersList.filter((peer) => !socketAddressesMatch(peer.ip, leader));
 }
 
 /**
@@ -728,7 +786,12 @@ async function handleReceiveOnlyTransition(params) {
   // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility blip
   // doesn't flip a follower to leader. Defer to a running peer UNLESS this is a true,
   // safe cold start (no peer serving AND this node holds no data) - then elect one seed.
-  const electedLeader = isDesignatedLeader(runningAppList, localSocketAddr, aPeerHasData || !folderIsEmpty);
+  // The election picks by identity and carries no liveness, so a holder that dies
+  // keeps winning and every survivor defers to it until its location broadcast
+  // expires - 125 minutes with the app down. Dropped from the list here, before the
+  // pick, when this node can show the holder is gone rather than merely silent to it.
+  const electionList = await holderListExcludingDead(runningAppList, localSocketAddr);
+  const electedLeader = isDesignatedLeader(electionList, localSocketAddr, aPeerHasData || !folderIsEmpty);
   cache.leaderStreak = electedLeader ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
   // The confirmed designation is readable by masterSlaveApps through this
