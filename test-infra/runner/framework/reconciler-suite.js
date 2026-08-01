@@ -105,6 +105,24 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   await startTicker();
 }
 
+// The location table never gates boot: the fetch starts at DB-ready and a
+// real-scale artifact takes seconds to ingest and swap, so a request racing
+// the boot lands on the designed degrade posture (/16 domains, geo answers
+// 503). A suite that asserts table-backed answers waits for the swap to land
+// first. domains: the organisation count the published artifact splits the
+// fleet into - reaching it proves every node resolved (an unresolved node
+// falls to its /16 rung and inflates the count).
+export async function waitForLocationTable(node, { domains, timeout = 90000 } = {}) {
+  await waitFor(async () => {
+    const response = await node.post('/apps/placementfeasibility', {
+      instances: 1, geolocation: [], compose: [{ containerData: 'g:/data' }],
+    });
+    return response.status === 'success'
+      && response.data.tableAvailable === true
+      && (domains === undefined || response.data.domainCount === domains);
+  }, { timeout, interval: 2000, label: `location table live${domains === undefined ? '' : ` with ${domains} domains`}` });
+}
+
 // Seed a pre-built app (buildSeedableApp / buildSeedableSyncthingApp) into every
 // node's DB and wait until it installs on some node; resolves that node index.
 export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {

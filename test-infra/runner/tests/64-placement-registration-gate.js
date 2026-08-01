@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
-import { bootAndPeer } from '../framework/reconciler-suite.js';
+import { bootAndPeer, waitForLocationTable } from '../framework/reconciler-suite.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -106,6 +106,9 @@ describe('placement gate at registration and the advice endpoint', function () {
     // nowhere to resolve from inside the fleet's internal network
     await pushTestApp(APP_IMAGE);
     [node] = env.clients;
+    // .10 .11 .12 .13 round-robin across three organisations - the first
+    // advice request must not race the boot ingest of the padded artifact
+    await waitForLocationTable(node, { domains: 3 });
   });
 
   after(async function () {
