@@ -108,14 +108,14 @@ describe('primary election under a divergent placement order', function () {
     expect(await countUp(orderApp), 'more than one holder started at genesis').to.equal(1);
   });
 
-  it('does not let the spent seed claim start a second writer when the primary is lost', async function () {
+  it('starts no second writer when the primary is released back to the election', async function () {
     this.timeout(300000);
-    // The seed claim describes genesis, and genesis has happened. Once the folder is
-    // sendreceive the state machine never revisits the election, so nothing retracts a
-    // claim left standing - and the claim's whole effect is to leave the index order,
-    // where a lower-index-only peer probe cannot see the peer above. Losing the primary
-    // re-opens that branch: the node's own primary record is dropped as stale the moment
-    // its container is not running.
+    // Exactly one holder runs the component, through the window where the primary is
+    // stopped and handed back to the election. Two things can put a second writer on
+    // the shared volume here: a seed claim still standing after genesis, which leaves
+    // the index order and starts against a peer a lower-index probe cannot see; and a
+    // controller desire surviving the operator stop, which the reconciler acts on with
+    // no election pass. The assertion is on the invariant, not on either path.
     //
     // The standbys have genuinely synced from the seed by now, so pin them synced (over
     // the data seeded at install) to make them election-eligible - otherwise nothing
@@ -171,13 +171,18 @@ describe('primary election under a divergent placement order', function () {
       survivors.map((i) => isUp(env.clients[i], genesisApp)),
     )).filter(Boolean).length;
 
-    await waitFor(async () => (await survivorsUp()) >= 1, {
-      timeout: 420000, interval: 5000, label: 'a surviving holder seeds after the leader is lost',
-    });
-    expect(await survivorsUp(), 'both survivors seeded - split brain replacing the lost leader').to.equal(1);
-
-    await env.reconnectNode(seedIndex);
-    await env.startDiscovery([seedIndex]);
+    // The isolation is undone in a finally: a failing assertion must not leave the
+    // node cut off, or every later test in this file dies on a connection error
+    // against a node this one broke rather than on its own subject.
+    try {
+      await waitFor(async () => (await survivorsUp()) >= 1, {
+        timeout: 420000, interval: 5000, label: 'a surviving holder seeds after the leader is lost',
+      });
+      expect(await survivorsUp(), 'both survivors seeded - split brain replacing the lost leader').to.equal(1);
+    } finally {
+      await env.reconnectNode(seedIndex);
+      await env.startDiscovery([seedIndex]);
+    }
   });
 
   it('does not skip the stagger once FDM has named a primary', async function () {

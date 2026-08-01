@@ -4008,13 +4008,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     requestMasterStartWithPermissionsFix(identifier, appId);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} - designated leader seeds without the index stagger`);
                   }
-                  // The seed claim is spent here either way: it describes genesis,
-                  // and genesis happens once. Nothing else retracts it - the state
-                  // machine stops republishing it the moment the folder goes
-                  // sendreceive, because manageFolderSyncState then returns on its
-                  // already-syncing branch and never reaches the election again -
-                  // so a claim left standing would outlive the newborn app and take
-                  // this node out of the stagger on every later primary loss.
+                  // The claim covers genesis only, and nothing else retracts it:
+                  // once the folder is sendreceive the state machine returns on its
+                  // already-syncing branch and never reaches the election again.
+                  // Spent here, so it cannot take this node out of the stagger on
+                  // later primary losses.
                   const seedCache = receiveOnlySyncthingAppsCache.get(appId);
                   if (seedCache) seedCache.designatedLeader = false;
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)) {

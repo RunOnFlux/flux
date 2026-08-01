@@ -124,6 +124,20 @@ describe('a partitioned g: app converges back to one primary on heal', function 
     await sleepUnlessInfraDead(90000);
 
     await env.healPartition(groupA, groupB);
+
+    // startDiscovery authenticates, and the login phrase is refused below the
+    // outgoing-peer floor ("Minimum required 2 found 1"). Dropping the iptables
+    // rules does not re-dial the dead cross-group sockets, so for a few seconds
+    // after the heal a node legitimately sits at one peer. Wait for the fleet to
+    // be able to answer before asking it to.
+    await waitFor(async () => {
+      const counts = await Promise.all(env.clients.map(async (c) => {
+        const outgoing = await c.getPeers().catch(() => null);
+        return outgoing?.data?.length ?? 0;
+      }));
+      return counts.every((n) => n >= 2);
+    }, { timeout: 120000, interval: 3000, label: 'every node back above the outgoing-peer floor after heal' });
+
     await env.startDiscovery();
 
     // The real invariant: once the fleet can see itself again it must settle on ONE
