@@ -17,7 +17,7 @@ import {
 } from './wait.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
-import { setSynced } from './syncthing-control.js';
+import { setSynced, setSyncState, setNoPeerData } from './syncthing-control.js';
 import { execInContainer } from './container.js';
 
 // A folder the suite pins "synced" (setSynced reports a non-zero global index)
@@ -68,6 +68,75 @@ export async function installOnNodes(env, app, indices, { timeout = 120000 } = {
     await waitForAppInstalled(client, app.spec.name, timeout);
   }));
   return indices;
+}
+
+// The election's own comparator (masterSlaveApps): runningSince ascending, holders
+// carrying none first, ip as the final tiebreak. Exported so a suite can assert the
+// order it arranged rather than assume it.
+export function electionOrder(locations) {
+  return [...locations].sort((a, b) => {
+    if (!a.runningSince && b.runningSince) return -1;
+    if (a.runningSince && !b.runningSince) return 1;
+    if (a.runningSince < b.runningSince) return -1;
+    if (a.runningSince > b.runningSince) return 1;
+    if (a.ip < b.ip) return -1;
+    if (a.ip > b.ip) return 1;
+    return 0;
+  });
+}
+
+// Place a g: app on holders ONE AT A TIME so their runningSince values are distinct
+// and follow `placementOrder`. Two orderings decide who runs a g: app: the syncthing
+// seed is the LOWEST IP among the holders, while the masterSlave election index is
+// runningSince ascending — and runningSince is broadcast on placement, so it records
+// the order the holders were placed. Installing them in parallel (installOnNodes over
+// several indices) collapses that distinction: every holder's placement lands in the
+// same instant, the sort falls through to its ip tiebreak, and the lowest-IP seed is
+// always ALSO index 0. Every rule reading `index > 0` is dead under that fixture.
+//
+// Pass a placementOrder that puts the seed in the MIDDLE to get the divergent shape:
+// the seed sits at index > 0 with a peer ABOVE it. `coldStart` pins every holder to a
+// true cold start first (empty global, no connected peer holding the data), which must
+// happen BEFORE install so the first election evaluation sees it.
+export async function placeGAppInOrder(env, app, {
+  placementOrder, folder, identifier, coldStart = true, gapMs = 3000,
+}) {
+  if (coldStart) {
+    await Promise.all(placementOrder.map((i) => Promise.all([
+      setSyncState({
+        ip: getSubnetConfig().nodeIp(i + 1), folder, state: 'idle', globalBytes: 0, inSyncBytes: 0,
+      }),
+      setNoPeerData({ ip: getSubnetConfig().nodeIp(i + 1), folder }),
+    ])));
+  }
+  for (const i of placementOrder) {
+    const installAfter = env.clients[i].getLastEventId();
+    // eslint-disable-next-line no-await-in-loop
+    await installOnNodes(env, app, [i]);
+    // Wait out the sync layer's first-run reset before writing disk data, or the
+    // reset deletes it - a folder pinned synced later must hold what its index claims.
+    // eslint-disable-next-line no-await-in-loop
+    await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 60000, { afterId: installAfter });
+    // eslint-disable-next-line no-await-in-loop
+    await seedSyncScopedData(env, app.spec.name, i);
+    // eslint-disable-next-line no-await-in-loop
+    await sleepUnlessInfraDead(gapMs);
+  }
+  return placementOrder;
+}
+
+// Resolve a holder's position in the election order, from the location list the
+// election itself reads. Returns -1 when the holder has not been broadcast yet.
+export async function electionIndexOf(env, appName, holderIndex, { timeout = 90000 } = {}) {
+  const targetIp = getSubnetConfig().nodeIp(holderIndex + 1);
+  let position = -1;
+  await waitFor(async () => {
+    const res = await env.clients[holderIndex].getAppLocations(appName);
+    if (res.status !== 'success' || !res.data?.length) return false;
+    position = electionOrder(res.data).findIndex((entry) => entry.ip.split(':')[0] === targetIp);
+    return position > -1;
+  }, { timeout, interval: 3000, label: `node ${holderIndex} present in ${appName}'s election order` });
+  return position;
 }
 
 export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {

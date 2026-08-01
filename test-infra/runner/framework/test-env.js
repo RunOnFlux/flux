@@ -4,7 +4,7 @@
 process.env.TESTCONTAINERS_HOST_OVERRIDE ??= '127.0.0.1';
 process.env.TESTCONTAINERS_RYUK_RECONNECTION_TIMEOUT ??= '5s';
 
-import { GenericContainer, Network, Wait, getContainerRuntimeClient } from 'testcontainers';
+import { GenericContainer, Wait, getContainerRuntimeClient } from 'testcontainers';
 import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -14,7 +14,7 @@ import { nodeClient } from './node-client.js';
 import { execInContainer } from './container.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
-import { getSubnetConfig, REGISTRY_ALIAS, REGISTRY_REPO_HOST } from './subnet-config.js';
+import { getSubnetConfig, REGISTRY_ALIAS } from './subnet-config.js';
 import { closeDb } from './db-client.js';
 import { clearInfraDeath, infraDeathError, reportInfraDeath } from './infra-death.js';
 import { stubPeerClient } from './stub-peer-helper.js';
@@ -584,7 +584,12 @@ function nodeReadyWaitStrategy(nodeIp) {
   return new HttpPollWaitStrategy(`http://${nodeIp}:16127/id/loginphrase`, { validate });
 }
 
-export async function createTestEnv({ hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
+export async function createTestEnv({
+  hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [],
+  configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
+  tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
+  rpcFailures = [], bootContext = 'running',
+} = {}) {
   // The boot-lock queue wait must not count against the suite's hook budget.
   // Mocha enforces a hook's timeout twice: the watchdog timer (which would fire
   // MID-QUEUE whenever the queue alone outlasts the budget), and a completion-time
@@ -1029,7 +1034,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     // the same HttpPollWaitStrategy the initial fleet build uses.
     async restartNode(index, { timeout = 15000 } = {}) {
       if (clients[index]) clients[index].disconnectEventStream();
-      const container = fluxNodes[index].container;
+      const { container } = fluxNodes[index];
       const saved = container.waitStrategy;
       container.waitStrategy = nodeReadyWaitStrategy(fluxNodes[index].ip);
       try {
@@ -1063,6 +1068,94 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
         EndpointConfig: { IPAMConfig: { IPv4Address: nodeIp } },
       });
       if (clients[index]) await clients[index].connectEventStream();
+    },
+
+    // Split the fleet into two groups that stay internally connected but cannot reach
+    // each other, by dropping cross-group node-to-node packets inside each container
+    // (iptables; the image ships it and the nodes run privileged). Every node keeps its
+    // path to the daemon and to its same-group peers. A node held in the minority
+    // therefore stays daemon-confirmed (message capability intact) and above the peer
+    // floor, so it never degrades or resyncs. The host runner reaches nodes over the
+    // gateway, not a node IP, so its REST/SSE access to BOTH sides is unaffected — the
+    // minority is observable throughout.
+    //
+    // Returns only once the partition is REAL, which is a stronger guarantee than the
+    // rules alone give. iptables stops packets, but TCP retransmits across a DROP: the
+    // cross-group sockets stay up until ping/pong liveness gives up, and until then a
+    // message sent to the other group is QUEUED, not lost — healPartition then delivers
+    // the whole backlog, so a suite whose premise is "this node missed the gossip" gets
+    // the opposite of what it asked for, and finds out much later as an unrelated-looking
+    // timeout.
+    //
+    // So wait for both sides to actually drop the other group from their peer lists, and
+    // fail HERE, naming who is still connected. How long that takes is peer liveness —
+    // peers.wsPingIntervalMs x peers.wsMaxMissedPongs — so a suite that partitions should
+    // compress that interval in its configOverrides the same way it compresses every
+    // other cadence. Pass { awaitSever: false } for a caller that only wants packets
+    // dropped and is not asserting message loss.
+    async partitionGroups(groupA, groupB, { awaitSever = true, severTimeoutMs = 60000 } = {}) {
+      const ops = [];
+      for (const a of groupA) {
+        for (const b of groupB) {
+          ops.push([a, fluxNodes[b].ip]);
+          ops.push([b, fluxNodes[a].ip]);
+        }
+      }
+      await Promise.all(ops.map(async ([node, otherIp]) => {
+        const res = await fluxNodes[node].container.exec(['sh', '-c', `iptables -I INPUT -s ${otherIp} -j DROP`]);
+        if (res.exitCode !== 0) {
+          throw new Error(`partitionGroups: drop on node ${node} for ${otherIp} failed (exit ${res.exitCode}): ${res.output}`);
+        }
+      }));
+      if (!awaitSever) return;
+
+      // Each node paired with the cross-group IPs that must disappear from its peers.
+      const crossGroup = [
+        ...groupA.map((a) => [a, groupB.map((b) => fluxNodes[b].ip)]),
+        ...groupB.map((b) => [b, groupA.map((a) => fluxNodes[a].ip)]),
+      ];
+      const stillConnected = async () => {
+        const held = await Promise.all(crossGroup.map(async ([node, ips]) => {
+          const client = clients[node];
+          if (!client) return [];
+          const [outbound, inbound] = await Promise.all([client.getPeers(), client.getIncomingPeers()]);
+          const peers = new Set([...(outbound.data || []), ...(inbound.data || [])]);
+          return ips.filter((ip) => peers.has(ip)).map((ip) => `node ${node} -> ${ip}`);
+        }));
+        return held.flat();
+      };
+
+      let remaining = await stillConnected();
+      const deadline = Date.now() + severTimeoutMs;
+      while (remaining.length > 0 && Date.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 1000); });
+        // eslint-disable-next-line no-await-in-loop
+        remaining = await stillConnected();
+      }
+      if (remaining.length > 0) {
+        throw new Error(
+          `partitionGroups: sockets survived the partition after ${severTimeoutMs}ms (${remaining.join(', ')}). `
+          + 'Messages sent now would be queued and delivered on heal, not lost. Compress '
+          + 'peers.wsPingIntervalMs in the suite configOverrides, or raise severTimeoutMs.',
+        );
+      }
+    },
+
+    // Remove the cross-group drops added by partitionGroups(groupA, groupB). Per-rule
+    // best-effort (a rule already gone is not an error); the caller re-runs discovery so
+    // the dead cross-group sockets get re-dialed.
+    async healPartition(groupA, groupB) {
+      const ops = [];
+      for (const a of groupA) {
+        for (const b of groupB) {
+          ops.push([a, fluxNodes[b].ip]);
+          ops.push([b, fluxNodes[a].ip]);
+        }
+      }
+      await Promise.all(ops.map(([node, otherIp]) => fluxNodes[node].container.exec(
+        ['sh', '-c', `iptables -D INPUT -s ${otherIp} -j DROP || true`],
+      )));
     },
 
     async startDiscovery(indices = null) {
