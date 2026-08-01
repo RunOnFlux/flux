@@ -5,6 +5,7 @@ const log = require('../../lib/log');
 const dockerService = require('../dockerService');
 const appReconciler = require('./appReconciler');
 const appUninstaller = require('../appLifecycle/appUninstaller');
+const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
 const serviceHelper = require('../serviceHelper');
 const volumeService = require('../utils/volumeService');
@@ -524,6 +525,10 @@ async function checkIfPeersAreSynced(folderId) {
           } else if (completion === 100) {
             log.warn(`checkIfPeersAreSynced - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but 0 bytes (empty); not treating it as a synced source`);
           }
+        } else {
+          // an in-band failure silently skipping the device would read as
+          // "peer not synced" with zero diagnostics - fail-safe, but loud
+          log.warn(`checkIfPeersAreSynced - ${folderId}: completion read for device ${device.deviceID.substring(0, 7)}... failed: ${completionResponse?.data?.message || 'malformed response'}`);
         }
       } catch (deviceError) {
         log.warn(`checkIfPeersAreSynced - Error checking device ${device.deviceID}: ${deviceError.message}`);
@@ -556,8 +561,11 @@ async function nudgeFolderDevices(folderId) {
     for (const device of folder.devices || []) {
       let paused = false;
       try {
+        // dataOrThrow: pause/resume answer in-band, so without it these
+        // try/catches are dead code and a failed resume would pass silently -
+        // the exact outcome the error log below exists to make loud
         // eslint-disable-next-line no-await-in-loop
-        await syncthingService.systemPause({ params: { device: device.deviceID }, query: {} }, null);
+        messageHelper.dataOrThrow(await syncthingService.systemPause({ params: { device: device.deviceID }, query: {} }, null));
         paused = true;
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(OPERATION_DELAY_MS);
@@ -572,7 +580,7 @@ async function nudgeFolderDevices(folderId) {
         if (paused) {
           try {
             // eslint-disable-next-line no-await-in-loop
-            await syncthingService.systemResume({ params: { device: device.deviceID }, query: {} }, null);
+            messageHelper.dataOrThrow(await syncthingService.systemResume({ params: { device: device.deviceID }, query: {} }, null));
           } catch (error) {
             log.error(`nudgeFolderDevices - ${folderId}: RESUME of device ${device.deviceID.substring(0, 7)} FAILED - device left paused (its connection stays suspended): ${error.message}`);
           }
@@ -692,7 +700,9 @@ async function handleReceiveOnlyTransition(params) {
     if (syncStatus.isSynced && syncStatus.receiveOnlyChangedFiles > 0) {
       log.warn(`handleReceiveOnlyTransition - ${appId} is synced but the receive-only folder has ${syncStatus.receiveOnlyChangedFiles} locally changed item(s); reverting local changes instead of promoting (promotion would propagate them to the cluster)`);
       try {
-        await syncthingService.dbRevert(appId);
+        // dataOrThrow: dbRevert answers in-band; without it this catch is
+        // dead code and a failed revert reads as reverted
+        messageHelper.dataOrThrow(await syncthingService.dbRevert(appId));
       } catch (error) {
         log.error(`handleReceiveOnlyTransition - revert of local changes for ${appId} failed: ${error.message}`);
       }

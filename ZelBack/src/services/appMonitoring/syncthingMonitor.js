@@ -6,6 +6,7 @@ const dbHelper = require('../dbHelper');
 const serviceHelper = require('../serviceHelper');
 const dockerService = require('../dockerService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
@@ -448,20 +449,22 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // CRITICAL: Validate Syncthing configuration is loaded before proceeding
     // On system restart, Syncthing API might be available but config not fully loaded
     // This prevents data deletion during the race condition window
-    if (!allFoldersResp || !allFoldersResp.data || !Array.isArray(allFoldersResp.data)) {
+    // Status first, shape second: an in-band transport error must never read
+    // as "empty configuration" (an EMPTY folders array is legal data).
+    if (allFoldersResp?.status !== 'success' || !Array.isArray(allFoldersResp.data)) {
       if (state.syncthingAppsFirstRun) {
         log.warn('syncthingAppsCore - Syncthing folder configuration not ready yet on first run. Waiting for next cycle to avoid data loss.');
       } else {
-        log.error('syncthingAppsCore - Failed to get Syncthing folders configuration');
+        log.error(`syncthingAppsCore - Failed to get Syncthing folders configuration: ${allFoldersResp?.data?.message || 'malformed response'}`);
       }
       return;
     }
 
-    if (!allDevicesResp || !allDevicesResp.data || !Array.isArray(allDevicesResp.data)) {
+    if (allDevicesResp?.status !== 'success' || !Array.isArray(allDevicesResp.data)) {
       if (state.syncthingAppsFirstRun) {
         log.warn('syncthingAppsCore - Syncthing device configuration not ready yet on first run. Waiting for next cycle to avoid data loss.');
       } else {
-        log.error('syncthingAppsCore - Failed to get Syncthing devices configuration');
+        log.error(`syncthingAppsCore - Failed to get Syncthing devices configuration: ${allDevicesResp?.data?.message || 'malformed response'}`);
       }
       return;
     }
@@ -489,11 +492,14 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
             unsafeFoldersCount += 1;
             log.error(`syncthingAppsCore - STARTUP SAFETY: Folder ${appId} has unsafe mount (${mountSafety.reason}). Switching to receiveonly to prevent data loss.`);
 
-            // Immediately switch to receiveonly mode
+            // Immediately switch to receiveonly mode. In-band status check:
+            // performRequest never throws, so a .catch here would be dead code
+            // and a failed demotion would pass silently.
             // eslint-disable-next-line no-await-in-loop
-            await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, folder.id).catch((err) => {
-              log.error(`syncthingAppsCore - Failed to switch ${folder.id} to receiveonly: ${err.message}`);
-            });
+            const startupPatch = await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, folder.id);
+            if (startupPatch?.status !== 'success') {
+              log.error(`syncthingAppsCore - Failed to switch ${folder.id} to receiveonly: ${startupPatch?.data?.message || 'unknown error'}`);
+            }
           } else {
             log.info(`syncthingAppsCore - Folder ${appId} mount is safe (mounted=${mountSafety.isMounted}, files=${mountSafety.fileCount})`);
           }
@@ -581,40 +587,43 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
 
     // Parallelize cleanup operations
     const cleanupPromises = [
-      ...nonUsedFolders.map((folder) => {
+      ...nonUsedFolders.map(async (folder) => {
         log.info(`syncthingAppsCore - Removing unused Syncthing folder ${folder.id}`);
-        return syncthingService.adjustConfigFolders('delete', undefined, folder.id).catch((err) => {
-          log.error(`Failed to remove folder ${folder.id}: ${err.message}`);
-        });
+        const response = await syncthingService.adjustConfigFolders('delete', undefined, folder.id);
+        if (response?.status !== 'success') {
+          log.error(`Failed to remove folder ${folder.id}: ${response?.data?.message || 'unknown error'}`);
+        }
       }),
-      ...nonUsedDevices.map((device) => {
+      ...nonUsedDevices.map(async (device) => {
         log.info(`syncthingAppsCore - Removing unused Syncthing device ${device.deviceID}`);
-        return syncthingService.adjustConfigDevices('delete', undefined, device.deviceID).catch((err) => {
-          log.error(`Failed to remove device ${device.deviceID}: ${err.message}`);
-        });
+        const response = await syncthingService.adjustConfigDevices('delete', undefined, device.deviceID);
+        if (response?.status !== 'success') {
+          log.error(`Failed to remove device ${device.deviceID}: ${response?.data?.message || 'unknown error'}`);
+        }
       }),
     ];
 
     await Promise.all(cleanupPromises);
 
-    // Apply new configuration
+    // Apply new configuration. A failed apply aborts the pass loudly (outer
+    // catch): the steps below reason about the configuration this was meant
+    // to install, and the level loop reassembles everything next pass anyway.
     if (devicesConfiguration.length > 0) {
-      await syncthingService.adjustConfigDevices('put', devicesConfiguration);
+      messageHelper.dataOrThrow(await syncthingService.adjustConfigDevices('put', devicesConfiguration));
     }
     if (newFoldersConfiguration.length > 0) {
-      await syncthingService.adjustConfigFolders('put', newFoldersConfiguration);
+      messageHelper.dataOrThrow(await syncthingService.adjustConfigFolders('put', newFoldersConfiguration));
     }
 
     // Check for folder errors in parallel
     const folderErrorChecks = await Promise.all(
       foldersConfiguration.map(async (folder) => {
-        try {
-          const folderError = await syncthingService.getFolderIdErrors(folder.id);
-          if (folderError?.status === 'success' && folderError.data.errors?.length > 0) {
-            return { folder, error: folderError };
-          }
-        } catch (error) {
-          log.warn(`Failed to check errors for folder ${folder.id}: ${error.message}`);
+        const folderError = await syncthingService.getFolderIdErrors(folder.id);
+        if (folderError?.status === 'success' && folderError.data.errors?.length > 0) {
+          return { folder, error: folderError };
+        }
+        if (folderError?.status !== 'success') {
+          log.warn(`Failed to check errors for folder ${folder.id}: ${folderError?.data?.message || 'malformed response'}`);
         }
         return null;
       }),
@@ -667,9 +676,14 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
 
     // Check if Syncthing restart is needed
     const restartRequired = await syncthingService.getConfigRestartRequired();
-    if (restartRequired?.status === 'success' && restartRequired.data.requiresRestart === true) {
+    if (restartRequired?.status !== 'success') {
+      log.warn(`syncthingAppsCore - could not read restart-required state: ${restartRequired?.data?.message || 'malformed response'}; next pass re-checks`);
+    } else if (restartRequired.data.requiresRestart === true) {
       log.info('syncthingAppsCore - New configuration applied. Syncthing restart required, restarting...');
-      await syncthingService.systemRestart();
+      const restartResponse = await syncthingService.systemRestart();
+      if (restartResponse?.status !== 'success') {
+        log.error(`syncthingAppsCore - syncthing restart request failed: ${restartResponse?.data?.message || 'unknown error'}; next pass re-checks`);
+      }
     }
   } catch (error) {
     log.error(`syncthingAppsCore - Error in sync monitoring: ${error.message}`);

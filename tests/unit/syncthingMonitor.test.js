@@ -165,8 +165,8 @@ describe('syncthingMonitor tests', () => {
     syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: true, isMounted: true, fileCount: 1 });
 
     // Default stub behaviors
-    syncthingServiceMock.getConfigFolders.resolves({ data: [] });
-    syncthingServiceMock.getConfigDevices.resolves({ data: [] });
+    syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [] });
+    syncthingServiceMock.getConfigDevices.resolves({ status: 'success', data: [] });
     syncthingServiceMock.getConfigRestartRequired.resolves({
       status: 'success',
       data: { requiresRestart: false },
@@ -300,6 +300,7 @@ describe('syncthingMonitor tests', () => {
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
       fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
       syncthingServiceMock.getConfigFolders.resolves({
+        status: 'success',
         data: [{ id: 'fluxcomp_testapp', path: '/apps/fluxcomp_testapp', type: 'sendreceive' }],
       });
       syncthingServiceMock.adjustConfigFolders.resolves(); // beforeEach reset() wipes behavior; restore it
@@ -511,7 +512,7 @@ describe('syncthingMonitor tests', () => {
         data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
       });
       syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
-      syncthingServiceMock.getConfigFolders.resolves({ data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
       fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
 
