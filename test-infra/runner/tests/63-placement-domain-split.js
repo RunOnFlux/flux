@@ -5,7 +5,7 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { pushTestApp } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import {
-  bootAndPeer, seedSpawnerApp, waitForInstanceCount,
+  bootAndPeer, seedSpawnerApp, waitForInstanceCount, waitForLocationTable,
 } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -56,6 +56,12 @@ describe('placement share spreads synced instances across table fault domains', 
     // in a six-ring with minOutgoing 2 there are no mutual pairs, so every
     // node settles at exactly two connections in each direction
     await bootAndPeer(env, { minOutbound: 2, minInbound: 2 });
+    // The spread assertion is meaningless unless the spawner computes the
+    // share over the TABLE's organisations: a spawn pass racing the boot
+    // ingest falls back to /16 arithmetic (one domain, share 3) and stacks
+    // instances the table would have spread. EVERY node spawns, so every
+    // node must hold the table - the suite-64 guard, fleet-wide like 65's.
+    await Promise.all(env.clients.map((client) => waitForLocationTable(client, { domains: 3 })));
   });
 
   after(async function () {
