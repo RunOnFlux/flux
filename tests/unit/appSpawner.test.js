@@ -203,6 +203,9 @@ describe('appSpawner tests', () => {
       '../utils/fluxEventBus': {
         publish: sinon.stub(),
       },
+      '../appMessaging/messageStore': {
+        storeAppInstallingErrorMessage: opts.withdrawalStub ?? sinon.stub().resolves(true),
+      },
       './appInstaller': {
         registerAppLocally: opts.installStub ?? sinon.stub().resolves(true),
       },
@@ -696,17 +699,19 @@ describe('appSpawner tests', () => {
 
     async function runAttempt(opts = {}) {
       const installStub = sinon.stub().resolves(true);
+      const withdrawalStub = sinon.stub().resolves(true);
       buildModule({
         aggregateResult: [spawnableApp],
         appSpec: syncedSpec,
         installStub,
+        withdrawalStub,
         ...opts,
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       const logged = (needle) => logStub.info.args.some(
         (a) => typeof a[0] === 'string' && a[0].includes(needle),
       );
-      return { installStub, logged };
+      return { installStub, logged, withdrawalStub };
     }
 
     it('REGRESSION GUARD (the Bahrain incident): installs when the single eligible domain holds the whole share', async () => {
@@ -781,8 +786,11 @@ describe('appSpawner tests', () => {
       expect(logged('already holds')).to.be.true;
     });
 
-    it('yields the remaining share to an earlier claimant after the collision wait', async () => {
-      const { installStub, logged } = await runAttempt({
+    it('yields the remaining share to an earlier claimant after the collision wait, and retracts its claim', async () => {
+      // a silent back-out would leave this node's installing broadcast alive
+      // for its full TTL - counting against totals, blocking its own retry,
+      // and capturing the seed election as a ghost
+      const { installStub, logged, withdrawalStub } = await runAttempt({
         placementShare: { domainCount: 3, maxPerDomain: 1 },
         finalInstallingLocations: [
           { ip: '192.168.2.2:16127', broadcastedAt: 1000 },
@@ -791,10 +799,15 @@ describe('appSpawner tests', () => {
       });
       expect(installStub.called).to.be.false;
       expect(logged('earlier claimants in fault domain')).to.be.true;
+      expect(withdrawalStub.calledOnce).to.be.true;
+      const withdrawal = withdrawalStub.firstCall.args[0];
+      expect(withdrawal.type).to.equal('fluxappinstallingerror');
+      expect(withdrawal.ip).to.equal('192.168.1.1:16127');
+      expect(withdrawal.error).to.include('withdrawn');
     });
 
-    it('proceeds as the earliest claimant after the collision wait', async () => {
-      const { installStub, logged } = await runAttempt({
+    it('proceeds as the earliest claimant after the collision wait, keeping its claim', async () => {
+      const { installStub, logged, withdrawalStub } = await runAttempt({
         placementShare: { domainCount: 3, maxPerDomain: 1 },
         finalInstallingLocations: [
           { ip: '192.168.1.1:16127', broadcastedAt: 1000 },
@@ -803,6 +816,7 @@ describe('appSpawner tests', () => {
       });
       expect(installStub.called).to.be.true;
       expect(logged('claim 1 of 1 remaining in fault domain')).to.be.true;
+      expect(withdrawalStub.called).to.be.false;
     });
 
     it('keys the post-wait re-check from the same computation, not a fresh one', async () => {

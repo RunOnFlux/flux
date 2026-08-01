@@ -7,6 +7,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import {
   bootAndPeer, seedSpawnerApp, waitForInstanceCount, waitForLocationTable,
 } from '../framework/reconciler-suite.js';
+import { waitFor } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // The other half of the placement share, and the half the /16 key could never
@@ -101,5 +102,19 @@ describe('placement share spreads synced instances across table fault domains', 
       return lastOctet % 3;
     });
     expect(new Set(buckets).size, `expected 3 distinct fault domains, got buckets ${buckets}`).to.equal(3);
+
+    // The collision losers must have RETRACTED their claims, not left them to
+    // rot for the 15-minute installing TTL: a ghost claim counts against
+    // instance totals and domain shares, blocks its own node's retry, and can
+    // capture the cold-start seed election. Winners' claims clear when their
+    // apprunning lands; losers' clear only through the withdrawal broadcast -
+    // so an empty installing view on every node proves both. The wait
+    // outlasts the route's 30s response cache, never the TTL.
+    await waitFor(async () => {
+      const views = await Promise.all(env.clients.map(
+        (client) => client.get(`/apps/installinglocation/${appName}`).catch(() => null),
+      ));
+      return views.every((view) => view?.status === 'success' && (view.data?.length ?? 1) === 0);
+    }, { timeout: 90000, interval: 5000, label: 'every node dropped the withdrawn installing claims' });
   });
 });

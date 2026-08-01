@@ -12,6 +12,7 @@ const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } =
 
 // Import modular services
 const appQueryService = require('../appQuery/appQueryService');
+const messageStore = require('../appMessaging/messageStore');
 const registryManager = require('../appDatabase/registryManager');
 const imageManager = require('../appSecurity/imageManager');
 const hwRequirements = require('../appRequirements/hwRequirements');
@@ -706,6 +707,37 @@ async function trySpawningGlobalApplication() {
       return shortDelayTime;
     }
 
+    // Retract this node's installing claim, network-wide. A silent back-out
+    // leaves the fluxappinstalling broadcast alive for its full TTL, and that
+    // ghost keeps counting against instance totals and domain shares - and can
+    // even win the cold-start seed election - for up to 15 minutes. On a small
+    // eligible pool (a pinned org or region) one collision round of ghosts
+    // stalls the whole domain for that window, so every withdrawal must say
+    // so. The existing fluxappinstallingerror message IS the retraction the
+    // network already understands: storing it clears the sender's installing
+    // entry on every node (and the error-count gate is advisory, so it never
+    // bars this node's own retry).
+    const withdrawInstallingClaim = async (reason) => {
+      try {
+        const withdrawal = {
+          type: 'fluxappinstallingerror',
+          version: 1,
+          name: appSpecifications.name,
+          hash: appHash,
+          ip: localSocketAddr,
+          error: reason,
+          broadcastedAt: Date.now(),
+        };
+        await messageStore.storeAppInstallingErrorMessage(withdrawal);
+        // eslint-disable-next-line global-require
+        const fluxCommMessagesSenderLib = require('../fluxCommunicationMessagesSender');
+        await fluxCommMessagesSenderLib.broadcastMessageToAll(withdrawal);
+      } catch (error) {
+        // best effort - the installing TTL remains the backstop
+        log.warn(`trySpawningGlobalApplication - could not retract installing claim for ${appToRun}: ${error.message}`);
+      }
+    };
+
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // lets broadcast to the network the app is going to be installed on this node, so we don't get lot's of intances installed when it's not needed
     let broadcastedAt = Date.now();
@@ -743,6 +775,7 @@ async function trySpawningGlobalApplication() {
       const index = installingAppList.findIndex((x) => socketAddressesMatch(x.ip, localSocketAddr));
       if (runningAppList.length + index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances, my instance is number ${runningAppList.length + index + 1}`);
+        await withdrawInstallingClaim('claim withdrawn: instance count filled by earlier claimants');
         return shortDelayTime;
       }
     }
@@ -758,6 +791,7 @@ async function trySpawningGlobalApplication() {
       const remainingShare = placementShare.maxPerDomain - runningInMine;
       if (remainingShare <= 0) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already runs ${runningInMine} of its ${placementShare.maxPerDomain}-instance share`);
+        await withdrawInstallingClaim('claim withdrawn: domain share held by running instances');
         return shortDelayTime;
       }
       const claimantsInMine = installingAppList
@@ -767,6 +801,7 @@ async function trySpawningGlobalApplication() {
       const claimantsAhead = myIndex === -1 ? claimantsInMine.length : myIndex;
       if (claimantsAhead >= remainingShare) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and ${claimantsAhead} earlier claimants in fault domain ${myDomain} fill its remaining share of ${remainingShare}`);
+        await withdrawInstallingClaim('claim withdrawn: domain share filled by earlier claimants');
         return shortDelayTime;
       }
       if (claimantsInMine.length > 1) {
