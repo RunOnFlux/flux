@@ -7,7 +7,7 @@ import { appOwnerKey } from '../framework/keys.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
-import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
+import { setSynced, resetSyncState, setFolderPatchDelay } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor } from '../framework/wait.js';
 import {
@@ -53,6 +53,7 @@ describe('primary election under a divergent placement order', function () {
   const orderApp = `e2eorder${stamp}`;
   const genesisApp = `e2egenloss${stamp}`;
   const fdmApp = `e2efdmling${stamp}`;
+  const windowApp = `e2ewindow${stamp}`;
 
   const countUp = async (appName) => (await Promise.all(
     holders.map((i) => isUp(env.clients[i], appName)),
@@ -150,6 +151,40 @@ describe('primary election under a divergent placement order', function () {
     expect(recovered, 'the app never came back on any holder').to.equal(true);
   });
 
+  it('starts only one holder while the seed is still fixing ownership', async function () {
+    this.timeout(600000);
+    // The seed does not start its container the moment it is elected: it flips the
+    // folder to receiveonly, chowns the persistent data and flips back first. For
+    // that whole window it has committed but runs nothing, and a peer that asks
+    // only for running containers is told the component is free.
+    //
+    // The window is normally as long as a chown takes, which is not a length a
+    // test can rely on - held open at the stub, it is a chosen one, and the peer's
+    // probe lands inside it every run.
+    await setFolderPatchDelay({ ms: 45000 });
+    try {
+      await deploy(windowApp);
+      const position = await electionIndexOf(env, windowApp, seedIndex);
+      expect(position, 'fixture: seed must be off index 0').to.be.greaterThan(0);
+
+      // Watched across the whole window rather than sampled after it: a second
+      // start inside it is the failure, and it is invisible to a later count once
+      // the losing container has been stopped again.
+      const deadline = Date.now() + 180000;
+      let started = 0;
+      while (Date.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        started = await countUp(windowApp);
+        expect(started, 'a peer started while the seed was still fixing ownership').to.be.lessThan(2);
+        // eslint-disable-next-line no-await-in-loop
+        await sleepUnlessInfraDead(2000);
+      }
+      expect(started, 'nothing ever started').to.equal(1);
+    } finally {
+      await setFolderPatchDelay({ ms: 0 }).catch(() => {});
+    }
+  });
+
   it('elects a new seed when the designated leader dies mid-genesis', async function () {
     this.timeout(600000);
     // Genesis has exactly one node that can seed, and it is chosen by lowest IP. If
@@ -161,27 +196,29 @@ describe('primary election under a divergent placement order', function () {
     const position = await electionIndexOf(env, genesisApp, seedIndex);
     expect(position, 'fixture: seed must be off index 0 for this scenario to mean anything').to.be.greaterThan(0);
 
-    // Kill the seed before it can promote and start. Full isolation, not a container
-    // stop: the seed must stop participating in the election entirely, the way a lost
-    // node does, rather than sit there as a stopped-but-present holder.
-    await env.disconnectNode(seedIndex);
-
+    // Cut the seed off from its peers, not from the world: detaching it from the
+    // docker network takes the shared mongo with it, and a node with no database is
+    // a broken node rather than a lost one - it answers nothing, including things a
+    // lost node still answers. Dropping node-to-node packets leaves its infra intact
+    // and makes it unreachable to exactly the nodes whose election is under test.
     const survivors = holders.filter((i) => i !== seedIndex);
+    await env.partitionGroups([seedIndex], survivors, { awaitSever: false });
     const survivorsUp = async () => (await Promise.all(
       survivors.map((i) => isUp(env.clients[i], genesisApp)),
     )).filter(Boolean).length;
 
-    // The isolation is undone in a finally: a failing assertion must not leave the
-    // node cut off, or every later test in this file dies on a connection error
-    // against a node this one broke rather than on its own subject.
+    // Healed in a finally, and the heal cannot throw: a failing assertion must not
+    // leave the fleet split, and a cleanup that raises replaces the real failure
+    // with its own, which is how this last reported a DB error instead of its
+    // subject.
     try {
       await waitFor(async () => (await survivorsUp()) >= 1, {
         timeout: 420000, interval: 5000, label: 'a surviving holder seeds after the leader is lost',
       });
       expect(await survivorsUp(), 'both survivors seeded - split brain replacing the lost leader').to.equal(1);
     } finally {
-      await env.reconnectNode(seedIndex);
-      await env.startDiscovery([seedIndex]);
+      await env.healPartition([seedIndex], survivors).catch(() => {});
+      await env.startDiscovery().catch(() => {});
     }
   });
 

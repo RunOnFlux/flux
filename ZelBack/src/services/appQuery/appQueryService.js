@@ -219,6 +219,49 @@ async function listRunningApps(req, res) {
 }
 
 /**
+ * Component identifiers this node holds: running here, or committed to running
+ * and not started yet.
+ *
+ * The question a primary election actually asks a peer. Running containers alone
+ * answer it wrongly during the masterSlave primary path, which fixes ownership on
+ * the persistent data before it starts anything - for that whole window the node
+ * has decided but has no container, so a peer reading running containers is told
+ * the component is free and starts a second writer on the shared volume.
+ *
+ * Uncached, unlike listrunningapps: a 15-second-stale answer reopens the same
+ * window it exists to close.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message carrying an array of container-name identifiers.
+ */
+async function heldComponents(req, res) {
+  try {
+    const containers = await dockerService.dockerListContainers(false);
+    const running = containers
+      .map((container) => (container.Names?.[0] || '').replace(/^\//, ''))
+      .filter((name) => name.slice(0, 3) === 'zel' || name.slice(0, 4) === 'flux');
+
+    // eslint-disable-next-line global-require
+    const appReconciler = require('../appMonitoring/appReconciler');
+    const committed = appReconciler.committedIdentifiers()
+      .map((identifier) => dockerService.getAppIdentifier(identifier));
+
+    const held = [...new Set([...running, ...committed])];
+    const response = messageHelper.createDataMessage(held);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
  * List all apps (both running and installed)
  * @param {object} req Request.
  * @param {object} res Response.
@@ -361,6 +404,7 @@ module.exports = {
   installedApps,
   decryptEnterpriseApps,
   listRunningApps,
+  heldComponents,
   listAllApps,
   getlatestApplicationSpecificationAPI,
   getApplicationOriginalOwner,

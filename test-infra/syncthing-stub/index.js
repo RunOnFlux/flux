@@ -59,6 +59,9 @@ function reqState(req) {
   return nodeState(clientIp(req));
 }
 
+// ip (or '*') -> milliseconds to hold a folder PATCH open before answering
+const folderPatchDelay = new Map();
+
 // --- drivable sync state -------------------------------------------------
 // Tests drive these via the control API; the defaults (below) reproduce the
 // original always-synced/empty behaviour so existing suites are unaffected.
@@ -303,13 +306,19 @@ app.put('/rest/config/folders/:id', (req, res) => {
   res.json({});
 });
 
-app.patch('/rest/config/folders/:id', (req, res) => {
+app.patch('/rest/config/folders/:id', async (req, res) => {
   const state = reqState(req);
   // real syncthing: PATCH modifies an existing folder and 404s an unknown id
   // (PUT is the upsert). The monitor's safety demotion reads that 404 as
   // "not a syncthing folder", so the distinction is load-bearing.
   const existing = state.folders.get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'not found' });
+  // The masterSlave primary path brackets its ownership fix with two of these
+  // calls, and its duration is the window in which the node has committed but
+  // has no container. Held open on request, that window becomes a chosen length
+  // rather than whatever the box happened to do (see /folder-patch-delay).
+  const delayMs = folderPatchDelay.get(clientIp(req)) ?? folderPatchDelay.get('*') ?? 0;
+  if (delayMs > 0) await new Promise((resolve) => { setTimeout(resolve, delayMs); });
   state.folders.set(req.params.id, { ...existing, ...req.body });
   return res.json({});
 });
@@ -640,6 +649,16 @@ control.get('/state', (req, res) => {
   });
 });
 
+// Hold this node's folder PATCH calls open for `ms`, stretching the window in
+// which a masterSlave primary has committed to running a component but has not
+// started its container. Omit ip to target every node; 0 clears.
+control.post('/folder-patch-delay', (req, res) => {
+  const { ip = '*', ms = 0 } = req.body;
+  if (ms > 0) folderPatchDelay.set(ip, ms);
+  else folderPatchDelay.delete(ip);
+  return res.json({ ok: true, ip, ms });
+});
+
 // --- drivable sync-state control ---
 // Set what /rest/db/status returns for a (node ip, folder). Omit ip to target
 // every node ('*'). A folder reporting globalBytes>0 with inSyncBytes<globalBytes
@@ -733,6 +752,7 @@ control.post('/sync-reset', (req, res) => {
   nudgeLogs.clear();
   eventsBuffers.clear();
   eventsOutages.clear();
+  folderPatchDelay.clear();
   res.json({ ok: true });
 });
 

@@ -44,6 +44,13 @@ const controllerDesired = new Map();
 // a start can never race it.
 const dataDesired = new Map();
 
+// Components a decider has committed to running but has not started yet, because
+// its pre-start data-safety work is still in flight. Read by the peer probe: a
+// node that answers only with running containers withholds an intent it already
+// holds, and the asking node starts a second writer. In-memory for the same
+// reason as controllerDesired - a claim must not survive the process that made it.
+const startingClaims = new Set();
+
 // brief settle between the stop and the rm -rf so the container has fully released
 // its appdata mount before the wipe (mirrors the sync layer's prior 500ms delay).
 const DATA_CLEAR_SETTLE_MS = 500;
@@ -1039,6 +1046,40 @@ function clearControllerDesired(rawIdentifier) {
   dataDesired.delete(identifier);
 }
 
+/**
+ * A decider has committed to running this component but cannot start it yet -
+ * the masterSlave primary path fixes ownership on the persistent data first,
+ * which takes long enough that a peer asking "is anyone running this?" gets a
+ * truthful no and starts a second writer. Held from the decision, released when
+ * the attempt ends: a start that succeeds is covered by controllerDesired from
+ * then on, and one that fails is correctly no longer a claim.
+ *
+ * Deliberately not time-bounded. The claimant knows when it has finished, so
+ * there is nothing to guess at, and the state is process-local - a crash or a
+ * FluxOS restart drops it with no way for a stale claim to outlive its owner.
+ */
+function claimStarting(rawIdentifier) {
+  startingClaims.add(canonical(rawIdentifier));
+}
+
+function releaseStarting(rawIdentifier) {
+  startingClaims.delete(canonical(rawIdentifier));
+}
+
+/**
+ * Component identifiers this node runs or is committed to running, from its own
+ * state alone. The running containers are the caller's to add - this is the part
+ * Docker cannot answer.
+ * @returns {string[]}
+ */
+function committedIdentifiers() {
+  const ids = new Set(startingClaims);
+  controllerDesired.forEach((state, identifier) => {
+    if (state === 'running') ids.add(identifier);
+  });
+  return [...ids];
+}
+
 // --- lifecycle -----------------------------------------------------------
 
 let started = false;
@@ -1082,6 +1123,9 @@ module.exports = {
   enqueueAll,
   setControllerDesired,
   clearControllerDesired,
+  claimStarting,
+  releaseStarting,
+  committedIdentifiers,
   requestStopAndClearData,
   setOnContainerStarted,
   waitForBootDrainSettled: () => bootDrainGate.wait(),

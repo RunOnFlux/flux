@@ -104,7 +104,18 @@ describe('a partitioned g: app converges back to one primary on heal', function 
     await waitFor(() => isUp(env.clients[seedIndex], appName), {
       timeout: 180000, interval: 3000, label: 'seed becomes the pre-partition primary',
     });
-    expect(await countUp(), 'more than one holder running before the partition').to.equal(1);
+
+    // Held, not sampled. A peer can start seconds behind the seed while it is still
+    // fixing ownership, and a single count taken in that gap reads as a clean start
+    // - after which the partition test can never converge and reports a timeout
+    // whose cause is already in the past.
+    const deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      expect(await countUp(), 'more than one holder running before the partition').to.equal(1);
+      // eslint-disable-next-line no-await-in-loop
+      await sleepUnlessInfraDead(3000);
+    }
   });
 
   it('converges back to exactly one primary after the partition heals', async function () {

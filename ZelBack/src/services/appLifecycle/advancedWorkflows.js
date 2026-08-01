@@ -2090,6 +2090,12 @@ async function appDockerRestart(appname) {
  * @returns {Promise<void>}
  */
 async function requestMasterStartWithPermissionsFix(appname, appId) {
+  // Claimed before the ownership fix, not after it: the fix takes long enough
+  // that a peer probing "is anyone running this?" would otherwise get a truthful
+  // no from a node that has already committed, and start alongside it. Released
+  // in the finally - from a successful start the controllerDesired below carries
+  // the claim, and a failed one must stop claiming.
+  appReconciler.claimStarting(appname);
   try {
     log.info(`Preparing masterSlave primary ${appname}: fixing permissions before start`);
 
@@ -2118,6 +2124,8 @@ async function requestMasterStartWithPermissionsFix(appname, appId) {
   } catch (error) {
     log.error(`Error preparing masterSlave primary ${appname}: ${error.message}`);
     // leave it stopped if the permissions-fix workflow failed
+  } finally {
+    appReconciler.releaseStarting(appname);
   }
 }
 
@@ -3869,6 +3877,21 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     const cancelTimer = setTimeout(() => source.cancel('Operation canceled by timeout.'), timeout);
 
                     try {
+                      // heldcomponents, not listrunningapps: a peer part-way through
+                      // its own pre-start ownership fix has committed but has no
+                      // container, and answering from containers alone reports the
+                      // component free. A peer too old to serve it falls back below.
+                      const heldResponse = await axios.get(`http://${ipToCheck}:${portToCheck}/apps/heldcomponents`, { timeout, cancelToken: source.token })
+                        .catch(() => null);
+                      const held = heldResponse?.data?.data;
+                      if (Array.isArray(held)) {
+                        if (held.includes(appId)) {
+                          log.info(`masterSlaveApps: component:${identifier} is held on peer node (index ${i}) at ${ipToCheck}, will not start`);
+                          return true;
+                        }
+                        return false;
+                      }
+
                       const response = await axios.get(`http://${ipToCheck}:${portToCheck}/apps/listrunningapps`, { timeout, cancelToken: source.token });
                       const appsRunning = response.data.data;
                       // Match on the g: component identifier, not the app name: non-g siblings

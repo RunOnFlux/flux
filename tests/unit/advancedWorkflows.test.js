@@ -694,6 +694,18 @@ describe('advancedWorkflows tests', () => {
       };
     };
 
+    // The probe asks /apps/heldcomponents first and only falls back to
+    // /apps/listrunningapps when a peer cannot serve it, so a stub has to answer
+    // per URL. `held: null` is a peer too old to know the endpoint.
+    const peerAnswers = ({ held = null, running = [] }) => (url) => {
+      if (url.includes('/apps/heldcomponents')) {
+        return held === null
+          ? Promise.reject(new Error('Request failed with status code 404'))
+          : Promise.resolve({ data: { data: held } });
+      }
+      return Promise.resolve({ data: { data: running } });
+    };
+
     const linesMatching = (logInfo, needle) => logInfo.getCalls()
       .map((call) => String(call.args[0]))
       .filter((msg) => msg.includes(needle));
@@ -780,7 +792,7 @@ describe('advancedWorkflows tests', () => {
 
       // the peer IS running it - FDM simply has not caught up yet
       axiosGetStub.resetBehavior();
-      axiosGetStub.resolves({ data: { data: [{ Names: [`/flux${appName}`] }] } });
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
 
       await runPass();
 
@@ -797,12 +809,89 @@ describe('advancedWorkflows tests', () => {
 
       // peer answers, and is NOT running the component
       axiosGetStub.resetBehavior();
-      axiosGetStub.resolves({ data: { data: [{ Names: ['/fluxsomethingelse'] }] } });
+      axiosGetStub.callsFake(peerAnswers({ held: ['fluxsomethingelse'] }));
 
       await runPass();
 
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
+    });
+
+    it('does not start when a peer has committed to the component but has no container yet', async () => {
+      // The masterSlave primary path fixes ownership on the persistent data before
+      // it starts anything, so a committed peer legitimately has no container for
+      // that whole window. Asked only for containers it answers "free", and this
+      // node starts a second writer on the shared volume.
+      const appName = 'peerclaimedapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+
+      // holds the component, runs no containers at all
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`], running: [] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'is held on peer node')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('falls back to the running-container check against a peer that cannot answer heldcomponents', async () => {
+      // The fleet is mixed for the length of a rollout. A peer that cannot serve the
+      // endpoint must be asked the old way; reading its 404 as "holds nothing" is
+      // the same second-writer start, arrived at from the other direction.
+      const appName = 'peeroldapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: null, running: [{ Names: [`/flux${appName}`] }] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'is running on peer node')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('claims the component before the ownership fix, and releases it once the attempt ends', async () => {
+      // The claim has to be taken BEFORE the slow pre-start work, or it does not
+      // cover the window it exists for. Releasing it at the end is safe: a start
+      // that got as far as controllerDesired is held by that from then on, and one
+      // that failed must stop claiming rather than block the fleet.
+      const appName = 'claimlifecycleapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+      const claimStarting = sinon.stub(appReconciler, 'claimStarting');
+      const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] })); // nobody holds it - we start
+
+      await runPass();
+
+      // The start is deliberately not awaited by the election pass, so the release
+      // lands after it returns - wait for the attempt to finish rather than racing
+      // it. Waited on THIS app: earlier tests leave their own starts in flight, and
+      // any-call-happened is satisfied by one of those landing here.
+      const releasedThisApp = () => releaseStarting.getCalls().some((c) => c.args[0] === appName);
+      for (let tick = 0; tick < 100 && !releasedThisApp(); tick += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 20); });
+      }
+
+      sinon.assert.calledWith(claimStarting, appName);
+      sinon.assert.calledWith(releaseStarting, appName);
+      // the claim precedes any pre-start work, and outlives it
+      sinon.assert.callOrder(claimStarting, releaseStarting);
+      if (setControllerDesired.called) {
+        sinon.assert.callOrder(claimStarting, setControllerDesired, releaseStarting);
+      }
     });
 
     it('does not mistake a longer-named app on a peer for this component', async () => {
@@ -816,7 +905,8 @@ describe('advancedWorkflows tests', () => {
       serviceHelperStub.resolves({ data: [] });
 
       axiosGetStub.resetBehavior();
-      axiosGetStub.resolves({ data: { data: [{ Names: [`/flux${appName}1`] }] } });
+      // answered the OLD way, so the whole-name comparison is what is under test
+      axiosGetStub.callsFake(peerAnswers({ running: [{ Names: [`/flux${appName}1`] }] }));
 
       await runPass();
 
@@ -845,8 +935,8 @@ describe('advancedWorkflows tests', () => {
       // .92 - the peer above us, invisible to a lower-index probe - is running it.
       axiosGetStub.resetBehavior();
       axiosGetStub.callsFake(async (url) => (url.includes('192.168.1.92')
-        ? { data: { data: [{ Names: [`/flux${appName}`] }] } }
-        : { data: { data: [] } }));
+        ? peerAnswers({ held: [`flux${appName}`] })(url)
+        : peerAnswers({ held: [] })(url)));
 
       await runPass();
 

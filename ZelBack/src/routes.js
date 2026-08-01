@@ -376,6 +376,11 @@ module.exports = (app) => {
   app.get('/apps/listrunningapps', cache('15 seconds'), (req, res) => {
     appQueryService.listRunningApps(req, res);
   });
+  // deliberately uncached - the primary election reads this to decide whether a
+  // peer already holds a component, and a stale answer starts a second writer
+  app.get('/apps/heldcomponents', (req, res) => {
+    appQueryService.heldComponents(req, res);
+  });
   app.get('/apps/listallapps', cache('30 seconds'), (req, res) => {
     appQueryService.listAllApps(req, res);
   });

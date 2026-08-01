@@ -160,3 +160,10 @@ export async function clearStatusUnreadable({ ip = '*', folder }) {
 export async function resetSyncState() {
   return post('/sync-reset');
 }
+
+// Hold a node's folder PATCH calls open, stretching the window in which a
+// masterSlave primary has committed to a component but has not started its
+// container. ms=0 clears.
+export async function setFolderPatchDelay({ ip = '*', ms = 0 }) {
+  return post('/folder-patch-delay', { ip, ms });
+}
