@@ -57,6 +57,7 @@ describe('primary election under a divergent placement order', function () {
   const genesisApp = `e2egenloss${stamp}`;
   const fdmApp = `e2efdmling${stamp}`;
   const windowApp = `e2ewindow${stamp}`;
+  const pairApp = `e2epair${stamp}`;
 
   const countUp = async (appName) => (await Promise.all(
     holders.map((i) => isUp(env.clients[i], appName)),
@@ -245,6 +246,45 @@ describe('primary election under a divergent placement order', function () {
       expect(started, 'nothing ever started').to.equal(1);
     } finally {
       await setFolderPatchDelay({ ms: 0 }).catch(() => {});
+    }
+  });
+
+  it('settles a two-holder app on one writable copy, with the seed off index 0', async function () {
+    this.timeout(420000);
+    // Two holders is the ordinary shape for a g: app, and the one every other suite
+    // installs in parallel - which collapses the two orderings onto the same node
+    // and hides every disagreement between them. Placed one at a time the seed is
+    // index 1, and with only two holders there is no third opinion to fall back on:
+    // whatever the pair decides is the answer.
+    const app = await buildSeedableSyncthingApp({ name: pairApp, mode: 'g' });
+    await pushImage(pairApp, 'v1');
+    await placeGAppInOrder(env, app, {
+      placementOrder: [1, 0],
+      folder: `flux${pairApp}_${pairApp}`,
+      identifier: `${pairApp}_${pairApp}`,
+    });
+
+    const position = await electionIndexOf(env, pairApp, seedIndex);
+    expect(position, 'fixture: the seed must not be index 0, or this is suite 52 again').to.be.greaterThan(0);
+
+    const pair = [0, 1];
+    const pairUp = async () => (await Promise.all(
+      pair.map((i) => isUp(env.clients[i], pairApp)),
+    )).filter(Boolean).length;
+
+    await waitFor(async () => (await pairUp()) >= 1, {
+      timeout: 240000, interval: 3000, label: 'the pair starts the app on one of them',
+    });
+
+    const deadline = Date.now() + 90000;
+    while (Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      const writable = await writableHolders(pairApp);
+      expect(writable.length, `both holders took the writable copy: ${writable.join(', ')}`).to.be.lessThan(2);
+      // eslint-disable-next-line no-await-in-loop
+      expect(await pairUp(), 'both holders ran the component').to.be.lessThan(2);
+      // eslint-disable-next-line no-await-in-loop
+      await sleepUnlessInfraDead(3000);
     }
   });
 
