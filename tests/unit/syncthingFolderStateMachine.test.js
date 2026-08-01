@@ -51,6 +51,8 @@ const appReconcilerMock = {
 const appUninstallerMock = { removeAppLocally: sinon.stub().resolves() };
 // the pre-promotion peer probe (/apps/promotedfolders)
 const axiosMock = { get: sinon.stub() };
+// this node's own connectivity - how it tells a dead peer from its own isolation
+const fluxCommunicationMock = { peerResponsiveness: sinon.stub() };
 
 // a directory entry as fs.readdir({ withFileTypes: true }) returns it
 const dirent = (name, isFile = true) => ({
@@ -70,6 +72,7 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
   // stub new collaborators so the unit test doesn't load the real module graph
   './appReconciler': appReconcilerMock,
   '../appLifecycle/appUninstaller': appUninstallerMock,
+  '../fluxCommunication': fluxCommunicationMock,
   axios: axiosMock,
 });
 
@@ -106,6 +109,10 @@ describe('syncthingFolderStateMachine tests', () => {
     // default: no peer holds a writable copy, so the promotion path is unchanged
     // for every test that is not about this probe
     axiosMock.get.resolves({ data: { data: { ready: true, folders: [] } } });
+    fluxCommunicationMock.peerResponsiveness.reset();
+    // default: this node is evidently well connected, so an unreachable peer reads
+    // as a dead peer rather than as this node's own isolation
+    fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
     appUninstallerMock.removeAppLocally.resolves();
     appReconcilerMock.setControllerDesired.reset();
     appReconcilerMock.requestStopAndClearData.reset();
@@ -460,10 +467,10 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache.restarted).to.be.true;
     });
 
-    it('promotes when the peers cannot be reached, rather than leaving nobody writable', async () => {
-      // Fails open on purpose: a probe that cannot answer must not be able to make
-      // every holder defer, which is the cold-start standoff where nothing seeds and
-      // the app never starts at all.
+    it('promotes over an unreachable peer when this node is evidently well connected', async () => {
+      // A node still trading pings with the fleet is watching one peer fall over,
+      // not sitting in a partition. Deferring there would let a dead node strand the
+      // app with no writable copy anywhere.
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
         numberOfExecutions: 1,
@@ -474,11 +481,81 @@ describe('syncthingFolderStateMachine tests', () => {
         { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
       ]);
       axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
       expect(result.syncthingFolder.type).to.equal('sendreceive');
       expect(result.cache.restarted).to.be.true;
+    });
+
+    it('does not promote over an unreachable peer when this node is the one gone quiet', async () => {
+      // Same failed request, opposite meaning. A node whose own peers have stopped
+      // answering is the one that was cut off, and the holder it cannot reach is
+      // very likely still running on the other side of the split - promoting there
+      // is a second writable copy.
+      //
+      // Read from missed-pong state rather than the peer list on purpose: a socket
+      // survives three missed rounds (~45s) before it is dropped, which lands after
+      // the two confirmed passes (~30-60s) a promotion needs. Missed pongs move
+      // within one ping round (~15s), so the signal arrives before the decision.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 0, total: 8 });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted).to.not.equal(true);
+    });
+
+    it('judges its connectivity proportionally, so a small fleet is not stalled forever', async () => {
+      // An absolute floor would be a fleet size in disguise: a node holding two
+      // peers could never clear a bar written for a node holding twelve, and would
+      // refuse to promote over a genuinely dead holder for good.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 2, total: 2 });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+    });
+
+    it('does not read having no peers at all as evidence of health', async () => {
+      // Nobody to talk to is the isolation case, not a clean bill: this node holds
+      // an app whose other holders demonstrably exist.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 0, total: 0 });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
     });
 
     it('should not self-promote to leader on a single observation (debounce)', async () => {

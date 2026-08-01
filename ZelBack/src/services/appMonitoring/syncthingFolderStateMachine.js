@@ -12,6 +12,7 @@ const serviceHelper = require('../serviceHelper');
 const volumeService = require('../utils/volumeService');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
+const fluxCommunication = require('../fluxCommunication');
 const { socketAddressesMatch, extractIp, extractPort } = require('../utils/socketAddressUtils');
 const {
   LEADER_CONFIRM_COUNT,
@@ -27,6 +28,17 @@ const {
 // Bounded like the election's other peer probe: this runs only on the pass a node
 // is about to promote, and a slow peer must not hold the promotion open.
 const PROMOTED_PROBE_TIMEOUT_MS = 10 * 1000;
+
+// What proportion of this node's peers must still be answering before it will
+// conclude that an unreachable holder is dead rather than that it is itself cut
+// off. A proportion, not a count: an absolute floor is a fleet size in disguise,
+// and a node holding two peers could never clear one written for a node holding
+// twelve - trading a two-hour stall for a permanent one.
+//
+// This detects total isolation, which is what it claims. It does NOT establish
+// that this node is on the majority side of a partial split; no local count can,
+// and pretending otherwise is how the second writer gets made.
+const MIN_RESPONDING_PEER_FRACTION = 0.5;
 
 const { isPathMounted } = volumeService;
 
@@ -388,9 +400,15 @@ function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers =
  * Two answers block, for different reasons, and the difference is the whole point
  * of asking:
  *
- *   UNREACHABLE does not block. The peer may be gone entirely, and a dead node
- *   must never be able to strand an app with no writable copy anywhere - the
- *   cold-start standoff, where every holder defers and nothing seeds.
+ *   UNREACHABLE blocks only while this node cannot show that the silence is the
+ *   peer's and not its own. "That peer is dead" and "I have been cut off" look
+ *   identical from the failed request, and they need opposite answers: the first
+ *   means promote, the second means do not. The node cannot prove a peer is alive
+ *   without agreement, but it can answer whether IT is - a node still exchanging
+ *   pings with the rest of the fleet is watching one node fall over, while a node
+ *   whose peers have all gone quiet is the one that fell over. Once that is
+ *   established the peer is treated as gone, because a dead node must never strand
+ *   an app with no writable copy anywhere.
  *
  *   UNREADY does block, with no bound and none needed. The peer is alive and
  *   saying it cannot answer yet, which is a live node that may already be holding.
@@ -426,17 +444,34 @@ async function findPeerBlockingPromotion(appId, peers, localSocketAddr) {
       const folders = answer.folders;
       return { ip: peer.ip, holding: Array.isArray(folders) && folders.includes(appId), ready: true };
     } catch (error) {
-      // unreachable - fails open, see the note above
       log.info(`findPeerBlockingPromotion - ${appId}: could not read ${ip}: ${error.message}`);
-      return null;
+      return { ip: peer.ip, unreachable: true };
     }
   });
 
-  const answers = (await Promise.all(probes)).filter(Boolean);
+  const answers = await Promise.all(probes);
   const holder = answers.find((answer) => answer.holding);
   if (holder) return { ip: holder.ip, reason: 'already holds the writable copy' };
-  const unready = answers.find((answer) => !answer.ready);
+  const unready = answers.find((answer) => !answer.unreachable && !answer.ready);
   if (unready) return { ip: unready.ip, reason: 'has not determined its folder state yet' };
+
+  const unreachable = answers.find((answer) => answer.unreachable);
+  if (unreachable) {
+    // Whose silence is it? A node still trading pings with the fleet is watching a
+    // peer die; a node whose own peers have gone quiet is the one that is cut off,
+    // and must not promote over a holder that is very likely still running on the
+    // other side of the split.
+    const { responding, total } = fluxCommunication.peerResponsiveness();
+    // No peers at all is not evidence of health: this node holds an app whose other
+    // holders exist, so having nobody to talk to is itself the isolation case.
+    const connected = total > 0 && responding >= Math.ceil(total * MIN_RESPONDING_PEER_FRACTION);
+    if (!connected) {
+      return {
+        ip: unreachable.ip,
+        reason: `is unreachable, and only ${responding} of this node's ${total} peers are answering - it cannot tell that peer apart from its own isolation`,
+      };
+    }
+  }
   return null;
 }
 
