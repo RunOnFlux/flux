@@ -96,13 +96,18 @@ describe('a partitioned g: app converges back to one primary on heal', function 
     await env?.teardown();
   });
 
-  it('settles on the seed before the split, with the seed off index 0', async function () {
+  it('settles on exactly one holder before the split, with the seed off index 0', async function () {
     this.timeout(300000);
     const position = await electionIndexOf(env, appName, seedIndex);
     expect(position, 'fixture: seed must be off index 0 for the split to be interesting').to.be.greaterThan(0);
 
-    await waitFor(() => isUp(env.clients[seedIndex], appName), {
-      timeout: 180000, interval: 3000, label: 'seed becomes the pre-partition primary',
+    // WHICH holder is not the invariant, and asserting the seed specifically was
+    // wrong: a node promotes only if no peer already holds the writable copy, so the
+    // first holder placed takes it while it is briefly the only one it knows of, and
+    // the lowest-IP seed then correctly defers to it. Exactly one is the property
+    // that matters, and the one the partition below is interesting against.
+    await waitFor(async () => (await countUp()) >= 1, {
+      timeout: 180000, interval: 3000, label: 'one holder becomes the pre-partition primary',
     });
 
     // Held, not sampled. A peer can start seconds behind the seed while it is still

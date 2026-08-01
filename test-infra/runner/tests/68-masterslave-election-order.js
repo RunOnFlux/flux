@@ -337,13 +337,19 @@ describe('primary election under a divergent placement order', function () {
     expect(position, 'fixture: seed must be off index 0').to.be.greaterThan(0);
 
     const folder = `flux${fdmApp}_${fdmApp}`;
-    // A node FDM names must be able to run it: pin the holder above the seed synced.
-    const above = holders[holders.length - 1];
-    await setSynced({ ip: subnet.nodeIp(above + 1), folder });
-    await electMaster(fdmApp, env.clients[above].ip);
-    await waitFor(() => isUp(env.clients[above], fdmApp), {
-      timeout: 180000, interval: 3000, label: 'FDM-named primary runs',
+    await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder })));
+
+    // FDM is named AFTER discovering which holder actually runs it, because that is
+    // all FDM ever does - it asks each candidate "are you running the container?"
+    // and takes the first yes. Dictating a primary that is not running is a state
+    // production cannot reach, and asserting on the fallout tests the fixture.
+    await waitFor(async () => (await countUp(fdmApp)) >= 1, {
+      timeout: 240000, interval: 3000, label: 'a holder starts the app',
     });
+    const runningFlags = await Promise.all(holders.map((i) => isUp(env.clients[i], fdmApp)));
+    const primary = holders[runningFlags.indexOf(true)];
+    expect(primary, 'fixture: a holder must be running before FDM can name one').to.not.equal(undefined);
+    await electMaster(fdmApp, env.clients[primary].ip);
 
     // FDM goes quiet while its primary keeps running - its registration lag is a
     // routine state, not an exotic one. The seed must not read that silence as
@@ -352,10 +358,10 @@ describe('primary election under a divergent placement order', function () {
     const deadline = Date.now() + 120000;
     while (Date.now() < deadline) {
       // eslint-disable-next-line no-await-in-loop
-      expect(await countUp(fdmApp), 'the seed started alongside the running FDM primary').to.equal(1);
+      expect(await countUp(fdmApp), 'a second holder started alongside the running primary').to.equal(1);
       // eslint-disable-next-line no-await-in-loop
       await sleepUnlessInfraDead(3000);
     }
-    expect(await isUp(env.clients[seedIndex], fdmApp), 'the seed must still be down').to.equal(false);
+    expect(await isUp(env.clients[primary], fdmApp), 'the running primary must still be the one up').to.equal(true);
   });
 });

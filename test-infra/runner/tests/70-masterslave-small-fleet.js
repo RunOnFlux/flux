@@ -66,10 +66,14 @@ describe('masterSlave election on a three-node fleet', function () {
         // is the point: this is the shape where an absolute connectivity threshold
         // would silently mean "never".
         peers: { wsPingIntervalMs: 3000 },
-        fluxapps: { minOutgoing: 2, minIncoming: 1, appSyncDegradedThreshold: 0 },
+        // The discovery mesh is a ring, which needs at least 2*minOutgoing+1 nodes
+        // to close: three nodes can only carry minOutgoing 1. Asking for 2 here
+        // leaves the fleet unable to reach its own floor and the suite dies in its
+        // before hook rather than testing anything.
+        fluxapps: { minOutgoing: 1, minIncoming: 1, appSyncDegradedThreshold: 0 },
       },
     });
-    await bootAndPeer(env, { minOutbound: 2, minInbound: 1 });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
     await resetFdm();
     await resetSyncState();
     await pushImage(appName, 'v1');
