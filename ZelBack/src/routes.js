@@ -376,13 +376,20 @@ module.exports = (app) => {
   app.get('/apps/listrunningapps', cache('15 seconds'), (req, res) => {
     appQueryService.listRunningApps(req, res);
   });
-  // deliberately uncached - the primary election reads this to decide whether a
-  // peer already holds a component, and a stale answer starts a second writer
-  app.get('/apps/heldcomponents', (req, res) => {
+  // Read by peers mid-election. Both are unauthenticated, and the API has no rate
+  // limiting, so neither may do unbounded backend work per request.
+  //
+  // heldcomponents still lists docker containers: a component's commitment is
+  // in-memory and a FluxOS restart drops it while the container keeps running, so
+  // docker is the only thing that answers for a primary that outlived the process
+  // holding its intent. Cached at one second - long enough to bound an anonymous
+  // caller to one docker call a second, short enough to be meaningless against the
+  // tens of seconds this exists to cover.
+  app.get('/apps/heldcomponents', cache('1 second'), (req, res) => {
     appQueryService.heldComponents(req, res);
   });
-  // likewise: read before a folder is promoted, to find a peer that already holds
-  // the writable copy
+  // promotedfolders needs no cache: it is served from the set the syncthing monitor
+  // already refreshes each pass, so the request touches nothing.
   app.get('/apps/promotedfolders', (req, res) => {
     appQueryService.promotedFolders(req, res);
   });

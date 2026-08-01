@@ -42,6 +42,13 @@ const runningAppsCache = new Set();
 // Containers intentionally stopped by FluxOS — crash recovery skips die events for these
 const stoppingContainers = new Set();
 
+// Syncthing folders this node holds writable (sendreceive), refreshed by the
+// syncthing monitor each pass and served to peers that ask before promoting a
+// folder of their own. Kept here rather than read from syncthing per request:
+// the route is unauthenticated, and an on-demand read would be an amplifier into
+// syncthing on a node any peer can reach.
+let promotedFolderIds = new Set();
+
 
 // Cache references - these will be initialized from cacheManager
 let spawnErrorsLongerAppCache = null;
@@ -120,6 +127,8 @@ module.exports = {
   get appsToBeCheckedLater() { return appsToBeCheckedLater; },
   get appsSyncthingToBeCheckedLater() { return appsSyncthingToBeCheckedLater; },
   get receiveOnlySyncthingAppsCache() { return receiveOnlySyncthingAppsCache; },
+  get promotedFolderIds() { return promotedFolderIds; },
+  set promotedFolderIds(ids) { promotedFolderIds = ids; },
   get syncthingDevicesIDCache() { return syncthingDevicesIDCache; },
   get folderHealthCache() { return folderHealthCache; },
   get runningAppsCache() { return runningAppsCache; },

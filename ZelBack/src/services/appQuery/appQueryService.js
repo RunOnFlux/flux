@@ -4,7 +4,6 @@ const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
-const syncthingService = require('../syncthingService');
 const appConstants = require('../utils/appConstants');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -275,7 +274,11 @@ async function heldComponents(req, res) {
  * type is local syncthing config, and at genesis the promoted node has no data
  * yet, so the has-data signal is silent exactly when it is needed.
  *
- * Uncached - a stale answer here is a second writable copy.
+ * Served from the set the syncthing monitor refreshes each pass, not by reading
+ * syncthing per request: the route is unauthenticated and reachable by any peer,
+ * so an on-demand read would be an amplifier into syncthing, and the API has no
+ * rate limiting of its own. It is also then O(1), so it needs no response cache
+ * and carries no staleness beyond one monitor pass.
  *
  * @param {object} req Request.
  * @param {object} res Response.
@@ -283,11 +286,9 @@ async function heldComponents(req, res) {
  */
 async function promotedFolders(req, res) {
   try {
-    const folders = messageHelper.dataOrThrow(await syncthingService.getConfigFolders());
-    const promoted = (folders || [])
-      .filter((folder) => folder.type === 'sendreceive')
-      .map((folder) => folder.id);
-    const response = messageHelper.createDataMessage(promoted);
+    // eslint-disable-next-line global-require
+    const globalState = require('../utils/globalState');
+    const response = messageHelper.createDataMessage([...globalState.promotedFolderIds]);
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);

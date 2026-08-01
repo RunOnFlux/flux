@@ -434,6 +434,48 @@ describe('appQueryService tests', () => {
     });
   });
 
+  describe('promotedFolders', () => {
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
+
+    afterEach(() => {
+      globalState.promotedFolderIds = new Set();
+    });
+
+    it('reports the folders this node holds writable, from the monitor set', async () => {
+      globalState.promotedFolderIds = new Set(['fluxa_a', 'fluxb_b']);
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      const result = await appQueryService.promotedFolders();
+
+      expect(result).to.deep.equal(['fluxa_a', 'fluxb_b']);
+    });
+
+    it('touches no backend, so an anonymous caller cannot amplify into syncthing', async () => {
+      // The route is unauthenticated and the API has no rate limiting, so this
+      // must answer from memory rather than reading syncthing per request.
+      globalState.promotedFolderIds = new Set(['fluxa_a']);
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      await appQueryService.promotedFolders();
+
+      expect(dockerServiceStub.dockerListContainers.called).to.be.false;
+    });
+
+    it('drops a folder that is no longer promoted', async () => {
+      // The monitor replaces the set wholesale from the folder config each pass, so
+      // a demotion or an uninstall leaves by simply not being rebuilt - there is no
+      // separate removal path that could be missed.
+      globalState.promotedFolderIds = new Set(['fluxa_a', 'fluxb_b']);
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      globalState.promotedFolderIds = new Set(['fluxa_a']); // b demoted to receiveonly
+      const result = await appQueryService.promotedFolders();
+
+      expect(result).to.deep.equal(['fluxa_a']);
+    });
+  });
+
   describe('listAllApps', () => {
     it('should return all flux apps including stopped ones', async () => {
       const mockContainers = [

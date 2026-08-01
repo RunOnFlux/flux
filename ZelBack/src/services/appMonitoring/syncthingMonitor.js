@@ -8,6 +8,7 @@ const dockerService = require('../dockerService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
+const globalState = require('../utils/globalState');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const {
@@ -459,6 +460,17 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       }
       return;
     }
+
+    // Publish which folders this node holds writable, for the peers that ask before
+    // promoting one of their own. Recorded here rather than read on demand: the
+    // answer is a byproduct of a pass the monitor already makes, so serving it costs
+    // nothing, where an endpoint calling syncthing per request would be an
+    // unauthenticated amplifier into it. Replaced only by a validated response, so a
+    // failed read leaves the last good answer standing rather than momentarily
+    // claiming this node holds nothing writable.
+    globalState.promotedFolderIds = new Set(
+      allFoldersResp.data.filter((folder) => folder.type === 'sendreceive').map((folder) => folder.id),
+    );
 
     if (allDevicesResp?.status !== 'success' || !Array.isArray(allDevicesResp.data)) {
       if (state.syncthingAppsFirstRun) {
