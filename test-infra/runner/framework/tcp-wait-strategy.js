@@ -1,5 +1,5 @@
 import net from 'node:net';
-import { throwIfInfraDead } from './infra-death.js';
+import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 
 // A testcontainers WaitStrategy that polls a TCP host:port until it accepts a
 // connection, bypassing Docker's health state machine entirely.
@@ -64,7 +64,7 @@ export class TcpPollWaitStrategy {
       // eslint-disable-next-line no-await-in-loop
       if (await this.#tryConnect()) return;
       // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => setTimeout(r, this.#pollIntervalMs));
+      await sleepUnlessInfraDead(this.#pollIntervalMs);
     }
     throw new Error(`TcpPollWaitStrategy: ${this.#host}:${this.#port} not accepting connections after ${this.#startupTimeoutMs}ms`);
   }

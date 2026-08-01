@@ -15,6 +15,7 @@ import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
   waitForReconcileActuated,
 } from './wait.js';
+import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
 import { setSynced } from './syncthing-control.js';
 import { execInContainer } from './container.js';
@@ -205,7 +206,7 @@ export async function waitForInstanceCount(env, appName, target, {
   let last = await installedInstanceIndices(env, appName);
   while (Date.now() < deadline) {
     // eslint-disable-next-line no-await-in-loop
-    await new Promise((r) => { setTimeout(r, interval); });
+    await sleepUnlessInfraDead(interval);
     // eslint-disable-next-line no-await-in-loop
     const now = await installedInstanceIndices(env, appName);
     if (now.length !== target) {
@@ -213,6 +214,9 @@ export async function waitForInstanceCount(env, appName, target, {
     }
     last = now;
   }
+  // A count that "held" over an env that died during the window must not read
+  // as a pass - nodes keep answering from memory over a dead env.
+  throwIfInfraDead();
   return last;
 }
 

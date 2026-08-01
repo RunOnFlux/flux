@@ -50,6 +50,23 @@ export function clearInfraDeath() {
   handlers.clear();
 }
 
+// The one way the framework sleeps inside a poll loop. Rejects immediately if a
+// death is already recorded, and rejects AT a death that lands mid-sleep - so
+// consulting the kill switch is a property of the primitive rather than a
+// convention each loop re-implements (the convention already failed once: a
+// hand-rolled stability window slept through a death and passed its suite over
+// a dead env). What this cannot do is stop a conclusion being drawn from an
+// observation made while the env died - nodes answer from memory - so a loop
+// still calls throwIfInfraDead() between observing and concluding.
+export function sleepUnlessInfraDead(ms) {
+  if (death) return Promise.reject(death);
+  return new Promise((resolve, reject) => {
+    const onDeath = (error) => { clearTimeout(timer); reject(error); };
+    const timer = setTimeout(() => { offInfraDeath(onDeath); resolve(); }, ms);
+    onInfraDeath(onDeath);
+  });
+}
+
 // Waits parked on a listener or a timer register here so they can be rejected AT
 // the death rather than at their own deadline. Callers must check
 // infraDeathError() first: the switch fires once, so a handler registered after

@@ -1,4 +1,4 @@
-import { throwIfInfraDead } from './infra-death.js';
+import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 
 // A testcontainers WaitStrategy that polls an HTTP URL until it responds OK,
 // bypassing Docker's health state machine entirely.
@@ -68,7 +68,7 @@ export class HttpPollWaitStrategy {
       } catch {
         // not serving yet — keep polling until the deadline
       }
-      await new Promise((r) => setTimeout(r, this.#pollIntervalMs));
+      await sleepUnlessInfraDead(this.#pollIntervalMs);
     }
     throw new Error(`HttpPollWaitStrategy: ${this.#url} not ready after ${this.#startupTimeoutMs}ms`);
   }
