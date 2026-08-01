@@ -155,10 +155,16 @@ describe('placement honours region pins on proof from the shared table', functio
     // region through it, so a node still without it refuses a region-pinned app
     // and the convergence scenarios would race the ingest.
     this.timeout(420000);
-    // Six nodes and suite 63's mesh, unchanged: six is what spans three
-    // organisations on consecutive addresses from .10, and the thresholds below
-    // are configured to the fleet rather than the fleet grown to the thresholds.
-    env = await createTestEnv({ hookCtx: this, nodes: 6, tickerAutostart: false });
+    // Six nodes and suite 63's mesh: six is what spans three organisations on
+    // consecutive addresses from .10, and a six-ring needs the lowered mesh
+    // (2*minOutgoing+1 <= nodes - the ten-node dial pattern wraps onto mutual
+    // pairs that de-duplicate below the peer wait's floor).
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 6,
+      tickerAutostart: false,
+      configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1 } },
+    });
 
     // Three organisations WITH regions, published before the nodes boot so
     // their first fetch already carries them. Organisations 0 and 1 carry a
@@ -194,7 +200,8 @@ describe('placement honours region pins on proof from the shared table', functio
     expect(splitContinents.size, 'the split countries share one continent, so a continent allow admits the whole fleet').to.equal(1);
     [fleetContinent] = [...splitContinents];
 
-    await bootAndPeer(env);
+    // a six-ring with minOutgoing 2 has no mutual pairs: two each way, exactly
+    await bootAndPeer(env, { minOutbound: 2, minInbound: 2 });
     await pushTestApp(GATE_IMAGE);
     [node] = env.clients;
 
