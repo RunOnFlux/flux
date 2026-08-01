@@ -30,7 +30,21 @@ describe('placement share spreads synced instances across table fault domains', 
 
   before(async function () {
     this.timeout(360000);
-    env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
+    // Six nodes, not ten: with three organisations and three instances the
+    // share is ONE per domain, so exactly three specific nodes may install and
+    // no other node can substitute for a slow one - this is the slowest
+    // convergence pattern in the suite set. Six still spans three
+    // organisations (.10-.15 round-robin) while costing four fewer node boots.
+    // The shared mesh minimums are sized for the ten-node fleets: a six-ring
+    // dialling i+1..i+4 wraps onto mutual pairs that de-duplicate into single
+    // connections, so four outbound is never reached (the ring needs
+    // 2*minOutgoing+1 <= nodes). Lower the mesh to what six satisfies.
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 6,
+      tickerAutostart: false,
+      configOverrides: { fluxapps: { minOutgoing: 2, minIncoming: 1 } },
+    });
     // three organisations across the fleet's /24, published before the nodes
     // boot so their first fetch already carries the split
     const response = await fetch(`${env.stubControl}/iplocation`, {
@@ -39,7 +53,9 @@ describe('placement share spreads synced instances across table fault domains', 
       body: JSON.stringify({ domains: 3, subnet: getSubnetConfig().base }),
     });
     expect(response.ok, 'stub accepted the split artifact').to.equal(true);
-    await bootAndPeer(env);
+    // in a six-ring with minOutgoing 2 there are no mutual pairs, so every
+    // node settles at exactly two connections in each direction
+    await bootAndPeer(env, { minOutbound: 2, minInbound: 2 });
   });
 
   after(async function () {
