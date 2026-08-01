@@ -359,6 +359,9 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('sendreceive');
       expect(result.cache.restarted).to.be.true;
+      // the confirmed designation is published through the shared cache -
+      // masterSlaveApps reads it to skip the genesis index stagger
+      expect(result.cache.designatedLeader).to.be.true;
       // the start is now declared to the reconciler, not done imperatively here
       sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
     });
@@ -384,6 +387,33 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, sinon.match.any, 'running');
       expect(result.cache.restarted).to.not.equal(true);
       expect(result.cache.leaderStreak).to.equal(1);
+      // unconfirmed leadership must not claim the stagger skip
+      expect(result.cache.designatedLeader).to.be.false;
+    });
+
+    it('withdraws the designated-leader claim when the election is lost', async () => {
+      // a node that was on a leader streak but loses the election (a peer now
+      // serves) must retract designatedLeader - a stale claim would let it
+      // skip the primary-selection stagger it no longer deserves
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 3,
+        designatedLeader: false,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '9.0.0.1:16127', runningSince: 1000, broadcastedAt: 900 },
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 1000, inSyncBytes: 500, state: 'syncing' },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.cache.leaderStreak).to.equal(0);
+      expect(result.cache.designatedLeader).to.be.false;
     });
 
     it('should let a confirmed leader start even while stall evidence is accumulating', async () => {

@@ -633,6 +633,11 @@ async function handleReceiveOnlyTransition(params) {
   const electedLeader = isDesignatedLeader(runningAppList, localSocketAddr, aPeerHasData || !folderIsEmpty);
   cache.leaderStreak = electedLeader ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
+  // The confirmed designation is readable by masterSlaveApps through this
+  // shared cache: the genesis seed skips the primary-selection index stagger
+  // (nothing below it can become ready before it starts). Updated every
+  // unpromoted pass, so a lost election withdraws the claim.
+  cache.designatedLeader = isLeader;
 
   // RESIDUAL LIMITATION (architectural - this election is a heuristic, not consensus):
   // a confirmed leader is the cold-start seed and flips to sendreceive WITHOUT a sync

@@ -3987,6 +3987,20 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - lower-index node is already running`);
                     timeTostartNewMasterApp.delete(identifier);
                   }
+                } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)
+                  && receiveOnlySyncthingAppsCache.get(appId)?.designatedLeader) {
+                  // The state machine's confirmed designated leader is the only
+                  // instance that can seed a newborn app: at genesis every other
+                  // instance is receiveonly with nothing to sync from, so serving
+                  // the index stagger would wait on nodes that provably cannot
+                  // become ready. Start now - the lower-index running check still
+                  // guards the case where someone genuinely beat us to it.
+                  // eslint-disable-next-line no-await-in-loop
+                  const lowerNodeRunning = await checkLowerIndexNodesRunning();
+                  if (!lowerNodeRunning) {
+                    requestMasterStartWithPermissionsFix(identifier, appId);
+                    log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} - designated leader seeds without the index stagger`);
+                  }
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)) {
                   // Non-primary node with no history - schedule start based on index
                   const timetoStartApp = Date.now() + (index * 3 * 60 * 1000);
