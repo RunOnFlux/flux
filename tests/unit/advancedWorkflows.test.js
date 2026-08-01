@@ -635,7 +635,14 @@ describe('advancedWorkflows tests', () => {
 
     // Shared fixture for the recovery tests below: a v3 g: app with this node in
     // the location list. `peers` are the other nodes, in election order.
-    const electionFixture = (appName, peers = []) => {
+    // `selfRunningSince` places this node in the election order; `receiveOnlyCache`
+    // lets a test seed the syncthing state machine's per-app cache and inspect it
+    // afterwards. Both default to the plain index-0 fixture.
+    const electionFixture = (appName, peers = [], options = {}) => {
+      const {
+        selfRunningSince = '2026-01-01T00:00:00.000Z',
+        receiveOnlyCache = new Map(),
+      } = options;
       // Mirror getAppIdentifier: a name that is neither zel- nor flux-prefixed gets
       // `flux`. The container names peers report are this exact string, and the
       // election compares whole names, so a stand-in value would not match.
@@ -646,14 +653,15 @@ describe('advancedWorkflows tests', () => {
         data: [{ name: appName, version: 3, containerData: 'g:/syncdata' }],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const receiveOnlyCache = new Map();
-      receiveOnlyCache.set(appId, { restarted: true });
+      if (!receiveOnlyCache.has(appId)) receiveOnlyCache.set(appId, { restarted: true });
       fluxNetworkHelperStub.resolves('192.168.1.5:16127');
       // Election order is runningSince ascending, with ip only as a tiebreak. Give
-      // explicit, distinct timestamps so this node is unambiguously index 0 on the
-      // primary key rather than relying on how two IPs happen to sort as strings.
+      // explicit, distinct timestamps so this node's index rests on the primary key
+      // rather than on how two IPs happen to sort as strings. Peers are one minute
+      // apart from 00:01, so a selfRunningSince between two of them puts this node
+      // between those peers - the only arrangement with a peer ABOVE us.
       registryManagerStub.resolves([
-        { name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' },
+        { name: appName, ip: '192.168.1.5:16127', runningSince: selfRunningSince },
         ...peers.map((ip, n) => ({ name: appName, ip, runningSince: `2026-01-01T00:0${n + 1}:00.000Z` })),
       ]);
       syncthingServiceStub.resolves({
@@ -814,6 +822,69 @@ describe('advancedWorkflows tests', () => {
 
       expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    it('probes every peer, not just lower-index ones, before a designated leader leaves the stagger', async () => {
+      // The seed claim exists precisely to leave the index stagger, so the
+      // lower-index probe that serialises the staggered starts is the wrong set
+      // to ask: a peer ABOVE us in the order is the one it cannot see, and FDM's
+      // registration lag means nothing else reports that peer as live either.
+      // Starting anyway puts a second writer on the syncthing-shared volume.
+      const appName = 'seedjumpapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const cache = new Map([[`flux${appName}`, { restarted: true, designatedLeader: true }]]);
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127'],
+        { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
+      );
+      serviceHelperStub.resolves({ data: [] }); // FDM: no primary registered yet
+
+      // Order: .90 (00:01), .91 (00:02), this node (00:02:30), .92 (00:03). Only
+      // .92 - the peer above us, invisible to a lower-index probe - is running it.
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(async (url) => (url.includes('192.168.1.92')
+        ? { data: { data: [{ Names: [`/flux${appName}`] }] } }
+        : { data: { data: [] } }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('spends the seed claim on the pass that uses it, so it cannot outlive genesis', async () => {
+      // designatedLeader describes genesis, and the state machine stops
+      // republishing it the moment the folder goes sendreceive - manageFolderSyncState
+      // returns on its already-syncing branch and never reaches the election again,
+      // so nothing retracts a claim left standing. This node would then skip the
+      // stagger on every later primary loss, for the life of the process.
+      const appName = 'seedspentapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const appId = `flux${appName}`;
+      const cache = new Map([[appId, { restarted: true, designatedLeader: true }]]);
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
+      );
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.resolves({ data: { data: [] } }); // no peer is running it
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'seeds without the index stagger')).to.have.lengthOf(1);
+      expect(cache.get(appId).designatedLeader).to.equal(false);
+
+      // and the next pass is an ordinary staggered candidate again
+      logInfo.resetHistory();
+      await runPass();
+
+      expect(linesMatching(logInfo, 'seeds without the index stagger')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
     });
 
     it('probes every peer at once, so an unreachable fleet costs one timeout and not N', async () => {

@@ -3993,14 +3993,30 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // instance that can seed a newborn app: at genesis every other
                   // instance is receiveonly with nothing to sync from, so serving
                   // the index stagger would wait on nodes that provably cannot
-                  // become ready. Start now - the lower-index running check still
-                  // guards the case where someone genuinely beat us to it.
+                  // become ready.
+                  //
+                  // Every peer is probed, not just the lower-index ones. A
+                  // lower-only check belongs to the staggered starts, where index
+                  // order is what serialises the candidates; this branch exists
+                  // precisely to leave that order, so it starts as blind as an
+                  // index-0 start does and needs the same 'all' scope.
                   // eslint-disable-next-line no-await-in-loop
-                  const lowerNodeRunning = await checkLowerIndexNodesRunning();
-                  if (!lowerNodeRunning) {
+                  const peerRunning = await checkPeersRunning('all');
+                  if (peerRunning) {
+                    log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - a peer is already running it`);
+                  } else {
                     requestMasterStartWithPermissionsFix(identifier, appId);
                     log.info(`masterSlaveApps: starting docker component:${identifier} index: ${index} - designated leader seeds without the index stagger`);
                   }
+                  // The seed claim is spent here either way: it describes genesis,
+                  // and genesis happens once. Nothing else retracts it - the state
+                  // machine stops republishing it the moment the folder goes
+                  // sendreceive, because manageFolderSyncState then returns on its
+                  // already-syncing branch and never reaches the election again -
+                  // so a claim left standing would outlive the newborn app and take
+                  // this node out of the stagger on every later primary loss.
+                  const seedCache = receiveOnlySyncthingAppsCache.get(appId);
+                  if (seedCache) seedCache.designatedLeader = false;
                 } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)) {
                   // Non-primary node with no history - schedule start based on index
                   const timetoStartApp = Date.now() + (index * 3 * 60 * 1000);
