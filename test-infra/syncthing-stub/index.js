@@ -65,7 +65,11 @@ function reqState(req) {
 //
 //   syncOverrides:       `${ip}|${folder}`          -> { state, globalBytes, inSyncBytes }
 //   completionOverrides: `${ip}|${folder}|${device}`-> completion (0-100)
+//                        or { completion, remoteState, globalBytes }
 // ip may be '*' (any node) and device may be '*' (any peer); exact keys win.
+// With no declaration at all, db/status reads empty and db/completion reads
+// "no evidence" (completion 0, remoteState unknown) - an undeclared cluster
+// must never testify to a synced peer.
 const syncOverrides = new Map();
 const completionOverrides = new Map(); // value: number (completion) or { completion, remoteState }
 
@@ -98,6 +102,7 @@ function lookupSync(ip, folder) {
 function lookupCompletion(ip, folder, device) {
   return completionOverrides.get(`${ip}|${folder}|${device}`)
     ?? completionOverrides.get(`${ip}|${folder}|*`)
+    ?? completionOverrides.get(`*|${folder}|${device}`)
     ?? completionOverrides.get(`*|${folder}|*`);
 }
 
@@ -405,11 +410,22 @@ app.get('/rest/db/browse', (req, res) => {
 
 app.get('/rest/db/completion', (req, res) => {
   const override = lookupCompletion(clientIp(req), req.query.folder || '', req.query.device || '');
-  const completion = (typeof override === 'object' ? override?.completion : override) ?? 100;
+  // No declared cluster state = NO evidence of a synced peer. The old default
+  // (completion 100, remoteState valid, 100000 bytes) paired with the local
+  // db/status default (empty) is a state real syncthing cannot produce - a
+  // connected synced peer whose index never arrived locally - and it is
+  // exactly the cannot-ingest signature the folder state machine self-evicts
+  // on: both instances of a spawner-path app once removed themselves in the
+  // same cycle, each pointing at the other's accidental testimony. Peer
+  // evidence now comes only from declared state: /sync-state (the declaring
+  // node becomes the folder's source) or /peer-completion.
+  const completion = (typeof override === 'object' ? override?.completion : override) ?? 0;
   // 'valid' = connected peer (the production trust rule only believes those);
   // overridable to 'unknown' to model a disconnected peer's stale index
-  const remoteState = (typeof override === 'object' ? override?.remoteState : undefined) ?? 'valid';
-  const globalBytes = 100000;
+  const remoteState = (typeof override === 'object' ? override?.remoteState : undefined)
+    ?? (override !== undefined ? 'valid' : 'unknown');
+  const globalBytes = (typeof override === 'object' ? override?.globalBytes : undefined)
+    ?? (override !== undefined ? 100000 : 0);
   const needBytes = Math.round((globalBytes * (100 - completion)) / 100);
   res.json({
     completion, globalBytes, needBytes, globalItems: 0, needItems: 0, needDeletes: 0, remoteState, sequence: 1,
@@ -637,6 +653,21 @@ control.post('/sync-state', (req, res) => {
   syncOverrides.set(`${ip}|${folder}`, {
     state, globalBytes, inSyncBytes, receiveOnlyChangedFiles, statusUnreadable,
   });
+  // A declared sync state is also the folder's peer evidence: when OTHER
+  // nodes ask db/completion about this folder, the declaring node is a
+  // connected source at exactly the declared progress (setSynced -> a valid
+  // 100% source, setSyncing 40 -> a valid 40% one). Without this, peer
+  // evidence could only come from the old always-synced default - an
+  // accidental witness no real cluster produces (see /rest/db/completion).
+  // An unreadable-status declaration testifies to nothing.
+  if (!statusUnreadable) {
+    const sourceDevice = ip === '*' ? '*' : nodeState(ip).deviceID;
+    completionOverrides.set(`*|${folder}|${sourceDevice}`, {
+      completion: globalBytes > 0 ? Math.round((inSyncBytes / globalBytes) * 100) : 0,
+      remoteState: 'valid',
+      globalBytes,
+    });
+  }
   return res.json({ ok: true });
 });
 
