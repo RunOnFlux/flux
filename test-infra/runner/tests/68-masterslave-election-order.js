@@ -52,12 +52,25 @@ describe('primary election under a divergent placement order', function () {
   const placementOrder = [1, 0, 2];
   const stamp = Date.now();
 
-  // one app per scenario, all on the one fleet
+  // One app per scenario, all on the one fleet - and one PORT per app. All five
+  // apps land on the same three holders, and a node can bind a port once: the
+  // spawner would never co-locate two apps declaring the same port, but
+  // placeGAppInOrder force-places and bypasses that check. On the shared default
+  // port the apps play musical chairs - every restart of one fails on the port a
+  // sibling holds, stop-history accumulates, and the restart backoff climbs into
+  // minutes, which reads as an election failure and is nothing of the sort.
   const orderApp = `e2eorder${stamp}`;
   const genesisApp = `e2egenloss${stamp}`;
   const fdmApp = `e2efdmling${stamp}`;
   const windowApp = `e2ewindow${stamp}`;
   const pairApp = `e2epair${stamp}`;
+  const appPorts = {
+    [orderApp]: 31111,
+    [genesisApp]: 31112,
+    [fdmApp]: 31113,
+    [windowApp]: 31114,
+    [pairApp]: 31115,
+  };
 
   const countUp = async (appName) => (await Promise.all(
     holders.map((i) => isUp(env.clients[i], appName)),
@@ -77,7 +90,7 @@ describe('primary election under a divergent placement order', function () {
 
   const deploy = async (appName) => {
     await pushImage(appName, 'v1');
-    const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g' });
+    const app = await buildSeedableSyncthingApp({ name: appName, mode: 'g', ports: [appPorts[appName]] });
     await placeGAppInOrder(env, app, {
       placementOrder,
       folder: `flux${appName}_${appName}`,
@@ -112,15 +125,21 @@ describe('primary election under a divergent placement order', function () {
     expect(position, 'seed landed last - no peer above it, so a lower-index probe would suffice').to.be.lessThan(holders.length - 1);
   });
 
-  it('starts the newborn app on the seed without serving the index stagger', async function () {
+  it('starts the newborn app without serving the index stagger', async function () {
     this.timeout(240000);
-    // The seed is the only holder that CAN seed: the others are receiveonly with
-    // nothing to sync from. At index > 0 the plain stagger would hold it down for
-    // index * 3 minutes first, waiting on nodes that provably cannot become ready.
-    // 100s is comfortably inside that budget and comfortably outside a normal start.
+    // WHICH holder starts is the election's decision, not the fixture's, and there
+    // are two legitimate winners: the first-placed node seeds while it is briefly
+    // the only holder it knows of, or - when the placements land inside its confirm
+    // window - the lowest-IP seed wins the full-list election and starts on its
+    // confirmed designation. Which one it is comes down to broadcast timing, so
+    // naming a node here would pin a race, not a behaviour. What genesis promises
+    // either way: the app starts well inside the index stagger (index * 3 minutes -
+    // the winner never legitimately waits on peers that are receiveonly with
+    // nothing to sync from), and exactly one holder starts. 100s is comfortably
+    // inside the smallest non-zero stagger and comfortably outside a normal start.
     await waitFor(
-      () => isUp(env.clients[seedIndex], orderApp),
-      { timeout: 100000, interval: 3000, label: 'seed starts well inside its index stagger' },
+      async () => (await countUp(orderApp)) >= 1,
+      { timeout: 100000, interval: 3000, label: 'a holder starts well inside the index stagger' },
     );
     expect(await countUp(orderApp), 'more than one holder started at genesis').to.equal(1);
   });
@@ -287,7 +306,7 @@ describe('primary election under a divergent placement order', function () {
     // and hides every disagreement between them. Placed one at a time the seed is
     // index 1, and with only two holders there is no third opinion to fall back on:
     // whatever the pair decides is the answer.
-    const app = await buildSeedableSyncthingApp({ name: pairApp, mode: 'g' });
+    const app = await buildSeedableSyncthingApp({ name: pairApp, mode: 'g', ports: [appPorts[pairApp]] });
     await pushImage(pairApp, 'v1');
     await placeGAppInOrder(env, app, {
       placementOrder: [1, 0],
@@ -385,14 +404,23 @@ describe('primary election under a divergent placement order', function () {
     // FDM goes quiet while its primary keeps running - its registration lag is a
     // routine state, not an exotic one. The seed must not read that silence as
     // permission to start alongside.
+    //
+    // The watch pins the subject - no SECOND holder - and not continuous uptime:
+    // the reconciler may legitimately blip the primary's container mid-window (a
+    // detached-endpoint recreate, a restart backoff), and its commitment keeps
+    // peers deferring throughout, so a dip to zero is recovery in progress, not a
+    // second writer. What must then hold is that the same primary comes back.
     await clearMaster(fdmApp);
     const deadline = Date.now() + 120000;
     while (Date.now() < deadline) {
       // eslint-disable-next-line no-await-in-loop
-      expect(await countUp(fdmApp), 'a second holder started alongside the running primary').to.equal(1);
+      expect(await countUp(fdmApp), 'a second holder started alongside the running primary').to.be.lessThan(2);
       // eslint-disable-next-line no-await-in-loop
       await sleepUnlessInfraDead(3000);
     }
+    await waitFor(async () => (await countUp(fdmApp)) === 1, {
+      timeout: 180000, interval: 3000, label: 'exactly one holder running once the window closes',
+    });
     expect(await isUp(env.clients[primary], fdmApp), 'the running primary must still be the one up').to.equal(true);
   });
 });
