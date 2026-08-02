@@ -368,6 +368,13 @@ describe('syncthingFolderStateMachine tests', () => {
       mockParams.appLocation.resolves([
         { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
       ]);
+      // cold start: the folder is empty, which is what makes the unchecked seed sound
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -378,6 +385,35 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache.designatedLeader).to.be.true;
       // the start is now declared to the reconciler, not done imperatively here
       sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
+    });
+
+    it('does not seed a partial copy: a confirmed leader mid-sync stays receiveonly', async () => {
+      // The seed path skips the sync check because a cold-start seed has nothing
+      // to lose - an empty folder, or a synced survivor. A node can now reach the
+      // seed election MID-SYNC (its source dropped from the election as provably
+      // gone, the list collapsed to itself), and promoting there publishes a
+      // partial copy as the truth: the missing files become deletions on every
+      // peer the moment a source returns.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 100000, inSyncBytes: 40000, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted).to.not.equal(true);
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
     });
 
     it('takes over when the elected holder is gone and this node is well connected', async () => {
@@ -399,6 +435,14 @@ describe('syncthingFolderStateMachine tests', () => {
       // the lowest-IP holder answers nothing; this node's own peers are fine
       axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
       fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+      // the survivor had been syncing alongside and holds a full copy - a partial
+      // survivor must NOT take over (covered by the partial-copy test above)
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 100000, inSyncBytes: 100000, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -509,6 +553,12 @@ describe('syncthingFolderStateMachine tests', () => {
       ]);
       axiosMock.get.onFirstCall().resolves({ data: { data: { ready: false, folders: [] } } });
       axiosMock.get.resolves({ data: { data: { ready: true, folders: [] } } });
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
 
       const waited = await stateMachine.manageFolderSyncState(mockParams);
       expect(waited.syncthingFolder.type).to.equal('receiveonly');
@@ -531,6 +581,12 @@ describe('syncthingFolderStateMachine tests', () => {
         { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
       ]);
       axiosMock.get.resolves({ data: { data: { ready: true, folders: [] } } });
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -553,6 +609,12 @@ describe('syncthingFolderStateMachine tests', () => {
       ]);
       axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
       fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -603,6 +665,13 @@ describe('syncthingFolderStateMachine tests', () => {
       ]);
       axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
       fluxCommunicationMock.peerResponsiveness.returns({ responding: 2, total: 2 });
+      // the survivor holds a full copy; the proportional bar is what is under test
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 100000, inSyncBytes: 100000, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -696,6 +765,15 @@ describe('syncthingFolderStateMachine tests', () => {
       mockParams.appLocation.resolves([
         { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }, // sole peer -> leader
       ]);
+      // the sources this folder was stalling against have gone entirely - their
+      // index entries expired and the global collapsed to empty. The stall fields
+      // above are the residue; an empty folder is the legitimate cold-start seed.
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
@@ -858,11 +936,15 @@ describe('syncthingFolderStateMachine tests', () => {
       mockParams.appLocation.resolves([
         { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
       ]);
+      // synced, with local receive-only changes: the revert exemption is the
+      // subject here - the leader's local data is the seed, so it promotes
+      // without reverting. (A PARTIAL leader no longer promotes at all; that is
+      // the partial-copy test above, not this one.)
       syncthingServiceMock.getDbStatus.resolves({
         status: 'success',
         data: {
           globalBytes: 1000,
-          inSyncBytes: 500,
+          inSyncBytes: 1000,
           state: 'idle',
           receiveOnlyChangedFiles: 7,
           receiveOnlyChangedBytes: 555,

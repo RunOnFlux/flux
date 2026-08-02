@@ -816,6 +816,22 @@ async function handleReceiveOnlyTransition(params) {
   // candidate over the on-chain confirmed node set + a data-aware quorum lease that
   // subsumes the data-version check) - a separate, proposed redesign, out of scope here.
   if (isLeader) {
+    // The seed flip below runs WITHOUT a sync check, and that is only sound when
+    // there is nothing to lose: an empty folder (the cold start this election
+    // exists for) or a fully synced copy (a survivor taking over). A node can
+    // reach a confirmed designation MID-SYNC - its source dropped out of the
+    // election as provably gone and the list collapsed to itself - and promoting
+    // there publishes a partial copy as the truth: the files it has not fetched
+    // yet become deletions on every peer the moment a source returns. A leader
+    // holding a partial copy therefore waits, receiveonly - either the sync
+    // completes against a returning source, or the stall ladder decides the data
+    // question. An unreadable status counts as partial: it cannot show there is
+    // nothing to lose.
+    if (!folderIsEmpty && !(syncStatus && syncStatus.isSynced)) {
+      log.info(`handleReceiveOnlyTransition - ${appId} is the confirmed designated leader but holds a partial copy (${syncStatus ? `${syncStatus.syncPercentage.toFixed(2)}% synced` : 'sync status unreadable'}); staying receiveonly until synced`);
+      syncthingFolder.type = 'receiveonly';
+      return { syncthingFolder, cache };
+    }
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers, confirmed ${cache.leaderStreak}x), starting immediately`);
 
     // Winning the election is not the same as being the first to win it. Each node
