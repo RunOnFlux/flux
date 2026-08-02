@@ -90,8 +90,16 @@ describe('masterSlave election on a three-node fleet', function () {
     await env?.teardown();
   });
 
-  it('settles on one writable copy with only two peers per node', async function () {
+  it('seeds one writable copy at cold start with only two peers per node', async function () {
     this.timeout(420000);
+    // The mastership invariant is exactly one RUNNING CONTAINER, not one writable
+    // folder: a standby that has genuinely synced promotes its own folder to
+    // sendreceive without consulting the primary, and with a single container running
+    // that is harmless. The folder count is asserted here because this is a cold
+    // start - neither holder has anything to sync from, so exactly one of them may
+    // seed the empty folder, and on a two-holder fleet there is no third opinion to
+    // settle a disagreement afterwards. The container count rides along on the same
+    // loop as the invariant that holds at every point in the app's life.
     const position = await electionIndexOf(env, appName, seedIndex);
     expect(position, 'fixture: the seed must not be index 0').to.be.greaterThan(0);
 
@@ -103,7 +111,9 @@ describe('masterSlave election on a three-node fleet', function () {
     while (Date.now() < deadline) {
       // eslint-disable-next-line no-await-in-loop
       const writable = await writableHolders();
-      expect(writable.length, `both holders took the writable copy: ${writable.join(', ')}`).to.be.lessThan(2);
+      expect(writable.length, `both holders seeded the empty folder: ${writable.join(', ')}`).to.be.lessThan(2);
+      // eslint-disable-next-line no-await-in-loop
+      expect(await countUp(), 'both holders ran the g: component at once').to.be.lessThan(2);
       // eslint-disable-next-line no-await-in-loop
       await sleepUnlessInfraDead(3000);
     }

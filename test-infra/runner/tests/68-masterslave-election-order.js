@@ -125,15 +125,24 @@ describe('primary election under a divergent placement order', function () {
     expect(await countUp(orderApp), 'more than one holder started at genesis').to.equal(1);
   });
 
-  it('leaves exactly one holder owning the writable copy', async function () {
+  it('leaves exactly one holder seeding the empty folder at cold start', async function () {
     this.timeout(240000);
-    // The data election and the run election are separate decisions on separate
-    // orderings, and each node decides from the holder list it can see at the time.
-    // The first-placed node is briefly the only holder it knows of and seeds on
-    // that basis - correct, since somebody must seed an empty folder. A node that
-    // can see further then wins the tiebreak among the holders IT can see and seeds
-    // too, and neither revisits it, because a promoted folder never re-enters the
-    // election. Two writable copies of the same data, permanently.
+    // The mastership invariant is exactly one RUNNING CONTAINER - never "exactly one
+    // writable folder". A standby that has genuinely synced promotes its own folder to
+    // sendreceive with no reference to who the primary is, and that is correct: with a
+    // single container running, only one node's data ever changes, so several writable
+    // folders are harmless. Folder exclusivity is asserted HERE, and only here, because
+    // this is a cold start: the standbys have nothing to sync from, so exactly one node
+    // may seed the empty folder, and a second seeder is a second first-copy of the data.
+    //
+    // The two seeders come from two views of the same holder list. The first-placed node
+    // is briefly the only holder it knows of and seeds on that basis - correct, since
+    // somebody must seed an empty folder. A node that can see further then wins the
+    // tiebreak among the holders IT can see and seeds too, and neither revisits it,
+    // because a promoted folder never re-enters the election.
+    //
+    // The container count rides along on the same loop: it is the invariant that holds
+    // at every point in the app's life, cold start included.
     //
     // Held rather than sampled: the second promotion arrives seconds after the
     // first, so a single reading taken early passes on a fleet that is about to
@@ -143,31 +152,53 @@ describe('primary election under a divergent placement order', function () {
     while (Date.now() < deadline) {
       // eslint-disable-next-line no-await-in-loop
       holdersWritable = await writableHolders(orderApp);
-      expect(holdersWritable.length, `more than one node holds the writable copy: ${holdersWritable.join(', ')}`).to.be.lessThan(2);
+      expect(holdersWritable.length, `more than one node seeded the empty folder: ${holdersWritable.join(', ')}`).to.be.lessThan(2);
+      // eslint-disable-next-line no-await-in-loop
+      expect(await countUp(orderApp), 'two holders ran the g: component at once').to.be.lessThan(2);
       // eslint-disable-next-line no-await-in-loop
       await sleepUnlessInfraDead(3000);
     }
-    expect(holdersWritable.length, 'nobody ever took the writable copy').to.equal(1);
+    expect(holdersWritable.length, 'nobody ever seeded the folder').to.equal(1);
   });
 
-  it('does not read a restarting holder as free to promote over', async function () {
+  it('does not read a restarting holder as free to start alongside', async function () {
     this.timeout(420000);
     // A node that has just restarted has not yet read its own folder config, so it
-    // cannot tell "I hold nothing" from "I have not looked". Answering the first
-    // invites a peer to promote over a folder it is still holding - and a
-    // fleet-wide restart puts every holder of an app in that state together.
-    const before = await writableHolders(orderApp);
-    expect(before.length, 'fixture: one holder must own the writable copy before the restart').to.equal(1);
+    // cannot tell "I hold nothing" from "I have not looked". It must answer the
+    // second: answering the first tells a peer the component is going unrun and
+    // invites it to start a second writer over a volume the restarting node is still
+    // holding - and a fleet-wide restart puts every holder of an app in that state
+    // together.
+    //
+    // The standbys have genuinely synced from the seed by now, so pin them synced
+    // first: a standby with nothing to sync from is not election-eligible and could
+    // not start a second container whatever the restarting node answered, which would
+    // make this pass for no reason. Once they are synced their folders legitimately
+    // go sendreceive too, so the count that matters here is CONTAINERS - one running
+    // container is the invariant, not one writable folder.
+    await Promise.all(holders.filter((i) => i !== seedIndex).map(
+      (i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: `flux${orderApp}_${orderApp}` }),
+    ));
 
-    await restartFluxos(env.clients[holders[0]].container);
+    expect(await countUp(orderApp), 'fixture: exactly one holder must run the component before the restart').to.equal(1);
+    // Restart the holder that is actually running it, rather than whichever node was
+    // placed first: which of them took the component is the election's decision, not
+    // the fixture's, and restarting a node that runs nothing tests nothing.
+    const runningFlags = await Promise.all(holders.map((i) => isUp(env.clients[i], orderApp)));
+    const running = holders[runningFlags.indexOf(true)];
+    expect(running, 'fixture: a running holder must be identifiable to restart').to.not.equal(undefined);
+
+    await restartFluxos(env.clients[running].container);
 
     // Watched across the whole restart: the window is exactly while the node is
-    // back up and answering but has not completed a monitor pass.
+    // back up and answering but has not completed a monitor pass. Only the FluxOS
+    // process cycles, so the holder's own app container stays up throughout - a
+    // count above one is a PEER starting a second writer on the shared volume while
+    // the holder was still booting.
     const deadline = Date.now() + 180000;
     while (Date.now() < deadline) {
       // eslint-disable-next-line no-await-in-loop
-      const writable = await writableHolders(orderApp);
-      expect(writable.length, `a peer promoted while a holder was restarting: ${writable.join(', ')}`).to.be.lessThan(2);
+      expect(await countUp(orderApp), 'a peer started a second container while a holder was restarting').to.be.lessThan(2);
       // eslint-disable-next-line no-await-in-loop
       await sleepUnlessInfraDead(3000);
     }
