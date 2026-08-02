@@ -71,6 +71,26 @@ async function verifyAppFolderMountWithRepair(appId, appFolder) {
 }
 
 /**
+ * The components of one installed app, each as its docker app identifier (which
+ * IS its syncthing folder id) paired with the containerData that decides
+ * whether it syncs. A version <= 3 app is a single component - itself.
+ * @param {object} installedApp - Installed app specification
+ * @returns {Array<{appId: string, containerData: string}>} The app's components
+ */
+function appComponents(installedApp) {
+  if (installedApp.version <= 3) {
+    return [{
+      appId: dockerService.getAppIdentifier(installedApp.name),
+      containerData: installedApp.containerData,
+    }];
+  }
+  return (installedApp.compose || []).map((component) => ({
+    appId: dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`),
+    containerData: component.containerData,
+  }));
+}
+
+/**
  * Check if app folders are properly mounted
  * Uses verifyFolderMountSafety to detect folders that exist but aren't properly mounted
  * @param {Array} appsInstalled - List of installed apps
@@ -95,17 +115,10 @@ async function checkAppFolderMounts(appsInstalled) {
 
   // eslint-disable-next-line no-restricted-syntax
   for (const installedApp of appsInstalled) {
-    if (installedApp.version <= 3) {
-      // Legacy app - single folder
+    // eslint-disable-next-line no-restricted-syntax
+    for (const { appId } of appComponents(installedApp)) {
       // eslint-disable-next-line no-await-in-loop
-      await verifyOne(dockerService.getAppIdentifier(installedApp.name), installedApp.name);
-    } else {
-      // Newer app - check each component
-      // eslint-disable-next-line no-restricted-syntax
-      for (const component of installedApp.compose || []) {
-        // eslint-disable-next-line no-await-in-loop
-        await verifyOne(dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`), installedApp.name);
-      }
+      await verifyOne(appId, installedApp.name);
     }
   }
 
@@ -122,14 +135,32 @@ async function checkAppFolderMounts(appsInstalled) {
 function appsMatchingFolderIds(appsInstalled, folderIds) {
   if (folderIds.length === 0) return [];
   const wanted = new Set(folderIds);
-  return appsInstalled.filter((installedApp) => {
-    if (installedApp.version <= 3) {
-      return wanted.has(dockerService.getAppIdentifier(installedApp.name));
-    }
-    return (installedApp.compose || []).some(
-      (component) => wanted.has(dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`)),
-    );
+  return appsInstalled.filter(
+    (installedApp) => appComponents(installedApp).some(({ appId }) => wanted.has(appId)),
+  );
+}
+
+/**
+ * The syncthing folder ids this node's installed apps own. A folder is owned
+ * when an installed component whose primary mount carries a sync flag (g:/r:/s:)
+ * maps to it - ownership is a property of the installed specification, not of
+ * what any one pass managed to process. Apps suspended for backup or restore are
+ * owner-exempt: those flows delete and rebuild their own folders, so a folder
+ * must be neither kept nor re-added underneath them.
+ * @param {Array} appsInstalled - List of installed apps (decrypted)
+ * @param {Set<string>} suspendedAppNames - Apps under backup or restore
+ * @returns {Set<string>} Owned folder ids
+ */
+function syncingFolderOwnerIds(appsInstalled, suspendedAppNames) {
+  const ownerIds = new Set();
+  appsInstalled.forEach((installedApp) => {
+    if (suspendedAppNames.has(installedApp.name)) return;
+    appComponents(installedApp).forEach(({ appId, containerData }) => {
+      const primaryContainer = (containerData ?? '').split('|')[0];
+      if (requiresSyncing(getContainerDataFlags(primaryContainer))) ownerIds.add(appId);
+    });
   });
+  return ownerIds;
 }
 
 // Helper function to get app locations
@@ -350,8 +381,21 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       return;
     }
 
-    // Decrypt enterprise apps (version 8 with encrypted content)
-    appsInstalled.data = await decryptEnterpriseApps(appsInstalled.data);
+    // Decrypt enterprise apps (version 8 with encrypted content). This pass acts
+    // on the specification - an undecrypted enterprise app carries an empty
+    // compose, which would read as "this app owns no folders" and sweep every
+    // folder it has. A decrypt failure aborts the pass through the outer catch;
+    // the next pass retries once the enterprise key is available.
+    appsInstalled.data = await decryptEnterpriseApps(appsInstalled.data, { throwOnError: true });
+
+    // The folders installed apps own. Computed here, before any decision the
+    // pass makes: the skip-gate below tells "syncthing has no such folder
+    // because this component does not sync" from "an owned folder has gone
+    // missing" by it, and the sweep at the end deletes by it.
+    const ownerIds = syncingFolderOwnerIds(
+      appsInstalled.data,
+      new Set([...state.backupInProgress, ...state.restoreInProgress]),
+    );
 
     // Mount safety is verified at decision points and in reaction to
     // syncthing's own storage signal - never as a steady-state sweep. The full
@@ -374,16 +418,9 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // removed whatever the flag was protecting).
     if (!state.syncthingAppsFirstRun && pendingFolderIds.length > 0) {
       const matchable = new Set();
-      // eslint-disable-next-line no-restricted-syntax
-      for (const installedApp of appsToVerify) {
-        if (installedApp.version <= 3) {
-          matchable.add(dockerService.getAppIdentifier(installedApp.name));
-        } else {
-          (installedApp.compose || []).forEach(
-            (component) => matchable.add(dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`)),
-          );
-        }
-      }
+      appsToVerify.forEach((installedApp) => {
+        appComponents(installedApp).forEach(({ appId }) => matchable.add(appId));
+      });
       pendingFolderIds.filter((id) => !matchable.has(id))
         .forEach((id) => syncthingEventsConsumer.resolveMountVerify(id));
     }
@@ -418,9 +455,22 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
           appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
           syncthingEventsConsumer.resolveMountVerify(appId);
         } else if (patchResponse.data?.code === 'ERR_BAD_REQUEST') {
-          // 4xx: syncthing has no such folder - this app does not sync, so
-          // there is nothing to demote and nothing left to act on
-          syncthingEventsConsumer.resolveMountVerify(appId);
+          // 4xx: syncthing has no such folder. What that means turns entirely on
+          // ownership.
+          if (ownerIds.has(appId)) {
+            // An installed syncing component owns this id, so "no such folder"
+            // is a contradiction, not an answer: the demotion could not be
+            // applied, so the flag stays standing for the next pass. The mount
+            // is unsafe either way, so the container is held now. Nothing is
+            // recreated from here - the level loop rebuilds the folder once the
+            // mount is healthy, under the normal receiveonly machinery.
+            log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder over an unsafe mount (${reason}) is unknown to syncthing though an installed component syncs it; holding the container, flag stands`);
+            appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
+          } else {
+            // no installed component syncs this id - there is nothing to demote
+            // and nothing left to act on
+            syncthingEventsConsumer.resolveMountVerify(appId);
+          }
         } else {
           // transient failure: the flag stays standing and the next pass
           // retries the demotion - loudly, never silently
@@ -589,10 +639,24 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       }
     }
 
-    // Remove unused folders and devices (parallelized for better performance)
+    // Remove unused folders and devices (parallelized for better performance).
+    // A folder is unused when no installed syncing component owns it: the app
+    // was uninstalled, dropped the g:/r:/s: flag from its primary mount, or is
+    // suspended for backup/restore (those flows own their folders' lifecycle
+    // themselves). Whether this pass reached the component is a different
+    // question - a component skipped for an unmounted volume or deferred by the
+    // state machine still owns its folder, and deleting it would take
+    // syncthing's index, peer devices and any standing safety demotion with it.
     const nonUsedFolders = allFoldersResp.data.filter(
-      (syncthingFolder) => !folderIds.includes(syncthingFolder.id),
+      (syncthingFolder) => !ownerIds.has(syncthingFolder.id),
     );
+    // An owned folder the pass never registered means its component went
+    // unprocessed: the folder survives, but the skip is never silent - no
+    // configuration is being applied to it until the component is reached again.
+    const processedFolderIds = new Set(folderIds);
+    allFoldersResp.data
+      .filter((syncthingFolder) => ownerIds.has(syncthingFolder.id) && !processedFolderIds.has(syncthingFolder.id))
+      .forEach((syncthingFolder) => log.warn(`syncthingAppsCore - keeping folder ${syncthingFolder.id}: its component went unprocessed this pass`));
     const nonUsedDevices = allDevicesResp.data.filter(
       (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== localDeviceId,
     );

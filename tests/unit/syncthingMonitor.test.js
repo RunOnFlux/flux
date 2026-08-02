@@ -81,7 +81,9 @@ const syncthingHealthMonitorMock = {
 };
 
 const appQueryServiceMock = {
-  decryptEnterpriseApps: sinon.stub().returnsArg(0), // Return apps as-is by default
+  // default: nothing to decrypt, so the list comes back as-is. callsFake rather
+  // than returnsArg so a test can override it - sinon resolves returnsArg first
+  decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps),
 };
 
 const syncthingEventsConsumerMock = {
@@ -163,6 +165,23 @@ describe('syncthingMonitor tests', () => {
     appReconcilerMock.setControllerDesired.reset();
     syncthingFolderStateMachineMock.verifyFolderMountSafety.reset();
     syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: true, isMounted: true, fileCount: 1 });
+    syncthingFolderStateMachineMock.manageFolderSyncState.reset();
+    syncthingFolderStateMachineMock.manageFolderSyncState.resolves({
+      syncthingFolder: { type: 'sendreceive' },
+      cache: null,
+    });
+
+    // the sync-flag and mount-marker reads a test means to control: reset() wipes
+    // behaviour as well as history, so each default is restored here
+    syncthingMonitorHelpersMock.requiresSyncing.reset();
+    syncthingMonitorHelpersMock.requiresSyncing.returns(false);
+    syncthingMonitorHelpersMock.getContainerDataFlags.reset();
+    syncthingMonitorHelpersMock.getContainerDataFlags.returns('');
+    syncthingMonitorHelpersMock.ensureStfolderExists.reset();
+    syncthingMonitorHelpersMock.ensureStfolderExists.resolves(true);
+
+    appQueryServiceMock.decryptEnterpriseApps.reset();
+    appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => apps);
 
     // Default stub behaviors
     syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [] });
@@ -379,9 +398,10 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
 
-    it('resolves a flagged folder syncthing does not know without holding its container', async function () {
-      // 4xx from the patch means "no such folder": the app does not sync, so
-      // there is nothing to demote and nothing left to act on
+    it('resolves a flagged component that does not sync when syncthing has no such folder', async function () {
+      // no installed component owns this folder id (the primary mount carries
+      // no g:/r:/s: flag), so the 4xx confirms there is nothing to demote and
+      // nothing left to act on
       mockInstalledAppsFn.resolves({
         status: 'success',
         data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
@@ -656,6 +676,143 @@ describe('syncthingMonitor tests', () => {
       await clock.tickAsync(100);
 
       expect(mockInstalledAppsFn.callCount).to.be.greaterThan(firstCallCount);
+    });
+  });
+
+  // A syncthing folder is swept because no installed component owns it - never
+  // because a pass failed to reach the component that owns it. Deleting a live
+  // folder drops syncthing's whole record of the app: the index, the peer
+  // devices and, on the next pass, any mount-safety demotion standing on it.
+  describe('unused-folder cleanup', () => {
+    const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
+
+    // the primary mount carries a g: flag, so the component owns its folder
+    function primaryMountSyncs() {
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+    }
+
+    async function runOnePass() {
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+    }
+
+    it('keeps the folder of a component skipped for an unmounted volume', async () => {
+      // the mount-safety early return in processContainerData leaves the
+      // component unprocessed for the cycle - it fires one pass after every
+      // successful demotion, and the folder it belongs to is still owned
+      primaryMountSyncs();
+      syncthingMonitorHelpersMock.ensureStfolderExists.resolves(false);
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      await runOnePass();
+
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'testapp');
+    });
+
+    it('keeps the folder of a component the state machine defers on first encounter', async () => {
+      // the first-encounter deferral is a "look again next pass", not a verdict
+      // that the folder should not exist
+      primaryMountSyncs();
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingFolderStateMachineMock.manageFolderSyncState.resolves({
+        syncthingFolder: { id: 'testapp', type: 'sendreceive' },
+        cache: { firstEncounterSkipped: true },
+        skipProcessing: true,
+      });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      await runOnePass();
+
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'testapp');
+    });
+
+    it('deletes nothing when an enterprise spec cannot be decrypted', async () => {
+      // an undecrypted enterprise spec carries an empty compose, so every folder
+      // the app owns reads as unowned - the pass must abort instead of sweeping
+      primaryMountSyncs();
+      // mirrors the real helper: lenient callers get the still-encrypted spec
+      // back, callers that act on it pass throwOnError and get the failure
+      appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps, options = {}) => {
+        if (options.throwOnError) throw new Error('enterprise key not loaded');
+        return apps;
+      });
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'entapp', version: 8, enterprise: 'ENCRYPTED-BLOB', compose: [] }],
+      });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'fluxweb_entapp', type: 'sendreceive' }] });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      await runOnePass();
+
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'delete');
+    });
+
+    it('holds the container and keeps the flag when an owned folder is unknown to syncthing', async () => {
+      // 4xx on the safety demotion of a folder an installed syncing component
+      // owns is a contradiction, not a "this app does not sync": the mount is
+      // still unsafe, so the container is held and the flag stays standing
+      primaryMountSyncs();
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['testapp']);
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'unmounted_with_content' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'error', data: { code: 'ERR_BAD_REQUEST', name: 'AxiosError', message: 'Request failed with status code 404' } });
+
+      await runOnePass();
+
+      sinon.assert.notCalled(syncthingEventsConsumerMock.resolveMountVerify);
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'testapp', 'stopped');
+    });
+
+    it('deletes the folder of an installed component that no longer syncs', async () => {
+      // dropping the g:/r:/s: flag from the primary mount is how an operator
+      // retires a folder - the stale folder must go
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: '/appdata' }],
+      });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      await runOnePass();
+
+      sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'testapp');
+    });
+
+    it('deletes the folder of an app that is no longer installed', async () => {
+      primaryMountSyncs();
+      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'ghostapp', type: 'sendreceive' }] });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      await runOnePass();
+
+      sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'ghostapp');
+    });
+
+    it('deletes the folder of an app under backup', async () => {
+      // backup suspends syncing by deleting the app's folders itself - the
+      // monitor must not keep one alive underneath it
+      primaryMountSyncs();
+      mockState.backupInProgress = ['testapp'];
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      await runOnePass();
+
+      sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'testapp');
     });
   });
 });

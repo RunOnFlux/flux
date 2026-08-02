@@ -359,6 +359,24 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache.numberOfExecutions).to.equal(1);
     });
 
+    it('hands back an unverified sendreceive folder for an established app whose folder is gone', async () => {
+      // Documents the cost of losing a folder that should exist. The cache says
+      // this app is established, so none of the receiveonly ladder applies and
+      // no mount is inspected - the caller's sendreceive configuration is simply
+      // handed back to be installed. A folder deleted in error therefore returns
+      // as a writable folder over an unchecked mount.
+      mockParams.syncFolder = null;
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', { restarted: true });
+      dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      expect(result.cache).to.equal(null);
+      sinon.assert.notCalled(fsMock.promises.stat);
+      sinon.assert.notCalled(volumeServiceMock.isPathMounted);
+    });
+
     it('should elect leader and start immediately', async () => {
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
