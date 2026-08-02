@@ -16,7 +16,9 @@ import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
 import { getSubnetConfig, REGISTRY_ALIAS } from './subnet-config.js';
 import { closeDb } from './db-client.js';
-import { clearInfraDeath, infraDeathError, reportInfraDeath } from './infra-death.js';
+import {
+  clearInfraDeath, infraDeathError, reportInfraDeath, sleepUnlessInfraDead,
+} from './infra-death.js';
 import { stubPeerClient } from './stub-peer-helper.js';
 import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
@@ -1164,7 +1166,27 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
         ? indices.map((i) => clients[i]).filter(Boolean)
         : clients.filter(Boolean);
       await Promise.all(targets.map(async (client) => {
-        const auth = await authenticate(client.url, teamKey);
+        // Authenticating here races the node's own availability check. Boot
+        // readiness proved the node could serve a login phrase, but the periodic
+        // outside-communication check can flip it unavailable while the mesh is
+        // still forming - and forming the mesh is exactly what this call exists
+        // to do, so that refusal is transient by construction. Wait it out here,
+        // bounded; authenticate() itself stays one-shot so a suite asserting a
+        // node is genuinely unavailable still sees the refusal.
+        const deadline = Date.now() + 120000;
+        let auth;
+        for (;;) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            auth = await authenticate(client.url, teamKey);
+            break;
+          } catch (error) {
+            if (!error.message.includes('not available for outside communication')
+              || Date.now() >= deadline) throw error;
+            // eslint-disable-next-line no-await-in-loop
+            await sleepUnlessInfraDead(2000);
+          }
+        }
         await client.getAuthed('/flux/startdiscovery', auth.zelidauth);
       }));
     },
