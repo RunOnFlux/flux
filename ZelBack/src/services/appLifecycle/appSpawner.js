@@ -9,6 +9,7 @@ const geolocationService = require('../geolocationService');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
 const { normalizeSocketAddress, extractIp, extractPort, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { compareInstallingClaims, compareInstanceSeniority, describeRanking } = require('../utils/instanceOrdering');
 
 // Import modular services
 const appQueryService = require('../appQuery/appQueryService');
@@ -762,15 +763,8 @@ async function trySpawningGlobalApplication() {
     runningAppList = await registryManager.appLocation(appToRun);
     installingAppList = await registryManager.appInstallingLocation(appToRun);
     if (runningAppList.length + installingAppList.length > minInstances) {
-      installingAppList.sort((a, b) => {
-        if (a.broadcastedAt < b.broadcastedAt) {
-          return -1;
-        }
-        if (a.broadcastedAt > b.broadcastedAt) {
-          return 1;
-        }
-        return 0;
-      });
+      installingAppList.sort(compareInstallingClaims);
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} contended: ${runningAppList.length} running, claims after wait: ${describeRanking(installingAppList, 'broadcastedAt')}`);
       broadcastedAt = Date.now();
       const index = installingAppList.findIndex((x) => socketAddressesMatch(x.ip, localSocketAddr));
       if (runningAppList.length + index + 1 > minInstances) {
@@ -796,16 +790,16 @@ async function trySpawningGlobalApplication() {
       }
       const claimantsInMine = installingAppList
         .filter((location) => placementDomainOf(location.ip) === myDomain)
-        .sort((a, b) => (a.broadcastedAt ?? Number.MAX_SAFE_INTEGER) - (b.broadcastedAt ?? Number.MAX_SAFE_INTEGER));
+        .sort(compareInstallingClaims);
       const myIndex = claimantsInMine.findIndex((location) => socketAddressesMatch(location.ip, localSocketAddr));
       const claimantsAhead = myIndex === -1 ? claimantsInMine.length : myIndex;
       if (claimantsAhead >= remainingShare) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and ${claimantsAhead} earlier claimants in fault domain ${myDomain} fill its remaining share of ${remainingShare}`);
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and ${claimantsAhead} earlier claimants in fault domain ${myDomain} fill its remaining share of ${remainingShare} (claims: ${describeRanking(claimantsInMine, 'broadcastedAt')})`);
         await withdrawInstallingClaim('claim withdrawn: domain share filled by earlier claimants');
         return shortDelayTime;
       }
       if (claimantsInMine.length > 1) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing, this node is claim ${claimantsAhead + 1} of ${remainingShare} remaining in fault domain ${myDomain}, continuing`);
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing, this node is claim ${claimantsAhead + 1} of ${remainingShare} remaining in fault domain ${myDomain}, continuing (claims: ${describeRanking(claimantsInMine, 'broadcastedAt')})`);
       }
     }
 
@@ -828,23 +822,9 @@ async function trySpawningGlobalApplication() {
     // double check if app is installed in more of the instances requested
     runningAppList = await registryManager.appLocation(appToRun);
     if (runningAppList.length > minInstances) {
-      runningAppList.sort((a, b) => {
-        if (!a.runningSince && b.runningSince) {
-          return -1;
-        }
-        if (a.runningSince && !b.runningSince) {
-          return 1;
-        }
-        if (a.runningSince < b.runningSince) {
-          return -1;
-        }
-        if (a.runningSince > b.runningSince) {
-          return 1;
-        }
-        return 0;
-      });
+      runningAppList.sort(compareInstanceSeniority);
       const index = runningAppList.findIndex((x) => socketAddressesMatch(x.ip, localSocketAddr));
-      log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances, my instance is number ${index + 1}`);
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances, my instance is number ${index + 1} (instances: ${describeRanking(runningAppList, 'runningSince')})`);
       if (index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is going to be removed as already passed the instances required.`);
         log.warn(`REMOVAL REASON: Exceeded required instances - ${appSpecifications.name} already has sufficient instances, removing local installation (appSpawner)`);

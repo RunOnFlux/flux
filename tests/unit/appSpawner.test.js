@@ -86,14 +86,20 @@ describe('appSpawner tests', () => {
         .filter((location) => (domainOf ?? testFaultDomain)(location.ip) === domainKey).length,
     };
     aggregateStub = sinon.stub().resolves(opts.aggregateResult || []);
-    // First delay resolves normally, subsequent calls reject to break recursion
+    // The first delay(s) resolve normally, subsequent calls reject to break
+    // recursion. Tests exercising the post-install self-check need the
+    // one-minute settle delay to resolve too, so they pass resolveDelays: 2.
     delayStub = sinon.stub();
-    delayStub.onFirstCall().resolves();
-    delayStub.onSecondCall().rejects(new Error('break recursion'));
+    const resolvedDelays = opts.resolveDelays ?? 1;
+    for (let i = 0; i < resolvedDelays; i += 1) {
+      delayStub.onCall(i).resolves();
+    }
     delayStub.rejects(new Error('break recursion'));
     daemonSyncStub = sinon.stub().returns({
       data: { height: opts.daemonHeight || 2555563, synced: true },
     });
+
+    const installStubRef = opts.installStub ?? sinon.stub().resolves(true);
 
     appSpawner = proxyquire('../../ZelBack/src/services/appLifecycle/appSpawner', {
       config: configStub,
@@ -130,7 +136,14 @@ describe('appSpawner tests', () => {
         listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
       },
       '../appDatabase/registryManager': {
-        appLocation: sinon.stub().resolves(opts.appLocations || []),
+        // The post-install self-check re-reads the running list after this
+        // node's own install; tests exercising it provide that view via
+        // opts.finalAppLocations (returned once the install stub has run).
+        appLocation: sinon.stub().callsFake(() => Promise.resolve(
+          (opts.finalAppLocations && installStubRef.called)
+            ? opts.finalAppLocations
+            : (opts.appLocations || []),
+        )),
         // The list after the collision wait includes this node's own claim; tests
         // exercising the post-broadcast share resolver provide it via
         // opts.finalInstallingLocations (returned from the 4th fetch onwards).
@@ -207,10 +220,10 @@ describe('appSpawner tests', () => {
         storeAppInstallingErrorMessage: opts.withdrawalStub ?? sinon.stub().resolves(true),
       },
       './appInstaller': {
-        registerAppLocally: opts.installStub ?? sinon.stub().resolves(true),
+        registerAppLocally: installStubRef,
       },
       './appUninstaller': {
-        removeAppLocally: sinon.stub().resolves(),
+        removeAppLocally: opts.removeAppLocallyStub ?? sinon.stub().resolves(),
       },
       '../appPlacement/placementFeasibility': placementFeasibilityStub,
     });
@@ -700,18 +713,22 @@ describe('appSpawner tests', () => {
     async function runAttempt(opts = {}) {
       const installStub = sinon.stub().resolves(true);
       const withdrawalStub = sinon.stub().resolves(true);
+      const removeStub = sinon.stub().resolves();
       buildModule({
         aggregateResult: [spawnableApp],
         appSpec: syncedSpec,
         installStub,
         withdrawalStub,
+        removeAppLocallyStub: removeStub,
         ...opts,
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       const logged = (needle) => logStub.info.args.some(
         (a) => typeof a[0] === 'string' && a[0].includes(needle),
       );
-      return { installStub, logged, withdrawalStub };
+      return {
+        installStub, logged, withdrawalStub, removeStub,
+      };
     }
 
     it('REGRESSION GUARD (the Bahrain incident): installs when the single eligible domain holds the whole share', async () => {
@@ -828,6 +845,95 @@ describe('appSpawner tests', () => {
       });
       expect(installStub.called).to.be.true;
       expect(placementFeasibilityStub.placementComputation.callCount).to.equal(1);
+    });
+
+    describe('same-millisecond claim ties', () => {
+      // Every node sorts the timestamps carried inside the claims, so nodes
+      // agree on who withdraws only if the order is total. A comparator that
+      // returns 0 on equal broadcastedAt ranks tied claims by local arrival
+      // order - different on every node - and two boundary nodes each
+      // legitimately compute the winning rank. On a tie the lower socket
+      // address survives, whatever order the claims arrived in.
+
+      it('withdraws on a claim tie it loses on address, even when its own claim arrived first', async () => {
+        // four tied claims, three slots; this node (192.168.1.1) is the
+        // highest address, so it is claim #4 regardless of arrival order
+        const { installStub, withdrawalStub, logged } = await runAttempt({
+          finalInstallingLocations: [
+            { ip: '192.168.1.1:16127', broadcastedAt: 1000 },
+            { ip: '192.168.0.7:16127', broadcastedAt: 1000 },
+            { ip: '192.168.0.8:16127', broadcastedAt: 1000 },
+            { ip: '192.168.0.9:16127', broadcastedAt: 1000 },
+          ],
+        });
+        expect(withdrawalStub.calledOnce).to.be.true;
+        expect(installStub.called).to.be.false;
+        // the decision log carries the ranked view, so a disputed outcome is
+        // diagnosable from any one node's log
+        expect(logged('192.168.0.7:16127@1000')).to.be.true;
+      });
+
+      it('keeps the slot on a claim tie it wins on address, even when its claim arrived last', async () => {
+        const { installStub, withdrawalStub } = await runAttempt({
+          placementShare: { domainCount: 1, maxPerDomain: 3 },
+          finalInstallingLocations: [
+            { ip: '192.168.2.2:16127', broadcastedAt: 1000 },
+            { ip: '192.168.3.3:16127', broadcastedAt: 1000 },
+            { ip: '192.168.4.4:16127', broadcastedAt: 1000 },
+            { ip: '192.168.1.1:16127', broadcastedAt: 1000 },
+          ],
+        });
+        expect(withdrawalStub.called).to.be.false;
+        expect(installStub.called).to.be.true;
+      });
+
+      it('yields the domain share on a tie lost on address, even when its own claim arrived first', async () => {
+        // two tied claimants in this /16, share of one; this node is the
+        // higher address so the other claimant holds the share
+        const { installStub, withdrawalStub } = await runAttempt({
+          placementShare: { domainCount: 3, maxPerDomain: 1 },
+          finalInstallingLocations: [
+            { ip: '192.168.1.1:16127', broadcastedAt: 1000 },
+            { ip: '192.168.0.5:16127', broadcastedAt: 1000 },
+          ],
+        });
+        expect(installStub.called).to.be.false;
+        expect(withdrawalStub.calledOnce).to.be.true;
+        const withdrawal = withdrawalStub.firstCall.args[0];
+        expect(withdrawal.error).to.include('withdrawn');
+      });
+
+      it('keeps the domain share on a tie won on address, even when its claim arrived last', async () => {
+        const { installStub, withdrawalStub } = await runAttempt({
+          placementShare: { domainCount: 3, maxPerDomain: 1 },
+          finalInstallingLocations: [
+            { ip: '192.168.9.9:16127', broadcastedAt: 1000 },
+            { ip: '192.168.1.1:16127', broadcastedAt: 1000 },
+          ],
+        });
+        expect(installStub.called).to.be.true;
+        expect(withdrawalStub.called).to.be.false;
+      });
+
+      it('removes the surplus instance in the post-install check on a runningSince tie, regardless of arrival order', async () => {
+        // the +60s self-check ranks the running list the same way the claim
+        // resolver ranks claims; on a tie the higher address is the junior
+        // instance and stands aside
+        const startedAt = '2026-08-02T10:00:00.000Z';
+        const { installStub, removeStub, logged } = await runAttempt({
+          resolveDelays: 2,
+          finalInstallingLocations: [{ ip: '192.168.1.1:16127', broadcastedAt: 1000 }],
+          finalAppLocations: [
+            { ip: '192.168.1.1:16127', runningSince: startedAt },
+            { ip: '192.168.0.7:16127', runningSince: startedAt },
+            { ip: '192.168.0.8:16127', runningSince: startedAt },
+            { ip: '192.168.0.9:16127', runningSince: startedAt },
+          ],
+        });
+        expect(installStub.called).to.be.true;
+        expect(logged('my instance is number 4')).to.be.true;
+        expect(removeStub.calledOnce).to.be.true;
+      });
     });
   });
 

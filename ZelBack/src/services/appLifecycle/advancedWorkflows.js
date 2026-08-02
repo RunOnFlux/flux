@@ -30,6 +30,7 @@ const {
   legacyAppVolumesPath,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
+const { compareInstanceSeniority } = require('../utils/instanceOrdering');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
@@ -2944,27 +2945,9 @@ async function checkAndRemoveApplicationInstance() {
         const appDetails = await registryManager.getApplicationGlobalSpecifications(installedApp.name);
         if (appDetails) {
           log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking if should be unninstalled from the FluxNode..`);
-          runningAppList.sort((a, b) => {
-            if (!a.runningSince && b.runningSince) {
-              return 1;
-            }
-            if (a.runningSince && !b.runningSince) {
-              return -1;
-            }
-            if (a.runningSince < b.runningSince) {
-              return 1;
-            }
-            if (a.runningSince > b.runningSince) {
-              return -1;
-            }
-            if (a.ip < b.ip) {
-              return 1;
-            }
-            if (a.ip > b.ip) {
-              return -1;
-            }
-            return 0;
-          });
+          // junior end first: the newest instance stands aside, ties broken
+          // by the shared ordering so every node names the same surplus
+          runningAppList.sort((a, b) => compareInstanceSeniority(b, a));
           // eslint-disable-next-line no-await-in-loop
           const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
           if (localSocketAddr) {
@@ -3777,27 +3760,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 const registryManager = require('../appDatabase/registryManager');
                 // eslint-disable-next-line no-await-in-loop
                 const runningAppList = await registryManager.appLocation(installedApp.name);
-                runningAppList.sort((a, b) => {
-                  if (!a.runningSince && b.runningSince) {
-                    return -1;
-                  }
-                  if (a.runningSince && !b.runningSince) {
-                    return 1;
-                  }
-                  if (a.runningSince < b.runningSince) {
-                    return -1;
-                  }
-                  if (a.runningSince > b.runningSince) {
-                    return 1;
-                  }
-                  if (a.ip < b.ip) {
-                    return -1;
-                  }
-                  if (a.ip > b.ip) {
-                    return 1;
-                  }
-                  return 0;
-                });
+                runningAppList.sort(compareInstanceSeniority);
                 const index = runningAppList.findIndex((x) => ipsMatch(x.ip, localSocketAddr));
 
                 // The remembered primary is this node, but the component is not
