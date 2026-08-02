@@ -503,10 +503,17 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
           { upsert: true },
         );
       } else if (typeof bootContext === 'object') {
+        // lastAliveAgoMs pins the downtime the node will measure, not a wall
+        // clock: an absolute lastAlive computed in a before-hook rots for the
+        // whole boot-lock queue (minutes under a parallel gate), while this
+        // seed runs after the lock with only the node's own boot left ahead.
+        const lastAlive = bootContext.lastAliveAgoMs != null
+          ? Date.now() - bootContext.lastAliveAgoMs
+          : (bootContext.lastAlive ?? Date.now());
         await localDb.collection('nodestartuptracker').updateOne(
           { _id: 'heartbeat' },
           { $set: {
-            lastAlive: bootContext.lastAlive ?? Date.now(),
+            lastAlive,
             machineBootId: bootContext.machineBootId ?? 'old-boot-id',
             shutdownReason: bootContext.shutdownReason ?? null,
           } },

@@ -4,8 +4,8 @@ import { createTestEnv } from '../framework/test-env.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
-  waitForPeerThreshold, waitForPeersBelowThreshold, waitForBootSettled,
-  waitForBootSettledAndLogged, waitForDosChanged, waitFor,
+  waitForPeerThreshold, waitForPeersBelowThreshold,
+  waitForBootSettledAndLogged, waitForDosChanged,
 } from '../framework/wait.js';
 import {
   advanceBlock, advanceBlocks, startTicker, stopTicker,
@@ -158,7 +158,7 @@ describe('Boundary: clean shutdown within SIGTERM_EXPIRY', function () {
     env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
-      bootContext: { lastAlive: Date.now() - 300000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
+      bootContext: { lastAliveAgoMs: 300000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
     });
     await waitForDaemonReady(env.clients[0]);
   });
@@ -188,7 +188,7 @@ describe('Boundary: clean shutdown beyond SIGTERM_EXPIRY', function () {
     env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
-      bootContext: { lastAlive: Date.now() - 500000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
+      bootContext: { lastAliveAgoMs: 500000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
     });
   });
 
