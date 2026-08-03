@@ -337,9 +337,7 @@ describe('nodeConfirmationService', () => {
 
   describe('daemon staleness', () => {
     // Staleness is derived from Date.now() when a poll runs, so only the poll landing
-    // after the threshold decides the outcome. Move the clock, then run that one poll:
-    // ticking the whole window ran a poll every 30s — 640 sequential event-loop turns
-    // for the 320 minute case — which exceeds the default timeout on a loaded machine.
+    // after the threshold decides the outcome. Move the clock, then run that one poll.
     async function advanceByMinutes(minutes) {
       clock.setSystemTime(Date.now() + minutes * 60 * 1000 - POLL_INTERVAL_MS);
       await clock.tickAsync(POLL_INTERVAL_MS);
