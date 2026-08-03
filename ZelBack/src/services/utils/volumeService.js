@@ -388,6 +388,26 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
   }
 }
 
+/**
+ * Delete everything an app holds in its volume, leaving the volume itself mounted
+ * @param {string} identifier - Component identifier
+ * @returns {Promise<void>}
+ */
+async function clearAppVolumeData(identifier) {
+  const appId = dockerService.getAppIdentifier(identifier);
+  const appDataPath = path.join(appsFolder, appId, 'appdata');
+  try {
+    const entries = await fs.readdir(appDataPath);
+    await Promise.all(entries.map((entry) => serviceHelper.runCommand('rm', {
+      runAsRoot: true,
+      params: ['-rf', path.join(appDataPath, entry)],
+    })));
+    log.info(`Deleted data for app ${appId}`);
+  } catch (error) {
+    log.error(`Error deleting data for app ${appId}: ${error.message}`);
+  }
+}
+
 module.exports = {
   verifyAppVolumeMount,
   ensureMountPathsExist,
@@ -396,4 +416,5 @@ module.exports = {
   getVolumeFilePath,
   getComponentAppIdsFromVolumeFiles,
   ensureAppVolumeMounted,
+  clearAppVolumeData,
 };

@@ -4,7 +4,6 @@ const fluxEventBus = require('../utils/fluxEventBus');
 const dbHelper = require('../dbHelper');
 const serviceHelper = require('../serviceHelper');
 const dockerService = require('../dockerService');
-const dockerOperations = require('../appManagement/dockerOperations');
 const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const globalState = require('../utils/globalState');
@@ -770,7 +769,7 @@ async function reconcile(rawIdentifier) {
         fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'dataClear' });
       }
       await serviceHelper.delay(DATA_CLEAR_SETTLE_MS);
-      await dockerOperations.appDeleteDataInMountPoint(dockerService.getAppIdentifier(identifier));
+      await volumeService.clearAppVolumeData(identifier);
     } catch (err) {
       // A failed stop/wipe is the only actuation path here that would otherwise drop
       // to the hourly sweep (~1h down). Leave dataDesired 'clear' - so the retried

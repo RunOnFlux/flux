@@ -76,26 +76,6 @@ const defaultNodeSpecs = {
   ssdStorage: 0,
 };
 
-// Apps monitored structure template
-const appsMonitoredTemplate = {
-  // component1_appname2: { // >= 4 or name for <= 3
-  //   oneMinuteInterval: null, // interval
-  //   fifteenMinInterval: null, // interval
-  //   oneMinuteStatsStore: [ // stores last hour of stats of app measured every minute
-  //     { // object of timestamp, data
-  //       timestamp: 0,
-  //       data: { },
-  //     },
-  //   ],
-  //   fifteenMinStatsStore: [ // stores last 24 hours of stats of app measured every 15 minutes
-  //     { // object of timestamp, data
-  //       timestamp: 0,
-  //       data: { },
-  //     },
-  //   ],
-  // },
-};
-
 // Expiry / TTL constants (milliseconds)
 const GOSSIP_VALIDITY_MS = 5 * 60 * 1000;
 const RUNNING_EXPIRY_MS = 125 * 60 * 1000;
@@ -142,7 +122,6 @@ module.exports = {
   isArcane,
   appsThatMightBeUsingOldGatewayIpAssignment,
   defaultNodeSpecs,
-  appsMonitoredTemplate,
 
   // Expiry / TTL
   GOSSIP_VALIDITY_MS,
