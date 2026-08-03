@@ -531,111 +531,61 @@ describe('appController tests', () => {
     });
   });
 
-  describe('appPause tests', () => {
+  // Pause and unpause were removed: docker reports a paused container as running, so
+  // the reconciler and load balancer keep treating it as healthy while it is frozen.
+  // The routes answer with an error so a caller is not told the container stopped.
+  describe('deprecated pause control', () => {
     beforeEach(() => {
-      sinon.stub(dockerService, 'appDockerPause').resolves('Flux App TestApp successfully paused.');
+      verificationHelperStub.resolves(true);
     });
 
-    it('should pause app and return success message', async () => {
-      verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
-        name: 'TestApp',
-        version: 3,
-      });
-
-      const req = {
-        params: { appname: 'TestApp' },
-        query: {},
-      };
-      const res = {
-        json: sinon.fake((param) => param),
-      };
+    it('should refuse to pause and name the replacement', async () => {
+      const req = { params: { appname: 'TestApp' }, query: {}, headers: {} };
+      const res = { json: sinon.fake(param => param) };
 
       await appController.appPause(req, res);
 
       const result = res.json.firstCall.args[0];
-      expect(result.status).to.equal('success');
-      sinon.assert.calledOnce(dockerService.appDockerPause);
+
+      expect(result.status).to.equal('error');
+      expect(result.data.name).to.equal('Deprecated');
+      expect(result.data.message).to.include('appstop');
     });
 
-    it('should pause all components for version 4+ apps', async () => {
-      verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
-        name: 'ComposedApp',
-        version: 4,
-        compose: [
-          { name: 'Component1' },
-          { name: 'Component2' },
-        ],
-      });
+    it('should refuse to unpause', async () => {
+      const req = { params: { appname: 'TestApp' }, query: {}, headers: {} };
+      const res = { json: sinon.fake(param => param) };
 
-      const req = {
-        params: { appname: 'ComposedApp' },
-        query: {},
-      };
-      const res = {
-        json: sinon.fake((param) => param),
-      };
+      await appController.appUnpause(req, res);
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+    });
+
+    it('should not touch the container either way', async () => {
+      const pause = sinon.stub(dockerService, 'appDockerPause').resolves('paused');
+      const unpause = sinon.stub(dockerService, 'appDockerUnpause').resolves('unpaused');
+      const req = { params: { appname: 'TestApp' }, query: {}, headers: {} };
+      const res = { json: sinon.fake(param => param) };
+
+      await appController.appPause(req, res);
+      await appController.appUnpause(req, res);
+
+      sinon.assert.notCalled(pause);
+      sinon.assert.notCalled(unpause);
+    });
+
+    it('should still refuse an unauthorized caller before saying anything else', async () => {
+      verificationHelperStub.resolves(false);
+
+      const req = { params: { appname: 'TestApp' }, query: {}, headers: {} };
+      const res = { json: sinon.fake(param => param) };
 
       await appController.appPause(req, res);
 
       const result = res.json.firstCall.args[0];
-      expect(result.status).to.equal('success');
-      sinon.assert.calledTwice(dockerService.appDockerPause);
-    });
-  });
 
-  describe('appUnpause tests', () => {
-    beforeEach(() => {
-      sinon.stub(dockerService, 'appDockerUnpause').resolves('Flux App TestApp successfully unpaused.');
-    });
-
-    it('should unpause app and return success message', async () => {
-      verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
-        name: 'TestApp',
-        version: 3,
-      });
-
-      const req = {
-        params: { appname: 'TestApp' },
-        query: {},
-      };
-      const res = {
-        json: sinon.fake((param) => param),
-      };
-
-      await appController.appUnpause(req, res);
-
-      const result = res.json.firstCall.args[0];
-      expect(result.status).to.equal('success');
-      sinon.assert.calledOnce(dockerService.appDockerUnpause);
-    });
-
-    it('should unpause all components for version 4+ apps', async () => {
-      verificationHelperStub.resolves(true);
-      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
-        name: 'ComposedApp',
-        version: 4,
-        compose: [
-          { name: 'Component1' },
-          { name: 'Component2' },
-        ],
-      });
-
-      const req = {
-        params: { appname: 'ComposedApp' },
-        query: {},
-      };
-      const res = {
-        json: sinon.fake((param) => param),
-      };
-
-      await appController.appUnpause(req, res);
-
-      const result = res.json.firstCall.args[0];
-      expect(result.status).to.equal('success');
-      sinon.assert.calledTwice(dockerService.appDockerUnpause);
+      expect(result.status).to.equal('error');
+      expect(result.data.name).to.not.equal('Deprecated');
     });
   });
 

@@ -610,27 +610,20 @@ async function appKill(req, res) {
 }
 
 /**
- * Pause an application
+ * Pause and unpause were removed: docker reports a paused container as running, so the
+ * reconciler and the load balancer both treat it as healthy and keep routing to it,
+ * while nothing in FluxOS can see that it is frozen. The routes answer with an error
+ * rather than a success so a caller is not told the container stopped when it has not.
  * @param {object} req - Request object
  * @param {object} res - Response object
  * @returns {object} Response message
  */
-async function appPause(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-    // eslint-disable-next-line global-require
-    let { global } = req.params;
-    global = global || req.query.global || false;
-    global = serviceHelper.ensureBoolean(global);
+async function deprecatedPauseResponse(req, res) {
+  let { appname } = req.params;
+  appname = appname || req.query.appname;
 
-    if (!appname) {
-      throw new Error('No Flux App specified');
-    }
-
+  if (appname) {
     const mainAppName = appname.split('_')[1] || appname;
-
-    // Use dynamic require to avoid circular dependency
     // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
@@ -638,50 +631,24 @@ async function appPause(req, res) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
-
-    if (global) {
-      executeAppGlobalCommand(appname, 'apppause', req.headers.zelidauth); // do not wait
-      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global pause`);
-      return res ? res.json(appResponse) : appResponse;
-    }
-
-    const isComponent = appname.includes('_'); // it is a component pause
-    let appRes;
-
-    if (isComponent) {
-      // eslint-disable-next-line no-restricted-syntax
-      appRes = await dockerService.appDockerPause(appname);
-    } else {
-      // Check if app exists before pausing
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-
-      if (appSpecs.version <= 3) {
-        appRes = await dockerService.appDockerPause(appname);
-      } else {
-        // For composed applications (version > 3), pause all components
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose.reverse()) {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerPause(`${appComponent.name}_${appSpecs.name}`);
-        }
-        appRes = `Application ${appSpecs.name} paused`;
-      }
-    }
-
-    const appResponse = messageHelper.createDataMessage(appRes);
-    return res ? res.json(appResponse) : appResponse;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errorResponse) : errorResponse;
   }
+
+  const errorResponse = messageHelper.createErrorMessage(
+    'Pausing applications is no longer supported. Use appstop to stop an application.',
+    'Deprecated',
+    410,
+  );
+  return res ? res.json(errorResponse) : errorResponse;
+}
+
+/**
+ * Pause an application
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {object} Response message
+ */
+async function appPause(req, res) {
+  return deprecatedPauseResponse(req, res);
 }
 
 /**
@@ -691,74 +658,8 @@ async function appPause(req, res) {
  * @returns {object} Response message
  */
 async function appUnpause(req, res) {
-  try {
-    // eslint-disable-next-line global-require
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-    let { global } = req.params;
-    global = global || req.query.global || false;
-    global = serviceHelper.ensureBoolean(global);
-
-    if (!appname) {
-      throw new Error('No Flux App specified');
-    }
-
-    const mainAppName = appname.split('_')[1] || appname;
-
-    // Use dynamic require to avoid circular dependency
-    // eslint-disable-next-line global-require
-    const verificationHelper = require('../verificationHelper');
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
-
-    if (global) {
-      executeAppGlobalCommand(appname, 'appunpause', req.headers.zelidauth); // do not wait
-      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global unpase`);
-      return res ? res.json(appResponse) : appResponse;
-    }
-
-    const isComponent = appname.includes('_'); // it is a component unpause
-    let appRes;
-    // eslint-disable-next-line no-restricted-syntax
-
-    if (isComponent) {
-      appRes = await dockerService.appDockerUnpause(appname);
-    } else {
-      // Check if app exists before unpausing
-      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-
-      if (appSpecs.version <= 3) {
-        appRes = await dockerService.appDockerUnpause(appname);
-      } else {
-        // For composed applications (version > 3), unpause all components
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerUnpause(`${appComponent.name}_${appSpecs.name}`);
-        }
-        appRes = `Application ${appSpecs.name} unpaused`;
-      }
-    }
-
-    const appResponse = messageHelper.createDataMessage(appRes);
-    return res ? res.json(appResponse) : appResponse;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+  return deprecatedPauseResponse(req, res);
 }
-
 /**
  * Docker restart app (internal function)
  * @param {string} appname - Application name
