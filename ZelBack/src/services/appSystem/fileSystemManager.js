@@ -18,7 +18,7 @@ const serviceHelper = require('../serviceHelper');
 const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
 const { sanitizePath, verifyRealPath } = require('../utils/pathSecurity');
-const { openVolume } = require('./volumeSession');
+const { openVolume, SPACE_HEADROOM } = require('./volumeSession');
 const executor = require('./volumeExecutor');
 const jobRegistry = require('../utils/jobRegistry');
 const operationsController = require('../appManagement/operationsController');
@@ -479,6 +479,17 @@ async function extractAppsObject(req, res) {
       publish: { staging, destination },
       // tar -C and unzip -d both need the directory to exist already.
       mkdirStaging: true,
+      // The capacity check the other operations make up front cannot be made
+      // here: an archive's declared uncompressed size is written by whoever
+      // built it, so a bomb simply understates itself. The ceiling is applied
+      // to what actually lands instead, and it is the free space on the volume,
+      // so an extraction can fill what is available and no more.
+      maxBytes: volume.availableBytes / SPACE_HEADROOM,
+      // An archive that carries a link and then writes through it reaches
+      // wherever the link points. Inside the container that is nowhere useful,
+      // but the result is published onto a volume that the download endpoints
+      // still read from the host and that syncthing replicates to other nodes.
+      noLinks: true,
     }));
   } catch (error) {
     respondError(res, error);

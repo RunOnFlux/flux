@@ -189,6 +189,34 @@ describe('volumeExecutor tests', () => {
     });
   });
 
+  describe('run - publish options', () => {
+    it('passes the byte ceiling and link refusal to flux-op', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op-x');
+      const destination = await vol.resolve('out');
+
+      await volumeExecutor.run(vol, ['tar', '-xzf', '/work/a.tgz'], {
+        publish: { staging, destination }, mkdirStaging: true, maxBytes: 1234.7, noLinks: true,
+      });
+
+      const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
+      expect(Cmd.slice(0, 7)).to.deep.equal([
+        'flux-op', '--mkdir', '--max-bytes', '1234', '--no-links', '/work/.flux-op-x', '/work/out',
+      ]);
+    });
+
+    it('omits the options that were not asked for', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op-y');
+      const destination = await vol.resolve('out');
+
+      await volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } });
+
+      const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
+      expect(Cmd.slice(0, 4)).to.deep.equal(['flux-op', '/work/.flux-op-y', '/work/out', '--']);
+    });
+  });
+
   describe('run - operand handling', () => {
     it('passes a VolumePath as its container path, not its host path', async () => {
       const vol = await openSession();

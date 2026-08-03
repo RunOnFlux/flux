@@ -39,7 +39,15 @@ describe('fileSystemManager tests', () => {
       requireSpace: sinon.stub(),
     };
 
-    volumeSessionStub = { openVolume: sinon.stub().resolves(sessionStub) };
+    // proxyquire.noCallThru() replaces a module WHOLE: anything the subject
+    // imports and this object omits is undefined at the call, not at load. When
+    // that call sits inside a try, nothing fails visibly and the test passes
+    // having exercised the error branch. SPACE_HEADROOM is here because leaving
+    // it out silently turned a byte ceiling into NaN.
+    volumeSessionStub = {
+      openVolume: sinon.stub().resolves(sessionStub),
+      SPACE_HEADROOM: 1.05,
+    };
     executorStub = { run: sinon.stub().resolves(), assertCapacity: sinon.stub() };
 
     messageHelperStub = {
@@ -261,6 +269,23 @@ describe('fileSystemManager tests', () => {
 
       expect(argv()).to.include('--no-same-owner');
       expect(argv()).to.include('--no-same-permissions');
+    });
+
+    it('caps the result at the free space on the volume, not at what the archive claims', async () => {
+      // An archive's declared uncompressed size is written by whoever built it,
+      // so a bomb understates itself. The ceiling is applied to what actually
+      // lands, and it is what the volume can hold.
+      req.params.source = 'backup.zip';
+      await fileSystemManager.extractAppsObject(req, res);
+
+      expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
+    });
+
+    it('refuses a result containing links', async () => {
+      req.params.source = 'backup.zip';
+      await fileSystemManager.extractAppsObject(req, res);
+
+      expect(runOptions().noLinks).to.equal(true);
     });
 
     it('creates the staging directory, which tar -C and unzip -d both need', async () => {

@@ -194,12 +194,17 @@ function containerOptions(session, argv) {
  * @param {boolean} [options.mkdirStaging] - create the staging directory first,
  *   for commands like `tar -C` that need it to exist. A file copy must NOT ask
  *   for it: cp -T refuses to overwrite a directory with a non-directory.
+ * @param {number} [options.maxBytes] - ceiling on what the command may leave in
+ *   staging. Enforced on the RESULT rather than on what the input claims about
+ *   itself, because an archive's declared sizes are written by whoever built it.
+ * @param {boolean} [options.noLinks] - refuse a result containing symlinks or
+ *   hard links.
  * @returns {Promise<void>} resolves when the operation succeeded
  */
 async function run(session, argv, options = {}) {
   const {
     onProgress = null, isCanceled = null, status = 'Working...',
-    publish = null, mkdirStaging = false,
+    publish = null, mkdirStaging = false, maxBytes = 0, noLinks = false,
   } = options;
 
   if (!(session instanceof VolumeSession)) {
@@ -227,6 +232,8 @@ async function run(session, argv, options = {}) {
     params = [
       'flux-op',
       ...(mkdirStaging ? ['--mkdir'] : []),
+      ...(maxBytes > 0 ? ['--max-bytes', String(Math.floor(maxBytes))] : []),
+      ...(noLinks ? ['--no-links'] : []),
       toParam(publish.staging),
       toParam(publish.destination),
       '--',

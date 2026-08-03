@@ -43,10 +43,17 @@ async function recoverInterruptedFileOperations() {
   let restored = 0;
   // eslint-disable-next-line no-restricted-syntax
   for (const volume of volumes) {
-    // eslint-disable-next-line no-await-in-loop
-    const result = await executor.sweepStagingDirectories(volume.target, fs);
-    removed += result.removed.length;
-    restored += result.restored.length;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await executor.sweepStagingDirectories(volume.target, fs);
+      removed += result.removed.length;
+      restored += result.restored.length;
+    } catch (error) {
+      // One unreadable volume must not strand the debris on every other app,
+      // and must not skip the destination another app is waiting to have
+      // restored.
+      log.error(`fileOperationRecovery - could not sweep ${volume.target}: ${error.message}`);
+    }
   }
 
   if (containers || removed || restored) {
