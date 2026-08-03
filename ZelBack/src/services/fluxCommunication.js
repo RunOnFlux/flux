@@ -165,19 +165,15 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     // database encoding of every location update in memory together, which is
     // what made a single response cost hundreds of megabytes that were never
     // returned to the OS.
+    // Evictions are applied ahead of the other state events, as they were
+    // before this response was processed in slices.
+    const evictions = [];
     const stateEvents = [];
     // Which apps a node still runs is only known from its newest broadcast in
-    // the whole response, so pruning cannot be decided from inside a slice.
+    // the whole response, so pruning cannot be decided from inside a slice. Only
+    // verified broadcasts count - pruning deletes rows, and an unsigned event
+    // must never be able to do that.
     const newestByIp = new Map();
-    for (const event of messages) {
-      if (!event.envelope || event.type !== 'apprunning') continue;
-      const { data } = event;
-      if (!data || data.version !== 2 || !Array.isArray(data.apps) || !data.apps.length) continue;
-      const seen = newestByIp.get(data.ip);
-      if (!seen || data.broadcastedAt > seen.broadcastedAt) {
-        newestByIp.set(data.ip, { names: data.apps.map((a) => a.name), broadcastedAt: data.broadcastedAt });
-      }
-    }
     let locationWriteFailed = false;
 
     await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
@@ -212,10 +208,19 @@ async function handleAppRunningSyncResponse(message, peerKey) {
       const otherToVerify = otherBroadcasts.map((e) => ({ ...e.envelope, data: e.data }));
       const verifiedOther = await batchVerifyBroadcasts(otherToVerify, 'handleAppRunningSyncResponse');
       const verifiedOtherSet = new Set(verifiedOther);
-      stateEvents.push(...evictedEvents);
+      evictions.push(...evictedEvents);
       for (let i = 0; i < otherBroadcasts.length; i++) {
         if (verifiedOtherSet.has(otherToVerify[i])) {
           stateEvents.push(otherBroadcasts[i]);
+        }
+      }
+
+      for (const broadcast of verifiedAppRunning) {
+        const { data } = broadcast;
+        if (!data || data.version !== 2 || !Array.isArray(data.apps) || !data.apps.length) continue;
+        const seen = newestByIp.get(data.ip);
+        if (!seen || data.broadcastedAt > seen.broadcastedAt) {
+          newestByIp.set(data.ip, { names: data.apps.map((a) => a.name), broadcastedAt: data.broadcastedAt });
         }
       }
 
@@ -240,7 +245,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     // slice every time.
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    for (const event of stateEvents) {
+    for (const event of [...evictions, ...stateEvents]) {
         if (event.type === 'sigterm') {
           await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
           const newExpireAt = new Date(event.data.broadcastedAt + SIGTERM_EXPIRY_MS);
