@@ -11,7 +11,12 @@ class FluxWebsocketServer {
     perMessageDeflate: {
       zlibDeflateOptions: {
         chunkSize: 1024,
-        memLevel: 9,
+        // No-context-takeover resets the stream after every message, so the
+        // window can never carry history between messages and only ever matches
+        // within one. Gossip messages are a few KB, so an 8KB window and this
+        // hash table compress them to the same bytes a 32KB window does, on a
+        // third of the memory - and every peer socket holds a context.
+        memLevel: 8,
         level: 9,
       },
       zlibInflateOptions: {
@@ -19,8 +24,11 @@ class FluxWebsocketServer {
       },
       clientNoContextTakeover: true,
       serverNoContextTakeover: true,
-      clientMaxWindowBits: true, // Allow Firefox to use default settings
-      serverMaxWindowBits: true, // Let browsers negotiate (Default 15)
+      // Browsers reach this server too (/ws/id, /ws/sign, /ws/payment), so the
+      // peer's window stays its own choice; peers running this build offer 13
+      // themselves and negotiation settles there.
+      clientMaxWindowBits: true,
+      serverMaxWindowBits: 13,
       concurrencyLimit: 2,
       threshold: 128,
     },

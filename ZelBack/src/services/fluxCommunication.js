@@ -995,7 +995,11 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
         zlibDeflateOptions: {
         // See zlib defaults.
           chunkSize: 1024,
-          memLevel: 9,
+          // No-context-takeover resets the stream after every message, so the
+          // window only ever matches within one. Gossip messages are a few KB
+          // and compress to the same bytes on an 8KB window as on a 32KB one,
+          // for a third of the memory - and a context is held per peer socket.
+          memLevel: 8,
           level: 9,
         },
         zlibInflateOptions: {
@@ -1004,8 +1008,10 @@ async function initiateAndHandleConnection(connection, source = PEER_SOURCE.RAND
         // Other options settable:
         clientNoContextTakeover: true, // Defaults to negotiated value.
         serverNoContextTakeover: true, // Defaults to negotiated value.
-        serverMaxWindowBits: 15, // Defaults to negotiated value.
-        clientMaxWindowBits: 15, // Defaults to negotiated value.
+        // This socket only ever talks to another node, so both directions size
+        // down; a peer on an older build negotiates back up to 15.
+        serverMaxWindowBits: 13,
+        clientMaxWindowBits: 13,
         // Below options specified as default values.
         concurrencyLimit: 2, // Limits zlib concurrency for perf.
         threshold: 128, // Size (in bytes) below which messages
