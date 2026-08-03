@@ -2128,15 +2128,9 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
 // Re-exported here for backward compatibility.
 
 /**
- * Allow Node to bind to privileged ports without sudo. Legacy only: Arcane
- * grants CAP_NET_BIND_SERVICE to the fluxos unit itself, so the interpreter
- * carries no file capability there. A capability on the shared interpreter
- * would extend privileged binding to every local user's node process, and
- * puts the dynamic loader into secure-execution mode for all of them.
+ * Allow Node to bind to privileged without sudo
  */
 async function allowNodeToBindPrivilegedPorts() {
-  if (isArcane) return;
-
   try {
     const cmdAsync = util.promisify(nodecmd.run);
     const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
