@@ -8,6 +8,7 @@ describe('appInspector tests', () => {
   let messageHelperStub;
   let logStub;
   let configStub;
+  let globalStateStub;
 
   beforeEach(() => {
     configStub = {
@@ -34,8 +35,13 @@ describe('appInspector tests', () => {
       warn: sinon.stub(),
     };
 
+    globalStateStub = {
+      appsMonitored: {},
+    };
+
     appInspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
       config: configStub,
+      '../utils/globalState': globalStateStub,
       '../dockerService': dockerServiceStub,
       '../messageHelper': messageHelperStub,
       '../../lib/log': logStub,
@@ -786,15 +792,17 @@ describe('appInspector tests', () => {
       const res = {
         json: sinon.stub(),
       };
+      const stats = [{ timestamp: 1, cpu: 5 }];
+      globalStateStub.appsMonitored = { test_myappname: { statsStore: stats } };
 
-      messageHelperStub.createDataMessage.returns({
-        status: 'success',
-        data: 1000,
-      });
+      const dataMessage = { status: 'success', data: stats };
+      messageHelperStub.createDataMessage.returns(dataMessage);
 
       await appInspector.appMonitor(req, res);
 
-      expect(res.json.called).to.be.true;
+      expect(messageHelperStub.createDataMessage.calledOnceWithExactly(stats)).to.be.true;
+      expect(res.json.calledOnceWithExactly(dataMessage)).to.be.true;
+      expect(logStub.error.called).to.be.false;
     });
 
     it('should return app monitor data, no underscore in the name', async () => {
@@ -809,15 +817,17 @@ describe('appInspector tests', () => {
       const res = {
         json: sinon.stub(),
       };
+      const stats = [{ timestamp: 1, cpu: 5 }];
+      globalStateStub.appsMonitored = { myappname: { statsStore: stats } };
 
-      messageHelperStub.createDataMessage.returns({
-        status: 'success',
-        data: 1000,
-      });
+      const dataMessage = { status: 'success', data: stats };
+      messageHelperStub.createDataMessage.returns(dataMessage);
 
       await appInspector.appMonitor(req, res);
 
-      expect(res.json.called).to.be.true;
+      expect(messageHelperStub.createDataMessage.calledOnceWithExactly(stats)).to.be.true;
+      expect(res.json.calledOnceWithExactly(dataMessage)).to.be.true;
+      expect(logStub.error.called).to.be.false;
     });
 
     it('should return error if app is not monitored', async () => {

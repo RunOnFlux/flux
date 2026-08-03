@@ -5,6 +5,8 @@ const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
+const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('monitoringOrchestrator tests', () => {
   let req;
@@ -601,6 +603,57 @@ describe('monitoringOrchestrator tests', () => {
       const result = await monitoringOrchestrator.appMonitor(req, res, mockAppsMonitored);
 
       expect(result).to.deep.equal(expectedResult);
+    });
+  });
+
+  // routes.js reaches these handlers with (req, res) only — it has no access to the
+  // monitoring store or the installed-apps query. The suites above always inject both,
+  // so they exercise a call shape production never uses.
+  describe('router call shape - trailing arguments omitted', () => {
+    it('should serve appMonitor from the shared store', async () => {
+      req.params = { appname: 'comp_myapp' };
+      const stats = [{ timestamp: 1, cpu: 5 }];
+      sinon.stub(globalState, 'appsMonitored').value({ comp_myapp: { statsStore: stats } });
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(messageHelper, 'createDataMessage').returnsArg(0);
+
+      await monitoringOrchestrator.appMonitor(req, res);
+
+      sinon.assert.calledOnceWithExactly(messageHelper.createDataMessage, stats);
+      sinon.assert.calledOnceWithExactly(res.json, stats);
+    });
+
+    it('should resolve installed apps for startAppMonitoringAPI', async () => {
+      req.params = { appname: 'myapp' };
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(appQueryService, 'installedApps').resolves({
+        status: 'success',
+        data: [{ name: 'myapp', version: 3 }],
+      });
+      sinon.stub(appInspector, 'startAppMonitoring');
+      sinon.stub(appInspector, 'stopAppMonitoring');
+      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
+
+      const result = await monitoringOrchestrator.startAppMonitoringAPI(req, res);
+
+      expect(result).to.equal('Application monitoring started for myapp');
+      sinon.assert.calledWith(appQueryService.installedApps, 'myapp');
+    });
+
+    it('should resolve installed apps for stopAppMonitoringAPI', async () => {
+      req.params = { appname: 'myapp' };
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(appQueryService, 'installedApps').resolves({
+        status: 'success',
+        data: [{ name: 'myapp', version: 3 }],
+      });
+      sinon.stub(appInspector, 'stopAppMonitoring');
+      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
+
+      const result = await monitoringOrchestrator.stopAppMonitoringAPI(req, res);
+
+      expect(result).to.equal('Application monitoring stopped for myapp. Existing monitoring data maintained.');
+      sinon.assert.calledWith(appQueryService.installedApps, 'myapp');
     });
   });
 });

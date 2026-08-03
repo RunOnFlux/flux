@@ -4,6 +4,7 @@ const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
+const globalState = require('../utils/globalState');
 const cpuBurstHelper = require('../utils/cpuBurstHelper');
 const log = require('../../lib/log');
 // eslint-disable-next-line no-unused-vars
@@ -301,10 +302,10 @@ async function appStats(req, res) {
  * Get application monitoring data
  * @param {object} req - Request object
  * @param {object} res - Response object
- * @param {object} appsMonitored - Apps monitoring data
+ * @param {object} [appsMonitored] - Apps monitoring data. Defaults to the shared globalState store.
  * @returns {Promise<void>}
  */
-async function appMonitor(req, res, appsMonitored) {
+async function appMonitor(req, res, appsMonitored = globalState.appsMonitored) {
   try {
     let { appname, range } = req.params;
     appname = appname || req.query.appname;

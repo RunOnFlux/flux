@@ -3,6 +3,8 @@ const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const appInspector = require('../appManagement/appInspector');
+const appQueryService = require('../appQuery/appQueryService');
+const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
 
 /**
@@ -81,11 +83,11 @@ async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false, appsM
  * Start monitoring API endpoint
  * @param {object} req Request.
  * @param {object} res Response.
- * @param {object} appsMonitored - Apps monitored structure from appsService
- * @param {Function} installedAppsFn - Function to get installed apps
+ * @param {object} [appsMonitored] - Apps monitored structure. Defaults to the shared globalState store.
+ * @param {Function} [installedAppsFn] - Function to get installed apps. Defaults to the installed apps query.
  * @returns {object} Message.
  */
-async function startAppMonitoringAPI(req, res, appsMonitored, installedAppsFn) {
+async function startAppMonitoringAPI(req, res, appsMonitored = globalState.appsMonitored, installedAppsFn = appQueryService.installedApps) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
@@ -141,11 +143,11 @@ async function startAppMonitoringAPI(req, res, appsMonitored, installedAppsFn) {
  * Stop monitoring API endpoint
  * @param {object} req Request.
  * @param {object} res Response.
- * @param {object} appsMonitored - Apps monitored structure from appsService
- * @param {Function} installedAppsFn - Function to get installed apps
+ * @param {object} [appsMonitored] - Apps monitored structure. Defaults to the shared globalState store.
+ * @param {Function} [installedAppsFn] - Function to get installed apps. Defaults to the installed apps query.
  * @returns {object} Message.
  */
-async function stopAppMonitoringAPI(req, res, appsMonitored, installedAppsFn) {
+async function stopAppMonitoringAPI(req, res, appsMonitored = globalState.appsMonitored, installedAppsFn = appQueryService.installedApps) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
@@ -214,7 +216,7 @@ async function stopAppMonitoringAPI(req, res, appsMonitored, installedAppsFn) {
  * Enhanced appMonitor function that uses the inspector module but adds the monitored data
  * @param {object} req Request.
  * @param {object} res Response.
- * @param {object} appsMonitored - Apps monitored structure from appsService
+ * @param {object} [appsMonitored] - Apps monitored structure. Defaults to the shared globalState store.
  * @returns {object} Monitoring data.
  */
 async function appMonitor(req, res, appsMonitored) {
