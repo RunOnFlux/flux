@@ -84,13 +84,13 @@ describe('monitoringOrchestrator tests', () => {
       sinon.assert.calledOnceWithExactly(startStub, 'App1');
     });
 
-    it('should handle error if failed to get installed apps', async () => {
+    it('should throw if the installed apps lookup fails', async () => {
       installedAppsStub.resolves({ status: 'error', data: { message: 'Failed' } });
       const startStub = sinon.stub(appInspector, 'startAppMonitoring');
 
-      await monitoringOrchestrator.startMonitoringOfApps(null);
+      await expect(monitoringOrchestrator.startMonitoringOfApps(null))
+        .to.eventually.be.rejectedWith('Failed to get installed Apps');
 
-      sinon.assert.calledOnce(installedAppsStub);
       sinon.assert.notCalled(startStub);
     });
 
@@ -115,12 +115,16 @@ describe('monitoringOrchestrator tests', () => {
       sinon.assert.calledWith(startStub, 'Comp1_App2');
     });
 
-    it('should handle errors gracefully', async () => {
-      sinon.stub(appInspector, 'startAppMonitoring').throws(new Error('Monitor error'));
+    it('should keep monitoring the rest when one app fails', async () => {
+      const startStub = sinon.stub(appInspector, 'startAppMonitoring');
+      startStub.withArgs('App1').throws(new Error('Monitor error'));
 
-      await monitoringOrchestrator.startMonitoringOfApps([{ name: 'App1', version: 3 }]);
+      await monitoringOrchestrator.startMonitoringOfApps([
+        { name: 'App1', version: 3 },
+        { name: 'App2', version: 3 },
+      ]);
 
-      // Should not throw, error is logged
+      sinon.assert.calledWith(startStub, 'App2');
     });
   });
 
@@ -179,22 +183,26 @@ describe('monitoringOrchestrator tests', () => {
       sinon.assert.calledOnceWithExactly(stopStub, 'App1', false);
     });
 
-    it('should handle error if failed to get installed apps', async () => {
+    it('should throw if the installed apps lookup fails', async () => {
       installedAppsStub.resolves({ status: 'error', data: { message: 'Failed' } });
       const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
 
-      await monitoringOrchestrator.stopMonitoringOfApps(null, false);
+      await expect(monitoringOrchestrator.stopMonitoringOfApps(null, false))
+        .to.eventually.be.rejectedWith('Failed to get installed Apps');
 
-      sinon.assert.calledOnce(installedAppsStub);
       sinon.assert.notCalled(stopStub);
     });
 
-    it('should handle errors gracefully', async () => {
-      sinon.stub(appInspector, 'stopAppMonitoring').throws(new Error('Monitor error'));
+    it('should keep stopping the rest when one app fails', async () => {
+      const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
+      stopStub.withArgs('App1').throws(new Error('Monitor error'));
 
-      await monitoringOrchestrator.stopMonitoringOfApps([{ name: 'App1', version: 3 }], false);
+      await monitoringOrchestrator.stopMonitoringOfApps([
+        { name: 'App1', version: 3 },
+        { name: 'App2', version: 3 },
+      ], false);
 
-      // Should not throw, error is logged
+      sinon.assert.calledWith(stopStub, 'App2');
     });
   });
 
@@ -319,6 +327,18 @@ describe('monitoringOrchestrator tests', () => {
       await monitoringOrchestrator.startAppMonitoringAPI(req, res);
 
       sinon.assert.calledWith(verifyStub, 'adminandfluxteam', req);
+    });
+
+    it('should report an error when monitoring every app could not be started', async () => {
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      installedAppsStub.resolves({ status: 'error', data: { message: 'Failed' } });
+      const successStub = sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
+      sinon.stub(messageHelper, 'createErrorMessage').returns({ status: 'error', data: {} });
+
+      const result = await monitoringOrchestrator.startAppMonitoringAPI(req, res);
+
+      expect(result.status).to.equal('error');
+      sinon.assert.notCalled(successStub);
     });
 
     it('should verify appownerabove privilege for a specific app', async () => {
