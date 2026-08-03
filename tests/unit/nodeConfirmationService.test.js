@@ -2,6 +2,8 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
 
+const POLL_INTERVAL_MS = 30 * 1000;
+
 describe('nodeConfirmationService', () => {
   let service;
   let clock;
@@ -54,7 +56,7 @@ describe('nodeConfirmationService', () => {
   }
 
   async function advancePoll() {
-    await clock.tickAsync(30 * 1000);
+    await clock.tickAsync(POLL_INTERVAL_MS);
   }
 
   describe('isConfirmed', () => {
@@ -331,8 +333,13 @@ describe('nodeConfirmationService', () => {
   });
 
   describe('daemon staleness', () => {
+    // Staleness is derived from Date.now() when a poll runs, so only the poll landing
+    // after the threshold decides the outcome. Move the clock, then run that one poll:
+    // ticking the whole window ran a poll every 30s — 640 sequential event-loop turns
+    // for the 320 minute case — which exceeds the default timeout on a loaded machine.
     async function advanceByMinutes(minutes) {
-      await clock.tickAsync(minutes * 60 * 1000);
+      clock.setSystemTime(Date.now() + minutes * 60 * 1000 - POLL_INTERVAL_MS);
+      await clock.tickAsync(POLL_INTERVAL_MS);
     }
 
     it('should not be stale initially', async () => {
