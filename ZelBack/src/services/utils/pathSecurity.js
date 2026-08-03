@@ -29,15 +29,37 @@ function rejectBackslashes(inputPath) {
 }
 
 /**
- * Validate a single path component (directory or filename) against allowlist.
- * This is the STRICT mode validation - only allows known-safe characters.
+ * Characters that cannot appear in a path component this code will handle.
  *
- * Allowed characters:
- * - Alphanumeric (a-z, A-Z, 0-9)
- * - Dash (-), underscore (_)
- * - Dot (.) - but not as sole character or double dots
- * - Space ( ) - common in filenames
- * - Additional safe chars: @, #, +, =, (), [], {}
+ * A path separator, because components are what a path splits INTO; a backslash,
+ * which on Linux is a legal filename character but only ever appears here by
+ * mistake or by attempt; and the control characters.
+ *
+ * Control characters are the interesting one. They are legal in a Linux
+ * filename, but a newline in particular corrupts anything line-oriented that
+ * later handles the name - /proc/self/mountinfo escapes them for exactly this
+ * reason, and the marker file that records where displaced data belongs during
+ * a publish is one line of text. Rejecting them keeps a filename from being
+ * able to forge a record about itself.
+ */
+// eslint-disable-next-line no-control-regex
+const UNSAFE_PATH_COMPONENT = /[\u0000-\u001F\u007F-\u009F\\/]/;
+
+/**
+ * Validate a single path component (directory or filename).
+ *
+ * This rejects what cannot be handled rather than permitting a known-safe list.
+ * It previously allowed only `[a-zA-Z0-9_\-. @#+=()[\]{}]`, which excludes the
+ * comma, the apostrophe, the ampersand and every non-ASCII character - so
+ * `café.jpg`, `Mary's photo.png` and `report,final.pdf` could be UPLOADED (the
+ * upload path applies no character rule) and then never renamed, moved,
+ * downloaded or deleted. The system accepted names it could not address.
+ *
+ * Widening is safe because nothing in the containment argument rests on the
+ * character set: traversal is caught by the `..` component check and by
+ * resolving against the base, symlink escape by verifyRealPath, and anything
+ * that slips past both lands inside a container with only that volume mounted.
+ * An allowlist of punctuation was never what made a path safe.
  *
  * @param {string} component - Single path component (no slashes)
  * @returns {boolean} True if component is safe
@@ -57,16 +79,9 @@ function isValidPathComponent(component) {
     return false;
   }
 
-  // Allowlist pattern: alphanumeric, dash, underscore, dot, space, and common safe chars
-  // Note: We allow consecutive dots in FILENAMES (e.g., "file..backup.txt") since they're not traversal
-  // The traversal check is done by checking if component === '..'
-  const safePattern = /^[a-zA-Z0-9_\-. @#+=()[\]{}]+$/;
-
-  if (!safePattern.test(component)) {
-    return false;
-  }
-
-  return true;
+  // Consecutive dots WITHIN a name ("file..backup.txt") are not traversal; only
+  // the component being exactly '..' is, and that is checked above.
+  return !UNSAFE_PATH_COMPONENT.test(component);
 }
 
 /**
@@ -291,7 +306,10 @@ async function verifyRealPathOfExistingPath(targetPath, basePath) {
   const normalizedBase = path.resolve(basePath);
   let currentPath = path.resolve(targetPath);
 
-  // Walk up until we find an existing ancestor (or reach the base)
+  // Walk up until we find an existing ancestor (or reach the base). Bounded by
+  // the walk itself: every iteration either breaks or moves one level towards
+  // the base, and reaching the base breaks.
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     const relativePath = path.relative(normalizedBase, currentPath);
     if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
@@ -375,19 +393,25 @@ function validateFilename(name) {
     throw new Error('Filename must be a non-empty string');
   }
 
-  // Check for null bytes
+  // Named separately from the control-character rule that would also catch it:
+  // a null byte in a filename is a specific, well-known attempt to truncate a
+  // path in a downstream C string, and saying so is more use than a general
+  // message.
   if (name.includes('\0')) {
     throw new Error('Invalid filename: null bytes not allowed');
-  }
-
-  // Check for path separators (both / and \)
-  if (name.includes('/') || name.includes('\\')) {
-    throw new Error('Invalid filename: path separators not allowed');
   }
 
   // Check for reserved traversal names
   if (name === '.' || name === '..') {
     throw new Error('Invalid filename: reserved name');
+  }
+
+  // The same rule the rest of the module applies to a path component. Upload
+  // used to have its own, looser one - no character check at all - which is how
+  // a name could be accepted here and then be unaddressable by every other
+  // endpoint. One rule, so what can be created can be managed.
+  if (!isValidPathComponent(name)) {
+    throw new Error('Invalid filename: path separators and control characters are not allowed');
   }
 
   return name;
