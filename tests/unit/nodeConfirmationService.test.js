@@ -1,8 +1,11 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const config = require('config');
 
-const POLL_INTERVAL_MS = 30 * 1000;
+// The service polls on this interval and the staleness helpers below advance the clock
+// by exactly one of them, so reading it keeps the two from drifting apart.
+const POLL_INTERVAL_MS = config.confirmation.pollIntervalMs;
 
 describe('nodeConfirmationService', () => {
   let service;
