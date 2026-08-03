@@ -1294,7 +1294,11 @@ async function addOutgoingPeer(req, res) {
 function startDiscovery() {
   if (discoveryRunning) return;
   discoveryRunning = true;
-  fluxDiscovery();
+  // Driven by the node list arriving rather than by a retry that happens to
+  // land after it. A peer holds one socket in either direction, so peers that
+  // dial us while we are waiting take the very sockets we would have dialled
+  // them on, and a late first pass then has nothing left to connect to.
+  networkStateService.onReady(fluxDiscovery);
 }
 
 async function startDiscoveryApi(req, res) {
@@ -1329,6 +1333,13 @@ async function fluxDiscovery() {
 
     if (!localSocketAddr) {
       throw new Error('Flux IP not detected. Flux discovery is awaiting.');
+    }
+
+    // An unknown node list and an empty one are the same value below, and acting
+    // on the second when it is really the first sizes both deterministic loops
+    // to zero - the node then connects to nobody and reports no error.
+    if (!networkStateService.isReady()) {
+      throw new Error('Network state not yet known. Flux discovery is awaiting.');
     }
 
     const sortedNodeList = await fluxCommunicationUtils.deterministicFluxList({

@@ -114,8 +114,41 @@ function networkState(options = {}) {
 }
 
 /**
- * Waits until the network state is known. Callers use this to decide what the
- * network looks like, so it must not return before there is an answer.
+ * Whether the node list has been fetched and indexed.
+ *
+ * Every accessor on this service answers an unknown state and a genuinely empty
+ * one with the same value - an empty list, a zero, a null. Callers that would
+ * read those differently ask this first rather than guessing.
+ * @returns {boolean}
+ */
+function isReady() {
+  return Boolean(stateManager && stateManager.started);
+}
+
+/**
+ * Runs a callback once the network state is known, immediately if it already is.
+ *
+ * This is for work that cannot begin without the node list, so that it starts
+ * when the list arrives rather than whenever the next poll happens to come
+ * round. Callers on a schedule of their own should use isReady() instead.
+ * @param {Function} callback
+ * @returns {void}
+ */
+function onReady(callback) {
+  if (isReady()) {
+    callback();
+    return;
+  }
+
+  started.then(callback);
+}
+
+/**
+ * Waits until the network state is known.
+ *
+ * Only for one-shot startup gates. Anything on a repeating schedule must use
+ * isReady() - several of those only re-arm once they have finished, so awaiting
+ * here would retire them for the life of the process rather than delay them.
  * @returns {Promise<void>}
  */
 async function waitStarted() {
@@ -213,8 +246,10 @@ module.exports = {
   getFluxnodeBySocketAddress,
   getFluxnodesByPubkey,
   getRandomSocketAddress,
+  isReady,
   networkState,
   nodeCount,
+  onReady,
   pubkeyInNetworkState,
   socketAddressInNetworkState,
   start,
