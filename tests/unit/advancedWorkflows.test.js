@@ -2327,6 +2327,16 @@ describe('advancedWorkflows tests', () => {
       volGlobalState.receiveOnlySyncthingAppsCache.clear();
       const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
       sinon.stub(hwRequirements, 'getNodeSpecs').resolves({ ssdStorage: 10000 });
+      // The volume search reads the real mount table through findmnt. Stubbing
+      // it keeps these cases about the synced-mark rather than about whichever
+      // disks the machine running the suite happens to have.
+      // eslint-disable-next-line global-require
+      const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+      sinon.stub(volumeService, 'capacityVolumesInGb').resolves([
+        {
+          filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 100, available: 900,
+        },
+      ]);
     });
 
     afterEach(() => {

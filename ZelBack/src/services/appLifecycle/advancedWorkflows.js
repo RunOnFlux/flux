@@ -1,6 +1,5 @@
 const config = require('config');
 const util = require('util');
-const df = require('node-df');
 const fs = require('node:fs');
 const path = require('node:path');
 const nodecmd = require('node-cmd');
@@ -415,7 +414,6 @@ let dosMountMessage = '';
  * @returns {Promise<void>}
  */
 async function createAppVolume(appSpecifications, appName, isComponent, res) {
-  const dfAsync = util.promisify(df);
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   const appId = dockerService.getAppIdentifier(identifier);
 
@@ -428,22 +426,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     if (res.flush) res.flush();
   }
 
-  // we want whole numbers in GB
-  const options = {
-    prefixMultiplier: 'GB',
-    isDisplayPrefixMultiplier: false,
-    precision: 0,
-  };
-
-  const dfres = await dfAsync(options);
-  const okVolumes = [];
-  dfres.forEach((volume) => {
-    if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
-      okVolumes.push(volume);
-    } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
-      okVolumes.push(volume);
-    }
-  });
+  const okVolumes = await volumeService.capacityVolumesInGb();
 
   // Dynamic require to avoid circular dependency
   // eslint-disable-next-line global-require
@@ -2456,28 +2439,12 @@ async function testAppMount() {
     await removeTestAppMount();
     const appSize = 1;
     const overHeadRequired = 2;
-    const dfAsync = util.promisify(df);
     const appId = 'flux_fluxTestVol';
 
     log.info('Mount Test: started');
     log.info('Mount Test: Searching available space...');
 
-    // we want whole numbers in GB
-    const options = {
-      prefixMultiplier: 'GB',
-      isDisplayPrefixMultiplier: false,
-      precision: 0,
-    };
-
-    const dfres = await dfAsync(options);
-    const okVolumes = [];
-    dfres.forEach((volume) => {
-      if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
-        okVolumes.push(volume);
-      } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
-        okVolumes.push(volume);
-      }
-    });
+    const okVolumes = await volumeService.capacityVolumesInGb();
 
     // check if space is not sharded in some bad way. Always count the fluxSystemReserve
     let useThisVolume = null;

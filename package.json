@@ -105,7 +105,6 @@
     "nano-ethereum-signer": "~0.1.2",
     "node-abort-controller": "^3.1.1",
     "node-cmd": "~5.0.0",
-    "node-df": "~0.1.4",
     "nodemon": "~3.1.10",
     "object-hash": "~3.0.0",
     "openpgp": "~6.2.0",

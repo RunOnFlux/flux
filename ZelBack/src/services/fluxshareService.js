@@ -1,13 +1,11 @@
 const config = require('config');
 const crypto = require('crypto');
 const path = require('path');
-const df = require('node-df');
 const fs = require('fs');
 const { formidable } = require('formidable');
 const archiver = require('archiver');
-// eslint-disable-next-line import/no-extraneous-dependencies
-const util = require('util');
 const serviceHelper = require('./serviceHelper');
+const volumeService = require('./utils/volumeService');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
@@ -739,23 +737,7 @@ async function fluxShareFileExists(req, res) {
  * @returns {number} The quantity of space available (GB).
  */
 async function getSpaceAvailableForFluxShare() {
-  const dfAsync = util.promisify(df);
-  // we want whole numbers in GB
-  const options = {
-    prefixMultiplier: 'GB',
-    isDisplayPrefixMultiplier: false,
-    precision: 0,
-  };
-
-  const dfres = await dfAsync(options);
-  const okVolumes = [];
-  dfres.forEach((volume) => {
-    if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
-      okVolumes.push(volume);
-    } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
-      okVolumes.push(volume);
-    }
-  });
+  const okVolumes = await volumeService.capacityVolumesInGb();
 
   // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
   let totalSpace = 0;

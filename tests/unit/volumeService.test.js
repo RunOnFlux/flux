@@ -14,7 +14,7 @@ describe('volumeService tests', () => {
   let serviceHelperStub;
   let mountParserStub;
   let fsStub;
-  let dfStub;
+  let deviceHelperStub;
   let logStub;
   let volumeService;
 
@@ -38,7 +38,7 @@ describe('volumeService tests', () => {
     // fallback, so tests can keep expressing mountedness via runCommand; the
     // isPathMounted describe covers the mountinfo path with real fixtures
     fsStub = { promises: { access: sinon.stub(), readdir: sinon.stub().resolves([]), readFile: sinon.stub().rejects(new Error('no mountinfo')) } };
-    dfStub = sinon.stub().callsArgWith(1, null, []); // node-df callback style: (options, cb)
+    deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([]) };
     logStub = {
       info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
     };
@@ -57,7 +57,7 @@ describe('volumeService tests', () => {
         APP_VOLUME_MOUNT_OPTIONS: require('../../ZelBack/src/services/utils/appConstants').APP_VOLUME_MOUNT_OPTIONS,
       },
       '../../lib/log': logStub,
-      'node-df': dfStub,
+      '../deviceHelper': deviceHelperStub,
       fs: { promises: fsStub.promises },
     });
   });
@@ -126,11 +126,81 @@ describe('volumeService tests', () => {
     });
   });
 
+  describe('capacityVolumesInGb tests', () => {
+    const mount = (source, target, sizeBytes) => ({
+      source, target, sizeBytes, usedBytes: 0, availableBytes: sizeBytes,
+    });
+
+    it('counts block-backed volumes', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        mount('/dev/sda1', '/dat', 1e12),
+        mount('/dev/sdb1', '/dat2', 2e12),
+      ]);
+
+      const result = await volumeService.capacityVolumesInGb();
+      expect(result.map((v) => v.mount)).to.deep.equal(['/dat', '/dat2']);
+    });
+
+    it('excludes a volume that is not block-backed', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        mount('/dev/sda1', '/dat', 1e12),
+        mount('tmpfs', '/run', 2e12),
+      ]);
+
+      const result = await volumeService.capacityVolumesInGb();
+      expect(result.map((v) => v.mount)).to.deep.equal(['/dat']);
+    });
+
+    it('excludes a loop device, which is an app volume rather than a host disk', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        mount('/dev/sda1', '/dat', 1e12),
+        mount('/dev/loop3', '/dat/apps/fluxcomp_app', 2e12),
+      ]);
+
+      const result = await volumeService.capacityVolumesInGb();
+      expect(result.map((v) => v.mount)).to.deep.equal(['/dat']);
+    });
+
+    it('excludes a boot filesystem', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        mount('/dev/sda1', '/dat', 1e12),
+        mount('/dev/sda2', '/boot', 2e12),
+      ]);
+
+      const result = await volumeService.capacityVolumesInGb();
+      expect(result.map((v) => v.mount)).to.deep.equal(['/dat']);
+    });
+
+    it('includes a loop-mounted root, which is the host disk on some images', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        mount('/dev/sda1', '/dat', 1e12),
+        mount('/dev/loop0', '/', 2e12),
+      ]);
+
+      const result = await volumeService.capacityVolumesInGb();
+      expect(result.map((v) => v.mount)).to.deep.equal(['/dat', '/']);
+    });
+
+    it('reports whole DECIMAL GB', async () => {
+      // Decimal, not GiB: app hdd requirements and the config reserves this is
+      // compared against are decimal, so GiB here would understate every node
+      // by about 7% and reject apps that fit.
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sda1', target: '/dat', sizeBytes: 1e12, usedBytes: 4e11, availableBytes: 6e11 },
+      ]);
+
+      const [volume] = await volumeService.capacityVolumesInGb();
+      expect(volume).to.deep.equal({
+        filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 400, available: 600,
+      });
+    });
+  });
+
   describe('getVolumeFilePath tests', () => {
-    it('should find the image at the root of an eligible df volume', async () => {
-      dfStub.callsArgWith(1, null, [
-        { filesystem: '/dev/sda1', mount: '/dat' },
-        { filesystem: 'tmpfs', mount: '/run' },
+    it('should find the image at the root of an eligible host volume', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sda1', target: '/dat' },
+        { source: 'tmpfs', target: '/run' },
       ]);
       fsStub.promises.access.rejects(new Error('ENOENT'));
       fsStub.promises.access.withArgs('/dat/fluxapp1FLUXFSVOL').resolves();
@@ -140,7 +210,7 @@ describe('volumeService tests', () => {
     });
 
     it('should not look for images at the root filesystem itself', async () => {
-      dfStub.callsArgWith(1, null, [{ filesystem: '/dev/sda1', mount: '/' }]);
+      deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/' }]);
       fsStub.promises.access.rejects(new Error('ENOENT'));
 
       await volumeService.getVolumeFilePath('fluxapp1');
@@ -171,8 +241,8 @@ describe('volumeService tests', () => {
       expect(result).to.be.null;
     });
 
-    it('should still check appvolumes locations when df fails', async () => {
-      dfStub.callsArgWith(1, new Error('df failed'), null);
+    it('should still check appvolumes locations when the mount table cannot be read', async () => {
+      deviceHelperStub.listMountedFilesystems.rejects(new Error('findmnt failed'));
       fsStub.promises.access.rejects(new Error('ENOENT'));
       fsStub.promises.access.withArgs(`${APP_VOLUMES}/fluxapp1FLUXFSVOL`).resolves();
 
@@ -184,7 +254,7 @@ describe('volumeService tests', () => {
   describe('ensureAppVolumeMounted tests', () => {
     beforeEach(() => {
       dockerServiceStub.getAppIdentifier.returns('fluxapp1');
-      dfStub.callsArgWith(1, null, [{ filesystem: '/dev/sda1', mount: '/dat' }]);
+      deviceHelperStub.listMountedFilesystems.resolves([{ source: '/dev/sda1', target: '/dat' }]);
     });
 
     it('should be a no-op when the app dir is already a mountpoint', async () => {

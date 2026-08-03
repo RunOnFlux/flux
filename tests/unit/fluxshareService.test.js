@@ -3,12 +3,12 @@ const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
 const proxyquire = require('proxyquire');
 const fs = require('fs');
-const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
 
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
+const volumeService = require('../../ZelBack/src/services/utils/volumeService');
 const { requireMongo } = require('./dbTestHelper');
 
 const adminConfig = {
@@ -1178,118 +1178,30 @@ describe('idService tests', () => {
       sinon.restore();
     });
 
-    it('should properly return free space on the node if all volumes are proper', async () => {
-      sinon.stub(util, 'promisify').returns(() => [
-        {
-          filesystem: '/dev/',
-          mount: 'test',
-          size: '1000',
-        },
-        {
-          filesystem: '/dev/',
-          mount: 'test',
-          size: '2010',
-        },
-      ]);
+    // Which host volumes count towards node capacity is decided by
+    // volumeService.capacityVolumesInGb and covered by its own cases there.
+    // These assert only what this function adds: total the eligible volumes,
+    // subtract the tier's locked space, and never go below the 2 GB base.
+    const withVolumes = (...sizes) => sinon
+      .stub(volumeService, 'capacityVolumesInGb')
+      .resolves(sizes.map((size) => ({
+        filesystem: '/dev/sda1', mount: '/dat', size, used: 0, available: size,
+      })));
+
+    it('totals the eligible volumes and subtracts the tier reserve', async () => {
+      withVolumes(1000, 2010);
 
       const result = await fluxshareService.getSpaceAvailableForFluxShare();
 
       expect(result).to.equal(2132);
     });
 
-    it('should properly return free space on the node if one of the volumes is not /dev/ filesystem', async () => {
-      sinon.stub(util, 'promisify').returns(() => [
-        {
-          filesystem: '/dev/',
-          mount: 'test',
-          size: '1000',
-        },
-        {
-          filesystem: 'test',
-          mount: 'test',
-          size: '2010',
-        },
-      ]);
-
-      const result = await fluxshareService.getSpaceAvailableForFluxShare();
-
-      expect(result).to.equal(122);
-    });
-
-    it('should properly return free space on the node if all of the volumes are not /dev/ filesystem', async () => {
-      sinon.stub(util, 'promisify').returns(() => [
-        {
-          filesystem: 'test',
-          mount: 'test',
-          size: '1000',
-        },
-        {
-          filesystem: 'test',
-          mount: 'test',
-          size: '2010',
-        },
-      ]);
+    it('falls back to the base allowance when nothing is left after the reserve', async () => {
+      withVolumes();
 
       const result = await fluxshareService.getSpaceAvailableForFluxShare();
 
       expect(result).to.equal(2);
-    });
-
-    it('should properly return free space on the node if one of the volumes has loop in the filesystem', async () => {
-      sinon.stub(util, 'promisify').returns(() => [
-        {
-          filesystem: '/dev/',
-          mount: 'test',
-          size: '1000',
-        },
-        {
-          filesystem: '/dev/loop',
-          mount: 'test',
-          size: '2010',
-        },
-      ]);
-
-      const result = await fluxshareService.getSpaceAvailableForFluxShare();
-
-      expect(result).to.equal(122);
-    });
-
-    it('should properly return free space on the node if one of the volumes has boot in the mount', async () => {
-      sinon.stub(util, 'promisify').returns(() => [
-        {
-          filesystem: '/dev/',
-          mount: 'test',
-          size: '1000',
-        },
-        {
-          filesystem: '/dev/',
-          mount: 'boot',
-          size: '2010',
-        },
-      ]);
-
-      const result = await fluxshareService.getSpaceAvailableForFluxShare();
-
-      expect(result).to.equal(122);
-    });
-
-    it('should properly return free space on the node if one of the volumes has loop in the filesystem and / in the mount', async () => {
-      sinon.stub(util, 'promisify').returns(() => [
-        {
-          filesystem: '/dev/',
-          mount: 'test',
-          size: '1000',
-        },
-        {
-          filesystem: '/dev/boot',
-          mount: '/',
-          size: '2010',
-        },
-      ]);
-
-      const result = await fluxshareService.getSpaceAvailableForFluxShare();
-
-      expect(result).to.equal(2132);
     });
   });
 
@@ -1299,16 +1211,12 @@ describe('idService tests', () => {
     beforeEach(async () => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       sinon.stub(generalService, 'getNewNodeTier').returns('stratus');
-      sinon.stub(util, 'promisify').returns(() => [
+      sinon.stub(volumeService, 'capacityVolumesInGb').resolves([
         {
-          filesystem: '/dev/',
-          mount: 'test',
-          size: '1000',
+          filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 0, available: 1000,
         },
         {
-          filesystem: '/dev/',
-          mount: 'test',
-          size: '2010',
+          filesystem: '/dev/sdb1', mount: '/dat2', size: 2010, used: 0, available: 2010,
         },
       ]);
       sinon.stub(fs, 'readdirSync').returns(['file1', 'file2']);

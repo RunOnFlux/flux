@@ -22,6 +22,84 @@ const serviceHelper = require('./serviceHelper');
 // }
 
 /**
+ * Every mounted real (block-backed) filesystem with its byte-level usage.
+ *
+ * This is the `df` view, sourced from `findmnt --real --list`: one flat row per
+ * mount, no mount-tree nesting. `--real` drops the pseudo filesystems
+ * (proc/sysfs/cgroup/tmpfs); loop devices ARE real, so an app's loop-mounted
+ * FLUXFSVOL appears here.
+ *
+ * Byte counts come from `--bytes`, so they need no unit conversion. The node-df
+ * package this replaces reported `df -kP` blocks scaled by a multiplier table
+ * that has no entry for bytes, and applied `precision` unconditionally - so the
+ * call convention used across the file API produced NaN for size, used and
+ * available, and the one that did not still returned KiB while asking for 'B'.
+ *
+ * Throws on findmnt failure rather than returning [], so a caller cannot read
+ * "no disks" as "no space" and act on it.
+ *
+ * @returns {Promise<Array<{source: string, target: string, fstype: string,
+ *   sizeBytes: number, usedBytes: number, availableBytes: number,
+ *   usePercent: number}>>}
+ */
+async function listMountedFilesystems() {
+  const res = await serviceHelper.runCommand('findmnt', {
+    logError: false,
+    params: ['--real', '--list', '--bytes', '--json', '--output', 'SOURCE,TARGET,FSTYPE,SIZE,USED,AVAIL,USE%'],
+  });
+  if (res.error) {
+    throw new Error(`findmnt --real --list failed: ${res.error.message || res.error}`);
+  }
+  const filesystems = JSON.parse(res.stdout || '{}').filesystems || [];
+  return filesystems.map((entry) => ({
+    source: entry.source,
+    target: entry.target,
+    fstype: entry.fstype,
+    sizeBytes: Number(entry.size),
+    usedBytes: Number(entry.used),
+    availableBytes: Number(entry.avail),
+    usePercent: Number(String(entry['use%'] || '').replace('%', '')),
+  }));
+}
+
+/**
+ * The single mounted filesystem that HOSTS `target` - its containing
+ * mountpoint - with byte-level free space.
+ *
+ * Use this rather than scanning listMountedFilesystems when the question is
+ * "how much room is there for a write at this path": it resolves the one
+ * filesystem directly instead of matching paths, so a nested mount cannot be
+ * mistaken for its parent.
+ *
+ * `target` must be an existing path - a non-existent leaf resolves to no mount
+ * on modern findmnt. Throws on failure or an unresolvable path so a caller
+ * never silently measures the wrong disk.
+ *
+ * @param {string} target an existing path
+ * @returns {Promise<{source: string, target: string, fstype: string,
+ *   availableBytes: number}>}
+ */
+async function mountForTarget(target) {
+  const res = await serviceHelper.runCommand('findmnt', {
+    logError: false,
+    params: ['--target', target, '--bytes', '--json', '--output', 'SOURCE,TARGET,FSTYPE,AVAIL'],
+  });
+  if (res.error) {
+    throw new Error(`findmnt --target ${target} failed: ${res.error.message || res.error}`);
+  }
+  const [mount] = JSON.parse(res.stdout || '{}').filesystems || [];
+  if (!mount) {
+    throw new Error(`findmnt --target ${target} resolved no mounted filesystem`);
+  }
+  return {
+    source: mount.source,
+    target: mount.target,
+    fstype: mount.fstype,
+    availableBytes: Number(mount.avail),
+  };
+}
+
+/**
  * Determines if mount target has a filesystem quota
  * @param {string} target The mount target
  * @returns {Promise<Boolean>} If the device has a quota
@@ -64,4 +142,6 @@ if (require.main === module) {
 
 module.exports = {
   hasQuotaOptionForMountTarget,
+  listMountedFilesystems,
+  mountForTarget,
 };

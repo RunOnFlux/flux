@@ -1,4 +1,3 @@
-const df = require('node-df');
 const fs = require('fs').promises;
 const fs2 = require('fs');
 const util = require('util');
@@ -6,6 +5,7 @@ const log = require('../lib/log');
 const axios = require('axios');
 const path = require('path');
 const { formidable } = require('formidable');
+const deviceHelper = require('./deviceHelper');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
@@ -60,7 +60,7 @@ async function requestWithValidatedRedirects(url, method = 'GET', axiosOptions =
     }
 
     // Handle redirect
-    const location = response.headers.location;
+    const { location } = response.headers;
     if (!location) {
       throw new Error('Redirect response missing Location header');
     }
@@ -223,49 +223,47 @@ async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
  */
 async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
   try {
-    const options = {
-      prefixMultiplier: multiplier,
-      isDisplayPrefixMultiplier: false,
-      precision: +decimal,
-    };
-    const dfAsync = util.promisify(df);
-    const dfData = await dfAsync(options);
-    let regex;
-    if (component === 'null') {
-      regex = new RegExp(`flux${appname}$`);
-    } else {
-      regex = new RegExp(`flux${component}_${appname}$`);
-    }
-    const allowedFields = fields ? fields.split(',') : null;
-    const adjustValue = (value) => (multiplier.toLowerCase() === 'b' ? value * 1024 : value);
-    const dfSorted = dfData
-      .filter((entry) => {
-        const testResult = regex.test(entry.mount);
-        return testResult;
-      })
-      .map((entry) => {
-        const filteredEntry = allowedFields
-          ? Object.fromEntries(Object.entries(entry).filter(([key]) => allowedFields.includes(key)))
-          : entry;
+    const mounts = await deviceHelper.listMountedFilesystems();
 
-        if (allowedFields && allowedFields.some((field) => ['size', 'available', 'used'].includes(field))) {
-          ['size', 'available', 'used'].forEach((property) => {
-            if (filteredEntry[property] !== undefined) {
-              filteredEntry[property] = adjustValue(filteredEntry[property]);
-            }
-          });
-        }
-        return filteredEntry;
-      })
-      .filter((entry) => {
-        if (allowedFields) {
-          return Object.keys(entry).length > 0;
-        // eslint-disable-next-line no-else-return
-        } else {
-          return true;
-        }
-      });
-    return dfSorted.length > 0 ? dfSorted : false;
+    // The identifier is `flux<component>_<app>`, and neither name may contain an
+    // underscore (components are alphanumeric, app names alphanumeric plus
+    // internal hyphens), so the pair cannot be ambiguous. Both are validated
+    // against those charsets before reaching here, which is also what keeps them
+    // safe to interpolate into a pattern.
+    const identifier = component === 'null' ? `flux${appname}` : `flux${component}_${appname}`;
+
+    // A path the KERNEL reports as a mountpoint, selected by the request - never
+    // a path built from it. The worst a hostile appname can do is match nothing.
+    const matched = mounts.filter((mount) => path.basename(mount.target) === identifier);
+    if (!matched.length) return false;
+
+    const divisor = {
+      b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3,
+    }[String(multiplier || 'B').toLowerCase()] ?? 1;
+    // Two argument orders for this function exist in the codebase, so `decimal`
+    // sometimes arrives as a field name. Anything non-numeric means "no rounding"
+    // rather than NaN, which is what the previous implementation produced for
+    // every size it returned to the file API.
+    const precision = Number.isFinite(+decimal) ? +decimal : null;
+    const toUnit = (bytes) => {
+      const value = bytes / divisor;
+      return precision === null ? value : Number(value.toFixed(precision));
+    };
+
+    const allowedFields = fields ? String(fields).split(',') : null;
+    return matched.map((mount) => {
+      const full = {
+        filesystem: mount.source,
+        size: toUnit(mount.sizeBytes),
+        used: toUnit(mount.usedBytes),
+        available: toUnit(mount.availableBytes),
+        capacity: mount.usePercent / 100,
+        mount: mount.target,
+      };
+      return allowedFields
+        ? Object.fromEntries(Object.entries(full).filter(([key]) => allowedFields.includes(key)))
+        : full;
+    }).filter((entry) => Object.keys(entry).length > 0);
   } catch (error) {
     log.error(error);
     return false;
