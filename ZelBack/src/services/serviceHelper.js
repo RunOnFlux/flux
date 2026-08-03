@@ -6,7 +6,6 @@ const fs = require('node:fs/promises');
 const execFile = util.promisify(require('node:child_process').execFile);
 
 const axios = require('axios').default;
-const config = require('config');
 const qs = require('qs');
 
 const asyncLock = require('./utils/asyncLock');
@@ -689,6 +688,32 @@ async function dirInfo(dir, options = {}) {
   return response;
 }
 
+/**
+ * Carry a large collection through a handler a slice at a time.
+ *
+ * Sync responses fan out heavily - each event becomes a database operation per
+ * app it reports - so processing a whole response at once holds the events,
+ * their derived copies and the driver's encoding of every write in memory
+ * together. Slicing bounds all of that to one slice's worth. Slices run in
+ * order and one at a time, so each is released before the next is built.
+ *
+ * @param {Array} items Collection to process.
+ * @param {number} sliceSize Maximum items handed over at once.
+ * @param {Function} handler Async callback receiving each slice.
+ * @returns {Promise<void>}
+ */
+async function processInSlices(items, sliceSize, handler) {
+  if (!Array.isArray(items) || items.length === 0) return;
+  if (!Number.isInteger(sliceSize) || sliceSize < 1) {
+    throw new Error('processInSlices requires a positive integer slice size');
+  }
+
+  for (let offset = 0; offset < items.length; offset += sliceSize) {
+    // eslint-disable-next-line no-await-in-loop
+    await handler(items.slice(offset, offset + sliceSize));
+  }
+}
+
 module.exports = {
   axiosGet,
   axiosPost,
@@ -712,4 +737,5 @@ module.exports = {
   randomDelayMs,
   runCommand,
   validIpv4Address,
+  processInSlices,
 };

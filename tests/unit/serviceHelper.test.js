@@ -4,7 +4,9 @@ const sinon = require('sinon');
 const config = require('config');
 const { ObjectId } = require('mongodb');
 const proxyquire = require('proxyquire');
+const chaiAsPromised = require('chai-as-promised');
 
+chai.use(chaiAsPromised);
 const { expect } = chai;
 
 const log = require('../../ZelBack/src/lib/log');
@@ -879,6 +881,67 @@ describe('serviceHelper tests', () => {
       expect(serviceHelper.isNonRoutableAddress('')).to.equal(false);
       expect(serviceHelper.isNonRoutableAddress('256.1.1.1')).to.equal(false);
       expect(serviceHelper.isNonRoutableAddress('1.1.1')).to.equal(false);
+    });
+  });
+  describe('processInSlices tests', () => {
+    it('should hand the handler bounded slices covering every item in order', async () => {
+      const items = Array.from({ length: 1000 }, (_, i) => i);
+      const slices = [];
+
+      await serviceHelper.processInSlices(items, 250, async (slice) => { slices.push(slice); });
+
+      expect(slices.length).to.equal(4);
+      slices.forEach((slice) => expect(slice.length).to.be.at.most(250));
+      expect(slices.flat()).to.deep.equal(items);
+    });
+
+    it('should handle a final partial slice', async () => {
+      const slices = [];
+
+      await serviceHelper.processInSlices([1, 2, 3, 4, 5], 2, async (slice) => { slices.push(slice); });
+
+      expect(slices).to.deep.equal([[1, 2], [3, 4], [5]]);
+    });
+
+    it('should run slices one at a time, never concurrently', async () => {
+      let inFlight = 0;
+      let maxInFlight = 0;
+
+      await serviceHelper.processInSlices(Array.from({ length: 20 }, (_, i) => i), 5, async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => { setTimeout(resolve, 1); });
+        inFlight -= 1;
+      });
+
+      expect(maxInFlight).to.equal(1);
+    });
+
+    it('should do nothing for an empty or non-array input', async () => {
+      const handler = sinon.stub();
+
+      await serviceHelper.processInSlices([], 10, handler);
+      await serviceHelper.processInSlices(undefined, 10, handler);
+
+      sinon.assert.notCalled(handler);
+    });
+
+    it('should reject a slice size that cannot bound anything', async () => {
+      const handler = sinon.stub();
+
+      await expect(serviceHelper.processInSlices([1, 2], 0, handler)).to.be.rejectedWith(/positive integer/);
+      sinon.assert.notCalled(handler);
+    });
+
+    it('should propagate a handler failure and stop processing', async () => {
+      const seen = [];
+      const handler = async (slice) => {
+        seen.push(slice[0]);
+        if (seen.length === 2) throw new Error('store failed');
+      };
+
+      await expect(serviceHelper.processInSlices([1, 2, 3, 4, 5, 6], 2, handler)).to.be.rejectedWith('store failed');
+      expect(seen).to.deep.equal([1, 3]);
     });
   });
 });

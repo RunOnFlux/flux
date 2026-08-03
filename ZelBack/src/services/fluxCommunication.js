@@ -165,8 +165,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     // database encoding of every location update in memory together, which is
     // what made a single response cost hundreds of megabytes that were never
     // returned to the OS.
-    for (let offset = 0; offset < messages.length; offset += SYNC_EVENTS_PER_SLICE) {
-      const slice = messages.slice(offset, offset + SYNC_EVENTS_PER_SLICE);
+    await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
 
       const appRunningBroadcasts = [];
       const otherBroadcasts = [];
@@ -228,7 +227,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
           await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
         }
       }
-    }
+    });
 
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
@@ -246,12 +245,13 @@ async function handleAppInstallingSyncResponse(message, peerKey) {
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
-    const verified = await batchVerifyBroadcasts(messages, 'handleAppInstallingSyncResponse');
-    if (verified.length > 0) {
+    await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
+      const verified = await batchVerifyBroadcasts(slice, 'handleAppInstallingSyncResponse');
+      if (verified.length === 0) return;
       const { stored } = await messageStore.storeBatchAppInstallingMessages(verified);
       log.info(`handleAppInstallingSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
       fluxEventBus.publish('sync:chunkVerified', { syncType: 'appinstalling', peer: peerKey, verified: verified.length, stored });
-    }
+    });
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'appinstalling');
       log.info('handleAppInstallingSyncResponse - Sync complete');
@@ -268,12 +268,13 @@ async function handleAppInstallingErrorsSyncResponse(message, peerKey) {
     const { messages, done } = message.data;
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppInstallingErrorsSyncResponse - Received ${messages.length} broadcasts from ${peerKey} (done: ${!!done})`);
-    const verified = await batchVerifyBroadcasts(messages, 'handleAppInstallingErrorsSyncResponse');
-    if (verified.length > 0) {
+    await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
+      const verified = await batchVerifyBroadcasts(slice, 'handleAppInstallingErrorsSyncResponse');
+      if (verified.length === 0) return;
       const { stored } = await messageStore.storeBatchAppInstallingErrorMessages(verified);
       log.info(`handleAppInstallingErrorsSyncResponse - Stored ${stored} of ${verified.length} verified broadcasts`);
       fluxEventBus.publish('sync:chunkVerified', { syncType: 'apperrors', peer: peerKey, verified: verified.length, stored });
-    }
+    });
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apperrors');
       log.info('handleAppInstallingErrorsSyncResponse - Sync complete');
