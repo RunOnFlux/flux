@@ -1,6 +1,5 @@
 const fs = require('fs').promises;
 const fs2 = require('fs');
-const util = require('util');
 const log = require('../lib/log');
 const axios = require('axios');
 const path = require('path');
@@ -9,7 +8,6 @@ const deviceHelper = require('./deviceHelper');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
-const exec = util.promisify(require('child_process').exec);
 const { URL } = require('url');
 const { sanitizePath, validateFilename, verifyRealPathOfExistingPath } = require('./utils/pathSecurity');
 const { validateUrlWithDns } = require('./utils/urlSecurity');
@@ -404,14 +402,26 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, re
 async function untarFile(extractPath, tarFilePath) {
   try {
     await fs.mkdir(extractPath, { recursive: true });
-    const unpackCmd = `sudo tar -xvzf ${tarFilePath} -C ${extractPath}`;
-    await exec(unpackCmd, { maxBuffer: 1024 * 1024 * 10 });
+    // argv, not a command string: a path reaching this from anywhere a user can
+    // name a file would otherwise turn a filename containing $( ) into
+    // arbitrary root execution on the node.
+    //
+    // -v is also gone. It printed every extracted filename into a 10MB buffer,
+    // and a file-count-heavy tree overflowed it - which threw partway through
+    // an extraction, leaving a half-extracted tree and no way back.
+    const result = await serviceHelper.runCommand('tar', {
+      runAsRoot: true,
+      params: ['-xzf', tarFilePath, '-C', extractPath],
+    });
+    if (result.error) {
+      const message = (result.stderr || result.stdout || result.error.message || '').replace(/\n/g, ' ');
+      log.error(`Error during extraction: ${message}`);
+      return { status: false, error: message };
+    }
     return { status: true };
   } catch (error) {
-    const stringstderr = error.stderr.replace(/\n/g, ' ');
-    const stringstdout = error.stdout.replace(/\n/g, ' ');
-    log.error('Error during extraction:', error.stderr || error.stdout);
-    return { status: false, error: stringstderr || stringstdout };
+    log.error('Error during extraction:', error);
+    return { status: false, error: error.message };
   }
 }
 
@@ -426,14 +436,20 @@ async function createTarGz(sourceDirectory, outputFileName) {
   try {
     const outputDirectory = outputFileName.substring(0, outputFileName.lastIndexOf('/'));
     await fs.mkdir(outputDirectory, { recursive: true });
-    const packCmd = `sudo tar -czvf ${outputFileName} -C ${sourceDirectory} .`;
-    await exec(packCmd, { maxBuffer: 1024 * 1024 * 10 });
+    // argv, and without -v, for the same two reasons as untarFile above.
+    const result = await serviceHelper.runCommand('tar', {
+      runAsRoot: true,
+      params: ['-czf', outputFileName, '-C', sourceDirectory, '.'],
+    });
+    if (result.error) {
+      const message = (result.stderr || result.stdout || result.error.message || '').replace(/\n/g, ' ');
+      log.error(`Error creating tarball: ${message}`);
+      return { status: false, error: message };
+    }
     return { status: true };
   } catch (error) {
-    const stringstderr = error.stderr.replace(/\n/g, ' ');
-    const stringstdout = error.stdout.replace(/\n/g, ' ');
-    log.error('Error creating tarball:', error.stderr || error.stdout);
-    return { status: false, error: stringstderr || stringstdout };
+    log.error('Error creating tarball:', error);
+    return { status: false, error: error.message };
   }
 }
 
@@ -446,13 +462,21 @@ async function createTarGz(sourceDirectory, outputFileName) {
  */
 async function removeDirectory(rpath, directory = false) {
   try {
-    let execFinal;
-    if (directory === false) {
-      execFinal = `sudo rm -rf "${rpath}"`;
-    } else {
-      execFinal = `sudo find "${rpath}" -mindepth 1 -exec rm -rf {} +`;
+    // argv, not a command string. fluxshareService passes a path built from a
+    // caller-supplied folder name straight into this, so a name containing
+    // $( ) or a backtick was arbitrary root execution the moment the character
+    // rule that happened to exclude them was relaxed.
+    const result = directory
+      ? await serviceHelper.runCommand('find', {
+        runAsRoot: true,
+        params: [rpath, '-mindepth', '1', '-exec', 'rm', '-rf', '{}', '+'],
+      })
+      : await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', rpath] });
+
+    if (result.error) {
+      log.error(result.error);
+      return false;
     }
-    await exec(execFinal, { maxBuffer: 1024 * 1024 * 10 });
     return true;
   } catch (error) {
     log.error(error);
@@ -515,8 +539,11 @@ async function fileUpload(req, res) {
       },
     };
     await fs.mkdir(filepath, { recursive: true });
-    const permission = `sudo chmod 777 "${filepath}"`;
-    await exec(permission, { maxBuffer: 1024 * 1024 * 10 });
+    // argv, not a command string: filepath is sanitizePath() over a
+    // caller-supplied folder, so interpolating it into a shell made any folder
+    // name containing $( ) arbitrary root execution.
+    const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['777', filepath] });
+    if (chmod.error) throw chmod.error;
     const form = formidable(options);
 
     form
