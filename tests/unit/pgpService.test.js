@@ -1,10 +1,15 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const chai = require('chai');
+const sinon = require('sinon');
+const fsPromises = require('fs').promises;
+
 globalThis.userconfig = require('../../config/userconfig');
 
 const { expect } = chai;
 
 const pgpService = require('../../ZelBack/src/services/pgpService');
+const workerRunner = require('../../ZelBack/src/services/utils/workerRunner');
+const generalService = require('../../ZelBack/src/services/generalService');
 
 describe('pgpService tests', () => {
   describe('encryptMessage decryptMessage tests', async () => {
@@ -80,6 +85,84 @@ BIscsJYafHuBDymkCDcQ0KPIgFPLHt4qSDBtDg==
       expect(decrpytedMessage).to.be.eql(message);
       const invalidDecryptMessage = await pgpService.decryptMessage(encryptedMessage, invalidPrivateKey);
       expect(invalidDecryptMessage).to.be.eql(null);
+    });
+  });
+
+  describe('identity tests', () => {
+    let runInWorkerStub;
+    let originalInitial;
+
+    beforeEach(() => {
+      originalInitial = { ...globalThis.userconfig.initial };
+      runInWorkerStub = sinon.stub(workerRunner, 'runInWorker');
+    });
+
+    afterEach(() => {
+      globalThis.userconfig.initial = originalInitial;
+      sinon.restore();
+    });
+
+    it('should not run any pgp operation on a node that already has a keypair', async () => {
+      globalThis.userconfig.initial.pgpPrivateKey = 'storedPrivateKey';
+      globalThis.userconfig.initial.pgpPublicKey = 'storedPublicKey';
+
+      await pgpService.generateIdentity();
+
+      sinon.assert.notCalled(runInWorkerStub);
+    });
+
+    it('should generate and store a keypair on a node that has none', async () => {
+      globalThis.userconfig.initial.pgpPrivateKey = '';
+      globalThis.userconfig.initial.pgpPublicKey = '';
+      sinon.stub(generalService, 'obtainNodeCollateralInformation').resolves({ txhash: 'abcd', txindex: 0 });
+      const writeStub = sinon.stub(fsPromises, 'writeFile').resolves();
+      runInWorkerStub.resolves({ privateKey: 'newPrivateKey', publicKey: 'newPublicKey' });
+
+      await pgpService.generateIdentity();
+
+      sinon.assert.calledOnceWithMatch(runInWorkerStub, 'pgpWorker', { operation: 'generateKey' });
+      sinon.assert.calledOnce(writeStub);
+    });
+
+    it('should verify its own keypair before first use of the private key, and only once', async () => {
+      globalThis.userconfig.initial.pgpPrivateKey = 'aPrivateKey';
+      globalThis.userconfig.initial.pgpPublicKey = 'itsPublicKey';
+      runInWorkerStub.withArgs('pgpWorker', sinon.match({ operation: 'derivePublicKey' })).resolves('itsPublicKey');
+      runInWorkerStub.withArgs('pgpWorker', sinon.match({ operation: 'decrypt' })).resolves('plaintext');
+
+      const first = await pgpService.decryptMessage('encrypted');
+      const second = await pgpService.decryptMessage('encrypted');
+
+      expect(first).to.be.eql('plaintext');
+      expect(second).to.be.eql('plaintext');
+
+      const derivations = runInWorkerStub.getCalls().filter((call) => call.args[1].operation === 'derivePublicKey');
+      expect(derivations.length).to.be.eql(1);
+    });
+
+    it('should replace a keypair whose public key does not belong to its private key', async () => {
+      globalThis.userconfig.initial.pgpPrivateKey = 'aCorruptPrivateKey';
+      globalThis.userconfig.initial.pgpPublicKey = 'someoneElsesPublicKey';
+      sinon.stub(generalService, 'obtainNodeCollateralInformation').resolves({ txhash: 'abcd', txindex: 0 });
+      sinon.stub(fsPromises, 'writeFile').resolves();
+      runInWorkerStub.withArgs('pgpWorker', sinon.match({ operation: 'derivePublicKey' })).resolves('aDifferentPublicKey');
+      runInWorkerStub.withArgs('pgpWorker', sinon.match({ operation: 'generateKey' })).resolves({ privateKey: 'newPrivateKey', publicKey: 'newPublicKey' });
+      runInWorkerStub.withArgs('pgpWorker', sinon.match({ operation: 'decrypt' })).resolves('plaintext');
+
+      await pgpService.decryptMessage('encrypted');
+
+      sinon.assert.calledWithMatch(runInWorkerStub, 'pgpWorker', { operation: 'generateKey' });
+    });
+
+    it('should not verify its own keypair when the caller supplies a key', async () => {
+      globalThis.userconfig.initial.pgpPrivateKey = 'anUncheckedPrivateKey';
+      globalThis.userconfig.initial.pgpPublicKey = 'itsPublicKey';
+      runInWorkerStub.withArgs('pgpWorker', sinon.match({ operation: 'decrypt' })).resolves('plaintext');
+
+      await pgpService.decryptMessage('encrypted', 'aCallerSuppliedKey');
+
+      const derivations = runInWorkerStub.getCalls().filter((call) => call.args[1].operation === 'derivePublicKey');
+      expect(derivations.length).to.be.eql(0);
     });
   });
 });

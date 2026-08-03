@@ -394,7 +394,11 @@ async function startFluxFunctions() {
     });
     syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
-    await pgpService.generateIdentity();
+    // nothing later in boot needs the identity, and a node that has one already
+    // returns here without doing any work at all
+    pgpService.generateIdentity().catch((error) => {
+      log.error(`PGP service error: ${error.message}`);
+    });
     log.info('PGP service initiated');
     // Ensure watchdog is installed and running on legacy OS (non-ArcaneOS) nodes
     watchdogService.ensureWatchdogRunning().catch((error) => {
