@@ -30,8 +30,8 @@ parentPort.on('message', async (payload) => {
       ? { authorizationData: response.authorizationData }
       : { ok: true };
 
-    parentPort.postMessage({ result });
+    parentPort.postMessage({ ok: true, result });
   } catch (error) {
-    parentPort.postMessage({ error: error.message });
+    parentPort.postMessage({ ok: false, error: error.message || String(error) });
   }
 });

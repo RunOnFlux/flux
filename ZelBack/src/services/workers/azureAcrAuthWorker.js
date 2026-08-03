@@ -26,8 +26,8 @@ parentPort.on('message', async (payload) => {
       ? { token: tokenResponse.token, expiresOnTimestamp: tokenResponse.expiresOnTimestamp }
       : null;
 
-    parentPort.postMessage({ result });
+    parentPort.postMessage({ ok: true, result });
   } catch (error) {
-    parentPort.postMessage({ error: error.message });
+    parentPort.postMessage({ ok: false, error: error.message || String(error) });
   }
 });

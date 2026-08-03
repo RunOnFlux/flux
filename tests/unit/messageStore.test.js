@@ -914,8 +914,9 @@ describe('messageStore tests', () => {
       };
       dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(database) });
 
-      // 60 nodes x 20 apps = 1200 location operations
-      await messageStore.storeBatchAppRunningMessages(buildBroadcasts(60, 20));
+      // 30 apps per node does not divide the 500 cap - a per-broadcast check
+      // would overrun it
+      await messageStore.storeBatchAppRunningMessages(buildBroadcasts(40, 30));
 
       expect(locationBatches.length).to.be.above(1);
       locationBatches.forEach((batch) => {
@@ -939,9 +940,7 @@ describe('messageStore tests', () => {
       await messageStore.storeBatchAppRunningMessages(buildBroadcasts(60, 20));
 
       const upserts = locationBatches.flat().filter((op) => op.updateOne);
-      const prunes = locationBatches.flat().filter((op) => op.deleteMany);
       expect(upserts.length).to.equal(1200);
-      expect(prunes.length).to.equal(60);
     });
   });
 });

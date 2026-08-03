@@ -3,7 +3,7 @@ const path = require('path');
 const os = require('os');
 const log = require('../../lib/log');
 
-const WORKER_PATH = path.join(__dirname, 'verifyWorker.js');
+const DEFAULT_WORKER_PATH = path.join(__dirname, 'verifyWorker.js');
 
 // A single worker's share of a batch. Oversized posts are what pin memory: the
 // serialised copy of a multi-megabyte batch is not returned to the OS once the
@@ -12,15 +12,24 @@ const WORKER_PATH = path.join(__dirname, 'verifyWorker.js');
 const CHUNK_SIZE = 256;
 
 // Signature verification is bursty - a sync response is thousands of items, then
-// nothing for hours. One worker stays resident so the path is warm and a spawn
-// failure surfaces early; the rest are raised against demand and released.
+// nothing for hours. One worker is kept between bursts and the rest are raised
+// against demand and released. The pool is created on first use rather than at
+// boot, so a node that never verifies anything never pays for a worker.
 const RESIDENT_WORKERS = 1;
 
 const IDLE_REAP_MS = 60000;
 
+// A chunk that keeps killing its worker is abandoned rather than retried for
+// ever, and a worker that never answers must not hold its slot for ever. Both
+// failures resolve the batch as unverified: a signature we could not check is
+// one we do not trust, so the messages are dropped rather than accepted.
+const MAX_JOB_ATTEMPTS = 3;
+const JOB_TIMEOUT_MS = 60000;
+
 let slots = [];
 let queue = [];
 let reapTimer = null;
+let workerPath = DEFAULT_WORKER_PATH;
 
 function maxWorkers() {
   return Math.max(RESIDENT_WORKERS, os.cpus().length - 1);
@@ -30,6 +39,34 @@ function busyCount() {
   return slots.filter((slot) => slot.job).length;
 }
 
+function abandonJob(job, reason) {
+  log.error(`Verify job abandoned after ${job.attempts} attempt(s) - ${reason}; `
+    + `${job.chunk.length} signature(s) treated as unverified`);
+  job.resolve(new Array(job.chunk.length).fill(false));
+}
+
+/**
+ * Put a job back at the head of the queue, unless it has already failed enough
+ * times to look like the batch itself is the problem.
+ */
+function requeue(job, reason) {
+  if (job.attempts >= MAX_JOB_ATTEMPTS) {
+    abandonJob(job, reason);
+    return;
+  }
+  queue.unshift(job);
+}
+
+function clearJob(slot) {
+  if (slot.timer) {
+    clearTimeout(slot.timer);
+    slot.timer = null;
+  }
+  const { job } = slot;
+  slot.job = null;
+  return job;
+}
+
 /**
  * Hand queued chunks to whichever workers are free.
  */
@@ -37,9 +74,34 @@ function dispatch() {
   for (const slot of slots) {
     if (!queue.length) return;
     if (slot.job || slot.retired) continue;
+
     const job = queue.shift();
+    job.attempts += 1;
+
+    try {
+      slot.worker.postMessage(job.chunk);
+    } catch (error) {
+      // The handover never happened, so the slot is still free - claiming it
+      // before posting would retire the slot for the life of the process.
+      log.error(`Verify worker could not be given a batch: ${error.message}`);
+      requeue(job, `could not be handed to a worker: ${error.message}`);
+      continue;
+    }
+
     slot.job = job;
-    slot.worker.postMessage(job.chunk);
+    slot.timer = setTimeout(() => {
+      const stalled = clearJob(slot);
+      log.error('Verify worker did not answer in time, replacing it');
+      slot.retired = true;
+      const idx = slots.indexOf(slot);
+      if (idx !== -1) slots.splice(idx, 1);
+      slot.worker.terminate();
+      if (stalled) requeue(stalled, 'worker did not answer in time');
+      // eslint-disable-next-line no-use-before-define
+      ensureWorkers();
+      dispatch();
+    }, JOB_TIMEOUT_MS);
+    if (slot.timer.unref) slot.timer.unref();
   }
 }
 
@@ -80,14 +142,15 @@ function ensureWorkers() {
 }
 
 function createSlot() {
-  const worker = new Worker(WORKER_PATH);
-  const slot = { worker, job: null, retired: false };
+  const worker = new Worker(workerPath);
+  const slot = {
+    worker, job: null, timer: null, retired: false,
+  };
 
   worker.on('error', (err) => log.error(`Verify worker error: ${err.message}`));
 
   worker.on('message', (results) => {
-    const { job } = slot;
-    slot.job = null;
+    const job = clearJob(slot);
     if (job) job.resolve(results);
     dispatch();
     scheduleReap();
@@ -97,10 +160,10 @@ function createSlot() {
     const idx = slots.indexOf(slot);
     if (idx !== -1) slots.splice(idx, 1);
 
-    if (slot.job) {
-      log.error(`Verify worker exited holding ${slot.job.chunk.length} items, requeueing`);
-      queue.unshift(slot.job);
-      slot.job = null;
+    const job = clearJob(slot);
+    if (job) {
+      log.error(`Verify worker exited holding ${job.chunk.length} items, requeueing`);
+      requeue(job, 'worker exited while holding the batch');
     }
 
     if (!slot.retired) ensureWorkers();
@@ -110,7 +173,14 @@ function createSlot() {
   return slot;
 }
 
-function start(poolSize) {
+/**
+ * @param {number} [poolSize] Workers to create up front.
+ * @param {object} [options] Overrides.
+ * @param {string} [options.workerPath] Worker script the pool runs.
+ */
+function start(poolSize, options = {}) {
+  const { workerPath: overridePath } = options;
+  if (overridePath) workerPath = overridePath;
   if (slots.length) return;
 
   const size = Math.min(maxWorkers(), Math.max(RESIDENT_WORKERS, poolSize ?? RESIDENT_WORKERS));
@@ -127,10 +197,14 @@ function stop() {
   }
   for (const slot of slots) {
     slot.retired = true;
+    const job = clearJob(slot);
+    if (job) abandonJob(job, 'pool stopped');
     slot.worker.terminate();
   }
   slots = [];
+  for (const job of queue) abandonJob(job, 'pool stopped');
   queue = [];
+  workerPath = DEFAULT_WORKER_PATH;
 }
 
 /**
@@ -157,7 +231,7 @@ async function verify(items) {
   const jobs = [];
   for (let offset = 0; offset < items.length; offset += CHUNK_SIZE) {
     const chunk = items.slice(offset, offset + CHUNK_SIZE);
-    const job = { chunk, resolve: null };
+    const job = { chunk, attempts: 0, resolve: null };
     job.promise = new Promise((resolve) => { job.resolve = resolve; });
     jobs.push(job);
   }

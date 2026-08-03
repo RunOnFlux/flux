@@ -19,12 +19,13 @@ parentPort.on('message', async (payload) => {
     const tokens = await jwtClient.getAccessToken();
 
     parentPort.postMessage({
+      ok: true,
       result: {
         token: tokens ? tokens.token : null,
         expiryDate: jwtClient.credentials ? jwtClient.credentials.expiry_date : null,
       },
     });
   } catch (error) {
-    parentPort.postMessage({ error: error.message });
+    parentPort.postMessage({ ok: false, error: error.message || String(error) });
   }
 });

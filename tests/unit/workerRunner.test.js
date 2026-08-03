@@ -71,4 +71,11 @@ describe('workerRunner tests', () => {
     expect(results.map((r) => r.echoed.n)).to.deep.equal([1, 2, 3]);
     expect(terminateSpy.callCount).to.equal(3);
   });
+  it('should reject a failure that carries no message rather than resolving it as success', async () => {
+    await expect(
+      workerRunner.runInWorker('messagelessFailureWorker', {}, { workerDir }),
+    ).to.be.rejectedWith(/failed without a reason/);
+
+    sinon.assert.calledOnce(terminateSpy);
+  });
 });

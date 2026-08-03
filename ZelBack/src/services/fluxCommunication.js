@@ -165,8 +165,22 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     // database encoding of every location update in memory together, which is
     // what made a single response cost hundreds of megabytes that were never
     // returned to the OS.
-    await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
+    const stateEvents = [];
+    // Which apps a node still runs is only known from its newest broadcast in
+    // the whole response, so pruning cannot be decided from inside a slice.
+    const newestByIp = new Map();
+    for (const event of messages) {
+      if (!event.envelope || event.type !== 'apprunning') continue;
+      const { data } = event;
+      if (!data || data.version !== 2 || !Array.isArray(data.apps) || !data.apps.length) continue;
+      const seen = newestByIp.get(data.ip);
+      if (!seen || data.broadcastedAt > seen.broadcastedAt) {
+        newestByIp.set(data.ip, { names: data.apps.map((a) => a.name), broadcastedAt: data.broadcastedAt });
+      }
+    }
+    let locationWriteFailed = false;
 
+    await serviceHelper.processInSlices(messages, SYNC_EVENTS_PER_SLICE, async (slice) => {
       const appRunningBroadcasts = [];
       const otherBroadcasts = [];
       const evictedEvents = [];
@@ -198,21 +212,35 @@ async function handleAppRunningSyncResponse(message, peerKey) {
       const otherToVerify = otherBroadcasts.map((e) => ({ ...e.envelope, data: e.data }));
       const verifiedOther = await batchVerifyBroadcasts(otherToVerify, 'handleAppRunningSyncResponse');
       const verifiedOtherSet = new Set(verifiedOther);
-      const otherEvents = [...evictedEvents];
+      stateEvents.push(...evictedEvents);
       for (let i = 0; i < otherBroadcasts.length; i++) {
         if (verifiedOtherSet.has(otherToVerify[i])) {
-          otherEvents.push(otherBroadcasts[i]);
+          stateEvents.push(otherBroadcasts[i]);
         }
       }
 
       if (verifiedAppRunning.length > 0) {
-        const { stored } = await messageStore.storeBatchAppRunningMessages(verifiedAppRunning);
+        const { stored, writeFailed } = await messageStore.storeBatchAppRunningMessages(verifiedAppRunning, { prune: false });
+        if (writeFailed) locationWriteFailed = true;
         log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verifiedAppRunning.length} verified apprunning events`);
         fluxEventBus.publish('sync:chunkVerified', { syncType: 'apprunning', peer: peerKey, verified: verifiedAppRunning.length, stored });
       }
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
-      for (const event of otherEvents) {
+    });
+
+    if (locationWriteFailed) {
+      log.warn('handleAppRunningSyncResponse - skipping location pruning, a location write failed');
+    } else {
+      await messageStore.pruneAppRunningLocations(newestByIp);
+    }
+
+    // Applied after every slice, never inside one. An eviction clears a node's
+    // locations outright, so a slice storing that node's apprunning events
+    // afterwards would put them straight back - and evictions carry no
+    // broadcastedAt, so the sender's timestamp sort puts them in the earliest
+    // slice every time.
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    for (const event of stateEvents) {
         if (event.type === 'sigterm') {
           await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
           const newExpireAt = new Date(event.data.broadcastedAt + SIGTERM_EXPIRY_MS);
@@ -223,11 +251,10 @@ async function handleAppRunningSyncResponse(message, peerKey) {
         } else if (event.type === 'evicted') {
           await messageStore.storeAppStateEvent(event.type, { ip: event.ip });
           await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: event.ip });
-        } else if (event.type === 'ipchanged') {
-          await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-        }
+      } else if (event.type === 'ipchanged') {
+        await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
       }
-    });
+    }
 
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');

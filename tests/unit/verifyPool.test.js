@@ -171,4 +171,46 @@ describe('verifyPool tests', () => {
       }
     });
   });
+
+  describe('failure handling', () => {
+    const crashingWorker = require('path').join(__dirname, 'fixtures', 'workers', 'crashingVerifyWorker.js');
+
+    afterEach(() => {
+      verifyPool.stop();
+      verifyPool.start(2);
+    });
+
+    it('should give up on a batch that keeps killing its worker instead of retrying for ever', async () => {
+      verifyPool.stop();
+      verifyPool.start(1, { workerPath: crashingWorker });
+
+      const results = await verifyPool.verify([
+        { messageToVerify: 'a', pubKey: 'b', signature: 'c' },
+        { messageToVerify: 'd', pubKey: 'e', signature: 'f' },
+      ]);
+
+      // a signature we could not check is one we do not trust
+      expect(results).to.deep.equal([false, false]);
+    });
+
+    it('should leave the pool usable after abandoning a batch', async () => {
+      verifyPool.stop();
+      verifyPool.start(1, { workerPath: crashingWorker });
+      await verifyPool.verify([{ messageToVerify: 'a', pubKey: 'b', signature: 'c' }]);
+
+      const stats = verifyPool.stats();
+      expect(stats.queued).to.equal(0);
+      expect(stats.busy).to.equal(0);
+    });
+
+    it('should settle callers waiting on work when the pool is stopped', async () => {
+      verifyPool.stop();
+      verifyPool.start(1, { workerPath: crashingWorker });
+
+      const pending = verifyPool.verify([{ messageToVerify: 'a', pubKey: 'b', signature: 'c' }]);
+      verifyPool.stop();
+
+      expect(await pending).to.deep.equal([false]);
+    });
+  });
 });

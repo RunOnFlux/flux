@@ -637,8 +637,9 @@ async function storeIPChangedMessage(message) {
   return true;
 }
 
-async function storeBatchAppRunningMessages(verifiedBroadcasts) {
-  if (verifiedBroadcasts.length === 0) return { stored: 0 };
+async function storeBatchAppRunningMessages(verifiedBroadcasts, options = {}) {
+  const { prune = true } = options;
+  if (verifiedBroadcasts.length === 0) return { stored: 0, writeFailed: false };
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
@@ -650,11 +651,15 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
   // the driver's encoding of it small; the operations are independent of one
   // another, which is what makes the unordered write safe to split.
   const locationOps = [];
+  let writeFailed = false;
   const flushLocationOps = async () => {
     if (!locationOps.length) return;
     const batch = locationOps.splice(0, locationOps.length);
     await database.collection(globalAppsLocations).bulkWrite(batch, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppRunningMessages locations: ${err.message}`));
+      .catch((err) => {
+        writeFailed = true;
+        log.error(`storeBatchAppRunningMessages locations: ${err.message}`);
+      });
   };
 
   const v2AppsByIp = new Map();
@@ -695,18 +700,25 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
           upsert: true,
         },
       });
-    }
 
-    if (locationOps.length >= LOCATION_OPS_PER_WRITE) {
-      // eslint-disable-next-line no-await-in-loop
-      await flushLocationOps();
+      if (locationOps.length >= LOCATION_OPS_PER_WRITE) {
+        // eslint-disable-next-line no-await-in-loop
+        await flushLocationOps();
+      }
     }
   }
 
-  // The upserts land before the pruning deletes that follow, which only remove
-  // names absent from the same broadcast, so a row written above is never a
-  // candidate for them.
   await flushLocationOps();
+
+  // Pruning only ever deletes. If the upserts that should have replaced those
+  // rows did not land, leaving stale locations is recoverable on the next
+  // broadcast - deleting live ones is not.
+  if (writeFailed) {
+    log.warn('storeBatchAppRunningMessages: skipping location pruning, an upsert batch failed');
+    return { stored, writeFailed };
+  }
+
+  if (!prune) return { stored, writeFailed };
 
   for (const [ip, { names, broadcastedAt }] of v2AppsByIp) {
     const cutoff = new Date(broadcastedAt);
@@ -719,7 +731,48 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
 
   await flushLocationOps();
 
-  return { stored };
+  return { stored, writeFailed };
+}
+
+/**
+ * Drop location rows a node no longer reports.
+ *
+ * Only the newest broadcast from a node says which apps it still runs, so this
+ * cannot be done from part of a sync response - a slice holding an older
+ * broadcast would prune against a stale app list, and one holding a newer
+ * broadcast would leave rows an earlier slice had already written. The caller
+ * passes the newest broadcast seen per node across the whole response.
+ *
+ * @param {Map<string, {names: Array<string>, broadcastedAt: number}>} newestByIp Newest broadcast per node.
+ * @returns {Promise<void>}
+ */
+async function pruneAppRunningLocations(newestByIp) {
+  if (!newestByIp || newestByIp.size === 0) return;
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const ops = [];
+
+  const flush = async () => {
+    if (!ops.length) return;
+    const batch = ops.splice(0, ops.length);
+    await database.collection(globalAppsLocations).bulkWrite(batch, { ordered: false })
+      .catch((err) => log.error(`pruneAppRunningLocations: ${err.message}`));
+  };
+
+  for (const [ip, { names, broadcastedAt }] of newestByIp) {
+    ops.push({
+      deleteMany: {
+        filter: { ip, name: { $nin: names }, broadcastedAt: { $lte: new Date(broadcastedAt) } },
+      },
+    });
+    if (ops.length >= LOCATION_OPS_PER_WRITE) {
+      // eslint-disable-next-line no-await-in-loop
+      await flush();
+    }
+  }
+
+  await flush();
 }
 
 // --- Event Log Functions ---
@@ -1100,6 +1153,7 @@ module.exports = {
   storeAppPermanentMessage,
   storeAppRunningMessage,
   storeBatchAppRunningMessages,
+  pruneAppRunningLocations,
   storeAppStateEvent,
   storeBatchAppRunningEvents,
   APP_STATE_EVENT_TYPES,

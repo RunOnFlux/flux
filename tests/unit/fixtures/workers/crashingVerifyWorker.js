@@ -1,5 +1,6 @@
 const { parentPort } = require('worker_threads');
 
+// stands in for a batch that kills whichever worker receives it
 parentPort.on('message', () => {
-  parentPort.postMessage({ ok: false, error: 'service principal rejected' });
+  process.exit(1);
 });

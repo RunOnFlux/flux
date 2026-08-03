@@ -57,8 +57,8 @@ parentPort.on('message', async (payload) => {
     const run = operations[operation];
     if (!run) throw new Error(`Unsupported PGP operation: ${operation}`);
 
-    parentPort.postMessage({ result: await run(params || {}) });
+    parentPort.postMessage({ ok: true, result: await run(params || {}) });
   } catch (error) {
-    parentPort.postMessage({ error: error.message });
+    parentPort.postMessage({ ok: false, error: error.message || String(error) });
   }
 });

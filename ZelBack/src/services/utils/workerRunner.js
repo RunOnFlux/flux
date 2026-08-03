@@ -50,10 +50,17 @@ function runInWorker(workerName, payload, options = {}) {
       () => settle(reject, new Error(`${workerName} timed out after ${timeoutMs}ms`)),
       timeoutMs,
     );
+    if (timer.unref) timer.unref();
 
     worker.on('message', (message) => {
-      if (message && message.error) settle(reject, new Error(message.error));
-      else settle(resolve, message ? message.result : null);
+      // Failure is signalled by an explicit flag, never by whether an error
+      // string happens to be truthy - a throw carrying no message would
+      // otherwise be indistinguishable from a successful empty result.
+      if (!message || message.ok !== true) {
+        settle(reject, new Error((message && message.error) || `${workerName} failed without a reason`));
+        return;
+      }
+      settle(resolve, message.result);
     });
 
     worker.on('error', (error) => settle(reject, error));
@@ -62,7 +69,13 @@ function runInWorker(workerName, payload, options = {}) {
       settle(reject, new Error(`${workerName} exited without answering (code ${code})`));
     });
 
-    worker.postMessage(payload);
+    try {
+      worker.postMessage(payload);
+    } catch (error) {
+      // Without this the promise rejects but the worker lives on holding its
+      // dependency until the timeout fires.
+      settle(reject, error);
+    }
   });
 }
 

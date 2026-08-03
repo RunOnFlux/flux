@@ -24,11 +24,13 @@ class FluxWebsocketServer {
       },
       clientNoContextTakeover: true,
       serverNoContextTakeover: true,
-      // Browsers reach this server too (/ws/id, /ws/sign, /ws/payment), so the
-      // peer's window stays its own choice; peers running this build offer 13
-      // themselves and negotiation settles there.
+      // Both stay as the peer's choice. Pinning a number here rejects the
+      // handshake outright - with a 400, not a fallback to uncompressed - for
+      // any client that offers a smaller window than ours, and browsers reach
+      // this server too (/ws/id, /ws/sign, /ws/payment). Peers running this
+      // build offer 13 themselves, so negotiation still settles there.
       clientMaxWindowBits: true,
-      serverMaxWindowBits: 13,
+      serverMaxWindowBits: true,
       concurrencyLimit: 2,
       threshold: 128,
     },
