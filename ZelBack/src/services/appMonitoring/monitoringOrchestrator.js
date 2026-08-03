@@ -28,11 +28,13 @@ async function resolveAppSpecs(appSpecsToMonitor) {
  * @returns {Promise<void>}
  */
 async function startMonitoringOfApps(appSpecsToMonitor) {
-  try {
-    const apps = await resolveAppSpecs(appSpecsToMonitor);
+  const apps = await resolveAppSpecs(appSpecsToMonitor);
 
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of apps) {
+  // Monitoring drives CPU throttling, so one app that cannot be monitored must not
+  // leave the rest of them unthrottled.
+  // eslint-disable-next-line no-restricted-syntax
+  for (const app of apps) {
+    try {
       if (app.version <= 3) {
         appInspector.startAppMonitoring(app.name);
       } else {
@@ -42,9 +44,9 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
           appInspector.startAppMonitoring(monitoredName);
         }
       }
+    } catch (error) {
+      log.error(`startMonitoringOfApps - could not start monitoring ${app.name}: ${error.message}`);
     }
-  } catch (error) {
-    log.error(error);
   }
 }
 
@@ -55,11 +57,11 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
  * @returns {Promise<void>}
  */
 async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
-  try {
-    const apps = await resolveAppSpecs(appSpecsToMonitor);
+  const apps = await resolveAppSpecs(appSpecsToMonitor);
 
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of apps) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const app of apps) {
+    try {
       if (app.version <= 3) {
         appInspector.stopAppMonitoring(app.name, deleteData);
       } else {
@@ -69,9 +71,9 @@ async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
           appInspector.stopAppMonitoring(monitoredName, deleteData);
         }
       }
+    } catch (error) {
+      log.error(`stopMonitoringOfApps - could not stop monitoring ${app.name}: ${error.message}`);
     }
-  } catch (error) {
-    log.error(error);
   }
 }
 
