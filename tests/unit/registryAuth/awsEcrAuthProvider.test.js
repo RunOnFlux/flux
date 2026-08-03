@@ -1,7 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
-// eslint-disable-next-line import/no-unresolved
-const { ECRClient, GetAuthorizationTokenCommand } = require('@aws-sdk/client-ecr');
+const authWorkerRunner = require('../../../ZelBack/src/services/registryAuth/services/authWorkerRunner');
 const { AwsEcrAuthProvider } = require('../../../ZelBack/src/services/registryAuth/providers/awsEcrAuthProvider');
 
 const awsEcrFixture = require('./integration/fixtures/aws-ecr-response.json');
@@ -152,7 +151,7 @@ describe('AwsEcrAuthProvider Tests', () => {
 
   describe('getCredentials() - Happy Path', () => {
     beforeEach(() => {
-      // Stub the ECRClient send method to return fixture data
+      // Stub the worker exchange to return fixture data
       // AWS SDK returns expiresAt as a Date object, not a string
       const fixtureWithDateObjects = {
         ...awsEcrFixture.apiResponse,
@@ -161,7 +160,7 @@ describe('AwsEcrAuthProvider Tests', () => {
           expiresAt: new Date(authData.expiresAt),
         })),
       };
-      sendStub = sinon.stub(ECRClient.prototype, 'send').resolves(fixtureWithDateObjects);
+      sendStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves(fixtureWithDateObjects);
     });
 
     it('should successfully get credentials from AWS ECR', async () => {
@@ -175,10 +174,11 @@ describe('AwsEcrAuthProvider Tests', () => {
       const provider = new AwsEcrAuthProvider(config);
       const credentials = await provider.getCredentials();
 
-      // Verify the send method was called with GetAuthorizationTokenCommand
+      // Verify the authorization token exchange was dispatched to the worker
       sinon.assert.calledOnce(sendStub);
-      const command = sendStub.firstCall.args[0];
-      expect(command).to.be.instanceOf(GetAuthorizationTokenCommand);
+      const [workerName, payload] = sendStub.firstCall.args;
+      expect(workerName).to.equal('awsEcrAuthWorker');
+      expect(payload.operation).to.equal('getAuthorizationToken');
 
       // Verify credentials structure
       expect(credentials).to.have.property('username');
@@ -262,7 +262,7 @@ describe('AwsEcrAuthProvider Tests', () => {
           expiresAt: new Date(authData.expiresAt),
         })),
       };
-      sendStub = sinon.stub(ECRClient.prototype, 'send').resolves(fixtureWithDateObjects);
+      sendStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves(fixtureWithDateObjects);
     });
 
     it('should cache credentials and not make redundant API calls', async () => {
@@ -386,7 +386,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should handle AWS SDK errors gracefully', async () => {
       const awsError = new Error('UnrecognizedClientException: The security token included in the request is invalid');
       awsError.name = 'UnrecognizedClientException';
-      sendStub = sinon.stub(ECRClient.prototype, 'send').rejects(awsError);
+      sendStub = sinon.stub(authWorkerRunner, 'runAuthWorker').rejects(awsError);
 
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
@@ -409,7 +409,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should handle network errors', async () => {
       const networkError = new Error('Network timeout');
       networkError.code = 'ETIMEDOUT';
-      sendStub = sinon.stub(ECRClient.prototype, 'send').rejects(networkError);
+      sendStub = sinon.stub(authWorkerRunner, 'runAuthWorker').rejects(networkError);
 
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
@@ -429,7 +429,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     });
 
     it('should handle malformed API response - missing authorizationData', async () => {
-      sendStub = sinon.stub(ECRClient.prototype, 'send').resolves({
+      sendStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves({
         $metadata: { httpStatusCode: 200 },
         // Missing authorizationData
       });
@@ -452,7 +452,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     });
 
     it('should handle malformed API response - invalid base64 token', async () => {
-      sendStub = sinon.stub(ECRClient.prototype, 'send').resolves({
+      sendStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves({
         $metadata: { httpStatusCode: 200 },
         authorizationData: [{
           authorizationToken: 'not-valid-base64!!!',
@@ -479,7 +479,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     });
 
     it('should handle missing expiresAt in response', async () => {
-      sendStub = sinon.stub(ECRClient.prototype, 'send').resolves({
+      sendStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves({
         $metadata: { httpStatusCode: 200 },
         authorizationData: [{
           authorizationToken: awsEcrFixture.apiResponse.authorizationData[0].authorizationToken,
@@ -544,7 +544,7 @@ describe('AwsEcrAuthProvider Tests', () => {
           expiresAt: new Date(authData.expiresAt),
         })),
       };
-      sendStub = sinon.stub(ECRClient.prototype, 'send').resolves(fixtureWithDateObjects);
+      sendStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves(fixtureWithDateObjects);
     });
 
     it('should pass sessionToken to AWS SDK when provided', async () => {
@@ -560,8 +560,9 @@ describe('AwsEcrAuthProvider Tests', () => {
       await provider.getCredentials();
 
       sinon.assert.calledOnce(sendStub);
-      // Provider should have created ECRClient with credentials including sessionToken
-      expect(provider.ecrClient).to.exist;
+      // Provider should carry credentials including sessionToken to the worker
+      expect(provider.clientConfig).to.exist;
+      expect(provider.clientConfig.credentials.sessionToken).to.equal(config.sessionToken);
     });
   });
 });

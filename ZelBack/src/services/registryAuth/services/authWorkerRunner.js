@@ -26,12 +26,16 @@ const DEFAULT_TIMEOUT_MS = 30000;
  *
  * @param {string} workerName Base name of the worker script in the workers directory.
  * @param {object} payload Values the worker needs to build its client and make the call.
- * @param {number} [timeoutMs] How long to wait before abandoning the exchange.
+ * @param {object} [options] Overrides.
+ * @param {number} [options.timeoutMs] How long to wait before abandoning the exchange.
+ * @param {string} [options.workerDir] Directory holding the worker scripts.
  * @returns {Promise<*>} Whatever the worker resolved for this exchange.
  */
-function runAuthWorker(workerName, payload, timeoutMs = DEFAULT_TIMEOUT_MS) {
+function runAuthWorker(workerName, payload, options = {}) {
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, workerDir = WORKER_DIR } = options;
+
   return new Promise((resolve, reject) => {
-    const worker = new Worker(path.join(WORKER_DIR, `${workerName}.js`));
+    const worker = new Worker(path.join(workerDir, `${workerName}.js`));
 
     let settled = false;
     let timer = null;

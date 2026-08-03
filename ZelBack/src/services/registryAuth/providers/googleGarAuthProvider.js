@@ -6,14 +6,15 @@
  * to generate short-lived tokens for enhanced security over static JSON keys.
  */
 
-// eslint-disable-next-line import/no-unresolved
-const { JWT } = require('google-auth-library');
+const authWorkerRunner = require('../services/authWorkerRunner');
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
+
+const GAR_SCOPES = ['https://www.googleapis.com/auth/cloud-platform'];
 
 class GoogleGarAuthProvider extends RegistryAuthProvider {
   constructor(config, appName) {
     super(config, appName);
-    this.jwtClient = null;
+    this.clientInitialized = false;
 
     // Initialize JWT client
     this.initializeClient();
@@ -33,12 +34,7 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
         throw new Error('Service account credentials are required. Provide keyFile (base64-encoded JSON)');
       }
 
-      // Create JWT client with service account credentials
-      this.jwtClient = new JWT({
-        email: this.config.clientEmail,
-        key: this.config.privateKey,
-        scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-      });
+      this.clientInitialized = true;
     } catch (error) {
       const wrappedError = new Error(`Failed to initialize Google GAR client: ${error.message}`);
       // Only record error if provider name is set (avoid error in tests)
@@ -115,12 +111,25 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
   }
 
   /**
+   * Mint an OAuth access token for the configured service account.
+   *
+   * @returns {Promise<{token: string|null, expiryDate: number|null}>} Token and its expiry.
+   */
+  async fetchAccessToken() {
+    return authWorkerRunner.runAuthWorker('googleGarAuthWorker', {
+      clientEmail: this.config.clientEmail,
+      privateKey: this.config.privateKey,
+      scopes: GAR_SCOPES,
+    });
+  }
+
+  /**
    * Refresh GAR OAuth access token from Google
    *
    * @returns {Promise<object>} Fresh GAR credentials
    */
   async refreshCredentials() {
-    if (!this.jwtClient) {
+    if (!this.clientInitialized) {
       const error = new Error('JWT client not initialized');
       this.recordError(error);
       throw error;
@@ -128,19 +137,19 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
 
     try {
       // Get access token from Google
-      const tokens = await this.jwtClient.getAccessToken();
+      const tokens = await this.fetchAccessToken();
 
       if (!tokens.token) {
         throw new Error('No access token received from Google Auth');
       }
 
       // Validate that expiry time is provided by Google Auth Library
-      if (!this.jwtClient.credentials.expiry_date) {
+      if (!tokens.expiryDate) {
         throw new Error('Google Auth Library did not provide token expiry time');
       }
 
       // Use only the actual expiry time from Google Auth Library
-      const expiryTime = this.jwtClient.credentials.expiry_date;
+      const expiryTime = tokens.expiryDate;
 
       // Create standardized credentials for Docker authentication
       // Google GAR expects: username = "oauth2accesstoken", password = access_token
@@ -294,7 +303,7 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
     return {
       ...baseError,
       clientEmail: this.config.clientEmail,
-      jwtClientInitialized: Boolean(this.jwtClient),
+      jwtClientInitialized: Boolean(this.clientInitialized),
       configurationValid: this.validateConfiguration(),
       credentialSources: {
         hasPrivateKey: Boolean(this.config.privateKey),
@@ -316,7 +325,7 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
 
     try {
       // Test by attempting to get an access token
-      const tokens = await this.jwtClient.getAccessToken();
+      const tokens = await this.fetchAccessToken();
       return Boolean(tokens.token);
     } catch (error) {
       this.recordError(error);
