@@ -19,6 +19,7 @@ const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const messageHelper = require('./services/messageHelper');
 const { rejectQueryParameters, requireBootSettled } = require('./services/utils/routeGuards');
+const alwaysRespond = require('./lib/alwaysRespond');
 
 // App modular services
 const appQueryService = require('./services/appQuery/appQueryService');
@@ -1226,19 +1227,19 @@ module.exports = (app) => {
   app.get('/apps/requestmessage/:hash', (req, res) => {
     messageVerifier.requestAppMessageAPI(req, res);
   });
-  app.get('/apps/appstart/:appname?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/appstart/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appStart(req, res);
   });
-  app.get('/apps/appstop/:appname?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/appstop/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appStop(req, res);
   });
-  app.get('/apps/apprestart/:appname?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/apprestart/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appRestart(req, res);
   });
-  app.get('/apps/apppause/:appname?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/apppause/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appPause(req, res);
   });
-  app.get('/apps/appunpause/:appname?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/appunpause/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appUnpause(req, res);
   });
   app.get('/apps/apptop/:appname?', (req, res) => {
@@ -1268,7 +1269,7 @@ module.exports = (app) => {
   app.post('/apps/appexec', (req, res) => {
     appInspector.appExec(req, res);
   });
-  app.get('/apps/appremove/:appname?/:force?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/appremove/:appname?/:force?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appUninstaller.removeAppLocallyApi(req, res);
   });
   app.get('/apps/installapplocally/:appname?', requireBootSettled, (req, res) => {
@@ -1289,10 +1290,10 @@ module.exports = (app) => {
   app.get('/apps/reindexglobalappslocation', (req, res) => {
     registryManager.reindexGlobalAppsLocationAPI(req, res);
   });
-  app.get('/apps/redeploy/:appname?/:force?/:global?', requireBootSettled, (req, res) => {
+  app.get('/apps/redeploy/:appname?/:force?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     advancedWorkflows.redeployAPI(req, res);
   });
-  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', requireBootSettled, (req, res) => {
+  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', alwaysRespond, requireBootSettled, (req, res) => {
     advancedWorkflows.redeployComponentAPI(req, res);
   });
   app.get('/apps/reconstructhashes', (req, res) => {
