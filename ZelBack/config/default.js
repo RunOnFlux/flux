@@ -131,6 +131,30 @@ module.exports = {
     // and the run length that counts as stable (resets the ladder)
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    // File operations on an app's volume, each run in a throwaway container.
+    volumeOperations: {
+      // Pinned by MANIFEST LIST digest, which resolves per architecture - a
+      // per-arch digest would work on x86 and fail on every arm node. Never a
+      // tag: a rebuild must not silently change what nodes execute.
+      image: 'ghcr.io/runonflux/flux-volume-tools@sha256:887913098be8010eecb3c4937d621dcc3ba63b98045af061d318fdfff46ecb3f',
+      // One per app stops a single owner monopolising a node; the node-wide cap
+      // stops the disk being saturated by several at once. A reached limit is
+      // refused rather than queued - a queued request waits silently behind
+      // someone else's long copy until an intermediate proxy kills it.
+      maxConcurrentPerApp: 1,
+      maxConcurrentPerNode: 4,
+      // Matches runCommand's own ceiling, so an operation cannot outlive what
+      // the rest of the system already treats as a runaway.
+      timeoutMs: 15 * 60 * 1000,
+      // Bounds a runaway archive. How much can be WRITTEN is already capped by
+      // the size of the volume itself.
+      memoryBytes: 512 * 1024 * 1024,
+      pidsLimit: 256,
+      // How often a running operation writes a progress line. A silent
+      // connection is killed by intermediate proxies long before the timeout
+      // above, so this keeps the request alive as much as it informs.
+      progressIntervalMs: 2000,
+    },
     // in flux main chain per month (blocksLasting)
     price: [
       { // any price fork can be done by adjusting object similarily.

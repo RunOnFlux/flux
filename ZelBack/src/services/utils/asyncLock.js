@@ -17,6 +17,18 @@ class AsyncLock {
     return Boolean(this.#lockUsers.length);
   }
 
+  /**
+   * How many slots are currently taken.
+   *
+   * `locked` answers this only for a maxConcurrent of 1. A caller that refuses
+   * rather than waits - because queueing would hold a request open behind
+   * someone else's long-running operation - needs the count to compare against
+   * the limit before calling register().
+   */
+  get activeCount() {
+    return this.#lockUsers.length;
+  }
+
   get #userPromises() {
     return this.#lockUsers.map((user) => user[1]);
   }

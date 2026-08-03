@@ -722,6 +722,20 @@ const getContainerIP = async (containerName) => {
 };
 
 /**
+ * Create a container from a fully-formed options object and return its handle.
+ *
+ * The thin wrapper appDockerCreate does not provide: that one assembles an
+ * application's container from a spec. Callers that run a short-lived container
+ * of their own build their own options and need the handle back to wait on it.
+ *
+ * @param {object} options - docker create options
+ * @returns {Promise<object>} dockerode container
+ */
+async function createContainer(options) {
+  return docker.createContainer(options);
+}
+
+/**
  * Whether a container summary is one of this node's APPLICATION containers.
  *
  * The `runonflux.role` label is authoritative when present: FluxOS runs
@@ -1962,6 +1976,7 @@ module.exports = {
   getAppContainerNames,
   getAppContainerObjects,
   isAppContainer,
+  createContainer,
   getAppNameByContainerIp,
   classifyContainerNetworkAttachment,
   isContainerDetachedFromNetwork,
