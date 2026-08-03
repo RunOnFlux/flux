@@ -7,8 +7,9 @@
 // produces code that does not run.
 //
 // The two download endpoints below still stream from the host. They are reads
-// rather than writes and do not map onto "run a command and collect an exit
-// code"; see future/FLUXOS_FILE_DOWNLOADS_EXECUTOR_MOVE.md in fluxModels.
+// rather than writes, and do not map onto "run a command and collect an exit
+// code" - the process IS the response body - so moving them onto the executor
+// means choosing a different shape for them first.
 const archiver = require('archiver');
 const { PassThrough } = require('stream');
 const path = require('path');
@@ -330,8 +331,8 @@ function startOperation(res, volume, meta, work) {
   // Reporting real byte progress therefore means not using cp: rsync
   // --info=progress2 prints its own totals because it moves the data through
   // userspace, and pays the in-kernel fast path for the privilege. That is a
-  // throughput cost on precisely the copies slow enough to want a progress bar.
-  // See future/FLUXOS_FILE_OPERATION_BYTE_PROGRESS.md in fluxModels.
+  // throughput cost on precisely the copies slow enough to want a progress bar,
+  // which is why this reports liveness and not a percentage.
   const handle = jobRegistry.start({
     kind: meta.kind,
     owner: meta.owner,
