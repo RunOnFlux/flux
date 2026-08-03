@@ -316,6 +316,22 @@ function startOperation(res, volume, meta, work) {
   // started.
   executor.assertCapacity(volume);
 
+  // detail() is read when a client polls, so anything here costs nothing while
+  // nobody is watching.
+  //
+  // There is no bytesDone/bytesTotal, and that is not an oversight. Since
+  // coreutils 9.0 `cp` copies with copy_file_range(2) - one syscall, the whole
+  // file, entirely in the kernel. No bytes pass through userspace, so nothing
+  // counts them: /proc/<pid>/io stays flat, the file offset in
+  // /proc/<pid>/fdinfo does not advance until the end, and docker's blkio_stats
+  // is empty on cgroup v2 anyway. progress(1) reads exactly those offsets,
+  // which is why it stopped working on cp for the same reason.
+  //
+  // Reporting real byte progress therefore means not using cp: rsync
+  // --info=progress2 prints its own totals because it moves the data through
+  // userspace, and pays the in-kernel fast path for the privilege. That is a
+  // throughput cost on precisely the copies slow enough to want a progress bar.
+  // See future/FLUXOS_FILE_OPERATION_BYTE_PROGRESS.md in fluxModels.
   const handle = jobRegistry.start({
     kind: meta.kind,
     owner: meta.owner,
