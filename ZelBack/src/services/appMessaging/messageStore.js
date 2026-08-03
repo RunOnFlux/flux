@@ -31,6 +31,11 @@ const {
   EVICTED_EXPIRY_MS,
 } = require('../utils/appConstants');
 
+// Cap on how many location operations are handed to one bulk write. The driver
+// encodes the whole batch before sending it, and that encoding is what a large
+// sync response leaves behind in memory.
+const LOCATION_OPS_PER_WRITE = 500;
+
 const APP_STATE_EVENT_TYPES = Object.freeze({
   APPRUNNING: 'apprunning',
   SIGTERM: 'sigterm',
@@ -639,7 +644,19 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
 
   const { stored } = await storeBatchAppRunningEvents(verifiedBroadcasts);
 
+  // One operation is built per app per broadcast and each carries a merge
+  // pipeline, so a sync response of a few thousand broadcasts expands into tens
+  // of thousands of them. Writing in bounded batches keeps both this array and
+  // the driver's encoding of it small; the operations are independent of one
+  // another, which is what makes the unordered write safe to split.
   const locationOps = [];
+  const flushLocationOps = async () => {
+    if (!locationOps.length) return;
+    const batch = locationOps.splice(0, locationOps.length);
+    await database.collection(globalAppsLocations).bulkWrite(batch, { ordered: false })
+      .catch((err) => log.error(`storeBatchAppRunningMessages locations: ${err.message}`));
+  };
+
   const v2AppsByIp = new Map();
 
   for (const broadcast of verifiedBroadcasts) {
@@ -679,7 +696,17 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
         },
       });
     }
+
+    if (locationOps.length >= LOCATION_OPS_PER_WRITE) {
+      // eslint-disable-next-line no-await-in-loop
+      await flushLocationOps();
+    }
   }
+
+  // The upserts land before the pruning deletes that follow, which only remove
+  // names absent from the same broadcast, so a row written above is never a
+  // candidate for them.
+  await flushLocationOps();
 
   for (const [ip, { names, broadcastedAt }] of v2AppsByIp) {
     const cutoff = new Date(broadcastedAt);
@@ -690,10 +717,7 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     });
   }
 
-  if (locationOps.length > 0) {
-    await database.collection(globalAppsLocations).bulkWrite(locationOps, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppRunningMessages locations: ${err.message}`));
-  }
+  await flushLocationOps();
 
   return { stored };
 }

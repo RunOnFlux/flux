@@ -47,6 +47,12 @@ const DISCOVERY = {
   connectionDelayMs: config.fluxapps.discoveryConnectionDelayMs ?? 500,
 };
 
+// How many events of a sync response are carried through verification and
+// storage together. A response holds up to 2500, and each event fans out into a
+// database operation per app it reports, so the whole response is never held at
+// once.
+const SYNC_EVENTS_PER_SLICE = 250;
+
 /**
  * To handle temporary app messages.
  * @param {object} message Message.
@@ -109,8 +115,9 @@ async function batchVerifyBroadcasts(broadcasts, label) {
 
   if (items.length === 0) return [];
 
-  const workerItems = items.map((it) => ({ messageToVerify: it.messageToVerify, pubKey: it.pubKey, signature: it.signature }));
-  const cryptoResults = await verifyPool.verify(workerItems);
+  // The worker reads only the three fields it needs, so items go across as they
+  // are rather than being copied into a narrower shape first
+  const cryptoResults = await verifyPool.verify(items);
 
   const verified = [];
   for (let i = 0; i < items.length; i++) {
@@ -153,66 +160,76 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     if (!Array.isArray(messages) || messages.length > 2500) return;
     log.info(`handleAppRunningSyncResponse - Received ${messages.length} events from ${peerKey} (done: ${!!done})`);
 
-    const appRunningBroadcasts = [];
-    const otherBroadcasts = [];
-    const evictedEvents = [];
-    for (const event of messages) {
-      if (event.envelope && event.type === 'apprunning') {
-        appRunningBroadcasts.push({ ...event.envelope, data: event.data });
-      } else if (event.type === 'evicted') {
-        // Evicted events lack per-event signatures because they are generated
-        // locally by nodeStatusMonitor, which makes non-deterministic HTTP
-        // probe decisions about whether a remote node is alive. The
-        // isSyncRequested check above ensures only solicited responses are
-        // processed, but a compromised confirmed peer we sync from could still
-        // include fake evictions. Impact is limited: only affects this node's
-        // view and self-heals on the next apprunning broadcast (≤60 min).
-        //
-        // The root cause is nodeStatusMonitor itself — it will be replaced by
-        // a peer quorum approach where eviction is determined by consensus of
-        // signed "peer unreachable" events (3 missed pongs on the WebSocket
-        // layer). Once that lands, evicted events will carry verifiable
-        // signatures and this path will verify them like all other event types.
-        evictedEvents.push(event);
-      } else if (event.envelope) {
-        otherBroadcasts.push(event);
+    // A sync response is processed a slice at a time. Verifying and storing the
+    // whole response at once holds the events, their verification copies and the
+    // database encoding of every location update in memory together, which is
+    // what made a single response cost hundreds of megabytes that were never
+    // returned to the OS.
+    for (let offset = 0; offset < messages.length; offset += SYNC_EVENTS_PER_SLICE) {
+      const slice = messages.slice(offset, offset + SYNC_EVENTS_PER_SLICE);
+
+      const appRunningBroadcasts = [];
+      const otherBroadcasts = [];
+      const evictedEvents = [];
+      for (const event of slice) {
+        if (event.envelope && event.type === 'apprunning') {
+          appRunningBroadcasts.push({ ...event.envelope, data: event.data });
+        } else if (event.type === 'evicted') {
+          // Evicted events lack per-event signatures because they are generated
+          // locally by nodeStatusMonitor, which makes non-deterministic HTTP
+          // probe decisions about whether a remote node is alive. The
+          // isSyncRequested check above ensures only solicited responses are
+          // processed, but a compromised confirmed peer we sync from could still
+          // include fake evictions. Impact is limited: only affects this node's
+          // view and self-heals on the next apprunning broadcast (≤60 min).
+          //
+          // The root cause is nodeStatusMonitor itself — it will be replaced by
+          // a peer quorum approach where eviction is determined by consensus of
+          // signed "peer unreachable" events (3 missed pongs on the WebSocket
+          // layer). Once that lands, evicted events will carry verifiable
+          // signatures and this path will verify them like all other event types.
+          evictedEvents.push(event);
+        } else if (event.envelope) {
+          otherBroadcasts.push(event);
+        }
+      }
+
+      const verifiedAppRunning = await batchVerifyBroadcasts(appRunningBroadcasts, 'handleAppRunningSyncResponse');
+
+      const otherToVerify = otherBroadcasts.map((e) => ({ ...e.envelope, data: e.data }));
+      const verifiedOther = await batchVerifyBroadcasts(otherToVerify, 'handleAppRunningSyncResponse');
+      const verifiedOtherSet = new Set(verifiedOther);
+      const otherEvents = [...evictedEvents];
+      for (let i = 0; i < otherBroadcasts.length; i++) {
+        if (verifiedOtherSet.has(otherToVerify[i])) {
+          otherEvents.push(otherBroadcasts[i]);
+        }
+      }
+
+      if (verifiedAppRunning.length > 0) {
+        const { stored } = await messageStore.storeBatchAppRunningMessages(verifiedAppRunning);
+        log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verifiedAppRunning.length} verified apprunning events`);
+        fluxEventBus.publish('sync:chunkVerified', { syncType: 'apprunning', peer: peerKey, verified: verifiedAppRunning.length, stored });
+      }
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.appsglobal.database);
+      for (const event of otherEvents) {
+        if (event.type === 'sigterm') {
+          await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
+          const newExpireAt = new Date(event.data.broadcastedAt + SIGTERM_EXPIRY_MS);
+          await dbHelper.updateInDatabase(database, globalAppsLocations, { ip: event.data.ip }, { $set: { expireAt: newExpireAt } });
+        } else if (event.type === 'appremoved') {
+          await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
+          await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, { ip: event.data.ip, name: event.data.appName }, {});
+        } else if (event.type === 'evicted') {
+          await messageStore.storeAppStateEvent(event.type, { ip: event.ip });
+          await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: event.ip });
+        } else if (event.type === 'ipchanged') {
+          await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
+        }
       }
     }
 
-    const verifiedAppRunning = await batchVerifyBroadcasts(appRunningBroadcasts, 'handleAppRunningSyncResponse');
-
-    const otherToVerify = otherBroadcasts.map((e) => ({ ...e.envelope, data: e.data }));
-    const verifiedOther = await batchVerifyBroadcasts(otherToVerify, 'handleAppRunningSyncResponse');
-    const verifiedOtherSet = new Set(verifiedOther);
-    const otherEvents = [...evictedEvents];
-    for (let i = 0; i < otherBroadcasts.length; i++) {
-      if (verifiedOtherSet.has(otherToVerify[i])) {
-        otherEvents.push(otherBroadcasts[i]);
-      }
-    }
-
-    if (verifiedAppRunning.length > 0) {
-      const { stored } = await messageStore.storeBatchAppRunningMessages(verifiedAppRunning);
-      log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verifiedAppRunning.length} verified apprunning events`);
-      fluxEventBus.publish('sync:chunkVerified', { syncType: 'apprunning', peer: peerKey, verified: verifiedAppRunning.length, stored });
-    }
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    for (const event of otherEvents) {
-      if (event.type === 'sigterm') {
-        await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-        const newExpireAt = new Date(event.data.broadcastedAt + SIGTERM_EXPIRY_MS);
-        await dbHelper.updateInDatabase(database, globalAppsLocations, { ip: event.data.ip }, { $set: { expireAt: newExpireAt } });
-      } else if (event.type === 'appremoved') {
-        await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-        await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, { ip: event.data.ip, name: event.data.appName }, {});
-      } else if (event.type === 'evicted') {
-        await messageStore.storeAppStateEvent(event.type, { ip: event.ip });
-        await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: event.ip });
-      } else if (event.type === 'ipchanged') {
-        await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-      }
-    }
     if (done) {
       appSyncEvents.emit(SYNC_EVENTS.EPHEMERAL_SYNC_COMPLETE, 'apprunning');
       log.info('handleAppRunningSyncResponse - Sync complete');

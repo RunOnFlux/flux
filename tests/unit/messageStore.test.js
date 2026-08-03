@@ -877,4 +877,71 @@ describe('messageStore tests', () => {
       expect(collectionStub.updateOne.called).to.be.false;
     });
   });
+  describe('storeBatchAppRunningMessages batching', () => {
+    function buildBroadcasts(nodeCount, appsPerNode) {
+      const broadcastedAt = Date.now();
+      return Array.from({ length: nodeCount }, (_, n) => ({
+        version: 1,
+        timestamp: broadcastedAt,
+        pubKey: 'pub',
+        signature: 'sig',
+        data: {
+          type: 'fluxapprunning',
+          version: 2,
+          ip: `10.0.0.${n}:16127`,
+          broadcastedAt,
+          osUptime: 1000,
+          staticIp: false,
+          apps: Array.from({ length: appsPerNode }, (_, a) => ({
+            name: `app${a}`,
+            hash: `hash${n}-${a}`,
+            runningSince: new Date(broadcastedAt).toISOString(),
+          })),
+        },
+      }));
+    }
+
+    it('should write app locations in bounded batches rather than one giant bulk write', async () => {
+      const locationBatches = [];
+      const database = {
+        collection: (name) => ({
+          bulkWrite: (ops) => {
+            if (name === 'appsLocations') locationBatches.push(ops);
+            return Promise.resolve({});
+          },
+          updateOne: sinon.stub().resolves({}),
+        }),
+      };
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(database) });
+
+      // 60 nodes x 20 apps = 1200 location operations
+      await messageStore.storeBatchAppRunningMessages(buildBroadcasts(60, 20));
+
+      expect(locationBatches.length).to.be.above(1);
+      locationBatches.forEach((batch) => {
+        expect(batch.length).to.be.at.most(500);
+      });
+    });
+
+    it('should still write every location operation across the batches', async () => {
+      const locationBatches = [];
+      const database = {
+        collection: (name) => ({
+          bulkWrite: (ops) => {
+            if (name === 'appsLocations') locationBatches.push(ops);
+            return Promise.resolve({});
+          },
+          updateOne: sinon.stub().resolves({}),
+        }),
+      };
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(database) });
+
+      await messageStore.storeBatchAppRunningMessages(buildBroadcasts(60, 20));
+
+      const upserts = locationBatches.flat().filter((op) => op.updateOne);
+      const prunes = locationBatches.flat().filter((op) => op.deleteMany);
+      expect(upserts.length).to.equal(1200);
+      expect(prunes.length).to.equal(60);
+    });
+  });
 });
