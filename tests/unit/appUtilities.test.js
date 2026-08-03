@@ -3,6 +3,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
 const sinon = require('sinon');
+const proxyquire = require('proxyquire').noCallThru();
 const appUtilities = require('../../ZelBack/src/services/utils/appUtilities');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const dockerService = require('../../ZelBack/src/services/dockerService');
@@ -94,6 +95,145 @@ describe('appUtilities tests', () => {
     });
 
     // Tests that require sudo access removed - should be in integration tests
+  });
+
+  describe('getContainerStorage accounting tests', () => {
+    const APPS_FOLDER_DEV = 100;
+    const VOLUME_DEV = 200;
+    const OTHER_VOLUME_DEV = 300;
+
+    let cacheStore;
+    let runStub;
+    let statStub;
+    let statfsStub;
+    let inspectStub;
+
+    // Each app volume is its own mounted image, so a path's device tells us whether a
+    // whole-filesystem reading describes that app alone or the node it sits on.
+    function build(deviceByPath) {
+      cacheStore = new Map();
+      runStub = sinon.stub().callsFake((cmd, cb) => cb(null, `4096\t${cmd}`));
+      statStub = sinon.stub().callsFake(async (target) => ({
+        dev: deviceByPath[target] ?? APPS_FOLDER_DEV,
+      }));
+      statfsStub = sinon.stub().resolves({ blocks: 1000, bfree: 400, bsize: 4096 });
+      inspectStub = sinon.stub();
+
+      return proxyquire('../../ZelBack/src/services/utils/appUtilities', {
+        'fs/promises': { stat: statStub, statfs: statfsStub },
+        'node-cmd': { run: runStub },
+        '../dockerService': { dockerContainerInspect: inspectStub },
+        './cacheManager': {
+          default: {
+            containerStorageCache: {
+              get: (key) => cacheStore.get(key),
+              set: (key, value) => cacheStore.set(key, value),
+            },
+          },
+        },
+      });
+    }
+
+    it('should read the volume filesystem rather than walking it', async () => {
+      const utils = build({ '/apps/myapp/appdata': VOLUME_DEV });
+      inspectStub.resolves({
+        SizeRootFs: 500,
+        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+      });
+
+      const result = await utils.getContainerStorage('myapp');
+
+      // (1000 - 400) blocks * 4096
+      expect(result.bind).to.equal(2457600);
+      expect(result.status).to.equal('success');
+      sinon.assert.calledOnce(statfsStub);
+      sinon.assert.notCalled(runStub);
+    });
+
+    it('should count one volume once when an app mounts it twice', async () => {
+      const utils = build({
+        '/apps/myapp/appdata': VOLUME_DEV,
+        '/apps/myapp/mods': VOLUME_DEV,
+      });
+      inspectStub.resolves({
+        SizeRootFs: 0,
+        Mounts: [
+          { Type: 'bind', Source: '/apps/myapp/appdata' },
+          { Type: 'bind', Source: '/apps/myapp/mods' },
+        ],
+      });
+
+      const result = await utils.getContainerStorage('myapp');
+
+      expect(result.bind).to.equal(2457600);
+    });
+
+    it('should count separate volumes separately', async () => {
+      const utils = build({
+        '/apps/myapp/appdata': VOLUME_DEV,
+        '/var/lib/docker/volumes/other/_data': OTHER_VOLUME_DEV,
+      });
+      inspectStub.resolves({
+        SizeRootFs: 0,
+        Mounts: [
+          { Type: 'bind', Source: '/apps/myapp/appdata' },
+          { Type: 'volume', Source: '/var/lib/docker/volumes/other/_data' },
+        ],
+      });
+
+      const result = await utils.getContainerStorage('myapp');
+
+      expect(result.bind).to.equal(2457600);
+      expect(result.volume).to.equal(2457600);
+    });
+
+    it('should walk the tree when the path is not on its own volume', async () => {
+      // Same device as the apps folder — the volume is not mounted, so a whole-filesystem
+      // reading would report the node's usage as this app's.
+      const utils = build({ '/apps/myapp/appdata': APPS_FOLDER_DEV });
+      inspectStub.resolves({
+        SizeRootFs: 0,
+        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+      });
+
+      const result = await utils.getContainerStorage('myapp');
+
+      expect(result.bind).to.equal(4096);
+      sinon.assert.notCalled(statfsStub);
+      sinon.assert.calledOnce(runStub);
+    });
+
+    it('should serve repeat calls from cache without re-measuring', async () => {
+      const utils = build({ '/apps/myapp/appdata': VOLUME_DEV });
+      inspectStub.resolves({
+        SizeRootFs: 0,
+        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+      });
+
+      const first = await utils.getContainerStorage('myapp');
+      const second = await utils.getContainerStorage('myapp');
+
+      expect(second).to.deep.equal(first);
+      sinon.assert.calledOnce(inspectStub);
+      sinon.assert.calledOnce(statfsStub);
+    });
+
+    it('should re-measure after a failure rather than serving the error for a minute', async () => {
+      const utils = build({ '/apps/myapp/appdata': VOLUME_DEV });
+      sinon.stub(log, 'error');
+      inspectStub.onFirstCall().rejects(new Error('Container not found'));
+      inspectStub.onSecondCall().resolves({
+        SizeRootFs: 0,
+        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+      });
+
+      const failed = await utils.getContainerStorage('myapp');
+      const recovered = await utils.getContainerStorage('myapp');
+
+      expect(failed.status).to.equal('error');
+      expect(recovered.status).to.equal('success');
+      expect(recovered.bind).to.equal(2457600);
+    });
   });
 
   describe('getAppPorts tests', () => {

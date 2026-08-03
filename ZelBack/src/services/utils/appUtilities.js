@@ -1,5 +1,6 @@
 const path = require('path');
 const util = require('util');
+const fs = require('fs/promises');
 const nodecmd = require('node-cmd');
 const config = require('config');
 const log = require('../../lib/log');
@@ -9,6 +10,8 @@ const dockerService = require('../dockerService');
 const geolocationService = require('../geolocationService');
 const { getChainParamsPriceUpdates } = require('./chainUtilities');
 const mountParser = require('./mountParser');
+const appConstants = require('./appConstants');
+const fluxCaching = require('./cacheManager');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
@@ -173,11 +176,51 @@ async function getAppFolderSize(appName) {
 }
 
 /**
+ * Bytes used on the filesystem a mount source sits on, when that filesystem belongs to
+ * the app. Each app volume is its own mounted image, so the filesystem's own accounting
+ * answers this without walking the tree. An unmounted volume falls through to the node's
+ * filesystem, where the same reading would report the whole node as the app's usage, so
+ * identify the volume by device and leave anything sharing the apps folder's device to
+ * the caller.
+ * @param {string} source - Mount source path
+ * @returns {Promise<{device: number, used: number}|null>} Usage, or null when not a dedicated volume
+ */
+async function dedicatedVolumeUsage(source) {
+  const [sourceStat, appsFolderStat] = await Promise.all([
+    fs.stat(source),
+    fs.stat(appConstants.appsFolderPath),
+  ]);
+
+  if (sourceStat.dev === appsFolderStat.dev) return null;
+
+  const { blocks, bfree, bsize } = await fs.statfs(source);
+  return { device: sourceStat.dev, used: (blocks - bfree) * bsize };
+}
+
+/**
+ * Bytes used beneath a path, counted by walking it.
+ * @param {string} source - Mount source path
+ * @returns {Promise<number>} Size in bytes
+ */
+async function walkedUsage(source) {
+  const mountInfo = await cmdAsync(`sudo du -sb ${source}`);
+  if (!mountInfo) {
+    log.warn(`No mount info returned for source: ${source}`);
+    return 0;
+  }
+  return serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
+}
+
+/**
  * Get container storage usage
  * @param {string} appName - Application name
  * @returns {Promise<object>} Storage usage information
  */
 async function getContainerStorage(appName) {
+  const cache = fluxCaching.default.containerStorageCache;
+  const cached = cache.get(appName);
+  if (cached) return cached;
+
   try {
     const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
     let bindMountsSize = 0;
@@ -204,48 +247,56 @@ async function getContainerStorage(appName) {
         }
       }
 
-      await Promise.all(mountsToCount.map(async (mount) => {
+      // Sibling mounts of the same app share one volume, so a whole-filesystem reading
+      // counts for all of them together.
+      const countedDevices = new Set();
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const mount of mountsToCount) {
         const source = mount.Source;
         const mountType = mount.Type;
-        if (mountType === 'bind') {
-          const exec = `sudo du -sb ${source}`;
-          try {
-            const mountInfo = await cmdAsync(exec);
-            if (mountInfo) {
-              const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
-              bindMountsSize += sizeNum;
-            } else {
-              log.warn(`No mount info returned for source: ${source}`);
-            }
-          } catch (error) {
-            log.warn(`Failed to get size for bind mount ${source}: ${error.message}`);
-          }
-        } else if (mountType === 'volume') {
-          const exec = `sudo du -sb ${source}`;
-          try {
-            const mountInfo = await cmdAsync(exec);
-            if (mountInfo) {
-              const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
-              volumeMountsSize += sizeNum;
-            } else {
-              log.warn(`No mount info returned for source: ${source}`);
-            }
-          } catch (error) {
-            log.warn(`Failed to get size for volume mount ${source}: ${error.message}`);
-          }
-        } else {
+        if (mountType !== 'bind' && mountType !== 'volume') {
           log.warn(`Unsupported mount type or source: Type: ${mountType}, Source: ${source}`);
+          // eslint-disable-next-line no-continue
+          continue;
         }
-      }));
+        let size = 0;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const volume = await dedicatedVolumeUsage(source);
+          if (volume) {
+            if (countedDevices.has(volume.device)) {
+              // eslint-disable-next-line no-continue
+              continue;
+            }
+            countedDevices.add(volume.device);
+            size = volume.used;
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            size = await walkedUsage(source);
+          }
+        } catch (error) {
+          log.warn(`Failed to get size for ${mountType} mount ${source}: ${error.message}`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        if (mountType === 'bind') {
+          bindMountsSize += size;
+        } else {
+          volumeMountsSize += size;
+        }
+      }
     }
     const usedSize = bindMountsSize + volumeMountsSize + containerRootFsSize;
-    return {
+    const storage = {
       bind: bindMountsSize,
       volume: volumeMountsSize,
       rootfs: containerRootFsSize,
       used: usedSize,
       status: 'success',
     };
+    cache.set(appName, storage);
+    return storage;
   } catch (error) {
     log.error(`Error fetching container storage: ${error.message}`);
     return {
