@@ -1,0 +1,289 @@
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
+const sinon = require('sinon');
+const proxyquire = require('proxyquire').noCallThru();
+
+chai.use(chaiAsPromised);
+const { expect } = chai;
+
+describe('volumeSession tests', () => {
+  const APPS_FOLDER = '/test/apps/folder/';
+  const MOUNT = `${APPS_FOLDER}fluxcomp_myapp`;
+
+  let deviceHelperStub;
+  let verificationHelperStub;
+  let IOUtilsStub;
+  let fsStub;
+  let volumeSession;
+
+  // The real pathSecurity, not a stub: these cases exist to prove the guards
+  // refuse, and a stubbed sanitizePath would let every one of them pass.
+  const pathSecurity = require('../../ZelBack/src/services/utils/pathSecurity');
+
+  const mountRow = (target, availableBytes = 1e9) => ({
+    source: '/dev/loop3', target, fstype: 'ext4', sizeBytes: 2e9, usedBytes: 1e9, availableBytes, usePercent: 50,
+  });
+
+  beforeEach(() => {
+    deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([mountRow(MOUNT)]) };
+    verificationHelperStub = { verifyPrivilege: sinon.stub().resolves(true) };
+    IOUtilsStub = {
+      getFolderSize: sinon.stub().resolves(1000),
+      getFileSize: sinon.stub().resolves(500),
+    };
+    fsStub = {
+      lstat: sinon.stub().rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
+    };
+
+    volumeSession = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
+      '../deviceHelper': deviceHelperStub,
+      '../verificationHelper': verificationHelperStub,
+      '../IOUtils': IOUtilsStub,
+      '../utils/pathSecurity': pathSecurity,
+      '../utils/appConstants': {
+        appsFolder: APPS_FOLDER,
+        APP_NAME_REGEX: /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/,
+        APP_NAME_REGEX_LEGACY: /^[a-zA-Z0-9]+$/,
+      },
+      fs: { promises: fsStub },
+    });
+  });
+
+  afterEach(() => sinon.restore());
+
+  const reqFor = (appname = 'myapp', component = 'comp') => ({ params: { appname, component }, query: {} });
+
+  // A path that exists and is not a symlink, so resolve() gets past its checks.
+  const existsAsFile = (hostPath) => fsStub.lstat.withArgs(hostPath).resolves({
+    isSymbolicLink: () => false, isDirectory: () => false, size: 500,
+  });
+
+  describe('resolveVolumeMount', () => {
+    it('selects the mount whose basename is the app identifier', async () => {
+      const result = await volumeSession.resolveVolumeMount('myapp', 'comp');
+      expect(result.mount).to.equal(MOUNT);
+      expect(result.availableBytes).to.equal(1e9);
+    });
+
+    it('uses the bare app name for the flat single-component form', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([mountRow(`${APPS_FOLDER}fluxmyapp`)]);
+      const result = await volumeSession.resolveVolumeMount('myapp', 'null');
+      expect(result.mount).to.equal(`${APPS_FOLDER}fluxmyapp`);
+    });
+
+    it('rejects an appname outside the allowed charset before it reaches a comparison', async () => {
+      await expect(volumeSession.resolveVolumeMount('my_app', 'comp'))
+        .to.be.rejectedWith('appname contains disallowed characters');
+      // and never consulted the mount table
+      expect(deviceHelperStub.listMountedFilesystems.called).to.equal(false);
+    });
+
+    it('rejects a component outside the allowed charset', async () => {
+      await expect(volumeSession.resolveVolumeMount('myapp', 'my-comp'))
+        .to.be.rejectedWith('component contains disallowed characters');
+    });
+
+    it('refuses to guess when one identifier resolves to several mounts', async () => {
+      // Never [0]: picking one silently operates on arbitrary data.
+      deviceHelperStub.listMountedFilesystems.resolves([mountRow(MOUNT), mountRow(MOUNT)]);
+      await expect(volumeSession.resolveVolumeMount('myapp', 'comp'))
+        .to.be.rejectedWith('refusing to guess');
+    });
+
+    it('refuses a mount that is not under the apps folder', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([mountRow('/elsewhere/fluxcomp_myapp')]);
+      await expect(volumeSession.resolveVolumeMount('myapp', 'comp'))
+        .to.be.rejectedWith('mounted outside the apps folder');
+    });
+
+    it('reports not found when nothing in the mount table matches', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([mountRow(`${APPS_FOLDER}fluxother_app`)]);
+      await expect(volumeSession.resolveVolumeMount('myapp', 'comp'))
+        .to.be.rejectedWith('Application volume not found');
+    });
+
+    it('does not authorise - that is openVolume\'s job', async () => {
+      await volumeSession.resolveVolumeMount('myapp', 'comp');
+      expect(verificationHelperStub.verifyPrivilege.called).to.equal(false);
+    });
+  });
+
+  describe('openVolume', () => {
+    it('returns a session when the caller owns the app', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      expect(vol.mount).to.equal(MOUNT);
+      expect(vol.availableBytes).to.equal(1e9);
+    });
+
+    it('authorises before resolving anything', async () => {
+      verificationHelperStub.verifyPrivilege.resolves(false);
+      await expect(volumeSession.openVolume(reqFor())).to.be.rejectedWith('Unauthorized');
+      // no lookup happened on the way to the refusal
+      expect(deviceHelperStub.listMountedFilesystems.called).to.equal(false);
+    });
+
+    it('checks ownership of the app actually named in the request', async () => {
+      await volumeSession.openVolume(reqFor('myapp', 'comp'));
+      expect(verificationHelperStub.verifyPrivilege.calledWith('appownerabove', sinon.match.any, 'myapp')).to.equal(true);
+    });
+  });
+
+  describe('resolve', () => {
+    it('rejects traversal out of the mount', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      await expect(vol.resolve('../../etc/passwd')).to.be.rejected;
+    });
+
+    it('rejects an absolute path', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      await expect(vol.resolve('/etc/passwd')).to.be.rejected;
+    });
+
+    it('rejects a null byte', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      await expect(vol.resolve('foo\0bar')).to.be.rejected;
+    });
+
+    it('refuses the volume root unless explicitly allowed', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      await expect(vol.resolve('')).to.be.rejectedWith('Refusing to operate on the volume root');
+      const root = await vol.resolve('', { allowRoot: true });
+      expect(root.relative).to.equal('');
+    });
+
+    it('reports a missing source as such when the caller requires one', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      await expect(vol.resolve('nope.txt', { mustExist: true }))
+        .to.be.rejectedWith('Source does not exist');
+    });
+
+    it('expresses the operand as a container path, never a host path', async () => {
+      // The executor binds the volume at /work and mounts nothing else, so a
+      // host path in argv would name a file that does not exist in there.
+      const vol = await volumeSession.openVolume(reqFor());
+      const resolved = await vol.resolve('uploads/photo.jpg');
+      expect(resolved.containerPath).to.equal('/work/uploads/photo.jpg');
+      expect(resolved.hostPath).to.equal(`${MOUNT}/uploads/photo.jpg`);
+    });
+  });
+
+  describe('VolumePath', () => {
+    it('cannot be constructed outside the session', () => {
+      // The executor accepts only VolumePath, so being able to mint one from a
+      // string would defeat the whole arrangement.
+      expect(() => new volumeSession.VolumePath('/anywhere', 'anywhere', {}))
+        .to.throw('cannot be constructed directly');
+    });
+  });
+
+  describe('pair', () => {
+    it('resolves both operands', async () => {
+      existsAsFile(`${MOUNT}/a.txt`);
+      const vol = await volumeSession.openVolume(reqFor());
+      const { source, destination } = await vol.pair('a.txt', 'archive/a.txt');
+      expect(source.containerPath).to.equal('/work/a.txt');
+      expect(destination.containerPath).to.equal('/work/archive/a.txt');
+    });
+
+    it('rejects identical source and destination', async () => {
+      existsAsFile(`${MOUNT}/a.txt`);
+      const vol = await volumeSession.openVolume(reqFor());
+      await expect(vol.pair('a.txt', 'a.txt')).to.be.rejectedWith('Source and destination are the same');
+    });
+
+    it('rejects a destination nested inside the source', async () => {
+      // A directory copied into itself recurses until the volume fills.
+      existsAsFile(`${MOUNT}/uploads`);
+      const vol = await volumeSession.openVolume(reqFor());
+      await expect(vol.pair('uploads', 'uploads/backup')).to.be.rejectedWith('Destination is inside the source');
+    });
+
+    it('refuses an existing destination without overwrite, and proceeds with it', async () => {
+      existsAsFile(`${MOUNT}/a.txt`);
+      existsAsFile(`${MOUNT}/b.txt`);
+      const vol = await volumeSession.openVolume(reqFor());
+
+      await expect(vol.pair('a.txt', 'b.txt')).to.be.rejectedWith('Destination already exists');
+
+      const { destination } = await vol.pair('a.txt', 'b.txt', { overwrite: true });
+      expect(destination.containerPath).to.equal('/work/b.txt');
+    });
+
+    it('rejects the volume root as a source', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      await expect(vol.pair('', 'somewhere')).to.be.rejectedWith('Refusing to operate on the volume root');
+    });
+  });
+
+  describe('staging', () => {
+    it('allocates a recognisable directory inside the volume', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      const staging = vol.staging();
+      expect(staging.relative).to.match(/^\.flux-op-/);
+      expect(staging.hostPath.startsWith(MOUNT)).to.equal(true);
+      expect(staging.containerPath.startsWith('/work/.flux-op-')).to.equal(true);
+    });
+
+    it('allocates a distinct directory each time', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      expect(vol.staging().relative).to.not.equal(vol.staging().relative);
+    });
+  });
+
+  describe('measure', () => {
+    it('measures a directory with getFolderSize, not getFileSize', async () => {
+      fsStub.lstat.withArgs(`${MOUNT}/dir`).resolves({ isSymbolicLink: () => false, isDirectory: () => true });
+      const vol = await volumeSession.openVolume(reqFor());
+      const dir = await vol.resolve('dir');
+
+      expect(await vol.measure(dir)).to.equal(1000);
+      expect(IOUtilsStub.getFileSize.called).to.equal(false);
+    });
+
+    it('measures a symlink as zero', async () => {
+      // cp -a and the archivers copy the link, not what it points at.
+      fsStub.lstat.withArgs(`${MOUNT}/link`).resolves({ isSymbolicLink: () => true, isDirectory: () => false });
+      const vol = await volumeSession.openVolume(reqFor());
+      const link = await vol.resolve('link');
+
+      expect(await vol.measure(link)).to.equal(0);
+      expect(IOUtilsStub.getFolderSize.called).to.equal(false);
+    });
+
+    it('refuses when the source cannot be measured', async () => {
+      // getFolderSize reports false rather than throwing; treating that as free
+      // would let an unmeasurable tree through the capacity check.
+      fsStub.lstat.withArgs(`${MOUNT}/dir`).resolves({ isSymbolicLink: () => false, isDirectory: () => true });
+      IOUtilsStub.getFolderSize.resolves(false);
+      const vol = await volumeSession.openVolume(reqFor());
+      const dir = await vol.resolve('dir');
+
+      await expect(vol.measure(dir)).to.be.rejectedWith('Unable to measure source');
+    });
+
+    it('rejects a plain string', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      await expect(vol.measure(`${MOUNT}/a.txt`)).to.be.rejectedWith('requires a VolumePath');
+    });
+  });
+
+  describe('requireSpace', () => {
+    it('applies headroom rather than accepting an exact fit', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      // 1e9 available: 960_000_000 fits exactly but not with 5% headroom
+      expect(() => vol.requireSpace(960_000_000)).to.throw('Not enough free space');
+      expect(() => vol.requireSpace(900_000_000)).to.not.throw();
+    });
+
+    it('names both numbers so a client can act on the refusal', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      expect(() => vol.requireSpace(2e9)).to.throw(/2100000000 bytes required, 1000000000 bytes available/);
+    });
+
+    it('fails closed when free space is unknown', async () => {
+      deviceHelperStub.listMountedFilesystems.resolves([mountRow(MOUNT, NaN)]);
+      const vol = await volumeSession.openVolume(reqFor());
+      expect(() => vol.requireSpace(1)).to.throw('Unable to determine free space');
+    });
+  });
+});
