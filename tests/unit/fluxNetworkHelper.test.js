@@ -2303,6 +2303,59 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
+  describe('allowNodeToBindPrivilegedPorts tests', () => {
+    const helperPath = '../../ZelBack/src/services/fluxNetworkHelper';
+    let originalFluxosPath;
+
+    // isArcane is resolved when the module is evaluated, so each case needs a
+    // fresh instance loaded against the environment under test
+    function loadHelperFor(nodeType) {
+      if (nodeType === 'arcane') process.env.FLUXOS_PATH = '/dat/usr/lib/fluxos';
+      else delete process.env.FLUXOS_PATH;
+      return proxyquire(helperPath, {});
+    }
+
+    beforeEach(() => {
+      originalFluxosPath = process.env.FLUXOS_PATH;
+    });
+
+    afterEach(() => {
+      if (originalFluxosPath === undefined) delete process.env.FLUXOS_PATH;
+      else process.env.FLUXOS_PATH = originalFluxosPath;
+      sinon.restore();
+    });
+
+    it('should set the capability on the interpreter on a legacy node', async () => {
+      const cmdStub = sinon.stub().resolves('');
+      sinon.stub(util, 'promisify').returns(cmdStub);
+
+      await loadHelperFor('legacy').allowNodeToBindPrivilegedPorts();
+
+      sinon.assert.calledOnce(cmdStub);
+      expect(cmdStub.firstCall.args[0]).to.equal("sudo setcap 'cap_net_bind_service=+ep' `which node`");
+    });
+
+    it('should not touch the interpreter on an arcane node, where the unit grants the capability', async () => {
+      const cmdStub = sinon.stub().resolves('');
+      sinon.stub(util, 'promisify').returns(cmdStub);
+
+      await loadHelperFor('arcane').allowNodeToBindPrivilegedPorts();
+
+      sinon.assert.notCalled(cmdStub);
+    });
+
+    it('should swallow a setcap failure on a legacy node', async () => {
+      const cmdStub = sinon.stub().rejects(new Error('setcap: command not found'));
+      sinon.stub(util, 'promisify').returns(cmdStub);
+      const logSpy = sinon.spy(log, 'error');
+
+      await loadHelperFor('legacy').allowNodeToBindPrivilegedPorts();
+
+      sinon.assert.calledOnce(cmdStub);
+      sinon.assert.calledOnce(logSpy);
+    });
+  });
+
   describe('isCommunicationEstablished tests', () => {
     const minNumberOfIncoming = 4;
     const minNumberOfOutgoing = 8;
