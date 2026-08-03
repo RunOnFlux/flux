@@ -97,6 +97,38 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('isAppContainer tests', () => {
+    it('accepts an app container by its label', () => {
+      expect(dockerService.isAppContainer({
+        Names: ['/anything'], Labels: { 'runonflux.role': 'app' },
+      })).to.equal(true);
+    });
+
+    it('rejects a container FluxOS runs for its own purposes', () => {
+      // The whole point: a sweep that reclaims orphaned apps must not reach
+      // these, whatever they happen to be called.
+      expect(dockerService.isAppContainer({
+        Names: ['/fluxfileop-abc123'], Labels: { 'runonflux.role': 'fileop' },
+      })).to.equal(false);
+    });
+
+    it('prefers the label over the name prefix when both are present', () => {
+      expect(dockerService.isAppContainer({
+        Names: ['/fluxcomp_myapp'], Labels: { 'runonflux.role': 'fileop' },
+      })).to.equal(false);
+    });
+
+    it('falls back to the name prefix for containers created before labels shipped', () => {
+      expect(dockerService.isAppContainer({ Names: ['/fluxcomp_myapp'] })).to.equal(true);
+      expect(dockerService.isAppContainer({ Names: ['/zelcomp_myapp'], Labels: {} })).to.equal(true);
+    });
+
+    it('rejects a container that is neither labelled nor flux-named', () => {
+      expect(dockerService.isAppContainer({ Names: ['/watchtower'] })).to.equal(false);
+      expect(dockerService.isAppContainer({})).to.equal(false);
+    });
+  });
+
   describe('getAppDockerNameIdentifier tests', () => {
     it('should add /flux/ if name starts with "/"', async () => {
       const appName = '/Testing';

@@ -4,13 +4,10 @@ const proxyquire = require('proxyquire').noCallThru();
 
 // The full-install dockerService stub, shared by every proxyquire setup that
 // drives registerAppLocally. Pass overrides for the few tests that need a
-// specific return (e.g. a distinct getAppIdentifier or a shared pruneContainers
+// specific return (e.g. a distinct getAppIdentifier or a shared pruneImages
 // spy). Fresh sinon stubs per call, so each proxyquired module gets its own.
 const makeDockerServiceStub = (overrides = {}) => ({
   dockerListContainers: sinon.stub().resolves([]),
-  pruneContainers: sinon.stub().resolves(),
-  pruneNetworks: sinon.stub().resolves(),
-  pruneVolumes: sinon.stub().resolves(),
   pruneImages: sinon.stub().resolves(),
   dockerNetworkState: sinon.stub().resolves('absent'),
   getFreeFluxAppNetworkOctet: sinon.stub().resolves(1),
@@ -1157,7 +1154,7 @@ describe('appInstaller tests', () => {
         enterprise: 'encryptedblob',
       };
       const decryptEnterpriseAppsStub = sinon.stub().resolves({ readable: [decryptedApp], unreadable: [], inPlace: [decryptedApp] });
-      const pruneContainersStub = sinon.stub().resolves();
+      const pruneImagesStub = sinon.stub().resolves();
 
       // Use proxyquire without noCallThru so lazy requires are intercepted
       const appInstallerFresh = proxyquire.noCallThru().load('../../ZelBack/src/services/appLifecycle/appInstaller', {
@@ -1182,7 +1179,7 @@ describe('appInstaller tests', () => {
         },
         '../geolocationService': { isStaticIP: sinon.stub().returns(true) },
         '../dockerService': makeDockerServiceStub({
-          pruneContainers: pruneContainersStub,
+          pruneImages: pruneImagesStub,
           createFluxAppDockerNetwork: sinon.stub().resolves('net'),
           appDockerStart: sinon.stub().resolves('ok'),
         }),
@@ -1223,9 +1220,9 @@ describe('appInstaller tests', () => {
 
       expect(decryptEnterpriseAppsStub.calledOnce).to.be.true;
       expect(decryptEnterpriseAppsStub.calledWith([encryptedApp], { formatSpecs: false })).to.be.true;
-      // Decrypted enterprise app has a stopped component (MyComponent_enterpriseapp123 not running)
-      // so pruneContainers should NOT be called
-      expect(pruneContainersStub.called).to.be.false;
+      // Decrypted enterprise app has a stopped component (MyComponent_enterpriseapp123 not running),
+      // so the cleanup guard holds and no prune runs
+      expect(pruneImagesStub.called).to.be.false;
     });
   });
 

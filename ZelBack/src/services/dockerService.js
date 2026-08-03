@@ -722,6 +722,60 @@ const getContainerIP = async (containerName) => {
 };
 
 /**
+ * Whether a container summary is one of this node's APPLICATION containers.
+ *
+ * The `runonflux.role` label is authoritative when present: FluxOS runs
+ * containers for its own purposes too, and those must stay invisible to
+ * anything that reclaims apps. `forceAppRemovals` derives an app name from a
+ * container name by slicing a prefix and splitting on the underscore, so a
+ * container that is not shaped `flux<component>_<app>` yields a
+ * plausible-looking wrong name which is then handed to removeAppLocally.
+ *
+ * The name-prefix test remains for containers created before the labels shipped
+ * and not recreated since.
+ *
+ * @param {object} container - a container summary from dockerListContainers
+ * @returns {boolean}
+ */
+function isAppContainer(container) {
+  const role = container.Labels && container.Labels['runonflux.role'];
+  if (role) return role === 'app';
+
+  const name = (container.Names && container.Names[0]) || '';
+  return name.slice(1, 4) === 'zel' || name.slice(1, 5) === 'flux';
+}
+
+/**
+ * The identity of a container, stamped as docker labels when it is created.
+ *
+ * The container NAME already encodes this (`flux<component>_<app>`), but a name
+ * is a string every caller has to re-parse, and the parsers have drifted - some
+ * slice a fixed prefix width, some split on the underscore, and a container
+ * whose name does not fit that shape yields a plausible-looking wrong answer
+ * rather than an error. A label is read back verbatim.
+ *
+ * `role` separates an application container from one FluxOS runs for its own
+ * purposes, so a sweep that reclaims orphaned apps can select what it owns
+ * instead of inferring it from a name prefix.
+ *
+ * @param {string} appName
+ * @param {string} componentName - the component, or the app name for the
+ *   single-component flat form which has no separate component
+ * @param {string|null} owner - the app owner's id, when the caller has the
+ *   full spec in scope
+ * @returns {Object<string, string>}
+ */
+function componentIdentityLabels(appName, componentName, owner) {
+  const labels = {
+    'runonflux.app': appName,
+    'runonflux.component': componentName,
+    'runonflux.role': 'app',
+  };
+  if (owner) labels['runonflux.owner'] = owner;
+  return labels;
+}
+
+/**
  * Creates an app container.
  *
  * @param {object} appSpecifications
@@ -928,9 +982,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   // scope, and stamped onto the container as docker labels. Every subsequent
   // start of this container (initial start, restart, recovery) reads the
   // labels in appDockerStart and reapplies burst — no per-caller plumbing.
-  const burstOwner = fullAppSpecs?.owner || null;
-  const burstEligible = burstOwner
-    && cpuBurstHelper.isEnterpriseOwner(burstOwner)
+  const appOwner = fullAppSpecs?.owner || null;
+  const burstEligible = appOwner
+    && cpuBurstHelper.isEnterpriseOwner(appOwner)
     && await cpuBurstHelper.isCpuBurstSupported();
   const burstLabels = burstEligible
     ? {
@@ -938,9 +992,14 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       'flux.burst.cores': String(appSpecifications.cpu),
     }
     : null;
-  const containerLabels = (labels || burstLabels)
-    ? { ...(labels || {}), ...(burstLabels || {}) }
-    : null;
+  const identityLabels = componentIdentityLabels(
+    appName,
+    isComponent ? appSpecifications.name : appName,
+    appOwner,
+  );
+  const containerLabels = {
+    ...identityLabels, ...(labels || {}), ...(burstLabels || {}),
+  };
   if (burstEligible) {
     log.info(`CPU burst: marking ${identifier} as burst-eligible (cores=${appSpecifications.cpu})`);
   }
@@ -956,8 +1015,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     Env: envParams,
     Tty: false,
     ExposedPorts: exposedPorts,
-    // Conditionally include Labels only if it's not null
-    ...(containerLabels && { Labels: containerLabels }),
+    Labels: containerLabels,
     HostConfig: {
       NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
@@ -1693,26 +1751,15 @@ async function getAppContainerNames(appName) {
   return names;
 }
 
-/**
- * Remove all unused containers. Unused contaienrs are those wich are not running
- */
-async function pruneContainers() {
-  return docker.pruneContainers();
-}
-
-/**
- * Remove all unused networks. Unused networks are those which are not referenced by any running containers
- */
-async function pruneNetworks() {
-  return docker.pruneNetworks();
-}
-
-/**
- * Remove all unused Volumes. Unused Volumes are those which are not referenced by any containers
- */
-async function pruneVolumes() {
-  return docker.pruneVolumes();
-}
+// No blanket container/network/volume prune primitive is exposed, deliberately.
+// Docker's "unused" is a runtime predicate - nothing attached right now - which
+// is true of every healthy app whose container is momentarily down, of every
+// container FluxOS runs for its own purposes between exiting and being reaped,
+// and of anything the node operator left stopped on their own machine. A prune
+// keyed on it deletes all three. Removal of flux objects is scoped by OWNERSHIP
+// instead: appUninstaller for an app's containers and volumes, appNetwork for
+// its networks, and the identity labels stamped by componentIdentityLabels for
+// everything else.
 
 /**
  * Remove all unused Images. Unused Images are those which are not referenced by any containers
@@ -1908,15 +1955,13 @@ module.exports = {
   getFluxDockerNetworkSubnets,
   getFreeFluxAppNetworkOctet,
   migrateContainerRestartPolicies,
-  pruneContainers,
   pruneImages,
-  pruneNetworks,
-  pruneVolumes,
   removeFluxAppDockerNetwork,
   forceRemoveFluxAppDockerNetwork,
   appDockerNetworkConnect,
   getAppContainerNames,
   getAppContainerObjects,
+  isAppContainer,
   getAppNameByContainerIp,
   classifyContainerNetworkAttachment,
   isContainerDetachedFromNetwork,
