@@ -1,18 +1,19 @@
-const { expect } = require('chai');
+const chai = require('chai');
+chai.use(require('chai-as-promised'));
+
 const sinon = require('sinon');
 const monitoringOrchestrator = require('../../ZelBack/src/services/appMonitoring/monitoringOrchestrator');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
-const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
-const globalState = require('../../ZelBack/src/services/utils/globalState');
+
+const { expect } = chai;
 
 describe('monitoringOrchestrator tests', () => {
   let req;
   let res;
-  let mockAppsMonitored;
-  let mockInstalledAppsFn;
+  let installedAppsStub;
 
   beforeEach(() => {
     req = {
@@ -27,8 +28,7 @@ describe('monitoringOrchestrator tests', () => {
       end: sinon.stub(),
       flush: sinon.stub(),
     };
-    mockAppsMonitored = {};
-    mockInstalledAppsFn = sinon.stub();
+    installedAppsStub = sinon.stub(appQueryService, 'installedApps');
   });
 
   afterEach(() => {
@@ -45,12 +45,12 @@ describe('monitoringOrchestrator tests', () => {
 
       const startStub = sinon.stub(appInspector, 'startAppMonitoring');
 
-      await monitoringOrchestrator.startMonitoringOfApps(apps, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.startMonitoringOfApps(apps);
 
       sinon.assert.calledThrice(startStub);
-      sinon.assert.calledWith(startStub, 'App1', mockAppsMonitored);
-      sinon.assert.calledWith(startStub, 'App2', mockAppsMonitored);
-      sinon.assert.calledWith(startStub, 'App3', mockAppsMonitored);
+      sinon.assert.calledWith(startStub, 'App1');
+      sinon.assert.calledWith(startStub, 'App2');
+      sinon.assert.calledWith(startStub, 'App3');
     });
 
     it('should start monitoring for compose apps (v4+)', async () => {
@@ -67,33 +67,31 @@ describe('monitoringOrchestrator tests', () => {
 
       const startStub = sinon.stub(appInspector, 'startAppMonitoring');
 
-      await monitoringOrchestrator.startMonitoringOfApps(apps, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.startMonitoringOfApps(apps);
 
       sinon.assert.calledTwice(startStub);
-      sinon.assert.calledWith(startStub, 'Component1_ComposedApp', mockAppsMonitored);
-      sinon.assert.calledWith(startStub, 'Component2_ComposedApp', mockAppsMonitored);
+      sinon.assert.calledWith(startStub, 'Component1_ComposedApp');
+      sinon.assert.calledWith(startStub, 'Component2_ComposedApp');
     });
 
     it('should get installed apps if no apps provided', async () => {
-      const apps = [
-        { name: 'App1', version: 3 },
-      ];
-
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'App1', version: 3 }] });
       const startStub = sinon.stub(appInspector, 'startAppMonitoring');
 
-      await monitoringOrchestrator.startMonitoringOfApps(null, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.startMonitoringOfApps(null);
 
-      sinon.assert.calledOnce(mockInstalledAppsFn);
-      sinon.assert.calledOnce(startStub);
+      sinon.assert.calledOnce(installedAppsStub);
+      sinon.assert.calledOnceWithExactly(startStub, 'App1');
     });
 
     it('should handle error if failed to get installed apps', async () => {
-      mockInstalledAppsFn.resolves({ status: 'error', data: { message: 'Failed' } });
+      installedAppsStub.resolves({ status: 'error', data: { message: 'Failed' } });
+      const startStub = sinon.stub(appInspector, 'startAppMonitoring');
 
-      await monitoringOrchestrator.startMonitoringOfApps(null, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.startMonitoringOfApps(null);
 
-      sinon.assert.calledOnce(mockInstalledAppsFn);
+      sinon.assert.calledOnce(installedAppsStub);
+      sinon.assert.notCalled(startStub);
     });
 
     it('should handle mixed app versions', async () => {
@@ -110,19 +108,17 @@ describe('monitoringOrchestrator tests', () => {
 
       const startStub = sinon.stub(appInspector, 'startAppMonitoring');
 
-      await monitoringOrchestrator.startMonitoringOfApps(apps, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.startMonitoringOfApps(apps);
 
       sinon.assert.calledTwice(startStub);
-      sinon.assert.calledWith(startStub, 'App1', mockAppsMonitored);
-      sinon.assert.calledWith(startStub, 'Comp1_App2', mockAppsMonitored);
+      sinon.assert.calledWith(startStub, 'App1');
+      sinon.assert.calledWith(startStub, 'Comp1_App2');
     });
 
     it('should handle errors gracefully', async () => {
       sinon.stub(appInspector, 'startAppMonitoring').throws(new Error('Monitor error'));
 
-      const apps = [{ name: 'App1', version: 3 }];
-
-      await monitoringOrchestrator.startMonitoringOfApps(apps, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.startMonitoringOfApps([{ name: 'App1', version: 3 }]);
 
       // Should not throw, error is logged
     });
@@ -137,11 +133,11 @@ describe('monitoringOrchestrator tests', () => {
 
       const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
 
-      await monitoringOrchestrator.stopMonitoringOfApps(apps, false, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.stopMonitoringOfApps(apps, false);
 
       sinon.assert.calledTwice(stopStub);
-      sinon.assert.calledWith(stopStub, 'App1', false, mockAppsMonitored);
-      sinon.assert.calledWith(stopStub, 'App2', false, mockAppsMonitored);
+      sinon.assert.calledWith(stopStub, 'App1', false);
+      sinon.assert.calledWith(stopStub, 'App2', false);
     });
 
     it('should stop monitoring for compose apps', async () => {
@@ -158,241 +154,247 @@ describe('monitoringOrchestrator tests', () => {
 
       const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
 
-      await monitoringOrchestrator.stopMonitoringOfApps(apps, false, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.stopMonitoringOfApps(apps, false);
 
       sinon.assert.calledTwice(stopStub);
-      sinon.assert.calledWith(stopStub, 'Component1_ComposedApp', false, mockAppsMonitored);
-      sinon.assert.calledWith(stopStub, 'Component2_ComposedApp', false, mockAppsMonitored);
+      sinon.assert.calledWith(stopStub, 'Component1_ComposedApp', false);
+      sinon.assert.calledWith(stopStub, 'Component2_ComposedApp', false);
     });
 
     it('should delete data when deleteData is true', async () => {
-      const apps = [
-        { name: 'App1', version: 3 },
-      ];
-
       const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
 
-      await monitoringOrchestrator.stopMonitoringOfApps(apps, true, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.stopMonitoringOfApps([{ name: 'App1', version: 3 }], true);
 
-      sinon.assert.calledWith(stopStub, 'App1', true, mockAppsMonitored);
+      sinon.assert.calledWith(stopStub, 'App1', true);
     });
 
     it('should get installed apps if no apps provided', async () => {
-      const apps = [
-        { name: 'App1', version: 3 },
-      ];
-
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'App1', version: 3 }] });
       const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
 
-      await monitoringOrchestrator.stopMonitoringOfApps(null, false, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.stopMonitoringOfApps(null, false);
 
-      sinon.assert.calledOnce(mockInstalledAppsFn);
-      sinon.assert.calledOnce(stopStub);
+      sinon.assert.calledOnce(installedAppsStub);
+      sinon.assert.calledOnceWithExactly(stopStub, 'App1', false);
     });
 
     it('should handle error if failed to get installed apps', async () => {
-      mockInstalledAppsFn.resolves({ status: 'error', data: { message: 'Failed' } });
+      installedAppsStub.resolves({ status: 'error', data: { message: 'Failed' } });
+      const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
 
-      await monitoringOrchestrator.stopMonitoringOfApps(null, false, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.stopMonitoringOfApps(null, false);
 
-      sinon.assert.calledOnce(mockInstalledAppsFn);
+      sinon.assert.calledOnce(installedAppsStub);
+      sinon.assert.notCalled(stopStub);
     });
 
     it('should handle errors gracefully', async () => {
       sinon.stub(appInspector, 'stopAppMonitoring').throws(new Error('Monitor error'));
 
-      const apps = [{ name: 'App1', version: 3 }];
-
-      await monitoringOrchestrator.stopMonitoringOfApps(apps, false, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.stopMonitoringOfApps([{ name: 'App1', version: 3 }], false);
 
       // Should not throw, error is logged
     });
   });
 
+  describe('startMonitoring tests', () => {
+    it('should restart monitoring of every app when no appname given', async () => {
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'App1', version: 3 }] });
+      const startStub = sinon.stub(appInspector, 'startAppMonitoring');
+      const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
+
+      const message = await monitoringOrchestrator.startMonitoring();
+
+      expect(message).to.equal('Application monitoring started for all apps');
+      sinon.assert.calledWith(stopStub, 'App1', false);
+      sinon.assert.calledWith(startStub, 'App1');
+    });
+
+    it('should start monitoring for a named app', async () => {
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'TestApp', version: 3 }] });
+      const startStub = sinon.stub(appInspector, 'startAppMonitoring');
+      sinon.stub(appInspector, 'stopAppMonitoring');
+
+      const message = await monitoringOrchestrator.startMonitoring('TestApp');
+
+      expect(message).to.equal('Application monitoring started for TestApp');
+      sinon.assert.calledWith(installedAppsStub, 'TestApp');
+      sinon.assert.calledWith(startStub, 'TestApp');
+    });
+
+    it('should start monitoring a single component without touching siblings', async () => {
+      installedAppsStub.resolves({
+        status: 'success',
+        data: [{ name: 'TestApp', version: 4, compose: [{ name: 'Component1' }] }],
+      });
+      const startStub = sinon.stub(appInspector, 'startAppMonitoring');
+      const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
+
+      await monitoringOrchestrator.startMonitoring('Component1_TestApp');
+
+      sinon.assert.calledOnceWithExactly(stopStub, 'Component1_TestApp', false);
+      sinon.assert.calledOnceWithExactly(startStub, 'Component1_TestApp');
+    });
+
+    it('should throw if the app is not installed', async () => {
+      installedAppsStub.resolves({ status: 'success', data: [] });
+
+      await expect(monitoringOrchestrator.startMonitoring('NonExistentApp'))
+        .to.eventually.be.rejectedWith('Application NonExistentApp is not installed');
+    });
+
+    it('should throw if the installed apps lookup fails', async () => {
+      installedAppsStub.resolves({ status: 'error', data: { message: 'Failed' } });
+
+      await expect(monitoringOrchestrator.startMonitoring('TestApp'))
+        .to.eventually.be.rejectedWith('Failed to get installed Apps');
+    });
+  });
+
+  describe('stopMonitoring tests', () => {
+    it('should report retained data when stopping every app', async () => {
+      installedAppsStub.resolves({ status: 'success', data: [] });
+
+      const message = await monitoringOrchestrator.stopMonitoring(undefined, false);
+
+      expect(message).to.equal('Application monitoring stopped for all apps. Existing monitoring data maintained.');
+    });
+
+    it('should report deleted data when stopping every app', async () => {
+      installedAppsStub.resolves({ status: 'success', data: [] });
+
+      const message = await monitoringOrchestrator.stopMonitoring(undefined, true);
+
+      expect(message).to.equal('Application monitoring stopped for all apps. Monitoring data deleted for all apps.');
+    });
+
+    it('should stop monitoring for a named app', async () => {
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'TestApp', version: 3 }] });
+      const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
+
+      const message = await monitoringOrchestrator.stopMonitoring('TestApp', false);
+
+      expect(message).to.equal('Application monitoring stopped for TestApp. Existing monitoring data maintained.');
+      sinon.assert.calledWith(stopStub, 'TestApp', false);
+    });
+
+    it('should stop monitoring a single component', async () => {
+      const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
+
+      await monitoringOrchestrator.stopMonitoring('Component1_TestApp', false);
+
+      sinon.assert.calledOnceWithExactly(stopStub, 'Component1_TestApp', false);
+      sinon.assert.notCalled(installedAppsStub);
+    });
+
+    it('should pass deleteData through for a component', async () => {
+      const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
+
+      const message = await monitoringOrchestrator.stopMonitoring('Component1_TestApp', true);
+
+      expect(message).to.equal('Application monitoring stopped and monitoring data deleted for Component1_TestApp.');
+      sinon.assert.calledOnceWithExactly(stopStub, 'Component1_TestApp', true);
+    });
+  });
+
   describe('startAppMonitoringAPI tests', () => {
     it('should return unauthorized if no appname and not authorized', async () => {
-      req.params = {};
-      req.query = {};
-
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
       sinon.stub(messageHelper, 'errUnauthorizedMessage').returns({
         status: 'error',
         data: { code: 401, message: 'Unauthorized' },
       });
 
-      const result = await monitoringOrchestrator.startAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      const result = await monitoringOrchestrator.startAppMonitoringAPI(req, res);
 
       expect(result.status).to.equal('error');
     });
 
-    it('should start monitoring for all apps when no appname and authorized', async () => {
-      req.params = {};
-      req.query = {};
-
-      const apps = [
-        { name: 'App1', version: 3 },
-        { name: 'App2', version: 3 },
-      ];
-
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
-      sinon.stub(appInspector, 'startAppMonitoring');
-      sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(messageHelper, 'createSuccessMessage').returns({
-        status: 'success',
-        data: { message: 'Application monitoring started for all apps' },
-      });
-
-      await monitoringOrchestrator.startAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
-
-      sinon.assert.calledOnce(res.json);
-    });
-
     it('should verify adminandfluxteam privilege for all apps', async () => {
-      req.params = {};
-      req.query = {};
-
       const verifyStub = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
-      sinon.stub(messageHelper, 'createSuccessMessage').returns({
-        status: 'success',
-        data: { message: 'Started' },
-      });
+      installedAppsStub.resolves({ status: 'success', data: [] });
+      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
 
-      await monitoringOrchestrator.startAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.startAppMonitoringAPI(req, res);
 
       sinon.assert.calledWith(verifyStub, 'adminandfluxteam', req);
     });
 
-    it('should start monitoring for specific app when appname in params', async () => {
+    it('should verify appownerabove privilege for a specific app', async () => {
       req.params = { appname: 'TestApp' };
-
-      const apps = [
-        { name: 'TestApp', version: 3 },
-      ];
-
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
-      sinon.stub(appInspector, 'startAppMonitoring');
-      sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(messageHelper, 'createSuccessMessage').returns({
-        status: 'success',
-        data: { message: 'Application monitoring started for TestApp' },
-      });
-
-      await monitoringOrchestrator.startAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
-
-      sinon.assert.calledOnce(res.json);
-    });
-
-    it('should start monitoring for specific app when appname in query', async () => {
-      req.query = { appname: 'TestApp' };
-
-      const apps = [
-        { name: 'TestApp', version: 3 },
-      ];
-
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
-      sinon.stub(appInspector, 'startAppMonitoring');
-      sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(messageHelper, 'createSuccessMessage').returns({
-        status: 'success',
-        data: { message: 'Started' },
-      });
-
-      await monitoringOrchestrator.startAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
-
-      sinon.assert.calledOnce(res.json);
-    });
-
-    it('should verify appownerabove privilege for specific app', async () => {
-      req.params = { appname: 'TestApp' };
-
-      const apps = [
-        { name: 'TestApp', version: 3 },
-      ];
-
       const verifyStub = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'TestApp', version: 3 }] });
       sinon.stub(appInspector, 'startAppMonitoring');
       sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(messageHelper, 'createSuccessMessage').returns({
-        status: 'success',
-        data: { message: 'Started' },
-      });
+      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
 
-      await monitoringOrchestrator.startAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.startAppMonitoringAPI(req, res);
 
       sinon.assert.calledWith(verifyStub, 'appownerabove', req, 'TestApp');
     });
 
-    it('should handle component-based monitoring (app_component format)', async () => {
+    it('should scope authorization to the parent app for a component', async () => {
       req.params = { appname: 'Component1_TestApp' };
-
-      const apps = [
-        {
-          name: 'TestApp',
-          version: 4,
-          compose: [{ name: 'Component1' }],
-        },
-      ];
-
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
-      const startStub = sinon.stub(appInspector, 'startAppMonitoring');
-      const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(messageHelper, 'createSuccessMessage').returns({
+      const verifyStub = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      installedAppsStub.resolves({
         status: 'success',
-        data: { message: 'Started' },
+        data: [{ name: 'TestApp', version: 4, compose: [{ name: 'Component1' }] }],
       });
+      sinon.stub(appInspector, 'startAppMonitoring');
+      sinon.stub(appInspector, 'stopAppMonitoring');
+      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
 
-      await monitoringOrchestrator.startAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.startAppMonitoringAPI(req, res);
 
-      sinon.assert.calledWith(stopStub, 'Component1_TestApp', false, mockAppsMonitored);
-      sinon.assert.calledWith(startStub, 'Component1_TestApp', mockAppsMonitored);
+      sinon.assert.calledWith(verifyStub, 'appownerabove', req, 'TestApp');
+    });
+
+    it('should take appname from the query string', async () => {
+      req.query = { appname: 'TestApp' };
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'TestApp', version: 3 }] });
+      sinon.stub(appInspector, 'startAppMonitoring');
+      sinon.stub(appInspector, 'stopAppMonitoring');
+      const successStub = sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
+
+      await monitoringOrchestrator.startAppMonitoringAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(successStub, 'Application monitoring started for TestApp');
     });
 
     it('should return error if app not installed', async () => {
       req.params = { appname: 'NonExistentApp' };
-
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
+      installedAppsStub.resolves({ status: 'success', data: [] });
       sinon.stub(messageHelper, 'createErrorMessage').returns({
         status: 'error',
         data: { message: 'Application NonExistentApp is not installed' },
       });
 
-      const result = await monitoringOrchestrator.startAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      const result = await monitoringOrchestrator.startAppMonitoringAPI(req, res);
 
       expect(result.status).to.equal('error');
     });
 
     it('should return error if failed to get installed apps', async () => {
       req.params = { appname: 'TestApp' };
-
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'error', data: { message: 'Failed' } });
+      installedAppsStub.resolves({ status: 'error', data: { message: 'Failed' } });
       sinon.stub(messageHelper, 'createErrorMessage').returns({
         status: 'error',
         data: { message: 'Failed to get installed Apps' },
       });
 
-      const result = await monitoringOrchestrator.startAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      const result = await monitoringOrchestrator.startAppMonitoringAPI(req, res);
 
       expect(result.status).to.equal('error');
     });
 
     it('should work without res object', async () => {
       req.params = { appname: 'TestApp' };
-
-      const apps = [
-        { name: 'TestApp', version: 3 },
-      ];
-
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'TestApp', version: 3 }] });
       sinon.stub(appInspector, 'startAppMonitoring');
       sinon.stub(appInspector, 'stopAppMonitoring');
       sinon.stub(messageHelper, 'createSuccessMessage').returns({
@@ -400,7 +402,7 @@ describe('monitoringOrchestrator tests', () => {
         data: { message: 'Started' },
       });
 
-      const result = await monitoringOrchestrator.startAppMonitoringAPI(req, null, mockAppsMonitored, mockInstalledAppsFn);
+      const result = await monitoringOrchestrator.startAppMonitoringAPI(req, null);
 
       expect(result.status).to.equal('success');
     });
@@ -408,252 +410,99 @@ describe('monitoringOrchestrator tests', () => {
 
   describe('stopAppMonitoringAPI tests', () => {
     it('should return unauthorized if no appname and not authorized', async () => {
-      req.params = {};
-      req.query = {};
-
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(false);
       sinon.stub(messageHelper, 'errUnauthorizedMessage').returns({
         status: 'error',
         data: { code: 401, message: 'Unauthorized' },
       });
 
-      const result = await monitoringOrchestrator.stopAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      const result = await monitoringOrchestrator.stopAppMonitoringAPI(req, res);
 
       expect(result.status).to.equal('error');
     });
 
-    it('should stop monitoring for all apps when no appname and authorized', async () => {
-      req.params = {};
-      req.query = {};
-
-      const apps = [
-        { name: 'App1', version: 3 },
-      ];
-
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
-      sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(messageHelper, 'createSuccessMessage').returns({
-        status: 'success',
-        data: { message: 'Application monitoring stopped for all apps' },
-      });
-
-      await monitoringOrchestrator.stopAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
-
-      sinon.assert.calledOnce(res.json);
-    });
-
     it('should include correct message when deletedata is false', async () => {
-      req.params = {};
       req.query = { deletedata: false };
-
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
-      sinon.stub(serviceHelper, 'ensureBoolean').returns(false);
-      const createSuccessStub = sinon.stub(messageHelper, 'createSuccessMessage').returns({
-        status: 'success',
-        data: { message: 'Application monitoring stopped for all apps. Existing monitoring data maintained.' },
-      });
+      installedAppsStub.resolves({ status: 'success', data: [] });
+      const successStub = sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
 
-      await monitoringOrchestrator.stopAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.stopAppMonitoringAPI(req, res);
 
-      sinon.assert.calledWith(createSuccessStub, 'Application monitoring stopped for all apps. Existing monitoring data maintained.');
+      sinon.assert.calledWith(successStub, 'Application monitoring stopped for all apps. Existing monitoring data maintained.');
     });
 
     it('should include correct message when deletedata is true', async () => {
-      req.params = {};
       req.query = { deletedata: true };
-
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
-      sinon.stub(serviceHelper, 'ensureBoolean').returns(true);
-      const createSuccessStub = sinon.stub(messageHelper, 'createSuccessMessage').returns({
-        status: 'success',
-        data: { message: 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.' },
-      });
+      installedAppsStub.resolves({ status: 'success', data: [] });
+      const successStub = sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
 
-      await monitoringOrchestrator.stopAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.stopAppMonitoringAPI(req, res);
 
-      sinon.assert.calledWith(createSuccessStub, 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.');
+      sinon.assert.calledWith(successStub, 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.');
     });
 
     it('should stop monitoring for specific app', async () => {
       req.params = { appname: 'TestApp' };
-
-      const apps = [
-        { name: 'TestApp', version: 3 },
-      ];
-
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
-      sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(serviceHelper, 'ensureBoolean').returns(false);
-      sinon.stub(messageHelper, 'createSuccessMessage').returns({
-        status: 'success',
-        data: { message: 'Stopped' },
-      });
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'TestApp', version: 3 }] });
+      const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
+      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
 
-      await monitoringOrchestrator.stopAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.stopAppMonitoringAPI(req, res);
 
-      sinon.assert.calledOnce(res.json);
+      sinon.assert.calledWith(stopStub, 'TestApp', false);
     });
 
     it('should handle component-based monitoring stop', async () => {
       req.params = { appname: 'Component1_TestApp' };
-
-      const apps = [
-        {
-          name: 'TestApp',
-          version: 4,
-          compose: [{ name: 'Component1' }],
-        },
-      ];
-
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
       const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(serviceHelper, 'ensureBoolean').returns(false);
-      sinon.stub(messageHelper, 'createSuccessMessage').returns({
-        status: 'success',
-        data: { message: 'Stopped' },
-      });
+      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
 
-      await monitoringOrchestrator.stopAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.stopAppMonitoringAPI(req, res);
 
-      sinon.assert.calledWith(stopStub, 'Component1_TestApp', false, mockAppsMonitored);
+      sinon.assert.calledOnceWithExactly(stopStub, 'Component1_TestApp', false);
     });
 
     it('should pass deletedata parameter correctly', async () => {
       req.params = { appname: 'Component1_TestApp', deletedata: 'true' };
-
-      const apps = [
-        { name: 'TestApp', version: 4, compose: [{ name: 'Component1' }] },
-      ];
-
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
       const stopStub = sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(serviceHelper, 'ensureBoolean').returns(true);
-      sinon.stub(messageHelper, 'createSuccessMessage').returns({
-        status: 'success',
-        data: { message: 'Stopped' },
-      });
+      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
 
-      await monitoringOrchestrator.stopAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
+      await monitoringOrchestrator.stopAppMonitoringAPI(req, res);
 
-      sinon.assert.calledWith(stopStub, 'Component1_TestApp', true, mockAppsMonitored);
+      sinon.assert.calledOnceWithExactly(stopStub, 'Component1_TestApp', true);
     });
 
     it('should work without res object', async () => {
       req.params = { appname: 'TestApp' };
-
-      const apps = [
-        { name: 'TestApp', version: 3 },
-      ];
-
       sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      mockInstalledAppsFn.resolves({ status: 'success', data: apps });
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'TestApp', version: 3 }] });
       sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(serviceHelper, 'ensureBoolean').returns(false);
       sinon.stub(messageHelper, 'createSuccessMessage').returns({
         status: 'success',
         data: { message: 'Stopped' },
       });
 
-      const result = await monitoringOrchestrator.stopAppMonitoringAPI(req, null, mockAppsMonitored, mockInstalledAppsFn);
+      const result = await monitoringOrchestrator.stopAppMonitoringAPI(req, null);
 
       expect(result.status).to.equal('success');
     });
 
     it('should handle errors and return error message', async () => {
       req.params = { appname: 'TestApp' };
-
       sinon.stub(verificationHelper, 'verifyPrivilege').rejects(new Error('Verification failed'));
       sinon.stub(messageHelper, 'createErrorMessage').returns({
         status: 'error',
         data: { message: 'Verification failed' },
       });
 
-      const result = await monitoringOrchestrator.stopAppMonitoringAPI(req, res, mockAppsMonitored, mockInstalledAppsFn);
-
-      expect(result.status).to.equal('error');
-    });
-  });
-
-  describe('appMonitor tests', () => {
-    it('should delegate to appInspector.appMonitor', async () => {
-      const monitorStub = sinon.stub(appInspector, 'appMonitor').resolves({
-        status: 'success',
-        data: { monitoring: 'data' },
-      });
-
-      await monitoringOrchestrator.appMonitor(req, res, mockAppsMonitored);
-
-      sinon.assert.calledOnce(monitorStub);
-      sinon.assert.calledWith(monitorStub, req, res, mockAppsMonitored);
-    });
-
-    it('should return result from appInspector', async () => {
-      const expectedResult = {
-        status: 'success',
-        data: { monitoring: 'data' },
-      };
-      sinon.stub(appInspector, 'appMonitor').resolves(expectedResult);
-
-      const result = await monitoringOrchestrator.appMonitor(req, res, mockAppsMonitored);
-
-      expect(result).to.deep.equal(expectedResult);
-    });
-  });
-
-  // routes.js reaches these handlers with (req, res) only — it has no access to the
-  // monitoring store or the installed-apps query. The suites above always inject both,
-  // so they exercise a call shape production never uses.
-  describe('router call shape - trailing arguments omitted', () => {
-    it('should serve appMonitor from the shared store', async () => {
-      req.params = { appname: 'comp_myapp' };
-      const stats = [{ timestamp: 1, cpu: 5 }];
-      sinon.stub(globalState, 'appsMonitored').value({ comp_myapp: { statsStore: stats } });
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(messageHelper, 'createDataMessage').returnsArg(0);
-
-      await monitoringOrchestrator.appMonitor(req, res);
-
-      sinon.assert.calledOnceWithExactly(messageHelper.createDataMessage, stats);
-      sinon.assert.calledOnceWithExactly(res.json, stats);
-    });
-
-    it('should resolve installed apps for startAppMonitoringAPI', async () => {
-      req.params = { appname: 'myapp' };
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(appQueryService, 'installedApps').resolves({
-        status: 'success',
-        data: [{ name: 'myapp', version: 3 }],
-      });
-      sinon.stub(appInspector, 'startAppMonitoring');
-      sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
-
-      const result = await monitoringOrchestrator.startAppMonitoringAPI(req, res);
-
-      expect(result).to.equal('Application monitoring started for myapp');
-      sinon.assert.calledWith(appQueryService.installedApps, 'myapp');
-    });
-
-    it('should resolve installed apps for stopAppMonitoringAPI', async () => {
-      req.params = { appname: 'myapp' };
-      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
-      sinon.stub(appQueryService, 'installedApps').resolves({
-        status: 'success',
-        data: [{ name: 'myapp', version: 3 }],
-      });
-      sinon.stub(appInspector, 'stopAppMonitoring');
-      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
-
       const result = await monitoringOrchestrator.stopAppMonitoringAPI(req, res);
 
-      expect(result).to.equal('Application monitoring stopped for myapp. Existing monitoring data maintained.');
-      sinon.assert.calledWith(appQueryService.installedApps, 'myapp');
+      expect(result.status).to.equal('error');
     });
   });
 });
