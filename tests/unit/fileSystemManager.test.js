@@ -65,12 +65,25 @@ describe('fileSystemManager tests', () => {
       setHeader: sinon.stub(),
       status: sinon.stub().callsFake((code) => { res.statusCode = code; return res; }),
     };
-    req = { params: { appname: 'myapp', component: 'comp' }, query: {} };
+    // The four long operations POST a JSON body; the three older endpoints
+    // still take their operands as path params.
+    req = { params: { appname: 'myapp', component: 'comp' }, query: {}, body: {} };
 
     fileSystemManager = proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
       '../messageHelper': messageHelperStub,
       '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
-      '../serviceHelper': { ensureString: sinon.stub().callsFake((v) => JSON.stringify(v)) },
+      '../serviceHelper': {
+        ensureString: sinon.stub().callsFake((v) => JSON.stringify(v)),
+        // Mirrors the real one: an object passes through, anything falsy
+        // becomes {}. A stub returning undefined would make every body read
+        // throw, and the throw is caught, so the tests would pass having
+        // exercised nothing.
+        ensureObject: sinon.stub().callsFake((v) => {
+          if (typeof v === 'object' && v !== null) return v;
+          if (!v) return {};
+          try { return JSON.parse(v); } catch (e) { return {}; }
+        }),
+      },
       '../IOUtils': { getVolumeInfo: sinon.stub() },
       '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
       '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPath: sinon.stub() },
@@ -103,8 +116,17 @@ describe('fileSystemManager tests', () => {
       req.params.folder = 'uploads/2026';
       await fileSystemManager.createAppsFolder(req, res);
 
-      expect(argv()).to.deep.equal(['mkdir', '-p', '/work/uploads/2026']);
+      expect(argv()).to.deep.equal(['mkdir', '/work/uploads/2026']);
       expect(res.json.firstCall.args[0].data.message).to.equal('Folder Created');
+    });
+
+    it('does not pass -p, so an existing folder is still an error', async () => {
+      // The dashboard shows "folder already exists" off the back of that error;
+      // with -p it would be told the folder was created.
+      req.params.folder = 'uploads';
+      await fileSystemManager.createAppsFolder(req, res);
+
+      expect(argv()).to.not.include('-p');
     });
 
     it('refuses without a folder', async () => {
@@ -164,8 +186,8 @@ describe('fileSystemManager tests', () => {
 
   describe('moveAppsObject', () => {
     beforeEach(() => {
-      req.params.source = 'uploads/photo.jpg';
-      req.params.destination = 'archive/photo.jpg';
+      req.body.source = 'uploads/photo.jpg';
+      req.body.destination = 'archive/photo.jpg';
     });
 
     it('publishes the source at the destination, with no command and no copy', async () => {
@@ -185,7 +207,8 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.moveAppsObject(req, res);
       expect(sessionStub.pair.firstCall.args[2]).to.deep.equal({ overwrite: false });
 
-      req.params.overwrite = 'true';
+      // A real JSON boolean, not the string a path segment could only ever be.
+      req.body.overwrite = true;
       await fileSystemManager.moveAppsObject(req, res);
       expect(sessionStub.pair.lastCall.args[2]).to.deep.equal({ overwrite: true });
     });
@@ -193,8 +216,8 @@ describe('fileSystemManager tests', () => {
 
   describe('copyAppsObject', () => {
     beforeEach(() => {
-      req.params.source = 'uploads';
-      req.params.destination = 'backup';
+      req.body.source = 'uploads';
+      req.body.destination = 'backup';
     });
 
     it('copies into staging and publishes the result', async () => {
@@ -222,25 +245,25 @@ describe('fileSystemManager tests', () => {
 
   describe('compressAppsObject', () => {
     beforeEach(() => {
-      req.params.source = 'uploads';
+      req.body.source = 'uploads';
     });
 
     it('writes a zip when the destination says .zip', async () => {
-      req.params.destination = 'backup.zip';
+      req.body.destination = 'backup.zip';
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(argv()).to.deep.equal(['zip', '-r', '-q', '/work/.flux-op-abc', '/work/uploads']);
     });
 
     it('writes a tarball when the destination says .tar.gz', async () => {
-      req.params.destination = 'backup.tar.gz';
+      req.body.destination = 'backup.tar.gz';
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', '-C', '/work/uploads', '.']);
     });
 
     it('refuses an extension it cannot produce', async () => {
-      req.params.destination = 'backup.rar';
+      req.body.destination = 'backup.rar';
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(executorStub.run.called).to.equal(false);
@@ -250,11 +273,11 @@ describe('fileSystemManager tests', () => {
 
   describe('extractAppsObject', () => {
     beforeEach(() => {
-      req.params.destination = 'restored';
+      req.body.destination = 'restored';
     });
 
     it('unpacks a zip', async () => {
-      req.params.source = 'backup.zip';
+      req.body.source = 'backup.zip';
       await fileSystemManager.extractAppsObject(req, res);
 
       expect(argv()).to.deep.equal(['unzip', '-q', '/work/backup.zip', '-d', '/work/.flux-op-abc']);
@@ -264,7 +287,7 @@ describe('fileSystemManager tests', () => {
       // Archive content is attacker-supplied: honouring its uids can make the
       // result unreadable to the app, and honouring its modes would let it
       // plant a setuid binary.
-      req.params.source = 'backup.tar.gz';
+      req.body.source = 'backup.tar.gz';
       await fileSystemManager.extractAppsObject(req, res);
 
       expect(argv()).to.include('--no-same-owner');
@@ -275,28 +298,28 @@ describe('fileSystemManager tests', () => {
       // An archive's declared uncompressed size is written by whoever built it,
       // so a bomb understates itself. The ceiling is applied to what actually
       // lands, and it is what the volume can hold.
-      req.params.source = 'backup.zip';
+      req.body.source = 'backup.zip';
       await fileSystemManager.extractAppsObject(req, res);
 
       expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
     });
 
     it('refuses a result containing links', async () => {
-      req.params.source = 'backup.zip';
+      req.body.source = 'backup.zip';
       await fileSystemManager.extractAppsObject(req, res);
 
       expect(runOptions().noLinks).to.equal(true);
     });
 
     it('creates the staging directory, which tar -C and unzip -d both need', async () => {
-      req.params.source = 'backup.zip';
+      req.body.source = 'backup.zip';
       await fileSystemManager.extractAppsObject(req, res);
 
       expect(runOptions().mkdirStaging).to.equal(true);
     });
 
     it('refuses an extension it cannot read, rather than sniffing the content', async () => {
-      req.params.source = 'payload.bin';
+      req.body.source = 'payload.bin';
       await fileSystemManager.extractAppsObject(req, res);
 
       expect(executorStub.run.called).to.equal(false);
@@ -304,14 +327,42 @@ describe('fileSystemManager tests', () => {
     });
   });
 
+  describe('operand transport', () => {
+    it('reads the operands from a JSON body', async () => {
+      req.body = { appname: 'myapp', component: 'comp', source: 'a', destination: 'b' };
+      await fileSystemManager.copyAppsObject(req, res);
+
+      const [source, destination] = sessionStub.pair.firstCall.args;
+      expect(source).to.equal('a');
+      expect(destination).to.equal('b');
+    });
+
+    it('treats a non-boolean overwrite as false', async () => {
+      // Overwrite has to be asked for. An unparseable value must not be read as
+      // consent to destroy something.
+      req.body = { source: 'a', destination: 'b', overwrite: 'yes please' };
+      await fileSystemManager.copyAppsObject(req, res);
+
+      expect(sessionStub.pair.firstCall.args[2]).to.deep.equal({ overwrite: false });
+    });
+
+    it('accepts the string a form-encoded caller sends', async () => {
+      req.body = { source: 'a', destination: 'b', overwrite: 'true' };
+      await fileSystemManager.copyAppsObject(req, res);
+
+      expect(sessionStub.pair.firstCall.args[2]).to.deep.equal({ overwrite: true });
+    });
+  });
+
   describe('error reporting', () => {
     it('reports an unauthorised caller without touching the volume', async () => {
       const unauthorized = new Error('Unauthorized. Access denied.');
       unauthorized.name = 'Unauthorized';
+      unauthorized.code = 401;
       volumeSessionStub.openVolume.rejects(unauthorized);
 
-      req.params.source = 'a';
-      req.params.destination = 'b';
+      req.body.source = 'a';
+      req.body.destination = 'b';
       await fileSystemManager.copyAppsObject(req, res);
 
       expect(executorStub.run.called).to.equal(false);
@@ -323,8 +374,8 @@ describe('fileSystemManager tests', () => {
       // reported except the job the caller is polling.
       executorStub.run.rejects(new Error('File operation failed with exit code 2'));
 
-      req.params.source = 'a';
-      req.params.destination = 'b';
+      req.body.source = 'a';
+      req.body.destination = 'b';
       await fileSystemManager.copyAppsObject(req, res);
       await settle();
 
@@ -342,8 +393,8 @@ describe('fileSystemManager tests', () => {
       busy.retryAfterMs = 5000;
       executorStub.assertCapacity.throws(busy);
 
-      req.params.source = 'a';
-      req.params.destination = 'b';
+      req.body.source = 'a';
+      req.body.destination = 'b';
       await fileSystemManager.copyAppsObject(req, res);
       await settle();
 
@@ -356,8 +407,8 @@ describe('fileSystemManager tests', () => {
     });
 
     it('answers 202 with a job to poll', async () => {
-      req.params.source = 'a';
-      req.params.destination = 'b';
+      req.body.source = 'a';
+      req.body.destination = 'b';
       await fileSystemManager.copyAppsObject(req, res);
 
       expect(res.statusCode).to.equal(202);
@@ -369,8 +420,8 @@ describe('fileSystemManager tests', () => {
     });
 
     it('marks the job Succeeded once the work finishes', async () => {
-      req.params.source = 'a';
-      req.params.destination = 'b';
+      req.body.source = 'a';
+      req.body.destination = 'b';
       await fileSystemManager.copyAppsObject(req, res);
       await settle();
 
@@ -378,8 +429,8 @@ describe('fileSystemManager tests', () => {
     });
 
     it('answers 202 for a move too, so paste is one shape whichever it was', async () => {
-      req.params.source = 'a';
-      req.params.destination = 'b';
+      req.body.source = 'a';
+      req.body.destination = 'b';
       await fileSystemManager.moveAppsObject(req, res);
 
       expect(res.statusCode).to.equal(202);

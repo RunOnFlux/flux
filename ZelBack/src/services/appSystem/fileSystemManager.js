@@ -52,9 +52,10 @@ function respondSuccess(res, message) {
   res.json(messageHelper.createSuccessMessage(message));
 }
 
-/** A required parameter, from either the path or the query string. */
+/** A required parameter, from the path, the query string or a JSON body. */
 function requiredParam(req, name) {
-  const value = req.params[name] || req.query[name];
+  const body = serviceHelper.ensureObject(req.body) || {};
+  const value = req.params[name] || req.query[name] || body[name];
   if (!value) throw new Error(`${name} parameter is mandatory`);
   return value;
 }
@@ -70,7 +71,10 @@ async function createAppsFolder(req, res) {
     const folder = requiredParam(req, 'folder');
     const target = await volume.resolve(folder);
 
-    await executor.run(volume, ['mkdir', '-p', target]);
+    // No -p. mkdir must FAIL when the folder already exists: the dashboard
+    // branches on that error to tell the user so, and -p would report a folder
+    // it did not create as created.
+    await executor.run(volume, ['mkdir', target]);
     respondSuccess(res, 'Folder Created');
   } catch (error) {
     respondError(res, error);
@@ -277,7 +281,11 @@ async function downloadAppsFile(req, res) {
 async function resolveOperands(req, volume) {
   const source = requiredParam(req, 'source');
   const destination = requiredParam(req, 'destination');
-  const overwrite = (req.params.overwrite || req.query.overwrite) === 'true';
+  // A real boolean from a JSON body, or the string a form-encoded caller sends.
+  // Anything else is false: overwrite has to be asked for, so an unparseable
+  // value must not be read as consent to destroy something.
+  const raw = serviceHelper.ensureObject(req.body)?.overwrite ?? req.query.overwrite;
+  const overwrite = raw === true || raw === 'true';
   return volume.pair(source, destination, { overwrite });
 }
 

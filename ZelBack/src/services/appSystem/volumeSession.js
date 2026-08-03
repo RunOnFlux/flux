@@ -365,21 +365,30 @@ class VolumeSession {
  * reads as safe. Two names, one of which is the only thing request paths may
  * use, is the same shape django and rails settled on.
  *
- * @param {object} req - express request; appname and component come from params
- *   or query, matching the sibling endpoints
+ * @param {object} req - express request. appname and component are read from
+ *   the JSON body for the endpoints that POST one, and from params or query for
+ *   the older GET endpoints that still take them there.
  * @param {{privilege?: string}} [options]
  * @returns {Promise<VolumeSession>}
  */
 async function openVolume(req, options = {}) {
   const { privilege = 'appownerabove' } = options;
 
-  const appname = req.params.appname || req.query.appname || '';
-  const component = req.params.component || req.query.component || '';
+  // ensureObject for url-encoded parity: express.json() populates req.body for
+  // application/json, and a form-encoded caller arrives as a string.
+  const body = serviceHelper.ensureObject(req.body) || {};
+  const appname = req.params.appname || req.query.appname || body.appname || '';
+  const component = req.params.component || req.query.component || body.component || '';
 
   const authorized = await verificationHelper.verifyPrivilege(privilege, req, appname);
   if (!authorized) {
+    // Carries the code so this reaches a client as the body
+    // messageHelper.errUnauthorizedMessage() has always produced. Handlers used
+    // to call that directly; they now throw, and dropping the 401 here would
+    // silently change what every existing caller reads.
     const error = new Error('Unauthorized. Access denied.');
     error.name = 'Unauthorized';
+    error.code = 401;
     throw error;
   }
 

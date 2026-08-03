@@ -1590,25 +1590,38 @@ module.exports = (app) => {
   app.delete('/apps/operations/:jobId', (req, res) => {
     operationsController.cancelOperation(req, res);
   });
-  // source and destination are relative to the app's volume and must be
-  // URL-encoded when they contain a separator. destination is the full target
-  // path INCLUDING the new name, not the parent directory - so copy and move
-  // share -T semantics and there is no paste-into versus paste-as ambiguity.
+  // POST, with the operands in a JSON body:
+  //   { appname, component, source, destination, overwrite? }
+  //
+  // Not GET. These create, overwrite and destroy, and a GET may be replayed by
+  // a proxy, a retry or a refresh - `overwrite: true` sitting in a URL is a
+  // destructive operation waiting to be repeated. Thirty of the /apps/ GET
+  // routes in this file are served through apicache, which makes a cached
+  // destructive GET one config line away rather than impossible. A path also
+  // puts every filename into the access log and the URL length limit.
+  //
+  // It matches the endpoints that already answer 202 here - imagepreflight,
+  // playground and imagecache are all POST - rather than the older file API
+  // whose GET shape these otherwise sit beside.
+  //
+  // `destination` is the full target path INCLUDING the new name, not the
+  // parent directory, so copy and move share -T semantics and there is no
+  // paste-into versus paste-as ambiguity.
   //
   // All four answer 202 with a jobId to poll at /apps/operations/:jobId. Move
   // included, even though its visible part is a rename: paste is one gesture in
   // a file browser, and cut-paste returning a result while copy-paste returns a
   // job would put two response shapes inside one user action.
-  app.get('/apps/moveobject/:appname?/:component?/:source?/:destination?/:overwrite?', (req, res) => {
+  app.post('/apps/moveobject', (req, res) => {
     fileSystemManager.moveAppsObject(req, res);
   });
-  app.get('/apps/copyobject/:appname?/:component?/:source?/:destination?/:overwrite?', (req, res) => {
+  app.post('/apps/copyobject', (req, res) => {
     fileSystemManager.copyAppsObject(req, res);
   });
-  app.get('/apps/compressobject/:appname?/:component?/:source?/:destination?/:overwrite?', (req, res) => {
+  app.post('/apps/compressobject', (req, res) => {
     fileSystemManager.compressAppsObject(req, res);
   });
-  app.get('/apps/extractobject/:appname?/:component?/:source?/:destination?/:overwrite?', (req, res) => {
+  app.post('/apps/extractobject', (req, res) => {
     fileSystemManager.extractAppsObject(req, res);
   });
   app.get('/apps/downloadfile/:appname?/:component?/:file?', (req, res) => {

@@ -122,6 +122,17 @@ describe('volumeSession tests', () => {
       expect(deviceHelperStub.listMountedFilesystems.called).to.equal(false);
     });
 
+    it('refuses with the shape errUnauthorizedMessage has always produced', async () => {
+      // These handlers used to call errUnauthorizedMessage directly. They throw
+      // now, and a client checking data.code === 401 must not notice.
+      verificationHelperStub.verifyPrivilege.resolves(false);
+      const error = await volumeSession.openVolume(reqFor()).catch((e) => e);
+
+      expect(error.message).to.equal('Unauthorized. Access denied.');
+      expect(error.name).to.equal('Unauthorized');
+      expect(error.code).to.equal(401);
+    });
+
     it('checks ownership of the app actually named in the request', async () => {
       await volumeSession.openVolume(reqFor('myapp', 'comp'));
       expect(verificationHelperStub.verifyPrivilege.calledWith('appownerabove', sinon.match.any, 'myapp')).to.equal(true);
