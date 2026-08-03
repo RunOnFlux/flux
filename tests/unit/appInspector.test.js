@@ -27,6 +27,10 @@ describe('appInspector tests', () => {
     messageHelperStub = {
       createDataMessage: sinon.stub(),
       createErrorMessage: sinon.stub(),
+      errUnauthorizedMessage: sinon.stub().returns({
+        status: 'error',
+        data: { code: 401, name: 'Unauthorized', message: 'Unauthorized. Access denied.' },
+      }),
     };
 
     logStub = {
@@ -741,6 +745,126 @@ describe('appInspector tests', () => {
       globalStateStub.appsMonitored = {};
 
       expect(() => appInspector.appMonitor('test_myapp')).to.throw('No data available');
+    });
+
+    // Beyond a day the series is thinned so a week of samples does not have to be sent
+    // or drawn in full. The frontend offers 2, 3 and 7 day ranges, so this is the path
+    // those take.
+    describe('ranges beyond a day', () => {
+      const DAY_MS = 24 * 60 * 60 * 1000;
+
+      function seed(count) {
+        const now = Date.now();
+        const samples = Array.from({ length: count }, (_, i) => ({
+          timestamp: now - (count - i) * 1000,
+          data: { cpu: i },
+        }));
+        globalStateStub.appsMonitored = { test_myapp: { statsStore: samples } };
+        return samples;
+      }
+
+      it('should keep every twentieth sample and the most recent one', () => {
+        const samples = seed(45);
+
+        const result = appInspector.appMonitor('test_myapp', DAY_MS + 1);
+
+        expect(result.map((s) => samples.indexOf(s))).to.deep.equal([0, 20, 40, 44]);
+      });
+
+      it('should return every sample for a range of exactly one day', () => {
+        seed(45);
+
+        const result = appInspector.appMonitor('test_myapp', DAY_MS);
+
+        expect(result).to.have.lengthOf(45);
+      });
+
+      it('should return every sample for ranges under a day', () => {
+        seed(45);
+
+        const result = appInspector.appMonitor('test_myapp', 60 * 60 * 1000);
+
+        expect(result).to.have.lengthOf(45);
+      });
+    });
+  });
+
+  describe('appMonitorAPI authorization tests', () => {
+    // An app's resource history belongs to its owner, so the check has to be proven by
+    // showing the data does not come back — asserting only that some response was sent
+    // passes just as well when the check is gone.
+    function buildWithPrivilege(authorized) {
+      return proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+        config: configStub,
+        '../utils/globalState': globalStateStub,
+        '../dockerService': dockerServiceStub,
+        '../messageHelper': messageHelperStub,
+        '../../lib/log': logStub,
+        '../appQuery/appQueryService': {
+          decryptEnterpriseApps: sinon.stub().returnsArg(0),
+        },
+        '../serviceHelper': { ensureString: sinon.stub().returnsArg(0) },
+        '../dbHelper': { databaseConnection: sinon.stub() },
+        '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(authorized) },
+        '../utils/appConstants': { appConstants: {} },
+        '../utils/appUtilities': { getContainerStorage: sinon.stub().returns(0) },
+        '../utils/cpuBurstHelper': { isBurstActive: sinon.stub().resolves(false) },
+        'node-cmd': { run: sinon.stub() },
+      });
+    }
+
+    const stats = [{ timestamp: 1, cpu: 5 }];
+    let req;
+    let res;
+
+    beforeEach(() => {
+      req = { params: { appname: 'test_myapp' }, query: {} };
+      res = { json: sinon.stub() };
+      globalStateStub.appsMonitored = { test_myapp: { statsStore: stats } };
+    });
+
+    it('should withhold monitoring data from an unauthorized caller', async () => {
+      const unauthorized = buildWithPrivilege(false);
+
+      await unauthorized.appMonitorAPI(req, res);
+
+      sinon.assert.notCalled(messageHelperStub.createDataMessage);
+      sinon.assert.calledOnce(messageHelperStub.errUnauthorizedMessage);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+    });
+
+    it('should return monitoring data to an authorized caller', async () => {
+      const authorized = buildWithPrivilege(true);
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      await authorized.appMonitorAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(messageHelperStub.createDataMessage, stats);
+      sinon.assert.notCalled(messageHelperStub.errUnauthorizedMessage);
+      sinon.assert.calledOnceWithExactly(res.json, stats);
+    });
+
+    it('should scope the privilege check to the parent app of a component', async () => {
+      const verifyPrivilege = sinon.stub().resolves(true);
+      const inspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+        config: configStub,
+        '../utils/globalState': globalStateStub,
+        '../dockerService': dockerServiceStub,
+        '../messageHelper': messageHelperStub,
+        '../../lib/log': logStub,
+        '../appQuery/appQueryService': { decryptEnterpriseApps: sinon.stub().returnsArg(0) },
+        '../serviceHelper': { ensureString: sinon.stub().returnsArg(0) },
+        '../dbHelper': { databaseConnection: sinon.stub() },
+        '../verificationHelper': { verifyPrivilege },
+        '../utils/appConstants': { appConstants: {} },
+        '../utils/appUtilities': { getContainerStorage: sinon.stub().returns(0) },
+        '../utils/cpuBurstHelper': { isBurstActive: sinon.stub().resolves(false) },
+        'node-cmd': { run: sinon.stub() },
+      });
+
+      await inspector.appMonitorAPI(req, res);
+
+      sinon.assert.calledOnceWithExactly(verifyPrivilege, 'appownerabove', req, 'myapp');
     });
   });
 
