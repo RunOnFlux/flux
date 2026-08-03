@@ -697,6 +697,54 @@ describe('appInspector tests', () => {
   });
 
   describe('appMonitor tests', () => {
+    const stats = [
+      { timestamp: 1_000, data: { cpu: 1 } },
+      { timestamp: 2_000, data: { cpu: 2 } },
+    ];
+
+    it('should return every collected sample when no range is given', () => {
+      globalStateStub.appsMonitored = { test_myapp: { statsStore: stats } };
+
+      expect(appInspector.appMonitor('test_myapp')).to.deep.equal(stats);
+    });
+
+    it('should drop samples older than the requested range', () => {
+      const now = Date.now();
+      const recent = { timestamp: now - 1_000, data: { cpu: 3 } };
+      globalStateStub.appsMonitored = {
+        test_myapp: { statsStore: [{ timestamp: now - 60_000, data: { cpu: 1 } }, recent] },
+      };
+
+      expect(appInspector.appMonitor('test_myapp', 30_000)).to.deep.equal([recent]);
+    });
+
+    it('should accept a range given as a string', () => {
+      const now = Date.now();
+      const recent = { timestamp: now - 1_000, data: { cpu: 3 } };
+      globalStateStub.appsMonitored = { test_myapp: { statsStore: [recent] } };
+
+      expect(appInspector.appMonitor('test_myapp', '30000')).to.deep.equal([recent]);
+    });
+
+    it('should throw if no app name was passed', () => {
+      expect(() => appInspector.appMonitor()).to.throw('No Flux App specified');
+    });
+
+    it('should throw if the range is not a positive integer', () => {
+      globalStateStub.appsMonitored = { test_myapp: { statsStore: stats } };
+
+      expect(() => appInspector.appMonitor('test_myapp', -1)).to.throw('Invalid range value');
+      expect(() => appInspector.appMonitor('test_myapp', 'soon')).to.throw('Invalid range value');
+    });
+
+    it('should throw if the app is not monitored', () => {
+      globalStateStub.appsMonitored = {};
+
+      expect(() => appInspector.appMonitor('test_myapp')).to.throw('No data available');
+    });
+  });
+
+  describe('appMonitorAPI tests', () => {
     it('should return error if no app name was passed', async () => {
       const req = {
         params: {
@@ -719,7 +767,7 @@ describe('appInspector tests', () => {
         },
       });
 
-      await appInspector.appMonitor(req, res);
+      await appInspector.appMonitorAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
       expect(logStub.error.called).to.be.true;
@@ -775,7 +823,7 @@ describe('appInspector tests', () => {
         },
       });
 
-      await appInspectorWithAuth.appMonitor(req, res);
+      await appInspectorWithAuth.appMonitorAPI(req, res);
 
       expect(res.json.calledOnce).to.be.true;
     });
@@ -798,7 +846,7 @@ describe('appInspector tests', () => {
       const dataMessage = { status: 'success', data: stats };
       messageHelperStub.createDataMessage.returns(dataMessage);
 
-      await appInspector.appMonitor(req, res);
+      await appInspector.appMonitorAPI(req, res);
 
       expect(messageHelperStub.createDataMessage.calledOnceWithExactly(stats)).to.be.true;
       expect(res.json.calledOnceWithExactly(dataMessage)).to.be.true;
@@ -823,7 +871,7 @@ describe('appInspector tests', () => {
       const dataMessage = { status: 'success', data: stats };
       messageHelperStub.createDataMessage.returns(dataMessage);
 
-      await appInspector.appMonitor(req, res);
+      await appInspector.appMonitorAPI(req, res);
 
       expect(messageHelperStub.createDataMessage.calledOnceWithExactly(stats)).to.be.true;
       expect(res.json.calledOnceWithExactly(dataMessage)).to.be.true;
@@ -852,7 +900,7 @@ describe('appInspector tests', () => {
         },
       });
 
-      await appInspector.appMonitor(req, res);
+      await appInspector.appMonitorAPI(req, res);
 
       expect(res.json.called).to.be.true;
     });

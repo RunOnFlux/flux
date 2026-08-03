@@ -4,36 +4,42 @@ const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const appInspector = require('../appManagement/appInspector');
 const appQueryService = require('../appQuery/appQueryService');
-const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
 
 /**
- * Start monitoring multiple applications
- * @param {Array} appSpecsToMonitor - Array of app specifications to monitor
- * @param {object} appsMonitored - Apps monitored structure from appsService
- * @param {Function} installedAppsFn - Function to get installed apps
- * @returns {Promise<object>} Result of monitoring start
+ * Resolve the app specifications monitoring should act on
+ * @param {Array} appSpecsToMonitor - Explicit specifications, or null for every installed app
+ * @returns {Promise<Array>} App specifications
  */
-async function startMonitoringOfApps(appSpecsToMonitor, appsMonitored, installedAppsFn) {
+async function resolveAppSpecs(appSpecsToMonitor) {
+  if (appSpecsToMonitor) {
+    return appSpecsToMonitor;
+  }
+  const installedAppsRes = await appQueryService.installedApps();
+  if (installedAppsRes.status !== 'success') {
+    throw new Error('Failed to get installed Apps');
+  }
+  return installedAppsRes.data;
+}
+
+/**
+ * Start monitoring multiple applications
+ * @param {Array} appSpecsToMonitor - Array of app specifications to monitor, or null for every installed app
+ * @returns {Promise<void>}
+ */
+async function startMonitoringOfApps(appSpecsToMonitor) {
   try {
-    let apps = appSpecsToMonitor;
-    if (!apps) {
-      const installedAppsRes = await installedAppsFn();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      apps = installedAppsRes.data;
-    }
+    const apps = await resolveAppSpecs(appSpecsToMonitor);
 
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       if (app.version <= 3) {
-        appInspector.startAppMonitoring(app.name, appsMonitored);
+        appInspector.startAppMonitoring(app.name);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of app.compose) {
           const monitoredName = `${component.name}_${app.name}`;
-          appInspector.startAppMonitoring(monitoredName, appsMonitored);
+          appInspector.startAppMonitoring(monitoredName);
         }
       }
     }
@@ -44,33 +50,23 @@ async function startMonitoringOfApps(appSpecsToMonitor, appsMonitored, installed
 
 /**
  * Stop monitoring multiple applications
- * @param {Array} appSpecsToMonitor - Array of app specifications to stop monitoring
+ * @param {Array} appSpecsToMonitor - Array of app specifications to stop monitoring, or null for every installed app
  * @param {boolean} deleteData - Whether to delete monitoring data
- * @param {object} appsMonitored - Apps monitored structure from appsService
- * @param {Function} installedAppsFn - Function to get installed apps
- * @returns {Promise<object>} Result of monitoring stop
+ * @returns {Promise<void>}
  */
-// eslint-disable-next-line default-param-last
-async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false, appsMonitored, installedAppsFn) {
+async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
   try {
-    let apps = appSpecsToMonitor;
-    if (!apps) {
-      const installedAppsRes = await installedAppsFn();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      apps = installedAppsRes.data;
-    }
+    const apps = await resolveAppSpecs(appSpecsToMonitor);
 
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       if (app.version <= 3) {
-        appInspector.stopAppMonitoring(app.name, deleteData, appsMonitored);
+        appInspector.stopAppMonitoring(app.name, deleteData);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of app.compose) {
           const monitoredName = `${component.name}_${app.name}`;
-          appInspector.stopAppMonitoring(monitoredName, deleteData, appsMonitored);
+          appInspector.stopAppMonitoring(monitoredName, deleteData);
         }
       }
     }
@@ -80,53 +76,92 @@ async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false, appsM
 }
 
 /**
+ * Look up the installed specifications for an application
+ * @param {string} mainAppName - Application name without a component prefix
+ * @returns {Promise<object>} App specifications
+ */
+async function installedAppSpecs(mainAppName) {
+  const installedAppsRes = await appQueryService.installedApps(mainAppName);
+  if (installedAppsRes.status !== 'success') {
+    throw new Error('Failed to get installed Apps');
+  }
+  const appSpecs = installedAppsRes.data[0];
+  if (!appSpecs) {
+    throw new Error(`Application ${mainAppName} is not installed`);
+  }
+  return appSpecs;
+}
+
+/**
+ * Start monitoring an application, or every installed application
+ * @param {string} [appname] - Application name, optionally component-qualified. Omit for every app.
+ * @returns {Promise<string>} Outcome description
+ */
+async function startMonitoring(appname) {
+  if (!appname) {
+    await stopMonitoringOfApps(null);
+    await startMonitoringOfApps(null);
+    return 'Application monitoring started for all apps';
+  }
+
+  const mainAppName = appname.split('_')[1] || appname;
+  const appSpecs = await installedAppSpecs(mainAppName);
+
+  if (mainAppName === appname) {
+    await stopMonitoringOfApps(null);
+    await startMonitoringOfApps([appSpecs]);
+  } else { // component based or <= 3
+    appInspector.stopAppMonitoring(appname, false);
+    appInspector.startAppMonitoring(appname);
+  }
+  return `Application monitoring started for ${appSpecs.name}`;
+}
+
+/**
+ * Stop monitoring an application, or every installed application
+ * @param {string} [appname] - Application name, optionally component-qualified. Omit for every app.
+ * @param {boolean} deleteData - Whether to delete monitoring data
+ * @returns {Promise<string>} Outcome description
+ */
+async function stopMonitoring(appname, deleteData) {
+  if (!appname) {
+    await stopMonitoringOfApps(null, deleteData);
+    return deleteData
+      ? 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.'
+      : 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
+  }
+
+  const mainAppName = appname.split('_')[1] || appname;
+  if (mainAppName === appname) {
+    await stopMonitoringOfApps([await installedAppSpecs(mainAppName)], deleteData);
+  } else { // component based or <= 3
+    appInspector.stopAppMonitoring(appname, deleteData);
+  }
+  return deleteData
+    ? `Application monitoring stopped and monitoring data deleted for ${appname}.`
+    : `Application monitoring stopped for ${appname}. Existing monitoring data maintained.`;
+}
+
+/**
  * Start monitoring API endpoint
  * @param {object} req Request.
  * @param {object} res Response.
- * @param {object} [appsMonitored] - Apps monitored structure. Defaults to the shared globalState store.
- * @param {Function} [installedAppsFn] - Function to get installed apps. Defaults to the installed apps query.
  * @returns {object} Message.
  */
-async function startAppMonitoringAPI(req, res, appsMonitored = globalState.appsMonitored, installedAppsFn = appQueryService.installedApps) {
+async function startAppMonitoringAPI(req, res) {
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
+    const appname = req.params.appname || req.query.appname;
 
-    if (!appname) {
-      // Only flux team and node owner can monitor all apps
-      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        return res ? res.json(errMessage) : errMessage;
-      }
-      await stopMonitoringOfApps(null, false, appsMonitored, installedAppsFn);
-      await startMonitoringOfApps(null, appsMonitored, installedAppsFn);
-      const monitoringResponse = messageHelper.createSuccessMessage('Application monitoring started for all apps');
-      return res ? res.json(monitoringResponse) : monitoringResponse;
-    }
-    const mainAppName = appname.split('_')[1] || appname;
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    // Only flux team and node owner can monitor all apps
+    const authorized = appname
+      ? await verificationHelper.verifyPrivilege('appownerabove', req, appname.split('_')[1] || appname)
+      : await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
-    const installedAppsRes = await installedAppsFn(mainAppName);
-    if (installedAppsRes.status !== 'success') {
-      throw new Error('Failed to get installed Apps');
-    }
-    const apps = installedAppsRes.data;
-    const appSpecs = apps[0];
-    if (!appSpecs) {
-      throw new Error(`Application ${mainAppName} is not installed`);
-    }
-    if (mainAppName === appname) {
-      await stopMonitoringOfApps(null, false, appsMonitored, installedAppsFn);
-      await startMonitoringOfApps([appSpecs], appsMonitored, installedAppsFn);
-    } else { // component based or <= 3
-      appInspector.stopAppMonitoring(appname, false, appsMonitored);
-      appInspector.startAppMonitoring(appname, appsMonitored);
-    }
-    const monitoringResponse = messageHelper.createSuccessMessage(`Application monitoring started for ${appSpecs.name}`);
+
+    const monitoringResponse = messageHelper.createSuccessMessage(await startMonitoring(appname));
     return res ? res.json(monitoringResponse) : monitoringResponse;
   } catch (error) {
     log.error(error);
@@ -143,63 +178,25 @@ async function startAppMonitoringAPI(req, res, appsMonitored = globalState.appsM
  * Stop monitoring API endpoint
  * @param {object} req Request.
  * @param {object} res Response.
- * @param {object} [appsMonitored] - Apps monitored structure. Defaults to the shared globalState store.
- * @param {Function} [installedAppsFn] - Function to get installed apps. Defaults to the installed apps query.
  * @returns {object} Message.
  */
-async function stopAppMonitoringAPI(req, res, appsMonitored = globalState.appsMonitored, installedAppsFn = appQueryService.installedApps) {
+async function stopAppMonitoringAPI(req, res) {
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-    let { deletedata } = req.params;
-    deletedata = deletedata || req.query.deletedata || false;
-    deletedata = serviceHelper.ensureBoolean(deletedata);
+    const appname = req.params.appname || req.query.appname;
+    const deleteData = serviceHelper.ensureBoolean(
+      req.params.deletedata || req.query.deletedata || false,
+    );
 
-    if (!appname) {
-      // Only flux team and node owner can stop monitoring for all apps
-      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        return res ? res.json(errMessage) : errMessage;
-      }
-      await stopMonitoringOfApps(null, deletedata, appsMonitored, installedAppsFn);
-      let successMessage = '';
-      if (!deletedata) {
-        successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
-      } else {
-        successMessage = 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.';
-      }
-      const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
-      return res ? res.json(monitoringResponse) : monitoringResponse;
-    }
-    const mainAppName = appname.split('_')[1] || appname;
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    // Only flux team and node owner can stop monitoring for all apps
+    const authorized = appname
+      ? await verificationHelper.verifyPrivilege('appownerabove', req, appname.split('_')[1] || appname)
+      : await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
-    let successMessage = '';
-    if (mainAppName === appname) {
-      // get appSpecs
-      const installedAppsRes = await installedAppsFn(mainAppName);
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      const apps = installedAppsRes.data;
-      const appSpecs = apps[0];
-      if (!appSpecs) {
-        throw new Error(`Application ${mainAppName} is not installed`);
-      }
-      await stopMonitoringOfApps([appSpecs], deletedata, appsMonitored, installedAppsFn);
-    } else { // component based or <= 3
-      appInspector.stopAppMonitoring(appname, deletedata, appsMonitored);
-    }
-    if (deletedata) {
-      successMessage = `Application monitoring stopped and monitoring data deleted for ${appname}.`;
-    } else {
-      successMessage = `Application monitoring stopped for ${appname}. Existing monitoring data maintained.`;
-    }
-    const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
+
+    const monitoringResponse = messageHelper.createSuccessMessage(await stopMonitoring(appname, deleteData));
     return res ? res.json(monitoringResponse) : monitoringResponse;
   } catch (error) {
     log.error(error);
@@ -212,21 +209,11 @@ async function stopAppMonitoringAPI(req, res, appsMonitored = globalState.appsMo
   }
 }
 
-/**
- * Enhanced appMonitor function that uses the inspector module but adds the monitored data
- * @param {object} req Request.
- * @param {object} res Response.
- * @param {object} [appsMonitored] - Apps monitored structure. Defaults to the shared globalState store.
- * @returns {object} Monitoring data.
- */
-async function appMonitor(req, res, appsMonitored) {
-  return appInspector.appMonitor(req, res, appsMonitored);
-}
-
 module.exports = {
   startMonitoringOfApps,
   stopMonitoringOfApps,
+  startMonitoring,
+  stopMonitoring,
   startAppMonitoringAPI,
   stopAppMonitoringAPI,
-  appMonitor,
 };
