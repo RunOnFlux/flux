@@ -319,14 +319,15 @@ describe('monitoringOrchestrator tests', () => {
       expect(result.status).to.equal('error');
     });
 
-    it('should verify adminandfluxteam privilege for all apps', async () => {
+    it('should reserve monitoring every app for the flux team', async () => {
       const verifyStub = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
       installedAppsStub.resolves({ status: 'success', data: [] });
       sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
 
       await monitoringOrchestrator.startAppMonitoringAPI(req, res);
 
-      sinon.assert.calledWith(verifyStub, 'adminandfluxteam', req);
+      sinon.assert.calledWith(verifyStub, 'fluxteam', req);
+      sinon.assert.neverCalledWith(verifyStub, 'adminandfluxteam', req);
     });
 
     it('should report an error when monitoring every app could not be started', async () => {
@@ -439,6 +440,29 @@ describe('monitoringOrchestrator tests', () => {
       const result = await monitoringOrchestrator.stopAppMonitoringAPI(req, res);
 
       expect(result.status).to.equal('error');
+    });
+
+    it('should reserve stopping every app for the flux team', async () => {
+      const verifyStub = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      installedAppsStub.resolves({ status: 'success', data: [] });
+      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
+
+      await monitoringOrchestrator.stopAppMonitoringAPI(req, res);
+
+      sinon.assert.calledWith(verifyStub, 'fluxteam', req);
+      sinon.assert.neverCalledWith(verifyStub, 'adminandfluxteam', req);
+    });
+
+    it('should still allow an app owner to stop monitoring their own app', async () => {
+      req.params = { appname: 'TestApp' };
+      const verifyStub = sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      installedAppsStub.resolves({ status: 'success', data: [{ name: 'TestApp', version: 3 }] });
+      sinon.stub(appInspector, 'stopAppMonitoring');
+      sinon.stub(messageHelper, 'createSuccessMessage').returnsArg(0);
+
+      await monitoringOrchestrator.stopAppMonitoringAPI(req, res);
+
+      sinon.assert.calledWith(verifyStub, 'appownerabove', req, 'TestApp');
     });
 
     it('should include correct message when deletedata is false', async () => {

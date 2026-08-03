@@ -154,10 +154,11 @@ async function startAppMonitoringAPI(req, res) {
   try {
     const appname = req.params.appname || req.query.appname;
 
-    // Only flux team and node owner can monitor all apps
+    // Monitoring drives CPU throttling, so acting on every app on the node — including
+    // apps belonging to other owners — is reserved for the flux team.
     const authorized = appname
       ? await verificationHelper.verifyPrivilege('appownerabove', req, appname.split('_')[1] || appname)
-      : await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      : await verificationHelper.verifyPrivilege('fluxteam', req);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
@@ -189,10 +190,11 @@ async function stopAppMonitoringAPI(req, res) {
       req.params.deletedata || req.query.deletedata || false,
     );
 
-    // Only flux team and node owner can stop monitoring for all apps
+    // Stopping monitoring for every app on the node stops CPU throttling with it, so
+    // this is reserved for the flux team rather than the node operator.
     const authorized = appname
       ? await verificationHelper.verifyPrivilege('appownerabove', req, appname.split('_')[1] || appname)
-      : await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+      : await verificationHelper.verifyPrivilege('fluxteam', req);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
