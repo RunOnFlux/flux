@@ -1,7 +1,7 @@
 const { expect } = require('chai');
 const express = require('express');
 const request = require('supertest');
-const alwaysRespond = require('../../ZelBack/src/lib/alwaysRespond');
+const alwaysRespond = require('../../ZelBack/src/middlewares/alwaysRespond');
 
 // App control endpoints answer with the same body on every call, so Express's ETag
 // makes a repeated request collapse to a bodiless 304 — the caller cannot tell whether

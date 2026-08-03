@@ -17,9 +17,8 @@ const paymentService = require('./services/paymentService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
-const messageHelper = require('./services/messageHelper');
 const { rejectQueryParameters, requireBootSettled } = require('./services/utils/routeGuards');
-const alwaysRespond = require('./lib/alwaysRespond');
+const { alwaysRespond, isLocal, requireHttps } = require('./middlewares');
 
 // App modular services
 const appQueryService = require('./services/appQuery/appQueryService');
@@ -56,24 +55,6 @@ const backupRestoreService = require('./services/backupRestoreService');
 const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
-
-function isLocal(req, res, next) {
-  const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
-  if (remote === 'localhost' || remote === '127.0.0.1' || remote === '::ffff:127.0.0.1' || remote === '::1') return next();
-  return res.status(401).send('Access denied');
-}
-
-function requireHttps(req, res, next) {
-  if (!req.secure) {
-    const errMessage = messageHelper.createErrorMessage(
-      'HTTPS required for ArcaneOS authentication endpoints',
-      'ForbiddenProtocol',
-      403,
-    );
-    return res.status(403).json(errMessage);
-  }
-  return next();
-}
 
 const cache = apicache.middleware;
 // caching a transient 503 would pin "unavailable" for the cache window after
