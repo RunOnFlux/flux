@@ -51,11 +51,22 @@ function acquireSlot(identifier) {
   const { maxConcurrentPerApp, maxConcurrentPerNode } = settings();
   const appLock = lockForApp(identifier);
 
+  // Marked `busy` so the HTTP layer answers 503 with a Retry-After rather than
+  // a generic failure: a caller turned away before any work started should
+  // learn that immediately, not by registering an operation and polling to
+  // discover it was refused.
+  const busy = (message) => {
+    const error = new Error(message);
+    error.kind = 'busy';
+    error.retryAfterMs = 5000;
+    return error;
+  };
+
   if (appLock.activeCount >= maxConcurrentPerApp) {
-    throw new Error(`Another file operation is already running for ${identifier}`);
+    throw busy(`Another file operation is already running for ${identifier}`);
   }
   if (nodeLock.activeCount >= maxConcurrentPerNode) {
-    throw new Error('This node is running its maximum number of file operations; try again shortly');
+    throw busy('This node is running its maximum number of file operations; try again shortly');
   }
 
   appLock.register();
@@ -69,6 +80,21 @@ function acquireSlot(identifier) {
     nodeLock.disable();
     if (!appLock.activeCount) appLocks.delete(identifier);
   };
+}
+
+/**
+ * Throw `busy` if this app or the node has no free slot, WITHOUT taking one.
+ *
+ * Lets a caller refuse before it registers an operation, so the common case is
+ * a clean 503 rather than a job that exists only to report that it never began.
+ * The real limit is still enforced by acquireSlot; losing the race between the
+ * two just means the refusal is recorded against a job instead of a response.
+ *
+ * @param {VolumeSession} session
+ */
+function assertCapacity(session) {
+  const release = acquireSlot(session.identifier);
+  release();
 }
 
 /**
@@ -145,44 +171,42 @@ function containerOptions(session, argv) {
 }
 
 /**
- * Write one newline-delimited JSON chunk to a streaming response.
- *
- * The convention elsewhere in FluxOS concatenates bare JSON.stringify output
- * with no separator, so clients have to brace-count. A newline costs one byte
- * and makes the stream splittable.
- *
- * flush matters: without it compression middleware buffers the chunks and the
- * client sees nothing until the end, which defeats the point - writing bytes is
- * what stops an intermediate proxy killing a long operation.
- */
-function writeChunk(res, chunk) {
-  if (!res) return;
-  try {
-    res.write(`${serviceHelper.ensureString(chunk)}\n`);
-    if (res.flush) res.flush();
-  } catch (error) {
-    log.warn(`volumeExecutor - could not write progress: ${error.message}`);
-  }
-}
-
-/**
  * Run one file operation on an app's volume.
  *
  * @param {VolumeSession} session
  * @param {Array<string|VolumePath>} argv - operands must be VolumePath; a
  *   string operand is refused, which is what makes the session's checks
  *   unskippable rather than merely conventional
- * @param {{res?: object, req?: object, status?: string}} [options]
+ * @param {object} [options]
+ * @param {function(string): void} [options.onProgress] - called with each
+ *   status line. The caller decides where it goes; for the HTTP endpoints that
+ *   is jobRegistry.progress, so a client polls for the whole list rather than
+ *   holding a connection open to receive it.
+ * @param {function(): boolean} [options.isCanceled] - polled while the
+ *   operation runs; when it returns true the container is killed. Cancellation
+ *   is cooperative, so status stays Running until the work actually stops.
+ * @param {string} [options.status] - the line reported while it runs
+ * @param {{staging: VolumePath, destination: VolumePath}} [options.publish] -
+ *   run the command into `staging` and move the result to `destination` only if
+ *   it succeeds. Wrapping this here rather than leaving it to the caller is what
+ *   stops an endpoint writing to a destination directly and losing the
+ *   guarantee that a failure changes nothing.
+ * @param {boolean} [options.mkdirStaging] - create the staging directory first,
+ *   for commands like `tar -C` that need it to exist. A file copy must NOT ask
+ *   for it: cp -T refuses to overwrite a directory with a non-directory.
  * @returns {Promise<void>} resolves when the operation succeeded
  */
 async function run(session, argv, options = {}) {
-  const { res = null, req = null, status = 'Working...' } = options;
+  const {
+    onProgress = null, isCanceled = null, status = 'Working...',
+    publish = null, mkdirStaging = false,
+  } = options;
 
   if (!(session instanceof VolumeSession)) {
     throw new Error('run requires a VolumeSession');
   }
 
-  const params = argv.map((arg) => {
+  const toParam = (arg) => {
     if (arg instanceof VolumePath) return arg.containerPath;
     if (typeof arg !== 'string') throw new Error('Command arguments must be strings or VolumePath');
     // A string that looks like a host path never belongs in argv: operands are
@@ -192,12 +216,27 @@ async function run(session, argv, options = {}) {
       throw new Error(`Refusing an absolute path operand outside ${WORK_ROOT}: ${arg}`);
     }
     return arg;
-  });
+  };
+
+  let params = argv.map(toParam);
+
+  if (publish) {
+    if (!(publish.staging instanceof VolumePath) || !(publish.destination instanceof VolumePath)) {
+      throw new Error('publish requires VolumePath staging and destination');
+    }
+    params = [
+      'flux-op',
+      ...(mkdirStaging ? ['--mkdir'] : []),
+      toParam(publish.staging),
+      toParam(publish.destination),
+      '--',
+      ...params,
+    ];
+  }
 
   const release = acquireSlot(session.identifier);
   let container = null;
   let ticker = null;
-  let onClose = null;
 
   try {
     await assertMountIsLive(session);
@@ -212,19 +251,23 @@ async function run(session, argv, options = {}) {
     // unknowable.
     const exited = container.wait({ condition: 'next-exit' });
 
-    if (req && typeof req.on === 'function') {
-      onClose = () => {
-        log.info(`volumeExecutor - client disconnected, stopping ${session.identifier} operation`);
-        container.kill().catch(() => {});
-      };
-      req.on('close', onClose);
-    }
-
     await container.start();
 
-    if (res) {
-      writeChunk(res, { status });
-      ticker = setInterval(() => writeChunk(res, { status }), settings().progressIntervalMs);
+    if (onProgress) onProgress(status);
+
+    // One timer serves both jobs: report that the operation is still alive, and
+    // notice a cancellation. A cancel only sets a flag - the work is not
+    // interrupted where it stands - so something has to look, and this is
+    // already looking.
+    if (onProgress || isCanceled) {
+      ticker = setInterval(() => {
+        if (isCanceled && isCanceled()) {
+          log.info(`volumeExecutor - cancel requested, stopping ${session.identifier} operation`);
+          container.kill().catch(() => {});
+          return;
+        }
+        if (onProgress) onProgress(status);
+      }, settings().progressIntervalMs);
     }
 
     const result = await exited;
@@ -233,7 +276,6 @@ async function run(session, argv, options = {}) {
     }
   } finally {
     if (ticker) clearInterval(ticker);
-    if (onClose && req && typeof req.removeListener === 'function') req.removeListener('close', onClose);
     release();
   }
 }
@@ -383,6 +425,7 @@ async function sweepStagingDirectories(mount, fsPromises) {
 
 module.exports = {
   run,
+  assertCapacity,
   reapOrphanedContainers,
   sweepStagingDirectories,
   acquireSlot,

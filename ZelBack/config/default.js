@@ -131,12 +131,17 @@ module.exports = {
     // and the run length that counts as stable (resets the ladder)
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    // How long a finished operation stays readable at /apps/operations/:jobId,
+    // and how long a client is told to wait between polls while one runs. A
+    // RUNNING job never expires - only terminal ones are retained on a clock.
+    operationRetentionMs: 60 * 60 * 1000,
+    operationRetryAfterSeconds: 2,
     // File operations on an app's volume, each run in a throwaway container.
     volumeOperations: {
       // Pinned by MANIFEST LIST digest, which resolves per architecture - a
       // per-arch digest would work on x86 and fail on every arm node. Never a
       // tag: a rebuild must not silently change what nodes execute.
-      image: 'ghcr.io/runonflux/flux-volume-tools@sha256:887913098be8010eecb3c4937d621dcc3ba63b98045af061d318fdfff46ecb3f',
+      image: 'ghcr.io/runonflux/flux-volume-tools@sha256:f5d719870996a952d317208058921fc46e490f876f43b1cb19fe0e86fdf07d59',
       // One per app stops a single owner monopolising a node; the node-wide cap
       // stops the disk being saturated by several at once. A reached limit is
       // refused rather than queued - a queued request waits silently behind

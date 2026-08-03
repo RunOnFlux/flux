@@ -26,6 +26,7 @@ const resourceQueryService = require('./services/appQuery/resourceQueryService')
 const deploymentInfoService = require('./services/appQuery/deploymentInfoService');
 const fileQueryService = require('./services/appQuery/fileQueryService');
 const fileSystemManager = require('./services/appSystem/fileSystemManager');
+const operationsController = require('./services/appManagement/operationsController');
 const cryptographicKeys = require('./services/appMessaging/cryptographicKeys');
 const registryManager = require('./services/appDatabase/registryManager');
 const appValidator = require('./services/appRequirements/appValidator');
@@ -1579,6 +1580,36 @@ module.exports = (app) => {
   });
   app.get('/apps/removeobject/:appname?/:component?/:object?', (req, res) => {
     fileSystemManager.removeAppsObject(req, res);
+  });
+  // Every endpoint that answers 202 points here: one status resource, one
+  // status enum, one error shape, so a client polls the same way whatever it
+  // started.
+  app.get('/apps/operations/:jobId', (req, res) => {
+    operationsController.getOperation(req, res);
+  });
+  app.delete('/apps/operations/:jobId', (req, res) => {
+    operationsController.cancelOperation(req, res);
+  });
+  // source and destination are relative to the app's volume and must be
+  // URL-encoded when they contain a separator. destination is the full target
+  // path INCLUDING the new name, not the parent directory - so copy and move
+  // share -T semantics and there is no paste-into versus paste-as ambiguity.
+  //
+  // All four answer 202 with a jobId to poll at /apps/operations/:jobId. Move
+  // included, even though its visible part is a rename: paste is one gesture in
+  // a file browser, and cut-paste returning a result while copy-paste returns a
+  // job would put two response shapes inside one user action.
+  app.get('/apps/moveobject/:appname?/:component?/:source?/:destination?/:overwrite?', (req, res) => {
+    fileSystemManager.moveAppsObject(req, res);
+  });
+  app.get('/apps/copyobject/:appname?/:component?/:source?/:destination?/:overwrite?', (req, res) => {
+    fileSystemManager.copyAppsObject(req, res);
+  });
+  app.get('/apps/compressobject/:appname?/:component?/:source?/:destination?/:overwrite?', (req, res) => {
+    fileSystemManager.compressAppsObject(req, res);
+  });
+  app.get('/apps/extractobject/:appname?/:component?/:source?/:destination?/:overwrite?', (req, res) => {
+    fileSystemManager.extractAppsObject(req, res);
   });
   app.get('/apps/downloadfile/:appname?/:component?/:file?', (req, res) => {
     fileSystemManager.downloadAppsFile(req, res);

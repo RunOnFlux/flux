@@ -156,32 +156,36 @@ describe('volumeExecutor tests', () => {
       await expect(volumeExecutor.run(vol, ['false'])).to.be.rejectedWith('exit code 2');
     });
 
-    it('kills the container when the client disconnects', async () => {
-      // Held open so the operation is still running when the client goes away -
-      // which is the only case where killing it means anything.
+    it('kills the container when a cancel is requested', async () => {
+      // Cancellation is cooperative: requestCancel raises a flag and the worker
+      // stops at its next checkpoint. Something has to look, and the progress
+      // ticker is already looking.
       let finish;
       containerStub.wait.returns(new Promise((resolve) => { finish = resolve; }));
 
-      const handlers = {};
-      let registered;
-      const listening = new Promise((resolve) => { registered = resolve; });
-      const req = {
-        on: (event, handler) => {
-          handlers[event] = handler;
-          if (event === 'close') registered();
-        },
-        removeListener: sinon.stub(),
-      };
-
+      let canceled = false;
       const vol = await openSession();
-      const running = volumeExecutor.run(vol, ['true'], { req });
+      const running = volumeExecutor.run(vol, ['true'], { isCanceled: () => canceled });
 
-      await listening;
-      handlers.close();
+      canceled = true;
+      await new Promise((resolve) => { setTimeout(resolve, 120); });
       expect(containerStub.kill.called).to.equal(true);
 
       finish({ StatusCode: 0 });
       await running;
+    });
+
+    it('reports progress to the caller rather than to a response', async () => {
+      // No res: the work outlives the request that started it, so progress goes
+      // somewhere a poll can read it.
+      const lines = [];
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true'], {
+        status: 'Copying...',
+        onProgress: (line) => lines.push(line),
+      });
+
+      expect(lines).to.deep.equal(['Copying...']);
     });
   });
 
@@ -222,6 +226,28 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('run - concurrency', () => {
+    it('marks a refusal busy, so the HTTP layer can answer 503 rather than a generic error', async () => {
+      let release;
+      containerStub.wait.returns(new Promise((resolve) => { release = resolve; }));
+
+      const vol = await openSession();
+      const first = volumeExecutor.run(vol, ['true']);
+
+      const error = await volumeExecutor.run(await openSession(), ['true']).catch((e) => e);
+      expect(error.kind).to.equal('busy');
+      expect(error.retryAfterMs).to.be.a('number');
+
+      release({ StatusCode: 0 });
+      await first;
+    });
+
+    it('assertCapacity refuses without consuming a slot', async () => {
+      const vol = await openSession();
+      // Called twice: if it took a slot, the second would refuse.
+      expect(() => volumeExecutor.assertCapacity(vol)).to.not.throw();
+      expect(() => volumeExecutor.assertCapacity(vol)).to.not.throw();
+    });
+
     it('refuses a second operation for the same app rather than queueing it', async () => {
       // Queueing holds the request open behind someone else's long copy until
       // an intermediate proxy kills it, which reads as an unexplained failure.

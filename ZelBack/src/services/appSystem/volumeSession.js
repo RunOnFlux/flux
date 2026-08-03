@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const fs = require('fs').promises;
 const IOUtils = require('../IOUtils');
 const deviceHelper = require('../deviceHelper');
+const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const { sanitizePath, verifyRealPath, verifyRealPathOfExistingPath } = require('../utils/pathSecurity');
 const { appsFolder, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY } = require('../utils/appConstants');
@@ -138,13 +139,16 @@ class VolumeSession {
 
   #identifier;
 
-  constructor(mount, availableBytes, identifier, brand) {
+  #owner;
+
+  constructor(mount, availableBytes, identifier, owner, brand) {
     if (brand !== VolumeSession) {
       throw new Error('VolumeSession cannot be constructed directly - use openVolume');
     }
     this.#mount = mount;
     this.#availableBytes = availableBytes;
     this.#identifier = identifier;
+    this.#owner = owner;
   }
 
   /** Host mount path. This, and only this, is the executor's bind source. */
@@ -159,6 +163,17 @@ class VolumeSession {
 
   get identifier() {
     return this.#identifier;
+  }
+
+  /**
+   * The FluxID this session was opened by, or null.
+   *
+   * Carried so an operation started from it is registered against the same
+   * identity the status resource checks on a poll - otherwise a caller could
+   * not read back the job they just started.
+   */
+  get owner() {
+    return this.#owner;
   }
 
   /**
@@ -369,7 +384,10 @@ async function openVolume(req, options = {}) {
   }
 
   const { mount, availableBytes, identifier } = await resolveVolumeMount(appname, component);
-  return new VolumeSession(mount, availableBytes, identifier, VolumeSession);
+  // Read after authorisation succeeded, so this is the identity that passed it.
+  const auth = serviceHelper.ensureObject(req.headers && req.headers.zelidauth);
+  const owner = (auth && auth.zelid) || null;
+  return new VolumeSession(mount, availableBytes, identifier, owner, VolumeSession);
 }
 
 module.exports = {
