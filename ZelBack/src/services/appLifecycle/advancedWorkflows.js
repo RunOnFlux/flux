@@ -28,6 +28,7 @@ const {
   appsFolder,
   appVolumesPath,
   legacyAppVolumesPath,
+  APP_VOLUME_MOUNT_OPTIONS,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { compareInstanceSeniority } = require('../utils/instanceOrdering');
@@ -601,7 +602,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(mountingStatus));
       if (res.flush) res.flush();
     }
-    await execAsRoot('mount', ['-o', 'loop', volumeFile, appDir]);
+    await execAsRoot('mount', ['-o', APP_VOLUME_MOUNT_OPTIONS, volumeFile, appDir]);
     const mountingStatus2 = {
       status: 'Volume mounted',
     };
@@ -2519,7 +2520,7 @@ async function testAppMount() {
     log.info('Mount Test: Directory made');
     log.info('Mount Test: Mounting volume...');
 
-    await execAsRoot('mount', ['-o', 'loop', volumePath, path.join(appsFolder, appId)]);
+    await execAsRoot('mount', ['-o', APP_VOLUME_MOUNT_OPTIONS, volumePath, path.join(appsFolder, appId)]);
     log.info('Mount Test: Volume mounted. Test completed.');
     dosMountMessage = '';
     // run removal

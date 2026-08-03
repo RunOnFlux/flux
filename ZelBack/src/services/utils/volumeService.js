@@ -6,7 +6,9 @@ const dockerService = require('../dockerService');
 const serviceHelper = require('../serviceHelper');
 const mountParser = require('./mountParser');
 const log = require('../../lib/log');
-const { appsFolder, appVolumesPath, legacyAppVolumesPath } = require('./appConstants');
+const {
+  appsFolder, appVolumesPath, legacyAppVolumesPath, APP_VOLUME_MOUNT_OPTIONS,
+} = require('./appConstants');
 
 const dfAsync = util.promisify(df);
 
@@ -169,7 +171,7 @@ async function ensureAppVolumeMounted(identifier) {
   }
 
   const mountRes = await serviceHelper.runCommand('mount', {
-    runAsRoot: true, params: ['-o', 'loop', volumeFile, mountPoint], logError: false,
+    runAsRoot: true, params: ['-o', APP_VOLUME_MOUNT_OPTIONS, volumeFile, mountPoint], logError: false,
   });
   if (mountRes.error) {
     // another actor (e.g. a legacy @reboot job on its last boot) may have

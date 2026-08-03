@@ -47,7 +47,15 @@ describe('volumeService tests', () => {
       '../dockerService': dockerServiceStub,
       '../serviceHelper': serviceHelperStub,
       './mountParser': mountParserStub,
-      './appConstants': { appsFolder: APPS_FOLDER, appVolumesPath: APP_VOLUMES, legacyAppVolumesPath: LEGACY_APP_VOLUMES },
+      // The real APP_VOLUME_MOUNT_OPTIONS, not a placeholder: the assertion
+      // below is what stops nosuid/nodev being dropped, so a stubbed value
+      // would let the test pass against a mount that no longer sets them.
+      './appConstants': {
+        appsFolder: APPS_FOLDER,
+        appVolumesPath: APP_VOLUMES,
+        legacyAppVolumesPath: LEGACY_APP_VOLUMES,
+        APP_VOLUME_MOUNT_OPTIONS: require('../../ZelBack/src/services/utils/appConstants').APP_VOLUME_MOUNT_OPTIONS,
+      },
       '../../lib/log': logStub,
       'node-df': dfStub,
       fs: { promises: fsStub.promises },
@@ -206,7 +214,12 @@ describe('volumeService tests', () => {
       expect(chattr[0].args[1].params).to.deep.equal(['+i', `${APPS_FOLDER}fluxapp1`]);
       const mount = callsFor('mount');
       expect(mount).to.have.lengthOf(1);
-      expect(mount[0].args[1].params).to.deep.equal(['-o', 'loop', '/dat/fluxapp1FLUXFSVOL', `${APPS_FOLDER}fluxapp1`]);
+      // nosuid/nodev are asserted as part of the argv, not just the loop option:
+      // a volume holds data its owner writes, so a setuid bit or a device node
+      // arriving there - by extraction, by copy, by the app itself - must not be
+      // honoured. Dropping either option is a silent privilege regression, so it
+      // fails here rather than going unnoticed.
+      expect(mount[0].args[1].params).to.deep.equal(['-o', 'loop,nosuid,nodev', '/dat/fluxapp1FLUXFSVOL', `${APPS_FOLDER}fluxapp1`]);
       // the flag must be set BEFORE the mount shadows the bare dir
       expect(chattr[0].calledBefore(mount[0])).to.be.true;
     });

@@ -36,6 +36,24 @@ const globalAppsInstallingErrorsBroadcasts = config.database.appsglobal.collecti
 const APP_NAME_REGEX = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/;
 const APP_NAME_REGEX_LEGACY = /^[a-zA-Z0-9]+$/;
 
+// Mount options for an app's FLUXFSVOL. An app volume holds data its owner
+// writes, so nothing stored there should be able to confer privilege on
+// whatever reads it back.
+//
+// `nosuid` makes any setuid/setgid bit on the volume inert. It does NOT prevent
+// execution - an app that downloads and runs a binary from its own volume is
+// unaffected - it only stops that binary switching to another user. Legitimate
+// setuid binaries live in the container image, not in appdata.
+//
+// `nodev` stops a device node on the volume being honoured; an app that needs
+// device access gets it from docker's device mapping.
+//
+// This belongs at the mount rather than in any one caller because there is more
+// than one way for such a file to arrive: unpacking a user-supplied archive is
+// the obvious one, but a copy preserves the bits too. A bind mount inherits its
+// source's options, so a volume handed to a container carries them as well.
+const APP_VOLUME_MOUNT_OPTIONS = 'loop,nosuid,nodev';
+
 // Supported architectures
 const supportedArchitectures = ['amd64', 'arm64'];
 
@@ -114,6 +132,9 @@ module.exports = {
   // Validation regexes
   APP_NAME_REGEX,
   APP_NAME_REGEX_LEGACY,
+
+  // Volumes
+  APP_VOLUME_MOUNT_OPTIONS,
 
   // Configuration
   supportedArchitectures,
