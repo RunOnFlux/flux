@@ -96,4 +96,79 @@ describe('verifyPool tests', () => {
     const results = await verifyPool.verify([]);
     expect(results).to.deep.equal([]);
   });
+
+  describe('elastic sizing', () => {
+    // 256 items per chunk, so this batch is five chunks of work
+    const CHUNKS_IN_LARGE_BATCH = 5;
+    const LARGE_BATCH = 256 * CHUNKS_IN_LARGE_BATCH;
+
+    function repeatedBatch(size) {
+      const item = createSignedBroadcast({ type: 'fluxappinstallingerror', ip: '1.2.3.4', name: 'bulk' });
+      return Array.from({ length: size }, () => item);
+    }
+
+    it('should raise workers to match the chunks a batch splits into', async () => {
+      const { maxWorkers } = verifyPool.stats();
+      const pending = verifyPool.verify(repeatedBatch(LARGE_BATCH));
+
+      // sizing happens before the first await, so the pool is already scaled.
+      // Read it now, but always drain before asserting - an assertion thrown
+      // with work in flight would leave the pool dirty for the next test
+      const scaledTo = verifyPool.stats().workers;
+      const results = await pending;
+
+      expect(scaledTo).to.equal(Math.min(maxWorkers, CHUNKS_IN_LARGE_BATCH));
+      expect(results.length).to.equal(LARGE_BATCH);
+      expect(results.every(Boolean)).to.equal(true);
+    });
+
+    it('should not raise more workers than there are spare cores', async () => {
+      const { maxWorkers } = verifyPool.stats();
+      const item = createSignedBroadcast({ type: 'fluxappinstallingerror', ip: '1.2.3.4', name: 'depth' });
+
+      // queue depth, not batch size, is what drives sizing here: nothing can
+      // complete while these calls are still being issued
+      const pending = [];
+      for (let i = 0; i < maxWorkers + 5; i++) {
+        pending.push(verifyPool.verify([item]));
+      }
+
+      const scaledTo = verifyPool.stats().workers;
+      const results = await Promise.all(pending);
+
+      expect(scaledTo).to.equal(maxWorkers);
+      expect(results.every((result) => result[0] === true)).to.equal(true);
+    });
+
+    it('should preserve item order across chunk boundaries', async () => {
+      const items = repeatedBatch(LARGE_BATCH).map((item) => ({ ...item }));
+      const tampered = [0, 255, 256, 700, LARGE_BATCH - 1];
+      tampered.forEach((index) => { items[index].signature = 'bad'; });
+
+      const results = await verifyPool.verify(items);
+
+      expect(results.length).to.equal(LARGE_BATCH);
+      results.forEach((result, index) => {
+        expect(result).to.equal(!tampered.includes(index));
+      });
+    });
+
+    it('should release the extra workers once the burst is over', async () => {
+      const clock = sinon.useFakeTimers({
+        toFake: ['setTimeout', 'clearTimeout'],
+        shouldClearNativeTimers: true,
+      });
+      try {
+        await verifyPool.verify(repeatedBatch(LARGE_BATCH));
+        expect(verifyPool.stats().workers).to.be.above(1);
+
+        clock.tick(60001);
+
+        expect(verifyPool.stats().workers).to.equal(1);
+        expect(verifyPool.stats().busy).to.equal(0);
+      } finally {
+        clock.restore();
+      }
+    });
+  });
 });

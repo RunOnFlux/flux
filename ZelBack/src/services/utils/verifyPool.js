@@ -5,74 +5,176 @@ const log = require('../../lib/log');
 
 const WORKER_PATH = path.join(__dirname, 'verifyWorker.js');
 
+// A single worker's share of a batch. Oversized posts are what pin memory: the
+// serialised copy of a multi-megabyte batch is not returned to the OS once the
+// batch is collected, so the pool buys a bounded footprint with a few extra
+// round trips.
+const CHUNK_SIZE = 256;
+
+// Signature verification is bursty - a sync response is thousands of items, then
+// nothing for hours. One worker stays resident so the path is warm and a spawn
+// failure surfaces early; the rest are raised against demand and released.
+const RESIDENT_WORKERS = 1;
+
+const IDLE_REAP_MS = 60000;
+
 let slots = [];
+let queue = [];
+let reapTimer = null;
+
+function maxWorkers() {
+  return Math.max(RESIDENT_WORKERS, os.cpus().length - 1);
+}
+
+function busyCount() {
+  return slots.filter((slot) => slot.job).length;
+}
+
+/**
+ * Hand queued chunks to whichever workers are free.
+ */
+function dispatch() {
+  for (const slot of slots) {
+    if (!queue.length) return;
+    if (slot.job || slot.retired) continue;
+    const job = queue.shift();
+    slot.job = job;
+    slot.worker.postMessage(job.chunk);
+  }
+}
+
+/**
+ * Release every idle worker above the resident count. A worker holding a chunk
+ * is never taken - its batch would have to be verified again.
+ */
+function reapIdle() {
+  reapTimer = null;
+  if (queue.length) return;
+
+  for (let i = slots.length - 1; i >= 0 && slots.length > RESIDENT_WORKERS; i--) {
+    const slot = slots[i];
+    if (slot.job) continue;
+    slot.retired = true;
+    slots.splice(i, 1);
+    slot.worker.terminate();
+  }
+}
+
+function scheduleReap() {
+  if (reapTimer) clearTimeout(reapTimer);
+  reapTimer = setTimeout(reapIdle, IDLE_REAP_MS);
+  if (reapTimer.unref) reapTimer.unref();
+}
+
+/**
+ * Raise the pool to match outstanding work, never past one worker per spare core.
+ */
+function ensureWorkers() {
+  const outstanding = queue.length + busyCount();
+  const desired = Math.min(maxWorkers(), Math.max(RESIDENT_WORKERS, outstanding));
+
+  for (let i = slots.length; i < desired; i++) {
+    // eslint-disable-next-line no-use-before-define
+    slots.push(createSlot());
+  }
+}
 
 function createSlot() {
   const worker = new Worker(WORKER_PATH);
-  const pending = [];
+  const slot = { worker, job: null, retired: false };
+
   worker.on('error', (err) => log.error(`Verify worker error: ${err.message}`));
+
   worker.on('message', (results) => {
-    const entry = pending.shift();
-    if (entry) entry.resolve(results);
+    const { job } = slot;
+    slot.job = null;
+    if (job) job.resolve(results);
+    dispatch();
+    scheduleReap();
   });
-  worker.on('exit', (code) => {
-    const idx = slots.findIndex((s) => s.worker === worker);
-    if (idx !== -1) {
-      slots[idx] = createSlot();
-      if (code !== 0) {
-        log.error(`Verify worker exited with code ${code}, respawning and resubmitting ${pending.length} batches`);
-        const replacement = slots[idx];
-        while (pending.length) {
-          const entry = pending.shift();
-          replacement.pending.push(entry);
-          replacement.worker.postMessage(entry.batch);
-        }
-      }
+
+  worker.on('exit', () => {
+    const idx = slots.indexOf(slot);
+    if (idx !== -1) slots.splice(idx, 1);
+
+    if (slot.job) {
+      log.error(`Verify worker exited holding ${slot.job.chunk.length} items, requeueing`);
+      queue.unshift(slot.job);
+      slot.job = null;
     }
+
+    if (!slot.retired) ensureWorkers();
+    dispatch();
   });
-  return { worker, pending };
+
+  return slot;
 }
 
 function start(poolSize) {
-  const size = poolSize ?? Math.max(1, os.cpus().length - 1);
   if (slots.length) return;
+
+  const size = Math.min(maxWorkers(), Math.max(RESIDENT_WORKERS, poolSize ?? RESIDENT_WORKERS));
   for (let i = 0; i < size; i++) {
     slots.push(createSlot());
   }
-  log.info(`Verify worker pool started: ${slots.length} workers`);
+  log.info(`Verify worker pool started: ${slots.length} resident, scales to ${maxWorkers()}`);
 }
 
 function stop() {
-  for (const { worker } of slots) worker.terminate();
+  if (reapTimer) {
+    clearTimeout(reapTimer);
+    reapTimer = null;
+  }
+  for (const slot of slots) {
+    slot.retired = true;
+    slot.worker.terminate();
+  }
   slots = [];
+  queue = [];
 }
 
-function sendToWorker(slot, batch) {
-  return new Promise((resolve) => {
-    slot.pending.push({ batch, resolve });
-    slot.worker.postMessage(batch);
-  });
+/**
+ * Pool occupancy, for visibility into how hard the crypto path is being worked.
+ * @returns {{workers: number, busy: number, queued: number, maxWorkers: number}}
+ */
+function stats() {
+  return {
+    workers: slots.length,
+    busy: busyCount(),
+    queued: queue.length,
+    maxWorkers: maxWorkers(),
+  };
 }
 
+/**
+ * Verify a batch of signatures off the main thread.
+ * @param {Array<{messageToVerify: string, pubKey: string, signature: string}>} items Items to verify.
+ * @returns {Promise<Array<boolean>>} One result per item, in the order given.
+ */
 async function verify(items) {
-  if (!slots.length) start();
+  if (!items.length) return [];
 
-  const n = slots.length;
-  const chunkSize = Math.ceil(items.length / n);
-  const promises = [];
-  for (let i = 0; i < n; i++) {
-    const slice = items.slice(i * chunkSize, (i + 1) * chunkSize);
-    if (slice.length > 0) {
-      promises.push(sendToWorker(slots[i], slice));
-    }
+  const jobs = [];
+  for (let offset = 0; offset < items.length; offset += CHUNK_SIZE) {
+    const chunk = items.slice(offset, offset + CHUNK_SIZE);
+    const job = { chunk, resolve: null };
+    job.promise = new Promise((resolve) => { job.resolve = resolve; });
+    jobs.push(job);
   }
 
-  const chunks = await Promise.all(promises);
+  queue.push(...jobs);
+  ensureWorkers();
+  dispatch();
+
+  const chunks = await Promise.all(jobs.map((job) => job.promise));
+
   const results = [];
   for (const chunk of chunks) {
-    for (const r of chunk) results.push(r);
+    for (const result of chunk) results.push(result);
   }
   return results;
 }
 
-module.exports = { start, stop, verify };
+module.exports = {
+  start, stop, verify, stats,
+};
