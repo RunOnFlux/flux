@@ -1,9 +1,11 @@
 const config = require('config');
 const path = require('path');
 const fs = require('fs').promises;
-const openpgp = require('openpgp');
 const generalService = require('./generalService');
+const workerRunner = require('./utils/workerRunner');
 const log = require('../lib/log');
+
+const runPgp = (operation, params) => workerRunner.runInWorker('pgpWorker', { operation, params });
 
 /**
  * To adjust PGP identity
@@ -50,8 +52,7 @@ async function identityExists() {
     const existingPublicKey = userconfig.initial.pgpPublicKey;
     if (existingPrivateKey && existingPublicKey) {
       // check if public key belongs to our private key
-      const privateKey = await openpgp.readPrivateKey({ armoredKey: existingPrivateKey });
-      const publicKey = privateKey.toPublic().armor();
+      const publicKey = await runPgp('derivePublicKey', { armoredPrivateKey: existingPrivateKey });
       if (publicKey !== existingPublicKey) {
         log.warn('Existing PGP identity is corrupted. Generating new identity');
         return false;
@@ -81,13 +82,7 @@ async function generateIdentity() {
     // userId email is our zelid@runonflux.io
     const email = `${userconfig.initial.zelid}@runonflux.io`; // 1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC@runonflux.io
     const name = `${collateralInfo.txhash}:${collateralInfo.txindex}`; // '0000000567ad22d02e3fc7631d94eb0dac5f1d5eb4adbd63349766f2665640c6:0'
-    const keypair = await openpgp.generateKey({
-      type: 'ecc', // Type of the key, defaults to ECC
-      curve: 'curve25519', // ECC curve name, defaults to curve25519
-      userIDs: [{ name, email }], // you can pass multiple user IDs
-      passphrase: '', // no password
-      format: 'armored', // output key format, defaults to 'armored' (other options: 'binary' or 'object')
-    });
+    const keypair = await runPgp('generateKey', { name, email });
     await adjustPGPidentity(keypair.privateKey, keypair.publicKey);
     log.info('PGP identity generated');
   } catch (error) {
@@ -104,15 +99,8 @@ async function generateIdentity() {
  */
 async function encryptMessage(message, encryptionKeys) {
   try {
-    const publicKeys = await Promise.all(encryptionKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
-
-    const pgpMessage = await openpgp.createMessage({ text: message });
-    const encryptedMessage = await openpgp.encrypt({
-      message: pgpMessage, // input as Message object
-      encryptionKeys: publicKeys,
-    });
     // '-----BEGIN PGP MESSAGE ... END PGP MESSAGE-----'
-    return encryptedMessage;
+    return await runPgp('encrypt', { message, encryptionKeys });
   } catch (error) {
     log.error(error);
     return null;
@@ -127,15 +115,7 @@ async function encryptMessage(message, encryptionKeys) {
  */
 async function decryptMessage(encryptedMessage, decryptionKey = userconfig.initial.pgpPrivateKey) {
   try {
-    const messageEncrypted = await openpgp.readMessage({
-      armoredMessage: encryptedMessage, // parse armored message
-    });
-    const privateKey = await openpgp.readPrivateKey({ armoredKey: decryptionKey });
-    const decryptedMessage = await openpgp.decrypt({
-      message: messageEncrypted,
-      decryptionKeys: privateKey,
-    });
-    return decryptedMessage.data;
+    return await runPgp('decrypt', { encryptedMessage, decryptionKey });
   } catch (error) {
     log.error(error);
     return null;

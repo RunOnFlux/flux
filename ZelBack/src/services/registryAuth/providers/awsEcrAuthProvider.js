@@ -6,7 +6,7 @@
  * AWS credentials and environment variable/IAM role authentication.
  */
 
-const authWorkerRunner = require('../services/authWorkerRunner');
+const workerRunner = require('../../utils/workerRunner');
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
 
 class AwsEcrAuthProvider extends RegistryAuthProvider {
@@ -58,7 +58,7 @@ class AwsEcrAuthProvider extends RegistryAuthProvider {
    * @returns {Promise<object>} The fields of the ECR response the provider uses.
    */
   async runEcrCommand(operation, params) {
-    return authWorkerRunner.runAuthWorker('awsEcrAuthWorker', {
+    return workerRunner.runInWorker('awsEcrAuthWorker', {
       operation,
       clientConfig: this.clientConfig,
       params,

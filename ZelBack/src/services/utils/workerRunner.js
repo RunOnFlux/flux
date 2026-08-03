@@ -1,13 +1,11 @@
 /**
- * authWorkerRunner - runs one registry-auth exchange in a throwaway worker
+ * workerRunner - runs one job in a throwaway worker
  *
- * The cloud registry SDKs are large (the three together are ~38MB of resident
- * memory across 427 modules) and a node only needs them when it hosts an app
- * that pulls from a private registry. Loading one into the main isolate would
- * hold that memory for the life of the process, because module caches are never
+ * Some dependencies are large and rarely needed: the three cloud registry SDKs
+ * total ~38MB across 427 modules, and openpgp holds ~19MB. Loading one into the main isolate holds that memory for the life of the process, because module caches are never
  * released and freed pages are not returned to the OS.
  *
- * Each SDK therefore lives at the top of its own worker script. A worker is
+ * Each therefore lives at the top of its own worker script. A worker is
  * spawned for a single exchange and terminated straight after, which is the one
  * way this memory is genuinely reclaimed.
  */
@@ -17,8 +15,8 @@ const { Worker } = require('worker_threads');
 
 const WORKER_DIR = path.join(__dirname, '..', 'workers');
 
-// Token exchanges are network round trips against an identity provider; well
-// past this the pull that needed them has failed anyway.
+// // Jobs are short: a token exchange or a crypto operation. Well past this,
+// whatever needed the answer has failed anyway.
 const DEFAULT_TIMEOUT_MS = 30000;
 
 /**
@@ -31,7 +29,7 @@ const DEFAULT_TIMEOUT_MS = 30000;
  * @param {string} [options.workerDir] Directory holding the worker scripts.
  * @returns {Promise<*>} Whatever the worker resolved for this exchange.
  */
-function runAuthWorker(workerName, payload, options = {}) {
+function runInWorker(workerName, payload, options = {}) {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, workerDir = WORKER_DIR } = options;
 
   return new Promise((resolve, reject) => {
@@ -68,4 +66,4 @@ function runAuthWorker(workerName, payload, options = {}) {
   });
 }
 
-module.exports = { runAuthWorker };
+module.exports = { runInWorker };

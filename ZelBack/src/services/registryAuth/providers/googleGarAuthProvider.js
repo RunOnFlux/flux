@@ -6,7 +6,7 @@
  * to generate short-lived tokens for enhanced security over static JSON keys.
  */
 
-const authWorkerRunner = require('../services/authWorkerRunner');
+const workerRunner = require('../../utils/workerRunner');
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
 
 const GAR_SCOPES = ['https://www.googleapis.com/auth/cloud-platform'];
@@ -116,7 +116,7 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
    * @returns {Promise<{token: string|null, expiryDate: number|null}>} Token and its expiry.
    */
   async fetchAccessToken() {
-    return authWorkerRunner.runAuthWorker('googleGarAuthWorker', {
+    return workerRunner.runInWorker('googleGarAuthWorker', {
       clientEmail: this.config.clientEmail,
       privateKey: this.config.privateKey,
       scopes: GAR_SCOPES,

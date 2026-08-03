@@ -1,7 +1,7 @@
 /* eslint-disable func-names */
 const { expect } = require('chai');
 const sinon = require('sinon');
-const authWorkerRunner = require('../../../ZelBack/src/services/registryAuth/services/authWorkerRunner');
+const workerRunner = require('../../../ZelBack/src/services/utils/workerRunner');
 const { GoogleGarAuthProvider } = require('../../../ZelBack/src/services/registryAuth/providers/googleGarAuthProvider');
 
 const googleGarFixture = require('./integration/fixtures/google-gar-response.json');
@@ -223,7 +223,7 @@ describe('GoogleGarAuthProvider Tests', () => {
     beforeEach(() => {
       // The worker returns the token together with the expiry the client would
       // otherwise expose only after the call
-      getAccessTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves({
+      getAccessTokenStub = sinon.stub(workerRunner, 'runInWorker').resolves({
         token: googleGarFixture.apiResponse.token,
         expiryDate: googleGarFixture.apiResponse.credentials.expiry_date,
       });
@@ -343,7 +343,7 @@ describe('GoogleGarAuthProvider Tests', () => {
   describe('Token Caching', () => {
     beforeEach(() => {
       // Stub with callsFake to set credentials as side effect
-      getAccessTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves({ token: googleGarFixture.apiResponse.token, expiryDate: googleGarFixture.apiResponse.credentials.expiry_date });
+      getAccessTokenStub = sinon.stub(workerRunner, 'runInWorker').resolves({ token: googleGarFixture.apiResponse.token, expiryDate: googleGarFixture.apiResponse.credentials.expiry_date });
     });
 
     it('should cache credentials and not make redundant API calls', async () => {
@@ -485,7 +485,7 @@ describe('GoogleGarAuthProvider Tests', () => {
     it('should handle JWT authentication errors', async () => {
       const jwtError = new Error('Invalid private key format');
       jwtError.name = 'JWTError';
-      getAccessTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').rejects(jwtError);
+      getAccessTokenStub = sinon.stub(workerRunner, 'runInWorker').rejects(jwtError);
 
       const keyFileContent = {
         type: 'service_account',
@@ -513,7 +513,7 @@ describe('GoogleGarAuthProvider Tests', () => {
     it('should handle network errors', async () => {
       const networkError = new Error('Network timeout');
       networkError.code = 'ETIMEDOUT';
-      getAccessTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').rejects(networkError);
+      getAccessTokenStub = sinon.stub(workerRunner, 'runInWorker').rejects(networkError);
 
       const keyFileContent = {
         type: 'service_account',
@@ -538,7 +538,7 @@ describe('GoogleGarAuthProvider Tests', () => {
     });
 
     it('should handle malformed API response - missing token', async () => {
-      getAccessTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves({
+      getAccessTokenStub = sinon.stub(workerRunner, 'runInWorker').resolves({
         credentials: {
           // Missing token
           expiry_date: Date.now() + 3600 * 1000,
@@ -568,7 +568,7 @@ describe('GoogleGarAuthProvider Tests', () => {
     });
 
     it('should handle malformed API response - missing credentials', async () => {
-      getAccessTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').callsFake(function () {
+      getAccessTokenStub = sinon.stub(workerRunner, 'runInWorker').callsFake(function () {
         // Explicitly unset credentials to simulate missing credentials
         this.credentials = undefined;
         return Promise.resolve({
@@ -599,7 +599,7 @@ describe('GoogleGarAuthProvider Tests', () => {
     });
 
     it('should handle missing expiry_date in response', async () => {
-      getAccessTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').callsFake(function () {
+      getAccessTokenStub = sinon.stub(workerRunner, 'runInWorker').callsFake(function () {
         // Set credentials but without expiry_date
         this.credentials = {
           access_token: 'some_token',

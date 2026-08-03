@@ -10,7 +10,7 @@
  * This matches the authentication pattern used by AWS ECR and Google GAR providers.
  */
 
-const authWorkerRunner = require('../services/authWorkerRunner');
+const workerRunner = require('../../utils/workerRunner');
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
 
 const AAD_SCOPES = ['https://containerregistry.azure.net/.default'];
@@ -56,7 +56,7 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
    * @returns {Promise<{token: string, expiresOnTimestamp: number}|null>} Token response, or null if Azure returned none.
    */
   async fetchAadToken() {
-    return authWorkerRunner.runAuthWorker('azureAcrAuthWorker', {
+    return workerRunner.runInWorker('azureAcrAuthWorker', {
       tenantId: this.config.tenantId,
       clientId: this.config.clientId,
       clientSecret: this.config.clientSecret,

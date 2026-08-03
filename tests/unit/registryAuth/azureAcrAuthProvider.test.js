@@ -1,6 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
-const authWorkerRunner = require('../../../ZelBack/src/services/registryAuth/services/authWorkerRunner');
+const workerRunner = require('../../../ZelBack/src/services/utils/workerRunner');
 const { AzureAcrAuthProvider } = require('../../../ZelBack/src/services/registryAuth/providers/azureAcrAuthProvider');
 const azureAcrFixture = require('./integration/fixtures/azure-acr-response.json');
 
@@ -168,7 +168,7 @@ describe('AzureAcrAuthProvider Tests', () => {
   describe('getCredentials() - Happy Path', () => {
     beforeEach(() => {
       // Mock Azure AD token using fixture
-      getTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves(azureAcrFixture.apiResponse);
+      getTokenStub = sinon.stub(workerRunner, 'runInWorker').resolves(azureAcrFixture.apiResponse);
 
       // Mock OAuth2 exchange endpoint
       fetchStub = sinon.stub(global, 'fetch');
@@ -357,7 +357,7 @@ describe('AzureAcrAuthProvider Tests', () => {
         token: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6Ik1HTHFqOThWTkxvWGFGZnBKQ0JwZ0I0SmFLcyIsImtpZCI6Ik1HTHFqOThWTkxvWGFGZnBKQ0JwZ0I0SmFLcyJ9...',
         expiresOnTimestamp: Date.now() + 3600 * 1000,
       };
-      getTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves(azureAdToken);
+      getTokenStub = sinon.stub(workerRunner, 'runInWorker').resolves(azureAdToken);
 
       fetchStub = sinon.stub(global, 'fetch');
       fetchStub.callsFake(async (url) => {
@@ -492,7 +492,7 @@ describe('AzureAcrAuthProvider Tests', () => {
     it('should handle Azure AD authentication errors', async () => {
       const azureError = new Error('AADSTS70011: Invalid client secret');
       azureError.name = 'AuthenticationError';
-      getTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').rejects(azureError);
+      getTokenStub = sinon.stub(workerRunner, 'runInWorker').rejects(azureError);
 
       const config = {
         registry: 'myregistry.azurecr.io',
@@ -517,7 +517,7 @@ describe('AzureAcrAuthProvider Tests', () => {
         token: 'valid_token',
         expiresOnTimestamp: Date.now() + 3600 * 1000,
       };
-      getTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves(azureAdToken);
+      getTokenStub = sinon.stub(workerRunner, 'runInWorker').resolves(azureAdToken);
 
       fetchStub = sinon.stub(global, 'fetch');
       fetchStub.callsFake(async (url) => {
@@ -554,7 +554,7 @@ describe('AzureAcrAuthProvider Tests', () => {
         token: 'valid_token',
         expiresOnTimestamp: Date.now() + 3600 * 1000,
       };
-      getTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves(azureAdToken);
+      getTokenStub = sinon.stub(workerRunner, 'runInWorker').resolves(azureAdToken);
 
       fetchStub = sinon.stub(global, 'fetch');
       fetchStub.callsFake(async (url) => {
@@ -596,7 +596,7 @@ describe('AzureAcrAuthProvider Tests', () => {
         token: 'valid_token',
         expiresOnTimestamp: Date.now() + 3600 * 1000,
       };
-      getTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves(azureAdToken);
+      getTokenStub = sinon.stub(workerRunner, 'runInWorker').resolves(azureAdToken);
 
       fetchStub = sinon.stub(global, 'fetch');
       fetchStub.rejects(new Error('Network timeout'));
@@ -623,7 +623,7 @@ describe('AzureAcrAuthProvider Tests', () => {
         token: 'valid_token',
         expiresOnTimestamp: Date.now() + 3600 * 1000,
       };
-      getTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves(azureAdToken);
+      getTokenStub = sinon.stub(workerRunner, 'runInWorker').resolves(azureAdToken);
 
       fetchStub = sinon.stub(global, 'fetch');
       fetchStub.callsFake(async (url) => {
@@ -658,7 +658,7 @@ describe('AzureAcrAuthProvider Tests', () => {
         token: 'valid_token',
         expiresOnTimestamp: Date.now() + 3600 * 1000,
       };
-      getTokenStub = sinon.stub(authWorkerRunner, 'runAuthWorker').resolves(azureAdToken);
+      getTokenStub = sinon.stub(workerRunner, 'runInWorker').resolves(azureAdToken);
 
       fetchStub = sinon.stub(global, 'fetch');
       fetchStub.callsFake(async (url) => {
