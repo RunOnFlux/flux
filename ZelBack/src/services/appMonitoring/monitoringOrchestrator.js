@@ -1,10 +1,14 @@
 // Monitoring Orchestrator - Functions to start/stop monitoring and handle API endpoints
 const messageHelper = require('../messageHelper');
-const serviceHelper = require('../serviceHelper');
-const verificationHelper = require('../verificationHelper');
 const appInspector = require('../appManagement/appInspector');
 const appQueryService = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
+
+// Monitoring is started by the node whenever a container comes up and feeds the CPU
+// throttling loop, so it is not a setting an operator turns on or off. The routes stay
+// so callers are told that rather than silently succeeding against a control that is
+// gone; they go at the next major version.
+const DEPRECATION_MESSAGE = 'Application monitoring is managed by the node and runs for every app. This endpoint no longer has any effect and will be removed.';
 
 /**
  * Resolve the app specifications monitoring should act on
@@ -78,103 +82,14 @@ async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
 }
 
 /**
- * Look up the installed specifications for an application
- * @param {string} mainAppName - Application name without a component prefix
- * @returns {Promise<object>} App specifications
- */
-async function installedAppSpecs(mainAppName) {
-  const installedAppsRes = await appQueryService.installedApps(mainAppName);
-  if (installedAppsRes.status !== 'success') {
-    throw new Error('Failed to get installed Apps');
-  }
-  const appSpecs = installedAppsRes.data[0];
-  if (!appSpecs) {
-    throw new Error(`Application ${mainAppName} is not installed`);
-  }
-  return appSpecs;
-}
-
-/**
- * Start monitoring an application, or every installed application
- * @param {string} [appname] - Application name, optionally component-qualified. Omit for every app.
- * @returns {Promise<string>} Outcome description
- */
-async function startMonitoring(appname) {
-  if (!appname) {
-    await stopMonitoringOfApps(null);
-    await startMonitoringOfApps(null);
-    return 'Application monitoring started for all apps';
-  }
-
-  const mainAppName = appname.split('_')[1] || appname;
-  const appSpecs = await installedAppSpecs(mainAppName);
-
-  if (mainAppName === appname) {
-    await stopMonitoringOfApps(null);
-    await startMonitoringOfApps([appSpecs]);
-  } else { // component based or <= 3
-    appInspector.stopAppMonitoring(appname, false);
-    appInspector.startAppMonitoring(appname);
-  }
-  return `Application monitoring started for ${appSpecs.name}`;
-}
-
-/**
- * Stop monitoring an application, or every installed application
- * @param {string} [appname] - Application name, optionally component-qualified. Omit for every app.
- * @param {boolean} deleteData - Whether to delete monitoring data
- * @returns {Promise<string>} Outcome description
- */
-async function stopMonitoring(appname, deleteData) {
-  if (!appname) {
-    await stopMonitoringOfApps(null, deleteData);
-    return deleteData
-      ? 'Application monitoring stopped for all apps. Monitoring data deleted for all apps.'
-      : 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
-  }
-
-  const mainAppName = appname.split('_')[1] || appname;
-  if (mainAppName === appname) {
-    await stopMonitoringOfApps([await installedAppSpecs(mainAppName)], deleteData);
-  } else { // component based or <= 3
-    appInspector.stopAppMonitoring(appname, deleteData);
-  }
-  return deleteData
-    ? `Application monitoring stopped and monitoring data deleted for ${appname}.`
-    : `Application monitoring stopped for ${appname}. Existing monitoring data maintained.`;
-}
-
-/**
  * Start monitoring API endpoint
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
  */
 async function startAppMonitoringAPI(req, res) {
-  try {
-    const appname = req.params.appname || req.query.appname;
-
-    // Monitoring drives CPU throttling, so acting on every app on the node — including
-    // apps belonging to other owners — is reserved for the flux team.
-    const authorized = appname
-      ? await verificationHelper.verifyPrivilege('appownerabove', req, appname.split('_')[1] || appname)
-      : await verificationHelper.verifyPrivilege('fluxteam', req);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
-
-    const monitoringResponse = messageHelper.createSuccessMessage(await startMonitoring(appname));
-    return res ? res.json(monitoringResponse) : monitoringResponse;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+  const errMessage = messageHelper.createErrorMessage(DEPRECATION_MESSAGE, 'Deprecated', 410);
+  return res ? res.json(errMessage) : errMessage;
 }
 
 /**
@@ -184,40 +99,13 @@ async function startAppMonitoringAPI(req, res) {
  * @returns {object} Message.
  */
 async function stopAppMonitoringAPI(req, res) {
-  try {
-    const appname = req.params.appname || req.query.appname;
-    const deleteData = serviceHelper.ensureBoolean(
-      req.params.deletedata || req.query.deletedata || false,
-    );
-
-    // Stopping monitoring for every app on the node stops CPU throttling with it, so
-    // this is reserved for the flux team rather than the node operator.
-    const authorized = appname
-      ? await verificationHelper.verifyPrivilege('appownerabove', req, appname.split('_')[1] || appname)
-      : await verificationHelper.verifyPrivilege('fluxteam', req);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
-
-    const monitoringResponse = messageHelper.createSuccessMessage(await stopMonitoring(appname, deleteData));
-    return res ? res.json(monitoringResponse) : monitoringResponse;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errorResponse) : errorResponse;
-  }
+  const errMessage = messageHelper.createErrorMessage(DEPRECATION_MESSAGE, 'Deprecated', 410);
+  return res ? res.json(errMessage) : errMessage;
 }
 
 module.exports = {
   startMonitoringOfApps,
   stopMonitoringOfApps,
-  startMonitoring,
-  stopMonitoring,
   startAppMonitoringAPI,
   stopAppMonitoringAPI,
 };
