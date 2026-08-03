@@ -18,6 +18,7 @@ const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const messageHelper = require('./services/messageHelper');
+const alwaysRespond = require('./lib/alwaysRespond');
 
 // App modular services
 const appQueryService = require('./services/appQuery/appQueryService');
@@ -1193,19 +1194,19 @@ module.exports = (app) => {
   app.get('/apps/requestmessage/:hash', (req, res) => {
     messageVerifier.requestAppMessageAPI(req, res);
   });
-  app.get('/apps/appstart/:appname?/:global?', (req, res) => {
+  app.get('/apps/appstart/:appname?/:global?', alwaysRespond, (req, res) => {
     appController.appStart(req, res);
   });
-  app.get('/apps/appstop/:appname?/:global?', (req, res) => {
+  app.get('/apps/appstop/:appname?/:global?', alwaysRespond, (req, res) => {
     appController.appStop(req, res);
   });
-  app.get('/apps/apprestart/:appname?/:global?', (req, res) => {
+  app.get('/apps/apprestart/:appname?/:global?', alwaysRespond, (req, res) => {
     appController.appRestart(req, res);
   });
-  app.get('/apps/apppause/:appname?/:global?', (req, res) => {
+  app.get('/apps/apppause/:appname?/:global?', alwaysRespond, (req, res) => {
     appController.appPause(req, res);
   });
-  app.get('/apps/appunpause/:appname?/:global?', (req, res) => {
+  app.get('/apps/appunpause/:appname?/:global?', alwaysRespond, (req, res) => {
     appController.appUnpause(req, res);
   });
   app.get('/apps/apptop/:appname?', (req, res) => {
@@ -1235,7 +1236,7 @@ module.exports = (app) => {
   app.post('/apps/appexec', (req, res) => {
     appInspector.appExec(req, res);
   });
-  app.get('/apps/appremove/:appname?/:force?/:global?', (req, res) => {
+  app.get('/apps/appremove/:appname?/:force?/:global?', alwaysRespond, (req, res) => {
     appUninstaller.removeAppLocallyApi(req, res);
   });
   app.get('/apps/installapplocally/:appname?', (req, res) => {
@@ -1256,10 +1257,10 @@ module.exports = (app) => {
   app.get('/apps/reindexglobalappslocation', (req, res) => {
     registryManager.reindexGlobalAppsLocationAPI(req, res);
   });
-  app.get('/apps/redeploy/:appname?/:force?/:global?', (req, res) => {
+  app.get('/apps/redeploy/:appname?/:force?/:global?', alwaysRespond, (req, res) => {
     advancedWorkflows.redeployAPI(req, res);
   });
-  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', (req, res) => {
+  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', alwaysRespond, (req, res) => {
     advancedWorkflows.redeployComponentAPI(req, res);
   });
   app.get('/apps/reconstructhashes', (req, res) => {
