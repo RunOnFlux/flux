@@ -14,6 +14,14 @@ const networkStateManager = require('./utils/networkStateManager');
 let stateManager = null;
 
 /**
+ * Resolves once the node list has been fetched and indexed. It exists before
+ * start() is called, so a caller that arrives early waits for the state rather
+ * than being handed an empty list and reading it as a network with no nodes.
+ */
+let resolveStarted;
+let started = new Promise((resolve) => { resolveStarted = resolve; });
+
+/**
  * Throttle state for daemon RPC calls
  */
 // eslint-disable-next-line no-unused-vars
@@ -70,6 +78,7 @@ async function start(options = {}) {
 
     stateManager.once('populated', () => {
       clearTimeout(timeout);
+      resolveStarted();
       resolve();
     });
 
@@ -86,6 +95,7 @@ async function stop() {
 
   await stateManager.stop();
   stateManager = null;
+  started = new Promise((resolve) => { resolveStarted = resolve; });
 }
 
 /**
@@ -103,10 +113,13 @@ function networkState(options = {}) {
   return state;
 }
 
+/**
+ * Waits until the network state is known. Callers use this to decide what the
+ * network looks like, so it must not return before there is an answer.
+ * @returns {Promise<void>}
+ */
 async function waitStarted() {
-  if (!stateManager) return;
-
-  await stateManager.waitStarted;
+  await started;
 }
 
 function nodeCount() {

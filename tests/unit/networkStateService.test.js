@@ -108,6 +108,28 @@ describe('networkStateService tests', () => {
     await networkStateService.stop();
   });
 
+  it('should keep waitStarted pending until the service is started', async () => {
+    const blockEmitter = new EventEmitter();
+    fluxnodeRpcStub.resolves(defaultNetworkState);
+
+    let known = false;
+    const waiter = networkStateService.waitStarted().then(() => { known = true; });
+
+    // a macrotask turn, so every microtask a resolved promise could have
+    // scheduled has already run
+    await new Promise((resolve) => { setImmediate(resolve); });
+
+    expect(known, 'waitStarted resolved before the network state was known').to.be.false;
+    expect(networkStateService.networkState()).to.be.deep.equal([]);
+
+    await networkStateService.start({ stateEmitter: blockEmitter });
+    await waiter;
+
+    expect(networkStateService.networkState()).to.be.deep.equal(defaultNetworkState.data);
+
+    await networkStateService.stop();
+  });
+
   it('should get the node count from the network state', async () => {
     const blockEmitter = new EventEmitter();
     fluxnodeRpcStub.resolves(defaultNetworkState);
