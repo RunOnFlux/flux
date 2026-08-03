@@ -388,6 +388,44 @@ describe('nodeConfirmationService', () => {
       expect(callback.calledOnce).to.be.true;
     });
 
+    // Staleness latches: the transition is announced once, not on every poll for the
+    // hours the daemon stays unreachable. Each of these polls again past the threshold,
+    // which is the only way to exercise the latch.
+    it('should fire onDaemonStale once however long the daemon stays unreachable', async () => {
+      const callback = sinon.spy();
+      service.onDaemonStale(callback);
+
+      setupConfirmed();
+      await service.start();
+
+      getFluxNodeStatusStub.rejects(new Error('connection refused'));
+      await advanceByMinutes(126);
+      expect(callback.calledOnce).to.be.true;
+
+      await advancePoll();
+      await advancePoll();
+
+      expect(callback.calledOnce).to.be.true;
+    });
+
+    it('should report lost confirmation once however long the daemon stays unreachable', async () => {
+      const confirmCb = sinon.spy();
+      service.onConfirmationChange(confirmCb);
+
+      setupConfirmed();
+      await service.start();
+      expect(confirmCb.calledOnce).to.be.true;
+
+      getFluxNodeStatusStub.rejects(new Error('connection refused'));
+      await advanceByMinutes(321);
+      expect(confirmCb.calledTwice).to.be.true;
+
+      await advancePoll();
+      await advancePoll();
+
+      expect(confirmCb.calledTwice).to.be.true;
+    });
+
     it('should not fire onDaemonStale on brief RPC failures', async () => {
       const callback = sinon.spy();
       service.onDaemonStale(callback);
