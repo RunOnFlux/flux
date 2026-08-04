@@ -40,6 +40,9 @@ const volumeService = require('../utils/volumeService');
 const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const { createPeerFolderLiveness, silenceVerdict, SilenceVerdict } = require('../appMonitoring/peerFolderLiveness');
+const syncthingFolderStateMachine = require('../appMonitoring/syncthingFolderStateMachine');
+const syncthingServiceModule = require('../syncthingService');
+const { getContainerDataFlags, requiresSyncing } = require('../appMonitoring/syncthingMonitorHelpers');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
@@ -1787,13 +1790,9 @@ async function redeployAPI(req, res) {
  * @returns {Promise<void>}
  */
 async function sendChunk(res, chunk) {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      res.write(`${chunk}\n`);
-      if (res.flush) res.flush();
-      resolve();
-    }, 3000); // Adjust the delay as needed
-  });
+  await serviceHelper.delay(3000);
+  res.write(`${chunk}\n`);
+  if (res.flush) res.flush();
 }
 
 /**
@@ -1904,6 +1903,71 @@ async function changeSyncthingFolderType(folderId, folderType) {
     log.error(`Error changing syncthing folder type for ${folderId}: ${error.message}`);
     return false;
   }
+}
+
+/**
+ * The syncthing folder id backing a component's volume. Folder ids ARE the
+ * docker app identifiers, so a composed app has one folder PER COMPONENT and
+ * the app name alone never names a folder. Legacy (version <= 3) apps pass the
+ * literal 'null' component, mirroring IOUtils.getVolumeInfo.
+ * @param {string} appname - Application name
+ * @param {string} componentName - Component name, or 'null' for a legacy app
+ * @returns {string} Syncthing folder id
+ */
+function syncthingFolderIdForComponent(appname, componentName) {
+  return componentName === 'null'
+    ? dockerService.getAppIdentifier(appname)
+    : dockerService.getAppIdentifier(`${componentName}_${appname}`);
+}
+
+/**
+ * Pause or resume one syncthing folder. Pausing stops that folder's runner -
+ * and therefore all writes to its directory - while leaving the folder config
+ * and its index in place, so it is the right way to hold data still for the
+ * duration of an operation. Deleting the folder instead loses the config, and
+ * only the syncthing monitor's per-app pass ever recreates it.
+ *
+ * Scoped to a single folder: the daemon and every other folder keep running.
+ * A paused/resumed folder never sets syncthing's restart-required flag, so no
+ * process restart is involved (verified against syncthing v2 - the folder
+ * runner is stopped and, when unpausing, started again in place).
+ * @param {string} folderId - Syncthing folder ID
+ * @param {boolean} paused - Desired paused state
+ * @returns {Promise<boolean>} - true if applied, false otherwise
+ */
+async function setSyncthingFolderPaused(folderId, paused) {
+  try {
+    const response = await syncthingServiceModule.adjustConfigFolders('patch', { paused }, folderId);
+    if (response.status === 'success') {
+      log.info(`setSyncthingFolderPaused - ${folderId} paused=${paused}`);
+      return true;
+    }
+    log.error(`setSyncthingFolderPaused - ${folderId} paused=${paused} failed: ${JSON.stringify(response)}`);
+    return false;
+  } catch (error) {
+    log.error(`setSyncthingFolderPaused - ${folderId} paused=${paused} failed: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * The components of an app whose data is synced, paired with their syncthing
+ * folder ids. Uses the same predicate that decides a folder is created at all,
+ * so this can never disagree with what syncthing is actually configured with.
+ * @param {object} appDetails - Global app specification
+ * @param {string} appname - Application name
+ * @returns {Array<{componentName: string, folderId: string}>} Synced components
+ */
+function syncedComponentsOfApp(appDetails, appname) {
+  const components = appDetails.version <= 3
+    ? [{ name: 'null', containerData: appDetails.containerData }]
+    : (appDetails.compose || []);
+  return components
+    .filter((comp) => requiresSyncing(getContainerDataFlags((comp.containerData || '').split('|')[0])))
+    .map((comp) => ({
+      componentName: comp.name,
+      folderId: syncthingFolderIdForComponent(appname, comp.name),
+    }));
 }
 
 /**
@@ -2133,6 +2197,9 @@ async function requestMasterStartWithPermissionsFix(appname, appId) {
 async function appendBackupTask(req, res) {
   let appname;
   let backup;
+  let force;
+  // folders this task paused, so a failure anywhere below can resume them
+  const pausedFolderIds = [];
   try {
     const processedBody = serviceHelper.ensureObject(req.body);
     log.info(processedBody);
@@ -2140,6 +2207,7 @@ async function appendBackupTask(req, res) {
     appname = processedBody.appname;
     // eslint-disable-next-line prefer-destructuring
     backup = processedBody.backup;
+    force = processedBody.force === true || processedBody.force === 'true';
     if (!appname || !backup) {
       throw new Error('appname and backup parameters are mandatory');
     }
@@ -2160,19 +2228,56 @@ async function appendBackupTask(req, res) {
   try {
     const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
     if (authorized === true) {
-      globalState.backupInProgress.push(appname);
-      // Check if app using syncthing, stop syncthing for all component that using it
       // eslint-disable-next-line global-require
       const registryManager = require('../appDatabase/registryManager');
       const appDetails = await registryManager.getApplicationGlobalSpecifications(appname);
+      const requested = new Set(backup.filter((item) => item.backup).map((item) => item.component));
+      const allSyncedComponents = syncedComponentsOfApp(appDetails, appname);
+      const syncedComponents = allSyncedComponents.filter((comp) => requested.has(comp.componentName));
+
+      // An archive is only worth keeping if this instance holds a complete copy.
+      // A synced app's data lives on every instance, and a backup is deliberately
+      // taken from a standby - the quiescent one - so the question is never "is
+      // this the primary" but "is this copy whole". An index that is behind, or
+      // absent entirely (a folder syncthing was never configured with), yields an
+      // archive of whatever happens to be on disk, which can be nothing at all.
+      // Checked BEFORE anything is stopped: a refusal must not cost a healthy app
+      // an outage.
+      const incomplete = [];
       // eslint-disable-next-line no-restricted-syntax
-      const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
-      if (syncthing) {
+      for (const { componentName, folderId } of syncedComponents) {
         // eslint-disable-next-line no-await-in-loop
-        await sendChunk(res, `Stopping syncthing for ${appname}\n`);
-        // eslint-disable-next-line no-await-in-loop
-        await stopSyncthingApp(appname, res);
+        const syncStatus = await syncthingFolderStateMachine.getFolderSyncCompletion(folderId);
+        if (!syncStatus) {
+          incomplete.push(`${componentName}: no syncthing folder - this instance has never synced`);
+        } else if (!syncStatus.isSynced) {
+          incomplete.push(`${componentName}: ${syncStatus.syncPercentage.toFixed(2)}% synced (${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes)`);
+        }
       }
+      if (incomplete.length > 0) {
+        const summary = incomplete.join('; ');
+        if (!force) {
+          throw new Error(`Refusing to back up an incomplete copy - ${summary}. Back up from a fully synced instance, or repeat with force to archive what is on disk anyway.`);
+        }
+        log.warn(`appendBackupTask - ${appname} forced over an incomplete copy - ${summary}`);
+        await sendChunk(res, `WARNING: backing up an incomplete copy - ${summary}\n`);
+      }
+
+      globalState.backupInProgress.push(appname);
+
+      // Hold the data still by pausing the folders being archived - the folder
+      // runner stops, so nothing writes underneath the archive. Deleting them
+      // instead (as this once did) loses the folder config, and only the
+      // syncthing monitor's per-app pass ever puts it back; on a node where that
+      // pass cannot complete, the app silently stops being redundant forever.
+      // eslint-disable-next-line no-restricted-syntax
+      for (const { folderId } of syncedComponents) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendChunk(res, `Pausing syncthing folder ${folderId}\n`);
+        // eslint-disable-next-line no-await-in-loop
+        if (await setSyncthingFolderPaused(folderId, true)) pausedFolderIds.push(folderId);
+      }
+      const syncthing = allSyncedComponents.length > 0;
 
       await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
@@ -2206,6 +2311,14 @@ async function appendBackupTask(req, res) {
         }
       }
       await serviceHelper.delay(5 * 1000);
+      // the archive is written - let the folders sync again before the app is
+      // brought back, so redundancy is restored at the earliest safe moment
+      // eslint-disable-next-line no-restricted-syntax
+      for (const folderId of pausedFolderIds) {
+        // eslint-disable-next-line no-await-in-loop
+        await setSyncthingFolderPaused(folderId, false);
+      }
+      pausedFolderIds.length = 0;
       await sendChunk(res, 'Starting application...\n');
       if (!syncthing) {
         await appDockerStart(appname);
@@ -2230,6 +2343,11 @@ async function appendBackupTask(req, res) {
     }
   } catch (error) {
     log.error(error);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const folderId of pausedFolderIds) {
+      // eslint-disable-next-line no-await-in-loop
+      await setSyncthingFolderPaused(folderId, false);
+    }
     const indexToRemove = globalState.backupInProgress.indexOf(appname);
     if (indexToRemove >= 0) {
       globalState.backupInProgress.splice(indexToRemove, 1);

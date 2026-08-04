@@ -2689,6 +2689,154 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  describe('appendBackupTask sync gate tests', () => {
+    // A backup is deliberately taken from a standby - the quiescent copy - so
+    // the only thing that makes the archive worth keeping is that the copy is
+    // COMPLETE. A folder that has never synced (or is behind) archives whatever
+    // happens to be on disk, which can be nothing: that is how a 373-byte
+    // "backup" of a 35 GB app came to exist, and restoring it destroyed the
+    // world it was supposed to protect.
+    // eslint-disable-next-line global-require
+    const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+    // eslint-disable-next-line global-require
+    const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+    // eslint-disable-next-line global-require
+    const stateMachine = require('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine');
+    // eslint-disable-next-line global-require
+    const syncthingService = require('../../ZelBack/src/services/syncthingService');
+    // eslint-disable-next-line global-require
+    const dockerService = require('../../ZelBack/src/services/dockerService');
+    // eslint-disable-next-line global-require
+    const IOUtils = require('../../ZelBack/src/services/IOUtils');
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
+
+    const appname = 'palworld1785719281005';
+    const folderId = `fluxpalworld_${appname}`;
+
+    function makeRes() {
+      return {
+        write: sinon.stub(),
+        flush: sinon.stub(),
+        end: sinon.stub(),
+        json: sinon.stub(),
+        chunks: [],
+      };
+    }
+
+    function backupReq() {
+      return { body: { appname, backup: [{ component: 'palworld', backup: true }] }, headers: {} };
+    }
+
+    beforeEach(() => {
+      globalState.backupInProgress = [];
+      // sendChunk paces its progress messages by 3s and the flow sleeps between
+      // phases; neither is what these tests are about
+      // eslint-disable-next-line global-require
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves({
+        version: 8,
+        name: appname,
+        compose: [{ name: 'palworld', containerData: 'g:/palworld/Pal/Saved|m:mods:/mods' }],
+      });
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+      sinon.stub(dockerService, 'appDockerStop').resolves();
+      sinon.stub(dockerService, 'appDockerStart').resolves();
+      sinon.stub(IOUtils, 'createTarGz').resolves({ status: true });
+      sinon.stub(IOUtils, 'checkFileExists').resolves(false);
+      sinon.stub(IOUtils, 'removeFile').resolves(true);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves([{ mount: '/mnt/appdata/flux-apps/fluxpalworld_x' }]);
+      sinon.stub(log, 'info');
+      sinon.stub(log, 'warn');
+      sinon.stub(log, 'error');
+    });
+
+    it('refuses when this instance has no syncthing folder at all', async () => {
+      // the incident shape: the node was never configured to sync, so its copy
+      // is empty by construction
+      sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves(null);
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      sinon.assert.notCalled(IOUtils.createTarGz);
+      // and it cost the app nothing: the refusal lands before any stop
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      sinon.assert.notCalled(syncthingService.adjustConfigFolders);
+      expect(globalState.backupInProgress).to.not.include(appname);
+    });
+
+    it('refuses a copy that is still catching up', async () => {
+      sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves({
+        isSynced: false, syncPercentage: 41.5, inSyncBytes: 415, globalBytes: 1000,
+      });
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      sinon.assert.notCalled(IOUtils.createTarGz);
+      sinon.assert.notCalled(dockerService.appDockerStop);
+    });
+
+    it('proceeds over an incomplete copy when force is given', async () => {
+      sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves(null);
+      const req = backupReq();
+      req.body.force = true;
+
+      const result = await advancedWorkflows.appendBackupTask(req, makeRes());
+
+      expect(result).to.equal(true);
+      sinon.assert.calledOnce(IOUtils.createTarGz);
+    });
+
+    it('pauses the folder for the archive and never deletes it', async () => {
+      // deleting the folder loses its config, and only the syncthing monitor's
+      // per-app pass ever recreates it - on a node where that pass cannot
+      // complete, the app silently stops being redundant for good
+      sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves({
+        isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000,
+      });
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      expect(result).to.equal(true);
+      sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: true }, folderId);
+      sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+      sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
+    });
+
+    it('resolves the folder id per COMPONENT, not from the app name', async () => {
+      // folder ids are docker app identifiers, so a composed app's folder is
+      // flux<component>_<app>. Addressing it as flux<app> matches nothing, and
+      // the freeze silently does not happen.
+      const completion = sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves({
+        isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000,
+      });
+
+      await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      sinon.assert.calledWithExactly(completion, `fluxpalworld_${appname}`);
+      sinon.assert.neverCalledWith(completion, `flux${appname}`);
+    });
+
+    it('resumes the folder when the archive fails', async () => {
+      sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves({
+        isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000,
+      });
+      IOUtils.createTarGz.resolves({ status: false, error: 'no space left on device' });
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      expect(result).to.equal(false);
+      sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+      expect(globalState.backupInProgress).to.not.include(appname);
+    });
+  });
+
   // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and
   // stopSyncthingApp are complex integration functions or HTTP request handlers
   // that require extensive mocking of database connections, HTTP requests, and
