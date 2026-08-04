@@ -452,6 +452,12 @@ async function run(session, argv, options = {}) {
   const stopMeasuring = () => { measurable = false; };
   // What the volume held before this operation wrote anything.
   let baseline = null;
+  // Liveness, kept separately from progress: the last figure the volume
+  // reported and when it last CHANGED. A delete moves it down and a write moves
+  // it up; either counts as the operation still doing something.
+  let lastUsed = null;
+  let lastChangeAt = process.hrtime.bigint();
+  let stalled = false;
   // Closed once the final figure is in, so a read that started before the
   // operation ended cannot report over it.
   let reportsClosed = false;
@@ -483,20 +489,30 @@ async function run(session, argv, options = {}) {
     // this copy's work.
     if (measurable) baseline = await volumeUsedBytes(session.mount, fs);
     if (baseline === null) stopMeasuring();
+    // Timed from here, not from when run() was entered: fetching the image can
+    // take a minute on a cold node, and that is not the operation making no
+    // progress.
+    lastChangeAt = process.hrtime.bigint();
 
-    // One timer serves three jobs: report that the operation is still alive,
-    // notice a cancellation, and read how far it has got. A cancel only sets a
-    // flag - the work is not interrupted where it stands - so something has to
-    // look, and this is already looking.
+    // One timer serves four jobs: report that the operation is still alive,
+    // notice a cancellation, read how far it has got, and notice that it has
+    // stopped getting anywhere. A cancel only sets a flag - the work is not
+    // interrupted where it stands - so something has to look, and this is
+    // already looking.
     //
     // The read is async and the timer is not, so one still in flight when the
     // next tick arrives is skipped rather than stacked.
-    const readBytes = () => {
-      if (!measurable || measuring) return;
+    const readVolume = () => {
+      if (measuring) return;
       measuring = true;
       volumeUsedBytes(session.mount, fs)
         .then((used) => {
-          if (reportsClosed || used === null) return;
+          if (used === null) return;
+          if (used !== lastUsed) {
+            lastUsed = used;
+            lastChangeAt = process.hrtime.bigint();
+          }
+          if (reportsClosed || !measurable) return;
           // Never negative: the application is writing to this volume too, and
           // deleting something of its own would otherwise send a progress bar
           // backwards.
@@ -506,23 +522,45 @@ async function run(session, argv, options = {}) {
         .finally(() => { measuring = false; });
     };
 
-    if (onProgress || isCanceled || measurable) {
-      ticker = setInterval(() => {
-        if (isCanceled && isCanceled()) {
-          log.info(`volumeExecutor - cancel requested, stopping ${session.identifier} operation`);
-          // stop, not kill: this sends SIGTERM first and only escalates to
-          // SIGKILL after the grace period. flux-op traps the TERM, stops the
-          // command and reclaims its staging directory - a SIGKILL reaches
-          // neither, and the space stays spent until the next boot sweep.
-          container.stop({ t: settings().cancelGraceSeconds }).catch(() => {});
-          return;
-        }
-        if (onProgress) onProgress(status);
-        readBytes();
-      }, settings().progressIntervalMs);
-    }
+    const stopContainer = () => {
+      // stop, not kill: this sends SIGTERM first and only escalates to SIGKILL
+      // after the grace period. flux-op traps the TERM, stops the command and
+      // reclaims its staging directory - a SIGKILL reaches neither, and the
+      // space stays spent until the next boot sweep.
+      container.stop({ t: settings().cancelGraceSeconds }).catch(() => {});
+    };
+
+    ticker = setInterval(() => {
+      if (isCanceled && isCanceled()) {
+        log.info(`volumeExecutor - cancel requested, stopping ${session.identifier} operation`);
+        stopContainer();
+        return;
+      }
+
+      // Stopped because it is getting NOWHERE, not because it has taken a
+      // while. A wall clock cannot tell a wedged container from a large copy:
+      // moving 100 GB legitimately outruns any limit short enough to be useful,
+      // and the 15 minutes this replaced was borrowed from the ceiling on short
+      // shell commands. The volume's own usage is the honest signal, and it is
+      // already being read - if it has not moved in either direction for this
+      // long, nothing is happening.
+      const { stallTimeoutMs } = settings();
+      const idleMs = Number(process.hrtime.bigint() - lastChangeAt) / 1e6;
+      if (!stalled && stallTimeoutMs > 0 && idleMs > stallTimeoutMs) {
+        stalled = true;
+        log.error(`volumeExecutor - ${session.identifier} operation has written nothing for ${Math.round(idleMs / 1000)}s; stopping it`);
+        stopContainer();
+        return;
+      }
+
+      if (onProgress) onProgress(status);
+      readVolume();
+    }, settings().progressIntervalMs);
 
     const result = await exited;
+    if (stalled) {
+      throw new Error('File operation stopped after making no progress');
+    }
     if (result.StatusCode !== 0) {
       throw new Error(`File operation failed with exit code ${result.StatusCode}`);
     }

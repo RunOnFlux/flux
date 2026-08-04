@@ -30,7 +30,7 @@ describe('volumeExecutor tests', () => {
         image: IMAGE,
         maxConcurrentPerApp: 1,
         maxConcurrentPerNode: 2,
-        timeoutMs: 900000,
+        stallTimeoutMs: 900000,
         memoryBytes: 512 * 1024 * 1024,
         pidsLimit: 256,
         cancelGraceSeconds: 15,
@@ -825,17 +825,99 @@ describe('volumeExecutor tests', () => {
       expect(seen).to.deep.equal([]);
     });
 
-    it('measures nothing for a caller that did not ask', async () => {
+    it('reports nothing to a caller that did not ask', async () => {
       // A move publishes its source where it stands, so the volume gains
-      // nothing and a figure would report zero throughout. The caller opts in;
-      // this asserts the executor stays out of it otherwise.
+      // nothing and a figure would report zero throughout. The caller opts in.
+      // The volume is still READ - that is how a stalled operation is noticed -
+      // but nothing is handed back.
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
+      const onBytes = sinon.stub();
 
       await volumeExecutor.run(vol, [], { publish });
 
-      expect(fsStub.promises.statfs.called).to.equal(false);
+      expect(onBytes.called).to.equal(false);
+    });
+  });
+
+  describe('run - an operation that stops getting anywhere', () => {
+    const runsFor = (ms) => sinon.stub().returns(
+      new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), ms); }),
+    );
+    const usedBlocks = (n) => ({ bsize: 4096, blocks: 100000, bfree: 100000 - n });
+
+    it('stops one that has written nothing for the whole window', async () => {
+      // A wall clock cannot tell a wedged container from a large copy - moving
+      // 100 GB legitimately outruns any limit short enough to be useful. What
+      // the volume has consumed can, and it is already being read.
+      configStub.fluxapps.volumeOperations.stallTimeoutMs = 60;
+      const vol = await openSession();
+      containerStub.wait = runsFor(600);
+      fsStub.promises.statfs = sinon.stub().resolves(usedBlocks(500));
+
+      await expect(volumeExecutor.run(vol, ['cp'], {
+        publish: { staging: await vol.resolve('.flux-op-x'), destination: await vol.resolve('out') },
+        onBytes: () => {},
+      })).to.be.rejectedWith('making no progress');
+
+      expect(containerStub.stop.called, 'the container was left running').to.equal(true);
+    });
+
+    it('leaves one alone while the volume is still moving', async () => {
+      configStub.fluxapps.volumeOperations.stallTimeoutMs = 120;
+      const vol = await openSession();
+      containerStub.wait = runsFor(400);
+      let used = 500;
+      fsStub.promises.statfs = sinon.stub().callsFake(async () => {
+        used += 10;
+        return usedBlocks(used);
+      });
+
+      await volumeExecutor.run(vol, ['cp'], {
+        publish: { staging: await vol.resolve('.flux-op-x'), destination: await vol.resolve('out') },
+        onBytes: () => {},
+      });
+
+      expect(containerStub.stop.called, 'a working operation was stopped').to.equal(false);
+    });
+
+    it('counts a shrinking volume as progress too', async () => {
+      // A delete moves usage DOWN. An operation that is removing data is still
+      // an operation that is doing something.
+      configStub.fluxapps.volumeOperations.stallTimeoutMs = 120;
+      const vol = await openSession();
+      containerStub.wait = runsFor(400);
+      let used = 5000;
+      fsStub.promises.statfs = sinon.stub().callsFake(async () => {
+        used -= 10;
+        return usedBlocks(used);
+      });
+
+      await volumeExecutor.run(vol, ['rm'], {
+        publish: { staging: await vol.resolve('.flux-op-x'), destination: await vol.resolve('out') },
+      });
+
+      expect(containerStub.stop.called).to.equal(false);
+    });
+
+    it('does not count a slow image fetch against the operation', async () => {
+      // Timed from when the container starts. Pulling the image on a cold node
+      // takes seconds and is not the operation making no progress.
+      configStub.fluxapps.volumeOperations.stallTimeoutMs = 200;
+      pulled = false;
+      dockerServiceStub.dockerPullStream = sinon.stub().callsFake((cfg, res, cb) => {
+        setTimeout(() => { pulled = true; cb(null, []); }, 300);
+      });
+      const vol = await openSession();
+      containerStub.wait = runsFor(100);
+      fsStub.promises.statfs = sinon.stub().resolves(usedBlocks(500));
+
+      await volumeExecutor.run(vol, ['cp'], {
+        publish: { staging: await vol.resolve('.flux-op-x'), destination: await vol.resolve('out') },
+      });
+
+      expect(containerStub.stop.called, 'stopped because the image was slow to arrive').to.equal(false);
     });
   });
 });

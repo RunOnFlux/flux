@@ -148,9 +148,14 @@ module.exports = {
       // someone else's long copy until an intermediate proxy kills it.
       maxConcurrentPerApp: 1,
       maxConcurrentPerNode: 4,
-      // Matches runCommand's own ceiling, so an operation cannot outlive what
-      // the rest of the system already treats as a runaway.
-      timeoutMs: 15 * 60 * 1000,
+      // How long an operation may make NO progress before it is stopped. Not a
+      // limit on how long it may run: moving a hundred gigabytes legitimately
+      // outruns any wall clock short enough to be useful, and a fixed ceiling
+      // cannot tell that from a wedged container. The volume's own usage is
+      // read every tick anyway, so "has this written or deleted anything at
+      // all recently" is free and is the question actually worth asking.
+      // Generous, because a slow disk under load is not a stuck one.
+      stallTimeoutMs: 10 * 60 * 1000,
       // Bounds a runaway archive. How much can be WRITTEN is already capped by
       // the size of the volume itself.
       memoryBytes: 512 * 1024 * 1024,
