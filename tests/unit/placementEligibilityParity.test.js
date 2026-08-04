@@ -51,9 +51,19 @@ const GEO_SPECS = [
   ['acEU', 'a!cEU_FI_FI-18'],
 ];
 
-// node locations spanning both sides of every boundary above. tableRegion is
-// what the published table resolves for the node's address (null = the table
-// carries no region there); regionName stays the ip-api self-report.
+// Node locations spanning both sides of every boundary above.
+//
+// continentCode/countryCode/regionName are the node's own ip-api self-report.
+// tableContinent/tableCountry/tableRegion are what the published table
+// resolves for its address, and default to the self-report where the two
+// agree - which is the ordinary case, but NOT the interesting one. The last
+// entries are where they disagree, because that is the only shape in which
+// the filter can be stricter than the installer, and a fixture that derives
+// both sides from one value cannot express it at all.
+//
+// tableMissing marks a node the table cannot place: no covering row. The
+// filter sees no document and counts it; the installer falls back to its own
+// self-report and may refuse. That direction is safe and is asserted too.
 const NODE_LOCATIONS = [
   { continentCode: 'EU', countryCode: 'FI', regionName: 'Uusimaa', tableRegion: 'FI-18' },
   { continentCode: 'EU', countryCode: 'FI', regionName: 'Pirkanmaa', tableRegion: 'FI-11' },
@@ -65,18 +75,48 @@ const NODE_LOCATIONS = [
   { continentCode: 'NA', countryCode: 'US', regionName: 'Hawaii', tableRegion: 'US-HI' },
   { continentCode: 'NA', countryCode: 'CA', regionName: 'Ontario', tableRegion: 'CA-ON' },
   { continentCode: 'SA', countryCode: 'BR', regionName: 'Sao Paulo', tableRegion: null },
+  // the table and the self-report disagree about the country
+  {
+    continentCode: 'EU', countryCode: 'AT', regionName: 'Vienna', tableRegion: null, tableCountry: 'DE',
+  },
+  {
+    continentCode: 'EU', countryCode: 'DE', regionName: 'Bavaria', tableRegion: 'AT-9', tableCountry: 'AT',
+  },
+  // and about the continent, which drags the country with it
+  {
+    continentCode: 'AS', countryCode: 'BH', regionName: 'Manama', tableRegion: null, tableContinent: 'EU', tableCountry: 'GB',
+  },
+  // the table cannot place this node at all
+  {
+    continentCode: 'EU', countryCode: 'FI', regionName: 'Uusimaa', tableRegion: null, tableMissing: true,
+  },
 ];
+
+/** What the published table resolves for a node, or null when it has no row. */
+function tableHit(nodeGeo) {
+  if (nodeGeo.tableMissing) return null;
+  return {
+    org: 'aabbccddeeff',
+    block: { start: 0, end: 0 },
+    countryCode: nodeGeo.tableCountry ?? nodeGeo.countryCode,
+    continentCode: nodeGeo.tableContinent ?? nodeGeo.continentCode,
+    region: nodeGeo.tableRegion,
+  };
+}
 
 /**
  * The filter-side location for a node: what the candidate filter reads from
- * the nodelocations view. The SAME table values the installer's own lookup
- * resolves - one table, two consumers, which is the invariant under test.
+ * the nodelocations view, which is derived from the published table and from
+ * nothing else. A node the table cannot place has no document, and the filter
+ * is handed null for it.
  */
 function filterLocation(nodeGeo) {
+  const hit = tableHit(nodeGeo);
+  if (!hit) return null;
   return {
-    continentCode: nodeGeo.continentCode,
-    countryCode: nodeGeo.countryCode,
-    region: nodeGeo.tableRegion ?? null,
+    continentCode: hit.continentCode,
+    countryCode: hit.countryCode,
+    region: hit.region ?? null,
   };
 }
 
@@ -97,13 +137,7 @@ async function installerAccepts(geolocation, nodeGeo) {
     installerGates.set(key, proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
       '../geolocationService': { getNodeGeolocation: sinon.stub().resolves({ ...nodeGeo, ip: '203.0.113.10' }) },
       '../appPlacement/ipLocationStore': {
-        lookup: sinon.stub().resolves(nodeGeo.tableRegion === undefined ? null : {
-          org: 'aabbccddeeff',
-          block: { start: 0, end: 0 },
-          countryCode: nodeGeo.countryCode,
-          continentCode: nodeGeo.continentCode,
-          region: nodeGeo.tableRegion,
-        }),
+        lookup: sinon.stub().resolves(tableHit(nodeGeo)),
         isStoreUnavailable: () => false,
       },
     }));
@@ -146,10 +180,15 @@ describe('placement eligibility parity with install-time geolocation', () => {
       // deliberate over-inclusion, not a defect
       return body.split('_').length <= 2;
     }));
+    // A node the table cannot place at all is the same deliberate
+    // over-inclusion seen from the other side: the filter has no document for
+    // it and counts it, the installer falls back to its own self-report and may
+    // refuse. That direction is safe, and the test below asserts it directly.
+    const placeable = NODE_LOCATIONS.filter((nodeGeo) => !nodeGeo.tableMissing);
     // eslint-disable-next-line no-restricted-syntax
     for (const geolocation of resolvable) {
       // eslint-disable-next-line no-restricted-syntax
-      for (const nodeGeo of NODE_LOCATIONS) {
+      for (const nodeGeo of placeable) {
         // eslint-disable-next-line no-await-in-loop
         const accepted = await installerAccepts(geolocation, nodeGeo);
         const counted = placementFeasibility.nodeLocationMatchesGeolocation(filterLocation(nodeGeo), geolocation);
