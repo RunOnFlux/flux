@@ -31,6 +31,7 @@ describe('app volume file operations - safety and recovery', function () {
   let env;
   let node;
   let auth;
+  let executorImage;
   dumpLogsOnFailure(() => env);
 
   const ts = Date.now();
@@ -55,6 +56,7 @@ describe('app volume file operations - safety and recovery', function () {
     // The reference is known up front; the COPY has to wait for the fleet,
     // because the registry it copies into is one of the containers
     // createTestEnv starts.
+    executorImage = executorImageReference();
     env = await createTestEnv({
       hookCtx: this,
       nodes: 3,
@@ -68,7 +70,7 @@ describe('app volume file operations - safety and recovery', function () {
         fluxapps: {
           minOutgoing: 1,
           minIncoming: 1,
-          volumeOperations: { image: executorImageReference() },
+          volumeOperations: { image: executorImage },
         },
       },
     });
@@ -155,11 +157,15 @@ describe('app volume file operations - safety and recovery', function () {
         // Read the archive's own listing. Info-ZIP without -y follows the link
         // and stores the CONTENTS of what it points at - which is how a link
         // the extract side would refuse becomes ordinary content it accepts.
-        const listing = extension === 'zip'
-          // eslint-disable-next-line no-await-in-loop
-          ? await inNode(`unzip -l ${root}/archive.${extension}`)
-          // eslint-disable-next-line no-await-in-loop
-          : await inNode(`tar -tvzf ${root}/archive.${extension}`);
+        //
+        // Listed with the executor image rather than with the node's own tools:
+        // the node has tar but no unzip, and the image is the toolchain that
+        // wrote the archive in the first place.
+        // eslint-disable-next-line no-await-in-loop
+        const listing = await inNode(
+          `docker run --rm -v ${root}:/work --entrypoint sh ${executorImage} -c `
+          + `"${extension === 'zip' ? `unzip -l /work/archive.${extension}` : `tar -tvzf /work/archive.${extension}`}"`,
+        );
         expect(listing.exitCode, listing.output).to.equal(0);
 
         if (extension === 'tar.gz') {
@@ -208,9 +214,16 @@ describe('app volume file operations - safety and recovery', function () {
       // Built on the NODE, not inside the executor container - that one has a
       // read-only rootfs, so an archive built there is never created and every
       // "refused" is a missing source file.
+      //
+      // And built OUTSIDE the volume, because the whole point is that it does
+      // not fit inside one: the app's volume is a 1 GB loop file, so staging
+      // the uncompressed payload there fails before the test begins. Only the
+      // finished archive is moved in, which is small.
       const build = await inNode(
-        `mkdir -p ${root}/bomb && dd if=/dev/zero of=${root}/bomb/filler bs=1M count=1400 2>/dev/null`
-        + ` && cd ${root}/bomb && tar -czf ${root}/bomb.tar.gz filler && rm -rf ${root}/bomb`,
+        'rm -rf /tmp/bomb && mkdir -p /tmp/bomb'
+        + ' && dd if=/dev/zero of=/tmp/bomb/filler bs=1M count=1400 2>/dev/null'
+        + ` && (cd /tmp/bomb && tar -czf ${root}/bomb.tar.gz filler)`
+        + ' && rm -rf /tmp/bomb',
       );
       expect(build.exitCode, build.output).to.equal(0);
 

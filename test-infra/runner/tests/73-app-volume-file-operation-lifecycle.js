@@ -15,13 +15,14 @@ import {
 } from '../framework/volume-fixture.js';
 
 // How an operation behaves around the things that happen TO it: a node that has
-// never held the executor image, a prune that deletes it, another operation
-// arriving while one runs, and a cancel.
+// never held the executor image, the prune that runs before every app install,
+// another operation arriving while one runs, and a cancel.
 //
 // The image cases are the ones nobody finds by hand. Creating a container does
 // not pull - POST /containers/create answers 404 for an image the node does not
-// hold - and a digest-pinned image carries no tag, which is exactly what
-// docker's dangling filter matches, so every app install used to delete it.
+// hold - so the very first operation on any node failed until it was fetched on
+// demand. The prune, contrary to what was once written down, leaves the pinned
+// image alone; that is asserted here rather than assumed, in both directions.
 
 describe('app volume file operations - lifecycle', function () {
   let env;
@@ -92,7 +93,7 @@ describe('app volume file operations - lifecycle', function () {
         containerData: '/appdata',
         cpu: 0.1,
         ram: 100,
-        hdd: 1,
+        hdd: 3,
         repoauth: '',
       }],
     });
@@ -134,14 +135,17 @@ describe('app volume file operations - lifecycle', function () {
       expect(await imageHeld()).to.equal(true);
     });
 
-    it('still works after a prune deletes it', async function () {
+    it('survives the prune that runs before every app install', async function () {
       this.timeout(300000);
-      // The image is pinned by digest and therefore carries no tag, which is
-      // what docker's dangling filter matches - so performDockerCleanup, which
-      // runs before EVERY app install, removes it. A fetch only at startup
-      // would work until the next install and then stop.
+      // It was written down once that this prune DELETES the pinned image - no
+      // tag, therefore dangling. It does not. An image pulled by digest keeps
+      // its repository name and carries <none> only as its TAG, so it never
+      // matches the dangling filter that performDockerCleanup's pruneImages
+      // uses. Pinned here because the belief is the kind that gets a working
+      // fetch deleted as redundant, and because the opposite is written in a
+      // handover someone will read.
       await inNode('docker image prune -f >/dev/null 2>&1 || true');
-      expect(await imageHeld(), 'FIXTURE: the prune did not remove the pinned image').to.equal(false);
+      expect(await imageHeld(), 'a plain prune removed the pinned image').to.equal(true);
 
       const accepted = await post('/apps/copyobject', {
         appname: appName, component: appName, source: 'photos', destination: 'copied',
@@ -185,8 +189,13 @@ describe('app volume file operations - lifecycle', function () {
       this.timeout(300000);
       await seedLargeFile(node.container, appName, 'bulk.bin', 256);
 
-      const accepted = await post('/apps/copyobject', {
-        appname: appName, component: appName, source: 'bulk.bin', destination: 'bulk-copy.bin',
+      // Compression, not a copy: a cancel has to arrive while the work is still
+      // running, and cp moves 256 MB in about a second on this hardware, so the
+      // race would decide the result. gzip over incompressible bytes runs at a
+      // fraction of that, which leaves a window wide enough that the cancel is
+      // the thing being tested rather than the scheduler.
+      const accepted = await post('/apps/compressobject', {
+        appname: appName, component: appName, source: 'bulk.bin', destination: 'bulk.tar.gz',
       });
       expect(accepted.status, JSON.stringify(accepted.data)).to.equal(202);
       const { jobId } = accepted.data.data;
@@ -206,7 +215,7 @@ describe('app volume file operations - lifecycle', function () {
 
       // The destination was never written: publishing is the last thing that
       // happens and it never got there.
-      expect(await exists(node.container, `${root}/bulk-copy.bin`)).to.equal(false);
+      expect(await exists(node.container, `${root}/bulk.tar.gz`)).to.equal(false);
 
       // And the space is given back. A cancel sends SIGTERM, which flux-op
       // traps to stop the command and remove its staging - docker's kill sends
