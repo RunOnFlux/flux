@@ -141,7 +141,7 @@ module.exports = {
       // Pinned by MANIFEST LIST digest, which resolves per architecture - a
       // per-arch digest would work on x86 and fail on every arm node. Never a
       // tag: a rebuild must not silently change what nodes execute.
-      image: 'ghcr.io/runonflux/flux-volume-tools@sha256:5bde205091fbb06fc50428d1b5cb5cb2c9576398ae85c7c387351c61aba68207',
+      image: 'ghcr.io/runonflux/flux-volume-tools@sha256:02c9bb29ece246cfb3575a6195ac1f219f9a4fcdb6ad1abf5cc6eee32b6ea340',
       // One per app stops a single owner monopolising a node; the node-wide cap
       // stops the disk being saturated by several at once. A reached limit is
       // refused rather than queued - a queued request waits silently behind
@@ -155,9 +155,18 @@ module.exports = {
       // the size of the volume itself.
       memoryBytes: 512 * 1024 * 1024,
       pidsLimit: 256,
-      // How often a running operation writes a progress line. A silent
-      // connection is killed by intermediate proxies long before the timeout
-      // above, so this keeps the request alive as much as it informs.
+      // How long a cancelled operation is given to stop of its own accord. The
+      // container is sent SIGTERM, which flux-op traps to stop the command and
+      // reclaim its staging directory; only after this does docker escalate to
+      // SIGKILL, which reaches neither, leaving the space spent until the next
+      // boot sweep. Long enough to remove a large staging tree, short enough
+      // that a cancel still feels like one.
+      cancelGraceSeconds: 15,
+      // How often a running operation is looked at: one tick reports that it is
+      // alive, notices a cancellation, and reads how far it has got. Nothing is
+      // holding a request open to receive any of it - the endpoints answered 202
+      // before the work began - so this is the resolution of a poll, not a
+      // keepalive.
       progressIntervalMs: 2000,
     },
     // in flux main chain per month (blocksLasting)

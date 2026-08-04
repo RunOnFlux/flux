@@ -1,5 +1,6 @@
 const config = require('config');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const fs = require('fs').promises;
 const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
@@ -45,16 +46,21 @@ const isSwapMarkerName = (name) => name.endsWith(MARKER_SUFFIX)
  * The host path a marker records, or null when it does not name one inside this
  * volume.
  *
- * The marker is written by flux-op, from inside the container, so it holds a
- * path in the CONTAINER's namespace - `/work/<relative>`, the only form any
- * operand ever takes. Reading it as a host path is what turned a file the app
- * owner can write into an argument to a root `mv`: an absolute path in there
- * would be followed to wherever it pointed.
+ * The marker is written by flux-op, from inside the container, so it never
+ * describes a host path. Reading it as one is what turned a file the app owner
+ * can write into an argument to a root `mv`: an absolute path in there would be
+ * followed to wherever it pointed.
  *
- * Nothing about the contents is trusted. The recorded path must sit under
- * WORK_ROOT, and the host path derived from it must still sit under the mount
- * after normalisation - so neither an absolute path nor a `..` inside one can
- * name anything the operation was not entitled to touch.
+ * TWO forms are accepted, because both exist on disk. flux-op records the
+ * destination relative to the volume root; the images before it wrote the
+ * container path, `/work/<relative>`. A node that upgrades FluxOS while holding
+ * an interrupted publish has whichever its previous image wrote, and refusing
+ * that one would strand the data this function exists to restore.
+ *
+ * Nothing about the contents is trusted either way. The host path derived from
+ * them must still sit under the mount after normalisation, so neither an
+ * absolute path nor a `..` inside a relative one can name anything the
+ * operation was not entitled to touch.
  *
  * @param {string} mount
  * @param {string} contents - raw marker file contents
@@ -65,9 +71,12 @@ function resolveMarkerDestination(mount, contents) {
   const recorded = contents.trim();
   if (!recorded) return null;
 
-  // posix.relative normalises first, so `/work/../etc/shadow` and `/etc/shadow`
-  // both come back starting with '..' and are refused here rather than deeper.
-  const relative = path.posix.relative(WORK_ROOT, recorded);
+  // Both paths through this normalise first, so `/work/../etc/shadow`,
+  // `/etc/shadow` and `../etc/shadow` all come back starting with '..' and are
+  // refused here rather than deeper.
+  const relative = path.posix.isAbsolute(recorded)
+    ? path.posix.relative(WORK_ROOT, recorded)
+    : path.posix.normalize(recorded);
   if (!relative || relative.startsWith('..') || path.posix.isAbsolute(relative)) return null;
 
   const resolved = path.resolve(mount, relative);
@@ -311,11 +320,18 @@ function containerOptions(session, argv) {
  *   meaningful alongside `publish`, and only for operations that WRITE into
  *   staging: a move publishes the source where it stands, so its staging size is
  *   the whole operation from the first tick and says nothing about progress.
- * @param {{staging: VolumePath, destination: VolumePath}} [options.publish] -
- *   run the command into `staging` and move the result to `destination` only if
- *   it succeeds. Wrapping this here rather than leaving it to the caller is what
- *   stops an endpoint writing to a destination directly and losing the
- *   guarantee that a failure changes nothing.
+ * @param {{staging?: VolumePath, source?: VolumePath, destination: VolumePath}}
+ *   [options.publish] - run the command into `staging` and move the result to
+ *   `destination` only if it succeeds. Wrapping this here rather than leaving it
+ *   to the caller is what stops an endpoint writing to a destination directly
+ *   and losing the guarantee that a failure changes nothing.
+ *
+ *   Exactly one of `staging` and `source`. `staging` is scratch this operation
+ *   created, so a failure may throw it away; `source` is the caller's own data,
+ *   published where it stands, which is how a move is expressed - there is no
+ *   command, because the source already IS the result. Naming them differently
+ *   is what stops the discard applying to somebody's only copy: the difference
+ *   has to be stated to be used, rather than remembered.
  * @param {boolean} [options.mkdirStaging] - create the staging directory first,
  *   for commands like `tar -C` that need it to exist. A file copy must NOT ask
  *   for it: cp -T refuses to overwrite a directory with a non-directory.
@@ -352,15 +368,27 @@ async function run(session, argv, options = {}) {
   let params = argv.map(toParam);
 
   if (publish) {
-    if (!(publish.staging instanceof VolumePath) || !(publish.destination instanceof VolumePath)) {
-      throw new Error('publish requires VolumePath staging and destination');
+    if (Boolean(publish.staging) === Boolean(publish.source)) {
+      throw new Error('publish requires exactly one of staging and source');
+    }
+    const target = publish.staging || publish.source;
+    if (!(target instanceof VolumePath) || !(publish.destination instanceof VolumePath)) {
+      throw new Error('publish requires VolumePath operands');
     }
     params = [
       'flux-op',
+      // Names what an interrupted publish leaves behind, and where. Both are
+      // given rather than derived from the operand: a move's operand is the
+      // caller's own path at whatever depth they keep it, so a name derived
+      // from it collides with what a user might call a folder, and a location
+      // derived from it lands outside the one directory the sweep reads.
+      '--id', crypto.randomUUID(),
+      '--root', WORK_ROOT,
+      ...(publish.staging ? ['--discard-staging'] : []),
       ...(mkdirStaging ? ['--mkdir'] : []),
       ...(maxBytes > 0 ? ['--max-bytes', String(Math.floor(maxBytes))] : []),
       ...(noLinks ? ['--no-links'] : []),
-      toParam(publish.staging),
+      toParam(target),
       toParam(publish.destination),
       '--',
       ...params,
@@ -371,7 +399,9 @@ async function run(session, argv, options = {}) {
   let container = null;
   let ticker = null;
   let measuring = false;
-  let measurable = Boolean(onBytes && publish);
+  // Only scratch we created grows as the work proceeds. A move's operand is
+  // whole from the first tick, so measuring it would report 100% throughout.
+  let measurable = Boolean(onBytes && publish && publish.staging);
   const stopMeasuring = () => { measurable = false; };
 
   try {
@@ -416,7 +446,11 @@ async function run(session, argv, options = {}) {
       ticker = setInterval(() => {
         if (isCanceled && isCanceled()) {
           log.info(`volumeExecutor - cancel requested, stopping ${session.identifier} operation`);
-          container.kill().catch(() => {});
+          // stop, not kill: this sends SIGTERM first and only escalates to
+          // SIGKILL after the grace period. flux-op traps the TERM, stops the
+          // command and reclaims its staging directory - a SIGKILL reaches
+          // neither, and the space stays spent until the next boot sweep.
+          container.stop({ t: settings().cancelGraceSeconds }).catch(() => {});
           return;
         }
         if (onProgress) onProgress(status);

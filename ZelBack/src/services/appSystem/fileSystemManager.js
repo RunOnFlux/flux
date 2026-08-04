@@ -106,7 +106,10 @@ async function renameAppsObject(req, res) {
     const destination = path.posix.join(path.posix.dirname(oldpath), newname);
     const { source, destination: target } = await volume.pair(oldpath, destination, { overwrite: true });
 
-    await executor.run(volume, [], { publish: { staging: source, destination: target } });
+    // No command, and `source` rather than `staging`: a rename publishes the
+    // caller's own entry where it stands, so there is nothing to run and
+    // nothing a failure may throw away.
+    await executor.run(volume, [], { publish: { source, destination: target } });
     respondSuccess(res, 'Rename successful');
   } catch (error) {
     respondError(res, error);
@@ -407,7 +410,7 @@ async function moveAppsObject(req, res) {
     // operation. Going through publish rather than a bare `mv` is what handles
     // an existing destination - rename(2) refuses a non-empty directory target
     // and cannot replace a file with a directory at all.
-    return startOperation(res, volume, { kind: 'fileoperation.move', status: 'Moving...', owner: volume.owner }, (progress) => executor.run(volume, [], { ...progress, publish: { staging: source, destination } }));
+    return startOperation(res, volume, { kind: 'fileoperation.move', status: 'Moving...', owner: volume.owner }, (progress) => executor.run(volume, [], { ...progress, publish: { source, destination } }));
   } catch (error) {
     respondError(res, error);
   }

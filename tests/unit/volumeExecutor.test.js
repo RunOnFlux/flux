@@ -28,6 +28,7 @@ describe('volumeExecutor tests', () => {
         timeoutMs: 900000,
         memoryBytes: 512 * 1024 * 1024,
         pidsLimit: 256,
+        cancelGraceSeconds: 15,
         progressIntervalMs: 50,
       },
     },
@@ -52,6 +53,7 @@ describe('volumeExecutor tests', () => {
       id: 'container-1',
       start: sinon.stub().resolves(),
       kill: sinon.stub().resolves(),
+      stop: sinon.stub().resolves(),
       wait: sinon.stub().resolves({ StatusCode: 0 }),
     };
 
@@ -163,10 +165,15 @@ describe('volumeExecutor tests', () => {
       await expect(volumeExecutor.run(vol, ['false'])).to.be.rejectedWith('exit code 2');
     });
 
-    it('kills the container when a cancel is requested', async () => {
+    it('stops the container when a cancel is requested, rather than killing it', async () => {
       // Cancellation is cooperative: requestCancel raises a flag and the worker
       // stops at its next checkpoint. Something has to look, and the progress
       // ticker is already looking.
+      //
+      // stop, not kill. Docker's kill sends SIGKILL, which cannot be trapped -
+      // flux-op never runs its cleanup and the staging directory stays on the
+      // caller's volume until the next boot sweep. stop sends SIGTERM first and
+      // only escalates after the grace period.
       let finish;
       containerStub.wait.returns(new Promise((resolve) => { finish = resolve; }));
 
@@ -176,7 +183,9 @@ describe('volumeExecutor tests', () => {
 
       canceled = true;
       await new Promise((resolve) => { setTimeout(resolve, 120); });
-      expect(containerStub.kill.called).to.equal(true);
+      expect(containerStub.stop.called).to.equal(true);
+      expect(containerStub.stop.firstCall.args[0]).to.deep.equal({ t: 15 });
+      expect(containerStub.kill.called).to.equal(false);
 
       finish({ StatusCode: 0 });
       await running;
@@ -197,6 +206,32 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('run - publish options', () => {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+    // Everything up to the `--`, with --id's value replaced by a marker so a
+    // random uuid does not have to be threaded through every expectation.
+    const flags = (cmd) => {
+      const end = cmd.indexOf('--', 1);
+      return cmd.slice(0, end === -1 ? cmd.length : end)
+        .map((arg, i, all) => (all[i - 1] === '--id' ? '<uuid>' : arg));
+    };
+
+    it('names the operation and the volume root for flux-op', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op-y');
+      const destination = await vol.resolve('out');
+
+      await volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } });
+
+      const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
+      expect(Cmd[1]).to.equal('--id');
+      expect(Cmd[2]).to.match(UUID);
+      expect(flags(Cmd)).to.deep.equal([
+        'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging',
+        '/work/.flux-op-y', '/work/out',
+      ]);
+    });
+
     it('passes the byte ceiling and link refusal to flux-op', async () => {
       const vol = await openSession();
       const staging = await vol.resolve('.flux-op-x');
@@ -207,20 +242,40 @@ describe('volumeExecutor tests', () => {
       });
 
       const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
-      expect(Cmd.slice(0, 7)).to.deep.equal([
-        'flux-op', '--mkdir', '--max-bytes', '1234', '--no-links', '/work/.flux-op-x', '/work/out',
+      expect(flags(Cmd)).to.deep.equal([
+        'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging', '--mkdir',
+        '--max-bytes', '1234', '--no-links', '/work/.flux-op-x', '/work/out',
       ]);
     });
 
-    it('omits the options that were not asked for', async () => {
+    it('publishes a source in place, with no command and nothing to discard', async () => {
+      // How a move and a rename are expressed: the caller's own entry IS the
+      // result. --discard-staging must be absent, because that operand is their
+      // only copy - and the command after `--` is empty, which flux-op has to
+      // accept rather than reject as a usage error.
       const vol = await openSession();
-      const staging = await vol.resolve('.flux-op-y');
+      const source = await vol.resolve('photos');
       const destination = await vol.resolve('out');
 
-      await volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } });
+      await volumeExecutor.run(vol, [], { publish: { source, destination } });
 
       const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
-      expect(Cmd.slice(0, 4)).to.deep.equal(['flux-op', '/work/.flux-op-y', '/work/out', '--']);
+      expect(Cmd).to.not.include('--discard-staging');
+      expect(Cmd[Cmd.length - 1]).to.equal('--');
+      expect(flags(Cmd)).to.deep.equal([
+        'flux-op', '--id', '<uuid>', '--root', '/work', '/work/photos', '/work/out',
+      ]);
+    });
+
+    it('refuses a publish naming both a staging and a source, or neither', async () => {
+      const vol = await openSession();
+      const one = await vol.resolve('photos');
+      const two = await vol.resolve('out');
+
+      await expect(volumeExecutor.run(vol, [], { publish: { staging: one, source: one, destination: two } }))
+        .to.be.rejectedWith('exactly one');
+      await expect(volumeExecutor.run(vol, [], { publish: { destination: two } }))
+        .to.be.rejectedWith('exactly one');
     });
   });
 
@@ -388,14 +443,38 @@ describe('volumeExecutor tests', () => {
 
     it('restores displaced data when the destination is missing', async () => {
       // The crash-between-two-renames case. Deleting here would destroy the
-      // caller's only copy. The marker holds the CONTAINER path, because
-      // flux-op writes it from inside a container that has only /work.
+      // caller's only copy. The marker holds a path relative to the volume
+      // root, because flux-op writes it from inside a container that has only
+      // that root and no notion of where it sits on the host.
+      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: 'photos\n' }, []);
+
+      const { restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+
+      expect(restored).to.deep.equal([`${MOUNT}/photos`]);
+      expect(mvCalls()[0].args[1].params).to.deep.equal(['-T', `${MOUNT}/${OLD}`, `${MOUNT}/photos`]);
+    });
+
+    it('restores from a marker written by an older image', async () => {
+      // flux-op records the destination relative to the volume root. Images
+      // before it wrote the container path, and a node upgrading FluxOS can be
+      // holding either - refusing the older one would strand exactly the data
+      // this branch exists to put back.
       const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: '/work/photos\n' }, []);
 
       const { restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
 
       expect(restored).to.deep.equal([`${MOUNT}/photos`]);
       expect(mvCalls()[0].args[1].params).to.deep.equal(['-T', `${MOUNT}/${OLD}`, `${MOUNT}/photos`]);
+    });
+
+    it('refuses a relative marker that climbs out of the volume', async () => {
+      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: '../../etc/shadow\n' }, []);
+
+      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+
+      expect(mvCalls()).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(removed).to.deep.equal([]);
     });
 
     it('refuses a marker naming a path outside the volume, and keeps the data', async () => {

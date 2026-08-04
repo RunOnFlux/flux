@@ -194,7 +194,10 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.moveAppsObject(req, res);
 
       expect(argv()).to.deep.equal([]);
-      expect(runOptions().publish.staging.containerPath).to.equal('/work/uploads/photo.jpg');
+      // `source`, never `staging`: it is the caller's only copy, and the name
+      // is what tells the executor it may not be discarded on a failure.
+      expect(runOptions().publish.staging).to.equal(undefined);
+      expect(runOptions().publish.source.containerPath).to.equal('/work/uploads/photo.jpg');
       expect(runOptions().publish.destination.containerPath).to.equal('/work/archive/photo.jpg');
     });
 
