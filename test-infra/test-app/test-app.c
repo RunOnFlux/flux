@@ -10,6 +10,11 @@
  *   EXIT_AFTER_S  if > 0, self-exit with EXIT_CODE after this many seconds
  *                 (models a container that exits on its own, e.g. exit 0 to
  *                 free memory); if unset, stay up until signalled
+ *   BURN_CPU      if set, spin instead of sleeping, so the container reports
+ *                 sustained load to the monitoring suites. Docker caps the
+ *                 container at its NanoCpus allocation, so this consumes the
+ *                 app's own share of a core and no more. Unset (the default)
+ *                 leaves the idle pause loop every other suite relies on.
  *
  * On SIGTERM/SIGINT (i.e. `docker stop`) it exits with EXIT_CODE, so a test can
  * deterministically produce a clean exit 0 or any non-zero code on demand.
@@ -44,6 +49,13 @@ int main(void)
             sleep((unsigned)seconds);
             return exit_code;
         }
+    }
+
+    if (getenv("BURN_CPU")) {
+        /* volatile so the compiler cannot optimise the loop away at -O2 */
+        volatile unsigned long spin = 0;
+        for (;;)
+            spin++;
     }
 
     for (;;)

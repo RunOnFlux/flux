@@ -704,6 +704,78 @@ describe('appInspector tests', () => {
 
       expect(res.json.called).to.be.true;
     });
+
+    // The node samples every running container already. Before this the live view
+    // took the same three docker readings again on every five-second poll and threw
+    // them away, so the copy that was kept was the one nothing read.
+    describe('serving a held reading', () => {
+      const monotonicNow = () => Number(process.hrtime.bigint() / 1000000n);
+      let req;
+      let res;
+
+      function storedSample(ageMs, overrides = {}) {
+        return {
+          timestamp: Date.now() - ageMs,
+          elapsed: monotonicNow() - ageMs,
+          cpuTotal: 500,
+          cpuTotalBefore: 100,
+          cpuSystem: 800,
+          cpuSystemBefore: 400,
+          onlineCpus: 4,
+          nanoCpus: 3e9,
+          memoryUsage: 2048,
+          memoryLimit: 8192,
+          ioRead: 1,
+          ioWrite: 2,
+          networkRx: 3,
+          networkTx: 4,
+          disk: { bind: 7 },
+          ...overrides,
+        };
+      }
+
+      beforeEach(() => {
+        req = { params: { appname: 'myapp' }, query: {} };
+        res = { json: sinon.stub() };
+        messageHelperStub.createDataMessage.returnsArg(0);
+        dockerServiceStub.dockerContainerStats = sinon.stub().resolves({
+          cpu_stats: { cpu_usage: { total_usage: 1 }, system_cpu_usage: 2, online_cpus: 1 },
+          precpu_stats: { cpu_usage: { total_usage: 0 }, system_cpu_usage: 0 },
+          memory_stats: { usage: 1, limit: 2 },
+        });
+        dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 1e9 } });
+      });
+
+      it('should read what the sampler already collected rather than docker', async () => {
+        globalStateStub.appsMonitored = { myapp: { statsStore: [storedSample(500)] } };
+
+        await appInspector.appStats(req, res);
+
+        expect(dockerServiceStub.dockerContainerStats.called).to.be.false;
+        const reported = res.json.firstCall.args[0];
+        expect(reported.memory_stats).to.deep.equal({ usage: 2048, limit: 8192 });
+        expect(reported.cpu_stats.online_cpus).to.equal(4);
+      });
+
+      it('should take one reading however many callers ask at once', async () => {
+        globalStateStub.appsMonitored = { myapp: { statsStore: [] } };
+
+        await appInspector.appStats(req, res);
+        await appInspector.appStats(req, { json: sinon.stub() });
+        await appInspector.appStats(req, { json: sinon.stub() });
+
+        expect(dockerServiceStub.dockerContainerStats.calledOnce).to.be.true;
+      });
+
+      // Without this a permanently stuck reading passes the test above perfectly.
+      it('should take a fresh reading once the held one has aged out', async () => {
+        globalStateStub.appsMonitored = { myapp: { statsStore: [storedSample(30_000)] } };
+
+        await appInspector.appStats(req, res);
+
+        expect(dockerServiceStub.dockerContainerStats.calledOnce).to.be.true;
+      });
+    });
   });
 
   describe('appMonitor tests', () => {

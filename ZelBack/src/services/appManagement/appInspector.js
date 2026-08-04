@@ -1,3 +1,4 @@
+const config = require('config');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
@@ -557,7 +558,7 @@ function startAppMonitoring(appName) {
     } catch (error) {
       log.error(error);
     }
-  }, 1 * 60 * 1000);
+  }, config.fluxapps.statsSampleIntervalMs);
 }
 
 /**
@@ -961,7 +962,6 @@ async function monitorSharedDBApps(installedApps, removeAppLocally, globalState)
   } finally {
     await serviceHelper.delay(5 * 60 * 1000);
     monitorSharedDBApps(installedApps, removeAppLocally, globalState);
-  // eslint-disable-next-line global-require
   }
 }
 
@@ -975,8 +975,6 @@ async function monitorSharedDBApps(installedApps, removeAppLocally, globalState)
  */
 async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRedeploy, appsStorageViolations) {
   try {
-    // eslint-disable-next-line global-require
-    const config = require('config');
     // get list of locally installed apps.
     const installedAppsRes = await installedApps();
     if (installedAppsRes.status !== 'success') {
