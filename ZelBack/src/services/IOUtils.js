@@ -10,6 +10,7 @@ const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const { URL } = require('url');
 const { sanitizePath, validateFilename, verifyRealPathOfExistingPath } = require('./utils/pathSecurity');
+const { measureTree } = require('./utils/treeSize');
 const { validateUrlWithDns } = require('./utils/urlSecurity');
 
 /**
@@ -139,31 +140,30 @@ function convertFileSize(sizes, targetUnit = 'auto', decimal = 2, returnNumber =
 
 /**
  * Get the total size of a folder, including its subdirectories and files.
+ *
+ * Follows no symlink, and visits a bounded number of entries. It used to `stat`
+ * its way down with unbounded recursion and a Promise.all fan-out, which an app
+ * owner could turn on the node that hosts them: this measures volumes the apps
+ * themselves write to, so a `loop -> ..` planted in one measured itself until
+ * the process died, and an `escape -> /` measured the host. Both callers run as
+ * the FluxOS process, before any container exists - a copy's capacity check,
+ * and the file browser, which measures every directory it lists.
+ *
  * @param {string} folderPath - The path to the folder.
- * @returns {string|boolean} - The total size of the folder formatted with the specified multiplier and decimal places, or false if an error occurs.
+ * @returns {Promise<number|boolean>} - Total bytes, or false when the size
+ *   cannot be established. Callers MUST treat false as a refusal rather than as
+ *   zero: a tree too large to measure is not an empty one.
  */
 async function getFolderSize(folderPath) {
   try {
-    let totalSize = 0;
-    const calculateSize = async (filePath) => {
-      const stats = await fs.stat(filePath);
-
-      if (stats.isFile()) {
-        return stats.size;
-      // eslint-disable-next-line no-else-return
-      } else if (stats.isDirectory()) {
-        const files = await fs.readdir(filePath);
-        const sizes = await Promise.all(files.map((file) => calculateSize(path.join(filePath, file))));
-        return sizes.reduce((acc, size) => acc + size, 0);
-      }
-
-      return 0; // Unknown file type
-    };
-
-    totalSize = await calculateSize(folderPath);
-    return totalSize;
+    const bytes = await measureTree(folderPath, fs);
+    if (bytes === null) {
+      log.warn(`getFolderSize: ${folderPath} is larger than a single measurement is allowed to walk`);
+      return false;
+    }
+    return bytes;
   } catch (err) {
-    console.error(`Error getting folder size: ${err}`);
+    log.error(`Error getting folder size: ${err}`);
     return false;
   }
 }

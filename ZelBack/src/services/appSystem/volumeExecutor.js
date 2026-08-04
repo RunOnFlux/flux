@@ -8,6 +8,7 @@ const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const log = require('../../lib/log');
 const { AsyncLock } = require('../utils/asyncLock');
+const { measureTree } = require('../utils/treeSize');
 const { appsFolder } = require('../utils/appConstants');
 const {
   VolumePath, VolumeSession, WORK_ROOT, STAGING_PREFIX,
@@ -251,17 +252,6 @@ async function ensureImage(onProgress = null) {
 }
 
 /**
- * How many entries one progress measurement may stat before it gives up.
- *
- * The walk repeats on every tick for the whole operation, so its cost has to be
- * bounded by something other than the size of what is being copied. A tree
- * larger than this reports no bytes at all rather than a figure that lags
- * further behind the longer it runs - a progress bar that stalls at 60% and
- * then jumps is worse than a spinner, because it makes a promise.
- */
-const PROGRESS_WALK_BUDGET = 20000;
-
-/**
  * Bytes currently sitting under a staging path, or null if measuring it costs
  * more than the answer is worth.
  *
@@ -276,37 +266,18 @@ const PROGRESS_WALK_BUDGET = 20000;
  * The generic tools read fdinfo because they attach to somebody else's cp and
  * cannot know where it writes. This one started the process and chose the path.
  *
- * lstat throughout: a symlink contributes nothing, because `cp -a` copies the
- * link rather than its target, and following one would walk out of the volume.
+ * The walk repeats on every tick for the whole operation, so its cost is bounded
+ * by entries visited rather than by the size of what is being copied. A tree
+ * larger than that budget reports no bytes at all rather than a figure that lags
+ * further behind the longer it runs - a progress bar that stalls at 60% and then
+ * jumps is worse than a spinner, because it makes a promise.
  *
  * @param {string} root - host path of the staging entry
  * @param {object} fsPromises
  * @returns {Promise<number|null>} bytes, or null if the budget ran out
  */
 async function measureStaging(root, fsPromises) {
-  let bytes = 0;
-  let budget = PROGRESS_WALK_BUDGET;
-  const pending = [root];
-
-  while (pending.length) {
-    if (budget <= 0) return null;
-    budget -= 1;
-    const current = pending.pop();
-
-    // eslint-disable-next-line no-await-in-loop
-    const stats = await fsPromises.lstat(current).catch(() => null);
-    if (stats) {
-      if (stats.isDirectory()) {
-        // eslint-disable-next-line no-await-in-loop
-        const names = await fsPromises.readdir(current).catch(() => []);
-        pending.push(...names.map((name) => path.join(current, name)));
-      } else if (stats.isFile()) {
-        bytes += stats.size;
-      }
-    }
-  }
-
-  return bytes;
+  return measureTree(root, fsPromises);
 }
 
 /**
