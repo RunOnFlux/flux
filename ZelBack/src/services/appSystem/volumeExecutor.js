@@ -1,5 +1,6 @@
 const config = require('config');
 const path = require('node:path');
+const fs = require('fs').promises;
 const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
@@ -180,6 +181,65 @@ async function assertMountIsLive(session) {
 }
 
 /**
+ * How many entries one progress measurement may stat before it gives up.
+ *
+ * The walk repeats on every tick for the whole operation, so its cost has to be
+ * bounded by something other than the size of what is being copied. A tree
+ * larger than this reports no bytes at all rather than a figure that lags
+ * further behind the longer it runs - a progress bar that stalls at 60% and
+ * then jumps is worse than a spinner, because it makes a promise.
+ */
+const PROGRESS_WALK_BUDGET = 20000;
+
+/**
+ * Bytes currently sitting under a staging path, or null if measuring it costs
+ * more than the answer is worth.
+ *
+ * Byte progress is readable here and nowhere else. Since coreutils 9.0 `cp`
+ * copies with copy_file_range(2) - the kernel moves the bytes, so no counter on
+ * the SOURCE side sees them: /proc/<pid>/io stays flat and the file offset in
+ * /proc/<pid>/fdinfo does not advance until the end, which is why progress(1)
+ * stopped working on cp. The DESTINATION inode is a different question, and its
+ * size tracks the copy the whole way through - measured on a node, growing
+ * smoothly across a 3 GB copy while fdinfo sat at zero.
+ *
+ * The generic tools read fdinfo because they attach to somebody else's cp and
+ * cannot know where it writes. This one started the process and chose the path.
+ *
+ * lstat throughout: a symlink contributes nothing, because `cp -a` copies the
+ * link rather than its target, and following one would walk out of the volume.
+ *
+ * @param {string} root - host path of the staging entry
+ * @param {object} fsPromises
+ * @returns {Promise<number|null>} bytes, or null if the budget ran out
+ */
+async function measureStaging(root, fsPromises) {
+  let bytes = 0;
+  let budget = PROGRESS_WALK_BUDGET;
+  const pending = [root];
+
+  while (pending.length) {
+    if (budget <= 0) return null;
+    budget -= 1;
+    const current = pending.pop();
+
+    // eslint-disable-next-line no-await-in-loop
+    const stats = await fsPromises.lstat(current).catch(() => null);
+    if (stats) {
+      if (stats.isDirectory()) {
+        // eslint-disable-next-line no-await-in-loop
+        const names = await fsPromises.readdir(current).catch(() => []);
+        pending.push(...names.map((name) => path.join(current, name)));
+      } else if (stats.isFile()) {
+        bytes += stats.size;
+      }
+    }
+  }
+
+  return bytes;
+}
+
+/**
  * The container an operation runs in.
  *
  * Containment comes from the container having nowhere to escape TO, rather than
@@ -246,6 +306,11 @@ function containerOptions(session, argv) {
  *   operation runs; when it returns true the container is killed. Cancellation
  *   is cooperative, so status stays Running until the work actually stops.
  * @param {string} [options.status] - the line reported while it runs
+ * @param {function(number|null): void} [options.onBytes] - called with the bytes
+ *   published so far, or null once measuring them stops being affordable. Only
+ *   meaningful alongside `publish`, and only for operations that WRITE into
+ *   staging: a move publishes the source where it stands, so its staging size is
+ *   the whole operation from the first tick and says nothing about progress.
  * @param {{staging: VolumePath, destination: VolumePath}} [options.publish] -
  *   run the command into `staging` and move the result to `destination` only if
  *   it succeeds. Wrapping this here rather than leaving it to the caller is what
@@ -265,6 +330,7 @@ async function run(session, argv, options = {}) {
   const {
     onProgress = null, isCanceled = null, status = 'Working...',
     publish = null, mkdirStaging = false, maxBytes = 0, noLinks = false,
+    onBytes = null,
   } = options;
 
   if (!(session instanceof VolumeSession)) {
@@ -304,6 +370,9 @@ async function run(session, argv, options = {}) {
   const release = acquireSlot(session.identifier);
   let container = null;
   let ticker = null;
+  let measuring = false;
+  let measurable = Boolean(onBytes && publish);
+  const stopMeasuring = () => { measurable = false; };
 
   try {
     await assertMountIsLive(session);
@@ -322,11 +391,28 @@ async function run(session, argv, options = {}) {
 
     if (onProgress) onProgress(status);
 
-    // One timer serves both jobs: report that the operation is still alive, and
-    // notice a cancellation. A cancel only sets a flag - the work is not
-    // interrupted where it stands - so something has to look, and this is
-    // already looking.
-    if (onProgress || isCanceled) {
+    // One timer serves three jobs: report that the operation is still alive,
+    // notice a cancellation, and read how far it has got. A cancel only sets a
+    // flag - the work is not interrupted where it stands - so something has to
+    // look, and this is already looking.
+    //
+    // The measurement is async and the timer is not, so a walk still running
+    // when the next tick arrives is skipped rather than stacked, and one that
+    // exhausts its budget latches off: past that point this operation reports
+    // liveness only.
+    const readBytes = () => {
+      if (!measurable || measuring) return;
+      measuring = true;
+      measureStaging(publish.staging.hostPath, fs)
+        .then((bytes) => {
+          if (bytes === null) stopMeasuring();
+          if (measurable || bytes === null) onBytes(bytes);
+        })
+        .catch(() => {})
+        .finally(() => { measuring = false; });
+    };
+
+    if (onProgress || isCanceled || measurable) {
       ticker = setInterval(() => {
         if (isCanceled && isCanceled()) {
           log.info(`volumeExecutor - cancel requested, stopping ${session.identifier} operation`);
@@ -334,6 +420,7 @@ async function run(session, argv, options = {}) {
           return;
         }
         if (onProgress) onProgress(status);
+        readBytes();
       }, settings().progressIntervalMs);
     }
 
@@ -343,6 +430,10 @@ async function run(session, argv, options = {}) {
     }
   } finally {
     if (ticker) clearInterval(ticker);
+    // A walk still in flight when the operation ends must not report after it:
+    // its figure is from part-way through, and landing it on a job already
+    // marked Succeeded would show a finished copy stuck short of its total.
+    stopMeasuring();
     release();
   }
 }

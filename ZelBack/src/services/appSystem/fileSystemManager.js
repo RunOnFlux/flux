@@ -307,9 +307,12 @@ async function resolveOperands(req, volume) {
  *
  * @param {object} res
  * @param {VolumeSession} volume
- * @param {{kind: string, status: string, owner: string|null}} meta
+ * @param {{kind: string, status: string, owner: string|null,
+ *   trackBytes?: boolean, bytesTotal?: number}} meta - `trackBytes` for an
+ *   operation that WRITES into staging, so its size means progress; `bytesTotal`
+ *   only where a denominator is genuinely knowable
  * @param {function(object): Promise<void>} work - receives the executor options
- *   carrying progress and cancellation, and runs the operation
+ *   carrying progress, cancellation and byte reporting, and runs the operation
  */
 function startOperation(res, volume, meta, work) {
   // Before the job exists, so a caller with no slot gets 503 + Retry-After now
@@ -318,25 +321,32 @@ function startOperation(res, volume, meta, work) {
   executor.assertCapacity(volume);
 
   // detail() is read when a client polls, so anything here costs nothing while
-  // nobody is watching.
+  // nobody is watching - which is also why the byte figures belong here rather
+  // than in `progress`, which is append-only and returned whole.
   //
-  // There is no bytesDone/bytesTotal, and that is not an oversight. Since
-  // coreutils 9.0 `cp` copies with copy_file_range(2) - one syscall, the whole
-  // file, entirely in the kernel. No bytes pass through userspace, so nothing
-  // counts them: /proc/<pid>/io stays flat, the file offset in
-  // /proc/<pid>/fdinfo does not advance until the end, and docker's blkio_stats
-  // is empty on cgroup v2 anyway. progress(1) reads exactly those offsets,
-  // which is why it stopped working on cp for the same reason.
+  // bytesDone is read from the STAGING path, not from the copying process. No
+  // counter on the source side sees the bytes: since coreutils 9.0 `cp` uses
+  // copy_file_range(2) and the kernel moves them, so /proc/<pid>/io stays flat
+  // and the fdinfo offset does not advance until the end. What grows the whole
+  // way through is the destination inode.
   //
-  // Reporting real byte progress therefore means not using cp: rsync
-  // --info=progress2 prints its own totals because it moves the data through
-  // userspace, and pays the in-kernel fast path for the privilege. That is a
-  // throughput cost on precisely the copies slow enough to want a progress bar,
-  // which is why this reports liveness and not a percentage.
+  // A denominator is only offered where one is real. A copy knows it, from the
+  // measurement the capacity check already made. An extraction does not: the
+  // only figure available is the archive's own declared uncompressed size,
+  // which is written by whoever built the archive and is exactly what the size
+  // ceiling refuses to believe. Nor does a compression, whose ratio is not
+  // knowable in advance. Those two report bytes written and no percentage,
+  // rather than a percentage derived from a number that can lie.
+  let bytesDone = null;
   const handle = jobRegistry.start({
     kind: meta.kind,
     owner: meta.owner,
-    detail: () => ({ app: volume.identifier, operation: meta.kind }),
+    detail: () => ({
+      app: volume.identifier,
+      operation: meta.kind,
+      ...(bytesDone === null ? {} : { bytesDone }),
+      ...(meta.bytesTotal === undefined ? {} : { bytesTotal: meta.bytesTotal }),
+    }),
   });
 
   // Deliberately not awaited: the response goes back now and the work reports
@@ -351,6 +361,7 @@ function startOperation(res, volume, meta, work) {
       status: meta.status,
       onProgress: (message) => jobRegistry.progress(handle.jobId, message),
       isCanceled: () => jobRegistry.isCanceled(handle.jobId),
+      ...(meta.trackBytes ? { onBytes: (bytes) => { bytesDone = bytes; } } : {}),
     }))
     .then(() => {
       if (jobRegistry.isCanceled(handle.jobId)) jobRegistry.cancelled(handle.jobId);
@@ -413,12 +424,18 @@ async function copyAppsObject(req, res) {
     const volume = await openVolume(req);
     const { source, destination } = await resolveOperands(req, volume);
 
-    volume.requireSpace(await volume.measure(source));
+    // The same measurement serves both the capacity check and the progress
+    // denominator - a copy writes as many bytes as it reads, so the figure the
+    // one needs is exactly the figure the other reports against.
+    const bytesTotal = await volume.measure(source);
+    volume.requireSpace(bytesTotal);
 
     const staging = volume.staging();
     // -a preserves ownership, timestamps and symlinks and implies -r; -T stops
     // cp copying INTO the staging directory instead of becoming it.
-    return startOperation(res, volume, { kind: 'fileoperation.copy', status: 'Copying...', owner: volume.owner }, (progress) => executor.run(volume, ['cp', '-a', '-T', source, staging], { ...progress, publish: { staging, destination } }));
+    return startOperation(res, volume, {
+      kind: 'fileoperation.copy', status: 'Copying...', owner: volume.owner, trackBytes: true, bytesTotal,
+    }, (progress) => executor.run(volume, ['cp', '-a', '-T', source, staging], { ...progress, publish: { staging, destination } }));
   } catch (error) {
     respondError(res, error);
   }
@@ -455,7 +472,11 @@ async function compressAppsObject(req, res) {
       ? ['zip', '-r', '-q', staging, source]
       : ['tar', '-czf', staging, '-C', source, '.'];
 
-    return startOperation(res, volume, { kind: 'fileoperation.compress', status: 'Compressing...', owner: volume.owner }, (progress) => executor.run(volume, argv, { ...progress, publish: { staging, destination } }));
+    // Bytes written to the archive, with no total: how far a source of a known
+    // size compresses is not knowable until it has.
+    return startOperation(res, volume, {
+      kind: 'fileoperation.compress', status: 'Compressing...', owner: volume.owner, trackBytes: true,
+    }, (progress) => executor.run(volume, argv, { ...progress, publish: { staging, destination } }));
   } catch (error) {
     respondError(res, error);
   }
@@ -499,7 +520,12 @@ async function extractAppsObject(req, res) {
       ? ['unzip', '-q', source, '-d', staging]
       : ['tar', '-xzf', source, '-C', staging, '--no-same-owner', '--no-same-permissions'];
 
-    return startOperation(res, volume, { kind: 'fileoperation.extract', status: 'Extracting...', owner: volume.owner }, (progress) => executor.run(volume, argv, {
+    // Bytes unpacked so far, with no total: the only figure that could serve as
+    // one is the archive's own account of itself, which is precisely what the
+    // ceiling below refuses to take on trust.
+    return startOperation(res, volume, {
+      kind: 'fileoperation.extract', status: 'Extracting...', owner: volume.owner, trackBytes: true,
+    }, (progress) => executor.run(volume, argv, {
       ...progress,
       publish: { staging, destination },
       // tar -C and unzip -d both need the directory to exist already.

@@ -15,6 +15,7 @@ describe('volumeExecutor tests', () => {
   let deviceHelperStub;
   let serviceHelperStub;
   let containerStub;
+  let fsStub;
   let volumeSession;
   let volumeExecutor;
 
@@ -65,6 +66,11 @@ describe('volumeExecutor tests', () => {
       runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
     };
 
+    // Only the progress walk reads this - the sweep takes its fs as an
+    // argument. Deliberately WITHOUT a `stat`, so a walk that followed symlinks
+    // would fail loudly here rather than silently leaving the volume.
+    fsStub = { promises: { lstat: sinon.stub().rejects(new Error('ENOENT')), readdir: sinon.stub().resolves([]) } };
+
     volumeSession = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
       '../deviceHelper': deviceHelperStub,
       '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
@@ -74,6 +80,7 @@ describe('volumeExecutor tests', () => {
 
     volumeExecutor = proxyquire('../../ZelBack/src/services/appSystem/volumeExecutor', {
       config: configStub,
+      fs: fsStub,
       '../dockerService': dockerServiceStub,
       '../deviceHelper': deviceHelperStub,
       '../serviceHelper': serviceHelperStub,
@@ -474,6 +481,93 @@ describe('volumeExecutor tests', () => {
       const fsp = { readdir: sinon.stub().rejects(new Error('EACCES')) };
       const result = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
       expect(result).to.deep.equal({ removed: [], restored: [] });
+    });
+  });
+
+  describe('run - byte progress', () => {
+    // The ticker is the only thing that reads bytes, so the container has to
+    // outlive at least one tick (progressIntervalMs is 50 in this config).
+    const runsFor = (ms) => sinon.stub().returns(
+      new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), ms); }),
+    );
+
+    const fileEntry = (size) => ({ isDirectory: () => false, isFile: () => true, size });
+
+    const operands = async (vol) => ({
+      staging: await vol.resolve('.flux-op-x'),
+      destination: await vol.resolve('out'),
+    });
+
+    it('reports the bytes sitting under staging, measured from the host path', async () => {
+      const vol = await openSession();
+      const publish = await operands(vol);
+      containerStub.wait = runsFor(180);
+      fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
+
+      const seen = [];
+      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
+
+      expect(seen).to.not.deep.equal([]);
+      expect(seen[0]).to.equal(4096);
+      expect(fsStub.promises.lstat.firstCall.args[0]).to.equal(`${MOUNT}/.flux-op-x`);
+    });
+
+    it('sums a tree without following a symlink out of the volume', async () => {
+      const vol = await openSession();
+      const publish = await operands(vol);
+      containerStub.wait = runsFor(180);
+
+      const root = `${MOUNT}/.flux-op-x`;
+      fsStub.promises.lstat = sinon.stub().callsFake(async (p) => {
+        if (p === root) return { isDirectory: () => true, isFile: () => false };
+        // neither a file nor a directory: what lstat reports for a symlink
+        if (p === `${root}/escape`) return { isDirectory: () => false, isFile: () => false };
+        return fileEntry(1000);
+      });
+      fsStub.promises.readdir = sinon.stub().resolves(['one', 'two', 'escape']);
+
+      const seen = [];
+      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
+
+      // 2000, not 3000: the link contributes nothing, because cp -a copies the
+      // link rather than what it points at - and stat() would have followed it
+      // straight out of the volume.
+      expect(seen[0]).to.equal(2000);
+      expect(fsStub.promises.stat).to.equal(undefined);
+    });
+
+    it('gives up rather than reporting a figure it cannot keep up with', async () => {
+      const vol = await openSession();
+      const publish = await operands(vol);
+      containerStub.wait = runsFor(180);
+
+      // More entries than one walk is allowed to stat.
+      const root = `${MOUNT}/.flux-op-x`;
+      fsStub.promises.lstat = sinon.stub().callsFake(async (p) => (
+        p === root ? { isDirectory: () => true, isFile: () => false } : fileEntry(1)
+      ));
+      fsStub.promises.readdir = sinon.stub().resolves(Array.from({ length: 30000 }, (_, i) => `f${i}`));
+
+      const seen = [];
+      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
+
+      // null, not a number: a bar that stalls and then jumps makes a promise a
+      // spinner never did.
+      expect(seen).to.deep.equal([null]);
+    });
+
+    it('measures nothing for a caller that did not ask', async () => {
+      // A move publishes its source where it stands, so staging is the whole
+      // operation from the first tick and its size says nothing about progress.
+      // The caller opts in; this asserts the executor stays out of it otherwise.
+      const vol = await openSession();
+      const publish = await operands(vol);
+      containerStub.wait = runsFor(180);
+      fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
+
+      await volumeExecutor.run(vol, [], { publish });
+
+      expect(fsStub.promises.lstat.called).to.equal(false);
     });
   });
 });
