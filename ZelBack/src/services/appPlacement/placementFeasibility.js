@@ -118,7 +118,9 @@ async function faultDomain(address) {
  * @returns {boolean}
  */
 function nodeLocationMatchesGeolocation(loc, geolocation) {
-  return geolocationRule.locationSatisfiesGeolocation(loc, geolocation);
+  return geolocationRule.locationSatisfiesGeolocation(
+    loc, geolocation, ipLocationStore.regionCodeForName,
+  );
 }
 
 /**
@@ -184,7 +186,9 @@ async function placementComputation(appSpecifications, minInstances) {
   // the node decides nothing about it, so re-deriving the terms inside the loop
   // made one answer cost the node count times the entry count - and a spec may
   // carry two hundred entries against six thousand nodes.
-  const geoRule = geolocationRule.parseGeolocation(appSpecifications.geolocation);
+  const geoRule = geolocationRule.parseGeolocation(
+    appSpecifications.geolocation, ipLocationStore.regionCodeForName,
+  );
   const geoRestricted = !geoRule.unrestricted;
 
   const domains = new Map(); // fault domain -> candidate count
@@ -390,7 +394,9 @@ async function checkPlacementFeasibility(appSpecFormatted, caller, previousSpec)
     // whose installer would accept - registering it sells a deployment that
     // provably cannot start. Same source on both ends turns the miss into
     // proof, and proof rejects.
-    const { allows } = geolocationRule.parseGeolocation(appSpecFormatted.geolocation);
+    const { allows } = geolocationRule.parseGeolocation(
+      appSpecFormatted.geolocation, ipLocationStore.regionCodeForName,
+    );
     const allTableRegionPins = allows.length > 0
       && allows.every((term) => term.granularity === 'region');
     if (geoRestricted && feasibility.candidateCount === 0 && !allTableRegionPins) {

@@ -524,6 +524,7 @@ describe('ipLocationStore tests', () => {
       generated: '2026-07-31T00:00:00Z',
       rowCount: 2126447,
       continents: { BH: 'AS', BG: 'EU', FI: 'EU' },
+      regionNames: { 'BH|Manama': 'BH-13' },
       ingestedAt: 1,
     };
 
@@ -534,6 +535,9 @@ describe('ipLocationStore tests', () => {
       expect(store.status()).to.eql({ ready: true, generated: '2026-07-31T00:00:00Z', rowCount: 2126447 });
       expect(store.continentForCountry('BH')).to.equal('AS');
       expect(store.continentForCountry('CZ')).to.equal(null);
+      // the vocabulary rides on the marker for the same reason the continents
+      // do: a boot that adopts the stored rows never sees the artifact again
+      expect(store.regionCodeForName('BH', 'Manama')).to.equal('BH-13');
       sinon.assert.calledWithExactly(
         dbHelperStub.findOneInDatabase,
         database,
@@ -575,6 +579,56 @@ describe('ipLocationStore tests', () => {
 
       store.clear();
       expect(store.continentForCountry('BH')).to.equal(null);
+    });
+  });
+
+  describe('the region-name vocabulary', () => {
+    it('resolves a name the artifact carries, and only within its country', async () => {
+      const header = fixtureHeader();
+      header.regionNames = { 'BH|Manama': 'BH-13', 'FI|Uusimaa': 'FI-18' };
+      await store.setArtifact(encodeArtifact(header, fixtureRows()));
+
+      expect(store.regionCodeForName('BH', 'Manama')).to.equal('BH-13');
+      expect(store.regionCodeForName('FI', 'Uusimaa')).to.equal('FI-18');
+      expect(store.regionCodeForName('FI', 'Manama')).to.equal(null);
+      expect(store.regionCodeForName('BH', 'Nowhere')).to.equal(null);
+    });
+
+    // a baseline built before the vocabulary existed carries none, and the
+    // caller then answers a named region at country granularity
+    it('resolves nothing when the artifact carries no vocabulary', async () => {
+      await store.setArtifact(fixtureArtifact());
+      expect(store.regionCodeForName('BH', 'Manama')).to.equal(null);
+    });
+
+    it('resolves nothing without a table at all', () => {
+      expect(store.regionCodeForName('BH', 'Manama')).to.equal(null);
+    });
+
+    it('refuses an artifact whose vocabulary is not an object', async () => {
+      const header = fixtureHeader();
+      header.regionNames = ['BH|Manama'];
+      await store.setArtifact(encodeArtifact(header, fixtureRows())).then(
+        () => { throw new Error('expected rejection'); },
+        (error) => expect(error.message).to.include('regionNames is not an object'),
+      );
+    });
+
+    it('refuses an artifact whose vocabulary carries a non-token code', async () => {
+      const header = fixtureHeader();
+      header.regionNames = { 'BH|Manama': 'x'.repeat(65) };
+      await store.setArtifact(encodeArtifact(header, fixtureRows())).then(
+        () => { throw new Error('expected rejection'); },
+        (error) => expect(error.message).to.include('regionNames'),
+      );
+    });
+
+    it('is forgotten with the rest of the table', async () => {
+      const header = fixtureHeader();
+      header.regionNames = { 'BH|Manama': 'BH-13' };
+      await store.setArtifact(encodeArtifact(header, fixtureRows()));
+      store.clear();
+      expect(store.regionCodeForName('BH', 'Manama')).to.equal(null);
     });
   });
 

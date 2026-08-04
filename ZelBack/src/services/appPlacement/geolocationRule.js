@@ -75,20 +75,37 @@ function term(granularity, continent = null, country = null, region = null) {
 }
 
 /**
+ * The region code a third part names, in either vocabulary: an ISO 3166-2 code
+ * as written, or a region name resolved through the published vocabulary. Null
+ * when neither - the caller then answers the entry at country granularity,
+ * which counts more nodes rather than fewer.
+ * @param {string[]} parts The entry body, split on `_`
+ * @param {(countryCode: string, regionName: string) => string|null} resolveRegion
+ * @returns {string | null}
+ */
+function regionCodeOf(parts, resolveRegion = () => null) {
+  if (isTableRegionPart(parts[2], parts[1])) return parts[2];
+  // a name may carry the separator, and install-time compares the whole tail
+  return resolveRegion(parts[1], parts.slice(2).join('_'));
+}
+
+/**
  * An allowed entry's body as a term. `ALL` admits everything and `<CONT>_ALL`
- * admits the continent; a third part in the table's vocabulary pins the region,
- * and any other third part is legacy-shaped and admits the whole country.
+ * admits the continent; a third part naming a region in either vocabulary pins
+ * it, and one that resolves to neither admits the whole country.
  * @param {string} body The entry with its `ac` prefix removed
+ * @param {(countryCode: string, regionName: string) => string|null} resolveRegion
  * @returns {GeoTerm}
  */
-function parseAllowedBody(body) {
+function parseAllowedBody(body, resolveRegion) {
   if (body === 'ALL') return term('all');
   const parts = body.split('_');
   if (parts.length === 1) return term('continent', parts[0]);
   if (parts.length === 2) {
     return parts[1] === 'ALL' ? term('continent', parts[0]) : term('country', parts[0], parts[1]);
   }
-  if (isTableRegionPart(parts[2], parts[1])) return term('region', parts[0], parts[1], parts[2]);
+  const code = regionCodeOf(parts, resolveRegion);
+  if (code) return term('region', parts[0], parts[1], code);
   return term('country', parts[0], parts[1]);
 }
 
@@ -101,11 +118,12 @@ function parseAllowedBody(body) {
  * @param {string} body The entry with its `a!c` prefix removed
  * @returns {GeoTerm}
  */
-function parseForbiddenBody(body) {
+function parseForbiddenBody(body, resolveRegion) {
   const parts = body.split('_');
   if (parts.length === 1) return term('continent', parts[0]);
   if (parts.length === 2) return term('country', parts[0], parts[1]);
-  if (isTableRegionPart(parts[2], parts[1])) return term('region', parts[0], parts[1], parts[2]);
+  const code = regionCodeOf(parts, resolveRegion);
+  if (code) return term('region', parts[0], parts[1], code);
   return term('never');
 }
 
@@ -115,9 +133,13 @@ function parseForbiddenBody(body) {
  * from them, and failing the whole computation over one would refuse an app the
  * installer has no objection to.
  * @param {Array<string>} entries A spec's geolocation array
+ * @param {(countryCode: string, regionName: string) => string|null} [resolveRegion]
+ *   Resolves a region an app named the way ip-api does to its ISO 3166-2 code.
+ *   Without one, such an entry is answered at country granularity - what a node
+ *   holding no vocabulary can prove, and the direction that counts more nodes.
  * @returns {GeoRule}
  */
-function parseGeolocation(entries) {
+function parseGeolocation(entries, resolveRegion = () => null) {
   const list = entries ?? [];
   const rule = {
     unrestricted: list.length === 0,
@@ -129,11 +151,11 @@ function parseGeolocation(entries) {
   list.forEach((entry) => {
     if (typeof entry !== 'string') return;
     if (entry.startsWith('a!c')) {
-      rule.denies.push(parseForbiddenBody(entry.slice(3)));
+      rule.denies.push(parseForbiddenBody(entry.slice(3), resolveRegion));
       return;
     }
     if (entry.startsWith('ac')) {
-      rule.allows.push(parseAllowedBody(entry.slice(2)));
+      rule.allows.push(parseAllowedBody(entry.slice(2), resolveRegion));
       return;
     }
     // legacy pins: the first of each wins, matching install-time's find()
@@ -211,14 +233,16 @@ function locationSatisfiesRule(rule, loc) {
  * @param {{continentCode: string|null, countryCode: string|null,
  *   region: string|null}} loc Node location
  * @param {Array<string>} entries A spec's geolocation array
+ * @param {(countryCode: string, regionName: string) => string|null} [resolveRegion]
  * @returns {boolean}
  */
-function locationSatisfiesGeolocation(loc, entries) {
-  return locationSatisfiesRule(parseGeolocation(entries), loc);
+function locationSatisfiesGeolocation(loc, entries, resolveRegion) {
+  return locationSatisfiesRule(parseGeolocation(entries, resolveRegion), loc);
 }
 
 module.exports = {
   isTableRegionPart,
+  regionCodeOf,
   parseGeolocation,
   locationSatisfiesRule,
   locationSatisfiesGeolocation,

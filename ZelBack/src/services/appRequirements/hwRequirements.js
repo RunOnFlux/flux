@@ -210,15 +210,33 @@ async function checkAppGeolocationRequirements(appSpecs) {
     const myNodeLocationContinentALL = 'ALL';
     const myNodeLocationContCountryALL = `${myContinent}_ALL`;
     const myNodeLocationFullALL = `${myContinent}_${myCountry}_ALL`;
-    // A region entry in the table's own vocabulary matches on proof only, in
-    // both directions: an allow is satisfied - and a deny applies - exactly when
-    // this node's table region is known and equal. An unknown region satisfies
-    // no region pin and is caught by no region deny.
+    // A region entry matches on proof only, in both directions: an allow is
+    // satisfied - and a deny applies - exactly when this node's table region is
+    // known and equal. An unknown region satisfies no region pin and is caught
+    // by no region deny.
+    //
+    // The entry may name its region in either vocabulary, an ISO 3166-2 code or
+    // the name ip-api uses, and the published vocabulary resolves the second to
+    // the first. Whichever it is, the count resolves it the same way and both
+    // sides compare against the same table region.
+    const entryRegionCode = (parts) => (parts.length < 3
+      ? null
+      : geolocationRule.regionCodeOf(parts, ipLocationStore.regionCodeForName));
     const matchesTableRegionEntry = (value) => {
       const parts = value.split('_');
-      if (parts.length < 3 || !myTableRegion) return false;
-      if (!geolocationRule.isTableRegionPart(parts[2], parts[1])) return false;
-      return `${parts[0]}_${parts[1]}` === myNodeLocationContCountry && parts[2] === myTableRegion;
+      const code = entryRegionCode(parts);
+      if (!code || !myTableRegion) return false;
+      return `${parts[0]}_${parts[1]}` === myNodeLocationContCountry && code === myTableRegion;
+    };
+    // A region part neither vocabulary resolves is left to this node's own
+    // ip-api region name - which the count cannot read for any other node, so
+    // it answers such an entry at country granularity and matching it here can
+    // only narrow what this node accepts. An entry the vocabulary DOES resolve
+    // must not also match by name: that would accept nodes the count excluded.
+    const matchesSelfReportedRegion = (value) => {
+      const parts = value.split('_');
+      if (parts.length >= 3 && entryRegionCode(parts)) return false;
+      return value === myNodeLocationFull;
     };
     if (appContinent && !geoC.length && !geoCForbidden.length) { // backwards old style compatible. Can be removed after a month
       if (appContinent.slice(1) !== myContinent) {
@@ -232,15 +250,15 @@ async function checkAppGeolocationRequirements(appSpecs) {
     }
     geoCForbidden.forEach((locationNotAllowed) => {
       const v = locationNotAllowed.slice(3);
-      if (v === myNodeLocationContinent || v === myNodeLocationContCountry || v === myNodeLocationFull
-        || matchesTableRegionEntry(v)) {
+      if (v === myNodeLocationContinent || v === myNodeLocationContCountry
+        || matchesSelfReportedRegion(v) || matchesTableRegionEntry(v)) {
         throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
       }
     });
     if (geoC.length) {
-      const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry || locationAllowed.slice(2) === myNodeLocationFull
+      const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry
         || locationAllowed.slice(2) === myNodeLocationContinentALL || locationAllowed.slice(2) === myNodeLocationContCountryALL || locationAllowed.slice(2) === myNodeLocationFullALL
-        || matchesTableRegionEntry(locationAllowed.slice(2)));
+        || matchesSelfReportedRegion(locationAllowed.slice(2)) || matchesTableRegionEntry(locationAllowed.slice(2)));
       if (!nodeLocationOK) {
         throw new Error('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
       }

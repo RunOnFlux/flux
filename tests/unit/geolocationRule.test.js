@@ -131,6 +131,64 @@ describe('geolocationRule', () => {
     });
   });
 
+  describe('a region named the way ip-api does', () => {
+    // The rows carry ISO 3166-2 while a spec may name the region, and the
+    // published vocabulary is what connects the two. Without it - which is
+    // every node until a baseline carrying one arrives - such an entry is
+    // answered at country granularity, counting more nodes rather than fewer.
+    const vocabulary = { 'DE|Bavaria': 'DE-BY', 'FR|Grand Est': 'FR-GES' };
+    const resolve = (cc, name) => vocabulary[`${cc}|${name}`] ?? null;
+
+    const inBavaria = { continentCode: 'EU', countryCode: 'DE', region: 'DE-BY' };
+    const elsewhereInGermany = { continentCode: 'EU', countryCode: 'DE', region: 'DE-BE' };
+    const germanyNoRegion = { continentCode: 'EU', countryCode: 'DE', region: null };
+
+    it('answers at country granularity without a vocabulary', () => {
+      const rule = geolocationRule.parseGeolocation(['acEU_DE_Bavaria']);
+      expect(rule.allows[0].granularity).to.equal('country');
+      expect(geolocationRule.locationSatisfiesRule(rule, elsewhereInGermany)).to.equal(true);
+    });
+
+    it('pins the region once the vocabulary resolves the name', () => {
+      const rule = geolocationRule.parseGeolocation(['acEU_DE_Bavaria'], resolve);
+      expect(rule.allows[0].granularity).to.equal('region');
+      expect(rule.allows[0].region).to.equal('DE-BY');
+      expect(geolocationRule.locationSatisfiesRule(rule, inBavaria)).to.equal(true);
+      expect(geolocationRule.locationSatisfiesRule(rule, elsewhereInGermany)).to.equal(false);
+    });
+
+    it('still demands proof: an unknown region satisfies no named pin', () => {
+      const rule = geolocationRule.parseGeolocation(['acEU_DE_Bavaria'], resolve);
+      expect(geolocationRule.locationSatisfiesRule(rule, germanyNoRegion)).to.equal(false);
+    });
+
+    it('applies a named deny only where the region is known and equal', () => {
+      const rule = geolocationRule.parseGeolocation(['a!cEU_DE_Bavaria'], resolve);
+      expect(geolocationRule.locationSatisfiesRule(rule, inBavaria)).to.equal(false);
+      expect(geolocationRule.locationSatisfiesRule(rule, elsewhereInGermany)).to.equal(true);
+      expect(geolocationRule.locationSatisfiesRule(rule, germanyNoRegion)).to.equal(true);
+    });
+
+    it('a deny the vocabulary cannot resolve still bans nothing', () => {
+      const rule = geolocationRule.parseGeolocation(['a!cEU_DE_Saxony'], resolve);
+      expect(rule.denies[0].granularity).to.equal('never');
+    });
+
+    it('reads a name carrying the separator whole', () => {
+      const withSeparator = { 'DE|Baden_Wurttemberg': 'DE-BW' };
+      const rule = geolocationRule.parseGeolocation(
+        ['acEU_DE_Baden_Wurttemberg'], (cc, name) => withSeparator[`${cc}|${name}`] ?? null,
+      );
+      expect(rule.allows[0].granularity).to.equal('region');
+      expect(rule.allows[0].region).to.equal('DE-BW');
+    });
+
+    it('prefers a written ISO code over the vocabulary', () => {
+      const rule = geolocationRule.parseGeolocation(['acEU_DE_DE-BY'], () => 'DE-XX');
+      expect(rule.allows[0].region).to.equal('DE-BY');
+    });
+  });
+
   describe('the parsed terms state their own granularity', () => {
     it('reads an allow of ALL as unconditional', () => {
       expect(geolocationRule.parseGeolocation(['acALL']).allows[0].granularity).to.equal('all');

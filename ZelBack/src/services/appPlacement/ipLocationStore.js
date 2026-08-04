@@ -75,6 +75,10 @@ const policyDocumentsCollection = config.database.local.collections.policyDocume
 let status = { ready: false, generated: null, rowCount: 0 };
 // country -> continent, from the header of whatever baseline this node holds
 let continentByCountry = new Map();
+// '<CC>|<region name>' -> ISO 3166-2, from the same header. The rows carry
+// codes, while an app's geolocation may name a region the way ip-api does, and
+// this is what connects the two.
+let regionCodeByName = new Map();
 let minimumRowCount = MIN_ROW_COUNT;
 // The per-node view, resident. It is a decoration on the node list - one small
 // fact per listed address - and the node list lives in this process, so keeping
@@ -204,10 +208,25 @@ function parseHeader(buf) {
       throw malformed(`header continents.${country} is not a token`);
     }
   });
+  // The region-name vocabulary, keyed '<CC>|<name>'. Optional: a baseline built
+  // before it existed carries none, and without it a spec that names a region
+  // the way ip-api does is answered at country granularity - the same place a
+  // name this vocabulary cannot resolve lands, and the safe direction.
+  const regionNameEntries = Object.entries(header.regionNames ?? {});
+  if (typeof (header.regionNames ?? {}) !== 'object' || Array.isArray(header.regionNames)) {
+    throw malformed('header section regionNames is not an object');
+  }
+  regionNameEntries.forEach(([key, code]) => {
+    if (typeof code !== 'string' || !code || code.length > MAX_TOKEN_LENGTH
+      || key.length > MAX_TOKEN_LENGTH * 2) {
+      throw malformed(`header regionNames.${key} is not a token`);
+    }
+  });
   return {
     header,
-    // a Map, so a country named after an Object.prototype member reads as itself
+    // Maps, so a country named after an Object.prototype member reads as itself
     continents: new Map(continentEntries),
+    regionNames: new Map(regionNameEntries),
     rowCount: buf.readUInt32LE(rowCountOffset),
     rowsOffset: rowCountOffset + 4,
   };
@@ -347,9 +366,11 @@ async function writeIngestMarker(database, parsed) {
       $set: {
         generated: parsed.header.generated,
         rowCount: parsed.rowCount,
-        // the header's country -> continent map, so a boot that adopts the
-        // stored table can answer continentForCountry without the artifact
+        // the header's vocabularies, so a boot that adopts the stored table can
+        // answer continentForCountry and resolve a region name without holding
+        // the artifact
         continents: Object.fromEntries(parsed.continents),
+        regionNames: Object.fromEntries(parsed.regionNames),
         ingestedAt: Date.now(),
       },
     },
@@ -387,6 +408,7 @@ async function setArtifact(bytes) {
 
   status = { ready: true, generated: parsed.header.generated, rowCount: parsed.rowCount };
   continentByCountry = parsed.continents;
+  regionCodeByName = parsed.regionNames;
   await writeIngestMarker(database, parsed);
   log.info(`ipLocationStore - baseline installed: ${parsed.rowCount} ranges, generated ${parsed.header.generated}`);
   return { generated: status.generated, rowCount: status.rowCount };
@@ -413,6 +435,7 @@ async function adoptPersistedStatus() {
   if (!marker || typeof marker.generated !== 'string' || !marker.generated) return false;
   status = { ready: true, generated: marker.generated, rowCount: marker.rowCount ?? 0 };
   continentByCountry = new Map(Object.entries(marker.continents ?? {}));
+  regionCodeByName = new Map(Object.entries(marker.regionNames ?? {}));
   log.info(`ipLocationStore - adopted the stored baseline: ${status.rowCount} ranges, generated ${status.generated}`);
   return true;
 }
@@ -426,6 +449,22 @@ async function adoptPersistedStatus() {
 function continentForCountry(countryCode) {
   if (!status.ready) return null;
   return continentByCountry.get(countryCode) ?? null;
+}
+
+/**
+ * The ISO 3166-2 code for a region an app named the way ip-api does.
+ *
+ * A geolocation entry may carry either vocabulary - 'acEU_DE_DE-BY' or
+ * 'acEU_DE_Bavaria' - while the rows carry codes alone. Null when this node
+ * holds no vocabulary, or the name is not in it: the caller then answers that
+ * entry at country granularity, which counts more nodes rather than fewer.
+ * @param {string} countryCode ISO 3166-1 alpha-2 code
+ * @param {string} regionName The entry's region part
+ * @returns {string | null}
+ */
+function regionCodeForName(countryCode, regionName) {
+  if (!status.ready || !countryCode || !regionName) return null;
+  return regionCodeByName.get(`${countryCode}|${regionName}`) ?? null;
 }
 
 /**
@@ -659,6 +698,7 @@ function currentStatus() {
 function clear() {
   status = { ready: false, generated: null, rowCount: 0 };
   continentByCountry = new Map();
+  regionCodeByName = new Map();
   minimumRowCount = MIN_ROW_COUNT;
   nodeView = new Map();
   nodeViewLoaded = false;
@@ -678,6 +718,7 @@ module.exports = {
   setArtifact,
   adoptPersistedStatus,
   continentForCountry,
+  regionCodeForName,
   loadNodeLocationView,
   nodeLocationSnapshot,
   refreshNodeLocations,
