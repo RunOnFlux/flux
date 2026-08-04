@@ -344,55 +344,121 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('sweepStagingDirectories', () => {
+    // flux-op derives both names from the staging directory's randomUUID, so a
+    // fixture that is not one is not a fixture for anything this ever sees.
+    const ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+    const OP = `.flux-op-${ID}`;
+    const OLD = `.flux-old-${ID}`;
+
+    // The real fs sets .code, and the sweep tells an absent marker apart from
+    // an unreadable one by exactly that - a bare Error would make every read
+    // failure look like "no marker was ever written", and it deletes on the
+    // strength of that.
+    const enoent = () => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+
     const fsFor = (entries, files = {}, existing = []) => ({
       readdir: sinon.stub().resolves(entries),
       readFile: sinon.stub().callsFake(async (p) => {
         const name = p.split('/').pop();
-        if (files[name] === undefined) throw new Error('ENOENT');
+        if (files[name] === undefined) throw enoent();
         return files[name];
       }),
       lstat: sinon.stub().callsFake(async (p) => {
-        if (!existing.includes(p)) throw new Error('ENOENT');
+        if (!existing.includes(p)) throw enoent();
         return {};
       }),
     });
 
+    const mvCalls = () => serviceHelperStub.runCommand.getCalls().filter((c) => c.args[0] === 'mv');
+
     it('deletes an incomplete operation - nothing was published and nobody waits', async () => {
-      const fsp = fsFor(['.flux-op-abc', 'realdata']);
+      const fsp = fsFor([OP, 'realdata']);
       const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
 
-      expect(removed).to.deep.equal(['.flux-op-abc']);
+      expect(removed).to.deep.equal([OP]);
       expect(restored).to.deep.equal([]);
     });
 
     it('restores displaced data when the destination is missing', async () => {
       // The crash-between-two-renames case. Deleting here would destroy the
-      // caller's only copy.
-      const fsp = fsFor(
-        ['.flux-old-abc', '.flux-old-abc.dest'],
-        { '.flux-old-abc.dest': `${MOUNT}/photos\n` },
-        [],
-      );
+      // caller's only copy. The marker holds the CONTAINER path, because
+      // flux-op writes it from inside a container that has only /work.
+      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: '/work/photos\n' }, []);
 
       const { restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
 
       expect(restored).to.deep.equal([`${MOUNT}/photos`]);
-      const mv = serviceHelperStub.runCommand.getCalls().find((c) => c.args[0] === 'mv');
-      expect(mv.args[1].params).to.deep.equal(['-T', `${MOUNT}/.flux-old-abc`, `${MOUNT}/photos`]);
+      expect(mvCalls()[0].args[1].params).to.deep.equal(['-T', `${MOUNT}/${OLD}`, `${MOUNT}/photos`]);
+    });
+
+    it('refuses a marker naming a path outside the volume, and keeps the data', async () => {
+      // The marker lives in a directory the app owner can write to. Read as a
+      // host path it makes `mv` a way to create a root-owned file anywhere on
+      // the node, /etc/cron.d being the short route from there to running code.
+      // Nothing is moved - and the displaced entry is not deleted either, since
+      // it may be somebody's only copy.
+      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: '/etc/cron.d/pwn\n' }, []);
+
+      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+
+      expect(mvCalls()).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(removed).to.deep.equal([]);
+    });
+
+    it('refuses a marker that climbs out of the work root', async () => {
+      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: '/work/../../../etc/shadow\n' }, []);
+
+      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+
+      expect(mvCalls()).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(removed).to.deep.equal([]);
     });
 
     it('deletes displaced data when the publish completed', async () => {
-      const fsp = fsFor(
-        ['.flux-old-abc', '.flux-old-abc.dest'],
-        { '.flux-old-abc.dest': `${MOUNT}/photos\n` },
-        [`${MOUNT}/photos`],
-      );
+      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: '/work/photos\n' }, [`${MOUNT}/photos`]);
 
       const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
 
       expect(restored).to.deep.equal([]);
-      expect(removed).to.include('.flux-old-abc');
-      expect(serviceHelperStub.runCommand.getCalls().some((c) => c.args[0] === 'mv')).to.equal(false);
+      expect(removed).to.include(OLD);
+      expect(mvCalls()).to.deep.equal([]);
+    });
+
+    it('deletes a marker whose entry never arrived', async () => {
+      // The crash landed between writing the marker and the rename that uses
+      // it, so nothing was displaced. Without this it stays in the volume root
+      // forever, one per interruption, visible in the file browser.
+      const fsp = fsFor([`${OLD}.dest`], { [`${OLD}.dest`]: '/work/photos\n' }, []);
+
+      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+
+      expect(removed).to.deep.equal([`${OLD}.dest`]);
+      expect(restored).to.deep.equal([]);
+    });
+
+    it('keeps displaced data when its marker cannot be read', async () => {
+      const fsp = fsFor([OLD, `${OLD}.dest`], {}, []);
+      fsp.readFile = sinon.stub().rejects(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
+
+      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+
+      expect(removed).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+    });
+
+    it('leaves a user folder that merely starts with a reserved prefix', async () => {
+      // Nothing reserves these prefixes at creation time, and the sweep DELETES
+      // what it matches - so the name has to be the exact shape flux-op
+      // produces, not just something that begins like it.
+      const fsp = fsFor(['.flux-op-backups', '.flux-old-notes', '.flux-op-', `${OP}x`]);
+
+      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+
+      expect(removed).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(serviceHelperStub.runCommand.called).to.equal(false);
     });
 
     it('leaves everything else on the volume alone', async () => {

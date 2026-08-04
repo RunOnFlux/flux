@@ -15,6 +15,66 @@ const settings = () => config.fluxapps.volumeOperations;
 /** Prefix of the directory an interrupted publish leaves the previous data under. */
 const SWAP_PREFIX = '.flux-old-';
 
+/** Suffix of the file recording where a displaced entry belongs. */
+const MARKER_SUFFIX = '.dest';
+
+/**
+ * The identifier flux-op derives both names from - the staging directory's, and
+ * the swap directory's after it strips the staging prefix. A randomUUID, so the
+ * shape is exact.
+ *
+ * Names are matched against this rather than by prefix alone because the sweep
+ * DELETES what it matches, in a directory the app owner can write to. Nothing
+ * reserves these prefixes at creation time, so a folder called
+ * `.flux-op-backups` is a name a user can legitimately choose - and would lose
+ * on the next restart if a prefix test were the whole rule.
+ */
+const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+const isStagingName = (name) => name.startsWith(STAGING_PREFIX)
+  && OPERATION_ID.test(name.slice(STAGING_PREFIX.length));
+
+const isSwapName = (name) => name.startsWith(SWAP_PREFIX)
+  && OPERATION_ID.test(name.slice(SWAP_PREFIX.length));
+
+const isSwapMarkerName = (name) => name.endsWith(MARKER_SUFFIX)
+  && isSwapName(name.slice(0, -MARKER_SUFFIX.length));
+
+/**
+ * The host path a marker records, or null when it does not name one inside this
+ * volume.
+ *
+ * The marker is written by flux-op, from inside the container, so it holds a
+ * path in the CONTAINER's namespace - `/work/<relative>`, the only form any
+ * operand ever takes. Reading it as a host path is what turned a file the app
+ * owner can write into an argument to a root `mv`: an absolute path in there
+ * would be followed to wherever it pointed.
+ *
+ * Nothing about the contents is trusted. The recorded path must sit under
+ * WORK_ROOT, and the host path derived from it must still sit under the mount
+ * after normalisation - so neither an absolute path nor a `..` inside one can
+ * name anything the operation was not entitled to touch.
+ *
+ * @param {string} mount
+ * @param {string} contents - raw marker file contents
+ * @returns {string|null} absolute host path, or null if it names nothing valid
+ */
+function resolveMarkerDestination(mount, contents) {
+  if (typeof contents !== 'string') return null;
+  const recorded = contents.trim();
+  if (!recorded) return null;
+
+  // posix.relative normalises first, so `/work/../etc/shadow` and `/etc/shadow`
+  // both come back starting with '..' and are refused here rather than deeper.
+  const relative = path.posix.relative(WORK_ROOT, recorded);
+  if (!relative || relative.startsWith('..') || path.posix.isAbsolute(relative)) return null;
+
+  const resolved = path.resolve(mount, relative);
+  const within = path.relative(mount, resolved);
+  if (!within || within.startsWith('..') || path.isAbsolute(within)) return null;
+  return resolved;
+}
+
 /**
  * Labels every executor container carries.
  *
@@ -357,6 +417,15 @@ async function reapOrphanedContainers() {
  * crash between writing the marker and the rename that uses it - in which case
  * the destination was never touched and the entry is a duplicate. Deleted.
  *
+ * A marker whose contents do not name a path inside this volume is left exactly
+ * where it is, loudly. It cannot be placed, and it is the one case where the
+ * entry beside it might still be somebody's only copy - so the safe direction
+ * is to keep it and say so, not to tidy it away.
+ *
+ * Everything here runs on names this function matched itself, in a directory
+ * the app owner can also write to, so both the names and the marker contents
+ * are treated as input rather than as state this module left behind.
+ *
  * NOTE: this reads and writes the volume from the FluxOS process. When FluxOS
  * is demoted to an unprivileged system user it moves into a container, like
  * everything else here that touches app data.
@@ -381,26 +450,54 @@ async function sweepStagingDirectories(mount, fsPromises) {
     removed.push(name);
   };
 
+  const present = new Set(entries);
+
   // eslint-disable-next-line no-restricted-syntax
   for (const entry of entries) {
     try {
-      if (entry.startsWith(STAGING_PREFIX)) {
+      if (isStagingName(entry)) {
         // eslint-disable-next-line no-await-in-loop
         await remove(entry);
-      } else if (entry.startsWith(SWAP_PREFIX) && !entry.endsWith('.dest')) {
-        const marker = `${entry}.dest`;
+      } else if (isSwapName(entry)) {
+        const marker = `${entry}${MARKER_SUFFIX}`;
+        // Only an absent marker means the crash landed before it was written.
+        // Any other read failure is rethrown to the handler below, which leaves
+        // the entry alone: deleting somebody's displaced data because a file
+        // could not be read this once is the outcome this whole function exists
+        // to prevent.
         // eslint-disable-next-line no-await-in-loop
-        const destination = await fsPromises.readFile(path.join(mount, marker), 'utf8')
-          .then((contents) => contents.trim())
-          .catch(() => null);
+        const contents = await fsPromises.readFile(path.join(mount, marker), 'utf8')
+          .catch((error) => {
+            if (error.code === 'ENOENT') return null;
+            throw error;
+          });
 
-        // eslint-disable-next-line no-await-in-loop
-        const destinationExists = destination
+        if (contents === null) {
+          // No marker: the destination was never touched, so this entry is a
+          // duplicate of data the caller still has.
           // eslint-disable-next-line no-await-in-loop
-          ? await fsPromises.lstat(destination).then(() => true).catch(() => false)
-          : true;
+          await remove(entry);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
 
-        if (destination && !destinationExists) {
+        const destination = resolveMarkerDestination(mount, contents);
+        if (!destination) {
+          log.error(`volumeExecutor - ${marker} in ${mount} does not name a path inside the volume; leaving ${entry} in place`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        const destinationExists = await fsPromises.lstat(destination).then(() => true).catch(() => false);
+
+        if (destinationExists) {
+          // The publish completed and only its cleanup was interrupted.
+          // eslint-disable-next-line no-await-in-loop
+          await remove(entry);
+          // eslint-disable-next-line no-await-in-loop
+          await remove(marker);
+        } else {
           // eslint-disable-next-line no-await-in-loop
           const result = await serviceHelper.runCommand('mv', {
             runAsRoot: true, params: ['-T', path.join(mount, entry), destination],
@@ -409,12 +506,14 @@ async function sweepStagingDirectories(mount, fsPromises) {
           restored.push(destination);
           // eslint-disable-next-line no-await-in-loop
           await remove(marker);
-        } else {
-          // eslint-disable-next-line no-await-in-loop
-          await remove(entry);
-          // eslint-disable-next-line no-await-in-loop
-          if (destination) await remove(marker);
         }
+      } else if (isSwapMarkerName(entry) && !present.has(entry.slice(0, -MARKER_SUFFIX.length))) {
+        // A marker whose entry never arrived - the crash landed between writing
+        // it and the rename that uses it. Nothing was displaced, so there is
+        // nothing to place, and without this it stays in the volume root
+        // forever, one per interruption, visible in the file browser.
+        // eslint-disable-next-line no-await-in-loop
+        await remove(entry);
       }
     } catch (error) {
       log.warn(`volumeExecutor - could not sweep ${entry} in ${mount}: ${error.message}`);
