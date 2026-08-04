@@ -383,6 +383,38 @@ export async function mirrorImage(reference, repo = null) {
   return `${REGISTRY_REPO_HOST}/${destRepo}@${digest}`;
 }
 
+const APP_CONFIG = join(__dirname, '..', '..', '..', 'ZelBack', 'config', 'default.js');
+const EXECUTOR_PIN = /['"]((?:[\w.-]+\/)+flux-volume-tools@sha256:[0-9a-f]{64})['"]/;
+
+/**
+ * Mirror the executor image the app pins, and give back the harness reference.
+ *
+ * The digest is read out of the app's own config rather than repeated here, so
+ * it lives in exactly one place and rebuilding the image cannot leave the
+ * harness testing a different one than the fleet runs. Read as text rather than
+ * required, because that config pulls in userconfig.js, which is gitignored -
+ * the runner would then depend on a file that is not in the checkout.
+ *
+ * Feed the return value to createTestEnv as
+ *
+ *   configOverrides: { fluxapps: { volumeOperations: { image } } }
+ *
+ * which is test-infra config only - no production code bends for the tests.
+ *
+ * Call it from a suite's `before`, not from createTestEnv: the sixty-odd suites
+ * that never run a file operation should not pay for the copy.
+ *
+ * @returns {Promise<string>} the same image, addressed in the harness registry
+ */
+export async function mirrorExecutorImage() {
+  const source = readFileSync(APP_CONFIG, 'utf8');
+  const match = EXECUTOR_PIN.exec(source);
+  if (!match) {
+    throw new Error(`No digest-pinned flux-volume-tools reference found in ${APP_CONFIG}`);
+  }
+  return mirrorImage(match[1]);
+}
+
 export async function pushUpdatedImage(repo, tag) {
   const marker = `updated-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
   return pushImage(repo, tag, marker);
