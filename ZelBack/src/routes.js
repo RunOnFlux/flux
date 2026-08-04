@@ -1241,9 +1241,6 @@ module.exports = (app) => {
   app.get('/apps/appmonitor/:appname?/:range?', (req, res) => {
     appInspector.appMonitorAPI(req, res);
   });
-  app.get('/apps/appmonitorstream/:appname?', (req, res) => {
-    appInspector.appMonitorStream(req, res);
-  });
   app.get('/apps/appchanges/:appname?', (req, res) => {
     appInspector.appChanges(req, res);
   });

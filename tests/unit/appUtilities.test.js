@@ -64,7 +64,6 @@ describe('appUtilities tests', () => {
     });
   });
 
-  // getAppFolderSize tests removed - they execute actual sudo commands
   // which require proper system access. These should be tested in integration tests.
 
   describe('getContainerStorage tests', () => {
@@ -565,7 +564,6 @@ describe('appUtilities tests', () => {
     it('should export all required functions', () => {
       expect(appUtilities.appPricePerMonth).to.be.a('function');
       expect(appUtilities.nodeFullGeolocation).to.be.a('function');
-      expect(appUtilities.getAppFolderSize).to.be.a('function');
       expect(appUtilities.getContainerStorage).to.be.a('function');
       expect(appUtilities.getAppPorts).to.be.a('function');
       expect(appUtilities.specificationFormatter).to.be.a('function');

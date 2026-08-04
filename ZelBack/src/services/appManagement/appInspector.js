@@ -1,4 +1,3 @@
-const path = require('path');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
@@ -7,25 +6,11 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
 const cpuBurstHelper = require('../utils/cpuBurstHelper');
 const log = require('../../lib/log');
-// eslint-disable-next-line no-unused-vars
-const { appConstants } = require('../utils/appConstants');
 const { getContainerStorage } = require('../utils/appUtilities');
-
-// eslint-disable-next-line import/no-extraneous-dependencies
-const util = require('util');
-// eslint-disable-next-line import/no-extraneous-dependencies
-const nodecmd = require('node-cmd');
-
-// eslint-disable-next-line no-unused-vars
-const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
-// eslint-disable-next-line no-unused-vars
-const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 
 const dosState = 0;
 const dosMessage = null;
 
-const cmdAsync = util.promisify(nodecmd.run);
-const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
 
 /**
  * Get top processes running in an application container
@@ -276,12 +261,7 @@ async function appStats(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
-      const response = await dockerService.dockerContainerStats(appname);
-      const containerStorageInfo = await getContainerStorage(appname);
-      response.disk_stats = containerStorageInfo;
-      const inspect = await dockerService.dockerContainerInspect(appname);
-      response.nanoCpus = inspect.HostConfig.NanoCpus;
-      const appResponse = messageHelper.createDataMessage(response);
+      const appResponse = messageHelper.createDataMessage(await latestStats(appname));
       res.json(appResponse);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -296,6 +276,126 @@ async function appStats(req, res) {
     );
     res.json(errMessage);
   }
+}
+
+/**
+ * Milliseconds on the monotonic clock. Every elapsed-time decision here — how long
+ * a sample is kept, which samples a CPU decision may count — reads this rather than
+ * the wall clock, so an NTP step cannot expire the store early or hand a decision
+ * samples it already counted. Samples carry the wall-clock time too: that is what
+ * the charts plot and what a requested range means.
+ * @returns {number} Milliseconds since an arbitrary fixed origin
+ */
+function monotonicMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
+
+/**
+ * Reduce a docker stats reading to the values the monitoring consumers read.
+ *
+ * Docker returns several kilobytes a sample — per-core usage arrays repeated for
+ * the previous reading, the whole kernel memory counter set, one blkio entry per
+ * device in the stack — and between them the charts and the CPU throttler read
+ * the dozen values below. Keeping the extract is what makes a week of samples
+ * affordable to hold.
+ * @param {object} stats - A docker stats reading, with disk_stats and nanoCpus attached
+ * @returns {object} The values worth keeping
+ */
+function extractSample(stats) {
+  const blkio = stats.blkio_stats?.io_service_bytes_recursive;
+  // a container's traffic passes through its loop device, device-mapper and the
+  // physical disk, so every entry is a partial view; docker stats sums them
+  const sumBlkio = (op) => (blkio
+    ? blkio
+      .filter((entry) => entry.op?.toLowerCase() === op)
+      .reduce((total, entry) => total + (entry.value || 0), 0)
+    : null);
+
+  return {
+    cpuTotal: stats.cpu_stats?.cpu_usage?.total_usage ?? 0,
+    cpuTotalBefore: stats.precpu_stats?.cpu_usage?.total_usage ?? 0,
+    cpuSystem: stats.cpu_stats?.system_cpu_usage ?? 0,
+    cpuSystemBefore: stats.precpu_stats?.system_cpu_usage ?? 0,
+    onlineCpus: stats.cpu_stats?.online_cpus ?? 0,
+    nanoCpus: stats.nanoCpus ?? null,
+    memoryUsage: stats.memory_stats?.usage ?? null,
+    memoryLimit: stats.memory_stats?.limit ?? null,
+    ioRead: sumBlkio('read'),
+    ioWrite: sumBlkio('write'),
+    networkRx: stats.networks?.eth0?.rx_bytes ?? null,
+    networkTx: stats.networks?.eth0?.tx_bytes ?? null,
+    disk: stats.disk_stats ?? null,
+  };
+}
+
+/**
+ * Put an extracted sample back into the shape callers parse.
+ * @param {object} sample - An extracted sample
+ * @returns {object} The docker stats shape the monitoring endpoints return
+ */
+function expandSample(sample) {
+  const io = sample.ioRead === null && sample.ioWrite === null
+    ? null
+    : [{ op: 'read', value: sample.ioRead }, { op: 'write', value: sample.ioWrite }];
+
+  return {
+    cpu_stats: {
+      cpu_usage: { total_usage: sample.cpuTotal },
+      system_cpu_usage: sample.cpuSystem,
+      online_cpus: sample.onlineCpus,
+    },
+    precpu_stats: {
+      cpu_usage: { total_usage: sample.cpuTotalBefore },
+      system_cpu_usage: sample.cpuSystemBefore,
+    },
+    memory_stats: { usage: sample.memoryUsage, limit: sample.memoryLimit },
+    blkio_stats: { io_service_bytes_recursive: io },
+    networks: { eth0: { rx_bytes: sample.networkRx, tx_bytes: sample.networkTx } },
+    nanoCpus: sample.nanoCpus,
+    disk_stats: sample.disk,
+  };
+}
+
+/**
+ * How long a reading stands in for the present. The chart polls every five seconds
+ * per viewer, and every viewer of the same app wants the same reading, so this
+ * bounds collection by time rather than by request count: one viewer costs what it
+ * costs today, ten cost the same.
+ */
+const statsFreshnessMs = 5 * 1000;
+
+/**
+ * The most recent reading for an app, taking one only if what is held has aged out.
+ *
+ * The node already samples every running container a minute; without this the live
+ * view collected the same three docker readings again on every poll and threw them
+ * away, so the copy that was kept was the one nothing read.
+ * @param {string} appname - Application name, optionally component-qualified
+ * @returns {Promise<object>} The reading, in the docker stats shape callers parse
+ */
+async function latestStats(appname) {
+  const monitored = globalState.appsMonitored[appname];
+  const stored = monitored && monitored.statsStore
+    ? monitored.statsStore[monitored.statsStore.length - 1]
+    : null;
+  const held = [monitored && monitored.latest, stored]
+    .filter(Boolean)
+    .sort((a, b) => b.elapsed - a.elapsed)[0];
+
+  if (held && monotonicMs() - held.elapsed < statsFreshnessMs) {
+    return expandSample(held);
+  }
+
+  const stats = await dockerService.dockerContainerStats(appname);
+  stats.disk_stats = await getContainerStorage(appname);
+  const inspect = await dockerService.dockerContainerInspect(appname);
+  stats.nanoCpus = inspect.HostConfig.NanoCpus;
+
+  const sample = { timestamp: Date.now(), elapsed: monotonicMs(), ...extractSample(stats) };
+  if (monitored) {
+    monitored.latest = sample;
+  }
+  return expandSample(sample);
 }
 
 /**
@@ -325,13 +425,33 @@ function appMonitor(appname, range = null) {
   let appStatsMonitoring = monitored.statsStore;
   if (window) {
     const cutoffTimestamp = Date.now() - window;
-    const hoursInMs = 24 * 60 * 60 * 1000;
+    const dayInMs = 24 * 60 * 60 * 1000;
     appStatsMonitoring = appStatsMonitoring.filter((stats) => stats.timestamp >= cutoffTimestamp);
-    if (window > hoursInMs) {
-      appStatsMonitoring = appStatsMonitoring.filter((_, index, array) => index % 20 === 0 || index === array.length - 1);
+    if (window > dayInMs) {
+      // Past a day the series is thinned to one sample an hour: a week of
+      // minute-resolution samples is neither sendable nor plottable. Thinning by
+      // timestamp rather than by position keeps the spacing an hour whatever the
+      // sampler's cadence is.
+      const hourInMs = 60 * 60 * 1000;
+      const thinned = [];
+      let lastKept = null;
+      appStatsMonitoring.forEach((stats) => {
+        if (lastKept === null || stats.timestamp - lastKept >= hourInMs) {
+          thinned.push(stats);
+          lastKept = stats.timestamp;
+        }
+      });
+      const newest = appStatsMonitoring[appStatsMonitoring.length - 1];
+      if (newest && thinned[thinned.length - 1] !== newest) {
+        thinned.push(newest);
+      }
+      appStatsMonitoring = thinned;
     }
   }
-  return appStatsMonitoring;
+  return appStatsMonitoring.map((stats) => ({
+    timestamp: stats.timestamp,
+    data: expandSample(stats),
+  }));
 }
 
 /**
@@ -371,61 +491,6 @@ async function appMonitorAPI(req, res) {
 }
 
 /**
- * Stream application monitoring data
- * @param {object} req - Request object
- * @param {object} res - Response object
- * @returns {Promise<void>}
- */
-async function appMonitorStream(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-
-    if (!appname) {
-      throw new Error('No Flux App specified');
-    }
-
-    const mainAppName = appname.split('_')[1] || appname;
-
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
-    if (authorized === true) {
-      await dockerStatsStreamPromise(appname, req, res);
-      res.end();
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(
-      error.message,
-      error.name,
-      error.code,
-    );
-    res.json(errMessage);
-  }
-}
-
-/**
- * Get application folder size
- * @param {string} appName - Application name
- * @returns {Promise<number>} Folder size in bytes
- */
-async function getAppFolderSize(appName) {
-  try {
-    const appsDirPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
-    const directoryPath = path.join(appsDirPath, appName);
-    const exec = `sudo du -s --block-size=1 ${directoryPath}`;
-    const cmdres = await cmdAsync(exec);
-    const size = serviceHelper.ensureString(cmdres).split('\t')[0] || 0;
-    return size;
-  } catch (error) {
-    log.error(error);
-    return 0;
-  }
-}
-
-/**
  * Start monitoring an application
  * @param {string} appName - Application name
  * @returns {void}
@@ -444,7 +509,10 @@ function startAppMonitoring(appName) {
   }
   appsMonitored[appName] = {
     statsStore: [],
-    lastHourstatsStore: [],
+    // the throttler reads everything past this, then moves it forward; a
+    // watermark rather than a wipe, so the series stays whole for the charts
+    lastCpuDecisionAt: 0,
+    nanoCpus: null,
     run: 0,
   };
   appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
@@ -460,25 +528,31 @@ function startAppMonitoring(appName) {
         stopAppMonitoring(appName, true);
         return;
       }
+      // a container that is created, exited or dead reports no usage; sampling it
+      // fills the store with empty readings and gives the throttler nothing to
+      // read. The listing above already carries the state, so this costs nothing.
+      if (dockerContainer.State !== 'running') {
+        return;
+      }
       appsMonitored[appName].run += 1;
       const statsNow = await dockerService.dockerContainerStats(appName);
-      const containerStorageInfo = await getContainerStorage(appName);
-      statsNow.disk_stats = containerStorageInfo;
-      const now = Date.now();
-      if (appsMonitored[appName].run % 3 === 0) {
+      statsNow.disk_stats = await getContainerStorage(appName);
+      // the allocation only moves when the throttler moves it, so it is read on
+      // the same cadence as before and carried onto the samples in between
+      if (appsMonitored[appName].run % 3 === 1) {
         const inspect = await dockerService.dockerContainerInspect(appName);
-        statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
-        appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
-        const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
-        const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
-        log.info(`Size of stats for ${appName}: ${estimatedSizeInMB.toFixed(2)} MB`);
-        appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
-          (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
-        );
+        appsMonitored[appName].nanoCpus = inspect?.HostConfig?.NanoCpus ?? null;
       }
-      appsMonitored[appName].lastHourstatsStore.push({ timestamp: now, data: statsNow });
-      appsMonitored[appName].lastHourstatsStore = appsMonitored[appName].lastHourstatsStore.filter(
-        (stat) => now - stat.timestamp <= 60 * 60 * 1000,
+      statsNow.nanoCpus = appsMonitored[appName].nanoCpus;
+
+      const elapsed = monotonicMs();
+      appsMonitored[appName].statsStore.push({
+        timestamp: Date.now(),
+        elapsed,
+        ...extractSample(statsNow),
+      });
+      appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
+        (stat) => elapsed - stat.elapsed <= 7 * 24 * 60 * 60 * 1000,
       );
     } catch (error) {
       log.error(error);
@@ -647,6 +721,36 @@ function getAppsDOSState(req, res) {
 }
 
 /**
+ * The samples a CPU decision is entitled to: everything recorded since the last
+ * decision, so no sample is counted twice.
+ *
+ * The hour bound matters. A decision is skipped whenever docker cannot inspect the
+ * container or too few samples have arrived, and the watermark does not move on a
+ * skip — so without it, a long run of skips would eventually hand a decision days
+ * of samples and the 80% rule would be measured against a different population
+ * than it was designed for.
+ * @param {object} monitored - The monitoring entry for one app or component
+ * @returns {Array<object>} Samples this decision may count
+ */
+function cpuDecisionWindow(monitored) {
+  if (!monitored || !monitored.statsStore) return [];
+  const floor = Math.max(monitored.lastCpuDecisionAt || 0, monotonicMs() - 60 * 60 * 1000);
+  return monitored.statsStore.filter((stat) => stat.elapsed > floor);
+}
+
+/**
+ * One sample's CPU use as a percentage of what the spec asked for.
+ * @param {object} sample - An extracted sample
+ * @param {number} specifiedCpu - The cpu the app or component specified
+ * @returns {number} Percentage of the specified cpu in use
+ */
+function sampleCpuLoad(sample, specifiedCpu) {
+  const cpuUsage = sample.cpuTotal - sample.cpuTotalBefore;
+  const systemCpuUsage = sample.cpuSystem - sample.cpuSystemBefore;
+  return ((cpuUsage / systemCpuUsage) * sample.onlineCpus * 100) / specifiedCpu || 0;
+}
+
+/**
  * Check if applications are throttling CPU and adjust CPU limits
  * @param {object} appsMonitored - Applications monitoring data
  * @param {Function} installedApps - Async function to get installed apps
@@ -666,7 +770,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled) {
       if (app.version <= 3) {
-        stats = appsMonitored[app.name]?.lastHourstatsStore;
+        stats = cpuDecisionWindow(appsMonitored[app.name]);
         // eslint-disable-next-line no-await-in-loop
         const inspect = await dockerService.dockerContainerInspect(app.name);
         // Skip CPU throttling for containers with CFS burst actively applied.
@@ -678,7 +782,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
           log.info(`checkApplicationsCpuUSage ${app.name} burst-active, skipping CPU throttling`);
           if (appsMonitored[app.name]) {
             // eslint-disable-next-line no-param-reassign
-            appsMonitored[app.name].lastHourstatsStore = [];
+            appsMonitored[app.name].lastCpuDecisionAt = monotonicMs();
           }
           // eslint-disable-next-line no-continue
           continue;
@@ -688,22 +792,18 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
           let cpuThrottlingRuns = 0;
           let cpuThrottling = false;
           const cpuPercentage = nanoCpus / app.cpu / 1e9;
-          // eslint-disable-next-line no-restricted-syntax
-          for (const stat of stats) {
-            const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
-            const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
-            const cpu = ((cpuUsage / systemCpuUsage) * stat.data.cpu_stats.online_cpus * 100) / app.cpu || 0;
-            const realCpu = cpu / cpuPercentage;
+          stats.forEach((stat) => {
+            const realCpu = sampleCpuLoad(stat, app.cpu) / cpuPercentage;
             if (realCpu >= 92) {
               cpuThrottlingRuns += 1;
             }
-          }
+          });
           if (cpuThrottlingRuns >= stats.length * 0.8) {
             // cpu was high on 80% of the checks
             cpuThrottling = true;
           }
           // eslint-disable-next-line no-param-reassign
-          appsMonitored[app.name].lastHourstatsStore = [];
+          appsMonitored[app.name].lastCpuDecisionAt = monotonicMs();
           log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: ${cpuThrottling}`);
           log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
           if (cpuThrottling && app.cpu > 1) {
@@ -739,7 +839,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of app.compose) {
           const compName = `${appComponent.name}_${app.name}`;
-          stats = appsMonitored[compName]?.lastHourstatsStore;
+          stats = cpuDecisionWindow(appsMonitored[compName]);
           // eslint-disable-next-line no-await-in-loop
           const inspect = await dockerService.dockerContainerInspect(compName);
           // Skip CPU throttling for components with CFS burst actively applied.
@@ -750,7 +850,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
             log.info(`checkApplicationsCpuUSage ${compName} burst-active, skipping CPU throttling`);
             if (appsMonitored[compName]) {
               // eslint-disable-next-line no-param-reassign
-              appsMonitored[compName].lastHourstatsStore = [];
+              appsMonitored[compName].lastCpuDecisionAt = monotonicMs();
             }
             // eslint-disable-next-line no-continue
             continue;
@@ -760,22 +860,18 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
             let cpuThrottlingRuns = 0;
             let cpuThrottling = false;
             const cpuPercentage = nanoCpus / appComponent.cpu / 1e9;
-            // eslint-disable-next-line no-restricted-syntax
-            for (const stat of stats) {
-              const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
-              const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
-              const cpu = ((cpuUsage / systemCpuUsage) * 100 * stat.data.cpu_stats.online_cpus) / appComponent.cpu || 0;
-              const realCpu = cpu / cpuPercentage;
+            stats.forEach((stat) => {
+              const realCpu = sampleCpuLoad(stat, appComponent.cpu) / cpuPercentage;
               if (realCpu >= 92) {
                 cpuThrottlingRuns += 1;
               }
-            }
+            });
             if (cpuThrottlingRuns >= stats.length * 0.8) {
               // cpu was high on 80% of the checks
               cpuThrottling = true;
             }
             // eslint-disable-next-line no-param-reassign
-            appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
+            appsMonitored[compName].lastCpuDecisionAt = monotonicMs();
             log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
             log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
             if (cpuThrottling && appComponent.cpu > 1) {
@@ -984,10 +1080,8 @@ module.exports = {
   appStats,
   appMonitor,
   appMonitorAPI,
-  appMonitorStream,
   appExec,
   appChanges,
-  getAppFolderSize,
   startAppMonitoring,
   stopAppMonitoring,
   listAppsImages,

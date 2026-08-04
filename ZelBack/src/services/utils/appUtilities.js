@@ -1,4 +1,3 @@
-const path = require('path');
 const util = require('util');
 const fs = require('fs/promises');
 const nodecmd = require('node-cmd');
@@ -16,7 +15,6 @@ const fluxCaching = require('./cacheManager');
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 const cmdAsync = util.promisify(nodecmd.run);
-const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 
 /**
  * Calculate app price per month
@@ -154,25 +152,6 @@ async function nodeFullGeolocation() {
   }
   const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`;
   return myNodeLocationFull;
-}
-
-/**
- * Get app folder size
- * @param {string} appName - Application name
- * @returns {Promise<number>} Folder size in bytes
- */
-async function getAppFolderSize(appName) {
-  try {
-    const appsDirPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
-    const directoryPath = path.join(appsDirPath, appName);
-    const exec = `sudo du -s --block-size=1 ${directoryPath}`;
-    const cmdres = await cmdAsync(exec);
-    const size = serviceHelper.ensureString(cmdres).split('\t')[0] || 0;
-    return size;
-  } catch (error) {
-    log.error(`Error getting app folder size: ${error.message}`);
-    return 0;
-  }
 }
 
 /**
@@ -1167,7 +1146,6 @@ module.exports = {
   appPricePerMonth,
   appUsesGSyncthingMode,
   findCommonArchitectures,
-  getAppFolderSize,
   getAppPorts,
   getContainerStorage,
   getNonGComponentIdentifiers,

@@ -23,7 +23,6 @@ describe('appInspector tests', () => {
       appDockerStats: sinon.stub(),
       appDockerUpdateCpu: sinon.stub().resolves(),
       dockerContainerInspect: sinon.stub(),
-      dockerContainerStatsStream: (containerId, callback) => callback(null, {}),
     };
 
     cpuBurstHelperStub = {
@@ -708,33 +707,99 @@ describe('appInspector tests', () => {
   });
 
   describe('appMonitor tests', () => {
-    const stats = [
-      { timestamp: 1_000, data: { cpu: 1 } },
-      { timestamp: 2_000, data: { cpu: 2 } },
-    ];
+    // Samples are held as the handful of values the consumers read; the endpoint
+    // puts them back into the docker stats shape callers already parse.
+    function sample(timestamp, overrides = {}) {
+      return {
+        timestamp,
+        elapsed: timestamp,
+        cpuTotal: 200,
+        cpuTotalBefore: 100,
+        cpuSystem: 400,
+        cpuSystemBefore: 200,
+        onlineCpus: 2,
+        nanoCpus: 2e9,
+        memoryUsage: 1024,
+        memoryLimit: 4096,
+        ioRead: 10,
+        ioWrite: 20,
+        networkRx: 30,
+        networkTx: 40,
+        disk: {
+          bind: 5, volume: 0, rootfs: 0, used: 5, status: 'ok',
+        },
+        ...overrides,
+      };
+    }
+
+    const stats = [sample(1_000), sample(2_000)];
 
     it('should return every collected sample when no range is given', () => {
       globalStateStub.appsMonitored = { test_myapp: { statsStore: stats } };
 
-      expect(appInspector.appMonitor('test_myapp')).to.deep.equal(stats);
+      const result = appInspector.appMonitor('test_myapp');
+
+      expect(result.map((s) => s.timestamp)).to.deep.equal([1_000, 2_000]);
+    });
+
+    it('should report a sample in the shape consumers parse', () => {
+      globalStateStub.appsMonitored = { test_myapp: { statsStore: [sample(1_000)] } };
+
+      const [{ data }] = appInspector.appMonitor('test_myapp');
+
+      expect(data.cpu_stats.cpu_usage.total_usage).to.equal(200);
+      expect(data.precpu_stats.cpu_usage.total_usage).to.equal(100);
+      expect(data.cpu_stats.system_cpu_usage).to.equal(400);
+      expect(data.precpu_stats.system_cpu_usage).to.equal(200);
+      expect(data.cpu_stats.online_cpus).to.equal(2);
+      expect(data.nanoCpus).to.equal(2e9);
+      expect(data.memory_stats).to.deep.equal({ usage: 1024, limit: 4096 });
+      expect(data.networks.eth0).to.deep.equal({ rx_bytes: 30, tx_bytes: 40 });
+      expect(data.disk_stats.bind).to.equal(5);
+    });
+
+    // The chart sums the blkio entries because docker reports one per device in
+    // the stack. Reporting the totals as a read and a write entry gives the same
+    // sum, and gives a caller that reads only the first entry the true figure.
+    it('should report summed disk io as one read and one write entry', () => {
+      globalStateStub.appsMonitored = { test_myapp: { statsStore: [sample(1_000)] } };
+
+      const [{ data }] = appInspector.appMonitor('test_myapp');
+
+      expect(data.blkio_stats.io_service_bytes_recursive).to.deep.equal([
+        { op: 'read', value: 10 },
+        { op: 'write', value: 20 },
+      ]);
+    });
+
+    it('should report absent disk io as absent rather than zero', () => {
+      globalStateStub.appsMonitored = {
+        test_myapp: { statsStore: [sample(1_000, { ioRead: null, ioWrite: null })] },
+      };
+
+      const [{ data }] = appInspector.appMonitor('test_myapp');
+
+      expect(data.blkio_stats.io_service_bytes_recursive).to.be.null;
     });
 
     it('should drop samples older than the requested range', () => {
       const now = Date.now();
-      const recent = { timestamp: now - 1_000, data: { cpu: 3 } };
       globalStateStub.appsMonitored = {
-        test_myapp: { statsStore: [{ timestamp: now - 60_000, data: { cpu: 1 } }, recent] },
+        test_myapp: { statsStore: [sample(now - 60_000), sample(now - 1_000)] },
       };
 
-      expect(appInspector.appMonitor('test_myapp', 30_000)).to.deep.equal([recent]);
+      const result = appInspector.appMonitor('test_myapp', 30_000);
+
+      expect(result.map((s) => s.timestamp)).to.deep.equal([now - 1_000]);
     });
 
     it('should accept a range given as a string', () => {
       const now = Date.now();
-      const recent = { timestamp: now - 1_000, data: { cpu: 3 } };
-      globalStateStub.appsMonitored = { test_myapp: { statsStore: [recent] } };
+      globalStateStub.appsMonitored = { test_myapp: { statsStore: [sample(now - 1_000)] } };
 
-      expect(appInspector.appMonitor('test_myapp', '30000')).to.deep.equal([recent]);
+      const result = appInspector.appMonitor('test_myapp', '30000');
+
+      expect(result.map((s) => s.timestamp)).to.deep.equal([now - 1_000]);
     });
 
     it('should throw if no app name was passed', () => {
@@ -759,27 +824,54 @@ describe('appInspector tests', () => {
     // those take.
     describe('ranges beyond a day', () => {
       const DAY_MS = 24 * 60 * 60 * 1000;
+      const HOUR_MS = 60 * 60 * 1000;
 
-      function seed(count) {
+      // A minute apart, which is the sampler's cadence.
+      function seedMinutes(count) {
         const now = Date.now();
-        const samples = Array.from({ length: count }, (_, i) => ({
-          timestamp: now - (count - i) * 1000,
-          data: { cpu: i },
-        }));
+        const samples = Array.from(
+          { length: count },
+          (_, i) => sample(now - (count - 1 - i) * 60_000),
+        );
         globalStateStub.appsMonitored = { test_myapp: { statsStore: samples } };
         return samples;
       }
 
-      it('should keep every twentieth sample and the most recent one', () => {
-        const samples = seed(45);
+      it('should thin to one sample an hour', () => {
+        seedMinutes(6 * 60); // six hours of samples
 
-        const result = appInspector.appMonitor('test_myapp', DAY_MS + 1);
+        const result = appInspector.appMonitor('test_myapp', 2 * DAY_MS);
 
-        expect(result.map((s) => samples.indexOf(s))).to.deep.equal([0, 20, 40, 44]);
+        const gaps = result.slice(1).map((s, i) => s.timestamp - result[i].timestamp);
+        gaps.slice(0, -1).forEach((gap) => expect(gap).to.equal(HOUR_MS));
+        expect(result.length).to.be.within(6, 8);
+      });
+
+      // Thinning by position would drop it whenever the count is not a multiple of
+      // the stride, leaving the chart's right edge short of the present.
+      it('should always include the most recent sample', () => {
+        const samples = seedMinutes(6 * 60 + 7);
+
+        const result = appInspector.appMonitor('test_myapp', 2 * DAY_MS);
+
+        expect(result[result.length - 1].timestamp).to.equal(samples[samples.length - 1].timestamp);
+      });
+
+      // The store's cadence is the sampler's business, not the endpoint's: thinning
+      // reads timestamps, so a denser or sparser series still comes back hourly.
+      it('should thin to one an hour whatever the sampling cadence', () => {
+        const now = Date.now();
+        const samples = Array.from({ length: 72 }, (_, i) => sample(now - (71 - i) * 5 * 60_000));
+        globalStateStub.appsMonitored = { test_myapp: { statsStore: samples } };
+
+        const result = appInspector.appMonitor('test_myapp', 2 * DAY_MS);
+
+        const gaps = result.slice(1).map((s, i) => s.timestamp - result[i].timestamp);
+        gaps.slice(0, -1).forEach((gap) => expect(gap).to.equal(HOUR_MS));
       });
 
       it('should return every sample for a range of exactly one day', () => {
-        seed(45);
+        seedMinutes(45);
 
         const result = appInspector.appMonitor('test_myapp', DAY_MS);
 
@@ -787,9 +879,9 @@ describe('appInspector tests', () => {
       });
 
       it('should return every sample for ranges under a day', () => {
-        seed(45);
+        seedMinutes(45);
 
-        const result = appInspector.appMonitor('test_myapp', 60 * 60 * 1000);
+        const result = appInspector.appMonitor('test_myapp', HOUR_MS);
 
         expect(result).to.have.lengthOf(45);
       });
@@ -846,9 +938,10 @@ describe('appInspector tests', () => {
 
       await authorized.appMonitorAPI(req, res);
 
-      sinon.assert.calledOnceWithExactly(messageHelperStub.createDataMessage, stats);
+      const reported = messageHelperStub.createDataMessage.firstCall.args[0];
+      expect(reported.map((s) => s.timestamp)).to.deep.equal(stats.map((s) => s.timestamp));
       sinon.assert.notCalled(messageHelperStub.errUnauthorizedMessage);
-      sinon.assert.calledOnceWithExactly(res.json, stats);
+      sinon.assert.calledOnceWithExactly(res.json, reported);
     });
 
     it('should scope the privilege check to the parent app of a component', async () => {
@@ -979,7 +1072,9 @@ describe('appInspector tests', () => {
 
       await appInspector.appMonitorAPI(req, res);
 
-      expect(messageHelperStub.createDataMessage.calledOnceWithExactly(stats)).to.be.true;
+      expect(messageHelperStub.createDataMessage.calledOnce).to.be.true;
+      expect(messageHelperStub.createDataMessage.firstCall.args[0].map((s) => s.timestamp))
+        .to.deep.equal(stats.map((s) => s.timestamp));
       expect(res.json.calledOnceWithExactly(dataMessage)).to.be.true;
       expect(logStub.error.called).to.be.false;
     });
@@ -1004,7 +1099,9 @@ describe('appInspector tests', () => {
 
       await appInspector.appMonitorAPI(req, res);
 
-      expect(messageHelperStub.createDataMessage.calledOnceWithExactly(stats)).to.be.true;
+      expect(messageHelperStub.createDataMessage.calledOnce).to.be.true;
+      expect(messageHelperStub.createDataMessage.firstCall.args[0].map((s) => s.timestamp))
+        .to.deep.equal(stats.map((s) => s.timestamp));
       expect(res.json.calledOnceWithExactly(dataMessage)).to.be.true;
       expect(logStub.error.called).to.be.false;
     });
@@ -1034,201 +1131,6 @@ describe('appInspector tests', () => {
       await appInspector.appMonitorAPI(req, res);
 
       expect(res.json.called).to.be.true;
-    });
-  });
-
-  describe('appMonitorStream tests', () => {
-    it('should return error if no app name was passed', async () => {
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const res = {
-        json: sinon.stub(),
-        end: sinon.stub(),
-      };
-
-      messageHelperStub.createErrorMessage.returns({
-        status: 'error',
-        data: {
-          code: undefined,
-          name: 'Error',
-          message: 'No Flux App specified',
-        },
-      });
-
-      await appInspector.appMonitorStream(req, res);
-
-      expect(res.json.calledOnce).to.be.true;
-      expect(logStub.error.called).to.be.true;
-    });
-
-    it('should return error if user has no appowner privileges', async () => {
-      const appInspectorWithAuth = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
-        config: configStub,
-        '../dockerService': dockerServiceStub,
-        '../messageHelper': messageHelperStub,
-        '../../lib/log': logStub,
-        '../serviceHelper': {
-          ensureString: sinon.stub().returnsArg(0),
-        },
-        '../dbHelper': {
-          databaseConnection: sinon.stub(),
-        },
-        '../verificationHelper': {
-          verifyPrivilege: sinon.stub().resolves(false),
-        },
-        '../utils/appConstants': {
-          '../appQuery/appQueryService': {
-            decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
-          },
-          appConstants: {},
-        },
-        '../utils/appUtilities': {
-          getContainerStorage: sinon.stub().returns(0),
-        },
-        'node-cmd': {
-          run: (cmd, callback) => callback(null, 'data', 'stderr'),
-        },
-      });
-
-      const req = {
-        params: {
-          appname: 'test_myappname',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const res = {
-        json: sinon.stub(),
-        end: sinon.stub(),
-      };
-
-      messageHelperStub.createErrorMessage.returns({
-        status: 'error',
-        data: {
-          code: 401,
-          name: 'Unauthorized',
-          message: 'Unauthorized. Access denied.',
-        },
-      });
-
-      await appInspectorWithAuth.appMonitorStream(req, res);
-
-      expect(res.json.calledOnce).to.be.true;
-    });
-
-    it('should return app monitor stream, underscore in the name', async () => {
-      const dockerServiceWithStream = {
-        ...dockerServiceStub,
-        dockerContainerStatsStream: (appname, req, res, callback) => {
-          res.write('data');
-          if (callback) callback(null);
-        },
-      };
-
-      const appInspectorWithStream = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
-        config: configStub,
-        '../dockerService': dockerServiceWithStream,
-        '../messageHelper': messageHelperStub,
-        '../../lib/log': logStub,
-        '../serviceHelper': {
-          ensureString: sinon.stub().returnsArg(0),
-        },
-        '../dbHelper': {
-          databaseConnection: sinon.stub(),
-        },
-        '../verificationHelper': {
-          verifyPrivilege: sinon.stub().resolves(true),
-        },
-        '../utils/appConstants': {
-          appConstants: {},
-        },
-        '../utils/appUtilities': {
-          getContainerStorage: sinon.stub().returns(0),
-        },
-        'node-cmd': {
-          run: (cmd, callback) => callback(null, 'data', 'stderr'),
-        },
-      });
-
-      const req = {
-        params: {
-          appname: 'test_myappname',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const res = {
-        json: sinon.stub(),
-        write: sinon.stub(),
-        setHeader: sinon.stub(),
-        end: sinon.stub(),
-      };
-
-      await appInspectorWithStream.appMonitorStream(req, res);
-
-      expect(res.end.called || res.write.called).to.be.true;
-    });
-
-    it('should return app monitor stream, no underscore in the name', async () => {
-      const dockerServiceWithStream = {
-        ...dockerServiceStub,
-        dockerContainerStatsStream: (appname, req, res, callback) => {
-          res.write('data');
-          if (callback) callback(null);
-        },
-      };
-
-      const appInspectorWithStream = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
-        config: configStub,
-        '../dockerService': dockerServiceWithStream,
-        '../messageHelper': messageHelperStub,
-        '../../lib/log': logStub,
-        '../serviceHelper': {
-          ensureString: sinon.stub().returnsArg(0),
-        },
-        '../dbHelper': {
-          databaseConnection: sinon.stub(),
-        },
-        '../verificationHelper': {
-          verifyPrivilege: sinon.stub().resolves(true),
-        },
-        '../utils/appConstants': {
-          appConstants: {},
-        },
-        '../utils/appUtilities': {
-          getContainerStorage: sinon.stub().returns(0),
-        },
-        'node-cmd': {
-          run: (cmd, callback) => callback(null, 'data', 'stderr'),
-        },
-      });
-
-      const req = {
-        params: {
-          appname: 'myappname',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const res = {
-        json: sinon.stub(),
-        write: sinon.stub(),
-        setHeader: sinon.stub(),
-        end: sinon.stub(),
-      };
-
-      await appInspectorWithStream.appMonitorStream(req, res);
-
-      expect(res.end.called || res.write.called).to.be.true;
     });
   });
 
@@ -1396,13 +1298,6 @@ describe('appInspector tests', () => {
     });
   });
 
-  describe('getAppFolderSize tests', () => {
-    it('should return folder size data', async () => {
-      const appName = 'testapp';
-      const result = await appInspector.getAppFolderSize(appName);
-      expect(result).to.exist;
-    });
-  });
 
   describe('listAppsImages tests', () => {
     it('should return error if dockerService throws, no response passed', async () => {
@@ -1478,20 +1373,19 @@ describe('appInspector tests', () => {
   describe('checkApplicationsCpuUSage', () => {
     // A sample carries its own cpu delta, so `ratio` is that sample's usage as a
     // fraction of one core-second: 1 is saturated, 0.5 is half loaded.
+    // elapsed is the monotonic clock the decision window filters on; timestamp is
+    // the wall clock the charts plot
+    const monotonicNow = () => Number(process.hrtime.bigint() / 1000000n);
+
     function cpuSample(ratio, minutesAgo) {
       return {
         timestamp: Date.now() - minutesAgo * 60 * 1000,
-        data: {
-          cpu_stats: {
-            cpu_usage: { total_usage: 100 + 100 * ratio },
-            system_cpu_usage: 200,
-            online_cpus: 2,
-          },
-          precpu_stats: {
-            cpu_usage: { total_usage: 100 },
-            system_cpu_usage: 100,
-          },
-        },
+        elapsed: monotonicNow() - minutesAgo * 60 * 1000,
+        cpuTotal: 100 + 100 * ratio,
+        cpuTotalBefore: 100,
+        cpuSystem: 200,
+        cpuSystemBefore: 100,
+        onlineCpus: 2,
       };
     }
 
@@ -1515,7 +1409,7 @@ describe('appInspector tests', () => {
     });
 
     it('lowers cpu when load was high on at least 80% of the window', async () => {
-      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 1, 1]) } };
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 1, 1]) } };
 
       await appInspector.checkApplicationsCpuUSage(
         globalStateStub.appsMonitored,
@@ -1526,7 +1420,7 @@ describe('appInspector tests', () => {
     });
 
     it('leaves cpu alone when load was high on less than 80% of the window', async () => {
-      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 0.5, 0.5]) } };
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 0.5, 0.5]) } };
 
       await appInspector.checkApplicationsCpuUSage(
         globalStateStub.appsMonitored,
@@ -1541,7 +1435,7 @@ describe('appInspector tests', () => {
         HostConfig: { NanoCpus: 1.6e9 },
         State: { Pid: 1234 },
       });
-      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([0.5, 0.5, 0.5, 0.5, 0.5]) } };
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([0.5, 0.5, 0.5, 0.5, 0.5]) } };
 
       await appInspector.checkApplicationsCpuUSage(
         globalStateStub.appsMonitored,
@@ -1552,7 +1446,7 @@ describe('appInspector tests', () => {
     });
 
     it('makes no decision on four or fewer samples, and keeps them for the next pass', async () => {
-      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 1]) } };
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 1]) } };
 
       await appInspector.checkApplicationsCpuUSage(
         globalStateStub.appsMonitored,
@@ -1560,11 +1454,11 @@ describe('appInspector tests', () => {
       );
 
       expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
-      expect(globalStateStub.appsMonitored.myapp.lastHourstatsStore).to.have.lengthOf(4);
+      expect(globalStateStub.appsMonitored.myapp.statsStore).to.have.lengthOf(4);
     });
 
     it('does not reuse a sample in a later decision', async () => {
-      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 1, 1]) } };
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 1, 1]) } };
 
       await appInspector.checkApplicationsCpuUSage(
         globalStateStub.appsMonitored,
@@ -1581,7 +1475,7 @@ describe('appInspector tests', () => {
 
     it('makes no decision while cfs burst is applied, and consumes the window', async () => {
       cpuBurstHelperStub.isBurstActive.resolves(true);
-      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 1, 1]) } };
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 1, 1]) } };
 
       await appInspector.checkApplicationsCpuUSage(
         globalStateStub.appsMonitored,
@@ -1589,12 +1483,20 @@ describe('appInspector tests', () => {
       );
 
       expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
-      expect(globalStateStub.appsMonitored.myapp.lastHourstatsStore).to.be.empty;
+
+      // burst ends, but the samples it declined to judge are spent
+      cpuBurstHelperStub.isBurstActive.resolves(false);
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
     });
 
     it('keeps the window when docker cannot inspect the container', async () => {
       dockerServiceStub.dockerContainerInspect.resolves(null);
-      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 1, 1]) } };
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 1, 1]) } };
 
       await appInspector.checkApplicationsCpuUSage(
         globalStateStub.appsMonitored,
@@ -1602,7 +1504,7 @@ describe('appInspector tests', () => {
       );
 
       expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
-      expect(globalStateStub.appsMonitored.myapp.lastHourstatsStore).to.have.lengthOf(5);
+      expect(globalStateStub.appsMonitored.myapp.statsStore).to.have.lengthOf(5);
     });
 
     it('decides per component for a composed app', async () => {
@@ -1612,8 +1514,8 @@ describe('appInspector tests', () => {
         compose: [{ name: 'db', cpu: 2 }, { name: 'web', cpu: 2 }],
       };
       globalStateStub.appsMonitored = {
-        db_myapp: { lastHourstatsStore: window([1, 1, 1, 1, 1]) },
-        web_myapp: { lastHourstatsStore: window([0.5, 0.5, 0.5, 0.5, 0.5]) },
+        db_myapp: { statsStore: window([1, 1, 1, 1, 1]) },
+        web_myapp: { statsStore: window([0.5, 0.5, 0.5, 0.5, 0.5]) },
       };
 
       await appInspector.checkApplicationsCpuUSage(
@@ -1634,9 +1536,7 @@ describe('appInspector tests', () => {
       expect(appInspector.appLog).to.be.a('function');
       expect(appInspector.appStats).to.be.a('function');
       expect(appInspector.appMonitor).to.be.a('function');
-      expect(appInspector.appMonitorStream).to.be.a('function');
       expect(appInspector.appChanges).to.be.a('function');
-      expect(appInspector.getAppFolderSize).to.be.a('function');
       expect(appInspector.listAppsImages).to.be.a('function');
     });
   });
