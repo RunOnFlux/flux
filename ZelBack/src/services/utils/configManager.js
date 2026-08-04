@@ -44,6 +44,14 @@ class ConfigManager extends EventEmitter {
       // eslint-disable-next-line global-require
       const userconfig = require('../../../../config/userconfig');
 
+      // The writers rewrite this file whole, so a read can land between the truncate
+      // and the write. require() resolves an empty or truncated file to an object
+      // rather than throwing, which makes a missing `initial` the only evidence that
+      // it did.
+      if (!userconfig || typeof userconfig.initial !== 'object' || userconfig.initial === null) {
+        throw new Error('userconfig.js carries no initial section');
+      }
+
       // Set on globalThis for global access
       globalThis.userconfig = userconfig;
 
@@ -57,6 +65,13 @@ class ConfigManager extends EventEmitter {
       }
     } catch (error) {
       console.error('Error loading userconfig:', error);
+      // A node that already holds a config keeps it. The defaults below carry no zelid
+      // and no keypair, so publishing them over a good config would have the node act
+      // under an identity that is not its own — and the read that failed is most often
+      // a write in progress, which the next change event resolves.
+      if (globalThis.userconfig && globalThis.userconfig.initial) {
+        return;
+      }
       // Initialize with defaults if load fails
       globalThis.userconfig = {
         initial: {
