@@ -27,6 +27,39 @@ export function nodeClient(nodeNum) {
     return res.json();
   }
 
+  // The whole response, for endpoints whose answer is not only its body.
+  //
+  // get/getAuthed/post return parsed JSON because that is what almost every
+  // suite wants, but a 202 puts its answer in Location/Operation-Id/Retry-After
+  // and a refusal puts its answer in the status code - both invisible through
+  // those. The body is parsed when it is JSON and handed back as text when it
+  // is not, so a suite asserting on a failure sees what actually came back
+  // rather than a parse error standing in for it.
+  async function request(method, path, { body = null, headers = {} } = {}) {
+    const init = { method, headers: { ...headers } };
+    if (body !== null) {
+      init.headers['Content-Type'] = headers['Content-Type'] ?? 'application/json';
+      init.body = JSON.stringify(body);
+    }
+    const res = await fetch(`${url}${path}`, init);
+    const text = await res.text();
+    let data = text;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // not JSON - keep the text
+    }
+    return { status: res.status, headers: Object.fromEntries(res.headers), data };
+  }
+
+  async function del(path, zelidauth) {
+    const res = await fetch(`${url}${path}`, {
+      method: 'DELETE',
+      headers: zelidauth ? { zelidauth } : {},
+    });
+    return res.json();
+  }
+
   let eventSource = null;
   const eventBuffer = [];
   const emitter = new EventEmitter();
@@ -177,6 +210,8 @@ export function nodeClient(nodeNum) {
     get,
     getAuthed,
     post,
+    del,
+    request,
     connectEventStream,
     disconnectEventStream,
     waitForEvent,

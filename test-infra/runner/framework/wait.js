@@ -192,6 +192,36 @@ export async function waitForReconcileSwept(node, reason, timeout = 60000, opts)
   );
 }
 
+// A file operation answers 202 and reports its outcome through a status
+// resource. A poll is ALWAYS 200 whatever the job did - a failed operation is
+// still a successful poll - so the terminal condition is read from the body's
+// status field and never from the HTTP code.
+const TERMINAL_JOB_STATUSES = ['Succeeded', 'Failed', 'Canceled', 'Evicted'];
+
+/**
+ * Poll an operation until it settles, and hand back the whole job.
+ *
+ * Deliberately returns a failed job rather than throwing on one: a suite
+ * asserting that a hostile archive is refused wants the Failed job and its
+ * error, and an operation that never settles at all is this helper's only
+ * failure. Every poll goes through waitFor, so a dead infra container ends the
+ * wait as infra death rather than as this operation's timeout.
+ *
+ * @returns {Promise<object>} The terminal job document.
+ */
+export async function waitForOperation(node, jobId, zelidauth, { timeout = 180000, interval = 1000 } = {}) {
+  let job = null;
+  await waitFor(async () => {
+    const res = await node.request('GET', `/apps/operations/${jobId}`, { headers: { zelidauth } });
+    if (res.status !== 200) {
+      throw new Error(`poll of ${jobId} answered ${res.status}, expected 200: ${JSON.stringify(res.data)}`);
+    }
+    job = res.data?.data;
+    return TERMINAL_JOB_STATUSES.includes(job?.status);
+  }, { timeout, interval, label: `operation ${jobId} to reach a terminal status` });
+  return job;
+}
+
 /**
  * Negative assertion: wait `windowMs` and assert that NO event named `name`
  * matching `predicate` arrived in that window. Captures the current last-seen
