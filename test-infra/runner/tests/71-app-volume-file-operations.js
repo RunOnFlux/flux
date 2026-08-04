@@ -1,7 +1,7 @@
 import { describe, it, before, beforeEach, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { pushImage, mirrorExecutorImage } from '../framework/registry-helper.js';
+import { pushImage, mirrorExecutorImage, executorImageReference } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { waitFor, waitForOperation } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
@@ -56,17 +56,22 @@ describe('app volume file operations - the contract', function () {
   before(async function () {
     this.timeout(600000);
 
-    // Mirrored into the harness registry, not pulled from the public one: each
-    // node runs its own dockerd on a per-run volume, so every suite starts with
-    // an empty image store.
-    const image = await mirrorExecutorImage();
-
+    // The nodes are pointed at the harness registry, not the public one: each
+    // runs its own dockerd on a per-run volume, so every suite starts with an
+    // empty image store and would otherwise pull the same image once per node
+    // per suite from a rate-limited anonymous endpoint.
+    //
+    // The reference is known up front, but the COPY has to wait for the fleet:
+    // the registry it copies into is one of the containers createTestEnv starts.
     env = await createTestEnv({
       hookCtx: this,
       nodes: 3,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { volumeOperations: { image } } },
+      configOverrides: {
+        fluxapps: { volumeOperations: { image: executorImageReference() } },
+      },
     });
+    await mirrorExecutorImage();
     await bootAndPeer(env);
 
     await pushImage(appName, 'v1');

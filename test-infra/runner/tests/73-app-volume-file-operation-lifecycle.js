@@ -2,7 +2,7 @@ import { describe, it, before, beforeEach, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
-import { pushImage, mirrorExecutorImage } from '../framework/registry-helper.js';
+import { pushImage, mirrorExecutorImage, executorImageReference } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { waitFor, waitForOperation } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
@@ -47,7 +47,7 @@ describe('app volume file operations - lifecycle', function () {
 
   before(async function () {
     this.timeout(600000);
-    executorImage = await mirrorExecutorImage();
+    executorImage = executorImageReference();
 
     env = await createTestEnv({
       hookCtx: this,
@@ -65,6 +65,9 @@ describe('app volume file operations - lifecycle', function () {
         },
       },
     });
+    // After the fleet, not before: the registry this copies into is one of the
+    // containers createTestEnv starts.
+    await mirrorExecutorImage();
     await bootAndPeer(env);
 
     await pushImage(appName, 'v1');

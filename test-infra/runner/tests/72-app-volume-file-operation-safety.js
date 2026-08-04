@@ -2,7 +2,7 @@ import { describe, it, before, beforeEach, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer, restartFluxos } from '../framework/container.js';
-import { pushImage, mirrorExecutorImage } from '../framework/registry-helper.js';
+import { pushImage, mirrorExecutorImage, executorImageReference } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { waitFor, waitForOperation } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
@@ -52,14 +52,18 @@ describe('app volume file operations - safety and recovery', function () {
 
   before(async function () {
     this.timeout(600000);
-    const image = await mirrorExecutorImage();
-
+    // The reference is known up front; the COPY has to wait for the fleet,
+    // because the registry it copies into is one of the containers
+    // createTestEnv starts.
     env = await createTestEnv({
       hookCtx: this,
       nodes: 3,
       tickerAutostart: false,
-      configOverrides: { fluxapps: { volumeOperations: { image } } },
+      configOverrides: {
+        fluxapps: { volumeOperations: { image: executorImageReference() } },
+      },
     });
+    await mirrorExecutorImage();
     await bootAndPeer(env);
 
     await pushImage(appName, 'v1');

@@ -386,8 +386,40 @@ export async function mirrorImage(reference, repo = null) {
 const APP_CONFIG = join(__dirname, '..', '..', '..', 'ZelBack', 'config', 'default.js');
 const EXECUTOR_PIN = /['"]((?:[\w.-]+\/)+flux-volume-tools@sha256:[0-9a-f]{64})['"]/;
 
+function publishedExecutorImage() {
+  const source = readFileSync(APP_CONFIG, 'utf8');
+  const match = EXECUTOR_PIN.exec(source);
+  if (!match) {
+    throw new Error(`No digest-pinned flux-volume-tools reference found in ${APP_CONFIG}`);
+  }
+  return match[1];
+}
+
 /**
- * Mirror the executor image the app pins, and give back the harness reference.
+ * Where the nodes should look for the executor image, without fetching anything.
+ *
+ * Separate from the copy because of the order the two are needed in: the
+ * reference has to be known at createTestEnv time, to go into the config the
+ * nodes boot with, and the copy cannot happen until after it, because the
+ * registry being copied INTO is one of the containers createTestEnv starts.
+ * Deriving the reference needs no registry at all - it is the published one with
+ * the host swapped - so only the copy has to wait.
+ *
+ * Feed it to createTestEnv as
+ *
+ *   configOverrides: { fluxapps: { volumeOperations: { image } } }
+ *
+ * which is test-infra config only - no production code bends for the tests.
+ *
+ * @returns {string} the app's pinned image, addressed in the harness registry
+ */
+export function executorImageReference() {
+  const published = publishedExecutorImage();
+  return `${REGISTRY_REPO_HOST}/${published.slice(published.indexOf('/') + 1)}`;
+}
+
+/**
+ * Copy the executor image the app pins into the harness registry.
  *
  * The digest is read out of the app's own config rather than repeated here, so
  * it lives in exactly one place and rebuilding the image cannot leave the
@@ -395,24 +427,15 @@ const EXECUTOR_PIN = /['"]((?:[\w.-]+\/)+flux-volume-tools@sha256:[0-9a-f]{64})[
  * required, because that config pulls in userconfig.js, which is gitignored -
  * the runner would then depend on a file that is not in the checkout.
  *
- * Feed the return value to createTestEnv as
+ * Call it from a suite's `before`, AFTER createTestEnv and before the first
+ * operation - not from createTestEnv itself, because the sixty-odd suites that
+ * never run a file operation should not pay for the copy. Nothing pulls the
+ * image during a fleet boot or an app install; only a file operation does.
  *
- *   configOverrides: { fluxapps: { volumeOperations: { image } } }
- *
- * which is test-infra config only - no production code bends for the tests.
- *
- * Call it from a suite's `before`, not from createTestEnv: the sixty-odd suites
- * that never run a file operation should not pay for the copy.
- *
- * @returns {Promise<string>} the same image, addressed in the harness registry
+ * @returns {Promise<string>} the harness reference, matching executorImageReference
  */
 export async function mirrorExecutorImage() {
-  const source = readFileSync(APP_CONFIG, 'utf8');
-  const match = EXECUTOR_PIN.exec(source);
-  if (!match) {
-    throw new Error(`No digest-pinned flux-volume-tools reference found in ${APP_CONFIG}`);
-  }
-  return mirrorImage(match[1]);
+  return mirrorImage(publishedExecutorImage());
 }
 
 export async function pushUpdatedImage(repo, tag) {
