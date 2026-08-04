@@ -27,6 +27,11 @@ const GEO_SPECS = [
   ['acEU_FI'],
   ['acAS_BH'],
   ['acNA_US_California'],
+  // a legacy region name on a node the table places in a different country:
+  // the region NAME is still compared against the node's own self-report, but
+  // the continent and country it is compared alongside now come from the table
+  ['acEU_AT_Vienna'],
+  ['a!cEU_AT_Vienna'],
   ['acEU_FI_Uusimaa'],
   ['acEU_FI_NONE'],
   ['acALL'],
