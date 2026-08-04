@@ -18,6 +18,7 @@ const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const messageHelper = require('./services/messageHelper');
+const { rejectQueryParameters } = require('./services/utils/routeGuards');
 
 // App modular services
 const appQueryService = require('./services/appQuery/appQueryService');
@@ -480,7 +481,7 @@ module.exports = (app) => {
   app.post('/apps/placementfeasibility', (req, res) => { // fault domains and per-domain instance share for a prospective spec
     placementFeasibility.placementFeasibilityAPI(req, res);
   });
-  app.get('/apps/placementlocations', cache('30 seconds', cacheSuccessOnly), (req, res) => { // node, fault-domain and tier counts per continent/country
+  app.get('/apps/placementlocations', rejectQueryParameters, cache('30 seconds', cacheSuccessOnly), (req, res) => { // node, fault-domain and tier counts per continent/country
     placementFeasibility.placementLocationsAPI(req, res);
   });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
