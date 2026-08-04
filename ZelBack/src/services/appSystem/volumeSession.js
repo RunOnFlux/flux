@@ -281,6 +281,50 @@ class VolumeSession {
   }
 
   /**
+   * Whether this path is a directory, following nothing.
+   *
+   * A symlink answers false however it resolves, which is what the callers
+   * want: an archiver is given the link itself, not the tree behind it.
+   *
+   * @param {VolumePath} volumePath
+   * @returns {Promise<boolean>}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  async isDirectory(volumePath) {
+    if (!(volumePath instanceof VolumePath)) {
+      throw new Error('isDirectory requires a VolumePath');
+    }
+    const stats = await fs.lstat(volumePath.hostPath).catch((error) => {
+      if (error.code === 'ENOENT') throw new Error('Source does not exist');
+      throw error;
+    });
+    return stats.isDirectory();
+  }
+
+  /**
+   * The directory containing this path.
+   *
+   * Built rather than resolved: the path it derives from has already passed
+   * every guard, and its parent was itself checked for containment on the way
+   * through. Re-resolving would re-run those checks against a volume the app
+   * can change underneath us, which is a second answer to a settled question
+   * rather than a stronger one.
+   *
+   * @param {VolumePath} volumePath
+   * @returns {VolumePath}
+   */
+  parent(volumePath) {
+    if (!(volumePath instanceof VolumePath)) {
+      throw new Error('parent requires a VolumePath');
+    }
+    const relative = path.dirname(volumePath.relative);
+    // dirname of a top-level entry is '.', which as a relative path means the
+    // mount root - the form VolumePath spells ''.
+    const normalised = relative === '.' ? '' : relative;
+    return new VolumePath(path.join(this.#mount, normalised), normalised, VolumePath);
+  }
+
+  /**
    * Byte cost of an operation whose source is this path.
    *
    * Symlinks measure zero - cp -a and the archivers copy the link, not what it

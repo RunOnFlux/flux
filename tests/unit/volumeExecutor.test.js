@@ -157,6 +157,33 @@ describe('volumeExecutor tests', () => {
       const [options] = dockerServiceStub.createContainer.firstCall.args;
       expect(options.Labels['runonflux.role']).to.equal('fileop');
     });
+
+    it('runs at the volume root unless told otherwise', async () => {
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      const [options] = dockerServiceStub.createContainer.firstCall.args;
+      expect(options.WorkingDir).to.equal('/work');
+    });
+
+    it('runs where the caller asks, so an archiver stores the layout it should', async () => {
+      const vol = await openSession();
+      const dir = await vol.resolve('photos');
+      await volumeExecutor.run(vol, ['true'], { workingDir: dir });
+
+      const [options] = dockerServiceStub.createContainer.firstCall.args;
+      expect(options.WorkingDir).to.equal('/work/photos');
+    });
+
+    it('refuses a working directory that did not come from the session', async () => {
+      // The same discipline as the operands: a path that skipped the session's
+      // checks must produce code that does not run, not a container pointed
+      // somewhere nobody verified.
+      const vol = await openSession();
+
+      await expect(volumeExecutor.run(vol, ['true'], { workingDir: '/work/photos' }))
+        .to.be.rejectedWith('workingDir must be a VolumePath');
+    });
   });
 
   describe('run - fetching the executor image', () => {

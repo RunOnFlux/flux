@@ -278,6 +278,57 @@ describe('volumeSession tests', () => {
     });
   });
 
+  describe('isDirectory', () => {
+    it('answers true for a directory', async () => {
+      fsStub.lstat.withArgs(`${MOUNT}/dir`).resolves({ isSymbolicLink: () => false, isDirectory: () => true });
+      const vol = await volumeSession.openVolume(reqFor());
+
+      expect(await vol.isDirectory(await vol.resolve('dir'))).to.equal(true);
+    });
+
+    it('answers false for a symlink, however it resolves', async () => {
+      // An archiver is handed the link itself, so a link to a directory must
+      // not be archived as though the tree behind it were the source.
+      fsStub.lstat.withArgs(`${MOUNT}/link`).resolves({ isSymbolicLink: () => true, isDirectory: () => false });
+      const vol = await volumeSession.openVolume(reqFor());
+
+      expect(await vol.isDirectory(await vol.resolve('link'))).to.equal(false);
+    });
+
+    it('rejects a plain string', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      await expect(vol.isDirectory(`${MOUNT}/a.txt`)).to.be.rejectedWith('requires a VolumePath');
+    });
+  });
+
+  describe('parent', () => {
+    it('gives the containing directory', async () => {
+      fsStub.lstat.withArgs(`${MOUNT}/a/b.txt`).resolves({ isSymbolicLink: () => false, isDirectory: () => false });
+      const vol = await volumeSession.openVolume(reqFor());
+      const parent = vol.parent(await vol.resolve('a/b.txt'));
+
+      expect(parent.relative).to.equal('a');
+      expect(parent.containerPath).to.equal('/work/a');
+    });
+
+    it('gives the volume root for a top-level entry', async () => {
+      // dirname of a bare name is '.', which as a host path would be the
+      // process working directory rather than the mount.
+      fsStub.lstat.withArgs(`${MOUNT}/b.txt`).resolves({ isSymbolicLink: () => false, isDirectory: () => false });
+      const vol = await volumeSession.openVolume(reqFor());
+      const parent = vol.parent(await vol.resolve('b.txt'));
+
+      expect(parent.relative).to.equal('');
+      expect(parent.containerPath).to.equal('/work');
+      expect(parent.hostPath).to.equal(MOUNT);
+    });
+
+    it('rejects a plain string', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      expect(() => vol.parent(`${MOUNT}/a.txt`)).to.throw('requires a VolumePath');
+    });
+  });
+
   describe('requireSpace', () => {
     it('applies headroom rather than accepting an exact fit', async () => {
       const vol = await volumeSession.openVolume(reqFor());

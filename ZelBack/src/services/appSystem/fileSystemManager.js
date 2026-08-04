@@ -385,8 +385,12 @@ function startOperation(res, volume, meta, work) {
  * @returns {'zip'|'tar'|null}
  */
 function archiveFormat(name) {
-  if (name.endsWith('.zip')) return 'zip';
-  if (name.endsWith('.tar.gz') || name.endsWith('.tgz')) return 'tar';
+  // Case-insensitive: an extension is a convention, not an identifier, and
+  // plenty of software writes BACKUP.ZIP. Refusing to extract one with a
+  // message listing the extension it plainly has reads as a broken endpoint.
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.zip')) return 'zip';
+  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) return 'tar';
   return null;
 }
 
@@ -469,17 +473,34 @@ async function compressAppsObject(req, res) {
     // safe over-estimate rather than a guess.
     volume.requireSpace(await volume.measure(source));
 
+    // An archive holds the source's CONTENTS at its top level, so extracting it
+    // to a destination reproduces the source under that name - compress then
+    // extract returns what went in.
+    //
+    // Both archivers decide their layout from where they run and what they are
+    // handed, and neither infers anything useful from an absolute operand: zip
+    // stores the whole path minus its leading slash, which would put an
+    // internal mount directory the user has never seen inside their archive,
+    // and tar's -C cannot be pointed at a file at all. Running in the right
+    // directory and passing a bare operand is what makes the two agree, and is
+    // the only form that works for a single file.
+    const sourceIsDirectory = await volume.isDirectory(source);
+    const workingDir = sourceIsDirectory ? source : volume.parent(source);
+    const operand = sourceIsDirectory ? '.' : path.basename(source.relative);
+
     const staging = volume.staging();
     const argv = format === 'zip'
-      // -r recurses, -q keeps the per-file listing out of the container's output
-      ? ['zip', '-r', '-q', staging, source]
-      : ['tar', '-czf', staging, '-C', source, '.'];
+      // -r recurses, -q keeps the per-file listing out of the container's
+      // output, -y stores a symlink as a symlink instead of the file it points
+      // at, which is what tar and cp -a already do.
+      ? ['zip', '-r', '-q', '-y', staging, operand]
+      : ['tar', '-czf', staging, operand];
 
     // Bytes written to the archive, with no total: how far a source of a known
     // size compresses is not knowable until it has.
     return startOperation(res, volume, {
       kind: 'fileoperation.compress', status: 'Compressing...', owner: volume.owner, trackBytes: true,
-    }, (progress) => executor.run(volume, argv, { ...progress, publish: { staging, destination } }));
+    }, (progress) => executor.run(volume, argv, { ...progress, workingDir, publish: { staging, destination } }));
   } catch (error) {
     respondError(res, error);
   }

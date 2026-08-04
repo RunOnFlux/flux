@@ -326,7 +326,7 @@ async function measureStaging(root, fsPromises) {
  * needed to read and re-stamp files the container does not own. Everything else
  * stays dropped, including MKNOD, so an archive cannot create device nodes.
  */
-function containerOptions(session, argv) {
+function containerOptions(session, argv, workingDir = WORK_ROOT) {
   const {
     image, memoryBytes, pidsLimit,
   } = settings();
@@ -334,7 +334,7 @@ function containerOptions(session, argv) {
   return {
     Image: image,
     Cmd: argv,
-    WorkingDir: WORK_ROOT,
+    WorkingDir: workingDir,
     Labels: { ...EXECUTOR_LABELS, 'runonflux.app': session.identifier },
     AttachStdout: true,
     AttachStderr: true,
@@ -397,17 +397,25 @@ function containerOptions(session, argv) {
  *   itself, because an archive's declared sizes are written by whoever built it.
  * @param {boolean} [options.noLinks] - refuse a result containing symlinks or
  *   hard links.
+ * @param {VolumePath} [options.workingDir] - the directory the command runs in,
+ *   defaulting to the volume root. An archiver decides its stored layout from
+ *   where it is run and what it is handed, and zip has no equivalent of tar's
+ *   -C, so this is the only way to make the two agree.
  * @returns {Promise<void>} resolves when the operation succeeded
  */
 async function run(session, argv, options = {}) {
   const {
     onProgress = null, isCanceled = null, status = 'Working...',
     publish = null, mkdirStaging = false, maxBytes = 0, noLinks = false,
-    onBytes = null,
+    onBytes = null, workingDir = null,
   } = options;
 
   if (!(session instanceof VolumeSession)) {
     throw new Error('run requires a VolumeSession');
+  }
+
+  if (workingDir && !(workingDir instanceof VolumePath)) {
+    throw new Error('workingDir must be a VolumePath');
   }
 
   const toParam = (arg) => {
@@ -467,7 +475,9 @@ async function run(session, argv, options = {}) {
     await ensureImage(onProgress);
     await assertMountIsLive(session);
 
-    container = await dockerService.createContainer(containerOptions(session, params));
+    container = await dockerService.createContainer(
+      containerOptions(session, params, workingDir ? workingDir.containerPath : undefined),
+    );
 
     // Opened BEFORE start, and on next-exit rather than the default. The
     // default condition is "not-running", which a created container already

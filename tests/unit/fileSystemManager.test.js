@@ -37,6 +37,15 @@ describe('fileSystemManager tests', () => {
       staging: sinon.stub().returns(volumePath('.flux-op-abc')),
       measure: sinon.stub().resolves(1000),
       requireSpace: sinon.stub(),
+      // Defaults to a directory because that is the common case; the
+      // single-file tests below flip it. A stub's default is a coverage
+      // decision - left off entirely, compress would throw inside its try and
+      // every assertion here would be made against the error branch.
+      isDirectory: sinon.stub().resolves(true),
+      parent: sinon.stub().callsFake((p) => {
+        const at = p.relative.lastIndexOf('/');
+        return volumePath(at === -1 ? '' : p.relative.slice(0, at));
+      }),
     };
 
     // proxyquire.noCallThru() replaces a module WHOLE: anything the subject
@@ -255,14 +264,58 @@ describe('fileSystemManager tests', () => {
       req.body.destination = 'backup.zip';
       await fileSystemManager.compressAppsObject(req, res);
 
-      expect(argv()).to.deep.equal(['zip', '-r', '-q', '/work/.flux-op-abc', '/work/uploads']);
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc', '.']);
     });
 
     it('writes a tarball when the destination says .tar.gz', async () => {
       req.body.destination = 'backup.tar.gz';
       await fileSystemManager.compressAppsObject(req, res);
 
-      expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', '-C', '/work/uploads', '.']);
+      expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', '.']);
+    });
+
+    it('archives a directory from inside itself, so its CONTENTS are at the top', async () => {
+      // Absolute operands are what broke this: zip stores the whole path minus
+      // its leading slash, so the archive carried a `work/` directory named
+      // after an internal mount point, and extracting it did not give back what
+      // was compressed.
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(runOptions().workingDir.containerPath).to.equal('/work/uploads');
+      expect(argv()).to.not.include('/work/uploads');
+    });
+
+    it('archives a single file from its parent, naming just the file', async () => {
+      // tar -C cannot be pointed at a non-directory, so this shape failed
+      // outright for .tar.gz while the same request with .zip succeeded.
+      sessionStub.isDirectory.resolves(false);
+      req.body.source = 'uploads/notes.txt';
+      req.body.destination = 'backup.tar.gz';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(runOptions().workingDir.containerPath).to.equal('/work/uploads');
+      expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', 'notes.txt']);
+    });
+
+    it('archives a single file at the volume root from the root', async () => {
+      sessionStub.isDirectory.resolves(false);
+      req.body.source = 'notes.txt';
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(runOptions().workingDir.containerPath).to.equal('/work');
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc', 'notes.txt']);
+    });
+
+    it('stores a symlink as a symlink rather than the file it points at', async () => {
+      // Without -y, zip follows the link and copies the target's CONTENTS into
+      // the archive - which tar and cp -a never do, and which turns a link the
+      // extract side would refuse into ordinary content it accepts.
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(argv()).to.include('-y');
     });
 
     it('refuses an extension it cannot produce', async () => {
@@ -271,6 +324,13 @@ describe('fileSystemManager tests', () => {
 
       expect(executorStub.run.called).to.equal(false);
       expect(res.json.firstCall.args[0].data.message).to.match(/must end in/);
+    });
+
+    it('accepts an extension in capitals', async () => {
+      req.body.destination = 'BACKUP.ZIP';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(argv()[0]).to.equal('zip');
     });
   });
 
@@ -327,6 +387,15 @@ describe('fileSystemManager tests', () => {
 
       expect(executorStub.run.called).to.equal(false);
       expect(res.json.firstCall.args[0].data.message).to.match(/must be a \.zip/);
+    });
+
+    it('accepts an uploaded archive whose extension is in capitals', async () => {
+      // Plenty of software writes BACKUP.ZIP. Refusing it with a message
+      // listing the extension it plainly has reads as a broken endpoint.
+      req.body.source = 'BACKUP.ZIP';
+      await fileSystemManager.extractAppsObject(req, res);
+
+      expect(argv()[0]).to.equal('unzip');
     });
   });
 
