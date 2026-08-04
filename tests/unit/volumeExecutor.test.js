@@ -80,10 +80,20 @@ describe('volumeExecutor tests', () => {
       runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
     };
 
-    // Only the progress walk reads this - the sweep takes its fs as an
-    // argument. Deliberately WITHOUT a `stat`, so a walk that followed symlinks
-    // would fail loudly here rather than silently leaving the volume.
-    fsStub = { promises: { lstat: sinon.stub().rejects(new Error('ENOENT')), readdir: sinon.stub().resolves([]) } };
+    // Deliberately WITHOUT a `stat`, so a walk that followed symlinks would
+    // fail loudly here rather than silently leaving the volume.
+    //
+    // statfs is what running progress is read from - one syscall per tick
+    // instead of a walk of the staging tree. Omitting it would make every byte
+    // figure undefined at the CALL rather than at load, inside a try, which is
+    // how five earlier stubs in this suite passed while exercising nothing.
+    fsStub = {
+      promises: {
+        lstat: sinon.stub().rejects(new Error('ENOENT')),
+        readdir: sinon.stub().resolves([]),
+        statfs: sinon.stub().resolves({ bsize: 4096, blocks: 1000, bfree: 1000 }),
+      },
+    };
 
     volumeSession = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
       '../deviceHelper': deviceHelperStub,
@@ -685,10 +695,9 @@ describe('volumeExecutor tests', () => {
       expect(result).to.deep.equal({ removed: [], restored: [] });
     });
   });
-
   describe('run - byte progress', () => {
-    // The ticker is the only thing that reads bytes, so the container has to
-    // outlive at least one tick (progressIntervalMs is 50 in this config).
+    // The container has to outlive at least one tick (progressIntervalMs is 50
+    // in this config) for the ticker to read anything.
     const runsFor = (ms) => sinon.stub().returns(
       new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), ms); }),
     );
@@ -700,103 +709,84 @@ describe('volumeExecutor tests', () => {
       destination: await vol.resolve('out'),
     });
 
-    it('reports the bytes sitting under staging, measured from the host path', async () => {
-      const vol = await openSession();
-      const publish = await operands(vol);
-      containerStub.wait = runsFor(180);
-      fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
-
-      const seen = [];
-      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
-
-      expect(seen).to.not.deep.equal([]);
-      expect(seen[0]).to.equal(4096);
-      expect(fsStub.promises.lstat.firstCall.args[0]).to.equal(`${MOUNT}/.flux-op-x`);
-    });
-
-    it('sums a tree without following a symlink out of the volume', async () => {
-      const vol = await openSession();
-      const publish = await operands(vol);
-      containerStub.wait = runsFor(180);
-
-      const root = `${MOUNT}/.flux-op-x`;
-      fsStub.promises.lstat = sinon.stub().callsFake(async (p) => {
-        if (p === root) return { isDirectory: () => true, isFile: () => false };
-        // neither a file nor a directory: what lstat reports for a symlink
-        if (p === `${root}/escape`) return { isDirectory: () => false, isFile: () => false };
-        return fileEntry(1000);
+    /** statfs answers, in order, as the volume fills. */
+    const fills = (...usedBlocks) => {
+      const stub = sinon.stub();
+      usedBlocks.forEach((used, i) => {
+        stub.onCall(i).resolves({ bsize: 4096, blocks: 100000, bfree: 100000 - used });
       });
-      fsStub.promises.readdir = sinon.stub().resolves(['one', 'two', 'escape']);
+      stub.resolves({ bsize: 4096, blocks: 100000, bfree: 100000 - usedBlocks[usedBlocks.length - 1] });
+      return stub;
+    };
 
-      const seen = [];
-      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
-
-      // 2000, not 3000: the link contributes nothing, because cp -a copies the
-      // link rather than what it points at - and stat() would have followed it
-      // straight out of the volume.
-      expect(seen[0]).to.equal(2000);
-      expect(fsStub.promises.stat).to.equal(undefined);
-    });
-
-    it('gives up rather than reporting a figure it cannot keep up with', async () => {
+    it('reads progress from the filesystem, not by walking the staging tree', async () => {
+      // A walk of 20,000 files costs 179ms and repeats every tick; for an app
+      // with 30,000 that is a tenth of a core burned to draw a progress bar.
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
-
-      // More entries than one walk is allowed to stat.
-      const root = `${MOUNT}/.flux-op-x`;
-      fsStub.promises.lstat = sinon.stub().callsFake(async (p) => (
-        p === root ? { isDirectory: () => true, isFile: () => false } : fileEntry(1)
-      ));
-      fsStub.promises.readdir = sinon.stub().resolves(Array.from({ length: 30000 }, (_, i) => `f${i}`));
-
-      const seen = [];
-      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
-
-      // null, not a number: a bar that stalls and then jumps makes a promise a
-      // spinner never did.
-      expect(seen).to.deep.equal([null]);
-    });
-
-    it('measures nothing for a caller that did not ask', async () => {
-      // A move publishes its source where it stands, so staging is the whole
-      // operation from the first tick and its size says nothing about progress.
-      // The caller opts in; this asserts the executor stays out of it otherwise.
-      const vol = await openSession();
-      const publish = await operands(vol);
-      containerStub.wait = runsFor(180);
+      fsStub.promises.statfs = fills(10, 20, 30);
       fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
 
-      await volumeExecutor.run(vol, [], { publish });
+      const seen = [];
+      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
 
-      expect(fsStub.promises.lstat.called).to.equal(false);
+      expect(fsStub.promises.statfs.called).to.equal(true);
+      // The staging path is never walked while the operation runs. The one
+      // lstat call is the final reading, at the destination.
+      const walked = fsStub.promises.lstat.getCalls().map((c) => c.args[0]);
+      expect(walked.filter((p) => p.includes('.flux-op-x'))).to.deep.equal([]);
+      expect(seen).to.not.deep.equal([]);
     });
 
-    it('reports what was published once it succeeds, not whichever tick landed last', async () => {
-      // The ticker's last figure is from whenever its last walk finished, so it
-      // is short of the truth by however much was written after it. Without a
-      // final reading the job says Succeeded while the bytes say 87%, and the
-      // bar never arrives.
+    it('reports what the volume has gained since the operation began', async () => {
+      // Not what the volume holds: the app's existing data is not this copy's
+      // work, so progress is the difference from a baseline taken at the start.
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
+      fsStub.promises.statfs = fills(1000, 1010, 1020);
 
-      // Staging measures small while it runs; the published destination is the
-      // whole thing.
+      const seen = [];
+      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
+
+      // baseline is 1000 blocks; the first tick reads 1010.
+      expect(seen[0]).to.equal(10 * 4096);
+    });
+
+    it('never reports a negative figure when the app deletes its own data', async () => {
+      // The application keeps writing - and deleting - throughout. A volume
+      // that shrinks below the baseline would otherwise send a bar backwards.
+      const vol = await openSession();
+      const publish = await operands(vol);
+      containerStub.wait = runsFor(180);
+      fsStub.promises.statfs = fills(1000, 900);
+
+      const seen = [];
+      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
+
+      expect(seen.every((b) => b >= 0), `saw ${JSON.stringify(seen)}`).to.equal(true);
+    });
+
+    it('reports what was published once it succeeds, not the last tick', async () => {
+      // The running figure is whatever the last tick read, short of the truth by
+      // however much was written after it - so without a final reading a
+      // completed copy says Succeeded while the bytes say 87%.
+      const vol = await openSession();
+      const publish = await operands(vol);
+      containerStub.wait = runsFor(180);
+      fsStub.promises.statfs = fills(1, 2);
       fsStub.promises.lstat = sinon.stub().callsFake(async (p) => (
-        p === `${MOUNT}/out` ? fileEntry(9000) : fileEntry(1500)
+        p === `${MOUNT}/out` ? fileEntry(9000) : fileEntry(1)
       ));
 
       const seen = [];
       await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
 
-      expect(seen[0]).to.equal(1500);
       expect(seen[seen.length - 1], 'the last figure is not the published size').to.equal(9000);
     });
 
     it('measures the destination for that final reading, because staging is gone by then', async () => {
-      // Publishing is a rename, so there is nothing left at the staging path to
-      // measure once the operation has succeeded.
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
@@ -816,30 +806,36 @@ describe('volumeExecutor tests', () => {
       containerStub.wait = sinon.stub().resolves({ StatusCode: 1 });
       fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
 
-      const seen = [];
-      await expect(volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) }))
+      await expect(volumeExecutor.run(vol, ['cp'], { publish, onBytes: () => {} }))
         .to.be.rejectedWith('exit code 1');
 
       expect(fsStub.promises.lstat.calledWith(`${MOUNT}/out`)).to.equal(false);
     });
 
-    it('reports no final figure when the tree was already too large to measure', async () => {
-      // A tree that could not be walked while it ran cannot be walked at the
-      // end either, and null is the honest answer both times.
+    it('stops reporting when the filesystem cannot be read at all', async () => {
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
-
-      const root = `${MOUNT}/.flux-op-x`;
-      fsStub.promises.lstat = sinon.stub().callsFake(async (p) => (
-        p === root ? { isDirectory: () => true, isFile: () => false } : fileEntry(1)
-      ));
-      fsStub.promises.readdir = sinon.stub().resolves(Array.from({ length: 30000 }, (_, i) => `f${i}`));
+      fsStub.promises.statfs = sinon.stub().rejects(new Error('EIO'));
+      fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
 
       const seen = [];
       await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
 
-      expect(seen).to.deep.equal([null]);
+      expect(seen).to.deep.equal([]);
+    });
+
+    it('measures nothing for a caller that did not ask', async () => {
+      // A move publishes its source where it stands, so the volume gains
+      // nothing and a figure would report zero throughout. The caller opts in;
+      // this asserts the executor stays out of it otherwise.
+      const vol = await openSession();
+      const publish = await operands(vol);
+      containerStub.wait = runsFor(180);
+
+      await volumeExecutor.run(vol, [], { publish });
+
+      expect(fsStub.promises.statfs.called).to.equal(false);
     });
   });
 });

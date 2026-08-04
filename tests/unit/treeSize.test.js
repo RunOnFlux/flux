@@ -1,5 +1,5 @@
 const { expect } = require('chai');
-const { measureTree, DEFAULT_BUDGET } = require('../../ZelBack/src/services/utils/treeSize');
+const { measureTree } = require('../../ZelBack/src/services/utils/treeSize');
 
 describe('treeSize tests', () => {
   const ROOT = '/vol';
@@ -69,28 +69,7 @@ describe('treeSize tests', () => {
     expect(await measureTree(ROOT, fs)).to.equal(0);
   });
 
-  it('reports no figure at all once the budget runs out', async () => {
-    // null, not a partial sum: a size that cannot be established is not a small
-    // one, and every caller has to be able to tell the two apart.
-    const names = Array.from({ length: DEFAULT_BUDGET + 100 }, (_, i) => `f${i}`);
-    const fs = {
-      lstat: async (p) => (p === ROOT ? dir() : file(1)),
-      readdir: async () => names,
-    };
 
-    expect(await measureTree(ROOT, fs)).to.equal(null);
-  });
-
-  it('honours a smaller budget when one is given', async () => {
-    const names = Array.from({ length: 50 }, (_, i) => `f${i}`);
-    const fs = {
-      lstat: async (p) => (p === ROOT ? dir() : file(1)),
-      readdir: async () => names,
-    };
-
-    expect(await measureTree(ROOT, fs, 10)).to.equal(null);
-    expect(await measureTree(ROOT, fs, 500)).to.equal(50);
-  });
 
   it('skips an entry that vanished rather than failing the whole measurement', async () => {
     // A tree being written while it is measured loses entries between the
@@ -103,6 +82,28 @@ describe('treeSize tests', () => {
     expect(await measureTree(ROOT, fs)).to.equal(7);
   });
 
+  it('stats in batches rather than one at a time', async () => {
+    // Sequential is 1169ms for 20,000 files and 179ms at 32. The unbounded
+    // fan-out this replaced was faster still and opened a handle per entry.
+    let inFlight = 0;
+    let peak = 0;
+    const names = Array.from({ length: 500 }, (_, i) => `f${i}`);
+    const fs = {
+      lstat: async (p) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => { setImmediate(r); });
+        inFlight -= 1;
+        return p === ROOT ? dir() : file(1);
+      },
+      readdir: async () => names,
+    };
+
+    expect(await measureTree(ROOT, fs)).to.equal(500);
+    expect(peak, 'not batched').to.be.greaterThan(1);
+    expect(peak, 'unbounded fan-out').to.be.at.most(32);
+  });
+
   it('does not recurse, so a deep tree cannot overflow the stack', async () => {
     // 5000 levels: the previous implementation recursed once per level.
     const depth = 5000;
@@ -111,6 +112,6 @@ describe('treeSize tests', () => {
       readdir: async () => ['down'],
     };
 
-    expect(await measureTree('/vol', fs, depth + 10)).to.equal(3);
+    expect(await measureTree('/vol', fs)).to.equal(3);
   });
 });

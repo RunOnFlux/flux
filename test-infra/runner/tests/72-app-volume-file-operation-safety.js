@@ -184,6 +184,38 @@ describe('app volume file operations - safety and recovery', function () {
       }
     });
 
+    it('survives a link pointing at its own parent, in the browser and in a copy', async function () {
+      this.timeout(300000);
+      // The regression that could take the node down. Measuring a folder used
+      // to follow symlinks, so `ln -s .. loop` inside a volume measured itself
+      // until the process died - reachable from a copy's capacity check AND
+      // from the file browser, which sizes every directory it lists. Both run
+      // as the FluxOS process before any container exists, so an app owner
+      // could do it by opening their own file manager.
+      await seedVolumeTree(node.container, appName, { 'photos/real.txt': 'content' });
+      await seedSymlink(node.container, appName, 'photos/loop', '..');
+
+      // The browser must LIST it, promptly, rather than walk forever.
+      const listed = await node.request('GET', `/apps/getfolderinfo/${appName}/${appName}/photos`, {
+        headers: { zelidauth: auth.zelidauth },
+      });
+      expect(listed.status).to.equal(200);
+      const names = (listed.data.data ?? []).map((entry) => entry.name);
+      expect(names, JSON.stringify(listed.data)).to.include.members(['real.txt', 'loop']);
+
+      // And a copy of the same folder completes, carrying the link as a link.
+      const { job } = await settle('/apps/copyobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'copied',
+      });
+      expect(job.status, JSON.stringify(job.error)).to.equal('Succeeded');
+      expect(await isSymlink(node.container, `${root}/copied/loop`)).to.equal(true);
+      expect(await treeOf(node.container, `${root}/copied`)).to.deep.equal(['./loop', './real.txt']);
+
+      // FluxOS is still answering, which is the property the whole fix is about.
+      const alive = await node.request('GET', '/flux/version');
+      expect(alive.status).to.equal(200);
+    });
+
     it('refuses to extract an archive that carries a link', async function () {
       this.timeout(300000);
       await seedVolumeTree(node.container, appName, { 'payload/ordinary.txt': 'plain' });

@@ -210,6 +210,23 @@ describe('app volume file operations - the contract', function () {
       expect(job.detail.bytesDone).to.equal(job.detail.bytesTotal);
     });
 
+    it('reports a total and reaches it for a FOLDER, not just a single file', async function () {
+      this.timeout(300000);
+      // The folder case is the one that used to be measured by re-walking the
+      // tree every two seconds. The running figure now comes from the
+      // filesystem and the final one from what was published, so this asserts
+      // the bar both moves and lands.
+      const size = await seedLargeFile(node.container, appName, 'photos/big.bin', 48);
+
+      const { job } = await succeed('/apps/copyobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'copied',
+      });
+
+      expect(job.detail.bytesTotal).to.be.a('number');
+      expect(job.detail.bytesTotal).to.be.at.least(size);
+      expect(job.detail.bytesDone).to.equal(job.detail.bytesTotal);
+    });
+
     it('leaves nothing behind when it refuses', async function () {
       this.timeout(120000);
       const res = await post('/apps/copyobject', {

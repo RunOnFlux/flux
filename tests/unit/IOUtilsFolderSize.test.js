@@ -75,17 +75,4 @@ describe('IOUtils.getFolderSize tests', () => {
     expect(await IOUtils.getFolderSize(ROOT)).to.equal(0);
   });
 
-  it('refuses rather than under-reporting a tree too large to walk', async () => {
-    // false, not a number. Treating an unmeasurable tree as a measured one
-    // would let it through the capacity check that exists to bound it.
-    const names = Array.from({ length: 25000 }, (_, i) => `f${i}`);
-    const resolve = async (p) => (p === ROOT ? dir() : file(1));
-    const IOUtils = load({
-      lstat: resolve,
-      stat: resolve,
-      readdir: async () => names,
-    });
-
-    expect(await IOUtils.getFolderSize(ROOT)).to.equal(false);
-  });
 });

@@ -347,7 +347,15 @@ function startOperation(res, volume, meta, work) {
     detail: () => ({
       app: volume.identifier,
       operation: meta.kind,
-      ...(bytesDone === null ? {} : { bytesDone }),
+      // Capped at the total while one is known. The running figure is what the
+      // whole volume has consumed, and the application is writing to it too, so
+      // its own activity would otherwise push a copy past 100% - which reads as
+      // a broken bar rather than as the estimate it is. The figure a completed
+      // operation reports is measured from what it published, so the cap only
+      // ever applies mid-flight.
+      ...(bytesDone === null ? {} : {
+        bytesDone: meta.bytesTotal === undefined ? bytesDone : Math.min(bytesDone, meta.bytesTotal),
+      }),
       ...(meta.bytesTotal === undefined ? {} : { bytesTotal: meta.bytesTotal }),
     }),
   });

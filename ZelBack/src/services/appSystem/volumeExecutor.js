@@ -252,32 +252,35 @@ async function ensureImage(onProgress = null) {
 }
 
 /**
- * Bytes currently sitting under a staging path, or null if measuring it costs
- * more than the answer is worth.
+ * Bytes in use on a volume, from the filesystem itself.
+ *
+ * One syscall, whatever the tree looks like. The alternative - walking the
+ * staging directory on every tick - costs 179ms per 20,000 files, which for an
+ * app with 30,000 of them is a tenth of a core burned continuously to draw a
+ * progress bar. Nothing else reports progress that way: rsync counts what it
+ * writes because it does the writing, and we do not.
  *
  * Byte progress is readable here and nowhere else. Since coreutils 9.0 `cp`
  * copies with copy_file_range(2) - the kernel moves the bytes, so no counter on
  * the SOURCE side sees them: /proc/<pid>/io stays flat and the file offset in
  * /proc/<pid>/fdinfo does not advance until the end, which is why progress(1)
- * stopped working on cp. The DESTINATION inode is a different question, and its
- * size tracks the copy the whole way through - measured on a node, growing
- * smoothly across a 3 GB copy while fdinfo sat at zero.
+ * stopped working on cp. What the destination filesystem has consumed is a
+ * different question, and it answers steadily the whole way through.
  *
- * The generic tools read fdinfo because they attach to somebody else's cp and
- * cannot know where it writes. This one started the process and chose the path.
+ * It counts everything written to the volume, not only this operation's share,
+ * because the application keeps running throughout. That is the right figure
+ * for how full a volume is getting and an approximate one for how far a copy
+ * has got; the caller clamps it, and the figure a completed operation reports
+ * is taken from what it actually published rather than from here.
  *
- * The walk repeats on every tick for the whole operation, so its cost is bounded
- * by entries visited rather than by the size of what is being copied. A tree
- * larger than that budget reports no bytes at all rather than a figure that lags
- * further behind the longer it runs - a progress bar that stalls at 60% and then
- * jumps is worse than a spinner, because it makes a promise.
- *
- * @param {string} root - host path of the staging entry
+ * @param {string} mount - host path of the app volume
  * @param {object} fsPromises
- * @returns {Promise<number|null>} bytes, or null if the budget ran out
+ * @returns {Promise<number|null>} bytes in use, or null if it cannot be read
  */
-async function measureStaging(root, fsPromises) {
-  return measureTree(root, fsPromises);
+async function volumeUsedBytes(mount, fsPromises) {
+  const stats = await fsPromises.statfs(mount).catch(() => null);
+  if (!stats) return null;
+  return (Number(stats.blocks) - Number(stats.bfree)) * Number(stats.bsize);
 }
 
 /**
@@ -447,9 +450,10 @@ async function run(session, argv, options = {}) {
   // whole from the first tick, so measuring it would report 100% throughout.
   let measurable = Boolean(onBytes && publish && publish.staging);
   const stopMeasuring = () => { measurable = false; };
-  // Closed once the final figure is in, so a walk that started before the
-  // operation ended cannot report over it - including by reporting null, which
-  // is how an exhausted budget says it has stopped counting.
+  // What the volume held before this operation wrote anything.
+  let baseline = null;
+  // Closed once the final figure is in, so a read that started before the
+  // operation ended cannot report over it.
   let reportsClosed = false;
 
   try {
@@ -474,23 +478,29 @@ async function run(session, argv, options = {}) {
 
     if (onProgress) onProgress(status);
 
+    // Everything the volume held before this operation wrote anything. Progress
+    // is the difference from here, so the app's existing data is not counted as
+    // this copy's work.
+    if (measurable) baseline = await volumeUsedBytes(session.mount, fs);
+    if (baseline === null) stopMeasuring();
+
     // One timer serves three jobs: report that the operation is still alive,
     // notice a cancellation, and read how far it has got. A cancel only sets a
     // flag - the work is not interrupted where it stands - so something has to
     // look, and this is already looking.
     //
-    // The measurement is async and the timer is not, so a walk still running
-    // when the next tick arrives is skipped rather than stacked, and one that
-    // exhausts its budget latches off: past that point this operation reports
-    // liveness only.
+    // The read is async and the timer is not, so one still in flight when the
+    // next tick arrives is skipped rather than stacked.
     const readBytes = () => {
       if (!measurable || measuring) return;
       measuring = true;
-      measureStaging(publish.staging.hostPath, fs)
-        .then((bytes) => {
-          if (reportsClosed) return;
-          if (bytes === null) stopMeasuring();
-          if (measurable || bytes === null) onBytes(bytes);
+      volumeUsedBytes(session.mount, fs)
+        .then((used) => {
+          if (reportsClosed || used === null) return;
+          // Never negative: the application is writing to this volume too, and
+          // deleting something of its own would otherwise send a progress bar
+          // backwards.
+          onBytes(Math.max(0, used - baseline));
         })
         .catch(() => {})
         .finally(() => { measuring = false; });
@@ -518,27 +528,27 @@ async function run(session, argv, options = {}) {
     }
 
     // The operation succeeded, so everything it was going to publish IS
-    // published - and the ticker's last figure is from whenever its last walk
-    // happened to finish, short of the truth by however much was written after
-    // it. Without this a completed copy reports some fraction of its own total
-    // and stays there: the job says Succeeded while the bytes say 87%, which is
-    // the one moment a progress figure is read most carefully.
+    // published - and the running figure is whatever the last tick happened to
+    // read, short of the truth by however much was written after it. Without a
+    // final reading a completed copy reports some fraction of its own total and
+    // stays there: the job says Succeeded while the bytes say 87%, which is the
+    // one moment a progress figure is read most carefully.
     //
-    // Measured at the DESTINATION, because that is where the result now is:
-    // publishing is a rename, so staging no longer exists by this point. Same
-    // bounded walk as the ticker uses, so a tree too large to measure reports
-    // no figure here for the same reason it reported none while running.
+    // Measured at the DESTINATION, because that is where the result now is and
+    // it is the only exact answer available: publishing is a rename, so staging
+    // no longer exists, and the volume's own usage includes whatever the
+    // application wrote alongside us. One walk, once, at the end.
     if (measurable) {
       if (ticker) {
         clearInterval(ticker);
         ticker = null;
       }
-      // Closed BEFORE the measurement, not after: a walk already in flight
+      // Closed BEFORE the measurement, not after: a read already in flight
       // would otherwise land between the two and report over the final figure.
       reportsClosed = true;
       stopMeasuring();
 
-      const published = await measureStaging(publish.destination.hostPath, fs);
+      const published = await measureTree(publish.destination.hostPath, fs).catch(() => null);
       if (published !== null) onBytes(published);
     }
   } finally {

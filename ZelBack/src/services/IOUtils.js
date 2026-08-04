@@ -141,27 +141,22 @@ function convertFileSize(sizes, targetUnit = 'auto', decimal = 2, returnNumber =
 /**
  * Get the total size of a folder, including its subdirectories and files.
  *
- * Follows no symlink, and visits a bounded number of entries. It used to `stat`
- * its way down with unbounded recursion and a Promise.all fan-out, which an app
- * owner could turn on the node that hosts them: this measures volumes the apps
- * themselves write to, so a `loop -> ..` planted in one measured itself until
- * the process died, and an `escape -> /` measured the host. Both callers run as
- * the FluxOS process, before any container exists - a copy's capacity check,
- * and the file browser, which measures every directory it lists.
+ * Follows no symlink. It used to `stat` its way down with unbounded recursion
+ * and a Promise.all fan-out, which an app owner could turn on the node hosting
+ * them: this measures volumes the apps themselves write to, so a `loop -> ..`
+ * planted in one measured itself until the process died, and an `escape -> /`
+ * measured the host. Both callers run as the FluxOS process, before any
+ * container exists - a copy's capacity check, and the file browser, which
+ * measures every directory it lists.
  *
  * @param {string} folderPath - The path to the folder.
- * @returns {Promise<number|boolean>} - Total bytes, or false when the size
- *   cannot be established. Callers MUST treat false as a refusal rather than as
- *   zero: a tree too large to measure is not an empty one.
+ * @returns {Promise<number|boolean>} - Total bytes, or false if the folder
+ *   could not be read at all. Callers MUST treat false as a refusal rather than
+ *   as zero: a size that could not be established is not a size of nothing.
  */
 async function getFolderSize(folderPath) {
   try {
-    const bytes = await measureTree(folderPath, fs);
-    if (bytes === null) {
-      log.warn(`getFolderSize: ${folderPath} is larger than a single measurement is allowed to walk`);
-      return false;
-    }
-    return bytes;
+    return await measureTree(folderPath, fs);
   } catch (err) {
     log.error(`Error getting folder size: ${err}`);
     return false;
