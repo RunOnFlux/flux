@@ -760,6 +760,30 @@ function isAppContainer(container) {
 }
 
 /**
+ * Whether a container summary is one FluxOS put there, in ANY role.
+ *
+ * The broader question than isAppContainer, and the one a sweep that stops
+ * foreign containers has to ask. A file-operation container is emphatically not
+ * an application, so isAppContainer answers no about it - and a sweep phrased
+ * as "stop everything that is not an app" would therefore stop the node's own
+ * work mid-copy.
+ *
+ * A container FluxOS runs for itself is created with no name, because a name it
+ * does not need is one more thing that can collide with a tenant's. Docker then
+ * assigns a random one, which no prefix test can recognise - so the label is
+ * the only thing that can answer this question at all.
+ *
+ * @param {object} container - a container summary from dockerListContainers
+ * @returns {boolean}
+ */
+function isFluxOwnedContainer(container) {
+  if (container.Labels && container.Labels['runonflux.role']) return true;
+
+  const name = (container.Names && container.Names[0]) || '';
+  return name.slice(1, 4) === 'zel' || name.slice(1, 5) === 'flux';
+}
+
+/**
  * The identity of a container, stamped as docker labels when it is created.
  *
  * The container NAME already encodes this (`flux<component>_<app>`), but a name
@@ -1997,6 +2021,7 @@ module.exports = {
   getAppContainerNames,
   getAppContainerObjects,
   isAppContainer,
+  isFluxOwnedContainer,
   createContainer,
   getAppNameByContainerIp,
   classifyContainerNetworkAttachment,

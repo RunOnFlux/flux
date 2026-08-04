@@ -667,6 +667,26 @@ describe('appController tests', () => {
 
       clock.restore();
     });
+
+    it('leaves a container FluxOS runs for itself alone', async () => {
+      // A file operation's container is created with no name, so docker gives
+      // it a random one that no prefix test can tell from a tenant's. This
+      // sweep runs every two hours, so before the label check it would stop a
+      // long copy out from under the caller who asked for it.
+      const executor = { Id: 'container-fileop', Names: ['/adoring_borg'], Labels: { 'runonflux.role': 'fileop' } };
+      const foreign = { Id: 'container-foreign', Names: ['/watchtower'] };
+
+      sinon.stub(dockerService, 'dockerListContainers').resolves([executor, foreign]);
+      const stopStub = sinon.stub(dockerService, 'appDockerStop').resolves();
+      const clock = sinon.useFakeTimers();
+
+      appController.stopAllNonFluxRunningApps();
+      await clock.tickAsync(100);
+
+      sinon.assert.calledOnceWithExactly(stopStub, 'container-foreign');
+
+      clock.restore();
+    });
   });
 
   describe('executeAppGlobalCommand tests', () => {

@@ -129,6 +129,34 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('isFluxOwnedContainer tests', () => {
+    it('claims a container FluxOS runs for itself, whatever docker named it', () => {
+      // The distinction from isAppContainer, and the reason both exist: this
+      // one is false about an executor container, and a sweep phrased as "stop
+      // what is not an app" would therefore stop the node's own work.
+      const executor = { Names: ['/adoring_borg'], Labels: { 'runonflux.role': 'fileop' } };
+
+      expect(dockerService.isFluxOwnedContainer(executor)).to.equal(true);
+      expect(dockerService.isAppContainer(executor)).to.equal(false);
+    });
+
+    it('claims an app container', () => {
+      expect(dockerService.isFluxOwnedContainer({
+        Names: ['/anything'], Labels: { 'runonflux.role': 'app' },
+      })).to.equal(true);
+    });
+
+    it('falls back to the name prefix for containers created before labels shipped', () => {
+      expect(dockerService.isFluxOwnedContainer({ Names: ['/fluxcomp_myapp'] })).to.equal(true);
+      expect(dockerService.isFluxOwnedContainer({ Names: ['/zelcomp_myapp'], Labels: {} })).to.equal(true);
+    });
+
+    it('disclaims a container nobody here created', () => {
+      expect(dockerService.isFluxOwnedContainer({ Names: ['/watchtower'] })).to.equal(false);
+      expect(dockerService.isFluxOwnedContainer({})).to.equal(false);
+    });
+  });
+
   describe('getAppDockerNameIdentifier tests', () => {
     it('should add /flux/ if name starts with "/"', async () => {
       const appName = '/Testing';

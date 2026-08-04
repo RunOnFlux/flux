@@ -737,12 +737,19 @@ async function appDockerRestart(appname) {
 
 /**
  * To stop all non Flux running apps. Executes continuously at regular intervals.
+ *
+ * What is kept is everything FluxOS owns, not everything that is an app: the
+ * node runs short-lived containers of its own - a file operation is one - and
+ * those are unnamed, so docker gives them a random name that no prefix test can
+ * tell from a tenant's. Selecting on the ownership label instead means a long
+ * copy is not stopped out from under its caller by a sweep that runs every two
+ * hours.
  */
 async function stopAllNonFluxRunningApps() {
   try {
     log.info('Running non Flux apps check...');
     let apps = await dockerService.dockerListContainers(false);
-    apps = apps.filter((app) => (app.Names[0].slice(1, 4) !== 'zel' && app.Names[0].slice(1, 5) !== 'flux'));
+    apps = apps.filter((app) => !dockerService.isFluxOwnedContainer(app));
     if (apps.length > 0) {
       log.info(`Found ${apps.length} apps to be stopped...`);
       // eslint-disable-next-line no-restricted-syntax
