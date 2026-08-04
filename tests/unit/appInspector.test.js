@@ -9,6 +9,7 @@ describe('appInspector tests', () => {
   let logStub;
   let configStub;
   let globalStateStub;
+  let cpuBurstHelperStub;
 
   beforeEach(() => {
     configStub = {
@@ -20,8 +21,13 @@ describe('appInspector tests', () => {
     dockerServiceStub = {
       appDockerInspect: sinon.stub(),
       appDockerStats: sinon.stub(),
+      appDockerUpdateCpu: sinon.stub().resolves(),
       dockerContainerInspect: sinon.stub(),
       dockerContainerStatsStream: (containerId, callback) => callback(null, {}),
+    };
+
+    cpuBurstHelperStub = {
+      isBurstActive: sinon.stub().resolves(false),
     };
 
     messageHelperStub = {
@@ -67,6 +73,7 @@ describe('appInspector tests', () => {
       '../utils/appUtilities': {
         getContainerStorage: sinon.stub().returns(0),
       },
+      '../utils/cpuBurstHelper': cpuBurstHelperStub,
       'node-cmd': {
         run: (cmd, callback) => callback(null, 'data', 'stderr'),
       },
@@ -1462,6 +1469,159 @@ describe('appInspector tests', () => {
       await appInspector.listAppsImages(undefined, res);
 
       expect(res.json.calledOnce).to.be.true;
+    });
+  });
+
+  // The throttler physically re-allocates container CPU, so these pin the exact
+  // decisions it makes for a given window of samples: which calls it emits, and
+  // what it leaves behind for the next pass.
+  describe('checkApplicationsCpuUSage', () => {
+    // A sample carries its own cpu delta, so `ratio` is that sample's usage as a
+    // fraction of one core-second: 1 is saturated, 0.5 is half loaded.
+    function cpuSample(ratio, minutesAgo) {
+      return {
+        timestamp: Date.now() - minutesAgo * 60 * 1000,
+        data: {
+          cpu_stats: {
+            cpu_usage: { total_usage: 100 + 100 * ratio },
+            system_cpu_usage: 200,
+            online_cpus: 2,
+          },
+          precpu_stats: {
+            cpu_usage: { total_usage: 100 },
+            system_cpu_usage: 100,
+          },
+        },
+      };
+    }
+
+    function window(ratios) {
+      return ratios.map((ratio, i) => cpuSample(ratio, ratios.length - i));
+    }
+
+    // nanoCpus over cpu over 1e9 is the allocation the node has actually applied
+    // against what the spec asked for: 2e9 on a 2-cpu app is the full share.
+    function installedAppsReturning(app) {
+      return sinon.stub().resolves({ status: 'success', data: [app] });
+    }
+
+    const simpleApp = { name: 'myapp', version: 3, cpu: 2 };
+
+    beforeEach(() => {
+      dockerServiceStub.dockerContainerInspect.resolves({
+        HostConfig: { NanoCpus: 2e9 },
+        State: { Pid: 1234 },
+      });
+    });
+
+    it('lowers cpu when load was high on at least 80% of the window', async () => {
+      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 1, 1]) } };
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly('myapp', 1.8e9)).to.be.true;
+    });
+
+    it('leaves cpu alone when load was high on less than 80% of the window', async () => {
+      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 0.5, 0.5]) } };
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+    });
+
+    it('restores cpu when the applied allocation is below the spec and load is not high', async () => {
+      dockerServiceStub.dockerContainerInspect.resolves({
+        HostConfig: { NanoCpus: 1.6e9 },
+        State: { Pid: 1234 },
+      });
+      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([0.5, 0.5, 0.5, 0.5, 0.5]) } };
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly('myapp', 1.7e9)).to.be.true;
+    });
+
+    it('makes no decision on four or fewer samples, and keeps them for the next pass', async () => {
+      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 1]) } };
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+      expect(globalStateStub.appsMonitored.myapp.lastHourstatsStore).to.have.lengthOf(4);
+    });
+
+    it('does not reuse a sample in a later decision', async () => {
+      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 1, 1]) } };
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+      dockerServiceStub.appDockerUpdateCpu.resetHistory();
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+    });
+
+    it('makes no decision while cfs burst is applied, and consumes the window', async () => {
+      cpuBurstHelperStub.isBurstActive.resolves(true);
+      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 1, 1]) } };
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+      expect(globalStateStub.appsMonitored.myapp.lastHourstatsStore).to.be.empty;
+    });
+
+    it('keeps the window when docker cannot inspect the container', async () => {
+      dockerServiceStub.dockerContainerInspect.resolves(null);
+      globalStateStub.appsMonitored = { myapp: { lastHourstatsStore: window([1, 1, 1, 1, 1]) } };
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+      expect(globalStateStub.appsMonitored.myapp.lastHourstatsStore).to.have.lengthOf(5);
+    });
+
+    it('decides per component for a composed app', async () => {
+      const composed = {
+        name: 'myapp',
+        version: 4,
+        compose: [{ name: 'db', cpu: 2 }, { name: 'web', cpu: 2 }],
+      };
+      globalStateStub.appsMonitored = {
+        db_myapp: { lastHourstatsStore: window([1, 1, 1, 1, 1]) },
+        web_myapp: { lastHourstatsStore: window([0.5, 0.5, 0.5, 0.5, 0.5]) },
+      };
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(composed),
+      );
+
+      expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly('db_myapp', 1.8e9)).to.be.true;
     });
   });
 
