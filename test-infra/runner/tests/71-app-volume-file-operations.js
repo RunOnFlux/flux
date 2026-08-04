@@ -1,0 +1,362 @@
+import { describe, it, before, beforeEach, after } from 'mocha';
+import { expect } from 'chai';
+import { createTestEnv } from '../framework/test-env.js';
+import { pushImage, mirrorExecutorImage } from '../framework/registry-helper.js';
+import { buildSeedableApp } from '../framework/seed-helper.js';
+import { waitFor, waitForOperation } from '../framework/wait.js';
+import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
+import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
+import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { authenticate } from '../auth.js';
+import { appOwnerKey } from '../framework/keys.js';
+import {
+  APP_UID, APP_GID, volumeRoot, resetVolume, seedVolumeTree, seedLargeFile,
+  ownerOf, treeOf, contentOf, exists,
+} from '../framework/volume-fixture.js';
+
+// The contract of the four long file operations, over HTTP, against a real
+// volume.
+//
+// This exists because two of these endpoints - move and rename - failed on
+// EVERY call while every layer's unit tests were green: FluxOS asserted the
+// argv it built, the image's tests always supplied a command, and the manual
+// testing typed one by hand. Three layers of green over a seam nobody crossed.
+// So everything here goes through the HTTP endpoint and then reads the volume,
+// rather than asserting on anything either side hands the other.
+
+describe('app volume file operations - the contract', function () {
+  let env;
+  let node;
+  let auth;
+  dumpLogsOnFailure(() => env);
+
+  const ts = Date.now();
+  const appName = `e2efileops${ts}`;
+  const root = volumeRoot(appName);
+
+  // The app owner, not the flux team: openVolume authorises at the OBJECT level
+  // - is this caller the owner of THIS app - and buildSeedableApp sets the
+  // owner from appOwnerKey.
+  const post = (path, body) => node.request('POST', path, { body, headers: { zelidauth: auth.zelidauth } });
+  const get = (path) => node.request('GET', path, { headers: { zelidauth: auth.zelidauth } });
+
+  async function startAndSettle(path, body) {
+    const accepted = await post(path, body);
+    expect(accepted.status, `${path}: ${JSON.stringify(accepted.data)}`).to.equal(202);
+    const job = await waitForOperation(node, accepted.data.data.jobId, auth.zelidauth);
+    return { accepted, job };
+  }
+
+  async function succeed(path, body) {
+    const { accepted, job } = await startAndSettle(path, body);
+    expect(job.status, `${path} failed: ${job.error}`).to.equal('Succeeded');
+    return { accepted, job };
+  }
+
+  before(async function () {
+    this.timeout(600000);
+
+    // Mirrored into the harness registry, not pulled from the public one: each
+    // node runs its own dockerd on a per-run volume, so every suite starts with
+    // an empty image store.
+    const image = await mirrorExecutorImage();
+
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      tickerAutostart: false,
+      configOverrides: {
+        fluxapps: {
+          volumeOperations: {
+            image,
+            // Compressed from 2s the same way this harness compresses every
+            // other cadence: the byte figures are read on this tick, and at the
+            // production interval a copy small enough to keep a suite quick
+            // finishes before the first one lands.
+            progressIntervalMs: 200,
+          },
+        },
+      },
+    });
+    await bootAndPeer(env);
+
+    await pushImage(appName, 'v1');
+    const app = await buildSeedableApp({
+      name: appName,
+      compose: [{
+        name: appName,
+        description: 'file operations',
+        repotag: `${REGISTRY_REPO_HOST}/${appName}:v1`,
+        ports: [31601],
+        domains: [''],
+        environmentParameters: [],
+        commands: [],
+        containerPorts: [80],
+        containerData: '/appdata',
+        cpu: 0.1,
+        ram: 100,
+        hdd: 1,
+        repoauth: '',
+      }],
+    });
+    await installOnNodes(env, app, [0]);
+
+    node = env.clients[0];
+    auth = await authenticate(node.url, appOwnerKey());
+
+    await waitFor(async () => exists(node.container, root), {
+      timeout: 60000, interval: 2000, label: 'app volume mounted',
+    });
+  });
+
+  after(async function () {
+    this.timeout(30000);
+    await env?.teardown();
+  });
+
+  beforeEach(async function () {
+    this.timeout(60000);
+    // Each test starts from a known tree owned by an ordinary application user.
+    // Seeding as root would make the ownership assertions meaningless, because
+    // a copy trivially "preserves" root whether the capability is there or not.
+    await resetVolume(node.container, appName);
+    await seedVolumeTree(node.container, appName, {
+      'photos/a.txt': 'first',
+      'photos/sub/b.txt': 'nested',
+    });
+  });
+
+  describe('the 202 contract', () => {
+    it('answers 202 with the headers a client follows, and polls to Succeeded', async function () {
+      this.timeout(120000);
+      const { accepted, job } = await succeed('/apps/copyobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'copied',
+      });
+
+      const { jobId } = accepted.data.data;
+      expect(accepted.headers.location).to.equal(`/apps/operations/${jobId}`);
+      expect(accepted.headers['operation-id']).to.equal(jobId);
+      expect(accepted.headers['retry-after']).to.equal('2');
+      expect(accepted.data.data.status).to.equal('Running');
+      expect(job.kind).to.equal('fileoperation.copy');
+    });
+
+    it('answers a poll with 200 whatever the job did, so completion is read from the body', async function () {
+      this.timeout(120000);
+      // A destination that already exists is refused before the container runs,
+      // so this is the failure path with no work done. The poll is still a 200.
+      const { job } = await startAndSettle('/apps/copyobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'copied',
+      });
+      expect(job.status).to.equal('Succeeded');
+
+      const again = await post('/apps/copyobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'copied',
+      });
+      expect(again.status).to.not.equal(202);
+      expect(JSON.stringify(again.data)).to.match(/already exists/i);
+    });
+
+    it('answers 404 for a job nobody here started', async function () {
+      this.timeout(30000);
+      const res = await get('/apps/operations/op_00000000-0000-4000-8000-000000000000');
+      expect(res.status).to.equal(404);
+    });
+  });
+
+  describe('copy', () => {
+    it('copies the tree, its contents, and the ownership the app depends on', async function () {
+      this.timeout(180000);
+      await succeed('/apps/copyobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'copied',
+      });
+
+      expect(await treeOf(node.container, `${root}/copied`)).to.deep.equal(
+        await treeOf(node.container, `${root}/photos`),
+      );
+      expect(await contentOf(node.container, `${root}/copied/sub/b.txt`)).to.equal('nested');
+
+      // The CAP_CHOWN regression, and it fails silently: cp -a cannot restore
+      // ownership without it and exits 0 having written root-owned files, so an
+      // app running as a non-root user loses access to its own data with
+      // nothing logged.
+      expect(await ownerOf(node.container, `${root}/copied/a.txt`)).to.equal(`${APP_UID}:${APP_GID}`);
+      expect(await ownerOf(node.container, `${root}/copied/sub`)).to.equal(`${APP_UID}:${APP_GID}`);
+    });
+
+    it('reports the bytes it has published, against a total it can know', async function () {
+      this.timeout(300000);
+      const size = await seedLargeFile(node.container, appName, 'bulk.bin', 192);
+
+      const { job } = await succeed('/apps/copyobject', {
+        appname: appName, component: appName, source: 'bulk.bin', destination: 'bulk-copy.bin',
+      });
+
+      // A copy is the one operation with a real denominator: the capacity check
+      // has already measured the source. Compression's ratio is not knowable in
+      // advance and an extraction's only candidate is the archive's own account
+      // of itself, which is exactly what the size ceiling refuses to believe.
+      expect(job.detail.bytesTotal).to.be.a('number');
+      expect(job.detail.bytesTotal).to.be.closeTo(size, size * 0.05);
+
+      // NOT asserted to equal the total. The figure comes from a ticker, and a
+      // walk still running when the operation ends is discarded rather than
+      // landed on a job already marked Succeeded - so the last figure is
+      // whichever tick completed last, not the final size.
+      expect(job.detail.bytesDone, 'no byte figure was reported at all').to.be.a('number');
+      expect(job.detail.bytesDone).to.be.greaterThan(0);
+      expect(job.detail.bytesDone).to.be.at.most(job.detail.bytesTotal);
+    });
+
+    it('leaves nothing behind when it refuses', async function () {
+      this.timeout(120000);
+      const res = await post('/apps/copyobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'photos/inside',
+      });
+
+      expect(res.status).to.not.equal(202);
+      expect(JSON.stringify(res.data)).to.match(/inside the source/i);
+      const leftovers = await treeOf(node.container, root);
+      expect(leftovers.filter((p) => p.includes('.flux-op-'))).to.deep.equal([]);
+    });
+  });
+
+  describe('move', () => {
+    // The endpoint that never worked. flux-op takes its own arguments, then --,
+    // then a command - and a move has NO command, because the source already IS
+    // the result. FluxOS passed three positional arguments where the usage
+    // check demanded four, so every call exited 2.
+    it('moves the tree end to end, and the source is gone', async function () {
+      this.timeout(180000);
+      const before = await treeOf(node.container, `${root}/photos`);
+
+      await succeed('/apps/moveobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'moved',
+      });
+
+      expect(await exists(node.container, `${root}/photos`)).to.equal(false);
+      expect(await treeOf(node.container, `${root}/moved`)).to.deep.equal(before);
+      expect(await contentOf(node.container, `${root}/moved/a.txt`)).to.equal('first');
+      expect(await ownerOf(node.container, `${root}/moved/a.txt`)).to.equal(`${APP_UID}:${APP_GID}`);
+    });
+
+    it('relocates into a subdirectory, which rename cannot express', async function () {
+      this.timeout(180000);
+      await seedVolumeTree(node.container, appName, { 'archive/keep': 'x' });
+
+      await succeed('/apps/moveobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'archive/photos',
+      });
+
+      expect(await exists(node.container, `${root}/archive/photos/a.txt`)).to.equal(true);
+      expect(await exists(node.container, `${root}/photos`)).to.equal(false);
+    });
+
+    it('reports no byte figures, because its staging is whole from the first tick', async function () {
+      this.timeout(180000);
+      const { job } = await succeed('/apps/moveobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'moved',
+      });
+
+      // A move publishes its source where it stands - there is no growing
+      // scratch to measure, so a figure here would be a total from the start
+      // and would read as instant completion.
+      expect(job.detail.bytesDone ?? null).to.equal(null);
+      expect(job.detail.bytesTotal ?? null).to.equal(null);
+    });
+  });
+
+  describe('rename', () => {
+    // Migrated onto the executor on this branch and inherited the same
+    // empty-command shape, so it failed on every call too. Still a GET, still
+    // synchronous - it has real clients.
+    it('renames in place', async function () {
+      this.timeout(120000);
+      const res = await get(`/apps/renameobject/${appName}/${appName}/photos/renamed`);
+
+      expect(res.status, JSON.stringify(res.data)).to.equal(200);
+      expect(res.data.status).to.equal('success');
+      expect(await exists(node.container, `${root}/renamed/a.txt`)).to.equal(true);
+      expect(await exists(node.container, `${root}/photos`)).to.equal(false);
+    });
+  });
+
+  describe('compress and extract', () => {
+    for (const [label, extension] of [['zip', 'zip'], ['tar.gz', 'tar.gz']]) {
+      it(`round-trips a directory through ${label}, contents at the top`, async function () {
+        this.timeout(300000);
+        const before = await treeOf(node.container, `${root}/photos`);
+
+        await succeed('/apps/compressobject', {
+          appname: appName, component: appName, source: 'photos', destination: `backup.${extension}`,
+        });
+        expect(await exists(node.container, `${root}/backup.${extension}`)).to.equal(true);
+
+        await succeed('/apps/extractobject', {
+          appname: appName, component: appName, source: `backup.${extension}`, destination: 'restored',
+        });
+
+        // The archive holds the source's CONTENTS, so extracting it to a
+        // destination reproduces the source under that name. Before the layout
+        // fix, zip stored the whole absolute path minus its leading slash, so
+        // this came back as restored/work/photos/...
+        expect(await treeOf(node.container, `${root}/restored`)).to.deep.equal(before);
+        expect(await contentOf(node.container, `${root}/restored/sub/b.txt`)).to.equal('nested');
+      });
+
+      it(`archives a single file as ${label}`, async function () {
+        this.timeout(300000);
+        // tar -C cannot be pointed at a non-directory, so this shape failed
+        // outright for .tar.gz while the same request with .zip succeeded.
+        await succeed('/apps/compressobject', {
+          appname: appName, component: appName, source: 'photos/a.txt', destination: `one.${extension}`,
+        });
+
+        await succeed('/apps/extractobject', {
+          appname: appName, component: appName, source: `one.${extension}`, destination: 'restored',
+        });
+        expect(await contentOf(node.container, `${root}/restored/a.txt`)).to.equal('first');
+      });
+    }
+
+    it('refuses an extension it cannot produce, before doing any work', async function () {
+      this.timeout(60000);
+      const res = await post('/apps/compressobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'backup.rar',
+      });
+
+      expect(res.status).to.not.equal(202);
+      expect(JSON.stringify(res.data)).to.match(/must end in/i);
+    });
+
+    it('accepts an extension in capitals', async function () {
+      this.timeout(300000);
+      await succeed('/apps/compressobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'SHOUTY.ZIP',
+      });
+      expect(await exists(node.container, `${root}/SHOUTY.ZIP`)).to.equal(true);
+    });
+  });
+
+  describe('the migrated endpoints are unchanged', () => {
+    it('createfolder still errors on an existing folder, with no -p', async function () {
+      this.timeout(60000);
+      // The dashboard shows "folder already exists" off the back of this error.
+      const res = await get(`/apps/createfolder/${appName}/${appName}/photos`);
+      expect(JSON.stringify(res.data)).to.match(/error/i);
+    });
+
+    it('refuses a caller who is not the app owner', async function () {
+      this.timeout(60000);
+      // openVolume authorises at the OBJECT level and throws an error carrying
+      // the 401, so this reaches a client as the body errUnauthorizedMessage
+      // has always produced. Existing callers read that shape.
+      const res = await node.request('POST', '/apps/copyobject', {
+        body: { appname: appName, component: appName, source: 'photos', destination: 'copied' },
+      });
+      expect(res.data.status).to.equal('error');
+      expect(res.data.data.code).to.equal(401);
+      expect(res.data.data.name).to.equal('Unauthorized');
+    });
+  });
+});
