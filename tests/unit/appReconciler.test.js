@@ -235,6 +235,30 @@ describe('appReconciler tests', () => {
       sinon.assert.callOrder(stubs.volumeService.ensureAppVolumeMounted, stubs.dockerOperations.appDeleteDataInMountPoint);
     });
 
+    // An operator stopping an app says nothing about whether its local data can
+    // be trusted. Dropping the pending clear here loses it for good: the sync
+    // layer marks a component processed BEFORE it asks, so it never asks again,
+    // and the component eventually starts on the data the clear existed to
+    // remove.
+    it('keeps a pending data clear when the operator retracts the run opinion', async () => {
+      appReconciler.requestStopAndClearData('www_App', 'syncthing first-run clean install');
+      appReconciler.clearControllerDesired('www_App');
+      // requestStopAndClearData enqueues its own reconcile; wait for it to land
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnce).to.be.true;
+    });
+
+    // removal is the one case where nothing about the component is worth acting
+    // on, data clear included - it is gone
+    it('drops a pending data clear when the component is removed', async () => {
+      appReconciler.requestStopAndClearData('www_App', 'syncthing first-run clean install');
+      appReconciler.forgetDesiredState('www_App');
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
+    });
+
     it('ensures mount paths exist (recreating any syncthing-cleaned source) before starting', async () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.volumeService.ensureMountPathsExist.calledOnce).to.be.true;
@@ -389,13 +413,13 @@ describe('appReconciler tests', () => {
 
     it('does NOT act on a cleared controller verdict (removal seam wipes it)', async () => {
       // uninstall fires appUninstaller's component-removed seam -> serviceManager
-      // wires it to clearControllerDesired: a reinstalled g: component must await a
+      // wires it to forgetDesiredState: a reinstalled g: component must await a
       // fresh election rather than inherit the pre-uninstall verdict
       localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
       stubs.globalState.bootContainerStateSettled = false;
       appReconciler.setControllerDesired('db_App', 'running', 'test');
       stubs.globalState.bootContainerStateSettled = true;
-      appReconciler.clearControllerDesired('db_App');
+      appReconciler.forgetDesiredState('db_App');
       await appReconciler.reconcile('db_App');
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
       expect(stubs.dockerService.appDockerStop.called).to.be.false;

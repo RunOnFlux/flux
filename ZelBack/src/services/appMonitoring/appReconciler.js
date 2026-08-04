@@ -1040,7 +1040,29 @@ function requestStopAndClearData(rawIdentifier, reason) {
   enqueue(identifier);
 }
 
+/**
+ * Retract the controller's opinion about whether this component should run,
+ * leaving every other desired input standing.
+ *
+ * A pending data clear is NOT an opinion about running - it is the sync layer's
+ * finding that the local appdata must not be trusted - so it survives. It has
+ * to: the sync layer marks a component processed BEFORE asking, so a request
+ * dropped here is never made again and the component eventually starts on the
+ * data the clear existed to remove. The reconciler resolves a pending clear
+ * ahead of any run decision, so one left standing on a stopped component simply
+ * waits.
+ */
 function clearControllerDesired(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  controllerDesired.delete(identifier);
+}
+
+/**
+ * Forget every desired input for a component - it is gone, and nothing about it
+ * is worth acting on. Removal only: for anything short of that, retract the
+ * specific opinion.
+ */
+function forgetDesiredState(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   controllerDesired.delete(identifier);
   dataDesired.delete(identifier);
@@ -1123,6 +1145,7 @@ module.exports = {
   enqueueAll,
   setControllerDesired,
   clearControllerDesired,
+  forgetDesiredState,
   claimStarting,
   releaseStarting,
   committedIdentifiers,

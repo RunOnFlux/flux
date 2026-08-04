@@ -352,7 +352,7 @@ async function startFluxFunctions() {
     appReconciler.setOnContainerStarted(() => peerNotification.checkAndNotifyPeersOfRunningApps());
     // a removed component's in-memory controller verdict dies with it - a
     // reinstalled g:/r: app must await a fresh election, not inherit a stale one
-    appUninstaller.setOnComponentRemoved((id) => appReconciler.clearControllerDesired(id));
+    appUninstaller.setOnComponentRemoved((id) => appReconciler.forgetDesiredState(id));
     log.info('App Spawner initialized');
 
     fluxNetworkHelper.adjustFirewall();

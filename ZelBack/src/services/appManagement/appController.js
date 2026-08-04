@@ -12,7 +12,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const log = require('../../lib/log');
 
-const globalCmdDelayMs = config.fluxapps.globalCmdDelayMs;
+const { globalCmdDelayMs } = config.fluxapps;
 
 /**
  * Get application locations from the global database
@@ -129,6 +129,11 @@ async function setAppOperatorStopped(appname, appSpecs, stopped) {
     // controller opinion" - take no action - until its decider re-derives
     // intent. Plain apps do not consult the controller, so their
     // resume-on-start is unchanged.
+    //
+    // The RUN opinion only. A pending appdata clear is the sync layer's finding
+    // that the local data must not be trusted, and an operator stopping the app
+    // says nothing about that - dropping it here would lose it for good, since
+    // the sync layer marks a component processed before it asks.
     if (stopped) appReconciler.clearControllerDesired(id);
   }
 }
