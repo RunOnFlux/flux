@@ -54,7 +54,14 @@ describe('app volume file operations - lifecycle', function () {
       nodes: 3,
       tickerAutostart: false,
       configOverrides: {
+        // A three-node fleet cannot reach the production peer floors: the
+        // discovery mesh is a ring needing at least 2*minOutgoing+1 nodes to
+        // close, so three can only carry minOutgoing 1. This suite exercises
+        // one node's own volume, so the fleet exists to make that node a real
+        // one rather than to be peered with.
         fluxapps: {
+          minOutgoing: 1,
+          minIncoming: 1,
           volumeOperations: {
             image: executorImage,
             progressIntervalMs: 200,
@@ -68,7 +75,7 @@ describe('app volume file operations - lifecycle', function () {
     // After the fleet, not before: the registry this copies into is one of the
     // containers createTestEnv starts.
     await mirrorExecutorImage();
-    await bootAndPeer(env);
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
 
     await pushImage(appName, 'v1');
     const app = await buildSeedableApp({

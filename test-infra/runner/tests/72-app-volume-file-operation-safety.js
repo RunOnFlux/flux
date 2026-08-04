@@ -60,11 +60,20 @@ describe('app volume file operations - safety and recovery', function () {
       nodes: 3,
       tickerAutostart: false,
       configOverrides: {
-        fluxapps: { volumeOperations: { image: executorImageReference() } },
+        // A three-node fleet cannot reach the production peer floors: the
+        // discovery mesh is a ring needing at least 2*minOutgoing+1 nodes to
+        // close, so three can only carry minOutgoing 1. These suites exercise
+        // one node's own volume, so the fleet exists to make that node a real
+        // one rather than to be peered with.
+        fluxapps: {
+          minOutgoing: 1,
+          minIncoming: 1,
+          volumeOperations: { image: executorImageReference() },
+        },
       },
     });
     await mirrorExecutorImage();
-    await bootAndPeer(env);
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
 
     await pushImage(appName, 'v1');
     const app = await buildSeedableApp({
