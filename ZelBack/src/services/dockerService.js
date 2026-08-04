@@ -1335,6 +1335,26 @@ async function appDockerForceRemove(idOrName, removeVolumes = true) {
 }
 
 /**
+ * Whether an image is in this node's local store.
+ *
+ * Creating a container does NOT pull. Docker answers 404 for an image it does
+ * not hold, so anything running a pinned image has to ask this first and fetch
+ * it itself.
+ *
+ * @param {string} reference - repo:tag or repo@digest
+ * @returns {Promise<boolean>}
+ */
+async function imageExists(reference) {
+  try {
+    await docker.getImage(reference).inspect();
+    return true;
+  } catch (error) {
+    if (error.statusCode === 404) return false;
+    throw error;
+  }
+}
+
+/**
  * Removes app's docker image.
  *
  * @param {string} idOrName
@@ -1929,6 +1949,7 @@ module.exports = {
   appDockerCreate,
   appDockerUpdateCpu,
   appDockerImageRemove,
+  imageExists,
   appDockerKill,
   appDockerPause,
   appDockerRemove,

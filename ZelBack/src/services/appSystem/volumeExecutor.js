@@ -1,6 +1,7 @@
 const config = require('config');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const util = require('node:util');
 const fs = require('fs').promises;
 const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
@@ -13,6 +14,8 @@ const {
 } = require('./volumeSession');
 
 const settings = () => config.fluxapps.volumeOperations;
+
+const dockerPull = util.promisify(dockerService.dockerPullStream);
 
 /** Prefix of the directory an interrupted publish leaves the previous data under. */
 const SWAP_PREFIX = '.flux-old-';
@@ -186,6 +189,60 @@ async function assertMountIsLive(session) {
   const mounts = await deviceHelper.listMountedFilesystems();
   if (!mounts.some((mount) => mount.target === session.mount)) {
     throw new Error('Application volume is no longer mounted');
+  }
+}
+
+/**
+ * In-flight pull of the executor image, shared by everything waiting for it.
+ *
+ * Four operations starting on a cold node must not start four downloads of the
+ * same image.
+ */
+let imagePull = null;
+
+/**
+ * Make sure the executor image is on this node, fetching it if it is not.
+ *
+ * Creating a container does not pull - docker answers 404 for an image it does
+ * not hold - so without this the first file operation on any node fails with an
+ * opaque docker error, and so does every one after it.
+ *
+ * Checked before EVERY operation rather than once at startup, because the image
+ * does not stay put. It is pinned by digest and therefore carries no tag, which
+ * is precisely what docker's dangling filter matches: `performDockerCleanup`
+ * prunes unreferenced images before every app install and takes this one with
+ * them. That prune is right to - "an image is unreferenced or it is not, and
+ * re-pulling one is a download rather than a loss" - and this is the half that
+ * makes the second part true.
+ *
+ * Deliberately NOT pulled at startup as well. It would save a few seconds on
+ * the first operation, and cost a synchronised fetch from every node on the
+ * network each time the fleet restarts, for an image most of them will not use.
+ * Fetching on demand spreads that across actual use.
+ *
+ * @param {function(string): void} [onProgress]
+ */
+async function ensureImage(onProgress = null) {
+  const { image } = settings();
+  if (await dockerService.imageExists(image)) return;
+
+  if (!imagePull) {
+    log.info(`volumeExecutor - ${image} is not present on this node, fetching it`);
+    imagePull = dockerPull({ repoTag: image }, null).finally(() => { imagePull = null; });
+  }
+
+  if (onProgress) onProgress('Fetching the file operation image...');
+
+  try {
+    await imagePull;
+  } catch (error) {
+    throw new Error(`Could not fetch the file operation image: ${error.message}`);
+  }
+
+  // dockerPullStream reports the progress stream, not the outcome: a pull can
+  // end on an error event and still call back without one. Ask the store.
+  if (!await dockerService.imageExists(image)) {
+    throw new Error('Could not fetch the file operation image');
   }
 }
 
@@ -405,6 +462,9 @@ async function run(session, argv, options = {}) {
   const stopMeasuring = () => { measurable = false; };
 
   try {
+    // Before the mount check, not after: fetching can take seconds, and the
+    // mount is re-read immediately before the bind on purpose.
+    await ensureImage(onProgress);
     await assertMountIsLive(session);
 
     container = await dockerService.createContainer(containerOptions(session, params));
@@ -656,6 +716,7 @@ async function sweepStagingDirectories(mount, fsPromises) {
 
 module.exports = {
   run,
+  ensureImage,
   assertCapacity,
   reapOrphanedContainers,
   sweepStagingDirectories,

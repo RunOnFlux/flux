@@ -16,10 +16,15 @@ describe('volumeExecutor tests', () => {
   let serviceHelperStub;
   let containerStub;
   let fsStub;
+  let pulled;
   let volumeSession;
   let volumeExecutor;
 
-  const configStub = {
+  let configStub;
+
+  // Rebuilt per test: a test that raises a limit to exercise something must not
+  // leave it raised for the concurrency tests, which assert a refusal.
+  const freshConfig = () => ({
     fluxapps: {
       volumeOperations: {
         image: IMAGE,
@@ -32,7 +37,7 @@ describe('volumeExecutor tests', () => {
         progressIntervalMs: 50,
       },
     },
-  };
+  });
 
   const appConstantsStub = {
     appsFolder: APPS_FOLDER,
@@ -47,6 +52,7 @@ describe('volumeExecutor tests', () => {
   const openSession = async () => volumeSession.openVolume({ params: { appname: 'myapp', component: 'comp' }, query: {} });
 
   beforeEach(() => {
+    configStub = freshConfig();
     deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([mountRow(MOUNT)]) };
 
     containerStub = {
@@ -57,10 +63,16 @@ describe('volumeExecutor tests', () => {
       wait: sinon.stub().resolves({ StatusCode: 0 }),
     };
 
+    pulled = true;
     dockerServiceStub = {
       createContainer: sinon.stub().resolves(containerStub),
       dockerListContainers: sinon.stub().resolves([]),
       appDockerForceRemove: sinon.stub().resolves(),
+      // Present by default, so the tests that are not about fetching it do not
+      // have to say so. A stub missing either of these resolves to undefined at
+      // the CALL rather than at load, and the failure lands inside a try.
+      imageExists: sinon.stub().callsFake(async () => pulled),
+      dockerPullStream: sinon.stub().callsFake((cfg, res, cb) => { pulled = true; cb(null, []); }),
     };
 
     serviceHelperStub = {
@@ -144,6 +156,79 @@ describe('volumeExecutor tests', () => {
 
       const [options] = dockerServiceStub.createContainer.firstCall.args;
       expect(options.Labels['runonflux.role']).to.equal('fileop');
+    });
+  });
+
+  describe('run - fetching the executor image', () => {
+    it('pulls the pinned image when the node does not have it', async () => {
+      // Creating a container does not pull: docker 404s for an image it does
+      // not hold. Without this the FIRST file operation on any node fails.
+      dockerServiceStub.imageExists = sinon.stub();
+      dockerServiceStub.imageExists.onFirstCall().resolves(false);
+      dockerServiceStub.imageExists.onSecondCall().resolves(true);
+
+      const vol = await openSession();
+      const lines = [];
+      await volumeExecutor.run(vol, ['true'], { onProgress: (line) => lines.push(line) });
+
+      expect(dockerServiceStub.dockerPullStream.calledOnce).to.equal(true);
+      expect(dockerServiceStub.dockerPullStream.firstCall.args[0]).to.deep.equal({ repoTag: IMAGE });
+      expect(lines).to.include('Fetching the file operation image...');
+      expect(dockerServiceStub.dockerPullStream.calledBefore(dockerServiceStub.createContainer)).to.equal(true);
+    });
+
+    it('does not pull an image the node already has', async () => {
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      expect(dockerServiceStub.dockerPullStream.called).to.equal(false);
+    });
+
+    it('fetches once for operations that start together', async () => {
+      // A node whose image was just pruned can start several at once, and they
+      // must not each download it.
+      pulled = false;
+      configStub.fluxapps.volumeOperations.maxConcurrentPerApp = 2;
+      const waiters = [];
+      // callsFake, not a replacement: the module promisifies dockerPullStream
+      // at load, so it holds THIS function object - assigning a new stub to the
+      // property afterwards would leave the executor calling the old one.
+      dockerServiceStub.dockerPullStream.callsFake((cfg, res, cb) => {
+        waiters.push(() => { pulled = true; cb(null, []); });
+      });
+
+      const vol = await openSession();
+      const running = [
+        volumeExecutor.run(vol, ['true']),
+        volumeExecutor.run(vol, ['true']),
+      ];
+      await new Promise((resolve) => { setTimeout(resolve, 30); });
+      expect(waiters.length, 'more than one download was started').to.equal(1);
+      waiters[0]();
+      await Promise.all(running);
+
+      expect(dockerServiceStub.dockerPullStream.callCount).to.equal(1);
+    });
+
+    it('fails clearly when the image cannot be fetched', async () => {
+      dockerServiceStub.imageExists = sinon.stub().resolves(false);
+
+      const vol = await openSession();
+      await expect(volumeExecutor.run(vol, ['true']))
+        .to.be.rejectedWith(/Could not fetch the file operation image/);
+      expect(dockerServiceStub.createContainer.called).to.equal(false);
+    });
+
+    it('refuses when the pull reports success but leaves no image', async () => {
+      // dockerPullStream reports the progress stream, not the outcome - a pull
+      // can end on an error event and still call back without one.
+      dockerServiceStub.imageExists = sinon.stub().resolves(false);
+      dockerServiceStub.dockerPullStream.callsFake((cfg, res, cb) => cb(null, []));
+
+      const vol = await openSession();
+      await expect(volumeExecutor.run(vol, ['true']))
+        .to.be.rejectedWith('Could not fetch the file operation image');
+      expect(dockerServiceStub.createContainer.called).to.equal(false);
     });
   });
 
@@ -374,17 +459,28 @@ describe('volumeExecutor tests', () => {
       const holds = [];
       containerStub.wait.callsFake(() => new Promise((resolve) => holds.push(resolve)));
 
-      const sessionFor = async (appname) => {
-        deviceHelperStub.listMountedFilesystems.resolves([mountRow(`${APPS_FOLDER}fluxcomp_${appname}`)]);
-        return volumeSession.openVolume({ params: { appname, component: 'comp' }, query: {} });
-      };
+      // Every volume mounted at once, as on a real node. Repointing a shared
+      // stub per session instead would make the assertions depend on when each
+      // operation happens to read the mount table.
+      deviceHelperStub.listMountedFilesystems.resolves(
+        ['appone', 'apptwo', 'appthree'].map((name) => mountRow(`${APPS_FOLDER}fluxcomp_${name}`)),
+      );
+      const sessionFor = async (appname) => volumeSession.openVolume({ params: { appname, component: 'comp' }, query: {} });
 
       const a = volumeExecutor.run(await sessionFor('appone'), ['true']);
       const b = volumeExecutor.run(await sessionFor('apptwo'), ['true']);
-      // node cap is 2 in this config
+      // node cap is 2 in this config. The slot is taken synchronously, so this
+      // is refused whether or not the first two have reached their container.
       await expect(volumeExecutor.run(await sessionFor('appthree'), ['true']))
         .to.be.rejectedWith('maximum number of file operations');
 
+      // Both must actually be waiting on a container before their waits can be
+      // released - there are several awaits between taking a slot and getting
+      // there, and counting ticks to guess when would make this a timing test.
+      while (holds.length < 2) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setImmediate(resolve); });
+      }
       holds.forEach((resolve) => resolve({ StatusCode: 0 }));
       await Promise.all([a, b]);
     });
