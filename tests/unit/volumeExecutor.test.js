@@ -771,5 +771,75 @@ describe('volumeExecutor tests', () => {
 
       expect(fsStub.promises.lstat.called).to.equal(false);
     });
+
+    it('reports what was published once it succeeds, not whichever tick landed last', async () => {
+      // The ticker's last figure is from whenever its last walk finished, so it
+      // is short of the truth by however much was written after it. Without a
+      // final reading the job says Succeeded while the bytes say 87%, and the
+      // bar never arrives.
+      const vol = await openSession();
+      const publish = await operands(vol);
+      containerStub.wait = runsFor(180);
+
+      // Staging measures small while it runs; the published destination is the
+      // whole thing.
+      fsStub.promises.lstat = sinon.stub().callsFake(async (p) => (
+        p === `${MOUNT}/out` ? fileEntry(9000) : fileEntry(1500)
+      ));
+
+      const seen = [];
+      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
+
+      expect(seen[0]).to.equal(1500);
+      expect(seen[seen.length - 1], 'the last figure is not the published size').to.equal(9000);
+    });
+
+    it('measures the destination for that final reading, because staging is gone by then', async () => {
+      // Publishing is a rename, so there is nothing left at the staging path to
+      // measure once the operation has succeeded.
+      const vol = await openSession();
+      const publish = await operands(vol);
+      containerStub.wait = runsFor(180);
+      fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
+
+      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: () => {} });
+
+      const measured = fsStub.promises.lstat.getCalls().map((c) => c.args[0]);
+      expect(measured[measured.length - 1]).to.equal(`${MOUNT}/out`);
+    });
+
+    it('reports no final figure for an operation that failed', async () => {
+      // Nothing was published, so there is nothing at the destination to
+      // measure and no figure that would mean anything.
+      const vol = await openSession();
+      const publish = await operands(vol);
+      containerStub.wait = sinon.stub().resolves({ StatusCode: 1 });
+      fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
+
+      const seen = [];
+      await expect(volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) }))
+        .to.be.rejectedWith('exit code 1');
+
+      expect(fsStub.promises.lstat.calledWith(`${MOUNT}/out`)).to.equal(false);
+    });
+
+    it('reports no final figure when the tree was already too large to measure', async () => {
+      // A tree that could not be walked while it ran cannot be walked at the
+      // end either, and null is the honest answer both times.
+      const vol = await openSession();
+      const publish = await operands(vol);
+      containerStub.wait = runsFor(180);
+
+      const root = `${MOUNT}/.flux-op-x`;
+      fsStub.promises.lstat = sinon.stub().callsFake(async (p) => (
+        p === root ? { isDirectory: () => true, isFile: () => false } : fileEntry(1)
+      ));
+      fsStub.promises.readdir = sinon.stub().resolves(Array.from({ length: 30000 }, (_, i) => `f${i}`));
+
+      const seen = [];
+      await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
+
+      expect(seen).to.deep.equal([null]);
+    });
   });
 });

@@ -65,18 +65,7 @@ describe('app volume file operations - the contract', function () {
       hookCtx: this,
       nodes: 3,
       tickerAutostart: false,
-      configOverrides: {
-        fluxapps: {
-          volumeOperations: {
-            image,
-            // Compressed from 2s the same way this harness compresses every
-            // other cadence: the byte figures are read on this tick, and at the
-            // production interval a copy small enough to keep a suite quick
-            // finishes before the first one lands.
-            progressIntervalMs: 200,
-          },
-        },
-      },
+      configOverrides: { fluxapps: { volumeOperations: { image } } },
     });
     await bootAndPeer(env);
 
@@ -184,9 +173,9 @@ describe('app volume file operations - the contract', function () {
       expect(await ownerOf(node.container, `${root}/copied/sub`)).to.equal(`${APP_UID}:${APP_GID}`);
     });
 
-    it('reports the bytes it has published, against a total it can know', async function () {
+    it('arrives at its total rather than stopping wherever the last tick landed', async function () {
       this.timeout(300000);
-      const size = await seedLargeFile(node.container, appName, 'bulk.bin', 192);
+      const size = await seedLargeFile(node.container, appName, 'bulk.bin', 64);
 
       const { job } = await succeed('/apps/copyobject', {
         appname: appName, component: appName, source: 'bulk.bin', destination: 'bulk-copy.bin',
@@ -194,18 +183,17 @@ describe('app volume file operations - the contract', function () {
 
       // A copy is the one operation with a real denominator: the capacity check
       // has already measured the source. Compression's ratio is not knowable in
-      // advance and an extraction's only candidate is the archive's own account
-      // of itself, which is exactly what the size ceiling refuses to believe.
-      expect(job.detail.bytesTotal).to.be.a('number');
-      expect(job.detail.bytesTotal).to.be.closeTo(size, size * 0.05);
+      // advance, and an extraction's only candidate is the archive's own
+      // account of itself, which is exactly what the size ceiling refuses to
+      // believe.
+      expect(job.detail.bytesTotal).to.equal(size);
 
-      // NOT asserted to equal the total. The figure comes from a ticker, and a
-      // walk still running when the operation ends is discarded rather than
-      // landed on a job already marked Succeeded - so the last figure is
-      // whichever tick completed last, not the final size.
+      // Exactly the total, not merely close to it. The running figure comes off
+      // a ticker, so on its own it stops at whichever walk finished last and a
+      // completed copy reports something like 87% forever - the job says
+      // Succeeded while the bytes say it did not finish.
       expect(job.detail.bytesDone, 'no byte figure was reported at all').to.be.a('number');
-      expect(job.detail.bytesDone).to.be.greaterThan(0);
-      expect(job.detail.bytesDone).to.be.at.most(job.detail.bytesTotal);
+      expect(job.detail.bytesDone).to.equal(job.detail.bytesTotal);
     });
 
     it('leaves nothing behind when it refuses', async function () {

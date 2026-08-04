@@ -377,6 +377,10 @@ function containerOptions(session, argv, workingDir = WORK_ROOT) {
  *   meaningful alongside `publish`, and only for operations that WRITE into
  *   staging: a move publishes the source where it stands, so its staging size is
  *   the whole operation from the first tick and says nothing about progress.
+ *
+ *   Called once more on success, with the size of what was actually published,
+ *   so a finished operation reports what it finished rather than whichever tick
+ *   completed last.
  * @param {{staging?: VolumePath, source?: VolumePath, destination: VolumePath}}
  *   [options.publish] - run the command into `staging` and move the result to
  *   `destination` only if it succeeds. Wrapping this here rather than leaving it
@@ -468,6 +472,10 @@ async function run(session, argv, options = {}) {
   // whole from the first tick, so measuring it would report 100% throughout.
   let measurable = Boolean(onBytes && publish && publish.staging);
   const stopMeasuring = () => { measurable = false; };
+  // Closed once the final figure is in, so a walk that started before the
+  // operation ended cannot report over it - including by reporting null, which
+  // is how an exhausted budget says it has stopped counting.
+  let reportsClosed = false;
 
   try {
     // Before the mount check, not after: fetching can take seconds, and the
@@ -505,6 +513,7 @@ async function run(session, argv, options = {}) {
       measuring = true;
       measureStaging(publish.staging.hostPath, fs)
         .then((bytes) => {
+          if (reportsClosed) return;
           if (bytes === null) stopMeasuring();
           if (measurable || bytes === null) onBytes(bytes);
         })
@@ -531,6 +540,31 @@ async function run(session, argv, options = {}) {
     const result = await exited;
     if (result.StatusCode !== 0) {
       throw new Error(`File operation failed with exit code ${result.StatusCode}`);
+    }
+
+    // The operation succeeded, so everything it was going to publish IS
+    // published - and the ticker's last figure is from whenever its last walk
+    // happened to finish, short of the truth by however much was written after
+    // it. Without this a completed copy reports some fraction of its own total
+    // and stays there: the job says Succeeded while the bytes say 87%, which is
+    // the one moment a progress figure is read most carefully.
+    //
+    // Measured at the DESTINATION, because that is where the result now is:
+    // publishing is a rename, so staging no longer exists by this point. Same
+    // bounded walk as the ticker uses, so a tree too large to measure reports
+    // no figure here for the same reason it reported none while running.
+    if (measurable) {
+      if (ticker) {
+        clearInterval(ticker);
+        ticker = null;
+      }
+      // Closed BEFORE the measurement, not after: a walk already in flight
+      // would otherwise land between the two and report over the final figure.
+      reportsClosed = true;
+      stopMeasuring();
+
+      const published = await measureStaging(publish.destination.hostPath, fs);
+      if (published !== null) onBytes(published);
     }
   } finally {
     if (ticker) clearInterval(ticker);
