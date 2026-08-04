@@ -433,7 +433,7 @@ describe('messageStore tests', () => {
     it('should return error for unsupported version', async () => {
       const message = {
         type: 'fluxappinstalling',
-        version: 2,
+        version: 3,
         name: 'testapp',
         broadcastedAt: Date.now(),
         ip: '192.168.1.1',
@@ -442,7 +442,7 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppInstallingMessage(message);
 
       expect(result).to.be.instanceOf(Error);
-      expect(result.message).to.include('version 2 not supported');
+      expect(result.message).to.include('version 3 not supported');
     });
 
     it('should store valid installing message', async () => {
@@ -463,6 +463,87 @@ describe('messageStore tests', () => {
 
       expect(result).to.be.true;
       expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
+    });
+  });
+
+  // A node claims an app before it knows whether it is needed, so losing the
+  // race is ordinary and the claim has to be retractable. Version 2 is that
+  // retraction - and it must never be an installing ERROR, which means an
+  // install was attempted and failed, and is counted and acted on as such.
+  describe('storeAppInstallingMessage - version 2 withdrawal', () => {
+    const withdrawal = (overrides = {}) => ({
+      type: 'fluxappinstalling',
+      version: 2,
+      name: 'testapp',
+      ip: '192.168.1.1',
+      broadcastedAt: Date.now(),
+      withdrawn: true,
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.removeDocumentsFromCollection.resolves();
+    });
+
+    it('removes the sender\'s claim and rebroadcasts', async () => {
+      dbHelperStub.findOneInDatabase.resolves({ broadcastedAt: new Date(Date.now() - 60000) });
+
+      const result = await messageStore.storeAppInstallingMessage(withdrawal());
+
+      expect(result).to.be.true;
+      const targets = dbHelperStub.removeDocumentsFromCollection.getCalls().map((c) => c.args[1]);
+      expect(targets).to.have.lengthOf(2); // the claim, and its signed broadcast
+      expect(dbHelperStub.updateOneInDatabase.called, 'a withdrawal records nothing').to.be.false;
+    });
+
+    it('never touches the installing errors collection', async () => {
+      dbHelperStub.findOneInDatabase.resolves({ broadcastedAt: new Date(Date.now() - 60000) });
+
+      await messageStore.storeAppInstallingMessage(withdrawal());
+
+      const touched = dbHelperStub.removeDocumentsFromCollection.getCalls()
+        .concat(dbHelperStub.updateOneInDatabase.getCalls())
+        .map((c) => c.args[1]);
+      expect(touched.some((col) => String(col).includes('errors'))).to.be.false;
+    });
+
+    // a node may claim, stand aside, and claim again - a withdrawal that arrives
+    // after the newer claim must not erase it
+    it('does not erase a claim broadcast after it', async () => {
+      const sent = Date.now() - 60000;
+      dbHelperStub.findOneInDatabase.resolves({ broadcastedAt: new Date(Date.now()) });
+
+      const result = await messageStore.storeAppInstallingMessage(withdrawal({ broadcastedAt: sent }));
+
+      expect(result).to.be.false;
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.false;
+    });
+
+    it('applies when no claim is stored, so a withdrawal is never lost to ordering', async () => {
+      dbHelperStub.findOneInDatabase.resolves(null);
+
+      const result = await messageStore.storeAppInstallingMessage(withdrawal());
+
+      expect(result).to.be.true;
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.true;
+    });
+
+    it('refuses a version 2 message that is not a withdrawal', async () => {
+      const result = await messageStore.storeAppInstallingMessage(withdrawal({ withdrawn: undefined }));
+
+      expect(result).to.be.instanceOf(Error);
+      expect(result.message).to.include('must be a withdrawal');
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.false;
+    });
+
+    it('refuses a stale withdrawal', async () => {
+      const result = await messageStore.storeAppInstallingMessage(
+        withdrawal({ broadcastedAt: Date.now() - (48 * 60 * 60 * 1000) }),
+      );
+
+      expect(result).to.be.false;
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.be.false;
     });
   });
 

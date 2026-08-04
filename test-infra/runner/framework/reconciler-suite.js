@@ -262,6 +262,38 @@ export async function installedInstanceIndices(env, appName) {
   return idx.sort((a, b) => a - b);
 }
 
+// What each node believes about who is installing an app, as an array indexed by
+// node. A claim only matters where OTHER nodes can see it - it is their view
+// that decides whether they stand down - so a suite asserting a claim was
+// retracted has to ask every node, not the one that sent it.
+// A node that cannot answer contributes null rather than an empty list, so
+// "unreachable" is never mistaken for "holds no claims".
+export async function installingClaimIpsByNode(env, appName) {
+  return Promise.all(env.clients.map(async (client) => {
+    try {
+      const res = await client.get('/apps/installinglocations');
+      if (res?.status !== 'success') return null;
+      return res.data.filter((entry) => entry.name === appName).map((entry) => entry.ip);
+    } catch {
+      return null;
+    }
+  }));
+}
+
+// The installing ERRORS each node holds for an app, indexed by node. An error
+// means an install was attempted and failed; nothing else may appear here.
+export async function installingErrorsByNode(env, appName) {
+  return Promise.all(env.clients.map(async (client) => {
+    try {
+      const res = await client.get('/apps/installingerrorslocations');
+      if (res?.status !== 'success') return null;
+      return res.data.filter((entry) => entry.name === appName);
+    } catch {
+      return null;
+    }
+  }));
+}
+
 // Wait until exactly `target` nodes have the app installed, then confirm the count
 // HOLDS at exactly `target` for `stableMs` (so a late overshoot is caught, not
 // missed by checking once). Returns the final sorted node indices.

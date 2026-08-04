@@ -217,7 +217,8 @@ describe('appSpawner tests', () => {
         publish: sinon.stub(),
       },
       '../appMessaging/messageStore': {
-        storeAppInstallingErrorMessage: opts.withdrawalStub ?? sinon.stub().resolves(true),
+        storeAppInstallingMessage: opts.withdrawalStub ?? sinon.stub().resolves(true),
+        storeAppInstallingErrorMessage: opts.installingErrorStub ?? sinon.stub().resolves(true),
       },
       './appInstaller': {
         registerAppLocally: installStubRef,
@@ -816,11 +817,31 @@ describe('appSpawner tests', () => {
       });
       expect(installStub.called).to.be.false;
       expect(logged('earlier claimants in fault domain')).to.be.true;
-      expect(withdrawalStub.calledOnce).to.be.true;
-      const withdrawal = withdrawalStub.firstCall.args[0];
-      expect(withdrawal.type).to.equal('fluxappinstallingerror');
+      // the claim's own message, withdrawing the claim
+      const withdrawals = withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true);
+      expect(withdrawals).to.have.lengthOf(1);
+      const withdrawal = withdrawals[0].args[0];
+      expect(withdrawal.type).to.equal('fluxappinstalling');
+      expect(withdrawal.version).to.equal(2);
       expect(withdrawal.ip).to.equal('192.168.1.1:16127');
-      expect(withdrawal.error).to.include('withdrawn');
+      expect(withdrawal.name).to.be.a('string');
+    });
+
+    // an installing ERROR means an install was attempted and failed, and is
+    // counted and acted on as such - a node standing aside attempted nothing,
+    // and counting it would make the most contended apps look the most broken
+    it('never reports a withdrawal as an install error', async () => {
+      const installingErrorStub = sinon.stub().resolves(true);
+      const { installStub } = await runAttempt({
+        installingErrorStub,
+        placementShare: { domainCount: 3, maxPerDomain: 1 },
+        finalInstallingLocations: [
+          { ip: '192.168.2.2:16127', broadcastedAt: 1000 },
+          { ip: '192.168.1.1:16127', broadcastedAt: 2000 },
+        ],
+      });
+      expect(installStub.called).to.be.false;
+      expect(installingErrorStub.called, 'nothing was attempted, so nothing failed').to.be.false;
     });
 
     it('proceeds as the earliest claimant after the collision wait, keeping its claim', async () => {
@@ -833,7 +854,8 @@ describe('appSpawner tests', () => {
       });
       expect(installStub.called).to.be.true;
       expect(logged('claim 1 of 1 remaining in fault domain')).to.be.true;
-      expect(withdrawalStub.called).to.be.false;
+      const withdrawals = withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true);
+      expect(withdrawals, 'a node that proceeds keeps its claim').to.have.lengthOf(0);
     });
 
     it('keys the post-wait re-check from the same computation, not a fresh one', async () => {
@@ -898,9 +920,9 @@ describe('appSpawner tests', () => {
           ],
         });
         expect(installStub.called).to.be.false;
-        expect(withdrawalStub.calledOnce).to.be.true;
-        const withdrawal = withdrawalStub.firstCall.args[0];
-        expect(withdrawal.error).to.include('withdrawn');
+        const withdrawals = withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true);
+        expect(withdrawals).to.have.lengthOf(1);
+        expect(withdrawals[0].args[0].version).to.equal(2);
       });
 
       it('keeps the domain share on a tie won on address, even when its claim arrived last', async () => {
