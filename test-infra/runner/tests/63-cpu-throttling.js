@@ -30,7 +30,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // One spinner saturates one core, so BURN_SPINNERS must cover SPEC_CPU or the
 // container never reaches the 92% of its allocation the throttler looks for.
-const SPEC_CPU = 1.5;
+const SPEC_CPU = 1.2;
 const BURN_SPINNERS = 2;
 // long enough for a decision (cpuCheckIntervalMs) over a full window
 // (five samples at statsSampleIntervalMs), then the container goes idle in place
@@ -97,7 +97,9 @@ describe('CPU throttling', function () {
     const spec = buildAppSpec({
       name: appName,
       compose: burningCompose(appName),
-      instances: 3,
+      // one is all this suite reads, and each instance burns SPEC_CPU of the
+      // harness host for the length of the burn
+      instances: 1,
     });
     const regResult = await registerAndConfirm(
       env.clients[0].url, nodeKey(1), spec, env.clients,

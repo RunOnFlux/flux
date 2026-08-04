@@ -104,6 +104,10 @@ module.exports = {
     peerNotifyIntervalMs: 30000,
     cpuCheckIntervalMs: 30000,
     statsSampleIntervalMs: 2000,
+    // the chain starts at 2100000, below mainnet's v8 single-instance height, so
+    // a suite that only needs one instance would otherwise be forced to three.
+    // This lowers a minimum: suites asking for three still get three.
+    minimumInstancesV8Block: 2000000,
     portRestoreIntervalMs: 30000,
     imageComplianceIntervalMs: 60000,
     forceRemovalIntervalMs: 120000,
