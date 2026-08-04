@@ -120,30 +120,48 @@ describe('appQueryService tests', () => {
     it('returns non-enterprise apps unchanged without decrypting', async () => {
       const apps = [{ name: 'plain', version: 4 }];
       const result = await appQueryService.decryptEnterpriseApps(apps, { formatSpecs: false });
-      expect(result).to.deep.equal(apps);
+      expect(result.apps).to.deep.equal(apps);
+      expect(result.unreadable).to.deep.equal([]);
       expect(enterpriseHelperStub.checkAndDecryptAppSpecs.called).to.be.false;
     });
 
-    it('swallows a decryption failure and returns the encrypted spec by default (lenient)', async () => {
+    // A spec that did not decrypt has no components, and an app with no
+    // components is not a valid app. Reporting it separately is what stops a
+    // caller reading "owns no folders" / "has no images" and acting on it.
+    it('reports a spec it could not decrypt instead of returning it as an app', async () => {
       // resetBehavior first: a stub's returnsArg(0) (set in beforeEach) otherwise wins over rejects()
       enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
       enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('enterpriseKey is mandatory'));
+
       const result = await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
-      // display/listing callers keep the whole list; the failed one stays encrypted
-      expect(result).to.deep.equal([enterpriseApp]);
+
+      expect(result.apps).to.deep.equal([]);
+      expect(result.unreadable).to.deep.equal([enterpriseApp]);
     });
 
-    it('rethrows a decryption failure when throwOnError is set', async () => {
+    it('keeps the readable apps when one of several cannot be decrypted', async () => {
+      const plain = { name: 'plain', version: 4 };
       enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
       enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('enterpriseKey is mandatory'));
-      let threw = false;
-      try {
-        await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false, throwOnError: true });
-      } catch (err) {
-        threw = true;
-        expect(err.message).to.match(/enterpriseKey is mandatory/);
-      }
-      expect(threw, 'should propagate the decrypt error so the caller can defer, not act on ciphertext').to.be.true;
+
+      const result = await appQueryService.decryptEnterpriseApps([plain, enterpriseApp], { formatSpecs: false });
+
+      expect(result.apps).to.deep.equal([plain]);
+      expect(result.unreadable).to.deep.equal([enterpriseApp]);
+    });
+
+    // listing callers want the app to still appear, in the position it was in
+    it('puts an undecryptable spec back in place for listing', async () => {
+      const first = { name: 'first', version: 4 };
+      const last = { name: 'last', version: 4 };
+      enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
+      enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('enterpriseKey is mandatory'));
+
+      const listed = await appQueryService.decryptEnterpriseAppsForListing(
+        [first, enterpriseApp, last], { formatSpecs: false },
+      );
+
+      expect(listed).to.deep.equal([first, enterpriseApp, last]);
     });
 
     // Call-volume contract: with many components in defer loops, benchd must
@@ -169,8 +187,8 @@ describe('appQueryService tests', () => {
         const [r1, r2] = await Promise.all([p1, p2]);
 
         expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'concurrent callers must share one benchd attempt').to.equal(1);
-        expect(r1[0].compose).to.have.lengthOf(1);
-        expect(r2[0].compose).to.have.lengthOf(1);
+        expect(r1.apps[0].compose).to.have.lengthOf(1);
+        expect(r2.apps[0].compose).to.have.lengthOf(1);
       });
 
       it('remembers a decryption failure briefly - retries inside the window skip benchd', async () => {
@@ -190,19 +208,14 @@ describe('appQueryService tests', () => {
         }
       });
 
-      it('a remembered failure still rejects strict callers without another benchd call', async () => {
+      it('a remembered failure answers the next caller without another benchd call', async () => {
         enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
         enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('benchd unavailable'));
 
         await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false }); // seeds the failure window
-        let threw = false;
-        try {
-          await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false, throwOnError: true });
-        } catch (err) {
-          threw = true;
-          expect(err.message).to.match(/benchd unavailable/);
-        }
-        expect(threw, 'strict caller must still get the failure (reconcile defers on it)').to.be.true;
+        const again = await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
+
+        expect(again.unreadable, 'the spec is still reported unreadable').to.deep.equal([enterpriseApp]);
         expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'the cached failure answers without re-hitting benchd').to.equal(1);
       });
     });

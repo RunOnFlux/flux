@@ -631,8 +631,12 @@ async function checkApplicationsCompliance(installedApps, removeAppLocally) {
       throw new Error('Failed to get installed Apps');
     }
     // Decrypt enterprise apps (version 8 with encrypted content)
-    installedAppsRes.data = await decryptEnterpriseApps(installedAppsRes.data);
-    const appsInstalled = installedAppsRes.data;
+    const { apps: appsInstalled, unreadable } = await decryptEnterpriseApps(installedAppsRes.data);
+    if (unreadable.length) {
+      // their repotags are inside the blob, so a blocked image in one cannot be
+      // seen here - it is not cleared, it is unexamined
+      log.warn(`Cannot check blocked images for undecryptable apps: ${unreadable.map((app) => app.name).join(', ')}`);
+    }
     const appsToRemoveNames = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled) {

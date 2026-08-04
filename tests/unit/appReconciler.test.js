@@ -68,7 +68,7 @@ describe('appReconciler tests', () => {
         clearNetworkHeal: sinon.stub().resolves(),
       },
       appQueryService: {
-        decryptEnterpriseApps: sinon.stub().callsFake(async (arr) => arr),
+        decryptEnterpriseApps: sinon.stub().callsFake(async (arr) => ({ apps: arr, unreadable: [] })),
         installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
       },
       containerHealthMonitor: { recreateMissingContainers: sinon.stub().resolves() },
@@ -743,9 +743,10 @@ describe('appReconciler tests', () => {
       localSpec = {
         name: 'App', version: 8, enterprise: 'CIPHERTEXT', compose: [{ name: 'db', containerData: '' }],
       };
-      stubs.appQueryService.decryptEnterpriseApps.callsFake(async () => [
-        { name: 'App', version: 8, compose: [{ name: 'db', containerData: 'g:/data' }] },
-      ]);
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async () => ({
+        apps: [{ name: 'App', version: 8, compose: [{ name: 'db', containerData: 'g:/data' }] }],
+        unreadable: [],
+      }));
       await appReconciler.reconcile('db_App');
       // treated as g: from the DECRYPTED containerData -> not started without a controller.
       // If it had acted on the encrypted spec (containerData '') it would be a plain start.
@@ -756,8 +757,8 @@ describe('appReconciler tests', () => {
       localSpec = {
         name: 'App', version: 8, enterprise: 'CIPHERTEXT', compose: [{ name: 'db', containerData: '' }],
       };
-      // throwOnError path: decryption failing (e.g. key not loaded at boot) must propagate
-      stubs.appQueryService.decryptEnterpriseApps.rejects(new Error('enterpriseKey is mandatory'));
+      // an unreadable spec (e.g. key not loaded at boot) must defer, never act
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({ apps: [], unreadable: arr }));
       await appReconciler.reconcile('db_App'); // must not throw
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
@@ -791,7 +792,7 @@ describe('appReconciler tests', () => {
       const decrypted = { ...stored, compose: [{ name: 'c1', containerData: '/data' }, { name: 'c2', containerData: '/data' }] };
       stubs.appQueryService.installedApps.resolves({ status: 'success', data: [stored] });
       stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => (query.name === 'EntApp' ? stored : null));
-      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => arr.map((a) => (a.enterprise ? decrypted : a)));
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({ apps: arr.map((a) => (a.enterprise ? decrypted : a)), unreadable: [] }));
 
       const started = [];
       stubs.dockerService.appDockerStart.callsFake(async (id) => { started.push(id); });
@@ -807,11 +808,12 @@ describe('appReconciler tests', () => {
       };
       stubs.appQueryService.installedApps.resolves({ status: 'success', data: [stored] });
       stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => (query.name === 'EntApp' ? stored : null));
-      // benchd unavailable: lenient calls return the spec still encrypted, strict callers get the throw
-      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr, opts) => {
-        if (opts && opts.throwOnError) throw new Error('benchd unavailable');
-        return arr;
-      });
+      // benchd unavailable: the spec is reported unreadable, never handed back
+      // as an app with no components
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({
+        apps: arr.filter((a) => !a.enterprise),
+        unreadable: arr.filter((a) => a.enterprise),
+      }));
       // the app's existing containers, plus an unrelated app's container that
       // this fallback must NOT sweep in (it is not part of the failed app)
       stubs.dockerService.dockerListContainers.resolves([
@@ -845,10 +847,10 @@ describe('appReconciler tests', () => {
       // the failing app FIRST: a sweep that dies on it would never reach Plain
       stubs.appQueryService.installedApps.resolves({ status: 'success', data: [ent, plain] });
       stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => byName[query.name] ?? null);
-      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr, opts) => {
-        if (opts && opts.throwOnError && arr.some((a) => a.enterprise)) throw new Error('benchd unavailable');
-        return arr;
-      });
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({
+        apps: arr.filter((a) => !a.enterprise),
+        unreadable: arr.filter((a) => a.enterprise),
+      }));
       stubs.dockerService.dockerListContainers.resolves([{ Names: ['/fluxc1_EntApp'] }]);
 
       const started = [];

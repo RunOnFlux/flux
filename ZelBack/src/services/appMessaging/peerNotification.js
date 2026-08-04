@@ -6,7 +6,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const messageStore = require('./messageStore');
-const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
+const { decryptEnterpriseAppsForListing } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
 const appQueryService = require('../appQuery/appQueryService');
@@ -73,7 +73,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       throw new Error('Failed to get installed Apps');
     }
     let appsInstalled = installedAppsRes.data;
-    appsInstalled = await decryptEnterpriseApps(appsInstalled, { formatSpecs: false });
+    appsInstalled = await decryptEnterpriseAppsForListing(appsInstalled, { formatSpecs: false });
     const runningAppsRes = await appQueryService.listRunningApps();
     if (runningAppsRes.status !== 'success') {
       throw new Error('Unable to check running Apps');
@@ -162,7 +162,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     } catch (err) {
       log.error(err);
     }
-    const runningAppsCache = globalState.runningAppsCache;
+    const { runningAppsCache } = globalState;
     runningAppsCache.clear();
     apps.forEach((app) => {
       runningAppsCache.add(app.name);

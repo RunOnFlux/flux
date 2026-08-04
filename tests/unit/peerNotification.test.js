@@ -102,7 +102,7 @@ describe('peerNotification tests', () => {
       '../appQuery/appQueryService': {
         installedApps: installedAppsStub,
         listRunningApps: listRunningAppsStub,
-        decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps),
+        decryptEnterpriseAppsForListing: sinon.stub().callsFake(async (apps) => apps),
       },
       '../appTamperingDetectionService': {
         recordEvent: sinon.stub().resolves(),

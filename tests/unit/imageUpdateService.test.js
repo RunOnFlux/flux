@@ -92,7 +92,7 @@ describe('imageUpdateService tests', () => {
     appQueryServiceStub.installedApps.reset();
     appQueryServiceStub.decryptEnterpriseApps.reset();
     // Configure decryptEnterpriseApps to pass through apps unchanged by default
-    appQueryServiceStub.decryptEnterpriseApps.callsFake(async (apps) => apps);
+    appQueryServiceStub.decryptEnterpriseApps.callsFake(async (apps) => ({ apps, unreadable: [] }));
 
     advancedWorkflowsStub.softRedeploy.reset();
 

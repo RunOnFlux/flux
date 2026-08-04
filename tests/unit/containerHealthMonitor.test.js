@@ -71,7 +71,7 @@ describe('containerHealthMonitor tests', () => {
       '../appManagement/appInspector': appInspectorStub,
       '../appTamperingDetectionService': tamperingStub,
       '../utils/globalState': { appsMonitored: new Map() },
-      '../appQuery/appQueryService': { decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps) },
+      '../appQuery/appQueryService': { decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ apps, unreadable: [] })) },
       '../utils/appConstants': { localAppsInformation: 'localAppsInformation' },
       '../utils/volumeService': volumeServiceStub,
     });

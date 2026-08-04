@@ -3,7 +3,7 @@ const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
-const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
+const { decryptEnterpriseAppsForListing } = require('../appQuery/appQueryService');
 const cpuBurstHelper = require('../utils/cpuBurstHelper');
 const log = require('../../lib/log');
 // eslint-disable-next-line no-unused-vars
@@ -691,7 +691,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
       throw new Error('Failed to get installed Apps');
     }
     // Decrypt enterprise apps (version 8 with encrypted content)
-    installedAppsRes.data = await decryptEnterpriseApps(installedAppsRes.data);
+    installedAppsRes.data = await decryptEnterpriseAppsForListing(installedAppsRes.data);
     const appsInstalled = installedAppsRes.data;
     let stats;
     // eslint-disable-next-line no-restricted-syntax
@@ -862,7 +862,7 @@ async function monitorSharedDBApps(installedApps, removeAppLocally, globalState)
     // get list of all installed apps
     const appsInstalled = await installedApps();
     // Decrypt enterprise apps (version 8 with encrypted content)
-    appsInstalled.data = await decryptEnterpriseApps(appsInstalled.data);
+    appsInstalled.data = await decryptEnterpriseAppsForListing(appsInstalled.data);
 
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data.filter((app) => app.version > 3)) {
@@ -918,7 +918,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
       throw new Error('Failed to get installed Apps');
     }
     // Decrypt enterprise apps (version 8 with encrypted content)
-    installedAppsRes.data = await decryptEnterpriseApps(installedAppsRes.data);
+    installedAppsRes.data = await decryptEnterpriseAppsForListing(installedAppsRes.data);
     const appsInstalled = installedAppsRes.data;
     const dockerSystemDF = await dockerService.dockerGetUsage();
     const allowedMaximum = (config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap) * 1000 * 1024 * 1024;

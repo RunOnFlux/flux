@@ -518,7 +518,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       throw new Error('Unable to check running Apps');
     }
     const appsInstalled = installedAppsRes.data;
-    const decryptedAppsInstalled = await appQueryService.decryptEnterpriseApps(appsInstalled, { formatSpecs: false });
+    const { apps: decryptedAppsInstalled, unreadable } = await appQueryService.decryptEnterpriseApps(appsInstalled, { formatSpecs: false });
+    if (unreadable.length) {
+      log.warn(`Component names unavailable for undecryptable apps: ${unreadable.map((app) => app.name).join(', ')}`);
+    }
     const runningApps = runningAppsRes.data;
     const installedAppComponentNames = [];
     decryptedAppsInstalled.forEach((app) => {

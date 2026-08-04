@@ -9,7 +9,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const upnpService = require('../upnpService');
 const networkStateService = require('../networkStateService');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
-const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
+const { decryptEnterpriseAppsForListing } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 
@@ -146,7 +146,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     }
 
     // Decrypt enterprise apps (version 8 with encrypted content)
-    installedAppsRes.data = await decryptEnterpriseApps(installedAppsRes.data);
+    installedAppsRes.data = await decryptEnterpriseAppsForListing(installedAppsRes.data);
 
     const apps = installedAppsRes.data;
     const appPorts = [];

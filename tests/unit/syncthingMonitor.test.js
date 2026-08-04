@@ -83,7 +83,7 @@ const syncthingHealthMonitorMock = {
 const appQueryServiceMock = {
   // default: nothing to decrypt, so the list comes back as-is. callsFake rather
   // than returnsArg so a test can override it - sinon resolves returnsArg first
-  decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps),
+  decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ apps, unreadable: [] })),
 };
 
 const syncthingEventsConsumerMock = {
@@ -181,7 +181,7 @@ describe('syncthingMonitor tests', () => {
     syncthingMonitorHelpersMock.ensureStfolderExists.resolves(true);
 
     appQueryServiceMock.decryptEnterpriseApps.reset();
-    appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => apps);
+    appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ apps, unreadable: [] }));
 
     // Default stub behaviors
     syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [] });
@@ -737,25 +737,77 @@ describe('syncthingMonitor tests', () => {
     });
 
     it('deletes nothing when an enterprise spec cannot be decrypted', async () => {
-      // an undecrypted enterprise spec carries an empty compose, so every folder
-      // the app owns reads as unowned - the pass must abort instead of sweeping
+      // An app whose spec cannot be read says nothing about which folders it
+      // owns, so its folders must not be swept - but the rest of the pass has
+      // no reason to stop.
       primaryMountSyncs();
-      // mirrors the real helper: lenient callers get the still-encrypted spec
-      // back, callers that act on it pass throwOnError and get the failure
-      appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps, options = {}) => {
-        if (options.throwOnError) throw new Error('enterprise key not loaded');
-        return apps;
-      });
-      mockInstalledAppsFn.resolves({
-        status: 'success',
-        data: [{ name: 'entapp', version: 8, enterprise: 'ENCRYPTED-BLOB', compose: [] }],
-      });
+      const entapp = {
+        name: 'entapp', version: 8, enterprise: 'ENCRYPTED-BLOB', compose: [],
+      };
+      appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({
+        apps: apps.filter((app) => app !== entapp),
+        unreadable: apps.filter((app) => app === entapp),
+      }));
+      mockInstalledAppsFn.resolves({ status: 'success', data: [entapp] });
       syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'fluxweb_entapp', type: 'sendreceive' }] });
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
       await runOnePass();
 
       sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'delete');
+    });
+
+    it('sweeps an unowned folder while protecting one whose app could not be decrypted', async () => {
+      // one opaque app costs its own folders' sweep and nothing else
+      primaryMountSyncs();
+      const entapp = {
+        name: 'entapp', version: 8, enterprise: 'ENCRYPTED-BLOB', compose: [],
+      };
+      appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({
+        apps: apps.filter((app) => app !== entapp),
+        unreadable: apps.filter((app) => app === entapp),
+      }));
+      mockInstalledAppsFn.resolves({ status: 'success', data: [entapp] });
+      syncthingServiceMock.getConfigFolders.resolves({
+        status: 'success',
+        data: [
+          { id: 'fluxweb_entapp', type: 'sendreceive' },
+          { id: 'fluxweb_goneapp', type: 'sendreceive' },
+        ],
+      });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      await runOnePass();
+
+      const deletions = syncthingServiceMock.adjustConfigFolders.getCalls()
+        .filter((call) => call.args[0] === 'delete')
+        .map((call) => call.args[2]);
+      expect(deletions).to.include('fluxweb_goneapp');
+      expect(deletions).to.not.include('fluxweb_entapp');
+    });
+
+    it('keeps a safety flag standing when its folder belongs to an app it cannot decrypt', async () => {
+      // A flag is resolved when no installed app carries its folder - the
+      // uninstall already removed whatever it protected. An unreadable app
+      // carries nothing either, but for a reason that says nothing about the
+      // folder, so resolving there drops a live protection.
+      primaryMountSyncs();
+      const entapp = {
+        name: 'entapp', version: 8, enterprise: 'ENCRYPTED-BLOB', compose: [],
+      };
+      appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({
+        apps: apps.filter((app) => app !== entapp),
+        unreadable: apps.filter((app) => app === entapp),
+      }));
+      mockInstalledAppsFn.resolves({ status: 'success', data: [entapp] });
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['fluxweb_entapp']);
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'unmounted_with_content' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'error', data: { code: 'ERR_BAD_REQUEST', name: 'AxiosError', message: 'Request failed with status code 404' } });
+
+      await runOnePass();
+
+      sinon.assert.neverCalledWith(syncthingEventsConsumerMock.resolveMountVerify, 'fluxweb_entapp');
     });
 
     it('holds the container and keeps the flag when an owned folder is unknown to syncthing', async () => {

@@ -220,7 +220,7 @@ describe('appInstaller tests', () => {
       '../appQuery/appQueryService': {
         installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
         listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
-        decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps),
+        decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ apps, unreadable: [] })),
       },
       '../utils/enterpriseHelper': enterpriseHelperStub,
       '../utils/appSpecHelpers': appSpecHelpersStub,
@@ -1125,7 +1125,7 @@ describe('appInstaller tests', () => {
         '../appQuery/appQueryService': {
           installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
           listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
-          decryptEnterpriseApps: sinon.stub().callsFake((apps) => Promise.resolve(apps)),
+          decryptEnterpriseApps: sinon.stub().callsFake((apps) => Promise.resolve({ apps, unreadable: [] })),
         },
         util: { promisify: (fn) => fn },
       });

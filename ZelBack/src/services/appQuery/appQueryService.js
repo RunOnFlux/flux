@@ -71,16 +71,28 @@ async function decryptEnterpriseSpec(spec) {
 }
 
 /**
- * Decrypt enterprise apps from a list of apps
+ * Decrypt enterprise apps, reporting the ones that could not be read.
+ *
+ * An enterprise spec carries its components inside the encrypted blob, so a
+ * failed decrypt leaves a spec with no components - which is not a valid app
+ * and must never be handed out as though it were. Every caller that enumerates
+ * components would act on it as "this app has none": the sweep would delete its
+ * folders, the blocked-image scan would find no images to block, the update
+ * check would find nothing to update. All silent.
+ *
+ * So the result says which apps were read and which were not. A caller that
+ * acts on components skips the unreadable ones and says so; a caller that only
+ * lists them can put them straight back in the list.
  * @param {Array} apps - Array of app specifications
  * @param {Object} options - Options for decryption
  * @param {boolean} options.formatSpecs - Whether to format specs (strips metadata like hash, height). Default: true
- * @param {boolean} options.throwOnError - Rethrow a decrypt failure instead of returning the encrypted spec. Default: false
- * @returns {Promise<Array>} Array of decrypted app specifications
+ * @returns {Promise<{apps: Array, unreadable: Array}>} The specs that decrypted,
+ *   and the still-encrypted specs that did not
  */
 async function decryptEnterpriseApps(apps, options = {}) {
-  const { formatSpecs = true, throwOnError = false } = options;
+  const { formatSpecs = true } = options;
   const decryptedApps = [];
+  const unreadable = [];
 
   // eslint-disable-next-line no-restricted-syntax
   for (const spec of apps) {
@@ -97,18 +109,31 @@ async function decryptEnterpriseApps(apps, options = {}) {
         decryptedApps.push(result);
       } catch (error) {
         log.error(`Failed to decrypt enterprise app ${spec.name}: ${error.message}`);
-        // Display/listing callers (default) keep the lenient behavior: include the
-        // still-encrypted spec so the rest of the list isn't lost. Callers that act
-        // on the spec (the reconciler) pass throwOnError so they can defer rather
-        // than operate on undecrypted data (wrong containerData, mis-typed g:/r:).
-        if (throwOnError) throw error;
-        decryptedApps.push(spec);
+        unreadable.push(spec);
       }
     } else {
       decryptedApps.push(spec);
     }
   }
-  return decryptedApps;
+  return { apps: decryptedApps, unreadable };
+}
+
+/**
+ * The apps that decrypted, with the ones that did not put back in the list.
+ * For callers that only display or count apps and never read a component: the
+ * list is the product, and an app missing from it would read as uninstalled.
+ * @param {Array} apps - Array of app specifications
+ * @param {Object} [options] - Passed to decryptEnterpriseApps
+ * @returns {Promise<Array>} Every app, decrypted where possible
+ */
+async function decryptEnterpriseAppsForListing(apps, options = {}) {
+  const { apps: readable, unreadable } = await decryptEnterpriseApps(apps, options);
+  if (!unreadable.length) return readable;
+  // each unreadable spec goes back where it was, so the order a caller sees is
+  // the order it asked about
+  const failed = new Set(unreadable);
+  const decrypted = [...readable];
+  return apps.map((spec) => (failed.has(spec) ? spec : decrypted.shift()));
 }
 
 /**
@@ -453,6 +478,7 @@ async function getAppsMessagesCount(req, res) {
 module.exports = {
   installedApps,
   decryptEnterpriseApps,
+  decryptEnterpriseAppsForListing,
   listRunningApps,
   heldComponents,
   promotedFolders,

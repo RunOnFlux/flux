@@ -229,17 +229,18 @@ async function getLocalComponentSpec(identifier) {
     throw error;
   }
   if (!appSpec) return null;
-  try {
-    [appSpec] = await appQueryService.decryptEnterpriseApps([appSpec], { formatSpecs: false, throwOnError: true });
-  } catch (err) {
+  const { apps: [decryptedSpec] } = await appQueryService
+    .decryptEnterpriseApps([appSpec], { formatSpecs: false });
+  if (!decryptedSpec) {
     // Decryption failed (e.g. the enterprise key isn't loaded yet at boot). Never
     // proceed on still-encrypted data: containerData would be unreadable, so we'd
     // misclassify g:/r: or start a container on garbage. Treat as transient like a
     // DB read failure so reconcile defers and retries once the key is available.
-    const error = new Error(`failed to decrypt enterprise spec for ${identifier}: ${err.message}`);
+    const error = new Error(`failed to decrypt enterprise spec for ${identifier}`);
     error.transient = true;
     throw error;
   }
+  appSpec = decryptedSpec;
 
   let comp;
   if (appSpec.version >= 4 && Array.isArray(appSpec.compose)) {
@@ -968,35 +969,34 @@ function enqueue(rawIdentifier) {
 async function enqueueAll(reason = 'resync') {
   const res = await appQueryService.installedApps();
   if (!res || res.status !== 'success') return;
-  const apps = await appQueryService.decryptEnterpriseApps(res.data, { formatSpecs: false });
+  const { apps, unreadable } = await appQueryService.decryptEnterpriseApps(res.data, { formatSpecs: false });
   let count = 0;
   let dockerNames = null; // fetched once, only if some app failed to decrypt
-  for (const app of apps) {
-    const stillEncrypted = app.version >= 8 && app.enterprise
-      && (!Array.isArray(app.compose) || app.compose.length === 0);
-    if (stillEncrypted) {
-      // Decryption failed (already logged by decryptEnterpriseApps). The component
-      // names live inside the blob, so enumerate the app's EXISTING docker
-      // containers instead: their reconciles defer on the same decrypt failure
-      // and converge the moment fluxbenchd answers again. A vanished container of
-      // an undecryptable app cannot be recovered anyway (recreation needs the
-      // spec); the next sweep retries, so coverage resumes with decryption.
-      if (dockerNames === null) {
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          const containers = await dockerService.dockerListContainers(true);
-          dockerNames = containers.map((c) => (c.Names && c.Names[0] ? c.Names[0].slice(1) : ''));
-        } catch (err) {
-          log.warn(`appReconciler - enqueueAll cannot list containers for undecryptable apps: ${err.message}`);
-          dockerNames = [];
-        }
+  // Decryption failed (already logged by decryptEnterpriseApps). The component
+  // names live inside the blob, so enumerate each app's EXISTING docker
+  // containers instead: their reconciles defer on the same decrypt failure
+  // and converge the moment fluxbenchd answers again. A vanished container of
+  // an undecryptable app cannot be recovered anyway (recreation needs the
+  // spec); the next sweep retries, so coverage resumes with decryption.
+  for (const app of unreadable) {
+    if (dockerNames === null) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const containers = await dockerService.dockerListContainers(true);
+        dockerNames = containers.map((c) => (c.Names && c.Names[0] ? c.Names[0].slice(1) : ''));
+      } catch (err) {
+        log.warn(`appReconciler - enqueueAll cannot list containers for undecryptable apps: ${err.message}`);
+        dockerNames = [];
       }
-      const suffix = `_${app.name}`;
-      dockerNames.filter((name) => name.endsWith(suffix)).forEach((name) => {
-        enqueue(name); // canonicalised to the bare component identifier by enqueue
-        count += 1;
-      });
-    } else if (app.version >= 4 && Array.isArray(app.compose)) {
+    }
+    const suffix = `_${app.name}`;
+    dockerNames.filter((name) => name.endsWith(suffix)).forEach((name) => {
+      enqueue(name); // canonicalised to the bare component identifier by enqueue
+      count += 1;
+    });
+  }
+  for (const app of apps) {
+    if (app.version >= 4 && Array.isArray(app.compose)) {
       app.compose.forEach((c) => { enqueue(`${c.name}_${app.name}`); count += 1; });
     } else {
       enqueue(app.name);
