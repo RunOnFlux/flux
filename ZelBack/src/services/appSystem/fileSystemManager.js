@@ -366,10 +366,16 @@ function startOperation(res, volume, meta, work) {
       isCanceled: () => jobRegistry.isCanceled(handle.jobId),
       ...(meta.trackBytes ? { onBytes: (bytes) => { bytesDone = bytes; } } : {}),
     }))
-    .then(() => {
-      if (jobRegistry.isCanceled(handle.jobId)) jobRegistry.cancelled(handle.jobId);
-      else jobRegistry.succeed(handle.jobId);
-    })
+    // Succeeded even if a cancel was asked for. Reaching here means the command
+    // exited 0, which means it published - so the cancel lost the race, and
+    // saying Canceled would tell the caller nothing happened while their
+    // destination has in fact been replaced. For a move it would be worse
+    // still: the source is gone, and the answer says it was not touched.
+    // Cancellation is cooperative, so "we stopped if we could" is the promise,
+    // and a stop that arrived too late is not a stop.
+    .then(() => jobRegistry.succeed(handle.jobId))
+    // A cancel that DID take effect lands here instead: flux-op traps the
+    // signal and exits 143, so the executor throws rather than resolving.
     .catch((error) => {
       if (jobRegistry.isCanceled(handle.jobId)) jobRegistry.cancelled(handle.jobId);
       else jobRegistry.fail(handle.jobId, error);

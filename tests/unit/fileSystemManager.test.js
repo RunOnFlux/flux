@@ -399,6 +399,50 @@ describe('fileSystemManager tests', () => {
     });
   });
 
+  describe('how an operation settles', () => {
+    const jobIdOf = () => acceptedBody().jobId;
+
+    it('is Succeeded when the work finished, even though a cancel was asked for', async () => {
+      // Cancellation is cooperative: the flag is raised and the worker stops at
+      // its next checkpoint. A cancel that arrives after the command has
+      // already published lost the race - the destination HAS been replaced,
+      // and for a move the source is already gone. Reporting Canceled there
+      // tells the caller nothing happened, about the one operation where
+      // something irreversibly did.
+      executorStub.run.callsFake(async () => {
+        jobRegistry.requestCancel(jobIdOf());
+      });
+      req.body = { source: 'photos', destination: 'copied' };
+      await fileSystemManager.copyAppsObject(req, res);
+      await settle();
+
+      expect(jobRegistry.get(jobIdOf(), null).status).to.equal('Succeeded');
+    });
+
+    it('is Canceled when the work actually stopped', async () => {
+      // flux-op traps the signal and exits 143, so a cancel that took effect
+      // reaches here as a throw rather than as a resolved operation.
+      executorStub.run.callsFake(async () => {
+        jobRegistry.requestCancel(jobIdOf());
+        throw new Error('File operation failed with exit code 143');
+      });
+      req.body = { source: 'photos', destination: 'copied' };
+      await fileSystemManager.copyAppsObject(req, res);
+      await settle();
+
+      expect(jobRegistry.get(jobIdOf(), null).status).to.equal('Canceled');
+    });
+
+    it('is Failed when the work failed on its own', async () => {
+      executorStub.run.rejects(new Error('File operation failed with exit code 2'));
+      req.body = { source: 'photos', destination: 'copied' };
+      await fileSystemManager.copyAppsObject(req, res);
+      await settle();
+
+      expect(jobRegistry.get(jobIdOf(), null).status).to.equal('Failed');
+    });
+  });
+
   describe('operand transport', () => {
     it('reads the operands from a JSON body', async () => {
       req.body = { appname: 'myapp', component: 'comp', source: 'a', destination: 'b' };

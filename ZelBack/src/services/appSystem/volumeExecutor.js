@@ -207,13 +207,17 @@ let imagePull = null;
  * not hold - so without this the first file operation on any node fails with an
  * opaque docker error, and so does every one after it.
  *
- * Checked before EVERY operation rather than once at startup, because the image
- * does not stay put. It is pinned by digest and therefore carries no tag, which
- * is precisely what docker's dangling filter matches: `performDockerCleanup`
- * prunes unreferenced images before every app install and takes this one with
- * them. That prune is right to - "an image is unreferenced or it is not, and
- * re-pulling one is a download rather than a loss" - and this is the half that
- * makes the second part true.
+ * Checked before EVERY operation rather than once at startup, because nothing
+ * guarantees the image is still there. An operator prunes, a disk fills, a
+ * dockerd is replaced; the check is one inspect when it is present, so paying
+ * it every time costs nothing and removes a whole class of "worked yesterday".
+ *
+ * `performDockerCleanup` is NOT one of the things that removes it, despite
+ * running before every app install. Measured on docker 29.3.1: an image pulled
+ * by digest keeps its repository name and carries `<none>` only as its TAG, so
+ * it does not match the dangling filter that `pruneImages` uses. Recorded here
+ * because the opposite was written down once and it is the kind of claim that
+ * gets a working fetch removed as redundant.
  *
  * Deliberately NOT pulled at startup as well. It would save a few seconds on
  * the first operation, and cost a synchronised fetch from every node on the
