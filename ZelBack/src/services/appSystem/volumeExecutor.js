@@ -533,7 +533,21 @@ async function run(session, argv, options = {}) {
     const exited = container.wait({ condition: 'next-exit' });
     const output = await collectOutput(container);
 
-    await container.start();
+    try {
+      await container.start();
+    } catch (error) {
+      // AutoRemove only fires for a container that RAN, so one that never
+      // started stays on the node - stopped, invisible to the app sweeps
+      // because it is correctly labelled as ours, and holding a reference to
+      // the executor image that stops anything reclaiming it.
+      await container.remove({ force: true }).catch(() => {});
+      container = null;
+      // Nobody is left to hear this now. An unsettled promise with no handler
+      // is what node ends the PROCESS over, so a container that failed to start
+      // would take FluxOS down with it.
+      exited.catch(() => {});
+      throw error;
+    }
 
     if (onProgress) onProgress(status);
 

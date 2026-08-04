@@ -70,6 +70,7 @@ describe('volumeExecutor tests', () => {
       // so either one missing means output is silently never collected and
       // every assertion about a failure message passes by testing nothing.
       attach: sinon.stub().resolves('raw-stream'),
+      remove: sinon.stub().resolves(),
       modem: {
         demuxStream: sinon.stub().callsFake((stream, stdout) => {
           if (containerOutput) stdout.write(Buffer.from(containerOutput));
@@ -852,6 +853,66 @@ describe('volumeExecutor tests', () => {
       await volumeExecutor.run(vol, [], { publish });
 
       expect(onBytes.called).to.equal(false);
+    });
+  });
+
+  describe('run - a container that never starts', () => {
+    it('removes it, because AutoRemove only fires for one that ran', async () => {
+      // Otherwise it stays on the node: stopped, invisible to the app sweeps
+      // because it is correctly labelled as ours, and holding a reference to
+      // the executor image that stops anything reclaiming it.
+      containerStub.start = sinon.stub().rejects(new Error('no such image'));
+      const vol = await openSession();
+
+      await expect(volumeExecutor.run(vol, ['cp'])).to.be.rejectedWith('no such image');
+
+      expect(containerStub.remove.calledOnce, 'the container was left behind').to.equal(true);
+      expect(containerStub.remove.firstCall.args[0]).to.deep.equal({ force: true });
+    });
+
+    it('leaves no unhandled rejection behind, which would end the process', async () => {
+      // The wait-for-exit subscription is opened before start, so a failed
+      // start leaves it with nobody listening. Node ends the PROCESS over that,
+      // and FluxOS has every app on the node riding on this one.
+      const rejections = [];
+      const record = (reason) => rejections.push(reason);
+      process.on('unhandledRejection', record);
+
+      try {
+        containerStub.start = sinon.stub().rejects(new Error('cgroup limit'));
+        containerStub.wait = sinon.stub().rejects(new Error('container gone'));
+        const vol = await openSession();
+
+        await expect(volumeExecutor.run(vol, ['cp'])).to.be.rejectedWith('cgroup limit');
+        // Rejections are delivered on a later turn than the one that made them.
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+        expect(rejections, `unhandled: ${rejections.map((r) => r && r.message)}`).to.deep.equal([]);
+      } finally {
+        process.off('unhandledRejection', record);
+      }
+    });
+
+    it('frees the app slot, so a failed start does not wedge the queue', async () => {
+      // One operation per app: a slot never released means every later request
+      // for that app is refused until FluxOS restarts.
+      containerStub.start = sinon.stub().rejects(new Error('no such image'));
+      const vol = await openSession();
+      await expect(volumeExecutor.run(vol, ['cp'])).to.be.rejected;
+
+      // The next one gets as far as its own start rather than being refused.
+      containerStub.start = sinon.stub().resolves();
+      await volumeExecutor.run(vol, ['true']);
+      expect(containerStub.start.called).to.equal(true);
+    });
+
+    it('still removes it when the removal itself fails', async () => {
+      containerStub.start = sinon.stub().rejects(new Error('no such image'));
+      containerStub.remove = sinon.stub().rejects(new Error('already gone'));
+      const vol = await openSession();
+
+      // The start failure is what the caller hears about, not the cleanup.
+      await expect(volumeExecutor.run(vol, ['cp'])).to.be.rejectedWith('no such image');
     });
   });
 
