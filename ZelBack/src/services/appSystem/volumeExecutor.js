@@ -7,6 +7,7 @@ const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const log = require('../../lib/log');
+const { Writable } = require('node:stream');
 const { AsyncLock } = require('../utils/asyncLock');
 const { measureTree } = require('../utils/treeSize');
 const { appsFolder } = require('../utils/appConstants');
@@ -252,6 +253,57 @@ async function ensureImage(onProgress = null) {
 }
 
 /**
+ * How much of a failed operation's own output is kept.
+ *
+ * Bounded because the output is produced inside the container and a runaway
+ * command could otherwise fill this process's memory with it. The TAIL is kept
+ * rather than the head: a tool that fails says why on its last line, after
+ * however much routine chatter came first.
+ */
+const OUTPUT_TAIL_BYTES = 2000;
+
+/**
+ * Collect what the command writes, so a failure can say what went wrong.
+ *
+ * Without this, `AutoRemove` takes the container and its logs the moment it
+ * exits and the caller is handed an exit code. "The archive is corrupt", "it
+ * expands past the volume" and "it contains a symlink" are three different
+ * problems with three different answers, and they arrived as the same number -
+ * to the user, and to whoever they then asked for help.
+ *
+ * Attached BEFORE start, for the same reason the exit subscription is: a fast
+ * command can finish and be reaped before a later attach lands, and its output
+ * is then gone.
+ *
+ * Never fatal. Losing the explanation is worse than an exit code alone, but
+ * failing the operation over it would be worse still.
+ *
+ * @param {object} container - dockerode container
+ * @returns {Promise<{text: string}>} filled in as the command writes
+ */
+async function collectOutput(container) {
+  const captured = { text: '' };
+
+  const sink = new Writable({
+    write(chunk, encoding, callback) {
+      captured.text = (captured.text + chunk.toString('utf8')).slice(-OUTPUT_TAIL_BYTES);
+      callback();
+    },
+  });
+
+  try {
+    const stream = await container.attach({ stream: true, stdout: true, stderr: true });
+    // stdout and stderr into one buffer: the caller wants to know what
+    // happened, not which descriptor it arrived on.
+    container.modem.demuxStream(stream, sink, sink);
+  } catch (error) {
+    log.warn(`volumeExecutor - could not capture operation output: ${error.message}`);
+  }
+
+  return captured;
+}
+
+/**
  * Bytes in use on a volume, from the filesystem itself.
  *
  * One syscall, whatever the tree looks like. The alternative - walking the
@@ -479,6 +531,7 @@ async function run(session, argv, options = {}) {
     // by AutoRemove before the request arrives, and the exit status is then
     // unknowable.
     const exited = container.wait({ condition: 'next-exit' });
+    const output = await collectOutput(container);
 
     await container.start();
 
@@ -562,7 +615,10 @@ async function run(session, argv, options = {}) {
       throw new Error('File operation stopped after making no progress');
     }
     if (result.StatusCode !== 0) {
-      throw new Error(`File operation failed with exit code ${result.StatusCode}`);
+      const said = output.text.trim();
+      throw new Error(said
+        ? `File operation failed (exit ${result.StatusCode}): ${said}`
+        : `File operation failed with exit code ${result.StatusCode}`);
     }
 
     // The operation succeeded, so everything it was going to publish IS

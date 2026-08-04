@@ -16,6 +16,7 @@ describe('volumeExecutor tests', () => {
   let serviceHelperStub;
   let containerStub;
   let fsStub;
+  let containerOutput;
   let pulled;
   let volumeSession;
   let volumeExecutor;
@@ -55,12 +56,25 @@ describe('volumeExecutor tests', () => {
     configStub = freshConfig();
     deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([mountRow(MOUNT)]) };
 
+    // What the command "writes". demuxStream is stubbed to push it into the
+    // sinks the executor supplies, which is what dockerode's does after
+    // stripping the stream framing.
+    containerOutput = '';
     containerStub = {
       id: 'container-1',
       start: sinon.stub().resolves(),
       kill: sinon.stub().resolves(),
       stop: sinon.stub().resolves(),
       wait: sinon.stub().resolves({ StatusCode: 0 }),
+      // attach and modem BOTH have to be here. The capture sits inside a try,
+      // so either one missing means output is silently never collected and
+      // every assertion about a failure message passes by testing nothing.
+      attach: sinon.stub().resolves('raw-stream'),
+      modem: {
+        demuxStream: sinon.stub().callsFake((stream, stdout) => {
+          if (containerOutput) stdout.write(Buffer.from(containerOutput));
+        }),
+      },
     };
 
     pulled = true;
@@ -838,6 +852,73 @@ describe('volumeExecutor tests', () => {
       await volumeExecutor.run(vol, [], { publish });
 
       expect(onBytes.called).to.equal(false);
+    });
+  });
+
+  describe('run - what a failure says', () => {
+    it('says what the command said, not just its exit code', async () => {
+      // "The archive is corrupt", "it expands past the volume" and "it contains
+      // a symlink" are three different problems with three different answers,
+      // and they all arrived as the same number.
+      containerOutput = 'flux-op: result contains links, which are not accepted here\n';
+      containerStub.wait = sinon.stub().resolves({ StatusCode: 4 });
+      const vol = await openSession();
+
+      await expect(volumeExecutor.run(vol, ['unzip']))
+        .to.be.rejectedWith('result contains links');
+    });
+
+    it('keeps the exit code alongside it', async () => {
+      containerOutput = 'flux-op: result is 900 bytes, over the 500 limit\n';
+      containerStub.wait = sinon.stub().resolves({ StatusCode: 3 });
+      const vol = await openSession();
+
+      await expect(volumeExecutor.run(vol, ['unzip'])).to.be.rejectedWith('exit 3');
+    });
+
+    it('attaches before the container starts, or a fast failure says nothing', async () => {
+      // Same reason the exit subscription is opened first: AutoRemove takes the
+      // container the moment it exits, and a later attach finds nothing.
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      expect(containerStub.attach.calledBefore(containerStub.start)).to.equal(true);
+    });
+
+    it('keeps the end of a long output, where the reason is', async () => {
+      containerOutput = `${'chatter\n'.repeat(2000)}the actual reason`;
+      containerStub.wait = sinon.stub().resolves({ StatusCode: 1 });
+      const vol = await openSession();
+
+      await expect(volumeExecutor.run(vol, ['tar'])).to.be.rejectedWith('the actual reason');
+    });
+
+    it('bounds what it keeps, so a runaway command cannot fill memory', async () => {
+      containerOutput = 'x'.repeat(50000);
+      containerStub.wait = sinon.stub().resolves({ StatusCode: 1 });
+      const vol = await openSession();
+
+      const error = await volumeExecutor.run(vol, ['tar']).catch((e) => e);
+      expect(error.message.length).to.be.below(3000);
+    });
+
+    it('falls back to the exit code when the command said nothing', async () => {
+      containerOutput = '';
+      containerStub.wait = sinon.stub().resolves({ StatusCode: 2 });
+      const vol = await openSession();
+
+      await expect(volumeExecutor.run(vol, ['tar']))
+        .to.be.rejectedWith('failed with exit code 2');
+    });
+
+    it('still runs the operation when the output cannot be captured', async () => {
+      // Losing the explanation is worse than an exit code alone; failing the
+      // operation over it would be worse still.
+      containerStub.attach = sinon.stub().rejects(new Error('no such container'));
+      const vol = await openSession();
+
+      await volumeExecutor.run(vol, ['true']);
+      expect(containerStub.start.called).to.equal(true);
     });
   });
 

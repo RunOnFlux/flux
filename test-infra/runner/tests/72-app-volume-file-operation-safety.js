@@ -237,6 +237,27 @@ describe('app volume file operations - safety and recovery', function () {
 
       expect(job.status).to.equal('Failed');
       expect(await exists(node.container, `${root}/unpacked`)).to.equal(false);
+
+      // And it SAYS so. Before the output was captured, this failure and a
+      // corrupt archive and one too big for the volume were the same number.
+      const said = JSON.stringify(job.error);
+      expect(said, `no reason given: ${said}`).to.match(/link/i);
+    });
+
+    it('gives a different reason for a corrupt archive than for a refused one', async function () {
+      this.timeout(300000);
+      // The point of capturing the output: two failures a user must respond to
+      // differently have to read differently.
+      await inNode(`head -c 4096 /dev/urandom > ${root}/rubbish.tar.gz`);
+
+      const { job } = await settle('/apps/extractobject', {
+        appname: appName, component: appName, source: 'rubbish.tar.gz', destination: 'unpacked',
+      });
+
+      expect(job.status).to.equal('Failed');
+      const said = JSON.stringify(job.error);
+      expect(said, `no reason given: ${said}`).to.not.match(/^\{"title":"Error","detail":"File operation failed with exit code/);
+      expect(said.length, 'the failure carries nothing but a code').to.be.greaterThan(60);
     });
   });
 
@@ -273,6 +294,10 @@ describe('app volume file operations - safety and recovery', function () {
       expect(await exists(node.container, `${root}/unpacked`)).to.equal(false);
       const leftovers = await treeOf(node.container, root);
       expect(leftovers.filter((p) => p.includes('.flux-op-')), 'staging was not reclaimed').to.deep.equal([]);
+
+      // The user is told it was too big, not handed a number.
+      const said = JSON.stringify(job.error);
+      expect(said, `no reason given: ${said}`).to.match(/limit|bytes/i);
     });
   });
 
