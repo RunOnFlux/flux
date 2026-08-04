@@ -49,8 +49,8 @@ module.exports = {
     ipApiBaseUrl: 'http://198.18.0.6:3000',
     statsApiBaseUrl: 'http://198.18.0.6:3000',
   },
-  // the stub serves iplocation.json, so harness nodes exercise the real table
-  // reader rather than skipping it. Its default artifact puts the whole
+  // the stub serves iplocation.bin.gz, so harness nodes exercise the real
+  // table reader rather than skipping it. Its default artifact puts the whole
   // harness range in ONE organisation, which is the single-fault-domain
   // posture the tableless fallback produced - suites written against that keep
   // their meaning. POST /iplocation {domains:n} to the stub's control port

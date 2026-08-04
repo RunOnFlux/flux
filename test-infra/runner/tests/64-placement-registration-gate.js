@@ -127,7 +127,7 @@ describe('placement gate at registration and the advice endpoint', function () {
       instances: 3,
       geolocation: [],
       compose: [{ containerData: 'g:/data' }],
-    });
+    }, { zelidauth: node.zelidauth });
     expect(response.status).to.equal('success');
     expect(response.data.tableAvailable, 'nodes fetched and parsed the artifact').to.equal(true);
     // .10 .11 .12 .13 round-robin across three organisations
@@ -142,7 +142,7 @@ describe('placement gate at registration and the advice endpoint', function () {
       instances: 4,
       geolocation: [],
       compose: [{ containerData: 'g:/data' }],
-    });
+    }, { zelidauth: node.zelidauth });
     expect(response.data.category).to.equal('constrained');
     expect(response.data.satisfiable).to.equal(true);
     expect(response.data.maxPerDomain).to.be.greaterThan(1);
@@ -154,7 +154,7 @@ describe('placement gate at registration and the advice endpoint', function () {
       instances: 6,
       geolocation: [],
       compose: [{ containerData: 'g:/data' }],
-    });
+    }, { zelidauth: node.zelidauth });
     expect(response.data.category).to.equal('impossible');
     expect(response.data.satisfiable).to.equal(false);
   });

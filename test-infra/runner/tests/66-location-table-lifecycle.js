@@ -192,7 +192,7 @@ describe('the location table survives restarts and refuses bad publications', fu
       instances,
       geolocation: [],
       compose: [{ containerData: 'g:/data' }],
-    });
+    }, { zelidauth: client.zelidauth });
     expect(response.status, JSON.stringify(response.data)).to.equal('success');
     return response.data;
   };
@@ -558,7 +558,7 @@ describe('a fleet with no artifact to fetch holds the tableless posture', functi
       instances: 3,
       geolocation: [],
       compose: [{ containerData: 'g:/data' }],
-    })));
+    }, { zelidauth: client.zelidauth })));
     answers.forEach((answer, index) => {
       expect(answer.status, `node ${index} answers an unrestricted question`).to.equal('success');
       expect(answer.data.tableAvailable).to.equal(false);
@@ -574,7 +574,7 @@ describe('a fleet with no artifact to fetch holds the tableless posture', functi
       instances: 3,
       geolocation: ['acEU'],
       compose: [{ containerData: 'g:/data' }],
-    });
+    }, { zelidauth: env.clients[0].zelidauth });
     expect(geoRestricted.status).to.equal('error');
     expect(geoRestricted.data.message).to.include('not available');
 

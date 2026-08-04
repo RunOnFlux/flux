@@ -184,12 +184,13 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
 // falls to its /16 rung and inflates the count).
 export async function waitForLocationTable(node, { domains, timeout = 90000 } = {}) {
   await waitFor(async () => {
-    const response = await node.post('/apps/placementfeasibility', {
-      instances: 1, geolocation: [], compose: [{ containerData: 'g:/data' }],
-    });
+    // the placement geography, which is what this is actually waiting for -
+    // asking the advice endpoint would be putting a question to a node to find
+    // out whether its data has loaded, and that endpoint wants a Flux ID
+    const response = await node.get('/apps/placementlocations');
     return response.status === 'success'
       && response.data.tableAvailable === true
-      && (domains === undefined || response.data.domainCount === domains);
+      && (domains === undefined || response.data.total.domains === domains);
   }, { timeout, interval: 2000, label: `location table live${domains === undefined ? '' : ` with ${domains} domains`}` });
 }
 

@@ -1194,6 +1194,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
             await sleepUnlessInfraDead(2000);
           }
         }
+        // kept on the client: endpoints that answer a paying user's question
+        // ask for a Flux ID, and every suite that reaches one has already come
+        // through here
+        client.zelidauth = auth.zelidauth;
         await client.getAuthed('/flux/startdiscovery', auth.zelidauth);
       }));
     },

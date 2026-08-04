@@ -124,6 +124,7 @@ describe('placement honours region pins on proof from the shared table', functio
   let regionA; // organisation 0's region
   let regionB; // organisation 1's region
   let unprovableRegion; // in the vocabulary, belonging to the last organisation's country, claimed by no address
+  let regionNames; // ISO code -> the name the same region also answers to
   let fleetContinent;
   const subnet = getSubnetConfig();
 
@@ -183,7 +184,8 @@ describe('placement honours region pins on proof from the shared table', functio
     // region the LAST organisation would carry if it carried one is
     // table[DOMAINS - 1]: in the vocabulary, in a country two fleet nodes are
     // in, and claimed by no address. That is the pin nothing can prove.
-    const { table, assigned, unassigned } = published.regions;
+    const { table, assigned, unassigned, names } = published.regions;
+    regionNames = names;
     regionA = assigned['0'];
     regionB = assigned['1'];
     unprovableRegion = table[DOMAINS - 1];
@@ -242,7 +244,7 @@ describe('placement honours region pins on proof from the shared table', functio
       instances: inRegionA.length,
       geolocation: [allowRegion(regionA)],
       compose: [{ containerData: 'g:/data' }],
-    });
+    }, { zelidauth: node.zelidauth });
     expect(pinned.status).to.equal('success');
     expect(pinned.data.tableAvailable).to.equal(true);
     expect(pinned.data.normalizedGeolocation).to.deep.equal([allowRegion(regionA)]);
@@ -263,7 +265,7 @@ describe('placement honours region pins on proof from the shared table', functio
       instances: inRegionA.length,
       geoAllow: [{ continent: continents[countryOf(regionA)], country: countryOf(regionA), region: regionA }],
       compose: [{ containerData: 'g:/data' }],
-    });
+    }, { zelidauth: node.zelidauth });
     expect(structured.status).to.equal('success');
     expect(structured.data.normalizedGeolocation).to.deep.equal([allowRegion(regionA)]);
     expect(structured.data.candidateCount).to.equal(inRegionA.length);
@@ -278,10 +280,38 @@ describe('placement honours region pins on proof from the shared table', functio
       instances: 1,
       geolocation: [allowRegion(unprovableRegion)],
       compose: [{ containerData: 'g:/data' }],
-    });
+    }, { zelidauth: node.zelidauth });
     expect(unprovable.status).to.equal('success');
     expect(unprovable.data.candidateCount, `no node proves ${unprovableRegion}`).to.equal(0);
     expect(unprovable.data.category).to.equal('impossible');
+  });
+
+  it('answers a region named the way ip-api does exactly as it answers the code', async function () {
+    this.timeout(60000);
+    // An app may pin its region by name rather than by ISO code, and every
+    // region pin the network carries today does. The published vocabulary is
+    // what lets a node resolve the name to the code its rows use; without it
+    // the entry falls back to the whole country, which is a different answer.
+    const inRegionA = indicesInOrg(0);
+    const byName = `ac${fleetContinent}_${countryOf(regionA)}_${regionNames[regionA]}`;
+    const named = await node.post('/apps/placementfeasibility', {
+      instances: inRegionA.length,
+      geolocation: [byName],
+      compose: [{ containerData: 'g:/data' }],
+    }, { zelidauth: node.zelidauth });
+
+    expect(named.status).to.equal('success');
+    expect(named.data.candidateCount, `${byName} resolves to ${regionA}`).to.equal(inRegionA.length);
+    expect(named.data.domainCount, 'the named region is one organisation').to.equal(1);
+    // the country holds more than the region does, so falling back to country
+    // granularity would show up here as a larger count
+    const byCountry = await node.post('/apps/placementfeasibility', {
+      instances: 1,
+      geolocation: [`ac${fleetContinent}_${countryOf(regionA)}`],
+      compose: [{ containerData: 'g:/data' }],
+    }, { zelidauth: node.zelidauth });
+    expect(byCountry.data.candidateCount, 'the country is the coarser answer').to.be.at.least(named.data.candidateCount);
+    expect(named.data.coarsenedEntries, 'a name the vocabulary resolves is not coarsened').to.deep.equal([]);
   });
 
   it('refuses to register a region pin the table proves nobody can serve', async function () {

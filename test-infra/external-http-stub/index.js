@@ -30,6 +30,12 @@ const GEO_FILLER_ORGS = ['harness:filler-0', 'harness:filler-1'];
 // publishes.
 const GEO_COUNTRIES = ['DE', 'FR', 'NL', 'FI', 'BH'];
 const GEO_REGIONS = ['DE-HE', 'FR-IDF', 'NL-NH', 'FI-18', 'BH-13'];
+// The region-name vocabulary a real build publishes alongside the codes, keyed
+// '<CC>|<name>'. An app may name its region the way ip-api does rather than by
+// code, and this is what lets a node answer such an entry at region granularity
+// instead of falling back to the whole country. Index-aligned with the two
+// tables above: GEO_REGION_NAMES[k] names GEO_REGIONS[k] in GEO_COUNTRIES[k].
+const GEO_REGION_NAMES = ['Hesse', 'Ile-de-France', 'North Holland', 'Uusimaa', 'Capital'];
 
 let fillerBytesCache = null;
 
@@ -98,6 +104,9 @@ function regionAssignment(domains, withRegions) {
     assigned,
     // regions the vocabulary publishes that no address in this artifact claims
     unassigned: GEO_REGIONS.filter((region) => !taken.has(region)),
+    // the name each published region also answers to, so a suite can pin with
+    // the vocabulary an app actually carries rather than the code
+    names: Object.fromEntries(GEO_REGIONS.map((code, k) => [code, GEO_REGION_NAMES[k]])),
   };
 }
 
@@ -162,6 +171,9 @@ function buildIpLocationArtifact(domains, subnet, withRegions = false) {
     // the vocabulary a real build publishes; which of them any row claims is
     // regionAssignment's business
     regions: GEO_REGIONS,
+    regionNames: Object.fromEntries(
+      GEO_REGIONS.map((code, k) => [`${GEO_COUNTRIES[k]}|${GEO_REGION_NAMES[k]}`, code]),
+    ),
     v4,
     v6: [],
   };
@@ -219,6 +231,9 @@ function encodeGeoTable(artifact, { pad = true } = {}) {
     // in the wire artifact - and by nothing anywhere else
     orgs: [...GEO_FILLER_ORGS, ...orgs],
     regions,
+    // omitted when the artifact carries no regions, so a suite can publish the
+    // pre-vocabulary artifact a node held before the section existed
+    ...(regions.length ? { regionNames: artifact.regionNames ?? {} } : {}),
   }), 'utf8');
   const preamble = Buffer.alloc(GEO_MAGIC.length + 1 + 4);
   preamble.write(GEO_MAGIC, 0, 'ascii');
