@@ -68,6 +68,28 @@ function locationDoc(ip) {
   };
 }
 
+// One entry of the resident view, in the shape the store publishes: the fault
+// domain already keyed. The derivation itself is the store's, and is held by
+// its own suite - here it is the input placement reads.
+function viewEntry(doc) {
+  let domain = null;
+  if (doc.o) domain = `org:${doc.o}`;
+  else if (doc.bs !== null) domain = `blk:${doc.bs}-${doc.be}`;
+  return {
+    d: domain, c: doc.c, n: doc.n, r: doc.r, g: doc.g,
+  };
+}
+
+/**
+ * The snapshot the store hands placement, built from the fixture addresses.
+ * @param {Array<string>} ips Addresses the view carries
+ * @param {boolean} [ready] Whether the process holds a baseline and its view
+ */
+function snapshotOf(ips, ready = true) {
+  const byIp = new Map(ips.map((ip) => [ip, viewEntry(locationDoc(ip))]));
+  return { byIp, ready, generated: ready ? GENERATED : null };
+}
+
 const bhNodes = [
   { ip: '80.95.213.209:16127', tier: 'CUMULUS' },
   { ip: '80.95.215.209:16137', tier: 'CUMULUS' },
@@ -96,13 +118,14 @@ describe('placementFeasibility tests', () => {
   let totalHWStub;
   let storeStub;
   let logStub;
+  let verifyPrivilegeStub;
 
   // The node holds the fixture baseline: the status is ready and the node
   // location view carries a document for every fixture address.
   function useTable() {
     storeStub.status.returns({ ready: true, generated: GENERATED, rowCount: RANGES.length });
     storeStub.continentForCountry.callsFake((country) => CONTINENTS[country] ?? null);
-    storeStub.getNodeLocations.resolves(VIEWED_IPS.map(locationDoc));
+    storeStub.nodeLocationSnapshot.returns(snapshotOf(VIEWED_IPS));
   }
 
   beforeEach(() => {
@@ -110,10 +133,11 @@ describe('placementFeasibility tests', () => {
     collateralStub = sinon.stub().resolves({ txhash: 'aa'.repeat(32), txindex: 0 });
     totalHWStub = sinon.stub().returns({ cpu: 1, ram: 1000, hdd: 10 });
     logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
+    verifyPrivilegeStub = sinon.stub().resolves(true);
     storeStub = {
       status: sinon.stub().returns({ ready: false, generated: null, rowCount: 0 }),
       continentForCountry: sinon.stub().returns(null),
-      getNodeLocations: sinon.stub().resolves([]),
+      nodeLocationSnapshot: sinon.stub().returns({ byIp: new Map(), ready: false, generated: null }),
       lookup: sinon.stub().callsFake(async (ip) => storeLookup(ip)),
     };
     placementFeasibility = proxyquire('../../ZelBack/src/services/appPlacement/placementFeasibility', {
@@ -121,6 +145,7 @@ describe('placementFeasibility tests', () => {
       '../generalService': { obtainNodeCollateralInformation: collateralStub },
       '../appRequirements/hwRequirements': { totalAppHWRequirements: totalHWStub },
       './ipLocationStore': storeStub,
+      '../verificationHelper': { verifyPrivilege: verifyPrivilegeStub },
       '../../lib/log': logStub,
     });
   });
@@ -174,9 +199,13 @@ describe('placementFeasibility tests', () => {
 
     it('keys on the allocation block when a document carries one without an organisation', async () => {
       useTable();
-      storeStub.getNodeLocations.resolves([{
-        _id: '80.95.213.209', o: null, bs: v4Int('80.95.208.0'), be: v4Int('80.95.223.255'), c: 'BH', n: 'AS', r: null, g: GENERATED,
-      }]);
+      storeStub.nodeLocationSnapshot.returns({
+        byIp: new Map([['80.95.213.209', viewEntry({
+          o: null, bs: v4Int('80.95.208.0'), be: v4Int('80.95.223.255'), c: 'BH', n: 'AS', r: null, g: GENERATED,
+        })]]),
+        ready: true,
+        generated: GENERATED,
+      });
       deterministicFluxListStub.resolves([...bhNodes]);
       const { domainOf: fromSnapshot } = await placementFeasibility.placementComputation({ instances: 1 }, 1);
       expect(fromSnapshot('80.95.213.209:16127')).to.equal(`blk:${v4Int('80.95.208.0')}-${v4Int('80.95.223.255')}`);
@@ -192,7 +221,7 @@ describe('placementFeasibility tests', () => {
       deterministicFluxListStub.resolves([...bhNodes, ...deNodes]);
       const { domainOf: fromSnapshot } = await placementFeasibility.placementComputation({ instances: 1 }, 1);
       [...bhNodes, ...deNodes].forEach((node) => fromSnapshot(node.ip));
-      expect(storeStub.getNodeLocations.callCount).to.equal(1);
+      expect(storeStub.nodeLocationSnapshot.callCount).to.equal(1);
       expect(storeStub.lookup.called).to.equal(false);
     });
   });
@@ -382,11 +411,9 @@ describe('placementFeasibility tests', () => {
 
     // The degrade contract, at the level that matters most: an unreadable store
     // must land where "no table" lands, never on a proof of impossibility.
-    it('a store that cannot be read never reads as zero candidates', async () => {
+    it('a view this process does not hold never reads as zero candidates', async () => {
       useTable();
-      const unavailable = new Error('MongoServerSelectionError');
-      unavailable.code = 'IPLOCATION_STORE_UNAVAILABLE';
-      storeStub.getNodeLocations.rejects(unavailable);
+      storeStub.nodeLocationSnapshot.returns({ byIp: new Map(), ready: false, generated: null });
       deterministicFluxListStub.resolves([...bhNodes, bgNode, ...fiNodes, ...deNodes]);
       const result = await placementFeasibility.placementFeasibility({ geolocation: ['acAS_BH'], instances: 3 });
       expect(result.candidateCount).to.equal(8);
@@ -437,7 +464,7 @@ describe('placementFeasibility tests', () => {
 
     it('counts a node the view does not carry - a lagging view never excludes', async () => {
       useTable();
-      storeStub.getNodeLocations.resolves(VIEWED_IPS.filter((ip) => !ip.startsWith('80.95.2')).map(locationDoc));
+      storeStub.nodeLocationSnapshot.returns(snapshotOf(VIEWED_IPS.filter((ip) => !ip.startsWith('80.95.2'))));
       deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
       const result = await placementFeasibility.placementFeasibility({ geolocation: ['acAS_BH'], instances: 3 });
       // the three Bahrain nodes have no document yet, so their location cannot
@@ -627,6 +654,70 @@ describe('placementFeasibility tests', () => {
       return placementFeasibility.placementFeasibilityAPI({ body }, res).then(() => res.json.firstCall.args[0]);
     }
 
+    describe('authorisation', () => {
+      it('refuses a caller without a signed-in Flux ID', async () => {
+        useTable();
+        verifyPrivilegeStub.resolves(false);
+        deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
+
+        const response = await run({ instances: 3, geolocation: ['acAS_BH'] });
+
+        expect(response.status).to.equal('error');
+        expect(response.data.message).to.equal('Unauthorized. Access denied.');
+        sinon.assert.calledWith(verifyPrivilegeStub, 'user');
+      });
+
+      // the point of the check is that it comes first - a refused caller must
+      // not have cost this node a pass over the node list
+      it('never computes for a caller it refuses', async () => {
+        useTable();
+        verifyPrivilegeStub.resolves(false);
+        deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
+
+        await run({ instances: 3, geolocation: ['acAS_BH'] });
+
+        expect(deterministicFluxListStub.called).to.equal(false);
+      });
+
+      // fail closed: the privilege check is a trust boundary this module does
+      // not own, so anything that is not exactly true is a refusal. A truthy
+      // non-boolean must never read as permission.
+      it('refuses anything that is not exactly true', async () => {
+        useTable();
+        deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
+
+        // eslint-disable-next-line no-restricted-syntax
+        for (const answer of ['true', 1, {}, [], 'admin']) {
+          verifyPrivilegeStub.resolves(answer);
+          // eslint-disable-next-line no-await-in-loop
+          const response = await run({ instances: 3, geolocation: ['acAS_BH'] });
+          expect(response.status, `verifyPrivilege resolved ${JSON.stringify(answer)}`).to.equal('error');
+          expect(response.data.code).to.equal(401);
+        }
+        expect(deterministicFluxListStub.called).to.equal(false);
+      });
+
+      it('refuses when the privilege check itself fails', async () => {
+        useTable();
+        verifyPrivilegeStub.rejects(new Error('session store unavailable'));
+        deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
+
+        const response = await run({ instances: 3, geolocation: ['acAS_BH'] });
+
+        expect(response.status).to.equal('error');
+        expect(deterministicFluxListStub.called).to.equal(false);
+      });
+
+      it('answers a caller that holds one', async () => {
+        useTable();
+        deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
+
+        const response = await run({ instances: 3, geolocation: ['acAS_BH'] });
+
+        expect(response.status).to.equal('success');
+      });
+    });
+
     it('answers the deploy-form question for a constrained geography', async () => {
       useTable();
       deterministicFluxListStub.resolves([...bhNodes, ...fiNodes]);
@@ -768,7 +859,7 @@ describe('placementFeasibility tests', () => {
       expect(locations.continents.EU.countries.FI).to.deep.equal({ nodes: 2, domains: 1, tiers: { STRATUS: 2 } });
       expect(locations.continents.EU.countries.DE).to.deep.equal({ nodes: 2, domains: 2, tiers: { NIMBUS: 1, CUMULUS: 1 } });
       // one pass over the view, not a lookup per node
-      expect(storeStub.getNodeLocations.callCount).to.equal(1);
+      expect(storeStub.nodeLocationSnapshot.callCount).to.equal(1);
       expect(storeStub.lookup.called).to.equal(false);
     });
 
@@ -783,9 +874,9 @@ describe('placementFeasibility tests', () => {
       );
     });
 
-    it('is unavailable when the view cannot be read', async () => {
+    it('is unavailable while this process does not hold the view', async () => {
       useTable();
-      storeStub.getNodeLocations.rejects(new Error('MongoServerSelectionError'));
+      storeStub.nodeLocationSnapshot.returns({ byIp: new Map(), ready: false, generated: null });
       deterministicFluxListStub.resolves([...bhNodes]);
       await placementFeasibility.placementLocations().then(
         () => { throw new Error('expected rejection'); },
@@ -829,13 +920,13 @@ describe('placementFeasibility tests', () => {
       expect(advice.candidateCount).to.equal(4);
     });
 
-    it('geo-restricted advice that degrades mid-computation is unavailable, and the blip is not cached', async () => {
-      // the availability gate passes (status ready) but the view read fails:
+    it('geo-restricted advice that degrades mid-computation is unavailable, and recovers', async () => {
+      // the availability gate passes (status ready) but the view is not held:
       // the numbers degrade to the /16 posture, which for a geo question is
-      // the whole network - that must 503, and must not poison the memo for
-      // the window after the store recovers
+      // the whole network - that must 503, and the next question must answer
+      // as soon as the view arrives, with nothing held over from the blip
       useTable();
-      storeStub.getNodeLocations.rejects(new Error('MongoServerSelectionError'));
+      storeStub.nodeLocationSnapshot.returns({ byIp: new Map(), ready: false, generated: null });
       deterministicFluxListStub.resolves([...bhNodes, bgNode]);
       await placementFeasibility.placementAdvice({ instances: 3, geolocation: ['acAS_BH'] }).then(
         () => { throw new Error('expected rejection'); },
@@ -844,7 +935,7 @@ describe('placementFeasibility tests', () => {
           expect(error.message).to.include('not available yet');
         },
       );
-      storeStub.getNodeLocations.resolves(VIEWED_IPS.map(locationDoc));
+      storeStub.nodeLocationSnapshot.returns(snapshotOf(VIEWED_IPS));
       const advice = await placementFeasibility.placementAdvice({ instances: 3, geolocation: ['acAS_BH'] });
       expect(advice.tableAvailable).to.equal(true);
       expect(advice.candidateCount).to.be.greaterThan(0);

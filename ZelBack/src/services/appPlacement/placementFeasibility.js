@@ -28,8 +28,12 @@ const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
 const cidrUtils = require('../utils/cidrUtils');
 const mountParser = require('../utils/mountParser');
+const verificationHelper = require('../verificationHelper');
 const { bareIp, socketAddressesMatch } = require('../utils/socketAddressUtils');
+const geolocationRule = require('./geolocationRule');
 const ipLocationStore = require('./ipLocationStore');
+
+const { isTableRegionPart } = geolocationRule;
 
 // geonames/ip-api continent convention - the same vocabulary the location
 // table's country -> continent map uses
@@ -48,50 +52,36 @@ function netDomain(ip) {
 }
 
 /**
- * Index the node location view by address, for the sync domain function below.
- * @param {Array<object>} docs nodelocations documents
- * @returns {Map<string, object>}
- */
-function locationIndex(docs) {
-  return new Map((docs ?? []).map((doc) => [doc._id, doc]));
-}
-
-/**
- * The fault-domain function over one node location snapshot: organisation,
- * else registry allocation block, else /16 arithmetic. An address the snapshot
- * does not carry falls to /16 as well - the view can lag the node list, and
- * over-approximating the domain count errs strict.
- * @param {Map<string, object>} byIp Indexed node location view
+ * The fault-domain function over one node location snapshot: the domain the
+ * view already keyed for that address - organisation, else registry allocation
+ * block - else /16 arithmetic. An address the snapshot does not carry falls to
+ * /16 as well, and over-approximating the domain count errs strict.
+ * @param {Map<string, object>} byIp The resident node location view
  * @returns {(address: string) => string | null}
  */
 function domainFunction(byIp) {
   return (address) => {
     const ip = bareIp(address);
     if (!ip) return null;
-    const doc = byIp.get(ip);
-    if (doc?.o) return `org:${doc.o}`;
-    if (doc && doc.bs !== null && doc.bs !== undefined) return `blk:${doc.bs}-${doc.be}`;
-    return netDomain(ip);
+    return byIp.get(ip)?.d ?? netDomain(ip);
   };
 }
 
 /**
- * The node location view plus what it says about the table behind it. A store
- * that cannot be read answers in the same direction as no table at all - an
- * empty view, every node on /16 arithmetic - because the alternative reads as
- * zero candidates, which is a proof this node does not have.
- * @returns {Promise<{byIp: Map<string, object>, tableAvailable: boolean,
- *   tableGenerated: string|null}>}
+ * The node location view plus what it says about the table behind it. A process
+ * that does not yet hold the view answers in the same direction as no table at
+ * all - an empty view, every node on /16 arithmetic - because the alternative
+ * reads as zero candidates, which is a proof this node does not have.
+ * @returns {{byIp: Map<string, object>, tableAvailable: boolean,
+ *   tableGenerated: string|null}}
  */
-async function nodeLocationView() {
-  const stored = ipLocationStore.status();
-  try {
-    const docs = await ipLocationStore.getNodeLocations();
-    return { byIp: locationIndex(docs), tableAvailable: stored.ready, tableGenerated: stored.generated ?? null };
-  } catch (error) {
-    log.warn(`placementFeasibility - node location view unavailable, falling back to /16 domains: ${error.message}`);
-    return { byIp: new Map(), tableAvailable: false, tableGenerated: null };
-  }
+function nodeLocationView() {
+  const snapshot = ipLocationStore.nodeLocationSnapshot();
+  return {
+    byIp: snapshot.byIp,
+    tableAvailable: snapshot.ready,
+    tableGenerated: snapshot.ready ? snapshot.generated : null,
+  };
 }
 
 /**
@@ -118,90 +108,17 @@ async function faultDomain(address) {
 }
 
 /**
- * Whether a region part of a geolocation entry is in the table's own
- * vocabulary: a full ISO 3166-2 code belonging to the entry's country part.
- * Anything else - ip-api region names, _NONE, retired codes - is
- * legacy-shaped and keeps country-granularity semantics.
- * @param {string} part The entry's region part
- * @param {string} countryPart The entry's country part
- * @returns {boolean}
- */
-function isTableRegionPart(part, countryPart) {
-  return /^[A-Z]{2}-[A-Z0-9]{1,3}$/.test(part ?? '') && part.slice(0, 2) === countryPart;
-}
-
-/**
- * Whether a node location satisfies an app's geolocation specification.
- * Mirrors the install-time semantics of checkAppGeolocationRequirements:
- * exact match at continent, continent_country, the _ALL variants, and - for
- * region parts in the table's own ISO 3166-2 vocabulary - at region
- * granularity, read from the same table the installer resolves its own
- * region through. Legacy-shaped region parts (ip-api names) are matched at
- * country granularity: strict-matching them against the table's vocabulary
- * would exclude nodes the installer accepts. A node whose region the table
- * does not carry satisfies NO table-vocabulary region pin - a pin is a
- * promise, matched on proof only - and is never excluded by a region deny,
- * which also demands proof. Enforce on proof, ban on proof.
+ * Whether a node location satisfies an app's geolocation specification, for
+ * the callers that answer about a single node. A candidate count parses the
+ * spec once through geolocationRule and reuses the rule instead - deriving the
+ * terms per node costs the product of the node count and the entry count.
  * @param {{continentCode: string|null, countryCode: string|null,
  *   region: string|null}} loc Node location
  * @param {string[]} geolocation App spec geolocation entries
  * @returns {boolean}
  */
 function nodeLocationMatchesGeolocation(loc, geolocation) {
-  const entries = geolocation ?? [];
-  if (entries.length === 0) return true;
-  if (!loc || !loc.countryCode || !loc.continentCode) return true; // cannot prove ineligible
-  const contCountry = `${loc.continentCode}_${loc.countryCode}`;
-  const allowed = entries.filter((x) => x.startsWith('ac'));
-  const forbidden = entries.filter((x) => x.startsWith('a!c'));
-
-  const matchesEntry = (value) => {
-    if (value === 'ALL' || value === loc.continentCode || value === `${loc.continentCode}_ALL`) return true;
-    const parts = value.split('_');
-    if (parts.length < 2 || `${parts[0]}_${parts[1]}` !== contCountry) return false;
-    // A region pin in the table's vocabulary is a promise, so it matches on
-    // proof only: the node's region is known and equal. A node whose region
-    // the table does not carry is NOT a candidate for a region pin - it
-    // would deliver "the country, probably" against a spec that bought the
-    // region. Legacy-shaped parts stay at country granularity (see the
-    // function comment).
-    if (parts.length >= 3 && isTableRegionPart(parts[2], parts[1])) {
-      return loc.region ? parts[2] === loc.region : false;
-    }
-    return true;
-  };
-
-  // eslint-disable-next-line no-restricted-syntax
-  for (const entry of forbidden) {
-    const v = entry.slice(3);
-    // Forbidden entries exclude only at granularities the table resolves.
-    // _NONE is a region part like any other and must NOT be stripped:
-    // install-time compares the whole entry against the node's real region
-    // name, so 'a!cEU_DE_NONE' bans nothing there, and stripping it here
-    // would ban all of DE - a node excluded from the candidate count that
-    // the installer would have accepted.
-    if (v === loc.continentCode || v === contCountry) return false;
-    // A deny at region granularity applies only where it is provable: the
-    // part is in the table's vocabulary AND the node's region is known and
-    // equal. Legacy-named parts stay unprovable and do not exclude.
-    const parts = v.split('_');
-    if (parts.length >= 3 && `${parts[0]}_${parts[1]}` === contCountry
-      && isTableRegionPart(parts[2], parts[1]) && loc.region && parts[2] === loc.region) {
-      return false;
-    }
-  }
-  if (allowed.length) {
-    return allowed.some((entry) => matchesEntry(entry.slice(2)));
-  }
-  // legacy bXX country pins apply unconditionally, matching install-time checks
-  const appCountry = entries.find((x) => x.startsWith('b'));
-  if (appCountry && appCountry.slice(1) !== loc.countryCode) return false;
-  // legacy aXX continent pins only apply when no ac/a!c entries exist at all
-  if (forbidden.length === 0) {
-    const appContinent = entries.find((x) => x.startsWith('a') && !x.startsWith('a!c'));
-    if (appContinent && appContinent.slice(1) !== loc.continentCode) return false;
-  }
-  return true;
+  return geolocationRule.locationSatisfiesGeolocation(loc, geolocation);
 }
 
 /**
@@ -261,9 +178,14 @@ async function placementComputation(appSpecifications, minInstances) {
     error.statusCode = 503;
     throw error;
   }
-  const { byIp, tableAvailable, tableGenerated } = await nodeLocationView();
+  const { byIp, tableAvailable, tableGenerated } = nodeLocationView();
   const domainOf = domainFunction(byIp);
-  const geoRestricted = (appSpecifications.geolocation ?? []).length > 0;
+  // Parsed once, for every node below. The spec's entries decide the rule and
+  // the node decides nothing about it, so re-deriving the terms inside the loop
+  // made one answer cost the node count times the entry count - and a spec may
+  // carry two hundred entries against six thousand nodes.
+  const geoRule = geolocationRule.parseGeolocation(appSpecifications.geolocation);
+  const geoRestricted = !geoRule.unrestricted;
 
   const domains = new Map(); // fault domain -> candidate count
   // Tier is deliberately NOT a filter. A tier is a collateral class, not a
@@ -283,7 +205,7 @@ async function placementComputation(appSpecifications, minInstances) {
       // a node the view does not carry has no provable location, and an
       // unprovable location counts
       const loc = doc ? { continentCode: doc.n ?? null, countryCode: doc.c ?? null, region: doc.r ?? null } : null;
-      if (!nodeLocationMatchesGeolocation(loc, appSpecifications.geolocation)) continue; // eslint-disable-line no-continue
+      if (!geolocationRule.locationSatisfiesRule(geoRule, loc)) continue; // eslint-disable-line no-continue
     }
     const domain = domainOf(ip);
     if (!domain) continue; // eslint-disable-line no-continue
@@ -468,11 +390,9 @@ async function checkPlacementFeasibility(appSpecFormatted, caller, previousSpec)
     // whose installer would accept - registering it sells a deployment that
     // provably cannot start. Same source on both ends turns the miss into
     // proof, and proof rejects.
-    const allows = (appSpecFormatted.geolocation ?? []).filter((x) => typeof x === 'string' && x.startsWith('ac'));
-    const allTableRegionPins = allows.length > 0 && allows.every((entry) => {
-      const parts = entry.slice(2).split('_');
-      return parts.length >= 3 && isTableRegionPart(parts[2], parts[1]);
-    });
+    const { allows } = geolocationRule.parseGeolocation(appSpecFormatted.geolocation);
+    const allTableRegionPins = allows.length > 0
+      && allows.every((term) => term.granularity === 'region');
     if (geoRestricted && feasibility.candidateCount === 0 && !allTableRegionPins) {
       log.warn(`${caller} - App ${appSpecFormatted.name} resolves no eligible node for its geolocation; the location table may not cover it, so the registration is allowed`);
       return feasibility;
@@ -504,9 +424,9 @@ function normalizeStructuredEntry(entry) {
   const field = (value, name) => {
     if (value === undefined || value === null) return null;
     if (typeof value !== 'string') throw new Error(`Invalid geolocation entry: ${name} must be a string`);
-    // capped before it can reach a rejection message: these endpoints are
-    // unauthenticated, and an unbounded value echoed into an error would let
-    // a caller write arbitrary volume into the node's logs
+    // capped before it can reach a rejection message: an unbounded value
+    // echoed into an error writes arbitrary volume into the node's logs, and
+    // holding a Flux ID is not a reason to be trusted with the length
     if (value.length > 20) throw new Error(`Invalid geolocation entry: ${name} is too long`);
     return value.trim().toUpperCase();
   };
@@ -630,36 +550,10 @@ function geolocationEntries(spec) {
   return entries;
 }
 
-// The advice endpoint is unauthenticated and each answer costs a full pass
-// over the node list, so identical questions share one computation for a
-// short window. The node list and the table both change on far longer
-// timescales than this, and the map is bounded so a caller cannot grow it.
-const ADVICE_CACHE_TTL_MS = 30 * 1000;
-const ADVICE_CACHE_MAX = 200;
-const adviceCache = new Map();
-
-/**
- * placementFeasibility for a normalised advice request, memoised.
- * @param {string[]} normalized Normalised geolocation spec strings
- * @param {number} instances Requested instance count
- * @returns {Promise<object>}
- */
-async function cachedFeasibility(normalized, instances) {
-  const key = JSON.stringify([instances, normalized]);
-  const hit = adviceCache.get(key);
-  const now = process.hrtime.bigint();
-  if (hit && Number(now - hit.at) / 1e6 < ADVICE_CACHE_TTL_MS) return hit.value;
-  const value = await placementFeasibility({ geolocation: normalized, instances }, instances);
-  // a geo-restricted answer that degraded mid-computation (the view became
-  // unreadable after the availability gate passed) must not outlive the blip:
-  // caching it would keep answering 503 for a window after the store recovers
-  const geoRestricted = normalized.some((entry) => entry !== '');
-  if (!geoRestricted || value.tableAvailable) {
-    if (adviceCache.size >= ADVICE_CACHE_MAX) adviceCache.clear();
-    adviceCache.set(key, { at: now, value });
-  }
-  return value;
-}
+// Advice is computed on every request, deliberately. The answer is one pass
+// over the resident node list with the rule already parsed - no I/O - so a memo
+// would save a few milliseconds while introducing a staleness window on numbers
+// the caller is about to spend money against.
 
 /**
  * The placement advice for a prospective app spec, before payment: how many
@@ -705,7 +599,7 @@ async function placementAdvice(spec) {
   } else if (typeof spec.containerData === 'string') {
     synced = mountParser.isSyncedComponent(spec.containerData);
   }
-  const feasibility = await cachedFeasibility(normalized, instances);
+  const feasibility = await placementFeasibility({ geolocation: normalized, instances }, instances);
   // the availability gate above raced the computation: a store that became
   // unreadable in between degrades the numbers to the /16 posture, which for
   // a geo-restricted question is the whole network - unavailable, not advice
@@ -729,17 +623,28 @@ async function placementAdvice(spec) {
 
 /**
  * API handler: POST /apps/placementfeasibility.
+ *
+ * Requires a signed-in Flux ID. Every caller sends a different spec, so every
+ * caller gets a different answer and no shared cache can bound the work the way
+ * one does for the placement geography - the question is asked by whoever is
+ * about to buy a deployment, and answering it costs a pass over the whole node
+ * list. Registering an app needs a signature regardless, so this asks for
+ * nothing the deploy path does not already hold.
  * @param {object} req Request
  * @param {object} res Response
  */
 async function placementFeasibilityAPI(req, res) {
   try {
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    if (authorized !== true) {
+      res.json(messageHelper.errUnauthorizedMessage());
+      return;
+    }
     const response = messageHelper.createDataMessage(await placementAdvice(req.body ?? {}));
     res.json(response);
   } catch (error) {
-    // rejected input and unavailable data are both ordinary answers on an
-    // unauthenticated endpoint - a stack per bad request would let anyone
-    // fill the error log
+    // rejected input and unavailable data are both ordinary answers here - a
+    // stack per bad request would let a caller fill the error log
     log.warn(`placementFeasibilityAPI - ${error.message}`);
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
     if (error.statusCode) res.status(error.statusCode);
@@ -758,24 +663,15 @@ async function placementFeasibilityAPI(req, res) {
  *   continents: object}>}
  */
 async function placementLocations() {
-  const stored = ipLocationStore.status();
-  const unavailable = () => {
+  const { byIp, tableAvailable, tableGenerated } = nodeLocationView();
+  if (!tableAvailable) {
     // the tree IS the product here - totals over /16 fallback domains are
     // not the placement geography, so absence of the view is unavailability
     const error = new Error('The IP location table is not available yet');
     error.statusCode = 503;
-    return error;
-  };
-  if (!stored.ready) throw unavailable();
-  const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-  let docs;
-  try {
-    docs = await ipLocationStore.getNodeLocations();
-  } catch (error) {
-    log.warn(`placementLocations - node location view unavailable: ${error.message}`);
-    throw unavailable();
+    throw error;
   }
-  const byIp = locationIndex(docs);
+  const nodeList = await fluxCommunicationUtils.deterministicFluxList();
   const domainOf = domainFunction(byIp);
   const totalDomains = new Set();
   let totalNodes = 0;
@@ -827,8 +723,8 @@ async function placementLocations() {
     };
   }
   return {
-    tableAvailable: stored.ready,
-    tableGenerated: stored.generated ?? null,
+    tableAvailable,
+    tableGenerated,
     total: { nodes: totalNodes, domains: totalDomains.size },
     unresolved: unresolvedNodes,
     continents: continentsOut,

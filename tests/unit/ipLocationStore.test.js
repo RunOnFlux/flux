@@ -67,9 +67,12 @@ function rowCountOffset(plain) {
   return 11 + plain.readUInt32LE(7);
 }
 
+// the baseline stamp every fixture document is derived from
+const GENERATED = '2026-07-31T00:00:00Z';
+
 function fixtureHeader() {
   return {
-    generated: '2026-07-31T00:00:00Z',
+    generated: GENERATED,
     sources: { ripencc: '1785362399', dbip: '2026-07' },
     countries: ['BH', 'BG', 'FI'],
     continents: { BH: 'AS', BG: 'EU', FI: 'EU' },
@@ -601,22 +604,55 @@ describe('ipLocationStore tests', () => {
       dbHelperStub.findOneAndUpdateInDatabase.resetHistory();
     }
 
-    it('reads the whole view in one query', async () => {
-      const docs = [{ _id: '80.95.213.209', o: 'a1b2c3d4e5f6' }];
-      dbHelperStub.findInDatabase.resolves(docs);
+    it('loads the stored view into the process in one read, with the domain already keyed', async () => {
+      await withTable();
+      dbHelperStub.findInDatabase.resolves([
+        {
+          _id: '80.95.213.209', o: 'a1b2c3d4e5f6', bs: v4Int('80.95.208.0'), be: v4Int('80.95.223.255'), c: 'BH', n: 'AS', r: null, g: GENERATED,
+        },
+        {
+          _id: '91.0.0.7', o: null, bs: null, be: null, c: 'BG', n: 'EU', r: null, g: GENERATED,
+        },
+      ]);
 
-      expect(await store.getNodeLocations()).to.equal(docs);
+      await store.loadNodeLocationView();
+
       sinon.assert.calledWithExactly(dbHelperStub.findInDatabase, database, NODE_LOCATIONS, {});
+      const { byIp, ready, generated } = store.nodeLocationSnapshot();
+      expect(ready).to.equal(true);
+      expect(generated).to.equal(GENERATED);
+      expect(byIp.get('80.95.213.209')).to.eql({
+        d: 'org:a1b2c3d4e5f6', c: 'BH', n: 'AS', r: null, g: GENERATED,
+      });
+      // no organisation means no block rung - the address falls to /16 downstream
+      expect(byIp.get('91.0.0.7').d).to.equal(null);
     });
 
-    it('surfaces a view read failure as store unavailable', async () => {
+    it('keys the allocation block when a location carries one without an organisation', async () => {
+      await withTable();
+      dbHelperStub.findInDatabase.resolves([{
+        _id: '80.95.213.209', o: null, bs: v4Int('80.95.208.0'), be: v4Int('80.95.223.255'), c: 'BH', n: 'AS', r: null, g: GENERATED,
+      }]);
+
+      await store.loadNodeLocationView();
+
+      expect(store.nodeLocationSnapshot().byIp.get('80.95.213.209').d)
+        .to.equal(`blk:${v4Int('80.95.208.0')}-${v4Int('80.95.223.255')}`);
+    });
+
+    it('surfaces a view load failure as store unavailable', async () => {
       dbHelperStub.findInDatabase.rejects(new Error('connection reset'));
-      const error = await store.getNodeLocations().then((value) => value, (err) => err);
+      const error = await store.loadNodeLocationView().then((value) => value, (err) => err);
       expect(store.isStoreUnavailable(error)).to.equal(true);
 
       dbHelperStub.databaseConnection.returns(null);
-      const noConnection = await store.getNodeLocations().then((value) => value, (err) => err);
+      const noConnection = await store.loadNodeLocationView().then((value) => value, (err) => err);
       expect(store.isStoreUnavailable(noConnection)).to.equal(true);
+    });
+
+    it('reports the view as not held until it is loaded', async () => {
+      await withTable();
+      expect(store.nodeLocationSnapshot()).to.eql({ byIp: new Map(), ready: false, generated: GENERATED });
     });
 
     it('does nothing without a baseline to derive locations from', async () => {
@@ -625,25 +661,54 @@ describe('ipLocationStore tests', () => {
       expect(dbHelperStub.updateOneInDatabase.called).to.equal(false);
     });
 
-    it('drops documents derived from an older baseline', async () => {
+    it('drops the addresses the node list no longer carries', async () => {
       await withTable();
-      serveView();
-      dbHelperStub.removeDocumentsFromCollection.resolves({ deletedCount: 4212 });
+      serveView([
+        { _id: '80.95.213.209', g: GENERATED },
+        { _id: '91.0.0.7', g: GENERATED },
+      ]);
+      dbHelperStub.removeDocumentsFromCollection.resolves({ deletedCount: 1 });
 
-      const result = await store.refreshNodeLocations([]);
+      const result = await store.refreshNodeLocations([{ ip: '80.95.213.209:16127' }]);
 
       sinon.assert.calledWithExactly(
         dbHelperStub.removeDocumentsFromCollection,
         database,
         NODE_LOCATIONS,
-        { g: { $ne: '2026-07-31T00:00:00Z' } },
+        { _id: { $in: ['91.0.0.7'] } },
       );
-      expect(result.dropped).to.equal(4212);
+      expect(result.dropped).to.equal(1);
+      // the view is bounded by the list, so absence can be taken at face value
+      expect([...store.nodeLocationSnapshot().byIp.keys()]).to.eql(['80.95.213.209']);
+    });
+
+    it('leaves the collection alone when every held address is still listed', async () => {
+      await withTable();
+      serveView([{ _id: '80.95.213.209', g: GENERATED }]);
+
+      const result = await store.refreshNodeLocations([{ ip: '80.95.213.209:16127' }]);
+
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.equal(false);
+      expect(result).to.eql({ refreshed: 0, dropped: 0 });
+    });
+
+    it('re-derives an entry left by an older baseline', async () => {
+      await withTable();
+      serveView([{
+        _id: '80.95.213.209', o: 'stale', bs: null, be: null, c: 'XX', n: 'XX', r: null, g: '2026-06-01T00:00:00Z',
+      }]);
+
+      const result = await store.refreshNodeLocations([{ ip: '80.95.213.209:16127' }]);
+
+      expect(result.refreshed).to.equal(1);
+      expect(store.nodeLocationSnapshot().byIp.get('80.95.213.209')).to.eql({
+        d: 'org:a1b2c3d4e5f6', c: 'BH', n: 'AS', r: null, g: GENERATED,
+      });
     });
 
     it('writes only the addresses the view is missing, in the document shape', async () => {
       await withTable();
-      serveView([{ _id: '80.95.213.209' }]);
+      serveView([{ _id: '80.95.213.209', g: GENERATED }]);
 
       const result = await store.refreshNodeLocations([
         { ip: '80.95.213.209:16127' }, // already held
@@ -716,9 +781,19 @@ describe('ipLocationStore tests', () => {
       expect(result.refreshed).to.equal(20);
     });
 
-    it('surfaces a failed drop or view read as store unavailable', async () => {
+    it('surfaces a failed drop as store unavailable', async () => {
       await withTable();
+      serveView([{ _id: '91.0.0.7', g: GENERATED }]);
       dbHelperStub.removeDocumentsFromCollection.rejects(new Error('not authorized'));
+
+      const error = await store.refreshNodeLocations([]).then((value) => value, (err) => err);
+      expect(store.isStoreUnavailable(error)).to.equal(true);
+    });
+
+    it('surfaces a failed view load as store unavailable', async () => {
+      await withTable();
+      dbHelperStub.findInDatabase = sinon.stub().rejects(new Error('connection reset'));
+
       const error = await store.refreshNodeLocations([]).then((value) => value, (err) => err);
       expect(store.isStoreUnavailable(error)).to.equal(true);
     });
