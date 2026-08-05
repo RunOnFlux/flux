@@ -9,6 +9,7 @@ import {
   installingClaimIpsByNode, installingErrorsByNode,
 } from '../framework/reconciler-suite.js';
 import { waitFor } from '../framework/wait.js';
+import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // Withdrawing an installing claim.
@@ -204,6 +205,20 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     });
   });
 
+  it('nobody else claims while the app is already covered', async function () {
+    this.timeout(90000);
+    // One running and the rival's claim make two, which is what the app asks
+    // for. A node arriving now has nothing to add, and claiming anyway would
+    // cost a broadcast, a collision wait and a retraction to learn that.
+    const before = claimantIps();
+
+    await sleepUnlessInfraDead(30000);
+
+    const after = claimantIps();
+    const fresh = [...after].filter((ip) => !before.has(ip));
+    expect(fresh, `claimed an app already covered: ${fresh.join(', ')}`).to.be.empty;
+  });
+
   it('holds at one instance, so a withdrawal does not free the domain to refill', async function () {
     this.timeout(120000);
     // A withdrawal clears a claim. It must not read as "this domain is free
@@ -222,5 +237,25 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     withdrew.forEach((ip) => {
       expect(holderIps, `${ip} withdrew and then installed it anyway`).to.not.include(ip);
     });
+  });
+
+  it('takes the app after standing down, once it is short again', async function () {
+    this.timeout(300000);
+    // Standing aside must not cost eligibility. The rival gives up the slot it
+    // was holding, so the app is one short again - and the node that stood down
+    // for it is exactly the one that should be able to take it now.
+    const stoodDown = [...withdrawnIps()];
+    expect(stoodDown, 'fixture: a node must have stood down first').to.not.be.empty;
+
+    const rival = env.stubPeerClients.get(STUB_INDEX);
+    await rival.withdrawApp(appName);
+
+    const holders = await waitForInstanceCount(env, appName, 2, { timeout: 240000, stableMs: 10000 });
+    const holderIps = holders.map((index) => getSubnetConfig().nodeIp(index + 1));
+
+    expect(
+      holderIps.some((ip) => stoodDown.includes(ip)),
+      `a node that stood down never came back: stood down ${stoodDown.join(', ')}, holders ${holderIps.join(', ')}`,
+    ).to.be.true;
   });
 });

@@ -848,6 +848,37 @@ describe('appSpawner tests', () => {
       ).to.have.lengthOf(0);
     });
 
+    it('still claims when the network is one instance short', async () => {
+      // The other side of the boundary. Standing aside at "already covered" must
+      // not become standing aside at "nearly covered", or the last instance of
+      // every app goes unfilled.
+      // three required, one running and one claimed - still one short
+      const { installStub, logged } = await runAttempt({
+        appLocations: sameDomainLocation,
+        installingLocations: [{ ip: '192.168.2.2:16127', broadcastedAt: 1000 }],
+        placementShare: { domainCount: 1, maxPerDomain: 3 },
+      });
+
+      expect(logged('already spawned or being installed'), 'stood aside while an instance was still missing').to.be.false;
+      expect(installStub.called, 'did not take the instance the network was short').to.be.true;
+    });
+
+    it('stays eligible after standing down on the instance count, not just the share', async () => {
+      // The same retraction is reached by two routes - ranked out on the app's
+      // instance count, and ranked out on the fault domain's share - and both
+      // must leave the node able to come back.
+      await runAttempt({
+        finalInstallingLocations: [
+          { ip: '192.168.2.2:16127', broadcastedAt: 1000 },
+          { ip: '192.168.3.3:16127', broadcastedAt: 1001 },
+          { ip: '192.168.4.4:16127', broadcastedAt: 1002 },
+          { ip: '192.168.1.1:16127', broadcastedAt: 2000 },
+        ],
+      });
+
+      expect(globalStateStub.trySpawningGlobalAppCache.has('abc123')).to.be.false;
+    });
+
     it('stays eligible for the app it stood aside from', async () => {
       // The scan only offers apps whose running count is below the required
       // count, so a satisfied app stops being offered on its own. Holding the
