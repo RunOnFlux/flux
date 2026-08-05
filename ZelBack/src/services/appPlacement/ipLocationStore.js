@@ -42,6 +42,11 @@ const { bareIp } = require('../utils/socketAddressUtils');
 
 const gunzip = util.promisify(zlib.gunzip);
 
+// Hand the thread back so queued I/O and timers run. setImmediate, not a
+// resolved promise: a promise only drains microtasks, which is the same thread
+// with extra steps.
+const yieldToEventLoop = () => new Promise((resolve) => { setImmediate(resolve); });
+
 const MAGIC = 'FLXGEO';
 const SUPPORTED_VERSION = 2;
 // magic(6) + version(1) + u32 header length
@@ -54,6 +59,10 @@ const IPV4_MAX = 0xffffffff;
 const MIN_ROW_COUNT = 1500000;
 const INSERT_BATCH_SIZE = 10000;
 const MAX_BATCHES_IN_FLIGHT = 4;
+// Rows decoded between handing the thread back. Small enough that no single
+// stretch is noticeable (a few milliseconds), large enough that two million rows
+// cost a couple of hundred yields rather than one per row.
+const ROWS_PER_YIELD = 10000;
 // Bounds what one artifact string can cost in a document. Not a vocabulary
 // check - the vocabularies are the publisher's, and rejecting a token this
 // build has not seen would take the whole fleet's table down with it.
@@ -237,6 +246,13 @@ function parseHeader(buf) {
  * batches of documents. With no callback nothing is materialised - that is the
  * validation pass, which must complete before the first write so a malformed
  * artifact never touches the database.
+ *
+ * The walk gives the thread back every ROWS_PER_YIELD rows. Two million rows of
+ * pure decoding is a fifth of a second on a developer machine and longer on a
+ * node, and for that whole time the process serves no request, reads no socket
+ * and fires no timer. The batch sink is not a substitute: it awaits real I/O
+ * only once MAX_BATCHES_IN_FLIGHT writes are outstanding, and awaiting an
+ * already-settled promise drains microtasks without letting the event loop run.
  * @param {Buffer} buf Decompressed artifact
  * @param {object} parsed parseHeader() result
  * @param {(docs: Array<object>) => Promise<void>} [onBatch] Batch sink
@@ -278,6 +294,10 @@ async function walkRows(buf, parsed, onBatch) {
         await onBatch(batch);
         batch = [];
       }
+    }
+    if ((i + 1) % ROWS_PER_YIELD === 0) {
+      // eslint-disable-next-line no-await-in-loop
+      await yieldToEventLoop();
     }
   }
   if (cursor.offset !== buf.length) throw malformed('row count disagrees with the byte stream');

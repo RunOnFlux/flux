@@ -183,6 +183,43 @@ describe('ipLocationStore tests', () => {
       sinon.assert.callOrder(dbHelperStub.dropCollection, dbHelperStub.insertManyToDatabase, database.renameCollection);
     });
 
+    it('gives the thread back while it walks the rows', async function () {
+      this.timeout(30000);
+      // A real baseline is two million rows and decoding them is pure CPU: for
+      // as long as it runs the process answers no request, reads no socket and
+      // fires no timer.
+      //
+      // Asserted by ordering rather than by elapsed time or a count of turns,
+      // both of which the artifact's own gunzip dominates. A callback queued
+      // while one batch is being written can only run before the next batch if
+      // the walk actually left the thread in between - awaiting an
+      // already-settled promise drains microtasks and never gets there.
+      const rows = [];
+      for (let i = 0; i < 25000; i += 1) rows.push([i * 4, i * 4 + 2, 0, 0, null]);
+      const bytes = encodeArtifact(fixtureHeader(), rows);
+
+      const order = [];
+      dbHelperStub.insertManyToDatabase.callsFake(async (db, collection, docs) => {
+        const batch = order.filter((entry) => entry.startsWith('batch')).length + 1;
+        order.push(`batch${batch}`);
+        setImmediate(() => order.push(`thread-released-${batch}`));
+        return { insertedCount: docs.length };
+      });
+
+      const result = await store.setArtifact(bytes);
+
+      expect(result.rowCount).to.equal(25000);
+      expect(order.filter((entry) => entry.startsWith('batch')), 'fixture: needs more than one batch').to.have.length(3);
+      // Present AND before the next batch: absent reads as "never got the
+      // thread", which is the failure, not a pass.
+      expect(order, `the walk ran straight from one batch into the next: ${order.join(' -> ')}`)
+        .to.include('thread-released-1');
+      expect(
+        order.indexOf('thread-released-1'),
+        `the walk ran straight from one batch into the next: ${order.join(' -> ')}`,
+      ).to.be.lessThan(order.indexOf('batch2'));
+    });
+
     it('writes the spec document shape with the continent denormalised', async () => {
       await store.setArtifact(fixtureArtifact());
       const [, , docs] = dbHelperStub.insertManyToDatabase.firstCall.args;
