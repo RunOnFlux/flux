@@ -8,7 +8,6 @@ import { resetSyncState } from '../framework/syncthing-control.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
-import sharedConfig from '../../config/shared.js';
 
 // A node asks a peer what it is holding once per monitor pass, not once per
 // folder.
@@ -28,12 +27,15 @@ import sharedConfig from '../../config/shared.js';
 // asking pass after pass. What the arrival times show is the whole point: two
 // arrivals milliseconds apart are one pass asking twice.
 
+// The cadence this suite pins its nodes to, and the window derived from it. The
+// measurement is a rate, so the interval is not something to inherit and hope
+// for: it is set in configOverrides below and both halves come from here.
+// Production runs 30s; the harness compresses it, and a threshold written for
+// either one while the nodes run the other reads a correct run as a failure.
+const MONITOR_INTERVAL_MS = 3000;
 // A second question inside ONE pass arrives back-to-back in the same sequential
-// loop - milliseconds later. A legitimate one arrives a whole pass later. Half a
-// pass separates those two cases cleanly, and it is derived rather than written
-// down because the harness compresses the monitor to 3s where production runs
-// 30s: a threshold picked for production reads every correct run as a failure.
-const SAME_PASS_MS = sharedConfig.syncthing.monitorIntervalMs / 2;
+// loop - milliseconds later. A legitimate one arrives a whole pass later.
+const SAME_PASS_MS = MONITOR_INTERVAL_MS / 2;
 
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
@@ -69,6 +71,8 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
       stubPeers: [stubIndex],
       tickerAutostart: false,
       configOverrides: {
+        // The rate under measurement - pinned, not inherited.
+        syncthing: { monitorIntervalMs: MONITOR_INTERVAL_MS },
         // A fleet this small cannot reach the production floors - each node
         // holds three peers at most, one of which never dials. Same floors the
         // four-node registration-gate suite runs.
