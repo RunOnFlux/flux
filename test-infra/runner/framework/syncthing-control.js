@@ -27,6 +27,29 @@ export async function getSyncthingState() {
   return get('/state');
 }
 
+// Folder config is stored as current state, so a change and the change that
+// undoes it cancel out: a folder paused for an operation and resumed afterwards
+// reads identically to one nothing touched. These expose the ordered write
+// history instead, which is what answers "what did this operation do, and to
+// WHICH folder" - the question a composed app turns on, since its folders are
+// per component and the app name names none of them.
+export async function resetFolderWrites(ip = '*') {
+  return post('/folder-writes-reset', { ip });
+}
+
+export async function getFolderWrites(ip) {
+  const state = await getSyncthingState();
+  const node = state.nodes.find((n) => n.ip === ip);
+  return node ? node.folderWrites : [];
+}
+
+// The paused/resumed pairs this operation applied, in order, as folder ids.
+export async function getPauseWrites(ip) {
+  return (await getFolderWrites(ip))
+    .filter((w) => w.method === 'patch' && w.body && typeof w.body.paused === 'boolean')
+    .map((w) => ({ id: w.id, paused: w.body.paused }));
+}
+
 // Raw setter for /rest/db/status.
 export async function setSyncState({
   ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0,

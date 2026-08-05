@@ -36,15 +36,29 @@ function deviceIdForIp(ip) {
   return out.match(/.{1,7}/g).join('-');
 }
 
-// ip -> { deviceID, folders: Map, devices: Map, restartRequired }
+// ip -> { deviceID, folders: Map, devices: Map, restartRequired, folderWrites: [] }
 const nodeStates = new Map();
+
+// Folder config is kept as current state, so a change and its reversal leave no
+// trace: a folder paused for an operation and resumed afterwards reads exactly
+// like one that was never touched. Record each write in order so a test can ask
+// what was done to WHICH folder - the whole question for a composed app, whose
+// folders are per component and whose app name addresses none of them.
+function recordFolderWrite(state, method, id, body) {
+  state.folderWrites.push({ method, id, body: body ?? null });
+}
 
 function nodeState(ip) {
   let state = nodeStates.get(ip);
   if (!state) {
     const deviceID = deviceIdForIp(ip);
     state = {
-      deviceID, folders: new Map(), devices: new Map(), ignores: new Map(), restartRequired: false,
+      deviceID,
+      folders: new Map(),
+      devices: new Map(),
+      ignores: new Map(),
+      restartRequired: false,
+      folderWrites: [],
     };
     // every node knows itself as a configured device
     state.devices.set(deviceID, {
@@ -295,7 +309,10 @@ app.get('/rest/config/folders', (req, res) => {
 app.put('/rest/config/folders', (req, res) => {
   const state = reqState(req);
   const arr = Array.isArray(req.body) ? req.body : [req.body];
-  arr.forEach((f) => state.folders.set(f.id, f));
+  arr.forEach((f) => {
+    state.folders.set(f.id, f);
+    recordFolderWrite(state, 'put', f.id, f);
+  });
   res.json({});
 });
 
@@ -308,6 +325,7 @@ app.get('/rest/config/folders/:id', (req, res) => {
 app.put('/rest/config/folders/:id', (req, res) => {
   const state = reqState(req);
   state.folders.set(req.params.id, { ...req.body, id: req.params.id });
+  recordFolderWrite(state, 'put', req.params.id, req.body);
   res.json({});
 });
 
@@ -335,12 +353,14 @@ app.patch('/rest/config/folders/:id', async (req, res) => {
     });
   }
   state.folders.set(req.params.id, { ...existing, ...req.body });
+  recordFolderWrite(state, 'patch', req.params.id, req.body);
   return res.json({});
 });
 
 app.delete('/rest/config/folders/:id', (req, res) => {
   const state = reqState(req);
   state.folders.delete(req.params.id);
+  recordFolderWrite(state, 'delete', req.params.id, null);
   res.json({});
 });
 
@@ -672,6 +692,8 @@ control.get('/state', (req, res) => {
       folders: Array.from(s.folders.values()),
       devices: Array.from(s.devices.values()),
       restartRequired: s.restartRequired,
+      // ordered history of folder config writes - see recordFolderWrite
+      folderWrites: s.folderWrites,
     })),
   });
 });
@@ -791,6 +813,19 @@ control.post('/sync-reset', (req, res) => {
   eventsOutages.clear();
   folderPatchDelay.clear();
   patchDelayWaker.emit('wake');
+  res.json({ ok: true });
+});
+
+// Drop the recorded folder-write history, leaving the folder config itself
+// alone: a test that asks "what did THIS operation do" needs a mark it can
+// measure from, and the monitor writes folder config continuously.
+control.post('/folder-writes-reset', (req, res) => {
+  const { ip = '*' } = req.body || {};
+  const targets = ip === '*' ? Array.from(nodeStates.keys()) : [ip];
+  targets.forEach((target) => {
+    const state = nodeStates.get(target);
+    if (state) state.folderWrites.length = 0;
+  });
   res.json({ ok: true });
 });
 
