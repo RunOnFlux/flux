@@ -60,6 +60,38 @@ export function nodeClient(nodeNum) {
     return res.json();
   }
 
+  /**
+   * Upload files the way a browser does: ONE multipart request carrying all of
+   * them, each under its own name.
+   *
+   * The endpoint takes each file's destination name from its form field name,
+   * which is what a browser sends when it appends a File under its own name.
+   *
+   * The response is not JSON. It is a stream of progress figures with each
+   * file's name written into it as that file lands, and a failure envelope
+   * written into the same stream - the status line has long gone by the time
+   * anything can go wrong. So the body comes back as text and a suite reads
+   * what it needs out of it.
+   *
+   * @param {string} path
+   * @param {Record<string, string|Uint8Array>} files - name to contents
+   * @param {object} [headers]
+   * @returns {Promise<{status: number, body: string}>}
+   */
+  async function upload(path, files, headers = {}) {
+    const form = new FormData();
+    for (const [name, contents] of Object.entries(files)) {
+      // The third argument is the filename; the first is the field name. The
+      // endpoint reads the field name, and a browser makes them the same.
+      form.append(name, new Blob([contents]), name);
+    }
+    // Content-Type is deliberately not set: fetch fills it in with the
+    // multipart boundary it generated, and overriding it produces a body no
+    // parser can read.
+    const res = await fetch(`${url}${path}`, { method: 'POST', headers, body: form });
+    return { status: res.status, body: await res.text() };
+  }
+
   let eventSource = null;
   const eventBuffer = [];
   const emitter = new EventEmitter();
@@ -211,6 +243,7 @@ export function nodeClient(nodeNum) {
     getAuthed,
     post,
     del,
+    upload,
     request,
     connectEventStream,
     disconnectEventStream,
