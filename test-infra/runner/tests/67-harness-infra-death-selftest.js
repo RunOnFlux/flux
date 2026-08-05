@@ -28,7 +28,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // same handle test-env.js uses for disconnectNode and readInfraLogs. It has to
 // be this and not `container.stop()`: StartedGenericContainer.stop() awaits the
 // containerIsStopping pre-stop hook, which watchInfra uses to mark a deliberate
-// stop as expected (suite 33 stops the registry that way). A docker-level kill
+// stop as expected (the missing-recreate suite stops the registry that way). A docker-level kill
 // never runs that hook, so the `die` arrives unmarked - which is exactly the
 // unannounced death the guard exists to catch. Shelling out to `docker kill`
 // would work too but would not prove the harness's own handle reaches the
@@ -76,7 +76,7 @@ describe('harness infra-death guard', function () {
     // fleet-independent, and a parked SSE wait needs exactly one client.
     env = await createTestEnv({ hookCtx: this, nodes: 1 });
     node = env.clients[0];
-    networkName = env.networkName;
+    ({ networkName } = env);
     mongoEntry = env.infraContainers.find((c) => c.name === 'mongo');
     expect(mongoEntry, 'mongo is registered with the death watch').to.exist;
     mongoId = mongoEntry.container.getId();

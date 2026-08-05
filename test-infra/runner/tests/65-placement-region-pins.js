@@ -16,8 +16,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // Region pins, end to end, on a fleet whose regions the location table actually
 // carries.
 //
-// Suites 62-64 exercise the table at country and organisation granularity. This
-// one exercises the rung below, where the rule is PROOF in both directions: a
+// The domain-share, domain-split and registration-gate suites exercise the table
+// at country and organisation granularity. This one exercises the rung below,
+// where the rule is PROOF in both directions: a
 // region pin in the table's own ISO 3166-2 vocabulary is satisfied only by a
 // node whose table region is known and equal, and a region deny catches only
 // such a node. A node the table places in the right COUNTRY but whose region it
@@ -44,8 +45,8 @@ const GATE_IMAGE = 'e2e-region-probe';
 
 // The v8 spec shape the registration validator wants in full: it runs before
 // the placement gate, so a hand-rolled spec fails on a missing field long
-// before it proves anything about placement (suite 64's gateSpec, with the
-// probe image and port this suite pushes).
+// before it proves anything about placement (the registration-gate suite's
+// gateSpec, with the probe image and port this suite pushes).
 function gateSpec({ name, instances = 3, geolocation = [] }) {
   return {
     version: 8,
@@ -130,7 +131,7 @@ describe('placement honours region pins on proof from the shared table', functio
 
   // The stub splits a /24's addresses across organisations by last octet, so an
   // address's organisation is its last octet modulo the domain count - the same
-  // arithmetic suite 63 asserts its spread with.
+  // arithmetic the domain-split suite asserts its spread with.
   const orgOf = (nodeIndex) => Number(subnet.nodeIp(nodeIndex + 1).split('.')[3]) % DOMAINS;
   const indicesInOrg = (org) => env.clients.map((unused, i) => i).filter((i) => orgOf(i) === org);
   const countryOf = (region) => region.slice(0, 2);
@@ -151,12 +152,12 @@ describe('placement honours region pins on proof from the shared table', functio
   dumpLogsOnFailure(() => env);
 
   before(async function () {
-    // More than suite 63's before-hook budget because this one also waits for
+    // More than the domain-split suite's before-hook budget because this one waits for
     // every node to have INGESTED the table: an installer resolves its own
     // region through it, so a node still without it refuses a region-pinned app
     // and the convergence scenarios would race the ingest.
     this.timeout(420000);
-    // Six nodes and suite 63's mesh: six is what spans three organisations on
+    // Six nodes and the domain-split suite's mesh: six is what spans three organisations on
     // consecutive addresses from .10, and a six-ring needs the lowered mesh
     // (2*minOutgoing+1 <= nodes - the ten-node dial pattern wraps onto mutual
     // pairs that de-duplicate below the peer wait's floor).

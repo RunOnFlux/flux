@@ -8,7 +8,7 @@
 # both can sit side by side:
 #
 #   FLUX_E2E_TAG=placement ./test-infra/build-images.sh
-#   FLUX_E2E_TAG=placement npx mocha "tests/62-*.js" --timeout 400000
+#   FLUX_E2E_TAG=placement npx mocha "tests/76-*.js" --timeout 400000
 #
 # The default tag is `latest`, which is what an untagged `docker build`
 # produces, so single-branch use is unchanged.

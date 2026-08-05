@@ -14,8 +14,9 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // The location table's LIFE, as opposed to its first fetch.
 //
-// Suites 62-65 all start from one healthy publication and ask what placement
-// does with it. Everything here is about what happens afterwards, which is where
+// The domain-share, domain-split, registration-gate and region-pin suites all
+// start from one healthy publication and ask what placement does with it.
+// Everything here is about what happens afterwards, which is where
 // a node spends every day of its life: it restarts, the publisher republishes,
 // and some of those publications are bad. The contract in every one of those
 // cases is the same sentence - a node keeps serving the last table it accepted -
@@ -72,8 +73,8 @@ const FLOOR_NODE = 3;
 
 // The v8 spec shape the registration validator wants in full: it runs before the
 // placement gate, so a hand-rolled spec fails on a missing field long before it
-// proves anything about placement (suite 64's gateSpec, with this suite's probe
-// image, port and owner).
+// proves anything about placement (the registration-gate suite's gateSpec, with
+// this suite's probe image, port and owner).
 function gateSpec({ name, instances, geolocation = [] }) {
   return {
     version: 8,
@@ -219,7 +220,7 @@ describe('the location table survives restarts and refuses bad publications', fu
   before(async function () {
     this.timeout(420000);
     // Four nodes: this suite asks the API questions and restarts nodes, it
-    // places nothing, so it is sized like suite 64 rather than the convergence
+    // places nothing, so it is sized like the registration-gate suite rather than the convergence
     // suites. The shared mesh minimums are sized for the ten-node spawner
     // suites, so lower them to what four nodes can satisfy rather than paying
     // for idle nodes.

@@ -25,7 +25,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // this one, where a node holds two peers at most - the app would refuse to recover
 // from a genuinely dead holder for good, which is worse than the stall it replaces.
 //
-// Suites 68 and 69 run ten and six nodes, where peers are plentiful and that
+// The election-order and partition-leader suites run ten and six nodes, where peers are plentiful and that
 // distinction cannot show up. This is three.
 
 async function isUp(client, appName) {

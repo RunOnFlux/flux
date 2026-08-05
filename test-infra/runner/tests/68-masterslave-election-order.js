@@ -22,7 +22,8 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // MUST-PASS gate. Primary election when the election order DISAGREES with the
 // syncthing seed order - the one arrangement the other g: suites cannot make.
 //
-// Suites 35, 51 and 52 install their holders in parallel, so every holder's
+// The master/slave election, syncthing cold-start and operator-stop recovery
+// suites install their holders in parallel, so every holder's
 // runningSince lands in the same instant, the election sort falls through to its ip
 // tiebreak, and the lowest-IP syncthing seed is always ALSO election index 0. Every
 // rule that reads `index > 0` is therefore dead in those suites - including the
@@ -249,7 +250,7 @@ describe('primary election under a divergent placement order', function () {
 
     // Release the primary the way an operator does: appstop takes it down and locks it
     // out of the election, appstart releases the lock and hands the start back to the
-    // election. Suite 52's recipe - here with the seed at index > 0.
+    // election. The operator-stop recovery suite's recipe - here with the seed at index > 0.
     const seedClient = env.clients[seedIndex];
     const auth = await authenticate(seedClient.url, appOwnerKey());
     await seedClient.getAuthed(`/apps/appstop/${orderApp}`, auth.zelidauth);
@@ -323,7 +324,7 @@ describe('primary election under a divergent placement order', function () {
     });
 
     const position = await electionIndexOf(env, pairApp, seedIndex);
-    expect(position, 'fixture: the seed must not be index 0, or this is suite 52 again').to.be.greaterThan(0);
+    expect(position, 'fixture: the seed must not be index 0, or this is operator-stop recovery again').to.be.greaterThan(0);
 
     const pair = [0, 1];
     const pairUp = async () => (await Promise.all(

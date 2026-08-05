@@ -13,7 +13,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // The other half of the placement share, and the half the /16 key could never
 // express: a fleet that LOOKS like one network but is several fault domains.
 //
-// Suite 62 proves the permissive direction - one domain absorbs every instance
+// The domain-share suite proves the permissive direction - one domain absorbs every instance
 // so a country-pinned app converges. This proves the restrictive direction on
 // the same wire: with the location table splitting the fleet into distinct
 // organisations, a synced app must spread across them rather than stack. Every

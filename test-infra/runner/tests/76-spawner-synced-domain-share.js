@@ -18,7 +18,7 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // the eligible candidate set: one domain available -> that domain holds all N.
 //
 // This is the field proof of the regression guard: convergence to exactly N,
-// held stable - the same fleet shape that suite 39 proves for plain apps, for
+// held stable - the same fleet shape the multi-instance spawner suite proves for plain apps, for
 // the app class the old veto stranded. waitForInstanceCount's stability window
 // also fails a 4th instance, so the share must CAP the domain at N as well as
 // permit N - both directions of the arithmetic in one assertion.
