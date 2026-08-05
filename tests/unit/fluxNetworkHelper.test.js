@@ -34,7 +34,6 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
-const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const { requireMongo } = require('./dbTestHelper');
 const upnpService = require('../../ZelBack/src/services/upnpService');
 
