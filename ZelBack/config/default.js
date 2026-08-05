@@ -141,7 +141,7 @@ module.exports = {
       // Pinned by MANIFEST LIST digest, which resolves per architecture - a
       // per-arch digest would work on x86 and fail on every arm node. Never a
       // tag: a rebuild must not silently change what nodes execute.
-      image: 'ghcr.io/runonflux/flux-volume-tools@sha256:02c9bb29ece246cfb3575a6195ac1f219f9a4fcdb6ad1abf5cc6eee32b6ea340',
+      image: 'ghcr.io/runonflux/flux-volume-tools@sha256:d764bfc1c493b2442a36b519a68baf91a38d78038df3edd35150c0c06cc677a3',
       // One per app stops a single owner monopolising a node; the node-wide cap
       // stops the disk being saturated by several at once. A reached limit is
       // refused rather than queued - a queued request waits silently behind

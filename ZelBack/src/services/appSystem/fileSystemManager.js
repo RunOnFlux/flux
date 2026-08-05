@@ -13,12 +13,13 @@
 const archiver = require('archiver');
 const { PassThrough } = require('stream');
 const path = require('path');
+const { formidable } = require('formidable');
 const messageHelper = require('../messageHelper');
 const verificationHelper = require('../verificationHelper');
 const serviceHelper = require('../serviceHelper');
 const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
-const { sanitizePath, verifyRealPath } = require('../utils/pathSecurity');
+const { sanitizePath, verifyRealPath, validateFilename } = require('../utils/pathSecurity');
 const { openVolume, SPACE_HEADROOM } = require('./volumeSession');
 const executor = require('./volumeExecutor');
 const jobRegistry = require('../utils/jobRegistry');
@@ -585,10 +586,181 @@ async function extractAppsObject(req, res) {
   }
 }
 
+/**
+ * Where an upload's files land, relative to the volume root.
+ *
+ * The restore flow uploads an archive to a fixed place; everything else lands
+ * where the file browser is pointed, which may be the volume root.
+ */
+function uploadFolder(req) {
+  const type = req.params.type || req.query.type || '';
+  if (type === 'backup') return 'backup/upload';
+  return req.params.folder || req.query.folder || '';
+}
+
+/**
+ * Receive uploaded files onto an app's volume.
+ *
+ * The bytes go from the request straight into a container that writes them, so
+ * they never touch the node's own filesystem. That is the whole reason this
+ * moved: a write commits the moment it opens - it creates or truncates whatever
+ * the name pointed at - so checking a path first and writing to it afterwards
+ * cannot be made safe, and node has no way to say "open this only if it is
+ * inside that directory". The container has nothing else mounted, so the
+ * question does not arise.
+ *
+ * Each file is published atomically on its own, so one that fails leaves the
+ * others alone and leaves nothing half-written at its destination.
+ *
+ * The request holds ONE operation slot however many files it carries, and the
+ * files are handled one at a time inside it. A slot per file would refuse the
+ * second one; a slot per file with no serialisation would put an unbounded
+ * number of containers on the node for a single request.
+ *
+ * The response is a stream of progress figures, then each file's name as it
+ * lands, and its shape is unchanged - a client reads bytes received against
+ * bytes expected while the upload runs. A failure is written into it as the
+ * standard error envelope, because by then the status line has long gone.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function uploadAppsFiles(req, res) {
+  const folder = uploadFolder(req);
+  let volume = null;
+  let releaseSlot = null;
+
+  const fail = (error) => {
+    log.error(error);
+    const envelope = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+    // Before anything has been written the status line is still ours, so a
+    // refusal can be answered as one. Once the body has started it cannot, and
+    // the envelope goes into the stream where a client parses it out.
+    if (res.headersSent) {
+      try {
+        res.write(serviceHelper.ensureString(envelope));
+        res.end();
+      } catch (writeError) {
+        log.error(writeError);
+      }
+      return;
+    }
+    respondError(res, error);
+  };
+
+  try {
+    volume = await openVolume(req);
+    // Resolved once, before anything is received: an upload into a folder that
+    // does not exist, or that resolves outside the volume, is refused while the
+    // caller can still be told about it.
+    await volume.resolve(folder, { allowRoot: true, mustExist: true });
+
+    // One slot for the request. Taken before the first byte is read so a caller
+    // with no slot is refused with a 503 and a Retry-After rather than after
+    // uploading a gigabyte.
+    releaseSlot = executor.acquireSlot(volume.identifier);
+  } catch (error) {
+    if (releaseSlot) releaseSlot();
+    fail(error);
+    return;
+  }
+
+  // The most that may be written, from the volume itself rather than a figure
+  // chosen here. flux-op enforces the same number as the bytes arrive, so an
+  // upload that would fill the volume is refused at the limit instead of
+  // filling it and being refused afterwards.
+  const ceiling = Math.floor(volume.availableBytes / SPACE_HEADROOM);
+
+  // Files are handled strictly in turn. A multipart body delivers its parts in
+  // order anyway; this makes the operations follow them, so a request never has
+  // two containers of its own running at once.
+  let queue = Promise.resolve();
+  let failure = null;
+
+  const receiveOne = async (file, incoming) => {
+    if (failure) {
+      incoming.resume();
+      return;
+    }
+    try {
+      const name = validateFilename(file.originalFilename);
+      const destination = await volume.resolve(path.posix.join(folder, name));
+      const staging = volume.staging();
+
+      await executor.run(volume, [], {
+        input: incoming,
+        publish: { staging, destination },
+        maxBytes: ceiling,
+        slotHeld: true,
+        status: 'Uploading...',
+      });
+
+      res.write(serviceHelper.ensureString(name));
+      if (res.flush) res.flush();
+    } catch (error) {
+      failure = error;
+      // Drained rather than left: formidable is writing into it, and a stream
+      // nobody reads holds the request open behind a file that is not going to
+      // be stored.
+      incoming.resume();
+    }
+  };
+
+  const form = formidable({
+    multiples: true,
+    hashAlgorithm: false,
+    // Formidable applies a limit of its own choosing when none is given, so
+    // this has to be set to something. The volume's free space is the honest
+    // answer and it is the same figure the container enforces.
+    maxFileSize: ceiling,
+    fileWriteStreamHandler: (file) => {
+      const incoming = new PassThrough();
+      // Nothing reads this until its turn comes, so formidable is held at the
+      // buffer's own high-water mark rather than racing ahead of a container
+      // that does not exist yet.
+      queue = queue.then(() => receiveOne(file, incoming));
+      return incoming;
+    },
+  });
+
+  form
+    .on('progress', (bytesReceived, bytesExpected) => {
+      try {
+        res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
+        if (res.flush) res.flush();
+      } catch (error) {
+        log.error(error);
+      }
+    })
+    .on('error', (error) => {
+      failure = failure || error;
+    })
+    .on('end', () => {
+      // Only once every file has been published. Formidable is finished with
+      // the request long before the last container is.
+      queue
+        .then(() => {
+          releaseSlot();
+          if (failure) {
+            fail(failure);
+            return;
+          }
+          res.end();
+        })
+        .catch((error) => {
+          releaseSlot();
+          fail(error);
+        });
+    });
+
+  form.parse(req);
+}
+
 module.exports = {
   createAppsFolder,
   renameAppsObject,
   removeAppsObject,
+  uploadAppsFiles,
   moveAppsObject,
   copyAppsObject,
   compressAppsObject,

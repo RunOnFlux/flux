@@ -1062,4 +1062,192 @@ describe('volumeExecutor tests', () => {
       expect(containerStub.stop.called, 'stopped because the image was slow to arrive').to.equal(false);
     });
   });
+
+  describe('run - an upload streamed into the container', () => {
+    const { Readable, Writable } = require('node:stream');
+
+    let socket;
+    let exit;
+
+    // A stand-in for the hijacked duplex socket. Records what reached the
+    // container, and reports whether the transfer was ENDED - which is the
+    // signal that says "you have everything" - or torn down.
+    const makeSocket = () => {
+      const received = [];
+      const stream = new Writable({
+        write(chunk, encoding, callback) { received.push(chunk); callback(); },
+      });
+      stream.received = received;
+      sinon.spy(stream, 'end');
+      sinon.spy(stream, 'destroy');
+      return stream;
+    };
+
+    // A container whose exit is decided by the test rather than resolved up
+    // front: the whole point here is which of the transfer and the exit lands
+    // first.
+    const deferredExit = () => {
+      let settle;
+      const promise = new Promise((resolve) => { settle = resolve; });
+      return { promise, finish: (StatusCode) => settle({ StatusCode }) };
+    };
+
+    const sending = (chunks) => Readable.from(chunks);
+
+    // Produces forever and never ends, like a client still sending when the
+    // container gives up. Paced, because the socket here is a stand-in that
+    // accepts instantly - a real one back-pressures, and an unpaced source
+    // would fill this process's memory rather than the test's purpose.
+    const neverEnds = () => new Readable({
+      read() { setTimeout(() => this.push(Buffer.alloc(16)), 5); },
+    });
+
+    beforeEach(() => {
+      socket = makeSocket();
+      exit = deferredExit();
+      // The container cannot exit before its input closes: dd blocks on read,
+      // and flux-op cannot publish before dd exits. That ordering is what makes
+      // a truncated upload unpublishable, so the stub obeys it rather than
+      // resolving up front and racing the transfer.
+      socket.on('finish', () => exit.finish(0));
+      containerStub.wait = sinon.stub().returns(exit.promise);
+      // The two attaches are told apart by what they ask for. Returning the
+      // socket for both would let a test pass while the executor attached
+      // stdin without hijacking it, which cannot be written to at all.
+      containerStub.attach = sinon.stub().callsFake(async (options) => (options.stdin ? socket : 'raw-stream'));
+    });
+
+    const upload = async (vol, source, options = {}) => {
+      const staging = await vol.resolve('.flux-op-upload');
+      const destination = await vol.resolve('uploaded.bin');
+      return volumeExecutor.run(vol, [], {
+        input: source, publish: { staging, destination }, ...options,
+      });
+    };
+
+    it('opens stdin with hijack, before the container starts', async () => {
+      const vol = await openSession();
+      await upload(vol, sending(['data']));
+
+      const stdinAttach = containerStub.attach.getCalls().find((call) => call.args[0].stdin);
+      expect(stdinAttach, 'stdin was never attached').to.not.equal(undefined);
+      // Without hijack the attach returns a half-closed response stream and
+      // nothing can be written to the container at all.
+      expect(stdinAttach.args[0].hijack).to.equal(true);
+      expect(stdinAttach.calledBefore(containerStub.start.firstCall)).to.equal(true);
+    });
+
+    it('opens the container stdin, which nothing else does', async () => {
+      const vol = await openSession();
+      await upload(vol, sending(['data']));
+
+      const [options] = dockerServiceStub.createContainer.firstCall.args;
+      expect(options.OpenStdin).to.equal(true);
+      expect(options.AttachStdin).to.equal(true);
+      expect(options.StdinOnce).to.equal(true);
+    });
+
+    it('leaves stdin closed for every other operation', async () => {
+      const vol = await openSession();
+      containerStub.wait = sinon.stub().resolves({ StatusCode: 0 });
+      await volumeExecutor.run(vol, ['true']);
+
+      const [options] = dockerServiceStub.createContainer.firstCall.args;
+      expect(options.OpenStdin).to.equal(undefined);
+    });
+
+    it('tells flux-op to write the stream itself, with no command', async () => {
+      const vol = await openSession();
+      await upload(vol, sending(['data']), { maxBytes: 4096 });
+
+      const [options] = dockerServiceStub.createContainer.firstCall.args;
+      expect(options.Cmd).to.include('--from-stdin');
+      expect(options.Cmd).to.include('--discard-staging');
+      // The ceiling is enforced as the bytes arrive on this path, so it has to
+      // reach flux-op rather than being checked afterwards.
+      expect(options.Cmd).to.include('--max-bytes');
+      expect(options.Cmd[options.Cmd.indexOf('--max-bytes') + 1]).to.equal('4096');
+      // Nothing after the separator: a command reading a stream cannot tell a
+      // truncated one from a complete one.
+      expect(options.Cmd[options.Cmd.length - 1]).to.equal('--');
+    });
+
+    it('delivers what the caller sent, and closes stdin only then', async () => {
+      const vol = await openSession();
+      await upload(vol, sending(['one', 'two', 'three']));
+
+      expect(Buffer.concat(socket.received).toString()).to.equal('onetwothree');
+      // Closing stdin is what tells the container it has everything, so it is
+      // sent only when the transfer actually completed.
+      expect(socket.end.called).to.equal(true);
+    });
+
+    it('stops the container when the upload does not complete, and never closes stdin', async () => {
+      const vol = await openSession();
+      const source = new Readable({ read() {} });
+
+      const running = upload(vol, source);
+      // Once the transfer is actually under way, so this exercises a client
+      // that goes away mid-upload rather than one that never connected.
+      await new Promise((resolve) => { setTimeout(resolve, 20); });
+      source.push(Buffer.from('half a file'));
+      source.destroy(new Error('client went away'));
+
+      // flux-op traps the stop and reports a cancellation.
+      await new Promise((resolve) => { setTimeout(resolve, 20); });
+      exit.finish(143);
+
+      await expect(running).to.be.rejectedWith(/did not complete/);
+      expect(containerStub.stop.called, 'the container was left running').to.equal(true);
+      // Closing it would be indistinguishable from a complete upload, and half
+      // a file would be published as though it were whole.
+      expect(socket.end.called, 'stdin was closed on a truncated upload').to.equal(false);
+    });
+
+    it('does not wait forever when the container refuses mid-stream', async () => {
+      // A container that has stopped reading never drains the socket and never
+      // errors: the writer stalls and stays there. Every refusal an upload can
+      // produce arrives this way.
+      const vol = await openSession();
+      const source = neverEnds();
+      containerOutput = 'flux-op: input is over the 1000 byte limit';
+
+      const running = upload(vol, source, { maxBytes: 1000 });
+      await new Promise((resolve) => { setTimeout(resolve, 20); });
+      exit.finish(3);
+
+      await expect(running).to.be.rejectedWith(/over the 1000 byte limit/);
+      expect(source.destroyed, 'the source was left producing into nothing').to.equal(true);
+    });
+
+    it('refuses an upload that is not published through staging', async () => {
+      const vol = await openSession();
+      const destination = await vol.resolve('uploaded.bin');
+      const source = await vol.resolve('somewhere');
+
+      await expect(volumeExecutor.run(vol, [], {
+        input: sending(['data']), publish: { source, destination },
+      })).to.be.rejectedWith(/requires publishing through staging/);
+    });
+
+    it('refuses an upload that also carries a command', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op-upload');
+      const destination = await vol.resolve('uploaded.bin');
+
+      await expect(volumeExecutor.run(vol, ['cat'], {
+        input: sending(['data']), publish: { staging, destination },
+      })).to.be.rejectedWith(/takes no command/);
+    });
+
+    it('runs inside a slot the caller already holds, without taking a second', async () => {
+      const vol = await openSession();
+      const release = volumeExecutor.acquireSlot(vol.identifier);
+
+      // maxConcurrentPerApp is 1, so this would be refused if it took its own.
+      await upload(vol, sending(['data']), { slotHeld: true });
+      release();
+    });
+  });
+
 });

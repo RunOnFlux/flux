@@ -3,13 +3,9 @@ const fs2 = require('fs');
 const log = require('../lib/log');
 const axios = require('axios');
 const path = require('path');
-const { formidable } = require('formidable');
 const deviceHelper = require('./deviceHelper');
 const serviceHelper = require('./serviceHelper');
-const messageHelper = require('./messageHelper');
-const verificationHelper = require('./verificationHelper');
 const { URL } = require('url');
-const { sanitizePath, validateFilename, verifyRealPathOfExistingPath } = require('./utils/pathSecurity');
 const { measureTree } = require('./utils/treeSize');
 const { validateUrlWithDns } = require('./utils/urlSecurity');
 
@@ -479,142 +475,6 @@ async function removeDirectory(rpath, directory = false) {
   }
 }
 
-/**
- * To upload a specified folder to FluxShare. Checks that there is enough space available. Only accessible by admins.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function fileUpload(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname || '';
-    if (!appname) {
-      throw new Error('appname parameter is mandatory.');
-    }
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
-    if (!authorized) {
-      throw new Error('Unauthorized. Access denied.');
-    }
-    let { component } = req.params;
-    component = component || req.query.component || '';
-    let { filename } = req.params;
-    filename = filename || req.query.filename || '';
-    let { folder } = req.params;
-    folder = folder || req.query.folder || '';
-    let { type } = req.params;
-    type = type || req.query.type || '';
-    if (!type || !component) {
-      throw new Error('component and type parameters are mandatory');
-    }
-    let filepath;
-    const appVolumePath = await getVolumeInfo(appname, component, 'B', 'mount', 0);
-    if (appVolumePath.length > 0) {
-      if (type === 'backup') {
-        filepath = `${appVolumePath[0].mount}/backup/upload/`;
-      } else {
-        // Use appid level to access appdata and all other mount points
-        // Sanitize folder path to prevent directory traversal attacks
-        filepath = sanitizePath(folder, appVolumePath[0].mount);
-      }
-    } else {
-      throw new Error('Application volume not found');
-    }
-    // Verify resolved path stays within the allowed base directory
-    await verifyRealPathOfExistingPath(filepath, appVolumePath[0].mount);
-    const options = {
-      multiples: true,
-      uploadDir: `${filepath}`,
-      maxFileSize: 10 * 1024 * 1024 * 1024, // 10gb
-      hashAlgorithm: false,
-      keepExtensions: true,
-      // eslint-disable-next-line no-unused-vars
-      filename: (name, ext, part, form) => {
-        const { originalFilename } = part;
-        return originalFilename;
-      },
-    };
-    await fs.mkdir(filepath, { recursive: true });
-    // argv, not a command string: filepath is sanitizePath() over a
-    // caller-supplied folder, so interpolating it into a shell made any folder
-    // name containing $( ) arbitrary root execution.
-    const chmod = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['777', filepath] });
-    if (chmod.error) throw chmod.error;
-    const form = formidable(options);
-
-    form
-      // eslint-disable-next-line no-unused-vars
-      .on('fileBegin', (name, file) => {
-        // Validate filename to prevent path traversal via filename parameter
-        let safeFilename;
-        if (!filename) {
-          // Use form field name - validate it doesn't contain path separators
-          safeFilename = validateFilename(name);
-        } else {
-          // Use provided filename - validate it doesn't contain path separators
-          safeFilename = validateFilename(filename);
-        }
-        // eslint-disable-next-line no-param-reassign
-        file.filepath = `${filepath}/${safeFilename}`;
-      })
-      .on('progress', (bytesReceived, bytesExpected) => {
-        try {
-          res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
-          if (res.flush) res.flush();
-        } catch (error) {
-          log.error(error);
-        }
-      })
-      // eslint-disable-next-line no-unused-vars
-      .on('field', (name, field) => {
-
-      })
-      // eslint-disable-next-line no-unused-vars
-      .on('file', (name, file) => {
-        try {
-          res.write(serviceHelper.ensureString(name));
-          if (res.flush) res.flush();
-        } catch (error) {
-          log.error(error);
-        }
-      })
-      .on('aborted', () => {
-        console.error('Request aborted by the user');
-      })
-      .on('error', (error) => {
-        log.error(error);
-        const errorResponse = messageHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
-        );
-        try {
-          res.write(serviceHelper.ensureString(errorResponse));
-          if (res.flush) res.flush();
-        } catch (e) {
-          log.error(e);
-        }
-      })
-      .on('end', () => {
-        try {
-          res.end();
-        } catch (error) {
-          log.error(error);
-        }
-      });
-
-    form.parse(req);
-  } catch (error) {
-    log.error(error);
-    if (res) {
-      try {
-        res.connection.destroy();
-      } catch (e) {
-        log.error(e);
-      }
-    }
-  }
-}
-
 module.exports = {
   getVolumeInfo,
   getPathFileList,
@@ -628,5 +488,4 @@ module.exports = {
   createTarGz,
   removeDirectory,
   getFolderSize,
-  fileUpload,
 };

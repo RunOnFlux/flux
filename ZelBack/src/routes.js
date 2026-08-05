@@ -51,7 +51,6 @@ const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
-const IOUtils = require('./services/IOUtils');
 const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
@@ -768,7 +767,7 @@ module.exports = (app) => {
   });
 
   app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', (req, res) => {
-    IOUtils.fileUpload(req, res);
+    fileSystemManager.uploadAppsFiles(req, res);
   });
 
   // GET PROTECTED API - Fluxnode Owner

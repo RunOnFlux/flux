@@ -356,7 +356,7 @@ async function volumeUsedBytes(mount, fsPromises) {
  * needed to read and re-stamp files the container does not own. Everything else
  * stays dropped, including MKNOD, so an archive cannot create device nodes.
  */
-function containerOptions(session, argv, workingDir = WORK_ROOT) {
+function containerOptions(session, argv, workingDir = WORK_ROOT, withInput = false) {
   const {
     image, memoryBytes, pidsLimit,
   } = settings();
@@ -368,6 +368,10 @@ function containerOptions(session, argv, workingDir = WORK_ROOT) {
     Labels: { ...EXECUTOR_LABELS, 'runonflux.app': session.identifier },
     AttachStdout: true,
     AttachStderr: true,
+    // Only an upload opens stdin. StdinOnce closes it once the attach that
+    // wrote it disconnects, so the container cannot sit waiting on a descriptor
+    // nobody holds any more.
+    ...(withInput ? { OpenStdin: true, StdinOnce: true, AttachStdin: true } : {}),
     HostConfig: {
       Binds: [`${session.mount}:${WORK_ROOT}`],
       ReadonlyRootfs: true,
@@ -384,6 +388,104 @@ function containerOptions(session, argv, workingDir = WORK_ROOT) {
       // syscall filter for every operation.
     },
   };
+}
+
+/**
+ * Open the container's standard input.
+ *
+ * `hijack` gives a real duplex socket; without it the attach returns a
+ * half-closed response stream and nothing can be written to the container at
+ * all. Opened BEFORE the container starts, for the same reason the exit
+ * subscription is: StdinOnce closes the descriptor once the attach that wrote it
+ * disconnects, and a container that starts with nobody attached can reach that
+ * point before the attach lands.
+ *
+ * @param {object} container - dockerode container, not yet started
+ * @returns {Promise<object>} the duplex socket
+ */
+function attachInput(container) {
+  return container.attach({
+    stream: true, stdin: true, hijack: true,
+  });
+}
+
+/**
+ * Watch how the caller's stream ends, from before anything else is awaited.
+ *
+ * Subscribed immediately rather than when the pipe is set up, because an
+ * `error` event with nobody listening is what node ends the PROCESS over - and
+ * there is real time between receiving this stream and having a container to
+ * feed it to, during which the client can disconnect.
+ *
+ * @param {import('node:stream').Readable} input
+ * @returns {Promise<{complete: boolean, reason: string|null}>}
+ */
+function watchInput(input) {
+  return new Promise((resolve) => {
+    input.on('end', () => resolve({ complete: true, reason: null }));
+    input.on('error', (error) => resolve({
+      complete: false,
+      reason: error.message || 'the connection ended early',
+    }));
+  });
+}
+
+/**
+ * Feed the caller's own bytes to a container that is writing them into staging,
+ * and decide how the transfer ended.
+ *
+ * Three things here are load-bearing and none of them are obvious.
+ *
+ * The stream is piped with `end: false`, never through stream.pipeline. Pipeline
+ * destroys its destination when the source errors, and destroying this socket is
+ * indistinguishable to the container from the clean end-of-input that means "you
+ * have everything". A browser that goes away mid-upload would look exactly like
+ * one that finished, and half a file would be published as though it were whole.
+ * Closing stdin is the only signal that the transfer completed, so it is sent
+ * only when it did.
+ *
+ * An upload that did not complete stops the container instead. The command
+ * cannot exit before its input closes, and flux-op cannot publish before the
+ * command exits, so there is no race to lose: the stop always arrives first, and
+ * flux-op reclaims staging on its way out.
+ *
+ * The pipe is raced against the container's exit because a container that has
+ * stopped reading never drains the socket and never errors - measured, the
+ * writer stalls at around 448KB and stays there indefinitely. Every refusal an
+ * upload can produce arrives that way: too large, no space, a volume that filled
+ * while it ran. Without the race each of them hangs the caller's request until
+ * something else times it out.
+ *
+ * @param {object} stdin - the hijacked duplex socket from attachInput
+ * @param {import('node:stream').Readable} input
+ * @param {Promise<{complete: boolean, reason: string|null}>} transferred - from
+ *   watchInput, subscribed before any of this was awaited
+ * @param {Promise<object>} exited
+ * @param {function(): void} stopContainer
+ * @returns {Promise<{delivered: boolean, reason: string|null}>}
+ */
+async function feedContainer(stdin, input, transferred, exited, stopContainer) {
+  input.pipe(stdin, { end: false });
+
+  const ended = exited.then(() => 'exited', () => 'exited');
+  const outcome = await Promise.race([transferred, ended]);
+
+  if (outcome !== 'exited' && outcome.complete) {
+    stdin.end();
+    return { delivered: true, reason: null };
+  }
+
+  if (outcome !== 'exited') {
+    stopContainer();
+    stdin.destroy();
+    return { delivered: false, reason: outcome.reason };
+  }
+
+  // The container gave up on its own - it has already decided, and its exit
+  // status carries the reason.
+  input.destroy();
+  stdin.destroy();
+  return { delivered: false, reason: null };
 }
 
 /**
@@ -435,13 +537,24 @@ function containerOptions(session, argv, workingDir = WORK_ROOT) {
  *   defaulting to the volume root. An archiver decides its stored layout from
  *   where it is run and what it is handed, and zip has no equivalent of tar's
  *   -C, so this is the only way to make the two agree.
+ * @param {import('node:stream').Readable} [options.input] - the caller's own
+ *   bytes, streamed into the container, which writes them into staging itself.
+ *   There is no command on this path and that is the point of it: a command
+ *   reading a stream cannot tell a truncated one from a complete one, so it
+ *   would exit successfully on half a file. Requires `publish.staging`, and
+ *   `maxBytes` is enforced as the bytes arrive rather than on what was left
+ *   behind, because here we are the writer.
+ * @param {boolean} [options.slotHeld] - the caller already holds this app's
+ *   operation slot and will release it. For a request carrying several files:
+ *   they are one operation from the caller's point of view, and taking a slot
+ *   per file would refuse the second one.
  * @returns {Promise<void>} resolves when the operation succeeded
  */
 async function run(session, argv, options = {}) {
   const {
     onProgress = null, isCanceled = null, status = 'Working...',
     publish = null, mkdirStaging = false, maxBytes = 0, noLinks = false,
-    onBytes = null, workingDir = null,
+    onBytes = null, workingDir = null, input = null, slotHeld = false,
   } = options;
 
   if (!(session instanceof VolumeSession)) {
@@ -466,6 +579,15 @@ async function run(session, argv, options = {}) {
 
   let params = argv.map(toParam);
 
+  if (input) {
+    if (!publish || !publish.staging) {
+      throw new Error('input requires publishing through staging');
+    }
+    if (params.length) {
+      throw new Error('input takes no command - flux-op writes the stream itself');
+    }
+  }
+
   if (publish) {
     if (Boolean(publish.staging) === Boolean(publish.source)) {
       throw new Error('publish requires exactly one of staging and source');
@@ -487,6 +609,7 @@ async function run(session, argv, options = {}) {
       ...(mkdirStaging ? ['--mkdir'] : []),
       ...(maxBytes > 0 ? ['--max-bytes', String(Math.floor(maxBytes))] : []),
       ...(noLinks ? ['--no-links'] : []),
+      ...(input ? ['--from-stdin'] : []),
       toParam(target),
       toParam(publish.destination),
       '--',
@@ -494,7 +617,12 @@ async function run(session, argv, options = {}) {
     ];
   }
 
-  const release = acquireSlot(session.identifier);
+  // Before any await. The client can disconnect while the image is being
+  // fetched or the container created, and an error event with no listener
+  // ends the process.
+  const transferred = input ? watchInput(input) : null;
+
+  const release = slotHeld ? () => {} : acquireSlot(session.identifier);
   let container = null;
   let ticker = null;
   let measuring = false;
@@ -521,7 +649,12 @@ async function run(session, argv, options = {}) {
     await assertMountIsLive(session);
 
     container = await dockerService.createContainer(
-      containerOptions(session, params, workingDir ? workingDir.containerPath : undefined),
+      containerOptions(
+        session,
+        params,
+        workingDir ? workingDir.containerPath : undefined,
+        Boolean(input),
+      ),
     );
 
     // Opened BEFORE start, and on next-exit rather than the default. The
@@ -532,6 +665,7 @@ async function run(session, argv, options = {}) {
     // unknowable.
     const exited = container.wait({ condition: 'next-exit' });
     const output = await collectOutput(container);
+    const stdin = input ? await attachInput(container) : null;
 
     try {
       await container.start();
@@ -624,9 +758,21 @@ async function run(session, argv, options = {}) {
       readVolume();
     }, settings().progressIntervalMs);
 
+    // Started only once the ticker is running, so a transfer that stalls is
+    // still subject to the same "has this got anywhere" check as everything
+    // else - a client that opens an upload and then sends nothing holds a
+    // container open otherwise.
+    const transfer = input ? await feedContainer(stdin, input, transferred, exited, stopContainer) : null;
+
     const result = await exited;
     if (stalled) {
       throw new Error('File operation stopped after making no progress');
+    }
+    // An upload that did not arrive is not a failure of the operation - the
+    // container did exactly what it was told. Reported as itself, because
+    // "exit 143" tells the caller nothing about their own connection dropping.
+    if (transfer && !transfer.delivered && transfer.reason) {
+      throw new Error(`The upload did not complete: ${transfer.reason}`);
     }
     if (result.StatusCode !== 0) {
       const said = output.text.trim();
