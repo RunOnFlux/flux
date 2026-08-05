@@ -65,6 +65,20 @@ export function stubPeerClient(ip) {
       });
     },
 
+    // Give that claim up. Version 2 of the claim's own message, which is what a
+    // node standing aside sends - so the fleet sees this peer leave the same way
+    // it sees any other leave, and the app is free again.
+    async withdrawApp(name, { broadcastedAt = Date.now() } = {}) {
+      return this.broadcast({
+        type: 'fluxappinstalling',
+        version: 2,
+        name,
+        ip,
+        broadcastedAt,
+        withdrawn: true,
+      });
+    },
+
     async clear() {
       const res = await fetch(`${controlUrl}/clear`, { method: 'POST' });
       return res.json();
