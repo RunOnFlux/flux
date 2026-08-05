@@ -343,7 +343,7 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
       runningAppList = await registryManager.appLocation(appToRun);
       installingAppList = await registryManager.appInstallingLocation(appToRun);
-      if (runningAppList.length + installingAppList.length > minInstances) {
+      if (runningAppList.length + installingAppList.length >= minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
         return shortDelayTime;
       }
@@ -463,7 +463,7 @@ async function trySpawningGlobalApplication() {
     // double check if app is installed on the number of instances requested
     runningAppList = await registryManager.appLocation(appToRun);
     installingAppList = await registryManager.appInstallingLocation(appToRun);
-    if (runningAppList.length + installingAppList.length > minInstances) {
+    if (runningAppList.length + installingAppList.length >= minInstances) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
       return shortDelayTime;
     }
@@ -703,7 +703,7 @@ async function trySpawningGlobalApplication() {
     // triple check if app is installed on the number of instances requested
     runningAppList = await registryManager.appLocation(appToRun);
     installingAppList = await registryManager.appInstallingLocation(appToRun);
-    if (runningAppList.length + installingAppList.length > minInstances) {
+    if (runningAppList.length + installingAppList.length >= minInstances) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
       return shortDelayTime;
     }
@@ -724,6 +724,11 @@ async function trySpawningGlobalApplication() {
     // A node that does not know version 2 rejects the message whole, so it
     // neither acts on it nor refreshes the claim's clock: the claim expires on
     // its own, exactly as it did before any of this existed.
+    // Standing aside costs no eligibility. A node that reconsiders this app while
+    // the winner is still installing is turned away by the guards above - they
+    // count claims as well as running instances - so it never re-claims and
+    // nothing loops. And when the app IS short again because a holder died, a
+    // node that once lost the race is exactly the one that should take it.
     const withdrawInstallingClaim = async (reason) => {
       log.info(`trySpawningGlobalApplication - withdrawing installing claim for ${appToRun}: ${reason}`);
       try {
@@ -776,6 +781,7 @@ async function trySpawningGlobalApplication() {
       if (runningAppList.length + index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances, my instance is number ${runningAppList.length + index + 1}`);
         await withdrawInstallingClaim('instance count filled by earlier claimants');
+        globalState.trySpawningGlobalAppCache.delete(appHash);
         return shortDelayTime;
       }
     }
@@ -792,6 +798,7 @@ async function trySpawningGlobalApplication() {
       if (remainingShare <= 0) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and fault domain ${myDomain} already runs ${runningInMine} of its ${placementShare.maxPerDomain}-instance share`);
         await withdrawInstallingClaim('domain share held by running instances');
+        globalState.trySpawningGlobalAppCache.delete(appHash);
         return shortDelayTime;
       }
       const claimantsInMine = installingAppList
@@ -802,6 +809,7 @@ async function trySpawningGlobalApplication() {
       if (claimantsAhead >= remainingShare) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and ${claimantsAhead} earlier claimants in fault domain ${myDomain} fill its remaining share of ${remainingShare} (claims: ${describeRanking(claimantsInMine, 'broadcastedAt')})`);
         await withdrawInstallingClaim('domain share filled by earlier claimants');
+        globalState.trySpawningGlobalAppCache.delete(appHash);
         return shortDelayTime;
       }
       if (claimantsInMine.length > 1) {

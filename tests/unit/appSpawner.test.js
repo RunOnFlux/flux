@@ -827,6 +827,43 @@ describe('appSpawner tests', () => {
       expect(withdrawal.name).to.be.a('string');
     });
 
+    it('does not claim an app the network already has covered', async () => {
+      // Running plus installing already meets the requirement, so there is
+      // nothing for another claim to add. Claiming anyway costs a broadcast, a
+      // collision wait and a retraction to reach the answer available up front.
+      // three required, three already claimed or running
+      const { installStub, logged, withdrawalStub } = await runAttempt({
+        appLocations: [{ ip: '192.168.3.3:16127' }],
+        installingLocations: [
+          { ip: '192.168.2.2:16127', broadcastedAt: 1000 },
+          { ip: '192.168.4.4:16127', broadcastedAt: 1001 },
+        ],
+      });
+
+      expect(installStub.called, 'installed over a claim that already covers it').to.be.false;
+      expect(logged('already spawned or being installed')).to.be.true;
+      expect(
+        withdrawalStub.getCalls().filter((c) => c.args[0].withdrawn === true),
+        'claimed and then retracted instead of standing aside',
+      ).to.have.lengthOf(0);
+    });
+
+    it('stays eligible for the app it stood aside from', async () => {
+      // The scan only offers apps whose running count is below the required
+      // count, so a satisfied app stops being offered on its own. Holding the
+      // loser out beyond that would exclude it from the one moment it matters -
+      // the app short of instances again because a holder died.
+      await runAttempt({
+        placementShare: { domainCount: 3, maxPerDomain: 1 },
+        finalInstallingLocations: [
+          { ip: '192.168.2.2:16127', broadcastedAt: 1000 },
+          { ip: '192.168.1.1:16127', broadcastedAt: 2000 },
+        ],
+      });
+
+      expect(globalStateStub.trySpawningGlobalAppCache.has('abc123')).to.be.false;
+    });
+
     // an installing ERROR means an install was attempted and failed, and is
     // counted and acted on as such - a node standing aside attempted nothing,
     // and counting it would make the most contended apps look the most broken
