@@ -30,17 +30,19 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 # Syncthing, pinned, installed at BUILD time.
 #
-# FluxOS carries a runtime installer (installSyncthingIdempotently) that shells
-# out to helpers/installSyncthing.sh - a script this repo does not contain, so
-# on a node without syncthing it fails and logs. A harness must not depend on
-# that in either direction: a run should never fetch a binary from the internet,
-# and the version under test has to be one we chose. As a build arg the layer is
-# cached, every node gets the same binary, and moving the version is a one-line
-# deliberate act.
+# On a node FluxOS installs it itself: systemService adds syncthing's own apt
+# repository and keyring, installs the package, and re-checks daily (it also
+# migrates the source from stable to stable-v2). A harness must not do that
+# during a run - it would reach the internet, and the version under test would
+# be whatever the repo served that day. As a build arg the layer is cached,
+# every node gets the same binary, and moving the version is a deliberate
+# one-line act.
 #
-# A side effect worth knowing: with syncthing on PATH, FluxOS's own installer
-# finds `syncthing --version` succeeds and does nothing. That is a consequence
-# of the image being complete, not a mechanism being relied on.
+# A side effect worth knowing: with syncthing already on PATH, syncthingService's
+# older installSyncthingIdempotently - which still shells out to
+# helpers/installSyncthing.sh, deleted in 25153f259 when the apt path replaced
+# it - finds `syncthing --version` succeeds and returns without touching it.
+# That is a consequence of the image being complete, not a mechanism relied on.
 #
 # Pinned to what the fleet runs: chud reports
 #   syncthing v2.0.15 "Hafnium Hornet" (go1.26.0 linux-amd64) 2026-02-11 [noupgrade]
