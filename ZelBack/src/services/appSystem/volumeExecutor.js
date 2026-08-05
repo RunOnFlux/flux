@@ -483,7 +483,12 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer) {
 
   // The container gave up on its own - it has already decided, and its exit
   // status carries the reason.
-  input.destroy();
+  //
+  // Unpiped, NOT destroyed. This stream belongs to the caller, and for an
+  // upload it is the multipart parser's: destroying it stops the parser
+  // consuming the request, so a client still sending cannot finish and can
+  // never read the refusal it is being sent. The caller drains what remains.
+  input.unpipe(stdin);
   stdin.destroy();
   return { delivered: false, reason: null };
 }

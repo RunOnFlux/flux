@@ -12,7 +12,7 @@ import { execInContainer } from '../framework/container.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import {
-  volumeRoot, resetVolume, seedVolumeTree, seedLargeFile, treeOf, contentOf, exists,
+  volumeRoot, resetVolume, seedVolumeTree, treeOf, contentOf, exists,
 } from '../framework/volume-fixture.js';
 
 // Uploading, over HTTP, onto a real volume.
@@ -64,6 +64,34 @@ describe('app volume file upload', function () {
       }
     }
     return null;
+  };
+
+  // Leave only `leaveMegabytes` free on the volume, so a modest upload exceeds
+  // it. fallocate reserves the blocks without writing them, where generating
+  // hundreds of megabytes of random data inside the container takes longer than
+  // the test it is setting up.
+  //
+  // The figure is READ rather than assumed - how much of a 1 GB volume is
+  // usable depends on the filesystem - and the result is checked, because a
+  // fixture that quietly did not fill anything would make the refusal below
+  // pass for the wrong reason.
+  const fillVolumeLeaving = async (leaveMegabytes) => {
+    const free = async () => {
+      const { stdout } = await execInContainer(node.container, `df -Pm ${root} | awk 'NR==2 {print $4}'`);
+      return parseInt(stdout.trim(), 10);
+    };
+
+    const before = await free();
+    const fill = before - leaveMegabytes;
+    expect(fill, `volume already has less than ${leaveMegabytes}MB free`).to.be.greaterThan(0);
+
+    const { exitCode } = await execInContainer(node.container,
+      `fallocate -l ${fill}M ${root}/filler.bin || dd if=/dev/zero of=${root}/filler.bin bs=1M count=${fill} 2>/dev/null`);
+    expect(exitCode, 'could not fill the volume').to.equal(0);
+
+    const after = await free();
+    expect(after, `expected about ${leaveMegabytes}MB free, got ${after}MB`).to.be.below(leaveMegabytes + 20);
+    return after;
   };
 
   const artefacts = async () => {
@@ -238,13 +266,11 @@ describe('app volume file upload', function () {
     // implementation - it is refused with an answer rather than a stall.
     it('refuses an upload larger than the volume, and answers rather than hanging', async function () {
       this.timeout(300000);
-      // The volume is 1 GB. Filling it first means a modest upload exceeds what
-      // is left, so this exercises the refusal rather than the harness network.
-      await seedLargeFile(node.container, appName, 'photos/filler.bin', 850);
+      await fillVolumeLeaving(20);
 
       const started = Date.now();
       const { status, body } = await uploadTo('photos', {
-        'toobig.bin': Buffer.alloc(300 * 1024 * 1024, 0x41),
+        'toobig.bin': Buffer.alloc(80 * 1024 * 1024, 0x41),
       });
 
       expect(status).to.equal(200);
@@ -259,8 +285,8 @@ describe('app volume file upload', function () {
 
     it('leaves the volume as it was when an upload is refused', async function () {
       this.timeout(300000);
-      await seedLargeFile(node.container, appName, 'photos/filler.bin', 850);
-      await uploadTo('photos', { 'toobig.bin': Buffer.alloc(300 * 1024 * 1024, 0x42) });
+      await fillVolumeLeaving(20);
+      await uploadTo('photos', { 'toobig.bin': Buffer.alloc(80 * 1024 * 1024, 0x42) });
 
       expect(await contentOf(node.container, `${root}/photos/a.txt`)).to.equal('first');
       expect(await exists(node.container, `${root}/photos/toobig.bin`)).to.equal(false);

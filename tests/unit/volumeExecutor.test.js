@@ -1217,7 +1217,12 @@ describe('volumeExecutor tests', () => {
       exit.finish(3);
 
       await expect(running).to.be.rejectedWith(/over the 1000 byte limit/);
-      expect(source.destroyed, 'the source was left producing into nothing').to.equal(true);
+      // Unpiped rather than destroyed: for an upload this stream belongs to the
+      // multipart parser, and destroying it stops the parser consuming the
+      // request - so a client still sending can never finish, and never reads
+      // the refusal. The caller drains what is left.
+      expect(source.destroyed, 'the caller\'s stream was destroyed').to.equal(false);
+      expect(socket.destroyed, 'the container socket was left open').to.equal(true);
     });
 
     it('refuses an upload that is not published through staging', async () => {
