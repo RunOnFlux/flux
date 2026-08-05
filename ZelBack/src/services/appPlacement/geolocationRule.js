@@ -52,7 +52,10 @@ const TABLE_REGION = /^[A-Z]{2}-[A-Z0-9]{1,3}$/;
  */
 
 /**
- * Whether a region part is in the location table's own vocabulary.
+ * Whether a region part is an ISO 3166-2 code belonging to that country. Half of
+ * the question a caller actually has - regionCodeOf is the whole of it, and is
+ * what everything outside this module asks. Answering "is this a table region?"
+ * without the vocabulary reports a name the table resolves as one it cannot.
  * @param {string} part The entry's region part
  * @param {string} countryPart The entry's country part
  * @returns {boolean}
@@ -241,7 +244,6 @@ function locationSatisfiesGeolocation(loc, entries, resolveRegion) {
 }
 
 module.exports = {
-  isTableRegionPart,
   regionCodeOf,
   parseGeolocation,
   locationSatisfiesRule,

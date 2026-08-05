@@ -33,7 +33,6 @@ const { bareIp, socketAddressesMatch } = require('../utils/socketAddressUtils');
 const geolocationRule = require('./geolocationRule');
 const ipLocationStore = require('./ipLocationStore');
 
-const { isTableRegionPart } = geolocationRule;
 
 // geonames/ip-api continent convention - the same vocabulary the location
 // table's country -> continent map uses
@@ -484,9 +483,11 @@ function normalizeStructuredEntry(entry) {
  * Normalise a mixed geolocation array: spec strings pass through verbatim,
  * structured entries become spec strings. Also reports which normalised
  * entries carry a region part placement can only honour at country
- * granularity: legacy-shaped parts (ip-api names) outside the table's
- * ISO 3166-2 vocabulary. Structured entries always emit table-vocabulary
- * regions, so they are never coarsened.
+ * granularity - which is a part the table can resolve NEITHER way: not an
+ * ISO 3166-2 code, and not a name the published vocabulary maps to one.
+ * Resolved through the same call the rule itself uses, because an entry the
+ * count honours exactly must never be reported as widened. Structured entries
+ * always emit table-vocabulary regions, so they are never coarsened.
  * @param {Array<string|object>} entries Geolocation entries, either syntax
  * @returns {{normalized: string[], coarsened: string[]}}
  */
@@ -501,7 +502,7 @@ function normalizeGeolocation(entries) {
       const body = entry.startsWith('a!c') ? entry.slice(3) : (entry.startsWith('ac') ? entry.slice(2) : null);
       const parts = body ? body.split('_') : [];
       if (parts.length >= 3 && parts[2] !== 'ALL' && parts[2] !== 'NONE'
-        && !isTableRegionPart(parts[2], parts[1])) {
+        && !geolocationRule.regionCodeOf(parts, ipLocationStore.regionCodeForName)) {
         coarsened.push(entry);
       }
       return entry;

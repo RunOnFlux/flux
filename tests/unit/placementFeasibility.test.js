@@ -139,6 +139,9 @@ describe('placementFeasibility tests', () => {
       continentForCountry: sinon.stub().returns(null),
       nodeLocationSnapshot: sinon.stub().returns({ byIp: new Map(), ready: false, generated: null }),
       lookup: sinon.stub().callsFake(async (ip) => storeLookup(ip)),
+      // Defaults to a node holding no vocabulary, which is every node until the
+      // first baseline carrying one. A test that wants a name resolved says so.
+      regionCodeForName: sinon.stub().returns(null),
     };
     placementFeasibility = proxyquire('../../ZelBack/src/services/appPlacement/placementFeasibility', {
       '../fluxCommunicationUtils': { deterministicFluxList: deterministicFluxListStub },
@@ -326,6 +329,24 @@ describe('placementFeasibility tests', () => {
       expect(() => placementFeasibility.normalizeGeolocation([{ region: 'FI-18' }])).to.throw('requires its country');
       expect(() => placementFeasibility.normalizeGeolocation([{ country: 'DE', region: 'FI-18' }])).to.throw('does not belong to DE');
       expect(() => placementFeasibility.normalizeGeolocation([{ country: 'FI', region: 'Uusimaa' }])).to.throw('not an ISO 3166-2');
+    });
+
+    it('does not report a name the vocabulary resolves as coarsened', () => {
+      // The count honours such an entry exactly - it resolves the name through
+      // the published vocabulary and filters on the region. Reporting it as
+      // widened to the country contradicts the answer alongside it, and tells a
+      // caller their region pin did not take when it did.
+      useTable();
+      storeStub.regionCodeForName.callsFake(
+        (country, name) => (country === 'FI' && name === 'Uusimaa' ? 'FI-18' : null),
+      );
+
+      const { coarsened } = placementFeasibility.normalizeGeolocation([
+        'acEU_FI_Uusimaa',
+        'acEU_FI_Pirkanmaa',
+      ]);
+
+      expect(coarsened, 'only the name no vocabulary resolves is coarsened').to.deep.equal(['acEU_FI_Pirkanmaa']);
     });
 
     it('matches table-vocabulary regions at region granularity', () => {
