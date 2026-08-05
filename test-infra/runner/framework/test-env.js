@@ -547,12 +547,21 @@ function nodeReadyWaitStrategy(nodeIp) {
   return new HttpPollWaitStrategy(`http://${nodeIp}:16127/id/loginphrase`, { validate });
 }
 
+// `syncthing` selects what each node talks to. 'stub' (the default) is the
+// shared control-plane stub: it serves every node, moves no files, and is what
+// the gate runs on. 'binary' gives each node its own real daemon from the image
+// - the only way to observe data actually moving between nodes, and
+// correspondingly slower. A suite that asserts on transfers has to ask for it;
+// nothing else should.
 export async function createTestEnv({
   hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [],
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
-  rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT,
+  rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub',
 } = {}) {
+  if (syncthing !== 'stub' && syncthing !== 'binary') {
+    throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
+  }
   // The boot-lock queue wait must not count against the suite's hook budget.
   // Mocha enforces a hook's timeout twice: the watchdog timer (which would fire
   // MID-QUEUE whenever the queue alone outlasts the budget), and a completion-time
@@ -589,7 +598,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -618,7 +627,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub') {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -826,6 +835,13 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       FLUX_SYNCTHING_PORT: '8384',
       NODE_EXTRA_CA_CERTS: '/usr/local/share/ca-certificates/test-registry.crt',
     };
+    if (syncthing === 'binary') {
+      // the node runs its own daemon and binds apiport+2 itself, so there is
+      // nothing to forward and nothing shared to point at
+      nodeEnv.FLUX_SYNCTHING_MODE = 'binary';
+      delete nodeEnv.FLUX_SYNCTHING_HOST;
+      delete nodeEnv.FLUX_SYNCTHING_PORT;
+    }
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
     if (discoveryAutostart) nodeEnv.FLUX_DISCOVERY_AUTOSTART = 'true';
     // Point the node's config at the base-derived infra IPs. The mounted config
@@ -837,7 +853,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       database: { url: MONGO_IP },
       daemon: { host: DAEMON_IP },
       benchmark: { host: DAEMON_IP },
-      syncthing: { ip: SYNCTHING_IP },
+      // FluxOS builds its syncthing API base from config at module load, so in
+      // binary mode the node has to be pointed at its own daemon. NODE_CONFIG is
+      // merged OVER the mounted shared.js, so this is the only place that wins.
+      syncthing: { ip: syncthing === 'binary' ? '127.0.0.1' : SYNCTHING_IP },
       github: { rawBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, apiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       geolocation: { ipApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, statsApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       // Every base URL a node fetches from belongs here, not just in

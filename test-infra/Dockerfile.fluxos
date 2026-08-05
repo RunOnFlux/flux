@@ -28,6 +28,36 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# Syncthing, pinned, installed at BUILD time.
+#
+# FluxOS carries a runtime installer (installSyncthingIdempotently) that shells
+# out to helpers/installSyncthing.sh - a script this repo does not contain, so
+# on a node without syncthing it fails and logs. A harness must not depend on
+# that in either direction: a run should never fetch a binary from the internet,
+# and the version under test has to be one we chose. As a build arg the layer is
+# cached, every node gets the same binary, and moving the version is a one-line
+# deliberate act.
+#
+# A side effect worth knowing: with syncthing on PATH, FluxOS's own installer
+# finds `syncthing --version` succeeds and does nothing. That is a consequence
+# of the image being complete, not a mechanism being relied on.
+ARG SYNCTHING_VERSION=v2.0.10
+RUN arch="$(dpkg --print-architecture)" \
+    && case "$arch" in \
+         amd64) starch=amd64 ;; \
+         arm64) starch=arm64 ;; \
+         *) echo "unsupported architecture for syncthing: $arch" >&2; exit 1 ;; \
+       esac \
+    && tarball="syncthing-linux-${starch}-${SYNCTHING_VERSION}.tar.gz" \
+    && base="https://github.com/syncthing/syncthing/releases/download/${SYNCTHING_VERSION}" \
+    && curl -fsSL -o "/tmp/${tarball}" "${base}/${tarball}" \
+    && curl -fsSL -o /tmp/sha256sums.txt "${base}/sha256sums.txt" \
+    && (cd /tmp && grep " ${tarball}\$" sha256sums.txt | sha256sum -c -) \
+    && tar -xzf "/tmp/${tarball}" -C /tmp \
+    && install -m 0755 "/tmp/syncthing-linux-${starch}-${SYNCTHING_VERSION}/syncthing" /usr/local/bin/syncthing \
+    && rm -rf "/tmp/${tarball}" /tmp/sha256sums.txt "/tmp/syncthing-linux-${starch}-${SYNCTHING_VERSION}" \
+    && syncthing --version
+
 WORKDIR /flux
 
 COPY package.json ./

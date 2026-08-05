@@ -20,7 +20,12 @@ mkdir -p /dat/var/lib/fluxd \
          /dat/usr/lib/fluxwatchdog \
          /mnt/appdata/flux-apps
 
-cp /flux/test-infra/fixtures/syncthing-config.xml /dat/usr/lib/syncthing/config.xml 2>/dev/null || true
+# In stub mode FluxOS only needs somewhere to read an API key from; the calls
+# themselves go to the shared stub. In binary mode the config is syncthing's own
+# and this fixture must not be in the way of it.
+if [ "$FLUX_SYNCTHING_MODE" != "binary" ]; then
+  cp /flux/test-infra/fixtures/syncthing-config.xml /dat/usr/lib/syncthing/config.xml 2>/dev/null || true
+fi
 
 # Overlay test config into ZelBack/config/ so app.js loads it naturally.
 # app.js hardcodes NODE_CONFIG_DIR to ZelBack/config/ (cannot be overridden
@@ -34,10 +39,24 @@ if [ "$FLUX_DISCOVERY_AUTOSTART" = "true" ]; then
   sed -i 's/discoveryAutostart: false/discoveryAutostart: true/' /flux/ZelBack/shared.js
 fi
 
-# Syncthing listens on apiport+2 in production. The availability checker
-# tests this port. Forward it to the syncthing stub's API port.
+# Syncthing listens on apiport+2 in production. The availability checker tests
+# that port.
 SYNCTHING_LISTEN_PORT=$((${FLUX_API_PORT:-16127} + 2))
-if [ -n "$FLUX_SYNCTHING_HOST" ]; then
+if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
+  # A real daemon, one per node. FluxOS does not start syncthing when
+  # SYNCTHING_PATH is set (it reads that as ArcaneOS, where the OS supervises
+  # it), so the harness plays the supervisor - which is also why nothing here
+  # writes syncthing's config: it generates its own identity on first run, and
+  # that is what gives each node a distinct device id. FluxOS then sets
+  # discovery off, NAT off and listenAddresses to apiport+2 through the API,
+  # exactly as it does on a node. No socat: syncthing binds that port itself.
+  # The node is pointed at its own daemon by the runner through NODE_CONFIG,
+  # which the config package merges over the mounted shared.js - so that is the
+  # single place the endpoint is decided, not here.
+  nohup syncthing --home=/dat/usr/lib/syncthing --no-browser \
+        --logfile=/dat/usr/lib/syncthing/syncthing.log --logflags=3 \
+        >/dev/null 2>&1 </dev/null &
+elif [ -n "$FLUX_SYNCTHING_HOST" ]; then
   socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &
 fi
 
