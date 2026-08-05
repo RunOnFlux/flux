@@ -245,7 +245,7 @@ describe('appReconciler tests', () => {
       // requestStopAndClearData enqueues its own reconcile; wait for it to land
       await new Promise((resolve) => { setTimeout(resolve, 50); });
 
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnce).to.be.true;
+      expect(stubs.volumeService.clearAppVolumeData.calledOnce).to.be.true;
     });
 
     // removal is the one case where nothing about the component is worth acting
@@ -255,7 +255,7 @@ describe('appReconciler tests', () => {
       appReconciler.forgetDesiredState('www_App');
       await new Promise((resolve) => { setTimeout(resolve, 50); });
 
-      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
+      expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
     });
 
     it('ensures mount paths exist (recreating any syncthing-cleaned source) before starting', async () => {
