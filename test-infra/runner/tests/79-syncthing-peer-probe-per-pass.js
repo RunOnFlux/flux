@@ -8,6 +8,7 @@ import { resetSyncState } from '../framework/syncthing-control.js';
 import { waitFor } from '../framework/wait.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import sharedConfig from '../../config/shared.js';
 
 // A node asks a peer what it is holding once per monitor pass, not once per
 // folder.
@@ -27,9 +28,12 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // asking pass after pass. What the arrival times show is the whole point: two
 // arrivals milliseconds apart are one pass asking twice.
 
-// Comfortably above the intra-pass gap (two folders decided back to back, which
-// is milliseconds) and comfortably below the 30s monitor interval.
-const SAME_PASS_MS = 5000;
+// A second question inside ONE pass arrives back-to-back in the same sequential
+// loop - milliseconds later. A legitimate one arrives a whole pass later. Half a
+// pass separates those two cases cleanly, and it is derived rather than written
+// down because the harness compresses the monitor to 3s where production runs
+// 30s: a threshold picked for production reads every correct run as a failure.
+const SAME_PASS_MS = sharedConfig.syncthing.monitorIntervalMs / 2;
 
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
