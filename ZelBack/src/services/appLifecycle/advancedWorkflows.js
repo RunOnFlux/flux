@@ -2536,12 +2536,11 @@ async function appendRestoreTask(req, res) {
     // eslint-disable-next-line no-restricted-syntax
     for (const target of targets) {
       // eslint-disable-next-line no-await-in-loop
-      const volume = await IOUtils.getVolumeInfo(appname, target.name, 'B', 0, 'mount,available');
+      const volume = await IOUtils.getVolumeInfo(appname, target.name, 'B', 0, 'mount');
       if (!volume) {
         throw new Error(`Refused: ${target.name} volume is not mounted`);
       }
       target.mount = volume[0].mount;
-      target.available = volume[0].available;
       target.appDataPath = `${volume[0].mount}/appdata`;
       target.archivePath = `${volume[0].mount}/backup/${type}/backup_${target.name.toLowerCase()}.tar.gz`;
     }
@@ -2599,9 +2598,18 @@ async function appendRestoreTask(req, res) {
       // is judged on its free space alone - under-stating the room refuses a
       // restore that would have fit, which is recoverable; over-stating it runs
       // out of space halfway through, which is not.
+      // Free space is read HERE, not when the mount was resolved: a remote
+      // restore has just written the archive into this same volume, so a figure
+      // taken before the download over-states the room by the size of the
+      // archive itself - and every FluxDrive restore is a remote one.
+      // eslint-disable-next-line no-await-in-loop
+      const volume = await IOUtils.getVolumeInfo(appname, target.name, 'B', 0, 'available');
+      if (!volume) {
+        throw new Error(`Refused: ${target.name} volume is not mounted`);
+      }
       // eslint-disable-next-line no-await-in-loop
       const appDataBytes = await IOUtils.getDirectorySizeBytes(target.appDataPath);
-      const room = target.available + (appDataBytes ?? 0);
+      const room = volume[0].available + (appDataBytes ?? 0);
       if (archive.bytes > room) {
         const needed = IOUtils.convertFileSize(archive.bytes, 'GB', 2);
         const have = IOUtils.convertFileSize(room, 'GB', 2);

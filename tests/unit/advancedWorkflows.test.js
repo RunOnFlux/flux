@@ -3033,6 +3033,19 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.neverCalledWith(IOUtils.removeDirectory, `${mount}/appdata`);
       });
 
+      it('measures free space after the download, not before it', async () => {
+        // a remote restore writes the archive into the same volume it is about
+        // to extract into, so free space read before the download over-states
+        // the room by the size of the archive itself
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.callOrder(
+          IOUtils.downloadFileFromUrl,
+          IOUtils.getVolumeInfo.withArgs(appname, 'palworld', 'B', 0, 'available'),
+          IOUtils.removeDirectory.withArgs(`${mount}/appdata`, true),
+        );
+      });
+
       it('refuses when the volume is not mounted rather than failing on undefined', async () => {
         // df only reports mounted filesystems, so this is the shape an unmounted
         // volume takes. Asserting the message matters: reading [0].mount off it
