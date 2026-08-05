@@ -156,6 +156,12 @@ describe('appSpawner tests', () => {
           ));
           return stub;
         })(),
+        // Claims held against each candidate, keyed by lowercased name. Empty
+        // means nothing is claimed - the same answer the real grouped read
+        // gives when no install is in flight.
+        installingCountsByApp: sinon.stub().callsFake(() => Promise.resolve(
+          new Map(Object.entries(opts.installingCounts ?? {})),
+        )),
         getApplicationGlobalSpecifications: sinon.stub().resolves(opts.appSpec || null),
         expireGlobalApplications: sinon.stub().resolves(),
         storeAppInstallingMessage: sinon.stub().resolves(),
@@ -319,6 +325,38 @@ describe('appSpawner tests', () => {
       });
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
       expect(infoLogged('selected to try to spawn')).to.be.true;
+    });
+
+    // The pool counts running instances, so an app whose remaining slots are
+    // already claimed still reads as short. Selection is a lottery over what
+    // survives these filters, so a candidate that cannot be helped must be gone
+    // before the draw - otherwise it can win it, and the node spawns nothing.
+    it('does not select an app whose remaining slots are already claimed', async () => {
+      buildModule({
+        aggregateResult: [makeApp()],
+        installingCounts: { targetedapp: 3 },
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('No app currently to be processed')).to.be.true;
+      expect(infoLogged('selected to try to spawn')).to.be.false;
+    });
+
+    it('still selects an app whose claims leave a slot open', async () => {
+      buildModule({
+        aggregateResult: [makeApp()],
+        installingCounts: { targetedapp: 2 },
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.true;
+    });
+
+    it('matches claims to candidates case-insensitively, as every other lookup does', async () => {
+      buildModule({
+        aggregateResult: [makeApp({ name: 'TargetedApp' })],
+        installingCounts: { targetedapp: 3 },
+      });
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+      expect(infoLogged('selected to try to spawn')).to.be.false;
     });
 
     describe('geolocation selection filter', () => {

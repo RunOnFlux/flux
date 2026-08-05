@@ -408,6 +408,28 @@ async function appInstallingLocation(appname) {
 }
 
 /**
+ * How many nodes are claiming each app, counted in one grouped pass.
+ *
+ * The spawner needs this for every candidate at once, to decide which apps
+ * still need a node before it picks one. Asking per app would be a read per
+ * candidate; this is a single scan of a collection that holds only live claims,
+ * since they expire on a TTL index.
+ *
+ * Names are lowercased because an app is addressed case-insensitively
+ * everywhere else here, so a caller must not have to know which case the
+ * claiming node happened to send.
+ * @returns {Promise<Map<string, number>>} Lowercased app name to claim count.
+ */
+async function installingCountsByApp() {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  const rows = await dbHelper.aggregateInDatabase(database, globalAppsInstallingLocations, [
+    { $group: { _id: { $toLower: '$name' }, count: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((row) => [row._id, row.count]));
+}
+
+/**
  * Get app installing errors locations for a specific app or all apps
  * @param {string} appname - Application name (optional)
  * @returns {Promise<Array>} Array of app installing error locations
@@ -2138,6 +2160,7 @@ module.exports = {
   appLocation,
   appLocationFromEvents,
   appInstallingLocation,
+  installingCountsByApp,
   appInstallingErrorsLocation,
   countAppInstallingErrors,
   storeAppInstallingMessage,

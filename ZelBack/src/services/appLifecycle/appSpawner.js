@@ -320,6 +320,20 @@ async function trySpawningGlobalApplication() {
       );
       globalAppNamesLocation = enterpriseNetwork.filterAppsByOwnership(globalAppNamesLocation, isEnterprise);
 
+      // Drop candidates whose remaining slots are already claimed, before one is
+      // picked at random. The pool counts running instances only, so an app that
+      // other nodes are already installing still reads as short - and selection
+      // is a lottery, so such a candidate does not merely waste its own cycle:
+      // it can win the draw ahead of one this node could have installed, and the
+      // node then spawns nothing for a whole pass. Counting every candidate's
+      // claims costs one grouped read of a collection that holds only live
+      // claims. The re-read before claiming still runs and is the authority;
+      // this only spares the draw candidates it would have turned away.
+      const claimsByApp = await registryManager.installingCountsByApp();
+      globalAppNamesLocation = globalAppNamesLocation.filter(
+        (app) => app.actual + (claimsByApp.get(app.name.toLowerCase()) ?? 0) < app.required,
+      );
+
       appsCountAvailableToInstallOnMyNode = globalAppNamesLocation.length + appsSyncthingToBeCheckedLater.length + appsToBeCheckedLater.length;
       ({ shortDelayTime, delayTime } = enterpriseNetwork.getSpawnDelays(isEnterprise, appsCountAvailableToInstallOnMyNode));
 
