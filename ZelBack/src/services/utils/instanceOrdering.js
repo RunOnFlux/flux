@@ -8,17 +8,37 @@
 // survives; the higher address is the junior entry and stands aside.
 
 /**
+ * Epoch milliseconds for a timestamp, which reaches these comparators as the
+ * Date the database returns, or as a number or ISO string from a message that
+ * has not been through storage. Comparing the raw values cannot order them:
+ * two Dates of the same instant are never `!==` equal, so an equality test
+ * always sees a difference and never reaches the tie-break, and the relational
+ * operators coerce a Date to a number but an ISO string to NaN, so a mixed pair
+ * compares false in both directions. Both leave ties to the array's own order,
+ * which is arrival order and differs on every node.
+ * @param {Date|number|string|null|undefined} value Timestamp in any of the shapes above.
+ * @returns {number|null} Epoch milliseconds, or null when there is no usable timestamp.
+ */
+function epochMs(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
  * Orders installing claims for the collision resolver: earliest broadcastedAt
  * first, a claim without a timestamp last (it cannot assert seniority), equal
  * timestamps broken by socket address ascending - the lower address wins the
  * slot.
- * @param {{ip: string, broadcastedAt?: number}} a Installing claim.
- * @param {{ip: string, broadcastedAt?: number}} b Installing claim.
+ * @param {{ip: string, broadcastedAt?: Date|number|string}} a Installing claim.
+ * @param {{ip: string, broadcastedAt?: Date|number|string}} b Installing claim.
  * @returns {number} Comparator result for Array.prototype.sort.
  */
 function compareInstallingClaims(a, b) {
-  const aTime = a.broadcastedAt ?? Number.MAX_SAFE_INTEGER;
-  const bTime = b.broadcastedAt ?? Number.MAX_SAFE_INTEGER;
+  const aTime = epochMs(a.broadcastedAt) ?? Number.MAX_SAFE_INTEGER;
+  const bTime = epochMs(b.broadcastedAt) ?? Number.MAX_SAFE_INTEGER;
   if (aTime !== bTime) {
     return aTime - bTime;
   }
@@ -37,22 +57,21 @@ function compareInstallingClaims(a, b) {
  * still settling is never the surplus one), equal runningSince broken by
  * socket address ascending. Surplus-instance checks rank the junior end of
  * this order; primary selection ranks the senior end.
- * @param {{ip: string, runningSince?: string|number}} a Running instance.
- * @param {{ip: string, runningSince?: string|number}} b Running instance.
+ * @param {{ip: string, runningSince?: Date|string|number}} a Running instance.
+ * @param {{ip: string, runningSince?: Date|string|number}} b Running instance.
  * @returns {number} Comparator result for Array.prototype.sort.
  */
 function compareInstanceSeniority(a, b) {
-  if (!a.runningSince && b.runningSince) {
+  const aTime = epochMs(a.runningSince);
+  const bTime = epochMs(b.runningSince);
+  if (aTime === null && bTime !== null) {
     return -1;
   }
-  if (a.runningSince && !b.runningSince) {
+  if (aTime !== null && bTime === null) {
     return 1;
   }
-  if (a.runningSince < b.runningSince) {
-    return -1;
-  }
-  if (a.runningSince > b.runningSince) {
-    return 1;
+  if (aTime !== bTime) {
+    return aTime - bTime;
   }
   if (a.ip < b.ip) {
     return -1;

@@ -60,6 +60,35 @@ describe('instanceOrdering tests', () => {
       expect(compareInstallingClaims(b, a)).to.be.above(0);
       expect(compareInstallingClaims(a, { ...a })).to.equal(0);
     });
+
+    // The claims these comparators actually rank come back from the database as
+    // Dates, never as the numbers the cases above use.
+    it('orders Dates by their instant, not by object identity', () => {
+      const claims = [
+        { ip: '10.0.0.1:16127', broadcastedAt: new Date(3000) },
+        { ip: '10.0.0.9:16127', broadcastedAt: new Date(1000) },
+        { ip: '10.0.0.5:16127', broadcastedAt: new Date(2000) },
+      ];
+
+      expect(ips(claims.sort(compareInstallingClaims))).to.eql(['10.0.0.9:16127', '10.0.0.5:16127', '10.0.0.1:16127']);
+    });
+
+    it('breaks same-instant Date ties by address, whatever the input order', () => {
+      // Two Dates of one instant are never `!==` equal, so an equality test on
+      // the raw values reports a difference that is not there and never reaches
+      // the address tie-break. The tie then falls to the array's own order,
+      // which is arrival order - and two nodes that received the same claims in
+      // different orders each rank themselves the winner, so both install.
+      const build = () => [
+        { ip: '198.18.0.16:16127', broadcastedAt: new Date('2026-08-05T16:38:50.000Z') },
+        { ip: '198.18.0.13:16127', broadcastedAt: new Date('2026-08-05T16:38:50.000Z') },
+        { ip: '198.18.0.14:16127', broadcastedAt: new Date('2026-08-05T16:38:50.000Z') },
+      ];
+      const expected = ['198.18.0.13:16127', '198.18.0.14:16127', '198.18.0.16:16127'];
+
+      expect(ips(build().sort(compareInstallingClaims))).to.eql(expected);
+      expect(ips(build().reverse().sort(compareInstallingClaims))).to.eql(expected);
+    });
   });
 
   describe('compareInstanceSeniority', () => {
@@ -112,6 +141,29 @@ describe('instanceOrdering tests', () => {
       expect(compareInstanceSeniority(a, b)).to.be.below(0);
       expect(compareInstanceSeniority(b, a)).to.be.above(0);
       expect(compareInstanceSeniority(a, { ...a })).to.equal(0);
+    });
+
+    it('ranks Dates, the shape the database returns, by their instant', () => {
+      const instances = [
+        { ip: '10.0.0.1:16127', runningSince: new Date('2026-08-02T12:00:00.000Z') },
+        { ip: '10.0.0.9:16127', runningSince: new Date('2026-08-01T00:00:00.000Z') },
+        { ip: '10.0.0.5:16127', runningSince: new Date('2026-08-02T06:00:00.000Z') },
+      ];
+
+      expect(ips(instances.sort(compareInstanceSeniority))).to.eql(['10.0.0.9:16127', '10.0.0.5:16127', '10.0.0.1:16127']);
+    });
+
+    it('ranks a Date against an ISO string by time, not by whichever coerces', () => {
+      // The relational operators turn a Date into a number and an ISO string
+      // into NaN, so an unnormalised comparison of the two is false in both
+      // directions and the pair falls through to the address tie-break -
+      // silently ranking by address when it was asked to rank by age.
+      const instances = [
+        { ip: '10.0.0.1:16127', runningSince: new Date('2026-08-02T00:00:00.000Z') },
+        { ip: '10.0.0.9:16127', runningSince: '2026-08-01T00:00:00.000Z' },
+      ];
+
+      expect(ips(instances.sort(compareInstanceSeniority))).to.eql(['10.0.0.9:16127', '10.0.0.1:16127']);
     });
   });
 
