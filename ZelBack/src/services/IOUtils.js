@@ -487,7 +487,12 @@ async function inspectTarGz(tarFilePath) {
     // path never reaches it as syntax. It is passed as a positional argument and
     // read as "$1", so a filename containing $( ) is a filename rather than
     // arbitrary root execution on the node.
-    const listScript = 'set -o pipefail; tar -tzvf "$1" | awk \'{ entries += 1; bytes += $3 } END { print entries+0, bytes+0 }\'';
+    //
+    // `sized` counts the members whose size column actually parsed as a number,
+    // which is what separates a differently-shaped listing from an archive whose
+    // members are all genuinely zero length.
+    const listScript = 'set -o pipefail; tar -tzvf "$1" '
+      + '| awk \'{ entries += 1; if ($3 ~ /^[0-9]+$/) { sized += 1; bytes += $3 } } END { print entries+0, bytes+0, sized+0 }\'';
     const result = await serviceHelper.runCommand('bash', {
       runAsRoot: true,
       params: ['-c', listScript, 'inspectTarGz', tarFilePath],
@@ -498,15 +503,17 @@ async function inspectTarGz(tarFilePath) {
       log.error(`Error reading archive: ${message}`);
       return { status: false, error: message };
     }
-    const [entries, bytes] = result.stdout.trim().split(/\s+/).map(Number);
-    if (!Number.isFinite(entries) || !Number.isFinite(bytes)) {
+    const [entries, bytes, sized] = result.stdout.trim().split(/\s+/).map(Number);
+    if (!Number.isFinite(entries) || !Number.isFinite(bytes) || !Number.isFinite(sized)) {
       return { status: false, error: 'archive listing unreadable' };
     }
-    // The size column is the third field of GNU tar's verbose listing. A listing
-    // that yields members but no bytes is a different tar's column layout, not
-    // an archive of empty files - and reporting zero would let it through a
-    // free-space check it has not been measured against.
-    if (entries > 0 && bytes === 0) {
+    // The size column is the third field of GNU tar's verbose listing. If no
+    // member's third field parsed as a number the listing is a different tar's
+    // column layout, and reporting its total as zero would walk an unmeasured
+    // archive through the free-space check. Testing the total rather than the
+    // parse would also condemn an archive whose members are all genuinely empty,
+    // which is a real thing to restore.
+    if (entries > 0 && sized === 0) {
       return { status: false, error: 'archive listing not in the expected format' };
     }
     return { status: true, entries, bytes };
