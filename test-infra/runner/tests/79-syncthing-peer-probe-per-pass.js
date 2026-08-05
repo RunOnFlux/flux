@@ -71,12 +71,14 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
     // gone, so the subject defers to it and never leaves the deciding state.
     await stub.setPromotedFolders({ ready: true, folders: [] });
 
-    // Two r: apps on one node, both waiting on sync before they may start.
+    // Two r: apps on one node, both waiting on sync before they may start. No
+    // forceNonLeader: the stub already holds the lowest address in every one of
+    // these apps' holder lists, so it wins the election and the subject defers -
+    // which is the state that keeps asking. (forceNonLeader would install on
+    // index 0 to make a running peer, and index 0 is the stub.)
     for (const name of [appOne, appTwo]) {
       // eslint-disable-next-line no-await-in-loop
-      await seedSyncthingApp(env, {
-        name, mode: 'r', forceNonLeader: true, index: subject,
-      });
+      await seedSyncthingApp(env, { name, mode: 'r', index: subject });
       // The stub joins each app's holder list as the lowest address, so both
       // folders elect the same peer - which is the shape that charged the probe
       // twice.

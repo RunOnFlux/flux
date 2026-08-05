@@ -140,12 +140,17 @@ export async function electionIndexOf(env, appName, holderIndex, { timeout = 900
 }
 
 export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
-  for (const client of env.clients) await waitForDaemonReady(client);
-  await Promise.all(env.clients.map(
+  // A stub peer holds an index with no client behind it. It is something for the
+  // fleet to talk to, never a node this boots, confirms or reads a height from -
+  // so the waits run over the real nodes while the peering ceiling below still
+  // counts every index, because a stub IS a peer.
+  const nodes = env.clients.filter(Boolean);
+  for (const client of nodes) await waitForDaemonReady(client);
+  await Promise.all(nodes.map(
     (c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000),
   ));
   await advanceBlock();
-  for (const client of env.clients) {
+  for (const client of nodes) {
     await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
   }
   await env.startDiscovery();
@@ -163,7 +168,7 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   // already satisfied when the listener attaches, nothing further is ever
   // published and the wait burns its full timeout on a condition that is
   // already true. The REST counts are the state itself.
-  const node = env.clients[0];
+  const node = nodes[0];
   await waitFor(
     async () => {
       const [outgoing, incoming] = await Promise.all([node.getPeers(), node.getIncomingPeers()]);
