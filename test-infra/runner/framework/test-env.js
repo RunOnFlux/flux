@@ -666,8 +666,18 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   } = env;
   const stubPeerSet = new Set(stubPeers);
 
-  // Health check timeout must be < interval — Docker's health state machine
-  // produces spurious "unhealthy" on container restart when timeout >= interval.
+  // NO docker health checks on infra containers, deliberately. Readiness is the
+  // wait strategy right below each one, host-side, polling the very endpoint a
+  // health check would have polled; death is a `die` event (watchInfra). Nothing
+  // reads Docker's health status here - the poll strategies exist BECAUSE
+  // Wait.forHealthCheck() destroys a fleet on one transient "unhealthy" under
+  // boot contention (see http-wait-strategy.js).
+  //
+  // It was not free to keep: every check spawned a process inside the container
+  // every 3 seconds - a full mongosh for mongo, measured at ~750ms of CPU each,
+  // and a node boot for every stub. Around 37% of a core per fleet, ~2 cores at
+  // six fleets in flight, spent producing a signal with no consumer.
+  //
   // Pinned by digest so a crash can be bisected across image updates.
   // nofile: Docker's default soft limit is 1024, and a whole fleet's connection
   // pools plus WiredTiger's file-per-collection cross it during concurrent node
@@ -679,12 +689,6 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .withUlimits({ nofile: { soft: 65536, hard: 65536 } })
     .withStaticIp(networkName, MONGO_IP)
     .withWaitStrategy(new TcpPollWaitStrategy(MONGO_IP, 27017))
-    .withHealthCheck({
-      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"],
-      interval: 3000,
-      timeout: 2000,
-      retries: 10,
-    })
     .start();
   started.push(mongo);
   containers.mongo = mongo;
@@ -708,12 +712,6 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       mode: 'ro',
     }])
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${DAEMON_IP}:18232/state`))
-    .withHealthCheck({
-      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:18232/state', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
-      interval: 3000,
-      timeout: 2000,
-      retries: 10,
-    })
     .start();
   started.push(daemonStub);
   containers.daemonStub = daemonStub;
@@ -757,12 +755,6 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .withStaticIp(networkName, SYNCTHING_IP)
     .withEnvironment({ SYNCTHING_PORT: '8384', CONTROL_PORT: '8385' })
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${SYNCTHING_IP}:8384/rest/noauth/health`))
-    .withHealthCheck({
-      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:8384/rest/noauth/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
-      interval: 3000,
-      timeout: 2000,
-      retries: 10,
-    })
     .start();
   started.push(syncthingStub);
   containers.syncthingStub = syncthingStub;
@@ -772,12 +764,6 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .withStaticIp(networkName, EXTERNAL_STUB_IP)
     .withEnvironment({ STUB_PORT: '3000', CONTROL_PORT: '3001' })
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${EXTERNAL_STUB_IP}:3001/health`))
-    .withHealthCheck({
-      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3001/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
-      interval: 3000,
-      timeout: 2000,
-      retries: 10,
-    })
     .start();
   started.push(externalStub);
   containers.externalStub = externalStub;
@@ -787,12 +773,6 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .withStaticIp(networkName, FDM_IP, fdmHostnames())
     .withEnvironment({ FDM_PORT: '16130', CONTROL_PORT: '16131' })
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${FDM_IP}:16131/health`))
-    .withHealthCheck({
-      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:16131/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
-      interval: 3000,
-      timeout: 2000,
-      retries: 10,
-    })
     .start();
   started.push(fdmStub);
   containers.fdmStub = fdmStub;
@@ -951,12 +931,6 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
         NODE_IP: nodeIp,
       })
       .withWaitStrategy(new HttpPollWaitStrategy(`http://${nodeIp}:16128/health`))
-      .withHealthCheck({
-        test: ['CMD', 'node', '-e', "require('http').get('http://localhost:16128/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
-        interval: 3000,
-        timeout: 2000,
-        retries: 10,
-      })
       .start();
     started.push(stub);
     stubPeerClientsMap.set(stubIdx, stubPeerClient(nodeIp));
