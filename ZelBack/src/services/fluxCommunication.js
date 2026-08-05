@@ -339,7 +339,13 @@ async function handleAppInstallingMessage(message, fromIP, port) {
   try {
     const rebroadcastToPeers = await messageStore.storeAppInstallingMessage(message.data);
     if (rebroadcastToPeers === true) {
-      fluxEventBus.publish('network:appinstalling', { ip: message.data.ip, name: message.data.name });
+      // Version 2 withdraws the sender's claim rather than recording one and
+      // arrives through this handler too, so the event names which it was.
+      fluxEventBus.publish('network:appinstalling', {
+        ip: message.data.ip,
+        name: message.data.name,
+        withdrawn: message.data.withdrawn === true,
+      });
     }
     messageStore.storeSignedAppInstallingBroadcast(message);
     const currentTimeStamp = Date.now();
@@ -509,7 +515,6 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket FluxPeerSocket instance.
  */
 async function dispatchFluxMessage(msgObj, peerSocket) {
-  const isOutbound = peerSocket.direction === DIRECTION.OUTBOUND;
   const codes = peerSocket.closeCodes;
   const {
     pubKey, timestamp, signature, version, data,
@@ -1629,6 +1634,7 @@ module.exports = {
   addPeer,
   logSocketsEvery,
   handleAppRunningMessage,
+  handleAppInstallingMessage,
   handleIPChangedMessage,
   handleAppRemovedMessage,
   handleNodeSigtermMessage,
