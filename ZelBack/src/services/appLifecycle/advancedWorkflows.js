@@ -2484,7 +2484,12 @@ async function appendRestoreTask(req, res) {
     // mode, carrying an empty url - reading the list rather than the flags would
     // turn every restore into a whole-app restore.
     const components = componentsOfApp(appDetails);
-    const requested = restore.filter((item) => item.restore);
+    // Named once each: a component listed twice would be paused, downloaded and
+    // unpacked twice over, the second pass clearing what the first had just put
+    // in place.
+    const requested = [...new Map(
+      restore.filter((item) => item.restore).map((item) => [item.component, item]),
+    ).values()];
     const targets = requested.map((item) => {
       const component = components.find((comp) => comp.name === item.component);
       if (!component) {
@@ -2513,6 +2518,14 @@ async function appendRestoreTask(req, res) {
       }
     }
 
+    // Claimed here rather than at the top: the check up there happens before
+    // authorisation, the spec lookup and a possible FDM round trip, and a second
+    // request arriving inside that window would pass it too. Re-reading it
+    // immediately before the push leaves no await between the two, so nothing
+    // can interleave.
+    if (globalState.restoreInProgress.includes(appname)) {
+      throw new Error(`Restore for app ${appname} is running...`);
+    }
     globalState.restoreInProgress.push(appname);
 
     // Hold the data still by pausing the folders being replaced. Deleting them

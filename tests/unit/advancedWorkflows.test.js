@@ -2964,6 +2964,38 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.notCalled(IOUtils.removeDirectory);
       });
 
+      it('acts on a component named twice only once', async () => {
+        // the second pass would clear what the first had just put in place
+        const req = restoreReq();
+        req.body.restore = [
+          { component: 'palworld', restore: true, url: 'https://example.invalid/a.tar.gz' },
+          { component: 'palworld', restore: true, url: 'https://example.invalid/a.tar.gz' },
+        ];
+
+        await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+        sinon.assert.calledOnce(IOUtils.untarFile);
+        sinon.assert.calledOnce(IOUtils.removeDirectory.withArgs(`${mount}/appdata`, true));
+      });
+
+      it('refuses a second restore that claimed the app while this one was still checking', async () => {
+        // The check at the top happens before authorisation, the spec lookup and
+        // a possible FDM round trip. Seeding the lease before the call would be
+        // caught by that check and prove nothing, so it is taken DURING the spec
+        // lookup - the window a second request actually arrives in.
+        registryManager.getApplicationGlobalSpecifications.callsFake(async () => {
+          globalState.restoreInProgress.push(appname);
+          return specWith('g:/palworld/Pal/Saved');
+        });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(dockerService.appDockerStop);
+      });
+
       it('restores only the components asked for, not every one the UI listed', async () => {
         registryManager.getApplicationGlobalSpecifications.resolves({
           version: 8,
