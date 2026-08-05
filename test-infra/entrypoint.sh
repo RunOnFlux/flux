@@ -53,8 +53,16 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
   # The node is pointed at its own daemon by the runner through NODE_CONFIG,
   # which the config package merges over the mounted shared.js - so that is the
   # single place the endpoint is decided, not here.
-  nohup syncthing --home=/dat/usr/lib/syncthing --no-browser \
-        --logfile=/dat/usr/lib/syncthing/syncthing.log --logflags=3 \
+  # the flags a real node is supervised with, read off a live one:
+  #   syncthing --no-browser --allow-newer-config --home /dat/usr/lib/syncthing
+  #             --logfile /dat/var/log/syncthing.log --logflags=3
+  #             --log-max-old-files=2 --log-max-size=26214400
+  # --allow-newer-config is load-bearing: without it the daemon refuses to start
+  # against a config a newer build wrote, which is what a version bump produces.
+  mkdir -p /dat/var/log
+  nohup syncthing --no-browser --allow-newer-config --home /dat/usr/lib/syncthing \
+        --logfile /dat/var/log/syncthing.log --logflags=3 \
+        --log-max-old-files=2 --log-max-size=26214400 \
         >/dev/null 2>&1 </dev/null &
 elif [ -n "$FLUX_SYNCTHING_HOST" ]; then
   socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &

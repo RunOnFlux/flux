@@ -41,7 +41,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # A side effect worth knowing: with syncthing on PATH, FluxOS's own installer
 # finds `syncthing --version` succeeds and does nothing. That is a consequence
 # of the image being complete, not a mechanism being relied on.
-ARG SYNCTHING_VERSION=v2.0.10
+#
+# Pinned to what the fleet runs: chud reports
+#   syncthing v2.0.15 "Hafnium Hornet" (go1.26.0 linux-amd64) 2026-02-11 [noupgrade]
+# installed there as a Debian package from syncthing's own repo. The release
+# tarball is the same build, and pins without depending on a package mirror.
+ARG SYNCTHING_VERSION=v2.0.15
 RUN arch="$(dpkg --print-architecture)" \
     && case "$arch" in \
          amd64) starch=amd64 ;; \
@@ -51,7 +56,8 @@ RUN arch="$(dpkg --print-architecture)" \
     && tarball="syncthing-linux-${starch}-${SYNCTHING_VERSION}.tar.gz" \
     && base="https://github.com/syncthing/syncthing/releases/download/${SYNCTHING_VERSION}" \
     && curl -fsSL -o "/tmp/${tarball}" "${base}/${tarball}" \
-    && curl -fsSL -o /tmp/sha256sums.txt "${base}/sha256sums.txt" \
+    && (curl -fsSL -o /tmp/sha256sums.txt "${base}/sha256sums.txt" \
+        || curl -fsSL -o /tmp/sha256sums.txt "${base}/sha256sums.txt.asc") \
     && (cd /tmp && grep " ${tarball}\$" sha256sums.txt | sha256sum -c -) \
     && tar -xzf "/tmp/${tarball}" -C /tmp \
     && install -m 0755 "/tmp/syncthing-linux-${starch}-${SYNCTHING_VERSION}/syncthing" /usr/local/bin/syncthing \
