@@ -48,19 +48,20 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
   dumpLogsOnFailure(() => env);
 
   // Index 0 is the stub, so it holds the lowest address in the fleet and wins
-  // every folder's election. 1 decides; 2 and 3 close the mesh.
+  // every folder's election; 1 decides and 2 is the peer it meshes with.
   //
-  // Dial depth is load-bearing whenever a stub sits in the fleet. A node does not
-  // wait to be dialled: it takes an INBOUND by calling /flux/addoutgoingpeer on
-  // the nodes BEHIND it in the sorted list, i = 1..minOutgoing
-  // (fluxCommunication.js:1310). A stub serves two endpoints and 404s the rest,
-  // so every candidate that lands on it is spent.
+  // All FOUR peer floors are sized to this fleet, which is what a three-address
+  // mesh needs - not a bigger fleet. Each node reaches exactly two addresses (the
+  // other node and the stub), so the harness base of minUniqueIpsOutgoing 3 is
+  // unreachable here by construction and boot waits out its timeout.
   //
-  // The real node directly after the stub is both the worst affected and the one
-  // bootAndPeer probes, so no arrangement of the subject avoids this - only depth
-  // does. At 2 it had a single real candidate left and peered or did not
-  // depending on whether that one node's dial happened to land; at 3, on a fleet
-  // this size, every node offers every other node, so no single dial is decisive.
+  // minOutgoing 2 also matters for a reason particular to holding a stub: a node
+  // does not wait to be dialled, it takes an INBOUND by calling
+  // /flux/addoutgoingpeer on the nodes BEHIND it, i = 1..minOutgoing
+  // (fluxCommunication.js:1310). The subject sits directly behind the stub, which
+  // serves two endpoints and 404s the rest, so at 1 its only candidate is spent
+  // on the stub and it never gets an inbound at all; at 2 the second wraps to a
+  // real node.
   const stubIndex = 0;
   const subject = 1;
   const stubIp = getSubnetConfig().nodeIp(stubIndex + 1);
@@ -71,15 +72,20 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 4,
+      nodes: 3,
       stubPeers: [stubIndex],
       tickerAutostart: false,
       configOverrides: {
         // The rate under measurement - pinned, not inherited.
         syncthing: { monitorIntervalMs: MONITOR_INTERVAL_MS },
-        // A fleet this small cannot reach the production floors - each node holds
-        // three peers at most, one of which never dials.
-        fluxapps: { minOutgoing: 3, minIncoming: 1, appSyncDegradedThreshold: 0 },
+        // Sized to a three-address mesh, one address of which never dials.
+        fluxapps: {
+          minOutgoing: 2,
+          minIncoming: 1,
+          minUniqueIpsOutgoing: 2,
+          minUniqueIpsIncoming: 1,
+          appSyncDegradedThreshold: 0,
+        },
       },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
