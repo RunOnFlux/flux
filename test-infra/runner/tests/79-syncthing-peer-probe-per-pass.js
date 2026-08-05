@@ -42,13 +42,15 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
   dumpLogsOnFailure(() => env);
 
   // Index 0 is the stub, so it holds the lowest address in the fleet and wins
-  // every folder's election. 1 decides; 2 and 3 are there to close the ring.
+  // every folder's election. 1 decides; 2 and 3 close the mesh.
   //
-  // Three REAL nodes, not two: the discovery ring needs 2*minOutgoing+1 nodes
-  // that can dial, and a stub only ever accepts. With two, every node found its
-  // one outbound and none of them had an inbound, because the only candidate
-  // left to dial back was the stub - which answers two endpoints and 404s the
-  // rest, including addoutgoingpeer.
+  // minOutgoing 2 is load-bearing whenever a stub sits in the fleet. A node does
+  // not wait to be dialled: it takes an INBOUND by calling
+  // /flux/addoutgoingpeer on the nodes BEHIND it in the sorted list, i = 1..
+  // minOutgoing (fluxCommunication.js:1310). The subject sits directly behind
+  // the stub, and a stub serves two endpoints and 404s the rest - so at
+  // minOutgoing 1 its only candidate is the stub and it never gets an inbound at
+  // all. A second candidate wraps past the stub to a real node.
   const stubIndex = 0;
   const subject = 1;
   const stubIp = getSubnetConfig().nodeIp(stubIndex + 1);
@@ -64,8 +66,9 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
       tickerAutostart: false,
       configOverrides: {
         // A fleet this small cannot reach the production floors - each node
-        // holds three peers at most, one of which cannot dial.
-        fluxapps: { minOutgoing: 1, minIncoming: 1, appSyncDegradedThreshold: 0 },
+        // holds three peers at most, one of which never dials. Same floors the
+        // four-node registration-gate suite runs.
+        fluxapps: { minOutgoing: 2, minIncoming: 1, appSyncDegradedThreshold: 0 },
       },
     });
     await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
