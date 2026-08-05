@@ -841,6 +841,15 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       nodeEnv.FLUX_SYNCTHING_MODE = 'binary';
       delete nodeEnv.FLUX_SYNCTHING_HOST;
       delete nodeEnv.FLUX_SYNCTHING_PORT;
+      if (isLegacy) {
+        // Who supervises syncthing differs by node type, and SYNCTHING_PATH is
+        // the signal FluxOS reads to decide: set, it takes the node for ArcaneOS
+        // and leaves the daemon to the OS; unset, it spawns and supervises the
+        // daemon itself. A legacy node is the second case, so leaving this set
+        // on one - which is what happened for every harness node until now -
+        // means FluxOS's own supervision path is never exercised at all.
+        delete nodeEnv.SYNCTHING_PATH;
+      }
     }
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
     if (discoveryAutostart) nodeEnv.FLUX_DISCOVERY_AUTOSTART = 'true';

@@ -43,27 +43,27 @@ fi
 # that port.
 SYNCTHING_LISTEN_PORT=$((${FLUX_API_PORT:-16127} + 2))
 if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
-  # A real daemon, one per node. FluxOS does not start syncthing when
-  # SYNCTHING_PATH is set (it reads that as ArcaneOS, where the OS supervises
-  # it), so the harness plays the supervisor - which is also why nothing here
-  # writes syncthing's config: it generates its own identity on first run, and
-  # that is what gives each node a distinct device id. FluxOS then sets
-  # discovery off, NAT off and listenAddresses to apiport+2 through the API,
-  # exactly as it does on a node. No socat: syncthing binds that port itself.
-  # The node is pointed at its own daemon by the runner through NODE_CONFIG,
-  # which the config package merges over the mounted shared.js - so that is the
-  # single place the endpoint is decided, not here.
-  # the flags a real node is supervised with, read off a live one:
-  #   syncthing --no-browser --allow-newer-config --home /dat/usr/lib/syncthing
-  #             --logfile /dat/var/log/syncthing.log --logflags=3
-  #             --log-max-old-files=2 --log-max-size=26214400
-  # --allow-newer-config is load-bearing: without it the daemon refuses to start
-  # against a config a newer build wrote, which is what a version bump produces.
-  mkdir -p /dat/var/log
-  nohup syncthing --no-browser --allow-newer-config --home /dat/usr/lib/syncthing \
-        --logfile /dat/var/log/syncthing.log --logflags=3 \
-        --log-max-old-files=2 --log-max-size=26214400 \
-        >/dev/null 2>&1 </dev/null &
+  # A real daemon, one per node. Nothing here writes syncthing's config: it
+  # generates its own identity on first run, which is what gives each node a
+  # distinct device id, and FluxOS then sets discovery off, NAT off and
+  # listenAddresses to apiport+2 through the API exactly as it does on a node.
+  # The endpoint is decided by the runner through NODE_CONFIG, which the config
+  # package merges over the mounted shared.js. No socat either way: whoever
+  # starts the daemon, it binds apiport+2 itself.
+  #
+  # WHO starts it depends on the node type, and SYNCTHING_PATH is the same
+  # signal FluxOS reads to decide. Set, FluxOS takes the node for ArcaneOS and
+  # leaves supervision to the OS - so the harness stands in for the OS here.
+  # Unset, it is a legacy node and FluxOS supervises the daemon itself, so this
+  # must keep its hands off or there would be two.
+  if [ -n "$SYNCTHING_PATH" ]; then
+    # the flags a real Arcane node is supervised with, read off a live one
+    mkdir -p /dat/var/log
+    nohup syncthing --no-browser --allow-newer-config --home "$SYNCTHING_PATH" \
+          --logfile /dat/var/log/syncthing.log --logflags=3 \
+          --log-max-old-files=2 --log-max-size=26214400 \
+          >/dev/null 2>&1 </dev/null &
+  fi
 elif [ -n "$FLUX_SYNCTHING_HOST" ]; then
   socat TCP-LISTEN:${SYNCTHING_LISTEN_PORT},fork,reuseaddr TCP:${FLUX_SYNCTHING_HOST}:${FLUX_SYNCTHING_PORT:-8384} &
 fi
