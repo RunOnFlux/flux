@@ -87,9 +87,15 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     // Each side now elects and claims on its own view. Two distinct claimants is
     // the contention this suite is about, and the partition guarantees it rather
     // than leaving it to whether a claim propagates before its rivals look.
+    //
+    // Accumulated across polls, never read from one. A claim clears the moment
+    // its node starts installing, so the two need not be standing at the same
+    // instant - requiring that timed out while the fleet was contending exactly
+    // as intended, with claims on both sides and a withdrawal already logged.
+    const claimants = new Set();
     await waitFor(async () => {
       const perNode = await installingClaimIpsByNode(env, appName);
-      const claimants = new Set(perNode.filter(Boolean).flat().map((ip) => ip.split(':')[0]));
+      perNode.filter(Boolean).flat().forEach((ip) => claimants.add(ip.split(':')[0]));
       return claimants.size >= 2;
     }, {
       timeout: 240000,
