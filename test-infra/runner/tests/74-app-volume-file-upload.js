@@ -10,9 +10,9 @@ import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { execInContainer } from '../framework/container.js';
 import { authenticate } from '../auth.js';
-import { appOwnerKey, fluxTeamKey } from '../framework/keys.js';
+import { appOwnerKey } from '../framework/keys.js';
 import {
-  volumeRoot, resetVolume, seedVolumeTree, treeOf, contentOf, exists,
+  volumeRoot, resetVolume, seedVolumeTree, seedLargeFile, treeOf, contentOf, exists,
 } from '../framework/volume-fixture.js';
 
 // Uploading, over HTTP, onto a real volume.
@@ -41,10 +41,12 @@ describe('app volume file upload', function () {
 
   // The app owner, not the flux team: the endpoint authorises at the OBJECT
   // level - is this caller the owner of THIS app.
-  const uploadTo = (folder, files, zelidauth = auth.zelidauth) => node.upload(
+  // Headers rather than a credential, so a test can send NONE. Passing
+  // undefined would fall back to the default and quietly authenticate.
+  const uploadTo = (folder, files, headers = null) => node.upload(
     `/ioutils/fileupload/volume/${appName}/${appName}/${encodeURIComponent(folder)}`,
     files,
-    { zelidauth },
+    headers ?? { zelidauth: auth.zelidauth },
   );
 
   // The endpoint answers 200 whatever happened and writes a failure into the
@@ -202,10 +204,11 @@ describe('app volume file upload', function () {
   });
 
   describe('what is refused', () => {
-    it('refuses a caller who does not own the app', async function () {
+    it('refuses a caller who is not the app owner', async function () {
       this.timeout(120000);
-      const stranger = await authenticate(node.url, fluxTeamKey());
-      const { body } = await uploadTo('photos', { 'sneaky.txt': 'x' }, stranger.zelidauth);
+      // No credentials at all. The flux team key would NOT do: the privilege
+      // checked is "app owner or above", and the team is above.
+      const { body } = await uploadTo('photos', { 'sneaky.txt': 'x' }, {});
 
       const failure = failureIn(body);
       expect(failure, body).to.not.equal(null);
@@ -235,9 +238,13 @@ describe('app volume file upload', function () {
     // implementation - it is refused with an answer rather than a stall.
     it('refuses an upload larger than the volume, and answers rather than hanging', async function () {
       this.timeout(300000);
+      // The volume is 1 GB. Filling it first means a modest upload exceeds what
+      // is left, so this exercises the refusal rather than the harness network.
+      await seedLargeFile(node.container, appName, 'photos/filler.bin', 850);
+
       const started = Date.now();
       const { status, body } = await uploadTo('photos', {
-        'toobig.bin': Buffer.alloc(1600 * 1024 * 1024, 0x41),
+        'toobig.bin': Buffer.alloc(300 * 1024 * 1024, 0x41),
       });
 
       expect(status).to.equal(200);
@@ -252,9 +259,11 @@ describe('app volume file upload', function () {
 
     it('leaves the volume as it was when an upload is refused', async function () {
       this.timeout(300000);
-      await uploadTo('photos', { 'toobig.bin': Buffer.alloc(1600 * 1024 * 1024, 0x42) });
+      await seedLargeFile(node.container, appName, 'photos/filler.bin', 850);
+      await uploadTo('photos', { 'toobig.bin': Buffer.alloc(300 * 1024 * 1024, 0x42) });
 
       expect(await contentOf(node.container, `${root}/photos/a.txt`)).to.equal('first');
+      expect(await exists(node.container, `${root}/photos/toobig.bin`)).to.equal(false);
     });
   });
 

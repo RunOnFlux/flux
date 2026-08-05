@@ -683,12 +683,20 @@ async function uploadAppsFiles(req, res) {
   // two containers of its own running at once.
   let queue = Promise.resolve();
   let failure = null;
+  // The stream currently being received, so a request that fails or goes away
+  // can settle the operation waiting on it rather than leaving a container
+  // holding an input nothing will ever close.
+  let receiving = null;
 
   const receiveOne = async (file, incoming) => {
     if (failure) {
+      // Drained rather than left: formidable is writing into it, and a stream
+      // nobody reads holds the request open behind a file that is not going to
+      // be stored.
       incoming.resume();
       return;
     }
+    receiving = incoming;
     try {
       const name = validateFilename(uploadNames.get(file));
       const destination = await volume.resolve(path.posix.join(folder, name));
@@ -706,20 +714,20 @@ async function uploadAppsFiles(req, res) {
       if (res.flush) res.flush();
     } catch (error) {
       failure = error;
-      // Drained rather than left: formidable is writing into it, and a stream
-      // nobody reads holds the request open behind a file that is not going to
-      // be stored.
       incoming.resume();
+    } finally {
+      receiving = null;
     }
   };
 
   const form = formidable({
     multiples: true,
     hashAlgorithm: false,
-    // Formidable applies a limit of its own choosing when none is given, so
-    // this has to be set to something. The volume's free space is the honest
-    // answer and it is the same figure the container enforces.
-    maxFileSize: ceiling,
+    // No parser limit. The container is the only ceiling, and it is the only
+    // one that can be exact: it refuses AS the bytes arrive, where a parser
+    // that gives up mid-request leaves the caller a broken connection instead
+    // of a reason. What may be written is capped either way.
+    maxFileSize: Infinity,
     fileWriteStreamHandler: (file) => {
       const incoming = new PassThrough();
       // Nothing reads this until its turn comes, so formidable is held at the
@@ -738,6 +746,37 @@ async function uploadAppsFiles(req, res) {
   const requestedFilename = req.params.filename || req.query.filename || '';
   const uploadNames = new WeakMap();
 
+  // Reached from three directions - the body ended, the parser gave up, or the
+  // client went away - and it has to run exactly once from whichever arrives
+  // first. Missing one of them leaks the app's operation slot for as long as
+  // FluxOS runs, which takes that app's whole file browser with it.
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    // After the queue, not before: the last container is still running long
+    // after the parser has finished with the request.
+    queue
+      .then(() => {
+        releaseSlot();
+        if (failure) fail(failure);
+        else res.end();
+      })
+      .catch((error) => {
+        releaseSlot();
+        fail(error);
+      });
+  };
+
+  const abandon = (error) => {
+    failure = failure || error;
+    // Settles whatever operation is waiting on this stream. Without it the
+    // container sits on an input that will never close, until the stall check
+    // notices minutes later.
+    if (receiving) receiving.destroy(error);
+    finish();
+  };
+
   form
     .on('fileBegin', (name, file) => {
       uploadNames.set(file, requestedFilename || name);
@@ -750,26 +789,10 @@ async function uploadAppsFiles(req, res) {
         log.error(error);
       }
     })
-    .on('error', (error) => {
-      failure = failure || error;
-    })
-    .on('end', () => {
-      // Only once every file has been published. Formidable is finished with
-      // the request long before the last container is.
-      queue
-        .then(() => {
-          releaseSlot();
-          if (failure) {
-            fail(failure);
-            return;
-          }
-          res.end();
-        })
-        .catch((error) => {
-          releaseSlot();
-          fail(error);
-        });
-    });
+    .on('error', (error) => abandon(error))
+    .on('end', finish);
+
+  req.on('aborted', () => abandon(new Error('The upload did not complete')));
 
   form.parse(req);
 }
