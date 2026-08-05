@@ -84,24 +84,24 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     await env.partitionGroups(SIDE_A, SIDE_B);
     await seedSpawnerApp(env, app);
 
-    // Each side now elects and claims on its own view. Two distinct claimants is
-    // the contention this suite is about, and the partition guarantees it rather
-    // than leaving it to whether a claim propagates before its rivals look.
+    // Each side now elects and claims on its own view, which is the contention
+    // this suite is about.
     //
-    // Accumulated across polls, never read from one. A claim clears the moment
-    // its node starts installing, so the two need not be standing at the same
-    // instant - requiring that timed out while the fleet was contending exactly
-    // as intended, with claims on both sides and a withdrawal already logged.
-    const claimants = new Set();
-    await waitFor(async () => {
-      const perNode = await installingClaimIpsByNode(env, appName);
-      perNode.filter(Boolean).flat().forEach((ip) => claimants.add(ip.split(':')[0]));
-      return claimants.size >= 2;
-    }, {
-      timeout: 240000,
-      interval: 2000,
-      label: 'both sides of the partition claimed the app',
-    });
+    // Waited for in the LOG, not by polling installing locations. A claim is
+    // stored, broadcast, and then ranked against its rivals one collision window
+    // later - five seconds in the harness - so the claims stand for about as
+    // long as a poll interval and reading them from an endpoint is a race the
+    // suite loses. `contended` is written by a node that looked after the wait
+    // and found a rival, which is the state being set up, and it is not what any
+    // assertion below reads.
+    await waitFor(
+      async () => env.clients.some((unused, i) => env.nodeHasLog(i, `Application ${appName} contended`)),
+      {
+        timeout: 240000,
+        interval: 2000,
+        label: 'a node saw a rival claim',
+      },
+    );
 
     // Heal, and the loser is now looking at a rival claim it cannot outrank.
     await env.healPartition(SIDE_A, SIDE_B);
