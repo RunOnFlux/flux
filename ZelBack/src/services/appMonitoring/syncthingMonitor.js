@@ -21,6 +21,8 @@ const {
   EARLY_EVAL_MIN_GAP_MS,
 } = require('./syncthingMonitorConstants');
 const { createMonitorAccelerator } = require('./syncthingMonitorAccelerator');
+const { createPeerFolderLiveness } = require('./peerFolderLiveness');
+const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const {
   sortAndFilterLocations,
   buildDeviceConfiguration,
@@ -126,6 +128,30 @@ async function checkAppFolderMounts(appsInstalled) {
 }
 
 /**
+ * The apps holding at least one syncing folder still awaiting a promotion
+ * decision. Only those folders ask a peer anything, so only their holders are
+ * worth asking about: a node whose synced apps are all running probes nothing,
+ * and must keep probing nothing.
+ * @param {Array} appsInstalled - List of installed apps (decrypted)
+ * @param {Set<string>} suspendedAppNames - Apps under backup or restore
+ * @param {Map} receiveOnlySyncthingAppsCache - Per-folder transition state
+ * @returns {Set<string>} App names
+ */
+function appsAwaitingPromotion(appsInstalled, suspendedAppNames, receiveOnlySyncthingAppsCache) {
+  const names = new Set();
+  appsInstalled.forEach((installedApp) => {
+    if (suspendedAppNames.has(installedApp.name)) return;
+    appComponents(installedApp).forEach(({ appId, containerData }) => {
+      const primaryContainer = (containerData ?? '').split('|')[0];
+      if (!requiresSyncing(getContainerDataFlags(primaryContainer))) return;
+      const cache = receiveOnlySyncthingAppsCache.get(appId);
+      if (cache && !cache.restarted) names.add(installedApp.name);
+    });
+  });
+  return names;
+}
+
+/**
  * Installed apps having at least one component whose docker app identifier is
  * in the given folder-id list (syncthing folder ids ARE the app identifiers).
  * @param {Array} appsInstalled - List of installed apps
@@ -201,6 +227,7 @@ async function processContainerData(params) {
     folderIds,
     foldersConfiguration,
     newFoldersConfiguration,
+    liveness,
   } = params;
 
   const containersData = containerData.split('|');
@@ -262,6 +289,7 @@ async function processContainerData(params) {
       syncthingFolder,
       installedAppName,
       mountVerifyNeeded: state.syncthingAppsFirstRun || erroredFolderIds.has(appId),
+      liveness,
     });
 
     // Update cache if provided
@@ -599,9 +627,32 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     const foldersConfiguration = [];
     const newFoldersConfiguration = [];
 
+    // Peer liveness, answered once for the whole pass. Both promotion decisions
+    // ask the same peers the same question, and the folder loop is sequential -
+    // asked inside it, one unreachable holder costs its full timeout again for
+    // every folder that elects it, and past three the pass outruns the interval
+    // and the next cycle is dropped for every folder on the node. Asking the
+    // whole set at once costs one timeout no matter how many folders wait on it.
+    // Nothing is probed unless a folder is actually awaiting promotion.
+    const liveness = createPeerFolderLiveness();
+    const awaitingPromotion = appsAwaitingPromotion(
+      appsInstalled.data,
+      new Set([...state.backupInProgress, ...state.restoreInProgress]),
+      state.receiveOnlySyncthingAppsCache,
+    );
+    if (awaitingPromotion.size) {
+      const peerLists = await Promise.all([...awaitingPromotion].map((name) => appLocation(name)));
+      await liveness.prewarm(
+        peerLists.flat()
+          .map((entry) => entry?.ip)
+          .filter((ip) => ip && !socketAddressesMatch(ip, localSocketAddr)),
+      );
+    }
+
     // Shared parameters for processing
     const sharedParams = {
       localSocketAddr,
+      liveness,
       localDeviceId,
       state,
       // the folders flagged when the pass began: the state machine re-verifies

@@ -72,6 +72,13 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
   // stub new collaborators so the unit test doesn't load the real module graph
   './appReconciler': appReconcilerMock,
   '../appLifecycle/appUninstaller': appUninstallerMock,
+});
+
+// The real liveness object, stubbed only where it leaves the process. The state
+// machine reads peers exclusively through it, so the decisions under test are
+// still driven end to end by what a peer answers and by this node's own
+// connectivity. A fresh one per call is the contract: it holds one pass's view.
+const { createPeerFolderLiveness } = proxyquire('../../ZelBack/src/services/appMonitoring/peerFolderLiveness', {
   '../fluxCommunication': fluxCommunicationMock,
   axios: axiosMock,
 });
@@ -319,6 +326,7 @@ describe('syncthingFolderStateMachine tests', () => {
           type: 'sendreceive',
         },
         installedAppName: 'test-app',
+        liveness: createPeerFolderLiveness(),
       };
     });
 
@@ -582,6 +590,9 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(waited.syncthingFolder.type).to.equal('receiveonly');
 
       mockParams.syncthingFolder = { id: 'test-app', type: 'receiveonly', path: '/test/path' };
+      // The next pass asks again. A pass's peer view never outlives it - carried
+      // over, this node would still be holding the answer that made it wait.
+      mockParams.liveness = createPeerFolderLiveness();
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
       expect(result.syncthingFolder.type).to.equal('sendreceive');
@@ -1684,6 +1695,7 @@ describe('syncthingFolderStateMachine tests', () => {
         localSocketAddr: '10.0.0.1:16127',
         syncthingFolder: { id: 'test-app', type: 'sendreceive' },
         installedAppName: 'test-app',
+        liveness: createPeerFolderLiveness(),
       };
       dockerServiceMock.dockerContainerInspect.resolves({ State: { Running: true } });
     });

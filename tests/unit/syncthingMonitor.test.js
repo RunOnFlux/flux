@@ -95,8 +95,20 @@ const syncthingEventsConsumerMock = {
   resolveMountVerify: sinon.stub(),
 };
 
+// One pass's view of its peers. The pass builds it and hands it to the state
+// machine; what it asks for, and whether it asks at all, is the contract here.
+const livenessMock = {
+  read: sinon.stub().resolves({ reachable: true, ready: true, folders: [] }),
+  prewarm: sinon.stub().resolves(),
+  localConnectivity: sinon.stub().returns({ connected: true, responding: 8, total: 8 }),
+};
+const peerFolderLivenessMock = {
+  createPeerFolderLiveness: sinon.stub().returns(livenessMock),
+};
+
 // Load module with mocked dependencies
 const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingMonitor', {
+  './peerFolderLiveness': peerFolderLivenessMock,
   '../dbHelper': dbHelperMock,
   '../serviceHelper': serviceHelperMock,
   '../dockerService': dockerServiceMock,
@@ -182,6 +194,12 @@ describe('syncthingMonitor tests', () => {
 
     appQueryServiceMock.decryptEnterpriseApps.reset();
     appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ apps, unreadable: [] }));
+
+    livenessMock.prewarm.reset();
+    livenessMock.prewarm.resolves();
+    peerFolderLivenessMock.createPeerFolderLiveness.resetHistory();
+    dbHelperMock.databaseConnection.reset();
+    dbHelperMock.findInDatabase.reset();
 
     // Default stub behaviors
     syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [] });
@@ -676,6 +694,129 @@ describe('syncthingMonitor tests', () => {
       await clock.tickAsync(100);
 
       expect(mockInstalledAppsFn.callCount).to.be.greaterThan(firstCallCount);
+    });
+  });
+
+  // Peer liveness is asked once for the pass, before the folder loop, and only
+  // for folders that will actually put a question to a peer. The loop is
+  // sequential and an unreachable peer costs a full timeout, so asking inside it
+  // multiplied that timeout by the folder count until the pass outran its own
+  // interval - but a node whose synced apps are all running must still ask
+  // nothing at all.
+  describe('per-pass peer liveness', () => {
+    const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
+
+    function primaryMountSyncs() {
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+    }
+
+    function locationsAre(entries) {
+      dbHelperMock.databaseConnection.returns({ db: () => ({}) });
+      dbHelperMock.findInDatabase.resolves(entries);
+    }
+
+    async function runOnePass() {
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+    }
+
+    it('asks about no peer at all while every synced folder is already running', async () => {
+      // The steady state, and the overwhelming majority of passes. A promoted
+      // folder never re-enters the election, so there is nothing to ask and no
+      // node on the network should see a request.
+      primaryMountSyncs();
+      mockState.receiveOnlySyncthingAppsCache.set('testapp', { restarted: true });
+      locationsAre([{ ip: '10.0.0.2:16127' }, { ip: '10.0.0.3:16127' }]);
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+
+      await runOnePass();
+
+      sinon.assert.notCalled(livenessMock.prewarm);
+    });
+
+    it('asks about the holders of a folder still awaiting promotion', async () => {
+      primaryMountSyncs();
+      mockState.receiveOnlySyncthingAppsCache.set('testapp', { restarted: false });
+      locationsAre([{ ip: '10.0.0.2:16127' }, { ip: '10.0.0.3:16127' }]);
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+
+      await runOnePass();
+
+      sinon.assert.calledOnce(livenessMock.prewarm);
+      expect(livenessMock.prewarm.firstCall.args[0]).to.have.members(['10.0.0.2:16127', '10.0.0.3:16127']);
+    });
+
+    it('does not ask about itself', async () => {
+      // This node is in its own app's location list. Probing itself proves
+      // nothing and the answer is never consulted.
+      primaryMountSyncs();
+      mockState.receiveOnlySyncthingAppsCache.set('testapp', { restarted: false });
+      locationsAre([{ ip: '10.0.0.1:16127' }, { ip: '10.0.0.2:16127' }]);
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+
+      await runOnePass();
+
+      expect(livenessMock.prewarm.firstCall.args[0]).to.deep.equal(['10.0.0.2:16127']);
+    });
+
+    it('asks once for a peer two of an app\'s folders both wait on', async () => {
+      // The defect this replaces: the same holder was asked once per folder, and
+      // an unreachable one charged its full timeout every time.
+      primaryMountSyncs();
+      const twoComponents = {
+        name: 'testapp',
+        version: 4,
+        compose: [
+          { name: 'db', containerData: 'g:/appdata' },
+          { name: 'web', containerData: 'g:/appdata' },
+        ],
+      };
+      mockState.receiveOnlySyncthingAppsCache.set('db_testapp', { restarted: false });
+      mockState.receiveOnlySyncthingAppsCache.set('web_testapp', { restarted: false });
+      locationsAre([{ ip: '10.0.0.2:16127' }]);
+      mockInstalledAppsFn.resolves({ status: 'success', data: [twoComponents] });
+
+      await runOnePass();
+
+      sinon.assert.calledOnce(livenessMock.prewarm);
+      expect(livenessMock.prewarm.firstCall.args[0]).to.deep.equal(['10.0.0.2:16127']);
+    });
+
+    it('asks nothing about an app suspended for backup', async () => {
+      // Backup and restore rebuild their own folders; a promotion decision is not
+      // being made underneath them.
+      primaryMountSyncs();
+      mockState.receiveOnlySyncthingAppsCache.set('testapp', { restarted: false });
+      mockState.backupInProgress = ['testapp'];
+      locationsAre([{ ip: '10.0.0.2:16127' }]);
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+
+      await runOnePass();
+
+      sinon.assert.notCalled(livenessMock.prewarm);
+    });
+
+    it('builds a fresh view for every pass', async () => {
+      // Liveness must never outlive the pass that measured it: carried over, a
+      // recovered holder stays dead and a dead one stays serving.
+      primaryMountSyncs();
+      mockState.receiveOnlySyncthingAppsCache.set('testapp', { restarted: false });
+      locationsAre([{ ip: '10.0.0.2:16127' }]);
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+
+      await runOnePass();
+      const afterFirst = peerFolderLivenessMock.createPeerFolderLiveness.callCount;
+      await clock.tickAsync(30000);
+      await clock.tickAsync(100);
+
+      expect(peerFolderLivenessMock.createPeerFolderLiveness.callCount).to.be.greaterThan(afterFirst);
     });
   });
 

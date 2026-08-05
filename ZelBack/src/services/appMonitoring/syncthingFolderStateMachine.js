@@ -1,7 +1,6 @@
 // Syncthing Folder State Machine - Manages folder sync transitions
 const fs = require('node:fs');
 const path = require('node:path');
-const axios = require('axios');
 const log = require('../../lib/log');
 const dockerService = require('../dockerService');
 const appReconciler = require('./appReconciler');
@@ -12,8 +11,7 @@ const serviceHelper = require('../serviceHelper');
 const volumeService = require('../utils/volumeService');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
-const fluxCommunication = require('../fluxCommunication');
-const { socketAddressesMatch, extractIp, extractPort } = require('../utils/socketAddressUtils');
+const { socketAddressesMatch, extractIp } = require('../utils/socketAddressUtils');
 const {
   LEADER_CONFIRM_COUNT,
   SYNC_COMPLETE_PERCENTAGE,
@@ -24,21 +22,6 @@ const {
   STALL_REMOVE_MIN_NUDGES,
   ACTIVE_FOLDER_STATES,
 } = require('./syncthingMonitorConstants');
-
-// Bounded like the election's other peer probe: this runs only on the pass a node
-// is about to promote, and a slow peer must not hold the promotion open.
-const PROMOTED_PROBE_TIMEOUT_MS = 10 * 1000;
-
-// What proportion of this node's peers must still be answering before it will
-// conclude that an unreachable holder is dead rather than that it is itself cut
-// off. A proportion, not a count: an absolute floor is a fleet size in disguise,
-// and a node holding two peers could never clear one written for a node holding
-// twelve - trading a two-hour stall for a permanent one.
-//
-// This detects total isolation, which is what it claims. It does NOT establish
-// that this node is on the majority side of a partial split; no local count can,
-// and pretending otherwise is how the second writer gets made.
-const MIN_RESPONDING_PEER_FRACTION = 0.5;
 
 const { isPathMounted } = volumeService;
 
@@ -415,21 +398,15 @@ function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers =
  * @param {string} holderIp
  * @returns {Promise<boolean>}
  */
-async function holderIsGone(holderIp) {
-  const ip = extractIp(holderIp);
-  const port = extractPort(holderIp);
-  try {
-    await axios.get(`http://${ip}:${port}/apps/promotedfolders`, { timeout: PROMOTED_PROBE_TIMEOUT_MS });
+async function holderIsGone(holderIp, liveness) {
+  const answer = await liveness.read(holderIp);
+  if (answer.reachable) return false;
+  const { connected, responding, total } = liveness.localConnectivity();
+  if (!connected) {
+    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but only ${responding} of this node's ${total} peers are answering; treating this node as the isolated one`);
     return false;
-  } catch (error) {
-    const { responding, total } = fluxCommunication.peerResponsiveness();
-    const connected = total > 0 && responding >= Math.ceil(total * MIN_RESPONDING_PEER_FRACTION);
-    if (!connected) {
-      log.info(`holderIsGone - ${ip} is unreachable, but only ${responding} of this node's ${total} peers are answering; treating this node as the isolated one`);
-      return false;
-    }
-    return true;
   }
+  return true;
 }
 
 /**
@@ -442,12 +419,13 @@ async function holderIsGone(holderIp) {
  *
  * @param {Array<Object>} allPeersList
  * @param {string} localSocketAddr
+ * @param {Object} liveness This pass's peer view
  * @returns {Promise<Array<Object>>}
  */
-async function holderListExcludingDead(allPeersList, localSocketAddr) {
+async function holderListExcludingDead(allPeersList, localSocketAddr, liveness) {
   const leader = lowestIpHolder(allPeersList);
   if (!leader || socketAddressesMatch(leader, localSocketAddr)) return allPeersList;
-  if (!await holderIsGone(leader)) return allPeersList;
+  if (!await holderIsGone(leader, liveness)) return allPeersList;
   log.warn(`holderListExcludingDead - elected holder ${leader} is gone and this node's own connectivity is healthy; re-electing without it`);
   return allPeersList.filter((peer) => !socketAddressesMatch(peer.ip, leader));
 }
@@ -484,45 +462,29 @@ async function holderListExcludingDead(allPeersList, localSocketAddr) {
  * @param {string} appId Folder id
  * @param {Array} peers App location entries
  * @param {string} localSocketAddr This node's socket address
+ * @param {Object} liveness This pass's peer view
  * @returns {Promise<{ip: string, reason: string}|null>} The blocking peer, or null
  */
-async function findPeerBlockingPromotion(appId, peers, localSocketAddr) {
+async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness) {
   const others = (peers || []).filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
   if (!others.length) return null;
 
-  const probes = others.map(async (peer) => {
-    const ip = extractIp(peer.ip);
-    const port = extractPort(peer.ip);
-    try {
-      const response = await axios.get(`http://${ip}:${port}/apps/promotedfolders`, { timeout: PROMOTED_PROBE_TIMEOUT_MS });
-      const answer = response.data?.data;
-      // A peer that has not completed its first monitor pass cannot tell "I hold
-      // nothing" from "I have not looked", so its empty list is not a clearance.
-      if (!answer || answer.ready !== true) return { ip: peer.ip, holding: false };
-      const folders = answer.folders;
-      return { ip: peer.ip, holding: Array.isArray(folders) && folders.includes(appId), ready: true };
-    } catch (error) {
-      log.info(`findPeerBlockingPromotion - ${appId}: could not read ${ip}: ${error.message}`);
-      return { ip: peer.ip, unreachable: true };
-    }
-  });
+  const answers = await Promise.all(others.map(
+    async (peer) => ({ ip: peer.ip, ...await liveness.read(peer.ip) }),
+  ));
 
-  const answers = await Promise.all(probes);
-  const holder = answers.find((answer) => answer.holding);
+  const holder = answers.find((answer) => answer.reachable && answer.ready && answer.folders.includes(appId));
   if (holder) return { ip: holder.ip, reason: 'already holds the writable copy' };
-  const unready = answers.find((answer) => !answer.unreachable && !answer.ready);
+  const unready = answers.find((answer) => answer.reachable && !answer.ready);
   if (unready) return { ip: unready.ip, reason: 'has not determined its folder state yet' };
 
-  const unreachable = answers.find((answer) => answer.unreachable);
+  const unreachable = answers.find((answer) => !answer.reachable);
   if (unreachable) {
     // Whose silence is it? A node still trading pings with the fleet is watching a
     // peer die; a node whose own peers have gone quiet is the one that is cut off,
     // and must not promote over a holder that is very likely still running on the
     // other side of the split.
-    const { responding, total } = fluxCommunication.peerResponsiveness();
-    // No peers at all is not evidence of health: this node holds an app whose other
-    // holders exist, so having nobody to talk to is itself the isolation case.
-    const connected = total > 0 && responding >= Math.ceil(total * MIN_RESPONDING_PEER_FRACTION);
+    const { connected, responding, total } = liveness.localConnectivity();
     if (!connected) {
       return {
         ip: unreachable.ip,
@@ -761,6 +723,7 @@ async function handleReceiveOnlyTransition(params) {
     localSocketAddr,
     containerDataFlags,
     syncthingFolder,
+    liveness,
   } = params;
 
   log.info(`handleReceiveOnlyTransition - ${appId} in cache and not restarted, processing receive-only logic`);
@@ -790,7 +753,7 @@ async function handleReceiveOnlyTransition(params) {
   // keeps winning and every survivor defers to it until its location broadcast
   // expires - 125 minutes with the app down. Dropped from the list here, before the
   // pick, when this node can show the holder is gone rather than merely silent to it.
-  const electionList = await holderListExcludingDead(runningAppList, localSocketAddr);
+  const electionList = await holderListExcludingDead(runningAppList, localSocketAddr, liveness);
   const electedLeader = isDesignatedLeader(electionList, localSocketAddr, aPeerHasData || !folderIsEmpty);
   cache.leaderStreak = electedLeader ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
@@ -842,7 +805,7 @@ async function handleReceiveOnlyTransition(params) {
     // tiebreak among the holders it can see and seeds too, and neither revisits it,
     // because a promoted folder never re-enters this election. So the last check
     // before promoting is whether somebody already has.
-    const blocker = await findPeerBlockingPromotion(appId, runningAppList, localSocketAddr);
+    const blocker = await findPeerBlockingPromotion(appId, runningAppList, localSocketAddr, liveness);
     if (blocker) {
       log.info(`handleReceiveOnlyTransition - ${appId} won the election but ${blocker.ip} ${blocker.reason}; staying receiveonly`);
       syncthingFolder.type = 'receiveonly';
@@ -1067,6 +1030,7 @@ async function manageFolderSyncState(params) {
     syncthingFolder,
     installedAppName,
     mountVerifyNeeded = true,
+    liveness,
   } = params;
 
   // Check if folder already exists and is in sendreceive mode
@@ -1160,6 +1124,7 @@ async function manageFolderSyncState(params) {
       localSocketAddr,
       containerDataFlags,
       syncthingFolder,
+      liveness,
     });
     return result;
   }
