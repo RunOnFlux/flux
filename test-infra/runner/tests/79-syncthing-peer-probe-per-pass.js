@@ -47,38 +47,46 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
   let stub;
   dumpLogsOnFailure(() => env);
 
-  // Index 0 is the stub, so it holds the lowest address in the fleet and wins
-  // every folder's election; 1 decides and 2 is the peer it meshes with.
+  // The stub goes LAST and the subject first, which is what makes the mesh close.
   //
-  // All FOUR peer floors are sized to this fleet, which is what a three-address
-  // mesh needs - not a bigger fleet. Each node reaches exactly two addresses (the
-  // other node and the stub), so the harness base of minUniqueIpsOutgoing 3 is
-  // unreachable here by construction and boot waits out its timeout.
+  // Two nodes share ONE connection - outbound for whoever dialled, inbound for
+  // the other - and a node will not dial a peer it already holds. So the lowest
+  // index dials everyone before they reach it and ends on zero inbound unless
+  // something it does NOT dial reaches back. At minOutgoing 2 node i dials i+1
+  // and i+2, so index 0's inbound comes from index N-2, which is the one node it
+  // never dials. Put the stub at index 0 and that wrap-around is dead, because a
+  // stub only ever accepts - which is what starved the first real node however
+  // the floors were set.
   //
-  // minOutgoing 2 also matters for a reason particular to holding a stub: a node
-  // does not wait to be dialled, it takes an INBOUND by calling
-  // /flux/addoutgoingpeer on the nodes BEHIND it, i = 1..minOutgoing
-  // (fluxCommunication.js:1310). The subject sits directly behind the stub, which
-  // serves two endpoints and 404s the rest, so at 1 its only candidate is spent
-  // on the stub and it never gets an inbound at all; at 2 the second wraps to a
-  // real node.
-  const stubIndex = 0;
-  const subject = 1;
+  // Five addresses is the smallest fleet where the stub sits outside every real
+  // node's inbound source. The floors are sized to it - all four, because the
+  // harness base minUniqueIpsOutgoing of 3 is unreachable on a mesh this size.
+  //
+  // The subject holds the lowest address, so it WINS each folder's election and
+  // reaches the "does anyone already hold this?" question - which asks every
+  // other holder, and the stub answers that it does. So the subject never
+  // promotes, stays deciding, and asks again next pass. That is the question
+  // being counted: once per pass with the fix, once per folder without it.
+  const stubIndex = 4;
+  const subject = 0;
   const stubIp = getSubnetConfig().nodeIp(stubIndex + 1);
   const appOne = `e2eprobea${Date.now()}`;
   const appTwo = `e2eprobeb${Date.now()}`;
+  // A single-component synced app's folder id is flux<component>_<app>, and
+  // buildSeedableSyncthingApp names the component after the app.
+  const heldFolders = [appOne, appTwo].map((name) => `flux${name}_${name}`);
 
   before(async function () {
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 3,
+      nodes: 5,
       stubPeers: [stubIndex],
       tickerAutostart: false,
       configOverrides: {
         // The rate under measurement - pinned, not inherited.
         syncthing: { monitorIntervalMs: MONITOR_INTERVAL_MS },
-        // Sized to a three-address mesh, one address of which never dials.
+        // Sized to a five-address mesh, one address of which never dials.
         fluxapps: {
           minOutgoing: 2,
           minIncoming: 1,
@@ -93,24 +101,24 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
 
     stub = env.stubPeerClients.get(stubIndex);
     await stub.clear();
-    // Answering at all is what keeps it elected: a holder that answers is not
-    // gone, so the subject defers to it and never leaves the deciding state.
-    await stub.setPromotedFolders({ ready: true, folders: [] });
 
     // Two r: apps on one node, both waiting on sync before they may start. No
-    // forceNonLeader: the stub already holds the lowest address in every one of
-    // these apps' holder lists, so it wins the election and the subject defers -
-    // which is the state that keeps asking. (forceNonLeader would install on
-    // index 0 to make a running peer, and index 0 is the stub.)
+    // forceNonLeader: the subject must WIN its elections here, so that it reaches
+    // the "does anyone already hold this?" question the stub answers.
     for (const name of [appOne, appTwo]) {
       // eslint-disable-next-line no-await-in-loop
       await seedSyncthingApp(env, { name, mode: 'r', index: subject });
-      // The stub joins each app's holder list as the lowest address, so both
-      // folders elect the same peer - which is the shape that charged the probe
-      // twice.
+      // The stub joins each app's holder list, so both folders put the same
+      // question to the same peer - the shape that charged the probe twice.
       // eslint-disable-next-line no-await-in-loop
       await dbClient(subject + 1).seedAppLocation({ name, ip: stubIp });
     }
+
+    // Claiming both folders is what holds the subject in the deciding state: a
+    // peer that already has the writable copy blocks promotion, so the subject
+    // stays receiveonly and asks again every pass instead of promoting once and
+    // falling silent.
+    await stub.setPromotedFolders({ ready: true, folders: heldFolders });
   });
 
   after(async function () {
@@ -127,15 +135,17 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
     expect(await isUp(env.clients[subject], appOne), 'fixture: the first app must still be waiting').to.be.false;
     expect(await isUp(env.clients[subject], appTwo), 'fixture: the second app must still be waiting').to.be.false;
 
+    // clear() resets the arrival log AND what the stub claims, so the claim has
+    // to be restated or the subject promotes and stops asking mid-measurement.
     await stub.clear();
-    await stub.setPromotedFolders({ ready: true, folders: [] });
+    await stub.setPromotedFolders({ ready: true, folders: heldFolders });
 
     // Three arrivals give two gaps to measure - enough to tell one question per
     // pass from two, without pinning how many passes it takes to get there.
     await waitFor(async () => (await stub.promotedFolderRequests()).length >= 3, {
       timeout: 240000,
       interval: 3000,
-      label: 'the subject asks the elected holder across three passes',
+      label: 'the subject asks the holder across three passes',
     });
 
     const arrivals = await stub.promotedFolderRequests();
