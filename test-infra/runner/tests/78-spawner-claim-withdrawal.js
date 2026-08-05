@@ -167,12 +167,15 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     // A claim is only harmful where other nodes can see it: their view is what
     // decides whether they stand down. A withdrawal that only cleared the
     // sender's own database would leave every peer stalled for the full TTL.
-    const holderIp = getSubnetConfig().nodeIp(holder + 1);
+    // The rival still holds the second slot on purpose, so what must disappear
+    // everywhere is the claim of the node that STOOD DOWN - not every claim.
+    const stoodDown = [...withdrawnIps()];
+    expect(stoodDown, 'fixture: a node must have stood down first').to.not.be.empty;
 
     await waitFor(async () => {
       const perNode = await installingClaimIpsByNode(env, appName);
-      return perNode.every((claims) => claims !== null
-        && claims.every((ip) => ip.startsWith(holderIp)));
+      return perNode.every((claims, index) => env.clients[index] === null
+        || (claims !== null && !claims.some((ip) => stoodDown.includes(ip.split(':')[0]))));
     }, {
       timeout: 90000,
       interval: 3000,
@@ -181,9 +184,13 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
 
     const perNode = await installingClaimIpsByNode(env, appName);
     perNode.forEach((claims, index) => {
+      if (env.clients[index] === null) return; // a stub peer serves no such endpoint
       expect(claims, `node ${index} answered the installing locations endpoint`).to.not.equal(null);
       claims.forEach((ip) => {
-        expect(ip, `node ${index} still sees a claim from a node that withdrew`).to.have.string(holderIp);
+        expect(
+          stoodDown,
+          `node ${index} still sees a claim from a node that withdrew`,
+        ).to.not.include(ip.split(':')[0]);
       });
     });
   });
@@ -197,6 +204,7 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     const perNode = await installingErrorsByNode(env, appName);
 
     perNode.forEach((errors, index) => {
+      if (env.clients[index] === null) return; // a stub peer serves no such endpoint
       expect(errors, `node ${index} answered the installing errors endpoint`).to.not.equal(null);
       expect(
         errors,
