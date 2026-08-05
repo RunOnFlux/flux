@@ -106,35 +106,38 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
     await bootAndPeer(env, { minOutbound: 2, minInbound: 2 });
     await pushTestApp(appName);
     const app = await buildSeedableSyncthingApp({
-      name: appName, mode: 'g', ports: [31171], instances: 1,
+      // TWO instances, with the rival holding one of them. A second real node
+      // then has room to claim - running plus installing is 1, under the 2 it
+      // needs - so it claims without racing anyone, and the rival's older claim
+      // is what leaves it surplus at the ranking. One real node installs, one
+      // stands down, and the rival installs nothing, so the app ends on exactly
+      // one real instance.
+      name: appName, mode: 'g', ports: [31171], instances: 2,
     });
     await seedSpawnerApp(env, app);
 
-    // Wait for a real node to take the app, so the rival cannot pre-empt the
-    // claim it is meant to outrank.
-    await waitFor(async () => claimantIps().size >= 1, {
+    // Both real claims first, and the rival only after them. Two instances leave
+    // room for a second node to claim without racing the first - and the rival
+    // must not arrive before it, or that room is gone and it never claims.
+    await waitFor(async () => claimantIps().size >= 2, {
       timeout: 240000,
       interval: 1000,
-      label: 'a node claimed the app',
+      label: 'two nodes claimed the app',
     });
-    const [claimantIp] = [...claimantIps()];
 
-    // Now the rival speaks, backdated - so the claimant finds itself ranked
-    // second at its next read and stands down.
+    // Now the rival speaks, backdated - which pushes the junior of the two into
+    // surplus at its next read, while the senior still fits.
     const rival = env.stubPeerClients.get(STUB_INDEX);
     await rival.claimApp(appName, { broadcastedAt: Date.now() - RIVAL_BACKDATE_MS });
 
-    await waitFor(async () => withdrawnIps().has(claimantIp), {
+    await waitFor(async () => withdrawnIps().size >= 1, {
       timeout: 240000,
       interval: 1000,
-      label: `${claimantIp} stood down for the older claim`,
+      label: 'the junior claimant stood down for the older claim',
     });
 
-    // The rival gives the app up in turn, and a real node takes it for real.
-    await rival.withdrawApp(appName);
-
-    // one fault domain, share of one: exactly one node may hold it, and the
-    // rest of the fleet claims and stands aside
+    // The rival holds the second slot and installs nothing, so the app settles
+    // on exactly one real instance - the senior claimant.
     [holder] = await waitForInstanceCount(env, appName, 1, { timeout: 240000, stableMs: 15000 });
   });
 
