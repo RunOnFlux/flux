@@ -41,8 +41,14 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
   let stub;
   dumpLogsOnFailure(() => env);
 
-  // index 0 is the stub, so it holds the lowest address in the fleet and wins
-  // every folder's election; 1 decides, 2 gives it a peer to be healthy against.
+  // Index 0 is the stub, so it holds the lowest address in the fleet and wins
+  // every folder's election. 1 decides; 2 and 3 are there to close the ring.
+  //
+  // Three REAL nodes, not two: the discovery ring needs 2*minOutgoing+1 nodes
+  // that can dial, and a stub only ever accepts. With two, every node found its
+  // one outbound and none of them had an inbound, because the only candidate
+  // left to dial back was the stub - which answers two endpoints and 404s the
+  // rest, including addoutgoingpeer.
   const stubIndex = 0;
   const subject = 1;
   const stubIp = getSubnetConfig().nodeIp(stubIndex + 1);
@@ -53,12 +59,12 @@ describe('syncthing asks a peer once per pass, not once per folder', function ()
     this.timeout(600000);
     env = await createTestEnv({
       hookCtx: this,
-      nodes: 3,
+      nodes: 4,
       stubPeers: [stubIndex],
       tickerAutostart: false,
       configOverrides: {
-        // Three nodes cannot close a ring at the production floors - each holds
-        // two peers at most.
+        // A fleet this small cannot reach the production floors - each node
+        // holds three peers at most, one of which cannot dial.
         fluxapps: { minOutgoing: 1, minIncoming: 1, appSyncDegradedThreshold: 0 },
       },
     });
