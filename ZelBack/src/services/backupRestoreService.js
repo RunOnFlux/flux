@@ -85,7 +85,11 @@ async function getVolumeDataOfComponent(req, res) {
     const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
     if (authorized === true) {
       const dfInfoData = await IOUtils.getVolumeInfo(appname, component, multiplier, decimal, fields);
-      if (dfInfoData === null) {
+      // Anything empty means the component's volume is not reachable, whatever
+      // shape it arrives in. This asked for null specifically and getVolumeInfo
+      // answered false, so it never fired and a missing mount was reported as a
+      // success carrying no data - which the UI then reads a mount path off.
+      if (!dfInfoData || !dfInfoData.length) {
         throw new Error('No matching mount found');
       }
       const response = messageHelper.createDataMessage(dfInfoData[0]);
