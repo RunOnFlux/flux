@@ -1400,6 +1400,10 @@ describe('fluxCommunication tests', () => {
     let logSpy;
     let daemonServiceStub;
     beforeEach(() => {
+      // Discovery reschedules itself on both its success and failure paths, by
+      // design. Left real, that timer outlives this file and keeps dialling
+      // peers against restored stubs for the rest of the run.
+      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       logSpy = sinon.spy(log, 'warn');
       daemonServiceStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
     });

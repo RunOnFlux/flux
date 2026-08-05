@@ -33,6 +33,13 @@ describe('geolocationService tests', () => {
   };
 
   beforeEach(() => {
+    // The service reschedules itself with setTimeout on every path it takes,
+    // including a ten-second retry when no IP is detected. A real timer there
+    // outlives this file and re-enters the service against restored stubs, so
+    // it reaches the network for the rest of the run. Only setTimeout is faked:
+    // the service reads Date for its IP-change window.
+    sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
+
     // Create stubs
     const mockDb = {
       db: sinon.stub().returns({

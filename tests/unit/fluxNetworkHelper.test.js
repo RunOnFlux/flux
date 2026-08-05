@@ -1401,6 +1401,10 @@ describe('fluxNetworkHelper tests', () => {
     let deterministicFluxnodeListResponse;
 
     beforeEach(() => {
+      // Every path through the check reschedules itself, by design - it is a
+      // poller. Left real, those timers outlive this file and keep re-entering
+      // the check against restored stubs for the rest of the run.
+      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       fluxNetworkHelper.setStoredFluxBenchAllowed('6.2.0');
       fluxNetworkHelper.setLocalSocketAddress('129.3.3.3');
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);

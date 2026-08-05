@@ -523,6 +523,10 @@ describe('idService tests', () => {
     let bitcoinMessageStub;
 
     beforeEach(() => {
+      // A successful login defers stripping the signature from the database by
+      // a minute. Left real, that timer outlives this file and writes to the
+      // database against restored stubs.
+      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       bitcoinMessageStub = sinon.stub(bitcoinMessage, 'verify');
     });
 

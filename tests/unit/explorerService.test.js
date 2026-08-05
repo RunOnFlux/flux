@@ -750,6 +750,10 @@ describe('explorerService tests', () => {
     let daemonServiceMiscRpcsStub;
 
     beforeEach(async () => {
+      // An unsynced daemon makes processBlock retry itself in two minutes. Left
+      // real, that timer outlives this file and re-enters block processing
+      // against restored stubs.
+      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       sinon.stub(dbHelper, 'findOneInDatabase');
       sinon.stub(dbHelper, 'insertManyToDatabase');
       dbStubUpdate = sinon.stub(dbHelper, 'updateOneInDatabase');
