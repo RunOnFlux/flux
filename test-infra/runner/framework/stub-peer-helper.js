@@ -39,6 +39,32 @@ export function stubPeerClient(ip) {
       return stats.promotedFolderRequests ?? [];
     },
 
+    // Send a signed message to every node connected to this peer, framed as any
+    // other broadcast - the receiver validates and stores it through its normal
+    // path, so this is a peer saying something, not a row written behind a
+    // node's back.
+    async broadcast(data) {
+      const res = await fetch(`${controlUrl}/broadcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return res.json();
+    },
+
+    // Claim an app, as a peer that got there first. broadcastedAt decides the
+    // ranking every contender sorts on, so an earlier one makes this peer the
+    // rival the others must stand down behind.
+    async claimApp(name, { broadcastedAt = Date.now() } = {}) {
+      return this.broadcast({
+        type: 'fluxappinstalling',
+        version: 1,
+        name,
+        ip,
+        broadcastedAt,
+      });
+    },
+
     async clear() {
       const res = await fetch(`${controlUrl}/clear`, { method: 'POST' });
       return res.json();

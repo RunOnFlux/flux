@@ -9,7 +9,6 @@ import {
   installingClaimIpsByNode, installingErrorsByNode,
 } from '../framework/reconciler-suite.js';
 import { waitFor } from '../framework/wait.js';
-import { getState, advanceBlocks } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // Withdrawing an installing claim.
@@ -30,34 +29,51 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // The whole fleet shares one /16, so a synced app has one fault domain and a
 // share of one however many nodes want it - exactly one node may hold it.
 //
-// The contention is FORCED, with a partition, rather than raced for. Left to
+// The rival is REAL and it arrives first, rather than being raced for. Left to
 // itself the fleet usually produces no contention at all: the first claim
 // propagates, every other node reads the domain as full and stands aside
 // BEFORE claiming, and a suite that needs losers has none. That is the share
-// gate working, and it is the same gate this branch added - so the better it
-// works, the less often this suite has anything to measure. It failed exactly
-// that way once and passed the next run with nothing changed between.
+// gate working, and it is the gate this branch added - so the better it works,
+// the less often this suite has anything to measure.
 //
-// Split the fleet first and neither half can see the other's claim, so each
-// elects and claims independently. Healing makes both claims visible at once
-// and the loser must retract. The spec is seeded into every node's database
-// directly, so the partition withholds only the claims, never the app.
-
-// Three and three: the smallest split where each half still holds enough peers
-// to elect and claim on its own.
+// The contention is BUILT, not waited for, and nothing here is left to timing.
+//
+// A node claims, waits installCollisionWaitMs, then re-reads and ranks - the
+// loser withdraws at that second read. So two nodes must both reach the claim
+// before either can see the other, which is the race the fleet only sometimes
+// runs on its own: whichever node claims first is visible to the rest, and the
+// share gate then makes them stand aside BEFORE claiming, leaving nothing to
+// withdraw. Planting a rival cannot help for the same reason - a visible rival
+// is exactly what stops a node claiming.
+//
+// Severing the fleet removes the visibility instead. Each half holds nothing,
+// so each half's first node claims; neither half can see the other's claim.
+// Healing inside the collision window puts both claims in front of both nodes
+// at their second read, and the loser withdraws. Every run.
+//
+// The window is widened from the harness default so healing lands well inside
+// it - production waits 90s here and the harness compresses it to 5s, which is
+// too tight to heal within.
 const SIDE_A = [0, 1, 2];
 const SIDE_B = [3, 4, 5];
-
-// config.fluxapps.removeFluxAppsPeriod (11) x the post-PON-fork multiplier (4).
-// The harness runs above the fork height, so the surplus sweep lands every 44th
-// block (explorerService.js, on blocksProcessed).
-const SWEEP_EVERY_BLOCKS = 44;
+const COLLISION_WINDOW_MS = 90 * 1000;
 
 describe('spawner withdraws an installing claim without reporting a failure', function () {
   let env;
   let appName;
   let holder;
   dumpLogsOnFailure(() => env);
+
+  // Every address the fleet has been told gave its claim up. The withdrawal is
+  // a version 2 of the claim's own message, so it arrives on the same event and
+  // names itself.
+  const withdrawnIps = () => new Set(
+    env.clients
+      .flatMap((client) => (client ? client.getEventBuffer() : []))
+      .filter((e) => e.event === 'network:appinstalling'
+        && e.data?.name === appName && e.data?.withdrawn === true)
+      .map((e) => e.data.ip.split(':')[0]),
+  );
 
   before(async function () {
     this.timeout(420000);
@@ -67,12 +83,14 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
       nodes: 6,
       tickerAutostart: false,
       configOverrides: {
-        // Sized to the fleet as it is DURING the partition, which is what the
-        // floors have to clear: split three and three, a node reaches two
-        // addresses. The harness defaults (minOutgoing 4, minUniqueIpsOutgoing 3)
-        // are unreachable then, and a node below them stops spawning - so the
-        // suite would sit waiting for a claim that no node is willing to make.
         fluxapps: {
+          // Long enough that healing the partition lands inside every claimant's
+          // window with room to spare; the ranking that follows is what this
+          // suite reads.
+          installCollisionWaitMs: COLLISION_WINDOW_MS,
+          // Sized to the fleet as it is DURING the sever: three and three, so a
+          // node reaches two addresses. The harness defaults are unreachable
+          // then, and a node under them stops spawning entirely.
           minOutgoing: 2,
           minIncoming: 1,
           minUniqueIpsOutgoing: 2,
@@ -86,45 +104,31 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
       name: appName, mode: 'g', ports: [31171], instances: 1,
     });
 
-    // Sever first, so neither half can see the other half's claim.
+    // Sever first: neither half can see the other's claim, so each half's first
+    // node claims rather than standing aside.
     await env.partitionGroups(SIDE_A, SIDE_B);
     await seedSpawnerApp(env, app);
 
-    // Each side now elects and claims on its own view, which is the contention
-    // this suite is about.
-    //
-    // Waited for in the LOG, not by polling installing locations. A claim is
-    // stored, broadcast, and then ranked against its rivals one collision window
-    // later - five seconds in the harness - so the claims stand for about as
-    // long as a poll interval and reading them from an endpoint is a race the
-    // suite loses. `contended` is written by a node that looked after the wait
-    // and found a rival, which is the state being set up, and it is not what any
-    // assertion below reads.
-    await waitFor(
-      async () => env.clients.some((unused, i) => env.nodeHasLog(i, `Application ${appName} contended`)),
-      {
-        timeout: 240000,
-        interval: 2000,
-        label: 'a node saw a rival claim',
-      },
+    // Both halves have claimed once two distinct claimants have been announced.
+    // Read from the event stream, which reports each claim as it is stored:
+    // the installing-locations endpoint clears a claim the moment its node acts
+    // on it, so a poll of that misses claims that were plainly made.
+    const claimants = () => new Set(
+      env.clients
+        .flatMap((client) => (client ? client.getEventBuffer() : []))
+        .filter((e) => e.event === 'network:appinstalling'
+          && e.data?.name === appName && e.data?.withdrawn !== true)
+        .map((e) => e.data.ip.split(':')[0]),
     );
+    await waitFor(async () => claimants().size >= 2, {
+      timeout: 240000,
+      interval: 2000,
+      label: 'both halves of the severed fleet claimed',
+    });
 
-    // Heal, and the loser is now looking at a rival claim it cannot outrank.
+    // Heal while both are still inside their collision window, so the second
+    // read each of them makes sees the other's claim and ranks against it.
     await env.healPartition(SIDE_A, SIDE_B);
-
-    // Both halves installed while blind to each other, so the fleet is over its
-    // one-instance share - which production reclaims rather than tolerates:
-    // checkAndRemoveApplicationInstance ranks the holders by seniority and the
-    // NEWEST removes itself, so every node names the same surplus without
-    // agreeing anything. It runs on a block boundary, config.fluxapps
-    // .removeFluxAppsPeriod (11) times the post-PON-fork multiplier of 4, and
-    // these heights are past that fork - so every 44th block.
-    //
-    // Advance only the remainder to the next boundary rather than a flat 44:
-    // landing on it is what matters, and half the blocks is half the wait.
-    const { currentHeight } = await getState();
-    const toBoundary = (SWEEP_EVERY_BLOCKS - (currentHeight % SWEEP_EVERY_BLOCKS)) || SWEEP_EVERY_BLOCKS;
-    await advanceBlocks(toBoundary);
 
     // one fault domain, share of one: exactly one node may hold it, and the
     // rest of the fleet claims and stands aside
@@ -137,12 +141,16 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
   });
 
   it('every loser retracts its claim, and the holder keeps its own', function () {
-    const withdrew = env.clients
-      .map((unused, index) => index)
-      .filter((index) => env.nodeHasLog(index, `withdrawing installing claim for ${appName}`));
+    // Read as the network reads it: the retraction is announced, and the
+    // announcement says it is one. A peer that cannot tell a withdrawal from a
+    // claim stands down for a node that already walked away.
+    const withdrew = withdrawnIps();
 
-    expect(withdrew.length, 'a contended app must produce at least one withdrawal').to.be.at.least(1);
-    expect(withdrew, 'the node that installed it never withdrew').to.not.include(holder);
+    expect(withdrew.size, 'a contended app must produce at least one withdrawal').to.be.at.least(1);
+    expect(
+      [...withdrew],
+      'the node that installed it never withdrew',
+    ).to.not.include(getSubnetConfig().nodeIp(holder + 1));
   });
 
   it('clears the withdrawn claim on the PEERS, not just the node that sent it', async function () {
@@ -200,12 +208,11 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
 
     // The nodes that withdrew are the ones a refill would come from, and none of
     // them may be holding it.
-    const withdrew = env.clients
-      .map((unused, index) => index)
-      .filter((index) => env.nodeHasLog(index, `withdrawing installing claim for ${appName}`));
-    expect(withdrew, 'fixture: the partition must have produced a withdrawal').to.not.be.empty;
-    withdrew.forEach((index) => {
-      expect(holders, `node ${index} withdrew and then installed it anyway`).to.not.include(index);
+    const withdrew = withdrawnIps();
+    expect([...withdrew], 'fixture: the sever must have produced a withdrawal').to.not.be.empty;
+    const holderIps = holders.map((index) => getSubnetConfig().nodeIp(index + 1));
+    withdrew.forEach((ip) => {
+      expect(holderIps, `${ip} withdrew and then installed it anyway`).to.not.include(ip);
     });
   });
 });

@@ -31,6 +31,13 @@ const requestLog = [];
 let promotedFolders = { ready: true, folders: [] };
 const promotedFolderRequests = [];
 
+// The nodes currently connected to this peer. Held so the stub can SAY things
+// rather than only answer them: a suite that needs a rival claim, a stale
+// broadcast or a message a real node would never send gets a real peer sending
+// it, signed and over the wire, instead of a row written behind the node's back.
+const connectedNodes = new Set();
+let broadcastsSent = 0;
+
 function hash256(data) {
   return sha256(sha256(data));
 }
@@ -112,6 +119,8 @@ wss.on('headers', (headers) => {
 
 wss.on('connection', (ws) => {
   connectionsReceived++;
+  connectedNodes.add(ws);
+  ws.on('close', () => connectedNodes.delete(ws));
   ws.on('message', (data) => handleMessage(ws, data));
   ws.on('error', () => {});
 });
@@ -172,7 +181,29 @@ const controlServer = http.createServer(async (req, res) => {
         messagesLoaded: messages.size,
         requestLog,
         promotedFolderRequests,
+        broadcastsSent,
+        connectedNodes: connectedNodes.size,
       }));
+      return;
+    }
+
+    // Say something to every node connected right now, signed with this peer's
+    // own key and framed exactly as a real broadcast - so the receiving node
+    // validates it, stores it and acts on it through the path it uses for any
+    // other peer. The caller supplies the whole message, because what makes a
+    // message interesting to a suite is usually the field a real peer would
+    // never get wrong.
+    if (req.method === 'POST' && req.url === '/broadcast') {
+      const body = await readBody(req);
+      const data = JSON.parse(body);
+      const wire = await serialiseAndSignBroadcast(data);
+      let sent = 0;
+      for (const ws of connectedNodes) {
+        if (ws.readyState === 1) { ws.send(wire); sent++; }
+      }
+      broadcastsSent += sent;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', sent, connected: connectedNodes.size }));
       return;
     }
 
@@ -213,6 +244,7 @@ const controlServer = http.createServer(async (req, res) => {
       messagesServed = 0;
       promotedFolderRequests.length = 0;
       promotedFolders = { ready: true, folders: [] };
+      broadcastsSent = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));
       return;
