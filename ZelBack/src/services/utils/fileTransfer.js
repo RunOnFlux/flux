@@ -23,7 +23,10 @@ const log = require('../../lib/log');
  *
  * NOTE: this does not serve range requests. `res.download` did, by way of
  * express, and nothing known asks for them - the dashboard fetches whole files.
- * Accept-Ranges says so rather than leaving a client to discover it.
+ * Accept-Ranges says so rather than leaving a client to discover it. The read
+ * below is already a byte range over the handle, so serving one means clamping
+ * what the client asked for into that start and end, answering 206 with a
+ * Content-Range, and advertising `bytes` here instead.
  *
  * @param {object} res - express response
  * @param {string} filepath - already checked for containment
