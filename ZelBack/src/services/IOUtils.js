@@ -163,6 +163,42 @@ async function getFolderSize(folderPath) {
 }
 
 /**
+ * The size of a whole app volume's directory tree, in bytes. `du` walks it in
+ * one process with bounded memory; getFolderSize recurses in-process and fans
+ * out a Promise per entry at every level, which is fine for the handful of
+ * entries a folder listing shows and unbounded on an app's real data.
+ *
+ * Null rather than false when the size cannot be established: zero is a real
+ * answer for an empty directory, and a falsy sentinel makes the two
+ * indistinguishable at every call site that tests the result for truth.
+ *
+ * @param {string} dirPath - The path of the directory to measure.
+ * @returns {Promise<number|null>} - Size in bytes, or null if it could not be measured.
+ */
+async function getDirectorySizeBytes(dirPath) {
+  try {
+    // argv, not a command string, for the same reason the tar calls are: a path
+    // that reaches this from anywhere a user can name a file would otherwise
+    // turn a directory containing $( ) into arbitrary root execution.
+    const result = await serviceHelper.runCommand('du', {
+      runAsRoot: true,
+      params: ['-sb', dirPath],
+      maxBuffer: 1024 * 64,
+    });
+    if (result.error) {
+      const message = (result.stderr || result.stdout || result.error.message || '').replace(/\n/g, ' ');
+      log.error(`Error measuring directory ${dirPath}: ${message}`);
+      return null;
+    }
+    const bytes = Number.parseInt(result.stdout.trim().split(/\s+/)[0], 10);
+    return Number.isFinite(bytes) ? bytes : null;
+  } catch (error) {
+    log.error(`Error measuring directory ${dirPath}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Retrieves the size of the file at the specified path and formats it with an optional multiplier and decimal places.
  *
  * @param {string} filePath - The path of the file for which the size will be retrieved.
@@ -211,7 +247,11 @@ async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
  * @param {string} multiplier - Unit multiplier for displaying sizes (B, KB, MB, GB).
  * @param {number} decimal - Number of decimal places for precision.
  * @param {string} fields - Optional comma-separated list of fields to include in the response. Possible fields: 'mount', 'size', 'used', 'available', 'capacity', 'filesystem'.
- * @returns {Array|boolean} - Array of objects containing volume information for the specified component, or false if no matching mount is found.
+ * @returns {Promise<Array|null>} - Array of objects containing volume information for the
+ *          specified component, or null when no matching mount is found. df only reports
+ *          MOUNTED filesystems, so null is the answer for an unmounted volume as well as an
+ *          unknown one - callers must treat it as "this component's data is not reachable",
+ *          never as "empty".
  */
 async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
   try {
@@ -258,7 +298,7 @@ async function getVolumeInfo(appname, component, multiplier, decimal, fields) {
     }).filter((entry) => Object.keys(entry).length > 0);
   } catch (error) {
     log.error(error);
-    return false;
+    return null;
   }
 }
 
@@ -424,6 +464,59 @@ async function untarFile(extractPath, tarFilePath) {
 }
 
 /**
+ * Read a gzipped tar without extracting it. One decompression pass, nothing
+ * written to disk and no space consumed, establishing that the archive is
+ * complete and readable BEFORE anything is deleted to make room for its
+ * contents, and yielding the numbers needed to decide whether those contents
+ * will fit.
+ *
+ * The whole stream has to be inflated: gzip's CRC is in the trailing bytes, so
+ * a truncated or corrupt archive cannot be recognised any other way, and the
+ * ISIZE field beside it wraps at 4 GiB - useless on exactly the archives where
+ * the size answer matters. Aggregating in awk keeps the output two numbers wide
+ * however many members the archive holds, which is what keeps the listing of a
+ * file-count-heavy tree from overflowing the read buffer.
+ *
+ * @param {string} tarFilePath - The path of the tarball (tar.gz) file to read.
+ * @returns {Promise<{status: boolean, entries?: number, bytes?: number, error?: string}>}
+ *          entries is the member count; bytes is their total uncompressed size.
+ */
+async function inspectTarGz(tarFilePath) {
+  try {
+    // The aggregation needs a pipeline, so this one does take a shell - but the
+    // path never reaches it as syntax. It is passed as a positional argument and
+    // read as "$1", so a filename containing $( ) is a filename rather than
+    // arbitrary root execution on the node.
+    const listScript = 'set -o pipefail; tar -tzvf "$1" | awk \'{ entries += 1; bytes += $3 } END { print entries+0, bytes+0 }\'';
+    const result = await serviceHelper.runCommand('bash', {
+      runAsRoot: true,
+      params: ['-c', listScript, 'inspectTarGz', tarFilePath],
+      maxBuffer: 1024 * 64,
+    });
+    if (result.error) {
+      const message = (result.stderr || result.stdout || result.error.message || '').replace(/\n/g, ' ');
+      log.error(`Error reading archive: ${message}`);
+      return { status: false, error: message };
+    }
+    const [entries, bytes] = result.stdout.trim().split(/\s+/).map(Number);
+    if (!Number.isFinite(entries) || !Number.isFinite(bytes)) {
+      return { status: false, error: 'archive listing unreadable' };
+    }
+    // The size column is the third field of GNU tar's verbose listing. A listing
+    // that yields members but no bytes is a different tar's column layout, not
+    // an archive of empty files - and reporting zero would let it through a
+    // free-space check it has not been measured against.
+    if (entries > 0 && bytes === 0) {
+      return { status: false, error: 'archive listing not in the expected format' };
+    }
+    return { status: true, entries, bytes };
+  } catch (error) {
+    log.error('Error reading archive:', error);
+    return { status: false, error: error.message };
+  }
+}
+
+/**
  * Creates a tarball (tar.gz) archive from the specified source directory.
  *
  * @param {string} sourceDirectory - The path of the directory to be archived.
@@ -492,7 +585,9 @@ module.exports = {
   convertFileSize,
   downloadFileFromUrl,
   untarFile,
+  inspectTarGz,
   createTarGz,
   removeDirectory,
   getFolderSize,
+  getDirectorySizeBytes,
 };

