@@ -10,9 +10,7 @@ if (process.env.FLUX_TEST_HARNESS !== 'true') {
 
 const WS_PORT = Number(process.env.WS_PORT) || 16127;
 const CONTROL_PORT = Number(process.env.CONTROL_PORT) || 16128;
-const PRIVATE_KEY = process.env.PRIVATE_KEY;
-const PUBLIC_KEY = process.env.PUBLIC_KEY;
-const NODE_IP = process.env.NODE_IP;
+const { PRIVATE_KEY, PUBLIC_KEY, NODE_IP } = process.env;
 
 if (!PRIVATE_KEY || !PUBLIC_KEY) {
   console.error('PRIVATE_KEY and PUBLIC_KEY env vars are required');
@@ -25,6 +23,13 @@ let connectionsReceived = 0;
 let requestsReceived = 0;
 let messagesServed = 0;
 const requestLog = [];
+
+// What this peer answers when a node asks what it is holding, and when it was
+// asked. The arrival times are the point: a node decides promotion for every
+// folder in one monitor pass, so two arrivals milliseconds apart mean it asked
+// once per folder rather than once for the pass.
+let promotedFolders = { ready: true, folders: [] };
+const promotedFolderRequests = [];
 
 function hash256(data) {
   return sha256(sha256(data));
@@ -75,7 +80,7 @@ async function handleMessage(ws, rawData) {
 
     let hashes = [];
     if (data.version === 2 && Array.isArray(data.hashes)) {
-      hashes = data.hashes;
+      ({ hashes } = data);
     } else if (data.version === 1 && typeof data.hash === 'string') {
       hashes = [data.hash];
     }
@@ -115,6 +120,12 @@ const wsServer = http.createServer((req, res) => {
   if (req.url === '/flux/version') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'success', data: '8.0.0' }));
+    return;
+  }
+  if (req.url === '/apps/promotedfolders') {
+    promotedFolderRequests.push(Date.now());
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'success', data: promotedFolders }));
     return;
   }
   res.writeHead(404);
@@ -160,7 +171,20 @@ const controlServer = http.createServer(async (req, res) => {
         messagesServed,
         messagesLoaded: messages.size,
         requestLog,
+        promotedFolderRequests,
       }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/promoted-folders') {
+      const body = await readBody(req);
+      const wanted = JSON.parse(body);
+      promotedFolders = {
+        ready: wanted.ready !== false,
+        folders: Array.isArray(wanted.folders) ? wanted.folders : [],
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', promotedFolders }));
       return;
     }
 
@@ -187,6 +211,8 @@ const controlServer = http.createServer(async (req, res) => {
       connectionsReceived = 0;
       requestsReceived = 0;
       messagesServed = 0;
+      promotedFolderRequests.length = 0;
+      promotedFolders = { ready: true, folders: [] };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));
       return;
