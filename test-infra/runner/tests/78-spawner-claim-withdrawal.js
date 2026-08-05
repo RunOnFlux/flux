@@ -9,6 +9,7 @@ import {
   installingClaimIpsByNode, installingErrorsByNode,
 } from '../framework/reconciler-suite.js';
 import { waitFor } from '../framework/wait.js';
+import { getState, advanceBlocks } from '../framework/daemon-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 // Withdrawing an installing claim.
@@ -46,6 +47,11 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // to elect and claim on its own.
 const SIDE_A = [0, 1, 2];
 const SIDE_B = [3, 4, 5];
+
+// config.fluxapps.removeFluxAppsPeriod (11) x the post-PON-fork multiplier (4).
+// The harness runs above the fork height, so the surplus sweep lands every 44th
+// block (explorerService.js, on blocksProcessed).
+const SWEEP_EVERY_BLOCKS = 44;
 
 describe('spawner withdraws an installing claim without reporting a failure', function () {
   let env;
@@ -105,6 +111,20 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
 
     // Heal, and the loser is now looking at a rival claim it cannot outrank.
     await env.healPartition(SIDE_A, SIDE_B);
+
+    // Both halves installed while blind to each other, so the fleet is over its
+    // one-instance share - which production reclaims rather than tolerates:
+    // checkAndRemoveApplicationInstance ranks the holders by seniority and the
+    // NEWEST removes itself, so every node names the same surplus without
+    // agreeing anything. It runs on a block boundary, config.fluxapps
+    // .removeFluxAppsPeriod (11) times the post-PON-fork multiplier of 4, and
+    // these heights are past that fork - so every 44th block.
+    //
+    // Advance only the remainder to the next boundary rather than a flat 44:
+    // landing on it is what matters, and half the blocks is half the wait.
+    const { currentHeight } = await getState();
+    const toBoundary = (SWEEP_EVERY_BLOCKS - (currentHeight % SWEEP_EVERY_BLOCKS)) || SWEEP_EVERY_BLOCKS;
+    await advanceBlocks(toBoundary);
 
     // one fault domain, share of one: exactly one node may hold it, and the
     // rest of the fleet claims and stands aside
@@ -171,9 +191,21 @@ describe('spawner withdraws an installing claim without reporting a failure', fu
   it('holds at one instance, so a withdrawal does not free the domain to refill', async function () {
     this.timeout(120000);
     // A withdrawal clears a claim. It must not read as "this domain is free
-    // again" and let the nodes that stood aside pile back in.
+    // again" and let the nodes that stood aside pile back in - so the count
+    // holds where the surplus sweep left it, and holds STABLE, which is what
+    // catches a refill rather than a slow reclaim.
     const holders = await waitForInstanceCount(env, appName, 1, { timeout: 60000, stableMs: 30000 });
     expect(holders, 'one fault domain, share of one').to.have.lengthOf(1);
     expect(holders[0], 'the same node still holds it').to.equal(holder);
+
+    // The nodes that withdrew are the ones a refill would come from, and none of
+    // them may be holding it.
+    const withdrew = env.clients
+      .map((unused, index) => index)
+      .filter((index) => env.nodeHasLog(index, `withdrawing installing claim for ${appName}`));
+    expect(withdrew, 'fixture: the partition must have produced a withdrawal').to.not.be.empty;
+    withdrew.forEach((index) => {
+      expect(holders, `node ${index} withdrew and then installed it anyway`).to.not.include(index);
+    });
   });
 });
