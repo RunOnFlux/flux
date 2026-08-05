@@ -80,19 +80,29 @@ async function decryptEnterpriseSpec(spec) {
  * folders, the blocked-image scan would find no images to block, the update
  * check would find nothing to update. All silent.
  *
- * So the result says which apps were read and which were not. A caller that
- * acts on components skips the unreadable ones and says so; a caller that only
- * lists them can put them straight back in the list.
+ * So the result offers two views of one decryption, and the caller says at the
+ * point of use which it needs:
+ *
+ *   readable   only the specs whose components can be read. What a caller that
+ *              ACTS on components takes - it cannot be handed an invalid spec.
+ *   unreadable the specs that did not decrypt, to report or defer.
+ *   inPlace    every spec in the order asked about, unreadable ones left as
+ *              they arrived. What a caller that only DISPLAYS or counts takes -
+ *              an app missing from that list would read as uninstalled.
+ *
+ * One name with named views rather than two near-identical exports: picking the
+ * wrong one of those is silent, and a caller that reaches for the whole result
+ * where an array is meant fails loudly on the first array method instead.
  * @param {Array} apps - Array of app specifications
  * @param {Object} options - Options for decryption
  * @param {boolean} options.formatSpecs - Whether to format specs (strips metadata like hash, height). Default: true
- * @returns {Promise<{apps: Array, unreadable: Array}>} The specs that decrypted,
- *   and the still-encrypted specs that did not
+ * @returns {Promise<{readable: Array, unreadable: Array, inPlace: Array}>}
  */
 async function decryptEnterpriseApps(apps, options = {}) {
   const { formatSpecs = true } = options;
-  const decryptedApps = [];
+  const readable = [];
   const unreadable = [];
+  const inPlace = [];
 
   // eslint-disable-next-line no-restricted-syntax
   for (const spec of apps) {
@@ -106,34 +116,19 @@ async function decryptEnterpriseApps(apps, options = {}) {
 
         // Apply formatting if requested
         const result = formatSpecs ? specificationFormatter(decrypted) : decrypted;
-        decryptedApps.push(result);
+        readable.push(result);
+        inPlace.push(result);
       } catch (error) {
         log.error(`Failed to decrypt enterprise app ${spec.name}: ${error.message}`);
         unreadable.push(spec);
+        inPlace.push(spec);
       }
     } else {
-      decryptedApps.push(spec);
+      readable.push(spec);
+      inPlace.push(spec);
     }
   }
-  return { apps: decryptedApps, unreadable };
-}
-
-/**
- * The apps that decrypted, with the ones that did not put back in the list.
- * For callers that only display or count apps and never read a component: the
- * list is the product, and an app missing from it would read as uninstalled.
- * @param {Array} apps - Array of app specifications
- * @param {Object} [options] - Passed to decryptEnterpriseApps
- * @returns {Promise<Array>} Every app, decrypted where possible
- */
-async function decryptEnterpriseAppsForListing(apps, options = {}) {
-  const { apps: readable, unreadable } = await decryptEnterpriseApps(apps, options);
-  if (!unreadable.length) return readable;
-  // each unreadable spec goes back where it was, so the order a caller sees is
-  // the order it asked about
-  const failed = new Set(unreadable);
-  const decrypted = [...readable];
-  return apps.map((spec) => (failed.has(spec) ? spec : decrypted.shift()));
+  return { readable, unreadable, inPlace };
 }
 
 /**
@@ -478,7 +473,6 @@ async function getAppsMessagesCount(req, res) {
 module.exports = {
   installedApps,
   decryptEnterpriseApps,
-  decryptEnterpriseAppsForListing,
   listRunningApps,
   heldComponents,
   promotedFolders,

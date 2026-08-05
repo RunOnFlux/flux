@@ -229,7 +229,7 @@ async function getLocalComponentSpec(identifier) {
     throw error;
   }
   if (!appSpec) return null;
-  const { apps: [decryptedSpec] } = await appQueryService
+  const { readable: [decryptedSpec] } = await appQueryService
     .decryptEnterpriseApps([appSpec], { formatSpecs: false });
   if (!decryptedSpec) {
     // Decryption failed (e.g. the enterprise key isn't loaded yet at boot). Never
@@ -969,7 +969,7 @@ function enqueue(rawIdentifier) {
 async function enqueueAll(reason = 'resync') {
   const res = await appQueryService.installedApps();
   if (!res || res.status !== 'success') return;
-  const { apps, unreadable } = await appQueryService.decryptEnterpriseApps(res.data, { formatSpecs: false });
+  const { readable: apps, unreadable } = await appQueryService.decryptEnterpriseApps(res.data, { formatSpecs: false });
   let count = 0;
   let dockerNames = null; // fetched once, only if some app failed to decrypt
   // Decryption failed (already logged by decryptEnterpriseApps). The component

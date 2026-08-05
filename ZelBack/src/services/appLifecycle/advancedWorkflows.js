@@ -37,7 +37,7 @@ const mountParser = require('../utils/mountParser');
 const appReconciler = require('../appMonitoring/appReconciler');
 const appsRuntimeState = require('../appManagement/appsRuntimeState');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
-const { decryptEnterpriseAppsForListing } = require('../appQuery/appQueryService');
+const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const globalState = require('../utils/globalState');
 const appNetworkLinker = require('./appNetworkLinker');
 
@@ -96,7 +96,7 @@ async function getInstalledAppsFromDb(options = {}) {
     };
     let apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (decryptApps) {
-      apps = await decryptEnterpriseAppsForListing(apps, { formatSpecs: false });
+      ({ inPlace: apps } = await decryptEnterpriseApps(apps, { formatSpecs: false }));
     }
     return messageHelper.createDataMessage(apps);
   } catch (error) {
@@ -3586,7 +3586,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
     }
 
     // Decrypt enterprise apps (version 8 with encrypted content)
-    appsInstalled.data = await decryptEnterpriseAppsForListing(appsInstalled.data);
+    ({ inPlace: appsInstalled.data } = await decryptEnterpriseApps(appsInstalled.data));
     const runningAppsNames = runningApps.map((app) => {
       if (app.Names[0].startsWith('/zel')) {
         return app.Names[0].slice(4);

@@ -72,7 +72,7 @@ describe('appStartupManager tests', () => {
 
     appQueryServiceStub = {
       installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
-      decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps),
+      decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
     };
 
     appUtilities = proxyquire('../../ZelBack/src/services/utils/appUtilities', {
@@ -555,9 +555,6 @@ describe('appStartupManager tests', () => {
     });
 
     it('should remove all apps on sync timeout', async () => {
-      const bootContext = {
-        machineRebooted: true, downtimeMs: 60000, cleanShutdown: false,
-      };
       // waitForDbReady never resolves — simulate timeout
       globalStateStub.waitForDbReady = sinon.stub().returns(new Promise(() => {}));
       appQueryServiceStub.installedApps.resolves({

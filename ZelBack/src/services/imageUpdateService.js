@@ -364,7 +364,7 @@ async function checkForImageUpdates() {
     }
 
     // Decrypt enterprise apps (version 8 with encrypted content)
-    const { apps, unreadable } = await appQueryService.decryptEnterpriseApps(installedAppsResponse.data, { formatSpecs: false });
+    const { readable: apps, unreadable } = await appQueryService.decryptEnterpriseApps(installedAppsResponse.data, { formatSpecs: false });
     if (unreadable.length) {
       // their images are inside the blob - checking them would find none and
       // read as up to date

@@ -120,7 +120,7 @@ describe('appQueryService tests', () => {
     it('returns non-enterprise apps unchanged without decrypting', async () => {
       const apps = [{ name: 'plain', version: 4 }];
       const result = await appQueryService.decryptEnterpriseApps(apps, { formatSpecs: false });
-      expect(result.apps).to.deep.equal(apps);
+      expect(result.readable).to.deep.equal(apps);
       expect(result.unreadable).to.deep.equal([]);
       expect(enterpriseHelperStub.checkAndDecryptAppSpecs.called).to.be.false;
     });
@@ -135,7 +135,7 @@ describe('appQueryService tests', () => {
 
       const result = await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
 
-      expect(result.apps).to.deep.equal([]);
+      expect(result.readable).to.deep.equal([]);
       expect(result.unreadable).to.deep.equal([enterpriseApp]);
     });
 
@@ -146,7 +146,7 @@ describe('appQueryService tests', () => {
 
       const result = await appQueryService.decryptEnterpriseApps([plain, enterpriseApp], { formatSpecs: false });
 
-      expect(result.apps).to.deep.equal([plain]);
+      expect(result.readable).to.deep.equal([plain]);
       expect(result.unreadable).to.deep.equal([enterpriseApp]);
     });
 
@@ -157,11 +157,16 @@ describe('appQueryService tests', () => {
       enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
       enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('enterpriseKey is mandatory'));
 
-      const listed = await appQueryService.decryptEnterpriseAppsForListing(
+      const { inPlace, readable, unreadable } = await appQueryService.decryptEnterpriseApps(
         [first, enterpriseApp, last], { formatSpecs: false },
       );
 
-      expect(listed).to.deep.equal([first, enterpriseApp, last]);
+      // inPlace keeps the caller's order with the unreadable spec where it was;
+      // readable is the same list minus it, so an acting caller cannot be handed
+      // a spec whose components are still inside the blob
+      expect(inPlace).to.deep.equal([first, enterpriseApp, last]);
+      expect(readable).to.deep.equal([first, last]);
+      expect(unreadable).to.deep.equal([enterpriseApp]);
     });
 
     // Call-volume contract: with many components in defer loops, benchd must
@@ -187,8 +192,8 @@ describe('appQueryService tests', () => {
         const [r1, r2] = await Promise.all([p1, p2]);
 
         expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'concurrent callers must share one benchd attempt').to.equal(1);
-        expect(r1.apps[0].compose).to.have.lengthOf(1);
-        expect(r2.apps[0].compose).to.have.lengthOf(1);
+        expect(r1.readable[0].compose).to.have.lengthOf(1);
+        expect(r2.readable[0].compose).to.have.lengthOf(1);
       });
 
       it('remembers a decryption failure briefly - retries inside the window skip benchd', async () => {

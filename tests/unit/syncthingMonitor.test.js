@@ -83,7 +83,7 @@ const syncthingHealthMonitorMock = {
 const appQueryServiceMock = {
   // default: nothing to decrypt, so the list comes back as-is. callsFake rather
   // than returnsArg so a test can override it - sinon resolves returnsArg first
-  decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ apps, unreadable: [] })),
+  decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
 };
 
 const syncthingEventsConsumerMock = {
@@ -193,7 +193,7 @@ describe('syncthingMonitor tests', () => {
     syncthingMonitorHelpersMock.ensureStfolderExists.resolves(true);
 
     appQueryServiceMock.decryptEnterpriseApps.reset();
-    appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ apps, unreadable: [] }));
+    appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps }));
 
     livenessMock.prewarm.reset();
     livenessMock.prewarm.resolves();
@@ -886,8 +886,9 @@ describe('syncthingMonitor tests', () => {
         name: 'entapp', version: 8, enterprise: 'ENCRYPTED-BLOB', compose: [],
       };
       appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({
-        apps: apps.filter((app) => app !== entapp),
+        readable: apps.filter((app) => app !== entapp),
         unreadable: apps.filter((app) => app === entapp),
+        inPlace: apps,
       }));
       mockInstalledAppsFn.resolves({ status: 'success', data: [entapp] });
       syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'fluxweb_entapp', type: 'sendreceive' }] });
@@ -905,8 +906,9 @@ describe('syncthingMonitor tests', () => {
         name: 'entapp', version: 8, enterprise: 'ENCRYPTED-BLOB', compose: [],
       };
       appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({
-        apps: apps.filter((app) => app !== entapp),
+        readable: apps.filter((app) => app !== entapp),
         unreadable: apps.filter((app) => app === entapp),
+        inPlace: apps,
       }));
       mockInstalledAppsFn.resolves({ status: 'success', data: [entapp] });
       syncthingServiceMock.getConfigFolders.resolves({
@@ -937,8 +939,9 @@ describe('syncthingMonitor tests', () => {
         name: 'entapp', version: 8, enterprise: 'ENCRYPTED-BLOB', compose: [],
       };
       appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({
-        apps: apps.filter((app) => app !== entapp),
+        readable: apps.filter((app) => app !== entapp),
         unreadable: apps.filter((app) => app === entapp),
+        inPlace: apps,
       }));
       mockInstalledAppsFn.resolves({ status: 'success', data: [entapp] });
       syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['fluxweb_entapp']);

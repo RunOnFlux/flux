@@ -513,7 +513,7 @@ describe('advancedWorkflows tests', () => {
 
       // Stub decryptEnterpriseApps to return apps as-is
       const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
-      sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake((apps) => Promise.resolve(apps));
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake((apps) => Promise.resolve({ readable: apps, unreadable: [], inPlace: apps }));
 
       // Stub database connection to prevent actual DB access
       sinon.stub(dbHelper, 'databaseConnection').returns({

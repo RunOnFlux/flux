@@ -418,7 +418,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // every app on the node, and stop publishing the writable-folder answer its
     // peers block on - for as long as one app stays unreadable.
     const decrypted = await decryptEnterpriseApps(appsInstalled.data);
-    appsInstalled.data = decrypted.apps;
+    appsInstalled.data = decrypted.readable;
     const unreadableAppNames = new Set(decrypted.unreadable.map((app) => app.name));
     if (unreadableAppNames.size) {
       log.warn(`syncthingAppsCore - folders of undecryptable apps are protected this pass: ${[...unreadableAppNames].join(', ')}`);

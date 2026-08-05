@@ -68,7 +68,7 @@ describe('appReconciler tests', () => {
         clearNetworkHeal: sinon.stub().resolves(),
       },
       appQueryService: {
-        decryptEnterpriseApps: sinon.stub().callsFake(async (arr) => ({ apps: arr, unreadable: [] })),
+        decryptEnterpriseApps: sinon.stub().callsFake(async (arr) => ({ readable: arr, unreadable: [], inPlace: arr })),
         installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
       },
       containerHealthMonitor: { recreateMissingContainers: sinon.stub().resolves() },
@@ -744,8 +744,9 @@ describe('appReconciler tests', () => {
         name: 'App', version: 8, enterprise: 'CIPHERTEXT', compose: [{ name: 'db', containerData: '' }],
       };
       stubs.appQueryService.decryptEnterpriseApps.callsFake(async () => ({
-        apps: [{ name: 'App', version: 8, compose: [{ name: 'db', containerData: 'g:/data' }] }],
+        readable: [{ name: 'App', version: 8, compose: [{ name: 'db', containerData: 'g:/data' }] }],
         unreadable: [],
+        inPlace: [{ name: 'App', version: 8, compose: [{ name: 'db', containerData: 'g:/data' }] }],
       }));
       await appReconciler.reconcile('db_App');
       // treated as g: from the DECRYPTED containerData -> not started without a controller.
@@ -758,7 +759,7 @@ describe('appReconciler tests', () => {
         name: 'App', version: 8, enterprise: 'CIPHERTEXT', compose: [{ name: 'db', containerData: '' }],
       };
       // an unreadable spec (e.g. key not loaded at boot) must defer, never act
-      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({ apps: [], unreadable: arr }));
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({ readable: [], unreadable: arr, inPlace: arr }));
       await appReconciler.reconcile('db_App'); // must not throw
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
@@ -792,7 +793,7 @@ describe('appReconciler tests', () => {
       const decrypted = { ...stored, compose: [{ name: 'c1', containerData: '/data' }, { name: 'c2', containerData: '/data' }] };
       stubs.appQueryService.installedApps.resolves({ status: 'success', data: [stored] });
       stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => (query.name === 'EntApp' ? stored : null));
-      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({ apps: arr.map((a) => (a.enterprise ? decrypted : a)), unreadable: [] }));
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({ readable: arr.map((a) => (a.enterprise ? decrypted : a)), unreadable: [], inPlace: arr.map((a) => (a.enterprise ? decrypted : a)) }));
 
       const started = [];
       stubs.dockerService.appDockerStart.callsFake(async (id) => { started.push(id); });
@@ -811,8 +812,9 @@ describe('appReconciler tests', () => {
       // benchd unavailable: the spec is reported unreadable, never handed back
       // as an app with no components
       stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({
-        apps: arr.filter((a) => !a.enterprise),
+        readable: arr.filter((a) => !a.enterprise),
         unreadable: arr.filter((a) => a.enterprise),
+        inPlace: arr,
       }));
       // the app's existing containers, plus an unrelated app's container that
       // this fallback must NOT sweep in (it is not part of the failed app)
@@ -848,8 +850,9 @@ describe('appReconciler tests', () => {
       stubs.appQueryService.installedApps.resolves({ status: 'success', data: [ent, plain] });
       stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => byName[query.name] ?? null);
       stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({
-        apps: arr.filter((a) => !a.enterprise),
+        readable: arr.filter((a) => !a.enterprise),
         unreadable: arr.filter((a) => a.enterprise),
+        inPlace: arr,
       }));
       stubs.dockerService.dockerListContainers.resolves([{ Names: ['/fluxc1_EntApp'] }]);
 
