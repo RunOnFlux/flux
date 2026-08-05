@@ -6,10 +6,12 @@
 // its own. A handler that skips a check does not produce an unsafe endpoint - it
 // produces code that does not run.
 //
-// The two download endpoints below still stream from the host. They are reads
-// rather than writes, and do not map onto "run a command and collect an exit
-// code" - the process IS the response body - so moving them onto the executor
-// means choosing a different shape for them first.
+// The two download endpoints are the exception, and deliberately so. They are
+// reads: opening a file has no side effects, so the file can be opened and the
+// DESCRIPTOR checked before a byte is sent, which is a stronger guarantee than
+// re-checking a name that may since have come to mean something else. A write
+// commits the moment it opens, which is why an upload cannot be made safe that
+// way and runs in the container like everything else.
 const archiver = require('archiver');
 const { PassThrough } = require('stream');
 const path = require('path');
@@ -21,6 +23,7 @@ const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
 const { sanitizePath, verifyRealPath, validateFilename } = require('../utils/pathSecurity');
 const { openVolume, SPACE_HEADROOM } = require('./volumeSession');
+const { sendFile } = require('../utils/fileTransfer');
 const executor = require('./volumeExecutor');
 const jobRegistry = require('../utils/jobRegistry');
 const operationsController = require('../appManagement/operationsController');
@@ -244,14 +247,8 @@ async function downloadAppsFile(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      const chmodResult = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['777', filepath] });
-      if (chmodResult.error) {
-        throw chmodResult.error;
-      }
-      // beautify name
-      const fileNameArray = filepath.split('/');
-      const fileName = fileNameArray[fileNameArray.length - 1];
-      res.download(filepath, fileName, { dotfiles: 'allow' });
+      const fileName = path.basename(filepath);
+      await sendFile(res, filepath, fileName);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -650,15 +647,25 @@ async function uploadAppsFiles(req, res) {
 
   try {
     volume = await openVolume(req);
-    // Resolved once, before anything is received: an upload into a folder that
-    // does not exist, or that resolves outside the volume, is refused while the
-    // caller can still be told about it.
-    await volume.resolve(folder, { allowRoot: true, mustExist: true });
+    // Resolved once, before anything is received, so a folder that resolves
+    // outside the volume is refused while the caller can still be told.
+    const target = await volume.resolve(folder, { allowRoot: true });
 
-    // One slot for the request. Taken before the first byte is read so a caller
-    // with no slot is refused with a 503 and a Retry-After rather than after
-    // uploading a gigabyte.
+    // One slot for the request. Taken before the first byte is read, so a
+    // caller with no slot is refused with a 503 and a Retry-After rather than
+    // after uploading a gigabyte.
     releaseSlot = executor.acquireSlot(volume.identifier);
+
+    // Created if it is not there. The restore flow uploads into backup/upload
+    // on volumes that have never held a restore, so an upload has always
+    // brought its own destination into existence.
+    const present = await volume.isDirectory(target).catch(() => null);
+    if (present === false) {
+      throw new Error('Upload destination is not a folder');
+    }
+    if (present === null) {
+      await executor.run(volume, ['mkdir', '-p', target], { slotHeld: true });
+    }
   } catch (error) {
     if (releaseSlot) releaseSlot();
     fail(error);
@@ -683,7 +690,7 @@ async function uploadAppsFiles(req, res) {
       return;
     }
     try {
-      const name = validateFilename(file.originalFilename);
+      const name = validateFilename(uploadNames.get(file));
       const destination = await volume.resolve(path.posix.join(folder, name));
       const staging = volume.staging();
 
@@ -723,7 +730,18 @@ async function uploadAppsFiles(req, res) {
     },
   });
 
+  // An explicit filename parameter wins over the form field name, which is what
+  // the restore flow relies on to name the archive it uploads. Read here rather
+  // than from the file object because formidable does not put the field name on
+  // one - fileBegin is the only place it is available, and it fires immediately
+  // before the write stream is asked for.
+  const requestedFilename = req.params.filename || req.query.filename || '';
+  const uploadNames = new WeakMap();
+
   form
+    .on('fileBegin', (name, file) => {
+      uploadNames.set(file, requestedFilename || name);
+    })
     .on('progress', (bytesReceived, bytesExpected) => {
       try {
         res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));

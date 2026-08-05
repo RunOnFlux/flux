@@ -2,7 +2,7 @@ const log = require('../lib/log');
 const path = require('path');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
-const serviceHelper = require('./serviceHelper');
+const { sendFile } = require('./utils/fileTransfer');
 const IOUtils = require('./IOUtils');
 const fs = require('fs').promises;
 const { sanitizePath, verifyRealPath } = require('./utils/pathSecurity');
@@ -271,11 +271,7 @@ async function downloadLocalFile(req, res) {
       await verifyRealPath(filepath, appsFolder);
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
-      const chmodResult = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['777', filepath] });
-      if (chmodResult.error) {
-        throw chmodResult.error;
-      }
-      return res.download(filepath, fileName);
+      return await sendFile(res, filepath, fileName);
       // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
