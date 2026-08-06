@@ -1,0 +1,108 @@
+import { readdirSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// ---- host-wide boot semaphore ----
+// Fleet boot is the only CPU-heavy phase a suite has: every node in the fleet
+// starts its own dockerd and runs FluxOS DB prep at once. When two suites' boots
+// overlap under run-parallel.sh, they starve each other and a healthy node can
+// blow its event-wait budget while merely slow (observed in the 42-suite gate:
+// suite 22's second fleet booted at load ~15 on 16 cores and mongo collection
+// prep crawled at 7-17s a step). Running fleets are cheap, so serialise just the
+// boot phase host-wide and let everything else overlap.
+//
+// The queue is ORDERED BY ARRIVAL, and that is the whole point. A protocol that
+// has every waiter race the same atomic create when the lock frees serves whoever
+// wakes first, not whoever waited longest, so a suite can lose that race without
+// bound while its siblings cycle through boots around it: observed in the
+// 2026-08-06 gate, where suite 13 sat 30 minutes through repeated fleet boots by
+// other suites and was killed by the runner's wall-clock backstop with 18 of its
+// 19 tests already passed. Arrival order makes starvation structural rather than
+// statistical - the queue drains in the order it formed.
+//
+// Each waiter owns one ticket file named `<arrivalMs>-<pid>`. The holder is the
+// lowest live ticket. The pid is IN THE NAME so a ticket is created by a single
+// atomic operation and can never be read half-written; a ticket whose process is
+// gone is removed by whichever waiter notices, which is what reclaims the queue
+// after a suite is killed mid-boot.
+export const BOOT_LOCK_DIR = process.env.E2E_BOOT_LOCK_DIR ?? join(tmpdir(), 'e2e-boot-lock');
+const BOOT_LOCK_POLL_MS = Number(process.env.E2E_BOOT_LOCK_POLL_MS ?? 250);
+// Generous against a FIFO queue: the worst honest wait is the suites ahead of you
+// times one boot, so ~5 boots at MAXN=6. Reaching this means the queue is wedged,
+// not busy, and it stays well inside run-all.sh's 1800s per-suite backstop so the
+// failure is reported by the lock rather than by a SIGKILL that explains nothing.
+export const BOOT_LOCK_MAX_WAIT_MS = Number(process.env.E2E_BOOT_LOCK_MAX_WAIT_MS ?? 600000);
+
+const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+// Arrival stamps are wall-clock because they are compared ACROSS processes, and a
+// monotonic clock has a per-process origin so its values are not comparable
+// between them. Elapsed time is measured monotonically below, which is what a
+// deadline actually needs.
+const ticketOrder = (name) => {
+  const [ms, pid] = name.split('-');
+  return [Number(ms), Number(pid)];
+};
+
+// The live queue in service order. Tickets whose process is gone are removed on
+// sight, which is what lets the queue drain past a suite killed mid-boot.
+export function bootQueue() {
+  let names;
+  try {
+    names = readdirSync(BOOT_LOCK_DIR);
+  } catch {
+    return [];
+  }
+  const live = [];
+  for (const name of names.filter((n) => /^\d+-\d+$/.test(n))) {
+    const [, pid] = ticketOrder(name);
+    if (pid === process.pid) { live.push(name); continue; }
+    try {
+      process.kill(pid, 0);
+      live.push(name);
+    } catch {
+      try { rmSync(join(BOOT_LOCK_DIR, name), { force: true }); } catch { /* raced */ }
+    }
+  }
+  return live.sort((a, b) => {
+    const [ams, apid] = ticketOrder(a);
+    const [bms, bpid] = ticketOrder(b);
+    return ams - bms || apid - bpid;
+  });
+}
+
+let heldTicket = null;
+
+export async function acquireBootLock() {
+  mkdirSync(BOOT_LOCK_DIR, { recursive: true });
+  const ticket = `${Date.now()}-${process.pid}`;
+  writeFileSync(join(BOOT_LOCK_DIR, ticket), '');
+  heldTicket = ticket;
+  const startedAt = process.hrtime.bigint();
+  for (;;) {
+    const queue = bootQueue();
+    if (queue[0] === ticket) return;
+    const waitedMs = Number((process.hrtime.bigint() - startedAt) / 1000000n);
+    if (waitedMs > BOOT_LOCK_MAX_WAIT_MS) {
+      const ahead = queue.indexOf(ticket);
+      const holder = queue[0] ? ticketOrder(queue[0])[1] : 'none';
+      releaseBootLock();
+      throw new Error(
+        `boot lock: waited ${Math.round(waitedMs / 1000)}s for ${BOOT_LOCK_DIR}, `
+        + `still ${ahead < 0 ? 'unknown' : ahead} ahead in the queue (holder pid ${holder}). `
+        + 'The queue is wedged, not merely busy.',
+      );
+    }
+    await sleep(BOOT_LOCK_POLL_MS);
+  }
+}
+
+export function releaseBootLock() {
+  if (!heldTicket) return;
+  try {
+    rmSync(join(BOOT_LOCK_DIR, heldTicket), { force: true });
+  } catch {
+    // already released or reclaimed
+  }
+  heldTicket = null;
+}

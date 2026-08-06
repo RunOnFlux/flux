@@ -19,6 +19,7 @@ import { closeDb } from './db-client.js';
 import {
   clearInfraDeath, infraDeathError, reportInfraDeath, sleepUnlessInfraDead,
 } from './infra-death.js';
+import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-lock.js';
 import { stubPeerClient } from './stub-peer-helper.js';
 import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
@@ -527,58 +528,6 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
   }
 }
 
-// ---- host-wide boot semaphore ----
-// Fleet boot is the only CPU-heavy phase a suite has: every node in the fleet
-// starts its own dockerd and runs FluxOS DB prep at once. When two suites' boots
-// overlap under run-parallel.sh, they starve each other and a healthy node can
-// blow its event-wait budget while merely slow (observed in the 42-suite gate:
-// suite 22's second fleet booted at load ~15 on 16 cores and mongo collection
-// prep crawled at 7-17s a step). Running fleets are cheap, so serialise just the
-// boot phase host-wide and let everything else overlap. The claim protocol
-// mirrors the subnet claim in run-all.sh: an atomic mkdir holding the owner pid,
-// reclaimable by any waiter once the owner process is dead.
-const BOOT_LOCK_DIR = process.env.E2E_BOOT_LOCK_DIR ?? join(tmpdir(), 'e2e-boot-lock');
-
-const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
-
-async function acquireBootLock() {
-  for (;;) {
-    try {
-      mkdirSync(BOOT_LOCK_DIR);
-      writeFileSync(join(BOOT_LOCK_DIR, 'pid'), String(process.pid));
-      return;
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err;
-    }
-    let owner = 0;
-    try {
-      owner = Number(readFileSync(join(BOOT_LOCK_DIR, 'pid'), 'utf-8'));
-    } catch {
-      // claimer is between mkdir and pid write — treat as live and wait
-    }
-    if (owner) {
-      try {
-        process.kill(owner, 0);
-      } catch {
-        // owner is dead — reclaim; if a sibling reclaims first, the next
-        // mkdir attempt just loses the race and waits
-        rmSync(BOOT_LOCK_DIR, { recursive: true, force: true });
-        continue;
-      }
-    }
-    await sleep(1000);
-  }
-}
-
-function releaseBootLock() {
-  try {
-    const owner = Number(readFileSync(join(BOOT_LOCK_DIR, 'pid'), 'utf-8'));
-    if (owner === process.pid) rmSync(BOOT_LOCK_DIR, { recursive: true, force: true });
-  } catch {
-    // already released or reclaimed
-  }
-}
-
 // A node is ready when it can SERVE AUTH, not merely HTTP: the first thing every
 // suite does against a fresh or restarted node is authenticate (startDiscovery),
 // and /id/loginphrase needs the mongo connection, which comes up after express
@@ -604,13 +553,20 @@ export async function createTestEnv({
   // MID-QUEUE whenever the queue alone outlasts the budget), and a completion-time
   // duration check that fails any hook whose TOTAL elapsed time exceeds the
   // timeout VALUE — so merely re-setting the same value re-arms the watchdog but
-  // still fails the hook once it completes. Disable the timeout while queued
-  // (queue liveness is the lock's own job: a dead owner's claim is reclaimed),
-  // then set declared + queued: that value passes the duration check with exactly
-  // the declared budget left for the boot, and setting it re-arms the watchdog.
+  // still fails the hook once it completes. Widen it to cover the longest wait the
+  // lock itself will tolerate, then set declared + queued once through: that value
+  // passes the duration check with exactly the declared budget left for the boot,
+  // and setting it re-arms the watchdog.
+  //
+  // Widened, never DISABLED. A hook with no timeout has no failure mode, only a
+  // silence: with the timeout off, a waiter that never reached the front of the
+  // queue hung until the runner's 1800s SIGKILL, which reports as rc=125 and
+  // discards every test the suite had already passed. The slack below keeps the
+  // lock's own deadline the one that fires, so the error names the queue instead
+  // of being an anonymous mocha timeout.
   // Hooks that disabled their timeout (0) are left disabled.
   const declaredMs = (hookCtx && typeof hookCtx.timeout === 'function') ? hookCtx.timeout() : 0;
-  if (declaredMs > 0) hookCtx.timeout(0);
+  if (declaredMs > 0) hookCtx.timeout(declaredMs + BOOT_LOCK_MAX_WAIT_MS + 30000);
   const queuedFrom = process.hrtime.bigint();
   await acquireBootLock();
   if (declaredMs > 0) {
