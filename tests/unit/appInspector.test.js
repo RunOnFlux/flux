@@ -1449,6 +1449,26 @@ describe('appInspector tests', () => {
     // the wall clock the charts plot
     const monotonicNow = () => Number(process.hrtime.bigint() / 1000000n);
 
+    // The monotonic clock counts from system boot, so a sample described as five
+    // minutes old is only expressible on a host that has been up that long - on a
+    // younger one it lands before the origin, falls outside the decision window,
+    // and the throttler is asked to decide on fewer samples than it was given.
+    // These tests are about which decisions a window of samples produces, so the
+    // clock is pinned to a host of a settled age and the arithmetic stops
+    // depending on the machine that happens to be running them.
+    const hostUpMs = 6 * 60 * 60 * 1000;
+    let realHrtimeBigint;
+
+    beforeEach(() => {
+      realHrtimeBigint = process.hrtime.bigint;
+      const origin = realHrtimeBigint();
+      process.hrtime.bigint = () => BigInt(hostUpMs) * 1000000n + (realHrtimeBigint() - origin);
+    });
+
+    afterEach(() => {
+      process.hrtime.bigint = realHrtimeBigint;
+    });
+
     function cpuSample(ratio, minutesAgo) {
       return {
         timestamp: Date.now() - minutesAgo * 60 * 1000,
