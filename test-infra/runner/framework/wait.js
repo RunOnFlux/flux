@@ -151,8 +151,13 @@ export async function waitForAppRunning(node, appName, timeout = 60000) {
   return node.waitForEvent('app:running', (d) => d.apps?.some((a) => a.name === appName), timeout);
 }
 
-export async function waitForPeersRemoved(node, predicate = () => true, timeout = 30000) {
-  return node.waitForEvent('peers:removed', predicate, timeout);
+// The payload carries outbound/inbound/total as they stand after the removal, so
+// a caller can wait on the COUNT rather than on any particular peer leaving.
+// Pass { afterId } from getLastEventId() before the change is triggered: the
+// buffer holds every removal since boot, and without an anchor a wait for
+// total === 0 can match one of those and pass without observing anything.
+export async function waitForPeersRemoved(node, predicate = () => true, timeout = 30000, opts) {
+  return node.waitForEvent('peers:removed', predicate, timeout, opts);
 }
 
 // --- reconciler (appReconciler) ---
