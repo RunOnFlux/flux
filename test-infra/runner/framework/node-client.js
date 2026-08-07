@@ -374,11 +374,15 @@ export function nodeClient(nodeNum) {
     // Backup/restore drive the whole-app lease (B1). The endpoints stream chunked
     // progress and the returned promise resolves when the task FINISHES - so a
     // suite holds the lease window by simply not awaiting yet.
-    appendBackupTask: async (appname, components, zelidauth) => {
+    // `force` is API-only by design: the UI cannot send it, which is the right
+    // shape for an override that archives a copy known to be incomplete.
+    appendBackupTask: async (appname, components, zelidauth, { force = false } = {}) => {
+      const body = { appname, backup: components.map((component) => ({ component, backup: true })) };
+      if (force) body.force = true;
       const res = await fetch(`${url}/apps/appendbackuptask`, {
         method: 'POST',
         headers: { zelidauth, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appname, backup: components.map((component) => ({ component, backup: true })) }),
+        body: JSON.stringify(body),
       });
       return res.text();
     },

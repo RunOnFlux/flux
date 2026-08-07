@@ -860,17 +860,6 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       }
     }
 
-    // Check if Syncthing restart is needed
-    const restartRequired = await syncthingService.getConfigRestartRequired();
-    if (restartRequired?.status !== 'success') {
-      log.warn(`syncthingAppsCore - could not read restart-required state: ${restartRequired?.data?.message || 'malformed response'}; next pass re-checks`);
-    } else if (restartRequired.data.requiresRestart === true) {
-      log.info('syncthingAppsCore - New configuration applied. Syncthing restart required, restarting...');
-      const restartResponse = await syncthingService.systemRestart();
-      if (restartResponse?.status !== 'success') {
-        log.error(`syncthingAppsCore - syncthing restart request failed: ${restartResponse?.data?.message || 'unknown error'}; next pass re-checks`);
-      }
-    }
   } catch (error) {
     log.error(`syncthingAppsCore - Error in sync monitoring: ${error.message}`);
     log.error(error.stack);
