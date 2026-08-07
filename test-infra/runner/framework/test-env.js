@@ -21,6 +21,7 @@ import {
 } from './infra-death.js';
 import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-lock.js';
 import { stubPeerClient } from './stub-peer-helper.js';
+import { derivePeerThresholds } from './peer-topology.js';
 import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
@@ -841,6 +842,14 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       // unreachable, and the fetch stalls the spawn attempt rather than failing
       // it - the app is simply never installed, with nothing logged.
       policy: { baseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      // Peer thresholds follow the fleet, so a suite declares a shape and never a
+      // constant. The production values assume a network large enough to carry
+      // them; a smaller fleet cannot, and asking it to is what leaves a node short
+      // of a door it can never open. Derived here rather than in the suites so
+      // there is nothing to remember and nothing to keep in step - see
+      // peer-topology.js. A suite TESTING a threshold sets its own in
+      // configOverrides, which merges over this and wins.
+      fluxapps: derivePeerThresholds(nodes, stubPeers.length),
     };
     const nodeConfig = mergeConfigs(infraOverride, mergeConfigs(configOverrides, nodeConfigOverrides[i]));
     nodeEnv.NODE_CONFIG = JSON.stringify(nodeConfig);

@@ -17,6 +17,7 @@ import {
 } from './wait.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
+import { dialerCount, expectedPeerTotal } from './peer-topology.js';
 import { setSynced, setSyncState, setNoPeerData } from './syncthing-control.js';
 import { execInContainer } from './container.js';
 
@@ -154,28 +155,41 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
     await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
   }
   await env.startDiscovery();
-  // A node cannot peer with itself, so a fleet of N has a ceiling of N-1. The
-  // defaults are the values the ten-node spawner suites have always used
-  // (min(4, 9) = 4, min(2, 9) = 2, so their behaviour is unchanged); a smaller
-  // fleet drops to its own ceiling rather than waiting out the timeout on a
-  // constant it can never reach. Peering is a property of the fleet, not a
-  // literal.
-  const ceiling = Math.max(env.clients.length - 1, 1);
+  // Peering is a property of the fleet, not a literal. The ring's two halves are
+  // disjoint only when dialers >= 2k+1 (peer-topology.js), and the fleet's own
+  // config is derived to satisfy that, so outbound and inbound both settle at k.
+  // A suite may still ask for its own numbers; they are capped by what a fleet of
+  // this size can hold rather than waiting out a timeout on an impossible one.
+  // Stubs are excluded: a stub holds a ring slot but supplies no connection.
+  const dialers = dialerCount(env.clients.length, env.stubPeerClients?.size ?? 0);
+  const ceiling = Math.max(dialers - 1, 1);
   const outboundTarget = minOutbound ?? Math.min(4, ceiling);
   const inboundTarget = minInbound ?? Math.min(2, ceiling);
+  // Waited as a TOTAL. With the arcs disjoint the split is the ring's to decide,
+  // but a suite that overrides the arc into an overlapping shape hands the split
+  // to whichever half reaches the shared peer first - a race. The sum survives
+  // both, and is the same demand either way.
+  const stubCount = env.stubPeerClients?.size ?? 0;
+  const totalTarget = expectedPeerTotal(outboundTarget, inboundTarget, dialers, stubCount);
+  // Every real node, not nodes[0]. One node's counts are not the fleet's, and
+  // node 0 is the least representative of them: it is the index every other
+  // node's backward arc wraps onto, so it is where an overlapping ring strands
+  // its connections first.
+  //
   // Polled, not awaited on a peers:added event. That event is edge-triggered:
   // a small fleet finishes peering in a handful of events, so if the counts are
   // already satisfied when the listener attaches, nothing further is ever
   // published and the wait burns its full timeout on a condition that is
   // already true. The REST counts are the state itself.
-  const node = nodes[0];
   await waitFor(
     async () => {
-      const [outgoing, incoming] = await Promise.all([node.getPeers(), node.getIncomingPeers()]);
-      return (outgoing.data?.length ?? 0) >= outboundTarget
-        && (incoming.data?.length ?? 0) >= inboundTarget;
+      const totals = await Promise.all(nodes.map(async (n) => {
+        const [outgoing, incoming] = await Promise.all([n.getPeers(), n.getIncomingPeers()]);
+        return (outgoing.data?.length ?? 0) + (incoming.data?.length ?? 0);
+      }));
+      return totals.every((t) => t >= totalTarget);
     },
-    { timeout: 120000, interval: 2000, label: `>=${outboundTarget} outbound and >=${inboundTarget} inbound peers` },
+    { timeout: 120000, interval: 2000, label: `>=${totalTarget} peers on each of ${nodes.length} nodes` },
   );
   await startTicker();
 }
