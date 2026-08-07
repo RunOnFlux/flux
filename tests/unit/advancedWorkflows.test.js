@@ -2755,6 +2755,11 @@ describe('advancedWorkflows tests', () => {
       // call returning - so this stub is what makes the containers actually
       // down for these tests. Set it Running to exercise the refusal.
       sinon.stub(dockerService, 'dockerContainerInspect').resolves({ State: { Running: false } });
+      // dockerActual falls back to a LIST call when the inspect fails, to tell
+      // an unreachable daemon from a container that is genuinely gone. Docker is
+      // a network boundary and has to be stubbed at it - left real, these tests
+      // pass or fail on whether the machine running them happens to have docker.
+      sinon.stub(dockerService, 'dockerListContainers').resolves([]);
       sinon.stub(dockerService, 'appDockerStart').resolves();
       sinon.stub(IOUtils, 'createTarGz').resolves({ status: true });
       sinon.stub(IOUtils, 'checkFileExists').resolves(false);
@@ -2939,6 +2944,11 @@ describe('advancedWorkflows tests', () => {
       // call returning - so this stub is what makes the containers actually
       // down for these tests. Set it Running to exercise the refusal.
       sinon.stub(dockerService, 'dockerContainerInspect').resolves({ State: { Running: false } });
+      // dockerActual falls back to a LIST call when the inspect fails, to tell
+      // an unreachable daemon from a container that is genuinely gone. Docker is
+      // a network boundary and has to be stubbed at it - left real, these tests
+      // pass or fail on whether the machine running them happens to have docker.
+      sinon.stub(dockerService, 'dockerListContainers').resolves([]);
       sinon.stub(dockerService, 'appDockerStart').resolves();
       sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(localAddr);
       sinon.stub(appController, 'executeAppGlobalCommand').resolves();
@@ -3206,15 +3216,63 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.calledWith(dockerService.appDockerStop, `beta_${appname}`);
       });
 
-      it('treats a container that has gone entirely as stopped', async () => {
-        // a missing container is legitimately not running; docker answers 404
-        const gone = new Error('no such container');
-        gone.statusCode = 404;
-        dockerService.dockerContainerInspect.rejects(gone);
+      it('waits for a daemon that is mid-restart rather than reading silence as running', async () => {
+        // A dockerd restart is exactly what suite 44 fires at a live backup. The
+        // inspect and the list both fail while it is down; neither says the
+        // container is up, and giving up here would release the operation's
+        // lease and hand the app back to the reconciler mid-flight.
+        const down = new Error('connect ENOENT /var/run/docker.sock');
+        dockerService.dockerContainerInspect.onCall(0).rejects(down);
+        dockerService.dockerListContainers.onCall(0).rejects(down);
+        dockerService.dockerContainerInspect.resolves({ State: { Running: false } });
 
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
         sinon.assert.called(IOUtils.untarFile);
+      });
+
+      it('refuses on a daemon that never answers, and says that is what happened', async () => {
+        const down = new Error('connect ENOENT /var/run/docker.sock');
+        dockerService.dockerContainerInspect.rejects(down);
+        dockerService.dockerListContainers.rejects(down);
+
+        const res = makeRes();
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        // the operator is told the daemon did not answer - not that the
+        // container refused to stop, which was never established
+        expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Refused: docker is not answering/);
+      });
+
+      it('tells a container that is gone from a daemon that cannot answer', async () => {
+        // both arrive as an inspect failure; only the list tells them apart, and
+        // only one of them is a reason to refuse
+        const err = new Error('No such container');
+        dockerService.dockerContainerInspect.rejects(err);
+        dockerService.dockerListContainers.resolves([]);
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.called(IOUtils.untarFile);
+      });
+
+      it('refuses while the container exists but its run state cannot be read', async () => {
+        // docker is up and lists the container, but the inspect keeps failing:
+        // it exists and we do not know whether it is running. That is not
+        // "stopped" - destroying its data on the strength of it is exactly what
+        // reading an unknown as an answer costs.
+        sinon.stub(dockerService, 'getAppDockerNameIdentifier').returns('/fluxpalworld_x');
+        dockerService.dockerContainerInspect.rejects(new Error('EOF'));
+        dockerService.dockerListContainers.resolves([{ Names: ['/fluxpalworld_x'] }]);
+
+        const res = makeRes();
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Refused: docker is not answering/);
       });
 
       it('refuses before clearing anything when the folder cannot be held still', async () => {

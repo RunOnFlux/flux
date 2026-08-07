@@ -2074,6 +2074,41 @@ async function appDockerStart(appname) {
   }
 }
 
+// A dockerd restart takes seconds, and the reconciler already retries an
+// unreachable daemon on this cadence rather than acting on what it could not
+// read. Waiting here is not a stand-in for a fact - it is how the fact becomes
+// obtainable, and the attempt ceiling is what stops it waiting forever.
+const DOCKER_SETTLE_POLL_MS = 5000;
+const DOCKER_SETTLE_ATTEMPTS = 12;
+
+/**
+ * This container's run state, once docker is in a position to answer for it.
+ *
+ * appReconciler.dockerActual tells three failures apart that an inspect error
+ * cannot: the daemon being unreachable, the daemon being up but that one
+ * inspect failing, and the container genuinely being gone. The first two mean
+ * we did not learn anything, so they are waited out rather than read as an
+ * answer - and the wait holds the caller's backup/restore lease, which is the
+ * point. An operation that gives up here releases that lease and hands the app
+ * back to the reconciler in the middle of its own work.
+ *
+ * @param {string} identifier - Component identifier
+ * @returns {Promise<object|null>} dockerActual's verdict, or null if the daemon
+ *  never became able to answer
+ */
+async function settledDockerState(identifier) {
+  // eslint-disable-next-line no-plusplus
+  for (let attempt = 0; attempt < DOCKER_SETTLE_ATTEMPTS; attempt++) {
+    // eslint-disable-next-line no-await-in-loop
+    const actual = await appReconciler.dockerActual(identifier);
+    if (actual.reachable && !actual.indeterminate) return actual;
+    log.warn(`appDockerStop - docker cannot answer for ${identifier} yet (attempt ${attempt + 1}/${DOCKER_SETTLE_ATTEMPTS}); waiting rather than reading it as running`);
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(DOCKER_SETTLE_POLL_MS);
+  }
+  return null;
+}
+
 /**
  * Stop every container the given app name covers, and answer whether they are
  * all actually down.
@@ -2090,9 +2125,10 @@ async function appDockerStart(appname) {
  * state back over whatever the restore puts there.
  *
  * @param {string} appname - App name, or a single component identifier
- * @returns {Promise<{stopped: boolean, running: string[], errors: string[]}>}
- *  `running` names the components docker still reports as up - what a caller
- *  that is about to destroy data must refuse on.
+ * @returns {Promise<{stopped: boolean, running: string[], unavailable: boolean, errors: string[]}>}
+ *  `running` names the components docker reports as still up - what a caller
+ *  about to destroy data must refuse on. `unavailable` says docker never became
+ *  able to answer, which is a different refusal with a different remedy.
  */
 async function appDockerStop(appname) {
   // eslint-disable-next-line global-require
@@ -2114,11 +2150,14 @@ async function appDockerStop(appname) {
     log.error(error);
     // The component list itself is unknown, so nothing can be asserted about
     // what is running - which is a refusal, not an empty success.
-    return { stopped: false, running: [], errors: [error.message] };
+    return {
+      stopped: false, running: [], unavailable: false, errors: [error.message],
+    };
   }
 
   const running = [];
   const errors = [];
+  let unavailable = false;
   // eslint-disable-next-line no-restricted-syntax
   for (const identifier of identifiers) {
     try {
@@ -2126,24 +2165,25 @@ async function appDockerStop(appname) {
       await dockerService.appDockerStop(identifier);
       stopAppMonitoring(identifier, false);
     } catch (error) {
+      // The stop failing is not itself the verdict - docker may simply have been
+      // mid-restart. What counts is what it says afterwards.
       log.error(`appDockerStop - ${identifier}: ${error.message}`);
       errors.push(`${identifier}: ${error.message}`);
     }
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      const info = await dockerService.dockerContainerInspect(identifier);
-      if (info?.State?.Running) running.push(identifier);
-    } catch (error) {
-      // A container that cannot be inspected cannot be shown to be down. A
-      // missing one is legitimately not running, and answers 404.
-      if (error.statusCode === 404 || /no such container/i.test(error.message || '')) continue;
-      log.error(`appDockerStop - could not verify ${identifier}: ${error.message}`);
+    // eslint-disable-next-line no-await-in-loop
+    const actual = await settledDockerState(identifier);
+    if (!actual) {
+      unavailable = true;
+      errors.push(`${identifier}: docker never became able to answer`);
+    } else if (actual.running) {
       running.push(identifier);
-      errors.push(`${identifier}: unverifiable (${error.message})`);
     }
+    // reachable and not running - stopped, or gone, which is also not running
   }
 
-  return { stopped: running.length === 0, running, errors };
+  return {
+    stopped: running.length === 0 && !unavailable, running, unavailable, errors,
+  };
 }
 
 /**
@@ -2365,6 +2405,9 @@ async function appendBackupTask(req, res) {
       // Same reason the folders are held: an archive taken while a container is
       // still writing is torn, and a torn archive is what this path exists to
       // stop being created.
+      if (stopVerdict.unavailable) {
+        throw new Error(`Refused: docker is not answering on this node, so ${appname} cannot be confirmed stopped - try again shortly`);
+      }
       if (!stopVerdict.stopped) {
         throw new Error(`Refused: ${stopVerdict.running.join(', ') || appname} could not be stopped, so an archive taken now could be inconsistent`);
       }
@@ -2600,6 +2643,9 @@ async function appendRestoreTask(req, res) {
     // A container still up is still writing to the volume whose appdata is
     // about to be emptied - it would write into a half-cleared tree and can
     // save its own state back over what the archive puts there.
+    if (stopVerdict.unavailable) {
+      throw new Error(`Refused: docker is not answering on this node, so ${appname} cannot be confirmed stopped - try again shortly`);
+    }
     if (!stopVerdict.stopped) {
       throw new Error(`Refused: ${stopVerdict.running.join(', ') || appname} could not be stopped, so its data cannot be replaced safely`);
     }
