@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer } from '../framework/container.js';
+import { execInContainer, getAppContainerStatus } from '../framework/container.js';
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
@@ -96,10 +96,24 @@ describe('a restore with no peer to fall back on', function () {
       const after = client.getLastEventId();
       // eslint-disable-next-line no-await-in-loop
       await installOnNodes(env, spec, [0]);
+      if (data.startsWith('r:')) {
+        // the sync layer clears appdata on a clean install, and seeding before
+        // that lands would have the seed wiped out from under the test
+        // eslint-disable-next-line no-await-in-loop
+        await waitForReconcileActuated(client, idOf(app), 'dataCleared', 120000, { afterId: after });
+      } else {
+        // A component with no sync flag never enters the syncthing clean-install
+        // path, so it never emits dataCleared - waiting for it here waits for an
+        // event that cannot arrive. Its container running is the readiness that
+        // exists for this shape of app.
+        // eslint-disable-next-line no-await-in-loop
+        await waitFor(async () => {
+          const status = await getAppContainerStatus(client.container, app);
+          return Boolean(status && /up/i.test(status.status ?? ''));
+        }, { timeout: 120000, interval: 3000, label: `${app} container running` });
+      }
       // eslint-disable-next-line no-await-in-loop
-      await waitForReconcileActuated(client, idOf(app), 'dataCleared', 120000, { afterId: after });
-      // eslint-disable-next-line no-await-in-loop
-      await execInContainer(client.container, `printf 'original\\n' > ${dirOf(app)}/appdata/marker.txt`);
+      await execInContainer(client.container, `mkdir -p ${dirOf(app)}/appdata && printf 'original\\n' > ${dirOf(app)}/appdata/marker.txt`);
     }
     await setSynced({ ip: subnet.nodeIp(1), folder: folderOf(syncedApp) });
 
