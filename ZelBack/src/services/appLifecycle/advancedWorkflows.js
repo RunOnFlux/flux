@@ -2785,12 +2785,25 @@ async function appendRestoreTask(req, res) {
     // and starts the container on the partial data. Leaving the folder paused
     // instead is not an option - the monitor reads a paused folder as drift and
     // resumes it.
-    if (swapInFlight && swapInFlight.syncMode !== 'none') {
-      await changeSyncthingFolderType(swapInFlight.folderId, 'receiveonly');
-      globalState.receiveOnlySyncthingAppsCache.set(swapInFlight.folderId, {
-        restarted: false,
-        numberOfExecutions: 0,
-      });
+    if (swapInFlight) {
+      // The demotion only means anything where there is a folder: it stops this
+      // copy being sent, and disqualifies the node from election until syncthing
+      // has healed it from a peer. The cache entry has to say NOT settled, or
+      // the folder state machine skips the healing path and starts the container
+      // on the partial data.
+      if (swapInFlight.syncMode !== 'none') {
+        await changeSyncthingFolderType(swapInFlight.folderId, 'receiveonly');
+        globalState.receiveOnlySyncthingAppsCache.set(swapInFlight.folderId, {
+          restarted: false,
+          numberOfExecutions: 0,
+        });
+      }
+      // The hold means something for every component, and used to be applied
+      // only to the synced ones. A component that syncs has peers to be put
+      // right by, so holding it costs it minutes; a component that does not has
+      // no repair path at all - it is the one where running on a half-replaced
+      // directory is least recoverable, because the app writes fresh state over
+      // the wreckage and the next restore lands on top of that.
       appReconciler.setControllerDesired(swapInFlight.folderId, 'stopped', 'restore did not complete');
     }
     // eslint-disable-next-line no-restricted-syntax

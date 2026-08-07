@@ -3283,6 +3283,24 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.calledWith(appReconciler.setControllerDesired, folderId, 'stopped');
       });
 
+      it('holds an unsynced component too, which has no peer to be put right by', async () => {
+        // The demotion means nothing without a folder, but the hold does. A
+        // component that syncs can be repaired by its peers, so holding it costs
+        // it minutes; one that does not sync has no repair path at all, and an
+        // app restarted on a half-replaced directory writes fresh state over the
+        // wreckage - after which even a good archive lands on top of that.
+        registryManager.getApplicationGlobalSpecifications.resolves(specWith('/data'));
+        registryManager.getApplicationSpecifications.resolves(specWith('/data'));
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+
+        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        expect(result).to.equal(false);
+        sinon.assert.calledWith(appReconciler.setControllerDesired, folderId, 'stopped');
+        // nothing to demote, so nothing is demoted
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { type: 'receiveonly' }, folderId);
+      });
+
       it('leaves a component that restored cleanly alone when a later one fails', async () => {
         registryManager.getApplicationGlobalSpecifications.resolves({
           version: 8,
