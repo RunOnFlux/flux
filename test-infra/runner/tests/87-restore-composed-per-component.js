@@ -158,6 +158,11 @@ describe('a restore acts on the components it was asked for, by their own folder
     );
 
     const writes = await getFolderWrites(nodeIp);
+    // Every assertion below is an absence, and an empty log satisfies all of
+    // them however the restore behaved - so establish first that this operation
+    // wrote anything at all. Without this the test passed while the monitor was
+    // deleting the folders out from under the restore.
+    expect(writes.length, 'folder writes observed for this restore').to.be.greaterThan(0);
     // flux<app> is the id the old code went looking for; it matches no composed
     // app's folder, which is why the freeze silently never happened
     expect(writes.filter((w) => w.id === appLevelFolderId), 'writes to the app-level id').to.deep.equal([]);
