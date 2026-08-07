@@ -3275,6 +3275,45 @@ describe('advancedWorkflows tests', () => {
         expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Refused: docker is not answering/);
       });
 
+      it('waits for the daemon once, not once per component', async () => {
+        // The daemon is a property of the node. Waiting it out per component
+        // multiplies the refusal's latency by the compose count - five minutes
+        // on a five-component app, which outlives the suite that would catch it.
+        registryManager.getApplicationSpecifications.resolves({
+          version: 8,
+          name: appname,
+          compose: [
+            { name: 'alpha', containerData: 's:/data' },
+            { name: 'beta', containerData: 's:/data' },
+            { name: 'gamma', containerData: 's:/data' },
+          ],
+        });
+        const down = new Error('connect ENOENT /var/run/docker.sock');
+        dockerService.dockerContainerInspect.rejects(down);
+        dockerService.dockerListContainers.rejects(down);
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        // one component's worth of probing, then it gives up for the node
+        const probes = dockerService.dockerListContainers.callCount;
+        expect(probes, `probed ${probes} times - should stop after one component`).to.be.at.most(12);
+        sinon.assert.notCalled(IOUtils.untarFile);
+      });
+
+      it('says what it is waiting for, so a held stream is not silent', async () => {
+        // the response has already returned 200; a minute of nothing is a minute
+        // in which anything in front of it may call the connection idle
+        const down = new Error('connect ENOENT /var/run/docker.sock');
+        dockerService.dockerContainerInspect.onCall(0).rejects(down);
+        dockerService.dockerListContainers.onCall(0).rejects(down);
+        dockerService.dockerContainerInspect.resolves({ State: { Running: false } });
+
+        const res = makeRes();
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Docker is not answering .* waiting/);
+      });
+
       it('refuses before clearing anything when the folder cannot be held still', async () => {
         // The folder path is the mount ROOT, so appdata is inside the replicated
         // scope: clearing it under a folder that is still sendreceive turns the

@@ -2096,13 +2096,21 @@ const DOCKER_SETTLE_ATTEMPTS = 12;
  * @returns {Promise<object|null>} dockerActual's verdict, or null if the daemon
  *  never became able to answer
  */
-async function settledDockerState(identifier) {
+async function settledDockerState(identifier, onWait) {
   // eslint-disable-next-line no-plusplus
-  for (let attempt = 0; attempt < DOCKER_SETTLE_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= DOCKER_SETTLE_ATTEMPTS; attempt++) {
     // eslint-disable-next-line no-await-in-loop
     const actual = await appReconciler.dockerActual(identifier);
     if (actual.reachable && !actual.indeterminate) return actual;
-    log.warn(`appDockerStop - docker cannot answer for ${identifier} yet (attempt ${attempt + 1}/${DOCKER_SETTLE_ATTEMPTS}); waiting rather than reading it as running`);
+    if (attempt === DOCKER_SETTLE_ATTEMPTS) break;
+    const waiting = `Docker is not answering for ${identifier} yet, waiting (${attempt}/${DOCKER_SETTLE_ATTEMPTS - 1})...`;
+    log.warn(`appDockerStop - ${waiting}`);
+    // The response is a stream that has already returned 200, so a minute of
+    // silence is a minute in which anything between here and the browser may
+    // decide the connection is idle. Saying what we are waiting for keeps it
+    // alive and tells the operator something true.
+    // eslint-disable-next-line no-await-in-loop
+    if (onWait) await onWait(waiting);
     // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(DOCKER_SETTLE_POLL_MS);
   }
@@ -2125,12 +2133,13 @@ async function settledDockerState(identifier) {
  * state back over whatever the restore puts there.
  *
  * @param {string} appname - App name, or a single component identifier
+ * @param {Function} [onWait] - Called with a progress line while waiting for docker
  * @returns {Promise<{stopped: boolean, running: string[], unavailable: boolean, errors: string[]}>}
  *  `running` names the components docker reports as still up - what a caller
  *  about to destroy data must refuse on. `unavailable` says docker never became
  *  able to answer, which is a different refusal with a different remedy.
  */
-async function appDockerStop(appname) {
+async function appDockerStop(appname, onWait) {
   // eslint-disable-next-line global-require
   const registryManager = require('../appDatabase/registryManager');
 
@@ -2171,11 +2180,16 @@ async function appDockerStop(appname) {
       errors.push(`${identifier}: ${error.message}`);
     }
     // eslint-disable-next-line no-await-in-loop
-    const actual = await settledDockerState(identifier);
+    const actual = await settledDockerState(identifier, onWait);
     if (!actual) {
+      // The daemon is a property of the node, not of this component: having
+      // waited it out once, waiting again for each remaining component only
+      // multiplies the refusal's latency by the compose count.
       unavailable = true;
       errors.push(`${identifier}: docker never became able to answer`);
-    } else if (actual.running) {
+      break;
+    }
+    if (actual.running) {
       running.push(identifier);
     }
     // reachable and not running - stopped, or gone, which is also not running
@@ -2401,7 +2415,7 @@ async function appendBackupTask(req, res) {
       const syncthing = allSyncedComponents.length > 0;
 
       await sendChunk(res, 'Stopping application...\n');
-      const stopVerdict = await appDockerStop(appname);
+      const stopVerdict = await appDockerStop(appname, (line) => sendChunk(res, `${line}\n`));
       // Same reason the folders are held: an archive taken while a container is
       // still writing is torn, and a torn archive is what this path exists to
       // stop being created.
@@ -2639,7 +2653,7 @@ async function appendRestoreTask(req, res) {
     }
 
     await sendChunk(res, 'Stopping application...\n');
-    const stopVerdict = await appDockerStop(appname);
+    const stopVerdict = await appDockerStop(appname, (line) => sendChunk(res, `${line}\n`));
     // A container still up is still writing to the volume whose appdata is
     // about to be emptied - it would write into a half-cleared tree and can
     // save its own state back over what the archive puts there.
