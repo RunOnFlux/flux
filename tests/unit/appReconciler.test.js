@@ -714,7 +714,7 @@ describe('appReconciler tests', () => {
         },
       });
       await appReconciler.reconcile('www_App');
-      sinon.assert.calledWithExactly(stubs.appsRuntimeState.restartWaitMs, 'www_App', Date.parse(finishedAt));
+      sinon.assert.calledWithExactly(stubs.appsRuntimeState.restartWaitMs, 'www_App', Date.parse(finishedAt), true);
     });
 
     it('passes no death evidence for a container that never ran (docker zero FinishedAt)', async () => {
@@ -724,7 +724,37 @@ describe('appReconciler tests', () => {
         },
       });
       await appReconciler.reconcile('www_App');
-      sinon.assert.calledWithExactly(stubs.appsRuntimeState.restartWaitMs, 'www_App', null);
+      sinon.assert.calledWithExactly(stubs.appsRuntimeState.restartWaitMs, 'www_App', null, false);
+    });
+
+    // The ladder exists to keep a broken container from hammering the node. An
+    // operator restarting their own app is not that, and pacing it turns a
+    // deliberate restart into what the customer experiences as an outage - so
+    // the verdict the reconciler forms here decides whether the ladder engages
+    // at all. exitCode alone cannot carry it: OOMKilled is a fault Docker
+    // reports separately, and a never-run container has no death to classify.
+    [
+      { name: 'a clean exit is not a fault', state: { Running: false, Status: 'exited', ExitCode: 0 }, crashed: false },
+      { name: 'a non-zero exit is', state: { Running: false, Status: 'exited', ExitCode: 1 }, crashed: true },
+      { name: 'a signal death is', state: { Running: false, Status: 'exited', ExitCode: 139 }, crashed: true },
+      { name: 'an OOM kill is, even reported alongside a clean exit code', state: { Running: false, Status: 'exited', ExitCode: 0, OOMKilled: true }, crashed: true },
+      { name: 'a container that has never run is not', state: { Running: false, Status: 'created', ExitCode: 0 }, crashed: false },
+    ].forEach(({ name, state, crashed }) => {
+      it(`classifies the stop for the ladder: ${name}`, async () => {
+        stubs.dockerService.dockerContainerInspect.resolves({ State: state });
+        await appReconciler.reconcile('www_App');
+        sinon.assert.calledWithMatch(stubs.appsRuntimeState.restartWaitMs, 'www_App', sinon.match.any, crashed);
+        sinon.assert.calledWithExactly(stubs.appsRuntimeState.recordRestart, 'www_App', crashed);
+      });
+    });
+
+    it('names the burst trip in the log, so support can tell it from a reported fault', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+      stubs.appsRuntimeState.restartWaitMs.resolves(30 * 1000);
+      await appReconciler.reconcile('www_App');
+      const line = stubs.log.warn.getCalls().map((c) => c.args[0]).find((m) => m.includes('backing off'));
+      expect(line).to.include('restarting too fast');
+      expect(line, 'a clean exit must not be reported as a fault').to.not.include('exit 0');
     });
   });
 

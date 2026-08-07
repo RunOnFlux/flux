@@ -132,6 +132,11 @@ module.exports = {
     // and the run length that counts as stable (resets the ladder)
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
+    // cause-blind backstop for images whose entrypoint discards the payload's
+    // exit status: this many automatic restarts inside the window is treated as
+    // a crash and enters the ladder above
+    restartBurstCount: 5,
+    restartBurstWindowMs: 60000,
     // How long a finished operation stays readable at /apps/operations/:jobId,
     // and how long a client is told to wait between polls while one runs. A
     // RUNNING job never expires - only terminal ones are retained on a clock.

@@ -20,6 +20,15 @@ const STABLE_RUN_MS = config.fluxapps.crashBackoffStableRunMs ?? 10 * 60 * 1000;
 // only the count (capped by the ladder) and the last timestamp are ever read,
 // so the persisted history never needs to grow beyond the ladder length
 const MAX_HISTORY = BACKOFF_DELAYS_MS.length;
+// The exit code cannot prove a fault: an image whose entrypoint is a wrapper
+// script ending in `exit 0` reports a clean stop for a segfault, and no init we
+// wrap around it can recover a status the image already discarded. So pacing on
+// the code alone would leave such a container restarting without limit. This is
+// the cause-blind backstop - this many automatic restarts inside the window is
+// itself evidence of a fault, whatever Docker reported, and it disposes into the
+// same ladder rather than into a state a human has to clear.
+const RESTART_BURST_COUNT = config.fluxapps.restartBurstCount ?? 5;
+const RESTART_BURST_WINDOW_MS = config.fluxapps.restartBurstWindowMs ?? 60 * 1000;
 
 function collection() {
   const db = dbHelper.databaseConnection();
@@ -93,7 +102,10 @@ async function setOperatorStopped(identifier, stopped) {
   // app. Swallowing a write failure would let the API report success while the
   // lock never persisted - the caller must surface the failure instead.
   const fields = { operatorStopped: stopped };
-  if (!stopped) fields.restartHistory = [];
+  if (!stopped) {
+    fields.restartHistory = [];
+    fields.autoRestartWindow = [];
+  }
   await setFields(identifier, fields);
 }
 
@@ -139,20 +151,39 @@ async function operatorStoppedIdentifiers() {
 }
 
 /**
- * Appends a restart attempt (wall-clock) and trims the history to the ladder
- * length so a perpetually crashing container never grows the array unbounded.
+ * Whether the automatic restarts already recorded fill the burst window. Read
+ * BEFORE the current attempt is appended, so it answers "have there already
+ * been enough" and the caller's own restart is the one over the line.
+ *
+ * @param {object|null} state
+ * @returns {boolean}
+ */
+function burstExceeded(state) {
+  const recent = (state && state.autoRestartWindow) || [];
+  if (recent.length < RESTART_BURST_COUNT) return false;
+  return Date.now() - recent[0] <= RESTART_BURST_WINDOW_MS;
+}
+
+/**
+ * Appends a restart attempt (wall-clock). Every automatic restart lands in the
+ * burst window; only one with crash evidence - or one that fills the burst
+ * window, which is the same conclusion reached without the exit code - also
+ * walks the ladder. Both arrays are trimmed to their own bound so a
+ * perpetually restarting container never grows the document unbounded.
  *
  * @param {string} identifier
+ * @param {boolean} crashed - Docker reported a fault (non-zero exit or OOM kill)
  */
-async function recordRestart(identifier) {
+async function recordRestart(identifier, crashed = true) {
   try {
     const state = await getState(identifier);
-    const history = (state && state.restartHistory) || [];
-    history.push(Date.now());
-    if (history.length > MAX_HISTORY) {
-      history.splice(0, history.length - MAX_HISTORY);
+    const fields = {
+      autoRestartWindow: [...((state && state.autoRestartWindow) || []), Date.now()].slice(-RESTART_BURST_COUNT),
+    };
+    if (crashed || burstExceeded(state)) {
+      fields.restartHistory = [...((state && state.restartHistory) || []), Date.now()].slice(-MAX_HISTORY);
     }
-    await setFields(identifier, { restartHistory: history });
+    await setFields(identifier, fields);
   } catch (err) {
     log.error(`appsRuntimeState - failed to record restart for ${identifier}: ${err.message}`);
   }
@@ -179,10 +210,16 @@ async function recordRestart(identifier) {
  * @param {string} identifier
  * @param {number|null} lastFinishedAtMs - docker State.FinishedAt of the
  *        stopped container (ms epoch), when the caller has inspect data
+ * @param {boolean} crashed - Docker reported a fault (non-zero exit or OOM kill)
  * @returns {Promise<number>}
  */
-async function restartWaitMs(identifier, lastFinishedAtMs = null) {
+async function restartWaitMs(identifier, lastFinishedAtMs = null, crashed = true) {
   const state = await getState(identifier);
+  // A clean exit is the operator's own restart far more often than it is a
+  // fault, and pacing it makes a deliberate restart look like an outage. It
+  // goes back immediately - unless the restarts are arriving fast enough to
+  // fill the burst window, which is a fault however the exit code reads.
+  if (!crashed && !burstExceeded(state)) return 0;
   const history = (state && state.restartHistory) || [];
   if (history.length === 0) return 0;
 
@@ -360,6 +397,7 @@ async function prepareCollection() {
           networkHealRemoval: twins.some((t) => t.networkHealRemoval === true),
           networkHealHistory: [...new Set(twins.flatMap((t) => t.networkHealHistory || []))].sort((a, b) => a - b).slice(-MAX_HISTORY),
           restartHistory: [...new Set(twins.flatMap((t) => t.restartHistory || []))].sort((a, b) => a - b).slice(-MAX_HISTORY),
+          autoRestartWindow: [...new Set(twins.flatMap((t) => t.autoRestartWindow || []))].sort((a, b) => a - b).slice(-RESTART_BURST_COUNT),
           updatedAt: Math.max(...twins.map((t) => t.updatedAt || 0)),
         };
         const newestExit = twins.filter((t) => t.lastDiedAt !== undefined).sort((a, b) => b.lastDiedAt - a.lastDiedAt)[0];
@@ -398,4 +436,6 @@ module.exports = {
   BACKOFF_DELAYS_MS,
   STABLE_RUN_MS,
   MAX_HISTORY,
+  RESTART_BURST_COUNT,
+  RESTART_BURST_WINDOW_MS,
 };

@@ -277,6 +277,82 @@ describe('appsRuntimeState tests', () => {
     });
   });
 
+  describe('a clean exit is not a crash (and the burst window is what catches the ones that lie)', () => {
+    // Docker's exit code cannot be trusted to mean "no fault": an image whose
+    // entrypoint is a wrapper script ending in `exit 0` reports a clean stop for
+    // a segfault, and nothing we wrap around the container can recover a status
+    // the image already threw away. So the code is used only in the direction it
+    // is sound - non-zero PROVES a fault, zero proves nothing - and the burst
+    // window is the backstop for everything the code hid.
+    let clock;
+
+    beforeEach(() => { clock = sinon.useFakeTimers({ now: 1_000_000_000 }); });
+    afterEach(() => clock.restore());
+
+    it('restarts a clean exit immediately and leaves the ladder untouched', async () => {
+      await appsRuntimeState.recordRestart('www_App', false);
+      expect(store.get('www_App').restartHistory, 'no ladder entry for a clean exit').to.be.undefined;
+      expect(await appsRuntimeState.restartWaitMs('www_App', null, false)).to.equal(0);
+    });
+
+    it('does not spend a rung built by earlier crashes on an operator restart', async () => {
+      await appsRuntimeState.recordRestart('www_App', true);
+      await appsRuntimeState.recordRestart('www_App', true);
+      expect(await appsRuntimeState.restartWaitMs('www_App', null, true), 'a crash is still paced').to.be.above(0);
+
+      clock.tick(1000);
+      expect(await appsRuntimeState.restartWaitMs('www_App', null, false), 'the operator is not').to.equal(0);
+      expect(store.get('www_App').restartHistory, 'and the rungs are still there for the next crash').to.have.lengthOf(2);
+    });
+
+    it('paces a container restarting faster than the burst window, whatever the exit code says', async () => {
+      const id = 'www_App';
+      for (let i = 0; i < appsRuntimeState.RESTART_BURST_COUNT; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        expect(await appsRuntimeState.restartWaitMs(id, null, false), `restart ${i} is free`).to.equal(0);
+        // eslint-disable-next-line no-await-in-loop
+        await appsRuntimeState.recordRestart(id, false);
+        clock.tick(1000);
+      }
+      expect(store.get(id).restartHistory, 'still no ladder entry while under the burst').to.be.undefined;
+
+      // the window is now full, so this restart is the one over the line
+      await appsRuntimeState.recordRestart(id, false);
+      expect(store.get(id).restartHistory, 'the trip is recorded as a crash would be').to.have.lengthOf(1);
+      expect(await appsRuntimeState.restartWaitMs(id, null, false)).to.equal(appsRuntimeState.BACKOFF_DELAYS_MS[1]);
+    });
+
+    it('never trips on restarts spaced wider than the window', async () => {
+      const id = 'www_App';
+      for (let i = 0; i < appsRuntimeState.RESTART_BURST_COUNT * 2; i += 1) {
+        clock.tick(appsRuntimeState.RESTART_BURST_WINDOW_MS);
+        // eslint-disable-next-line no-await-in-loop
+        expect(await appsRuntimeState.restartWaitMs(id, null, false), `restart ${i}`).to.equal(0);
+        // eslint-disable-next-line no-await-in-loop
+        await appsRuntimeState.recordRestart(id, false);
+      }
+      expect(store.get(id).restartHistory).to.be.undefined;
+    });
+
+    it('caps the burst window so a permanently restarting container cannot grow the document', async () => {
+      for (let i = 0; i < appsRuntimeState.RESTART_BURST_COUNT + 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await appsRuntimeState.recordRestart('www_App', false);
+      }
+      expect(store.get('www_App').autoRestartWindow).to.have.lengthOf(appsRuntimeState.RESTART_BURST_COUNT);
+    });
+
+    it('a deliberate start clears the burst window, not just the ladder', async () => {
+      for (let i = 0; i < appsRuntimeState.RESTART_BURST_COUNT; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await appsRuntimeState.recordRestart('www_App', false);
+      }
+      await appsRuntimeState.setOperatorStopped('www_App', false);
+      expect(store.get('www_App').autoRestartWindow).to.deep.equal([]);
+      expect(await appsRuntimeState.restartWaitMs('www_App', null, false), 'starts from clean').to.equal(0);
+    });
+  });
+
   describe('config-tunable ladder (harness compression)', () => {
     it('reads the ladder and stable-run window from config when present', () => {
       const tuned = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
@@ -285,12 +361,19 @@ describe('appsRuntimeState tests', () => {
         '../dockerService': { getBaseAppName: (id) => id },
         config: {
           database: { appslocal: { database: 'localzelapps', collections: { appsRuntimeState: 'zelappsruntimestate' } } },
-          fluxapps: { crashBackoffDelaysMs: [0, 1000, 2000], crashBackoffStableRunMs: 5000 },
+          fluxapps: {
+            crashBackoffDelaysMs: [0, 1000, 2000],
+            crashBackoffStableRunMs: 5000,
+            restartBurstCount: 3,
+            restartBurstWindowMs: 2000,
+          },
         },
       });
       expect(tuned.BACKOFF_DELAYS_MS).to.deep.equal([0, 1000, 2000]);
       expect(tuned.STABLE_RUN_MS).to.equal(5000);
       expect(tuned.MAX_HISTORY).to.equal(3);
+      expect(tuned.RESTART_BURST_COUNT).to.equal(3);
+      expect(tuned.RESTART_BURST_WINDOW_MS).to.equal(2000);
     });
   });
 

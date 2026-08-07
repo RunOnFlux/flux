@@ -317,6 +317,9 @@ async function dockerActual(identifier) {
       running: !!(info.State && info.State.Running) && !info.State.Paused,
       paused: !!(info.State && info.State.Paused),
       exitCode: everRan ? (info.State.ExitCode ?? null) : null,
+      // the kernel's verdict, not the entrypoint's: an image that swallows its
+      // payload's status still cannot hide this one
+      oomKilled: !!(info.State && info.State.OOMKilled),
       finishedAt,
       // classified from THIS inspect so the running-branch network check needs no
       // second docker call (and no TOCTOU between two inspects).
@@ -916,12 +919,25 @@ async function reconcile(rawIdentifier) {
     return;
   }
 
-  // exists but stopped, should run -> backoff-paced restart (no sleeping; the
-  // worker re-enqueues when the backoff window elapses)
-  const wait = await appsRuntimeState.restartWaitMs(identifier, actual.finishedAt);
+  // exists but stopped, should run -> restart, paced by the ladder only when the
+  // stop carries evidence of a fault (no sleeping; the worker re-enqueues when
+  // the backoff window elapses). A clean exit goes back immediately: it is an
+  // operator restarting their own app far more often than it is a crash, and
+  // pacing that turns a deliberate restart into what looks like an outage.
+  // exitCode null is a container that has never run - an initial start, not a death.
+  const crashed = !!actual.oomKilled || (actual.exitCode !== null && actual.exitCode !== 0);
+  const wait = await appsRuntimeState.restartWaitMs(identifier, actual.finishedAt, crashed);
   if (wait > 0) {
-    log.warn(`appReconciler - ${identifier} stopped, backing off ${Math.round(wait / 1000)}s before restart`);
-    fluxEventBus.publish('reconciler:actuated', { identifier, action: 'backoff', waitMs: wait });
+    // name which of the two put it here: a reported fault, or restarts arriving
+    // fast enough to be one whatever the exit code said. Support cannot tell
+    // these apart from the outside, and the difference decides what they do next.
+    const cause = crashed
+      ? `exit ${actual.exitCode}${actual.oomKilled ? ' (OOM-killed)' : ''}`
+      : 'restarting too fast to be healthy';
+    log.warn(`appReconciler - ${identifier} stopped, ${cause}; backing off ${Math.round(wait / 1000)}s before restart`);
+    fluxEventBus.publish('reconciler:actuated', {
+      identifier, action: 'backoff', waitMs: wait, crashed,
+    });
     scheduleRetry(identifier, wait);
     return;
   }
@@ -942,7 +958,7 @@ async function reconcile(rawIdentifier) {
     return;
   }
 
-  await appsRuntimeState.recordRestart(identifier);
+  await appsRuntimeState.recordRestart(identifier, crashed);
   try {
     await dockerService.appDockerStart(identifier);
   } catch (err) {
