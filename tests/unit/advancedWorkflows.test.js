@@ -2741,8 +2741,20 @@ describe('advancedWorkflows tests', () => {
         name: appname,
         compose: [{ name: 'palworld', containerData: 'g:/palworld/Pal/Saved|m:mods:/mods' }],
       });
+      // The stop enumerates the app's components from here. Unstubbed it threw
+      // 'Application not found', which the old wrapper swallowed - so these
+      // tests passed while nothing was ever stopped.
+      sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
+        version: 8,
+        name: appname,
+        compose: [{ name: 'palworld', containerData: 'g:/palworld/Pal/Saved|m:mods:/mods' }],
+      });
       sinon.stub(syncthingService, 'adjustConfigFolders').resolves({ status: 'success' });
       sinon.stub(dockerService, 'appDockerStop').resolves();
+      // The stop is verified by reading the container back, not by the stop
+      // call returning - so this stub is what makes the containers actually
+      // down for these tests. Set it Running to exercise the refusal.
+      sinon.stub(dockerService, 'dockerContainerInspect').resolves({ State: { Running: false } });
       sinon.stub(dockerService, 'appDockerStart').resolves();
       sinon.stub(IOUtils, 'createTarGz').resolves({ status: true });
       sinon.stub(IOUtils, 'checkFileExists').resolves(false);
@@ -2923,6 +2935,10 @@ describe('advancedWorkflows tests', () => {
         data: [{ id: folderId, path: `${appsFolder}${folderId}`, type: 'sendreceive' }],
       });
       sinon.stub(dockerService, 'appDockerStop').resolves();
+      // The stop is verified by reading the container back, not by the stop
+      // call returning - so this stub is what makes the containers actually
+      // down for these tests. Set it Running to exercise the refusal.
+      sinon.stub(dockerService, 'dockerContainerInspect').resolves({ State: { Running: false } });
       sinon.stub(dockerService, 'appDockerStart').resolves();
       sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(localAddr);
       sinon.stub(appController, 'executeAppGlobalCommand').resolves();
@@ -3143,6 +3159,62 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: true }, folderId);
         sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
         sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
+      });
+
+      it('refuses before clearing anything when a container will not stop', async () => {
+        // appdata lives on a volume the container is still writing to. Clearing
+        // it under a live container leaves the app writing into a half-emptied
+        // tree, and able to save its own state back over what the archive puts
+        // there - the same shape as the loss, contained to this node.
+        dockerService.dockerContainerInspect.resolves({ State: { Running: true } });
+
+        const res = makeRes();
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Refused: .*could not be stopped/);
+      });
+
+      it('reads the container back rather than trusting the stop call', async () => {
+        // a stop that returned is not a container that is down
+        dockerService.appDockerStop.resolves('Flux App successfully stopped.');
+        dockerService.dockerContainerInspect.resolves({ State: { Running: true } });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.called(dockerService.dockerContainerInspect);
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+      });
+
+      it('stops every component even when one of them fails', async () => {
+        // the catch used to sit outside the loop, so the first failure skipped
+        // every component after it - and the caller saw nothing
+        registryManager.getApplicationSpecifications.resolves({
+          version: 8,
+          name: appname,
+          compose: [
+            { name: 'alpha', containerData: 's:/data' },
+            { name: 'beta', containerData: 's:/data' },
+          ],
+        });
+        dockerService.appDockerStop.withArgs(`alpha_${appname}`).rejects(new Error('docker busy'));
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWith(dockerService.appDockerStop, `alpha_${appname}`);
+        sinon.assert.calledWith(dockerService.appDockerStop, `beta_${appname}`);
+      });
+
+      it('treats a container that has gone entirely as stopped', async () => {
+        // a missing container is legitimately not running; docker answers 404
+        const gone = new Error('no such container');
+        gone.statusCode = 404;
+        dockerService.dockerContainerInspect.rejects(gone);
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.called(IOUtils.untarFile);
       });
 
       it('refuses before clearing anything when the folder cannot be held still', async () => {

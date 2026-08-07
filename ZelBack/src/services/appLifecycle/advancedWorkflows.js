@@ -2083,40 +2083,75 @@ async function appDockerStart(appname) {
 }
 
 /**
- * Helper function to stop app docker containers
- * @param {string} appname - App name
- * @returns {Promise<void>}
+ * Stop every container the given app name covers, and answer whether they are
+ * all actually down.
+ *
+ * Every component is attempted even when one fails. The catch used to sit
+ * outside the loop, so the first component that would not stop skipped every
+ * component after it, and the caller - which then went on to replace the app's
+ * data - saw nothing at all.
+ *
+ * The verdict is read back from docker rather than taken from the stop call. A
+ * stop that returned is not the same as a container that is down, and appdata
+ * lives on a volume a running container is still writing to: clearing it under
+ * one leaves the app writing into a half-emptied tree and able to save its own
+ * state back over whatever the restore puts there.
+ *
+ * @param {string} appname - App name, or a single component identifier
+ * @returns {Promise<{stopped: boolean, running: string[], errors: string[]}>}
+ *  `running` names the components docker still reports as up - what a caller
+ *  that is about to destroy data must refuse on.
  */
 async function appDockerStop(appname) {
-  try {
-    // eslint-disable-next-line global-require
-    const registryManager = require('../appDatabase/registryManager');
+  // eslint-disable-next-line global-require
+  const registryManager = require('../appDatabase/registryManager');
 
+  let identifiers = [];
+  try {
     const mainAppName = appname.split('_')[1] || appname;
-    const isComponent = appname.includes('_');
-    if (isComponent) {
-      await dockerService.appDockerStop(appname);
-      stopAppMonitoring(appname, false);
+    if (appname.includes('_')) {
+      identifiers = [appname];
     } else {
       const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      if (appSpecs.version <= 3) {
-        await dockerService.appDockerStop(appname);
-        stopAppMonitoring(appname, false);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
-          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
-        }
-      }
+      if (!appSpecs) throw new Error('Application not found');
+      identifiers = appSpecs.version <= 3
+        ? [appname]
+        : appSpecs.compose.map((component) => `${component.name}_${appSpecs.name}`);
     }
   } catch (error) {
     log.error(error);
+    // The component list itself is unknown, so nothing can be asserted about
+    // what is running - which is a refusal, not an empty success.
+    return { stopped: false, running: [], errors: [error.message] };
   }
+
+  const running = [];
+  const errors = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const identifier of identifiers) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await dockerService.appDockerStop(identifier);
+      stopAppMonitoring(identifier, false);
+    } catch (error) {
+      log.error(`appDockerStop - ${identifier}: ${error.message}`);
+      errors.push(`${identifier}: ${error.message}`);
+    }
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const info = await dockerService.dockerContainerInspect(identifier);
+      if (info?.State?.Running) running.push(identifier);
+    } catch (error) {
+      // A container that cannot be inspected cannot be shown to be down. A
+      // missing one is legitimately not running, and answers 404.
+      if (error.statusCode === 404 || /no such container/i.test(error.message || '')) continue;
+      log.error(`appDockerStop - could not verify ${identifier}: ${error.message}`);
+      running.push(identifier);
+      errors.push(`${identifier}: unverifiable (${error.message})`);
+    }
+  }
+
+  return { stopped: running.length === 0, running, errors };
 }
 
 /**
@@ -2334,7 +2369,13 @@ async function appendBackupTask(req, res) {
       const syncthing = allSyncedComponents.length > 0;
 
       await sendChunk(res, 'Stopping application...\n');
-      await appDockerStop(appname);
+      const stopVerdict = await appDockerStop(appname);
+      // Same reason the folders are held: an archive taken while a container is
+      // still writing is torn, and a torn archive is what this path exists to
+      // stop being created.
+      if (!stopVerdict.stopped) {
+        throw new Error(`Refused: ${stopVerdict.running.join(', ') || appname} could not be stopped, so an archive taken now could be inconsistent`);
+      }
       await serviceHelper.delay(5 * 1000);
       // eslint-disable-next-line global-require
       const IOUtils = require('../IOUtils');
@@ -2563,7 +2604,13 @@ async function appendRestoreTask(req, res) {
     }
 
     await sendChunk(res, 'Stopping application...\n');
-    await appDockerStop(appname);
+    const stopVerdict = await appDockerStop(appname);
+    // A container still up is still writing to the volume whose appdata is
+    // about to be emptied - it would write into a half-cleared tree and can
+    // save its own state back over what the archive puts there.
+    if (!stopVerdict.stopped) {
+      throw new Error(`Refused: ${stopVerdict.running.join(', ') || appname} could not be stopped, so its data cannot be replaced safely`);
+    }
     await serviceHelper.delay(5 * 1000);
 
     // eslint-disable-next-line global-require
