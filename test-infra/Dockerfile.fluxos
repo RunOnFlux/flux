@@ -48,6 +48,19 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 #   syncthing v2.0.15 "Hafnium Hornet" (go1.26.0 linux-amd64) 2026-02-11 [noupgrade]
 # installed there as a Debian package from syncthing's own repo. The release
 # tarball is the same build, and pins without depending on a package mirror.
+# The release publishes exactly one checksum file, PGP-clearsigned:
+# sha256sum.txt.asc - singular "sum", always .asc. There is no unsigned variant
+# to fall back to, so a guess at another name is a 404, not an alternative.
+#
+# The signature is NOT verified, and that bounds what this step establishes: the
+# tarball arrived intact, not that syncthing published it. Both files come from
+# one origin over one TLS connection, so whoever could serve a bad tarball could
+# serve a matching hash beside it. Checking provenance would mean pinning
+# syncthing's release key into the image and running gpg against it.
+#
+# Accepted here because this is a pinned version in a test image. It is NOT the
+# standard a node is held to: the fleet installs from syncthing's apt repository
+# (systemService), where the archive key is checked on every install.
 ARG SYNCTHING_VERSION=v2.0.15
 RUN arch="$(dpkg --print-architecture)" \
     && case "$arch" in \
@@ -58,12 +71,11 @@ RUN arch="$(dpkg --print-architecture)" \
     && tarball="syncthing-linux-${starch}-${SYNCTHING_VERSION}.tar.gz" \
     && base="https://github.com/syncthing/syncthing/releases/download/${SYNCTHING_VERSION}" \
     && curl -fsSL -o "/tmp/${tarball}" "${base}/${tarball}" \
-    && (curl -fsSL -o /tmp/sha256sums.txt "${base}/sha256sums.txt" \
-        || curl -fsSL -o /tmp/sha256sums.txt "${base}/sha256sums.txt.asc") \
-    && (cd /tmp && grep " ${tarball}\$" sha256sums.txt | sha256sum -c -) \
+    && curl -fsSL -o /tmp/sha256sum.txt.asc "${base}/sha256sum.txt.asc" \
+    && (cd /tmp && grep " ${tarball}\$" sha256sum.txt.asc | sha256sum -c -) \
     && tar -xzf "/tmp/${tarball}" -C /tmp \
     && install -m 0755 "/tmp/syncthing-linux-${starch}-${SYNCTHING_VERSION}/syncthing" /usr/local/bin/syncthing \
-    && rm -rf "/tmp/${tarball}" /tmp/sha256sums.txt "/tmp/syncthing-linux-${starch}-${SYNCTHING_VERSION}" \
+    && rm -rf "/tmp/${tarball}" /tmp/sha256sum.txt.asc "/tmp/syncthing-linux-${starch}-${SYNCTHING_VERSION}" \
     && syncthing --version
 
 WORKDIR /flux
