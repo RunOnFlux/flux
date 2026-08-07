@@ -5,7 +5,7 @@ import { execInContainer, getAppContainerStatus } from '../framework/container.j
 import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
-import { setSynced, resetSyncState, getFolderWrites } from '../framework/syncthing-control.js';
+import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { waitFor, waitForReconcileActuated, waitForReconcilerDesiredChanged } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { authenticate } from '../auth.js';
@@ -144,13 +144,14 @@ describe('a restore with no peer to fall back on', function () {
       );
       expect(body).to.match(/could not clear/i);
 
-      // demoted even though no peer will ever answer for it: a folder that can
-      // send is a folder that can spread this copy the moment one appears
-      await waitFor(async () => {
-        const writes = await getFolderWrites(subnet.nodeIp(1));
-        return writes.some((w) => w.method === 'patch' && w.body?.type === 'receiveonly' && w.id === folderOf(syncedApp));
-      }, { timeout: 120000, interval: 2000, label: 'folder demoted with no peer to heal from' });
-
+      // Held: with no peer able to answer for this copy, the container must not
+      // be started on it on the strength of the restore having run.
+      //
+      // What is NOT asserted here is a demotion WRITE. changeSyncthingFolderType
+      // issues nothing when the folder is already receiveonly, which it is on a
+      // single instance that has never been promoted - so a write assertion
+      // would be asserting that the folder had first been in the other state.
+      // Suite 88 covers the write, from a folder that was sendreceive.
       await waitForReconcilerDesiredChanged(client, idOf(syncedApp), 'stopped', 120000, { afterId });
     } finally {
       await execInContainer(client.container, `chattr -i ${dirOf(syncedApp)}/appdata 2>/dev/null || true`);
