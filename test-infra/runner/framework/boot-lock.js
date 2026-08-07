@@ -72,6 +72,15 @@ export function bootQueue() {
 }
 
 let heldTicket = null;
+let heldSince = null;
+
+// Queued-vs-held is the number the lock's WIDTH turns on, and nothing recorded it:
+// a suite's wall time is boot plus however long it sat behind five siblings, and the
+// two are indistinguishable from the outside. Emitted as TAP comments because
+// run-all.sh pipes mocha's `2>&1` straight into the .tap it later tallies with
+// `grep -c '^ok '` - a leading `#` is a comment to any TAP reader and can never be
+// counted as a result.
+const report = (fields) => { console.log(`# boot-lock ${fields}`); };
 
 export async function acquireBootLock() {
   mkdirSync(BOOT_LOCK_DIR, { recursive: true });
@@ -79,10 +88,16 @@ export async function acquireBootLock() {
   writeFileSync(join(BOOT_LOCK_DIR, ticket), '');
   heldTicket = ticket;
   const startedAt = process.hrtime.bigint();
+  let aheadOnArrival = null;
   for (;;) {
     const queue = bootQueue();
-    if (queue[0] === ticket) return;
+    if (aheadOnArrival === null) aheadOnArrival = Math.max(0, queue.indexOf(ticket));
     const waitedMs = Number((process.hrtime.bigint() - startedAt) / 1000000n);
+    if (queue[0] === ticket) {
+      heldSince = process.hrtime.bigint();
+      report(`acquired waited_ms=${waitedMs} ahead_on_arrival=${aheadOnArrival} pid=${process.pid}`);
+      return;
+    }
     if (waitedMs > BOOT_LOCK_MAX_WAIT_MS) {
       const ahead = queue.indexOf(ticket);
       const holder = queue[0] ? ticketOrder(queue[0])[1] : 'none';
@@ -99,6 +114,12 @@ export async function acquireBootLock() {
 
 export function releaseBootLock() {
   if (!heldTicket) return;
+  // Null when the wait timed out rather than succeeded, which is a queue that never
+  // held the lock and must not report a boot duration.
+  if (heldSince !== null) {
+    report(`released held_ms=${Number((process.hrtime.bigint() - heldSince) / 1000000n)} pid=${process.pid}`);
+    heldSince = null;
+  }
   try {
     rmSync(join(BOOT_LOCK_DIR, heldTicket), { force: true });
   } catch {
