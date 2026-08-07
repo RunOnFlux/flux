@@ -184,17 +184,21 @@ function appsMatchingFolderIds(appsInstalled, folderIds) {
  * The syncthing folder ids this node's installed apps own. A folder is owned
  * when an installed component whose primary mount carries a sync flag (g:/r:/s:)
  * maps to it - ownership is a property of the installed specification, not of
- * what any one pass managed to process. Apps suspended for backup or restore are
- * owner-exempt: those flows delete and rebuild their own folders, so a folder
- * must be neither kept nor re-added underneath them.
+ * what any one pass managed to process.
+ *
+ * An app under backup or restore owns its folders like any other. It used to be
+ * exempt, on the grounds that those flows deleted and rebuilt their own folder
+ * configs, so a folder had to be neither kept nor re-added underneath them.
+ * Neither flow deletes a folder any more - both pause it and resume it, and for
+ * a restore the resume IS the propagation. Sweeping it mid-operation takes the
+ * index, the peer devices and any standing safety demotion with it, and leaves
+ * the resume addressing a folder that no longer exists.
  * @param {Array} appsInstalled - List of installed apps (decrypted)
- * @param {Set<string>} suspendedAppNames - Apps under backup or restore
  * @returns {Set<string>} Owned folder ids
  */
-function syncingFolderOwnerIds(appsInstalled, suspendedAppNames) {
+function syncingFolderOwnerIds(appsInstalled) {
   const ownerIds = new Set();
   appsInstalled.forEach((installedApp) => {
-    if (suspendedAppNames.has(installedApp.name)) return;
     appComponents(installedApp).forEach(({ appId, containerData }) => {
       const primaryContainer = (containerData ?? '').split('|')[0];
       if (requiresSyncing(getContainerDataFlags(primaryContainer))) ownerIds.add(appId);
@@ -459,10 +463,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // pass makes: the skip-gate below tells "syncthing has no such folder
     // because this component does not sync" from "an owned folder has gone
     // missing" by it, and the sweep at the end deletes by it.
-    const ownerIds = syncingFolderOwnerIds(
-      appsInstalled.data,
-      new Set([...state.backupInProgress, ...state.restoreInProgress]),
-    );
+    const ownerIds = syncingFolderOwnerIds(appsInstalled.data);
 
     // Get required IDs and configurations
     const localDeviceId = await syncthingService.getDeviceId();
@@ -717,12 +718,12 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
 
     // Remove unused folders and devices (parallelized for better performance).
     // A folder is unused when no installed syncing component owns it: the app
-    // was uninstalled, dropped the g:/r:/s: flag from its primary mount, or is
-    // suspended for backup/restore (those flows own their folders' lifecycle
-    // themselves). Whether this pass reached the component is a different
-    // question - a component skipped for an unmounted volume or deferred by the
-    // state machine still owns its folder, and deleting it would take
-    // syncthing's index, peer devices and any standing safety demotion with it.
+    // was uninstalled, or dropped the g:/r:/s: flag from its primary mount.
+    // Whether this pass reached the component is a different question - a
+    // component skipped for an unmounted volume, deferred by the state machine,
+    // or held still for a backup or restore still owns its folder, and deleting
+    // it would take syncthing's index, peer devices and any standing safety
+    // demotion with it.
     const nonUsedFolders = allFoldersResp.data.filter(
       (syncthingFolder) => !ownerIds.has(syncthingFolder.id)
         && !ownedByUnreadableApp(syncthingFolder.id),

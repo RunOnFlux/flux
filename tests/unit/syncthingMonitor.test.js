@@ -1258,18 +1258,25 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'ghostapp');
     });
 
-    it('deletes the folder of an app under backup', async () => {
-      // backup suspends syncing by deleting the app's folders itself - the
-      // monitor must not keep one alive underneath it
+    it('keeps the folder of an app under backup, and of one under restore', async () => {
+      // Neither flow deletes a folder any more - both pause it and resume it,
+      // and for a restore the resume IS how the new data reaches the peers.
+      // Sweeping it mid-operation takes the index, the peer devices and any
+      // standing safety demotion with it, and leaves the resume addressing a
+      // folder that is no longer there.
       primaryMountSyncs();
-      mockState.backupInProgress = ['testapp'];
       mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
       syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
       syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
 
+      mockState.backupInProgress = ['testapp'];
       await runOnePass();
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'testapp');
 
-      sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'testapp');
+      mockState.backupInProgress = [];
+      mockState.restoreInProgress = ['testapp'];
+      await runOnePass();
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'delete', undefined, 'testapp');
     });
   });
 });

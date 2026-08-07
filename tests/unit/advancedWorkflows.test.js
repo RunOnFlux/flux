@@ -3145,6 +3145,42 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
       });
 
+      it('refuses before clearing anything when the folder cannot be held still', async () => {
+        // The folder path is the mount ROOT, so appdata is inside the replicated
+        // scope: clearing it under a folder that is still sendreceive turns the
+        // clear into deletions this node broadcasts to every healthy peer. That
+        // is the quiet half of the 2026-08-04 loss, with no redeploy involved.
+        // A transient failure cannot tell us the folder is held, so nothing may
+        // be destroyed on the strength of it.
+        syncthingService.adjustConfigFolders
+          .withArgs('patch', { paused: true }, folderId)
+          .resolves({ status: 'error', data: { code: 'ECONNREFUSED', message: 'socket hang up' } });
+
+        const res = makeRes();
+        await advancedWorkflows.appendRestoreTask(restoreReq(), res);
+
+        sinon.assert.notCalled(IOUtils.removeDirectory);
+        sinon.assert.notCalled(IOUtils.untarFile);
+        // the UI never checks HTTP status, so the refusal has to be legible in
+        // the stream itself, and leading - the restore caption truncates at 50
+        expect(res.write.getCalls().map((c) => c.args[0]).join('')).to.match(/Refused: .*could not be held still/);
+        expect(globalState.restoreInProgress).to.not.include(appname);
+      });
+
+      it('proceeds when syncthing has no such folder, because nothing is replicating it', async () => {
+        // A 4xx is an answer, not a failure: syncthing does not know the folder,
+        // so there is nothing to hold still and nothing to broadcast.
+        syncthingService.adjustConfigFolders
+          .withArgs('patch', { paused: true }, folderId)
+          .resolves({ status: 'error', data: { code: 'ERR_BAD_REQUEST', message: 'Request failed with status code 404' } });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.called(IOUtils.untarFile);
+        // never resumed, because it was never held
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+      });
+
       it('resumes the folder when the restore fails', async () => {
         IOUtils.inspectTarGz.resolves({ status: false, error: 'gzip: unexpected end of file' });
 

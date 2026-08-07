@@ -1947,13 +1947,20 @@ async function setSyncthingFolderPaused(folderId, paused) {
     const response = await syncthingServiceModule.adjustConfigFolders('patch', { paused }, folderId);
     if (response.status === 'success') {
       log.info(`setSyncthingFolderPaused - ${folderId} paused=${paused}`);
-      return true;
+      return 'held';
+    }
+    // 4xx: syncthing has no such folder. Nothing is replicating it, so there is
+    // nothing to hold still and the caller may proceed - which is NOT true of
+    // any other failure, where the folder may be live and unheld.
+    if (response.data?.code === 'ERR_BAD_REQUEST') {
+      log.info(`setSyncthingFolderPaused - ${folderId} is unknown to syncthing; nothing to hold still`);
+      return 'absent';
     }
     log.error(`setSyncthingFolderPaused - ${folderId} paused=${paused} failed: ${JSON.stringify(response)}`);
-    return false;
+    return 'failed';
   } catch (error) {
     log.error(`setSyncthingFolderPaused - ${folderId} paused=${paused} failed: ${error.message}`);
-    return false;
+    return 'failed';
   }
 }
 
@@ -2315,7 +2322,14 @@ async function appendBackupTask(req, res) {
         // eslint-disable-next-line no-await-in-loop
         await sendChunk(res, `Pausing syncthing folder ${folderId}\n`);
         // eslint-disable-next-line no-await-in-loop
-        if (await setSyncthingFolderPaused(folderId, true)) pausedFolderIds.push(folderId);
+        const held = await setSyncthingFolderPaused(folderId, true);
+        if (held === 'held') pausedFolderIds.push(folderId);
+        // An unheld folder is still pulling, so the archive would be taken over
+        // data that moves underneath it. A torn archive is the thing this whole
+        // path exists to stop being created.
+        if (held === 'failed') {
+          throw new Error(`Refused: ${folderId} could not be held still, so an archive taken now could be inconsistent`);
+        }
       }
       const syncthing = allSyncedComponents.length > 0;
 
@@ -2537,7 +2551,15 @@ async function appendRestoreTask(req, res) {
       // eslint-disable-next-line no-await-in-loop
       await sendChunk(res, `Pausing syncthing folder ${target.folderId}\n`);
       // eslint-disable-next-line no-await-in-loop
-      if (await setSyncthingFolderPaused(target.folderId, true)) pausedFolderIds.push(target.folderId);
+      const held = await setSyncthingFolderPaused(target.folderId, true);
+      if (held === 'held') pausedFolderIds.push(target.folderId);
+      // Clearing appdata happens INSIDE the replicated folder - the folder path
+      // is the mount root, not appdata - so an unheld sendreceive folder turns
+      // the clear into deletions this node broadcasts to every healthy peer.
+      // Refuse while the data is still there rather than find out afterwards.
+      if (held === 'failed') {
+        throw new Error(`Refused: ${target.folderId} could not be held still, so clearing its data would propagate the deletions to the other instances`);
+      }
     }
 
     await sendChunk(res, 'Stopping application...\n');
