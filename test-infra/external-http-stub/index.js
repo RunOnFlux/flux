@@ -492,15 +492,32 @@ app.get('/fluxlocation/:ip', (req, res) => {
 // landing in backup/remote - has no other way to be exercised.
 const artifacts = new Map();
 
+// HEAD is answered separately because the size a downloader is PROMISED and the
+// bytes it actually receives have to be able to disagree - that disagreement is
+// the whole subject of the short-download check, and FluxOS learns the promise
+// from a HEAD (IOUtils.getRemoteFileSize).
+app.head('/artifact/:name', (req, res) => {
+  const artifact = artifacts.get(req.params.name);
+  if (!artifact) return res.status(404).end();
+  res.setHeader('content-type', 'application/gzip');
+  res.setHeader('content-length', String(artifact.declaredLength ?? artifact.body.length));
+  return res.end();
+});
+
 app.get('/artifact/:name', (req, res) => {
   const artifact = artifacts.get(req.params.name);
   if (!artifact) return res.status(404).json({ error: 'no such artifact' });
   res.setHeader('content-type', 'application/gzip');
-  // A declared length longer than the body is what a dropped connection or an
-  // error page served as 200 looks like to a downloader: the header promises
-  // more than ever arrives. Serving it is how the short-download refusal gets
-  // tested without having to break a socket on purpose.
-  res.setHeader('content-length', String(artifact.declaredLength ?? artifact.body.length));
+  if (artifact.declaredLength == null) {
+    res.setHeader('content-length', String(artifact.body.length));
+    return res.end(artifact.body);
+  }
+  // With a declared length the body is sent chunked and the connection closes
+  // cleanly: the transfer SUCCEEDS and the file on disk is simply shorter than
+  // HEAD promised, which is the case the received-vs-expected comparison exists
+  // for. Sending a content-length that contradicts the body instead leaves the
+  // client waiting for bytes that never come - that is a timeout, not a short
+  // download, and it takes the suite's whole budget to find out.
   return res.end(artifact.body);
 });
 

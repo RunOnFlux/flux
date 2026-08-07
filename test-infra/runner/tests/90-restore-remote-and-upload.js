@@ -183,7 +183,9 @@ describe('a restore fetches its archive from where it was told', function () {
       auth.zelidauth,
     );
 
-    expect(body).to.match(/incomplete|Failed to download/i);
+    // the transfer completes; what is refused is that it carried less than the
+    // content-length promised
+    expect(body).to.match(/incomplete/i);
     // the copy that was there is still there
     expect(await readFile(client, `${dir}/appdata/marker.txt`)).to.equal('on-disk-original');
     expect(await readFile(client, `${dir}/appdata/restored.txt`)).to.equal('missing');
