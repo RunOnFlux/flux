@@ -40,8 +40,22 @@ describe('a restore reaches the other instances through syncthing', function () 
 
   before(async function () {
     this.timeout(600000);
-    env = await createTestEnv({ hookCtx: this, nodes: 2, syncthing: 'binary', tickerAutostart: false });
-    await bootAndPeer(env);
+    // Two instances is what the propagation needs, but two NODES cannot peer at
+    // all: the discovery mesh is a ring needing 2*minOutgoing+1 nodes to close,
+    // so at two each node is the other's forward AND backward target and the
+    // direction-blind peerManager.has() refuses the second connection (4001).
+    // Three is the floor for minOutgoing 1, and the app still installs on two of
+    // them - the third exists so the ring can close, not to hold an instance.
+    env = await createTestEnv({
+      hookCtx: this,
+      nodes: 3,
+      syncthing: 'binary',
+      tickerAutostart: false,
+      configOverrides: {
+        fluxapps: { minOutgoing: 1, minIncoming: 1 },
+      },
+    });
+    await bootAndPeer(env, { minOutbound: 1, minInbound: 1 });
 
     // nothing below means anything if the daemons are not actually up
     await Promise.all(env.clients.map((c, i) => waitFor(() => isDaemonUp(c), {
