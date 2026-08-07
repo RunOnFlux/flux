@@ -8,7 +8,6 @@ const appUninstaller = require('../appLifecycle/appUninstaller');
 const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
 const serviceHelper = require('../serviceHelper');
-const volumeService = require('../utils/volumeService');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const { socketAddressesMatch, extractIp } = require('../utils/socketAddressUtils');
@@ -25,7 +24,7 @@ const {
   ACTIVE_FOLDER_STATES,
 } = require('./syncthingMonitorConstants');
 
-const { isPathMounted } = volumeService;
+const { isPathMounted } = require('../utils/volumeService');
 
 const monotonicMs = () => Number(process.hrtime.bigint() / 1000000n);
 
@@ -1096,7 +1095,6 @@ async function manageFolderSyncState(params) {
     localSocketAddr,
     syncthingFolder,
     installedAppName,
-    mountVerifyNeeded = true,
     liveness,
   } = params;
 
@@ -1105,52 +1103,10 @@ async function manageFolderSyncState(params) {
 
   // If already syncing in sendreceive mode, ensure container is running
   if (folderAlreadySyncing) {
-    // Mount safety of a live sendreceive folder is verified at decision points
-    // (startup, FolderErrors from syncthing) - not per pass: the .stfolder
-    // marker inside the volume turns storage loss into FolderErrors, and the
-    // caller flags exactly those folders here
-    if (mountVerifyNeeded) {
-      const folderPath = syncFolder.path || `${appsFolder}${appId}/appdata`;
-      let mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
-
-      if (!mountSafety.isSafe && !mountSafety.isMounted) {
-        // The detection is actionable: the backing image normally still exists,
-        // and FluxOS owns the mount - repair instead of just blocking. The
-        // re-verify still holds the folder back (receiveonly) if the freshly
-        // mounted volume disagrees with the index (phantom-index case).
-        const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
-        if (mountAttempt.mounted) {
-          log.info(`manageFolderSyncState - ${appId} volume was not mounted; mounted it, re-verifying folder safety`);
-          mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
-        }
-      }
-
-      if (!mountSafety.isSafe) {
-        // DANGER: Mount not ready! Switch to receiveonly to prevent data propagation
-        log.error(`manageFolderSyncState - SAFETY BLOCK: ${appId} mount not safe (${mountSafety.reason}). Switching to receiveonly mode to prevent data loss.`);
-        log.error(`manageFolderSyncState - Mount status: mounted=${mountSafety.isMounted}, hasContent=${mountSafety.hasContent}, files=${mountSafety.fileCount}`);
-
-        // Update folder to receiveonly mode to prevent this node from sending "empty" state to peers
-        syncthingFolder.type = 'receiveonly';
-        const cache = {
-          numberOfExecutions: 0,
-          mountSafetyBlocked: true,
-          blockedReason: mountSafety.reason,
-          blockedAt: Date.now(),
-        };
-        receiveOnlySyncthingAppsCache.set(appId, cache);
-
-        // Hold the container too: its binds point at the same unsafe dir. The
-        // reconciler is the actuator; the receiveonly machinery flips the
-        // verdict back to running once the folder is verifiably synced.
-        appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${mountSafety.reason}`);
-
-        // Return with skipUpdate=false so the folder config gets updated to receiveonly
-        return { syncthingFolder, cache, skipUpdate: false };
-      }
-    }
-
-    // Mount is safe (verified) or not in question (steady state)
+    // The mount is sound by the time this runs: the pass verifies every folder
+    // it is going to act on before it acts, and holds out the ones that fail.
+    // Re-deriving that verdict here would cost a syncthing round trip and a
+    // directory walk per folder to answer a question already answered.
     await ensureContainerRunning(appId, containerDataFlags);
     // Ensure cache entry exists so health monitor can track this folder
     const existingCache = receiveOnlySyncthingAppsCache.get(appId);

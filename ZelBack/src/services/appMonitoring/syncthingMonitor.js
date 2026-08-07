@@ -57,17 +57,28 @@ const appsFolder = `${appsFolderPath}/`;
  * Verify one app folder's mount safety, repairing an unmounted volume on the
  * spot (FluxOS owns the mount - the backing image normally still exists, so
  * the actionable response is to mount it, not just to report it).
+ *
+ * A folder that is currently sendreceive is verified at the deeper level, which
+ * also rejects a stale index over an empty volume: sendreceive is the only mode
+ * that can broadcast the resulting deletions, so the check belongs exactly where
+ * that is possible and nowhere else - it costs a syncthing round trip and a
+ * scoped directory walk per folder. The repair runs first either way, so the
+ * index is judged against a mounted volume rather than against the absence of
+ * one.
+ *
  * @param {string} appId - Docker app identifier
  * @param {string} appFolder - App folder path
+ * @param {boolean} sending - Whether syncthing currently holds this folder sendreceive
  * @returns {Promise<{isSafe: boolean, reason: string}>} Result after any repair
  */
-async function verifyAppFolderMountWithRepair(appId, appFolder) {
-  let mountSafety = await verifyFolderMountSafety(appId, appFolder);
+async function verifyAppFolderMountWithRepair(appId, appFolder, sending) {
+  const verify = sending ? verifySendReceiveFolderSafety : verifyFolderMountSafety;
+  let mountSafety = await verify(appId, appFolder);
   if (!mountSafety.isSafe && !mountSafety.isMounted) {
     const mountAttempt = await volumeService.ensureAppVolumeMounted(appId);
     if (mountAttempt.mounted) {
       log.info(`checkAppFolderMounts - ${appId} volume was not mounted; mounted it`);
-      mountSafety = await verifyFolderMountSafety(appId, appFolder);
+      mountSafety = await verify(appId, appFolder);
     }
   }
   return mountSafety;
@@ -94,20 +105,22 @@ function appComponents(installedApp) {
 }
 
 /**
- * Check if app folders are properly mounted
- * Uses verifyFolderMountSafety to detect folders that exist but aren't properly mounted
+ * The pass's single mount-safety authority: every component of every app it is
+ * given gets exactly one verdict, and every consumer of that verdict reads it
+ * from here. Nothing downstream re-derives it.
  * @param {Array} appsInstalled - List of installed apps
+ * @param {Set<string>} sendingFolderIds - Folder ids syncthing currently holds sendreceive
  * @returns {Promise<{unmountedApps: Array, verifiedSafeIds: string[]}>} Apps with
  *  unmounted folders, and the folder ids that verified safe (so a pending
  *  mount-verify flag on them can be resolved)
  */
-async function checkAppFolderMounts(appsInstalled) {
+async function checkAppFolderMounts(appsInstalled, sendingFolderIds) {
   const unmountedApps = [];
   const verifiedSafeIds = [];
 
   const verifyOne = async (appId, appName) => {
     const appFolder = `${appsFolder}${appId}`;
-    const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder);
+    const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder, sendingFolderIds.has(appId));
     if (mountSafety.isSafe) {
       verifiedSafeIds.push(appId);
     } else {
@@ -220,7 +233,6 @@ async function processContainerData(params) {
     localSocketAddr,
     localDeviceId,
     state,
-    erroredFolderIds,
     allFoldersResp,
     allDevicesResp,
     devicesConfiguration,
@@ -301,7 +313,6 @@ async function processContainerData(params) {
       localSocketAddr,
       syncthingFolder,
       installedAppName,
-      mountVerifyNeeded: state.syncthingAppsFirstRun || erroredFolderIds.has(appId),
       liveness,
     });
 
@@ -491,9 +502,10 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // unauthenticated amplifier into it. Replaced only by a validated response, so a
     // failed read leaves the last good answer standing rather than momentarily
     // claiming this node holds nothing writable.
-    globalState.promotedFolderIds = new Set(
+    const sendingFolderIds = new Set(
       allFoldersResp.data.filter((folder) => folder.type === 'sendreceive').map((folder) => folder.id),
     );
+    globalState.promotedFolderIds = sendingFolderIds;
 
     if (allDevicesResp?.status !== 'success' || !Array.isArray(allDevicesResp.data)) {
       if (state.syncthingAppsFirstRun) {
@@ -542,7 +554,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
         .forEach((id) => syncthingEventsConsumer.resolveMountVerify(id));
     }
     const { unmountedApps, verifiedSafeIds } = appsToVerify.length > 0
-      ? await checkAppFolderMounts(appsToVerify)
+      ? await checkAppFolderMounts(appsToVerify, sendingFolderIds)
       : { unmountedApps: [], verifiedSafeIds: [] };
     // safe mount = the condition the flag exists for is gone
     verifiedSafeIds.forEach((id) => syncthingEventsConsumer.resolveMountVerify(id));
@@ -578,6 +590,11 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
         if (patchResponse.status === 'success') {
           log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder over an unsafe mount (${reason}); switched to receiveonly and holding the container`);
           appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
+          // A demoted folder re-enters the promotion machinery from the start.
+          // Leaving the count where it stood would let a folder that was
+          // moments from promotion resume there once the mount returns, on a
+          // sync state established before the volume went away.
+          state.receiveOnlySyncthingAppsCache.set(appId, { numberOfExecutions: 0 });
           syncthingEventsConsumer.resolveMountVerify(appId);
         } else if (patchResponse.data?.code === 'ERR_BAD_REQUEST') {
           // 4xx: syncthing has no such folder. What that means turns entirely on
@@ -604,49 +621,6 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       }
     }
 
-
-    // CRITICAL STARTUP SAFETY CHECK: Verify all sendreceive folders have safe mounts
-    // This prevents data loss when loop mounts aren't ready after reboot
-    if (state.syncthingAppsFirstRun && allFoldersResp.data.length > 0) {
-      log.info('syncthingAppsCore - First run detected, performing mount safety verification on existing folders');
-      let unsafeFoldersCount = 0;
-
-      // eslint-disable-next-line no-restricted-syntax
-      for (const folder of allFoldersResp.data) {
-        // Folders held out above were verified and demoted on the same
-        // evidence; re-patching them here would only duplicate the write.
-        if (folder.type === 'sendreceive' && !unsafeFolderIds.has(folder.id)) {
-          // Extract appId from folder.id (e.g., fluxwp_myapp -> fluxwp_myapp)
-          const appId = folder.id;
-          const folderPath = folder.path;
-
-          // eslint-disable-next-line no-await-in-loop
-          const mountSafety = await verifySendReceiveFolderSafety(appId, folderPath);
-
-          if (!mountSafety.isSafe) {
-            unsafeFoldersCount += 1;
-            log.error(`syncthingAppsCore - STARTUP SAFETY: Folder ${appId} has unsafe mount (${mountSafety.reason}). Switching to receiveonly to prevent data loss.`);
-
-            // Immediately switch to receiveonly mode. In-band status check:
-            // performRequest never throws, so a .catch here would be dead code
-            // and a failed demotion would pass silently.
-            // eslint-disable-next-line no-await-in-loop
-            const startupPatch = await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, folder.id);
-            if (startupPatch?.status !== 'success') {
-              log.error(`syncthingAppsCore - Failed to switch ${folder.id} to receiveonly: ${startupPatch?.data?.message || 'unknown error'}`);
-            }
-          } else {
-            log.info(`syncthingAppsCore - Folder ${appId} mount is safe (mounted=${mountSafety.isMounted}, files=${mountSafety.fileCount})`);
-          }
-        }
-      }
-
-      if (unsafeFoldersCount > 0) {
-        // The receiveonly PATCH applies live (no restart needed on syncthing v2) -
-        // a process restart here would drop every folder's transfers node-wide.
-        log.error(`syncthingAppsCore - STARTUP WARNING: ${unsafeFoldersCount} folders had unsafe mounts and were switched to receiveonly mode. Check loop mounts!`);
-      }
-    }
 
     // Initialize tracking arrays
     const devicesIds = [];
@@ -686,7 +660,6 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       // the folders flagged when the pass began: the state machine re-verifies
       // exactly these on its own decision points (resolution of the flag by
       // this pass does not retract the request to look)
-      erroredFolderIds: new Set(pendingFolderIds),
       allFoldersResp,
       allDevicesResp,
       devicesConfiguration,

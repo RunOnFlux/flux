@@ -338,34 +338,96 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.notCalled(mockInstalledAppsFn);
     });
 
-    it('should switch unsafe-mount folders to receiveonly on first run WITHOUT restarting syncthing', async () => {
+    it('demotes an unsafe-mount sendreceive folder on first run WITHOUT restarting syncthing', async () => {
       // The receiveonly PATCH applies live on syncthing v2 (verified against the
       // fleet's v2.0.x) - a process restart here drops every folder's transfers
       // and delays startup by 5s for nothing.
       mockState.syncthingAppsFirstRun = true;
-      mockInstalledAppsFn.resolves({ status: 'success', data: [] });
-      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
-      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
       syncthingServiceMock.getConfigFolders.resolves({
         status: 'success',
-        data: [{ id: 'fluxcomp_testapp', path: '/apps/fluxcomp_testapp', type: 'sendreceive' }],
+        data: [{ id: 'testapp', path: '/apps/testapp', type: 'sendreceive' }],
       });
-      syncthingServiceMock.adjustConfigFolders.resolves(); // beforeEach reset() wipes behavior; restore it
-      syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: false, reason: 'not mounted' });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+      syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: false, isMounted: true, reason: 'phantom_index_empty_disk' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
 
       monitorControl = syncthingMonitor.syncthingApps(
         mockState,
         mockInstalledAppsFn,
         mockGetGlobalStateFn,
-        mockAppDockerStopFn,
-        mockAppDockerRestartFn,
-        mockAppDeleteDataFn,
-        mockRemoveAppLocallyFn,
       );
       await clock.tickAsync(10000);
 
-      sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'patch', { type: 'receiveonly' }, 'fluxcomp_testapp');
+      sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'patch', { type: 'receiveonly' }, 'testapp');
       sinon.assert.notCalled(syncthingServiceMock.systemRestart);
+    });
+
+    it('judges a sendreceive folder on the phantom index, not the mount alone', async () => {
+      // A mounted volume whose disk holds none of the data its index claims is
+      // the deletion-broadcast case: sendreceive would push the missing files
+      // out as deletions. Only a folder that can broadcast is asked, so the
+      // shallow check is what a receiveonly folder gets.
+      mockState.syncthingAppsFirstRun = true;
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'sending', version: 3, containerData: 'g:/appdata' }, { name: 'receiving', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingServiceMock.getConfigFolders.resolves({
+        status: 'success',
+        data: [
+          { id: 'sending', path: '/apps/sending', type: 'sendreceive' },
+          { id: 'receiving', path: '/apps/receiving', type: 'receiveonly' },
+        ],
+      });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(10000);
+
+      sinon.assert.calledWith(syncthingFolderStateMachineMock.verifySendReceiveFolderSafety, 'sending');
+      sinon.assert.neverCalledWith(syncthingFolderStateMachineMock.verifySendReceiveFolderSafety, 'receiving');
+      sinon.assert.calledWith(syncthingFolderStateMachineMock.verifyFolderMountSafety, 'receiving');
+    });
+
+    it('restarts the promotion count when it demotes, so a blocked folder does not resume mid-progress', async () => {
+      // The folder re-enters the receiveonly machinery from the start: resuming
+      // at the old count would promote on a sync state established before the
+      // volume went away.
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'testapp', version: 3, containerData: 'g:/appdata' }],
+      });
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      mockState.receiveOnlySyncthingAppsCache.set('testapp', { numberOfExecutions: 9, restarted: true });
+      syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['testapp']);
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+      syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      syncthingServiceMock.getConfigFolders.resolves({
+        status: 'success',
+        data: [{ id: 'testapp', path: '/apps/testapp', type: 'sendreceive' }],
+      });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      expect(mockState.receiveOnlySyncthingAppsCache.get('testapp').numberOfExecutions).to.equal(0);
+      expect(mockState.receiveOnlySyncthingAppsCache.get('testapp').restarted).to.not.equal(true);
     });
 
     it('demotes a sendreceive folder over an unrepairable mount and holds it out of the pass', async function () {
@@ -437,7 +499,8 @@ describe('syncthingMonitor tests', () => {
         ],
       });
       syncthingEventsConsumerMock.mountVerifyPendingIds.returns(['brokenapp']);
-      syncthingFolderStateMachineMock.verifyFolderMountSafety
+      // brokenapp's folder is sendreceive, so it is judged at the deeper level
+      syncthingFolderStateMachineMock.verifySendReceiveFolderSafety
         .withArgs('brokenapp', sinon.match.string)
         .resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
       volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
