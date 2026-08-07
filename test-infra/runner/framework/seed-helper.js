@@ -112,6 +112,93 @@ export async function buildSeedableApp({
 }
 
 /**
+ * A seedable LEGACY app - version <= 3, which has no compose array at all: the
+ * one component's fields sit flat on the specification itself.
+ *
+ * That shape is why a restore of such an app used to throw before it did
+ * anything: the code reached for `.compose` and found nothing. `seed-helper`
+ * builds v8 everywhere else, so nothing in the harness could produce an app that
+ * takes the legacy branch.
+ *
+ * The field list is what appValidator demands of version <= 3, including two
+ * details that are easy to get wrong: `ports` and `containerPorts` are arrays of
+ * STRINGS rather than numbers, and the environment array is spelled
+ * `enviromentParameters` - the historical misspelling that dockerService still
+ * reads as a fallback.
+ *
+ * @param {object} opts - name, containerData and the usual overrides
+ * @returns {Promise<object>} the same shape buildSeedableApp returns
+ */
+export async function buildSeedableLegacyApp({
+  name,
+  version = 3,
+  containerData = '/appdata',
+  port = 32001,
+  height = 2100010,
+  instances = 1,
+  owner = null,
+  expire = 22000,
+  allowExternalRepotag = false,
+}) {
+  const ownerKey = appOwnerKey();
+  const appOwner = owner ?? ownerKey.zelid;
+
+  const spec = {
+    version,
+    name,
+    description: `Seeded legacy test app ${name}`,
+    owner: appOwner,
+    repotag: `${REGISTRY_REPO_HOST}/${name}:v1`,
+    ports: [String(port)],
+    domains: [''],
+    enviromentParameters: [],
+    commands: [],
+    containerPorts: ['80'],
+    containerData,
+    cpu: 0.1,
+    ram: 100,
+    hdd: 1,
+    instances,
+    expire,
+  };
+
+  const type = 'fluxappregister';
+  const messageVersion = 1;
+  const timestamp = Date.now();
+  const payload = type + messageVersion + JSON.stringify(spec) + timestamp;
+  const signature = await signBtcMessage(payload, ownerKey.privkey);
+
+  const messageContent = type + messageVersion + JSON.stringify(spec) + timestamp + signature;
+  const hash = sha256(messageContent);
+  const txid = fakeTxid();
+
+  const permanentMessage = {
+    type,
+    version: messageVersion,
+    appSpecifications: spec,
+    hash,
+    timestamp,
+    signature,
+    txid,
+    height,
+    valueSat: 200000000,
+  };
+
+  const hashEntry = {
+    hash,
+    txid,
+    height,
+    value: 200000000,
+    message: true,
+    messageNotFound: false,
+    createdAt: new Date(),
+  };
+
+  assertHermeticRepotags(spec, allowExternalRepotag);
+  return { spec: { ...spec, hash, height }, permanentMessage, hashEntry, hash, txid };
+}
+
+/**
  * A seedable app whose primary component carries a syncthing containerData flag
  * (`g:` masterSlave gateway, `r:` receive-only, `s:` shared). Drive its sync
  * state with framework/syncthing-control and its election with framework/fdm-control.
