@@ -486,6 +486,24 @@ app.get('/fluxlocation/:ip', (req, res) => {
   });
 });
 
+// Arbitrary bytes a node can fetch over real HTTP. The restore suites need an
+// archive that actually arrives down the wire from inside the subnet, because
+// the whole remote path - the download, the content-length comparison, the file
+// landing in backup/remote - has no other way to be exercised.
+const artifacts = new Map();
+
+app.get('/artifact/:name', (req, res) => {
+  const artifact = artifacts.get(req.params.name);
+  if (!artifact) return res.status(404).json({ error: 'no such artifact' });
+  res.setHeader('content-type', 'application/gzip');
+  // A declared length longer than the body is what a dropped connection or an
+  // error page served as 200 looks like to a downloader: the header promises
+  // more than ever arrives. Serving it is how the short-download refusal gets
+  // tested without having to break a socket on purpose.
+  res.setHeader('content-length', String(artifact.declaredLength ?? artifact.body.length));
+  return res.end(artifact.body);
+});
+
 // --- Control API ---
 
 const control = express();
@@ -566,6 +584,16 @@ control.post('/iplocation', (req, res) => {
   });
 });
 
+control.post('/artifact', (req, res) => {
+  const { name, base64, declaredLength = null } = req.body || {};
+  if (!name || typeof base64 !== 'string') {
+    return res.status(400).json({ error: 'name and base64 are required' });
+  }
+  const body = Buffer.from(base64, 'base64');
+  artifacts.set(name, { body, declaredLength });
+  return res.json({ ok: true, name, bytes: body.length, declaredLength });
+});
+
 control.post('/reset', (req, res) => {
   state.blockedRepositories = [];
   state.vettedRepositories = [];
@@ -573,6 +601,7 @@ control.post('/reset', (req, res) => {
   state.tamperingBlocklist = [];
   state.latestRelease = { tag_name: 'v0.0.0', name: 'stub-release' };
   state.geolocation = {};
+  artifacts.clear();
   serveIpLocation(buildIpLocationArtifact(1));
   res.json({ ok: true });
 });
