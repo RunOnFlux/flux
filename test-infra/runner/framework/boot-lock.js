@@ -3,13 +3,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // ---- host-wide boot semaphore ----
-// Fleet boot is the only CPU-heavy phase a suite has: every node in the fleet
-// starts its own dockerd and runs FluxOS DB prep at once. When two suites' boots
-// overlap under run-parallel.sh, they starve each other and a healthy node can
-// blow its event-wait budget while merely slow (observed in the 42-suite gate:
-// suite 22's second fleet booted at load ~15 on 16 cores and mongo collection
-// prep crawled at 7-17s a step). Running fleets are cheap, so serialise just the
+// Fleet boot is the heaviest phase a suite has: every node in the fleet starts its
+// own dockerd and runs FluxOS DB prep at once. Overlapping boots contend, and a
+// healthy node can blow its event-wait budget while merely slow (observed in the
+// 42-suite gate: suite 22's second fleet booted at load ~15 on 16 cores and mongo
+// collection prep crawled at 7-17s a step). Running fleets are cheap, so bound the
 // boot phase host-wide and let everything else overlap.
+//
+// BOOT_LOCK_WIDTH is how many fleets may boot at once. Two ten-node fleets booting
+// together each take ~37s where one alone takes ~25s, so the pair completes in the
+// time 1.5 boots would cost serially: they do contend, but the overlap wins. The
+// gate is ~89% boot-lock-held wall clock, so that ratio is most of its duration.
 //
 // The queue is ORDERED BY ARRIVAL, and that is the whole point. A protocol that
 // has every waiter race the same atomic create when the lock frees serves whoever
@@ -27,10 +31,14 @@ import { join } from 'node:path';
 // after a suite is killed mid-boot.
 export const BOOT_LOCK_DIR = process.env.E2E_BOOT_LOCK_DIR ?? join(tmpdir(), 'e2e-boot-lock');
 const BOOT_LOCK_POLL_MS = Number(process.env.E2E_BOOT_LOCK_POLL_MS ?? 250);
+// How many fleets may boot at once. Held below MAXN so a gate still spends most of
+// itself running suites rather than booting them; 1 restores strict serialisation.
+export const BOOT_LOCK_WIDTH = Math.max(1, Number(process.env.E2E_BOOT_LOCK_WIDTH ?? 2));
 // Generous against a FIFO queue: the worst honest wait is the suites ahead of you
-// times one boot, so ~5 boots at MAXN=6. Reaching this means the queue is wedged,
-// not busy, and it stays well inside run-all.sh's 1800s per-suite backstop so the
-// failure is reported by the lock rather than by a SIGKILL that explains nothing.
+// divided by the width, times one boot - ~5 boots at MAXN=6 and width 1, fewer as
+// the width rises. Reaching this means the queue is wedged, not busy, and it stays
+// well inside run-all.sh's 1800s per-suite backstop so the failure is reported by
+// the lock rather than by a SIGKILL that explains nothing.
 export const BOOT_LOCK_MAX_WAIT_MS = Number(process.env.E2E_BOOT_LOCK_MAX_WAIT_MS ?? 600000);
 
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
@@ -106,18 +114,21 @@ export async function acquireBootLock(fleet) {
     const queue = bootQueue();
     if (aheadOnArrival === null) aheadOnArrival = Math.max(0, queue.indexOf(ticket));
     const waitedMs = Number((process.hrtime.bigint() - startedAt) / 1000000n);
-    if (queue[0] === ticket) {
+    // Arrival order still decides service; the width only changes how many of the
+    // front of the queue are being served at once.
+    if (queue.indexOf(ticket) < BOOT_LOCK_WIDTH) {
       heldSince = process.hrtime.bigint();
-      report(`acquired waited_ms=${waitedMs} ahead_on_arrival=${aheadOnArrival} ${heldFleet} pid=${process.pid}`);
+      report(`acquired waited_ms=${waitedMs} ahead_on_arrival=${aheadOnArrival} width=${BOOT_LOCK_WIDTH} ${heldFleet} pid=${process.pid}`);
       return;
     }
     if (waitedMs > BOOT_LOCK_MAX_WAIT_MS) {
       const ahead = queue.indexOf(ticket);
-      const holder = queue[0] ? ticketOrder(queue[0])[1] : 'none';
+      const holders = queue.slice(0, BOOT_LOCK_WIDTH).map((t) => ticketOrder(t)[1]);
       releaseBootLock();
       throw new Error(
         `boot lock: waited ${Math.round(waitedMs / 1000)}s for ${BOOT_LOCK_DIR}, `
-        + `still ${ahead < 0 ? 'unknown' : ahead} ahead in the queue (holder pid ${holder}). `
+        + `still ${ahead < 0 ? 'unknown' : ahead} ahead in the queue `
+        + `(width ${BOOT_LOCK_WIDTH}, holder pids ${holders.length ? holders.join(',') : 'none'}). `
         + 'The queue is wedged, not merely busy.',
       );
     }
