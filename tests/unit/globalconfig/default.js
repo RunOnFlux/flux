@@ -390,6 +390,8 @@ module.exports = {
     stallNudgeMaxIntervalMs: 900000,
     stallRemoveMinWindowMs: 1200000,
     stallRemoveMinNudges: 3,
+    aptSourceUrl: 'https://apt.syncthing.net/',
+    releaseKeyUrl: 'https://syncthing.net/release-key.gpg',
   },
   cpuBurst: {
     enabled: true,
@@ -408,6 +410,15 @@ module.exports = {
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',
-    statsApiBaseUrl: 'https://stats.runonflux.io',
+  },
+  stats: {
+    baseUrl: 'https://stats.runonflux.io',
+  },
+  pricing: {
+    fluxRatesBaseUrl: 'https://viprates.runonflux.io',
+    coingeckoBaseUrl: 'https://api.coingecko.com',
+  },
+  mongodb: {
+    signingKeyBaseUrl: 'https://pgp.mongodb.com',
   },
 };

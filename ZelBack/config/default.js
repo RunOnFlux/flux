@@ -538,6 +538,10 @@ module.exports = {
     stallNudgeMaxIntervalMs: 900000, // nudge backoff cap (15min)
     stallRemoveMinWindowMs: 1200000, // 20min minimum evidence window before removal
     stallRemoveMinNudges: 3, // nudges that must have failed before removal
+    // Where a legacy node installs syncthing from. Arcane nodes ship it in the image and
+    // never reach either of these.
+    aptSourceUrl: 'https://apt.syncthing.net/',
+    releaseKeyUrl: 'https://syncthing.net/release-key.gpg',
   },
   // enterpriseAppOwners moved to helpers/enterprisenodes.json (synced from github every 6h, see enterpriseConfig)
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
@@ -596,7 +600,22 @@ module.exports = {
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',
-    statsApiBaseUrl: 'https://stats.runonflux.io',
+  },
+  // The network's statistics service. One host, several paths: node location,
+  // marketplace listings, app USD pricing, and the minimum module versions a node
+  // checks its syncthing against at boot.
+  stats: {
+    baseUrl: 'https://stats.runonflux.io',
+  },
+  pricing: {
+    fluxRatesBaseUrl: 'https://viprates.runonflux.io',
+    // Consulted only when the rates service above is unreachable.
+    coingeckoBaseUrl: 'https://api.coingecko.com',
+  },
+  mongodb: {
+    // Where a replacement server signing key is fetched from when the installed one
+    // has expired. The version is appended: /server-<major.minor>.asc
+    signingKeyBaseUrl: 'https://pgp.mongodb.com',
   },
   analytics: {
     url: 'https://cloudaudit.runonflux.io', // analytics server URL (e.g. 'https://analytics.runonflux.io'). Empty = disabled.

@@ -4,11 +4,13 @@ const proxyquire = require('proxyquire');
 
 const { expect } = chai;
 
+const STUB_API_BASE = 'http://api-base-from-config.invalid';
+
 describe('cloudUIUpdateService tests', () => {
   let cloudUIUpdateService;
   let fsStub;
   let axiosStub;
-  let execStub;
+  let execFileStub;
   let logStub;
 
   beforeEach(() => {
@@ -22,7 +24,7 @@ describe('cloudUIUpdateService tests', () => {
       get: sinon.stub(),
     };
 
-    execStub = sinon.stub();
+    execFileStub = sinon.stub();
 
     logStub = {
       info: sinon.stub(),
@@ -49,7 +51,11 @@ describe('cloudUIUpdateService tests', () => {
       {
         fs: fsStub,
         axios: axiosStub,
-        child_process: { exec: execStub },
+        child_process: { execFile: execFileStub },
+        // Deliberately NOT the production value: asserting against
+        // config.github.apiBaseUrl would pass whether the service read config or kept
+        // the hardcoded https://api.github.com, because they are the same string.
+        config: { github: { apiBaseUrl: STUB_API_BASE } },
         '../lib/log': logStub,
       },
     );
@@ -269,14 +275,19 @@ describe('cloudUIUpdateService tests', () => {
 
       it('should run update script if CloudUI folder does not exist', async () => {
         fsStub.existsSync.returns(false);
-        execStub.callsFake((cmd, opts, callback) => {
+        execFileStub.callsFake((file, args, opts, callback) => {
           callback(null, 'success', '');
         });
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.calledOnce(execStub);
+        sinon.assert.calledOnce(execFileStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Folder missing or empty, installing...');
+        // The endpoint comes from config and is passed to the script. A script left to
+        // decide for itself reaches the public internet, which is what this prevents.
+        const [file, args] = execFileStub.firstCall.args;
+        expect(file).to.equal('npm');
+        expect(args).to.eql(['run', 'update:cloudui', '--', STUB_API_BASE]);
       });
 
       it('should run update script if version file does not exist', async () => {
@@ -286,13 +297,13 @@ describe('cloudUIUpdateService tests', () => {
         // Second call for getLocalVersionHash (version file doesn't exist)
         fsStub.existsSync.onCall(1).returns(false);
 
-        execStub.callsFake((cmd, opts, callback) => {
+        execFileStub.callsFake((file, args, opts, callback) => {
           callback(null, 'success', '');
         });
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.calledOnce(execStub);
+        sinon.assert.calledOnce(execFileStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: No version file found, updating...');
       });
 
@@ -304,7 +315,7 @@ describe('cloudUIUpdateService tests', () => {
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.notCalled(execStub);
+        sinon.assert.notCalled(execFileStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Could not fetch remote version info, skipping update check');
       });
 
@@ -330,7 +341,7 @@ describe('cloudUIUpdateService tests', () => {
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.notCalled(execStub);
+        sinon.assert.notCalled(execFileStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Already up to date');
       });
 
@@ -356,7 +367,7 @@ describe('cloudUIUpdateService tests', () => {
         };
         axiosStub.get.resolves(mockRelease);
 
-        execStub.callsFake((cmd, opts, callback) => {
+        execFileStub.callsFake((file, args, opts, callback) => {
           // After update, return new hash
           fsStub.readFileSync.returns(remoteHash);
           callback(null, 'Updated successfully', '');
@@ -364,13 +375,13 @@ describe('cloudUIUpdateService tests', () => {
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.calledOnce(execStub);
+        sinon.assert.calledOnce(execFileStub);
         sinon.assert.calledWith(logStub.info, 'CloudUI: New version detected, updating...');
       });
 
       it('should log error if update script fails', async () => {
         fsStub.existsSync.returns(false);
-        execStub.callsFake((cmd, opts, callback) => {
+        execFileStub.callsFake((file, args, opts, callback) => {
           callback(new Error('Script failed'), '', 'error output');
         });
 
@@ -394,8 +405,8 @@ describe('cloudUIUpdateService tests', () => {
             assets: [{ name: 'dist.tar.gz', digest: 'sha256:newhash' }],
           },
         });
-        // exec callback throws error
-        execStub.callsFake((cmd, opts, callback) => {
+        // the spawn itself throws, before any callback
+        execFileStub.callsFake(() => {
           throw new Error('Unexpected exec error');
         });
 
@@ -411,7 +422,7 @@ describe('cloudUIUpdateService tests', () => {
 
         await cloudUIUpdateService.checkAndUpdateCloudUI();
 
-        sinon.assert.notCalled(execStub);
+        sinon.assert.notCalled(execFileStub);
         sinon.assert.notCalled(axiosStub.get);
         sinon.assert.calledWith(logStub.info, 'CloudUI: Running on ArcaneOS, skipping update check (handled by watchdog)');
       });

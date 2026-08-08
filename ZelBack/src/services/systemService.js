@@ -321,12 +321,12 @@ async function addSyncthingRepository() {
   const packageName = 'syncthing';
   // syncthing does this weird
   const dist = 'syncthing';
-  const sourceUrl = 'https://apt.syncthing.net/';
+  const sourceUrl = config.syncthing.aptSourceUrl;
   const components = ['stable-v2'];
   const sourceOptions = ['signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg'];
 
   // keyring vars
-  const keyUrl = 'https://syncthing.net/release-key.gpg';
+  const keyUrl = config.syncthing.releaseKeyUrl;
   const keyringName = 'syncthing-archive-keyring.gpg';
 
   // this will log errors
@@ -513,7 +513,7 @@ async function monitorSyncthingPackage() {
       const {
         data: { data },
       } = await axios
-        .get('https://stats.runonflux.io/getmodulesminimumversions', {
+        .get(`${config.stats.baseUrl}/getmodulesminimumversions`, {
           timeout: 10000,
         })
         .catch((error) => {
@@ -766,10 +766,10 @@ async function mongodGpgKeyVeryfity() {
     const versionMatch = stdout.match(/MongoDB (\d+\.\d+) Release Signing Key/);
     if (expiredMatch) {
       if (versionMatch) {
-        const keyUrl = `https://pgp.mongodb.com/server-${versionMatch[1]}.asc`;
+        const keyUrl = `${config.mongodb.signingKeyBaseUrl}/server-${versionMatch[1]}.asc`;
         const filePath = '/usr/share/keyrings/mongodb-archive-keyring.gpg';
         log.info(`MongoDB version: ${versionMatch[1]}`);
-        log.info(`GPG URL: https://pgp.mongodb.com/server-${versionMatch[1]}.asc`);
+        log.info(`GPG URL: ${keyUrl}`);
         log.info(`The key has expired on ${expiredMatch[1]}`);
         const command = `curl -fsSL ${keyUrl} | sudo gpg --batch --yes -o ${filePath} --dearmor`;
         // eslint-disable-next-line no-shadow

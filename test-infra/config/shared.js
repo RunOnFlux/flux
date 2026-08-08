@@ -4,7 +4,15 @@ module.exports = {
   fluxTeamFluxID: '19J4Ef396goaQhrqgNLTFvtCXYqjFAx2Js',
   daemon: { host: '198.18.0.3' },
   benchmark: { host: '198.18.0.3' },
-  upnp: { gatewayUrl: '', nodeIp: '' },
+  // upnpService builds its client at module load, and with no gateway URL the client
+  // discovers one by SSDP - every node multicasting to 239.255.255.250:1900 for the life of
+  // the run. Naming a gateway replaces discovery with a fixed device, which is the point of
+  // the hook. The stub serves a device description with no WAN connection service, so
+  // support verification fails exactly as it does today and no node believes it has UPnP -
+  // the behaviour is unchanged, only the searching stops.
+  // nodeIp stays empty as in production: it is the node's own address for a port mapping,
+  // it cannot be a shared constant, and no mapping is ever made because verification fails.
+  upnp: { gatewayUrl: 'http://198.18.0.6:3000/upnp/device.xml', nodeIp: '' },
   // Empty disables analytics. The app default is the live cloudaudit endpoint and
   // the fleet network has egress, so without this a run reports suite activity -
   // generated app names, fixture identities, 198.18.x addresses - as real traffic.
@@ -47,8 +55,13 @@ module.exports = {
   },
   geolocation: {
     ipApiBaseUrl: 'http://198.18.0.6:3000',
-    statsApiBaseUrl: 'http://198.18.0.6:3000',
   },
+  stats: { baseUrl: 'http://198.18.0.6:3000' },
+  pricing: {
+    fluxRatesBaseUrl: 'http://198.18.0.6:3000',
+    coingeckoBaseUrl: 'http://198.18.0.6:3000',
+  },
+  mongodb: { signingKeyBaseUrl: 'http://198.18.0.6:3000' },
   // the stub serves iplocation.bin.gz, so harness nodes exercise the real
   // table reader rather than skipping it. Its default artifact puts the whole
   // harness range in ONE organisation, which is the single-fault-domain

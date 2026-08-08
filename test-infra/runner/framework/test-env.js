@@ -869,7 +869,14 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       // merged OVER the mounted shared.js, so this is the only place that wins.
       syncthing: { ip: syncthing === 'binary' ? '127.0.0.1' : SYNCTHING_IP },
       github: { rawBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, apiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
-      geolocation: { ipApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, statsApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      geolocation: { ipApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      stats: { baseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      pricing: {
+        fluxRatesBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
+        coingeckoBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`,
+      },
+      mongodb: { signingKeyBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      upnp: { gatewayUrl: `http://${EXTERNAL_STUB_IP}:3000/upnp/device.xml` },
       // Every base URL a node fetches from belongs here, not just in
       // config/shared.js: a run claims its own /24, so an address baked into the
       // shared config is only correct for the run that happens to claim the

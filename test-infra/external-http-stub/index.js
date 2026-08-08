@@ -308,6 +308,18 @@ const state = {
   tamperingBlocklist: [],
   latestRelease: { tag_name: 'v0.0.0', name: 'stub-release' },
   geolocation: {},
+  // The syncthing the node image ships (Dockerfile.fluxos SYNCTHING_VERSION). Serving the
+  // version the fleet already has is what makes the boot-time check a no-op; a suite that
+  // wants the upgrade path raises this instead of reaching syncthing's own service.
+  moduleMinimumVersions: { syncthing: '2.0.15', docker: '26.1.2' },
+  marketplaceApps: [],
+  appSpecsUsdPrice: [],
+  // Fixed rates, so a price assertion is arithmetic rather than a bet on the market.
+  // usdPerBtc * btcPerFlux is what the caller multiplies out, and it must equal usdPerFlux
+  // so the coingecko fallback cannot change an answer.
+  usdPerBtc: 100000,
+  btcPerFlux: 0.000002,
+  usdPerFlux: 0.2,
   // published below; null in either representation serves a 404, which leaves
   // nodes tableless on the /16 arithmetic
   ipLocation: null,
@@ -454,6 +466,53 @@ app.get('/repos/:owner/:repo/releases/latest', (req, res) => {
 
 app.get('/repos/:owner/:repo', (req, res) => {
   res.json({ full_name: `${req.params.owner}/${req.params.repo}` });
+});
+
+// UPnP: a device description with no WANIPConnection service. upnpService is pointed here
+// so its client stops searching for a gateway by SSDP multicast; support verification then
+// fails on the missing service, which is the same verdict a node reaches today, so no node
+// changes its mind about having UPnP.
+app.get('/upnp/device.xml', (req, res) => {
+  res.type('text/xml').send(
+    '<?xml version="1.0"?>'
+    + '<root xmlns="urn:schemas-upnp-org:device-1-0">'
+    + '<device><deviceType>urn:schemas-upnp-org:device:InternetGatewayDevice:1</deviceType>'
+    + '<friendlyName>flux-e2e-stub-gateway</friendlyName><serviceList /></device>'
+    + '</root>',
+  );
+});
+
+// Stats: the minimum module versions a node checks its own syncthing against at boot.
+// The harness names the version its image ships, so the check is satisfied and no upgrade
+// is attempted; a suite exercising the upgrade path raises it through the control port.
+app.get('/getmodulesminimumversions', (req, res) => {
+  res.json({ status: 'success', data: state.moduleMinimumVersions });
+});
+
+// Stats: marketplace listings. Empty by default - a suite that needs a listed app puts one
+// in through the control port rather than depending on what the live marketplace holds.
+app.get('/marketplace/listapps', (req, res) => {
+  res.json({ status: 'success', data: state.marketplaceApps });
+});
+
+app.get('/marketplace/listdevapps', (req, res) => {
+  res.json({ status: 'success', data: state.marketplaceApps });
+});
+
+// Stats: per-spec USD pricing.
+app.get('/apps/getappspecsusdprice', (req, res) => {
+  res.json({ status: 'success', data: state.appSpecsUsdPrice });
+});
+
+// Pricing: viprates.runonflux.io/rates. The real service answers a two-element array -
+// [fiatRates, coinRates] - and the caller reads USD from the first and FLUX from the second.
+app.get('/rates', (req, res) => {
+  res.json([[{ code: 'USD', rate: state.usdPerBtc }], { FLUX: state.btcPerFlux }]);
+});
+
+// Pricing: the coingecko fallback, reached only when /rates above is unavailable.
+app.get('/api/v3/simple/price', (req, res) => {
+  res.json({ zelcash: { usd: state.usdPerFlux } });
 });
 
 // Geolocation: ip-api.com format (primary)
