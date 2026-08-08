@@ -3,6 +3,7 @@ const log = require('../../lib/log');
 const { appsFolder } = require('../utils/appConstants');
 const executor = require('./volumeExecutor');
 const { sessionForMountedVolume } = require('./volumeSession');
+const fluxEventBus = require('../utils/fluxEventBus');
 
 /**
  * Reclaim what a FluxOS restart left behind from in-flight file operations.
@@ -25,6 +26,19 @@ const { sessionForMountedVolume } = require('./volumeSession');
  * @returns {Promise<{containers: number, removed: number}>}
  */
 async function recoverInterruptedFileOperations() {
+  const result = await sweepEveryMountedVolume();
+  // Published on every path that completes, including the one that found nothing.
+  // "The sweep ran and had nothing to do" is a different fact from "the sweep has
+  // not run yet", and the log line below cannot express the first because it only
+  // fires when there was something to report. Anything that restarts a node to
+  // exercise boot recovery needs to know the pass is over: without a signal it can
+  // only guess, and a pass that lands after the guess reaches into whatever is
+  // running by then.
+  fluxEventBus.publish('fileops:recovered', result);
+  return result;
+}
+
+async function sweepEveryMountedVolume() {
   const containers = await executor.reapOrphanedContainers();
 
   let mounts = [];

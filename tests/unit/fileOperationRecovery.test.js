@@ -12,6 +12,7 @@ describe('fileOperationRecovery tests', () => {
   let executorStub;
   let deviceHelperStub;
   let logStub;
+  let fluxEventBusStub;
   let recovery;
 
   const mount = (target) => ({
@@ -24,6 +25,7 @@ describe('fileOperationRecovery tests', () => {
       sweepStagingDirectories: sinon.stub().resolves({ removed: [] }),
     };
     deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([]) };
+    fluxEventBusStub = { publish: sinon.stub() };
     logStub = {
       info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
     };
@@ -44,6 +46,7 @@ describe('fileOperationRecovery tests', () => {
       './volumeSession': volumeSession,
       '../../lib/log': logStub,
       '../utils/appConstants': { appsFolder: APPS_FOLDER },
+      '../utils/fluxEventBus': fluxEventBusStub,
     });
   });
 
@@ -147,5 +150,42 @@ describe('fileOperationRecovery tests', () => {
     await recovery.recoverInterruptedFileOperations();
 
     expect(executorStub.reapOrphanedContainers.calledBefore(executorStub.sweepStagingDirectories)).to.equal(true);
+  });
+
+  it('announces the pass with what it did', async () => {
+    deviceHelperStub.listMountedFilesystems.resolves([mount(`${APPS_FOLDER}fluxcomp_one`)]);
+    executorStub.reapOrphanedContainers.resolves(2);
+    executorStub.sweepStagingDirectories.resolves({ removed: ['a'], restored: ['b'] });
+
+    await recovery.recoverInterruptedFileOperations();
+
+    expect(fluxEventBusStub.publish.calledOnceWithExactly('fileops:recovered', {
+      containers: 2, removed: 1, restored: 1,
+    })).to.equal(true);
+  });
+
+  it('announces a pass that found nothing, which the log line cannot', async () => {
+    // The log only speaks when there was something to report, so silence there means
+    // either "swept, nothing to do" or "has not run yet". A restart waiting to know the
+    // pass is over cannot tell those apart, and guessing means the sweep lands in
+    // somebody else's test.
+    deviceHelperStub.listMountedFilesystems.resolves([mount(`${APPS_FOLDER}fluxcomp_one`)]);
+
+    await recovery.recoverInterruptedFileOperations();
+
+    expect(logStub.info.called).to.equal(false);
+    expect(fluxEventBusStub.publish.calledOnceWithExactly('fileops:recovered', {
+      containers: 0, removed: 0, restored: 0,
+    })).to.equal(true);
+  });
+
+  it('announces the pass even when the mount table could not be read', async () => {
+    // This path returns early. A waiter must not be left hanging on a pass that gave up.
+    deviceHelperStub.listMountedFilesystems.rejects(new Error('no mount table'));
+
+    await recovery.recoverInterruptedFileOperations();
+
+    expect(fluxEventBusStub.publish.calledOnce).to.equal(true);
+    expect(fluxEventBusStub.publish.firstCall.args[0]).to.equal('fileops:recovered');
   });
 });

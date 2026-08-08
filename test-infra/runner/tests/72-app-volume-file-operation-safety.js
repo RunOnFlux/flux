@@ -1,10 +1,10 @@
 import { describe, it, before, beforeEach, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
-import { execInContainer, restartFluxos } from '../framework/container.js';
+import { execInContainer } from '../framework/container.js';
 import { pushImage, mirrorExecutorImage, executorImageReference } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
-import { waitFor, waitForOperation } from '../framework/wait.js';
+import { waitFor, waitForOperation, restartFluxosAndAwaitRecovery } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
 import { REGISTRY_REPO_HOST } from '../framework/subnet-config.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -367,7 +367,7 @@ describe('app volume file operations - safety and recovery', function () {
       this.timeout(300000);
       await inNode(`mkdir -p ${root}/.flux-op-${OPERATION_UUID} && echo scratch > ${root}/.flux-op-${OPERATION_UUID}/partial`);
 
-      await restartFluxos(node.container);
+      await restartFluxosAndAwaitRecovery(node);
 
       await waitFor(async () => !await exists(node.container, `${root}/.flux-op-${OPERATION_UUID}`), {
         timeout: 60000, interval: 2000, label: 'abandoned staging reclaimed',
@@ -388,7 +388,7 @@ describe('app volume file operations - safety and recovery', function () {
       await seedVolumeTree(node.container, appName, { '.flux-op-backups/keep.txt': 'mine' });
       await inNode(`mkdir -p ${root}/.flux-op-${STAGING_UUID} && echo scratch > ${root}/.flux-op-${STAGING_UUID}/partial`);
 
-      await restartFluxos(node.container);
+      await restartFluxosAndAwaitRecovery(node);
 
       await waitFor(async () => !await exists(node.container, `${root}/.flux-op-${STAGING_UUID}`), {
         timeout: 60000, interval: 2000, label: 'the sweep has run (its own staging reclaimed)',
@@ -413,7 +413,7 @@ describe('app volume file operations - safety and recovery', function () {
       // would pass a premature check trivially.
       await inNode(`mkdir -p ${root}/.flux-op-${STAGING_UUID} && echo scratch > ${root}/.flux-op-${STAGING_UUID}/partial`);
 
-      await restartFluxos(node.container);
+      await restartFluxosAndAwaitRecovery(node);
       await waitFor(async () => !await exists(node.container, `${root}/.flux-op-${STAGING_UUID}`), {
         timeout: 60000, interval: 2000, label: 'the sweep has run (its own staging reclaimed)',
       });

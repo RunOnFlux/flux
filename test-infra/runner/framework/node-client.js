@@ -193,6 +193,7 @@ export function nodeClient(nodeNum) {
         'daemon:unreachable',
         'dos:changed',
         'explorer:ready',
+        'fileops:recovered',
         'messageCapability:changed',
         'networkstate:updated',
         'orchestrator:started',
