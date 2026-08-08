@@ -73,6 +73,7 @@ export function bootQueue() {
 
 let heldTicket = null;
 let heldSince = null;
+let heldFleet = '';
 
 // Queued-vs-held is the number the lock's WIDTH turns on, and nothing recorded it:
 // a suite's wall time is boot plus however long it sat behind five siblings, and the
@@ -82,11 +83,23 @@ let heldSince = null;
 // counted as a result.
 const report = (fields) => { console.log(`# boot-lock ${fields}`); };
 
-export async function acquireBootLock() {
+// The fleet's shape is what explains held_ms, and a duration without it is two
+// populations stirred together: nodes boot in parallel, so fleet size moves the cost
+// by a few times rather than in proportion, and `syncthing: 'binary'` gives every node
+// its own daemon instead of one shared stub. Both axes are needed to tell whether the
+// width can vary BY fleet - two small boots overlapping is a different question from
+// two ten-node ones. Carried on both lines so each is self-describing: a process takes
+// the lock once per fleet it builds, so a pid does not pair an acquire with its release.
+const fleetShape = ({
+  nodes = 0, deferred = 0, legacy = 0, syncthing = 'stub',
+} = {}) => `nodes=${nodes} deferred=${deferred} legacy=${legacy} syncthing=${syncthing}`;
+
+export async function acquireBootLock(fleet) {
   mkdirSync(BOOT_LOCK_DIR, { recursive: true });
   const ticket = `${Date.now()}-${process.pid}`;
   writeFileSync(join(BOOT_LOCK_DIR, ticket), '');
   heldTicket = ticket;
+  heldFleet = fleetShape(fleet);
   const startedAt = process.hrtime.bigint();
   let aheadOnArrival = null;
   for (;;) {
@@ -95,7 +108,7 @@ export async function acquireBootLock() {
     const waitedMs = Number((process.hrtime.bigint() - startedAt) / 1000000n);
     if (queue[0] === ticket) {
       heldSince = process.hrtime.bigint();
-      report(`acquired waited_ms=${waitedMs} ahead_on_arrival=${aheadOnArrival} pid=${process.pid}`);
+      report(`acquired waited_ms=${waitedMs} ahead_on_arrival=${aheadOnArrival} ${heldFleet} pid=${process.pid}`);
       return;
     }
     if (waitedMs > BOOT_LOCK_MAX_WAIT_MS) {
@@ -117,7 +130,7 @@ export function releaseBootLock() {
   // Null when the wait timed out rather than succeeded, which is a queue that never
   // held the lock and must not report a boot duration.
   if (heldSince !== null) {
-    report(`released held_ms=${Number((process.hrtime.bigint() - heldSince) / 1000000n)} pid=${process.pid}`);
+    report(`released held_ms=${Number((process.hrtime.bigint() - heldSince) / 1000000n)} ${heldFleet} pid=${process.pid}`);
     heldSince = null;
   }
   try {
