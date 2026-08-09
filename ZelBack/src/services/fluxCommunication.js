@@ -13,7 +13,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
 const dbHelper = require('./dbHelper');
 const { peerManager, PEER_SOURCE } = require('./utils/peerState');
-const { SIGTERM_EXPIRY_MS } = require('./utils/appConstants');
+const { SIGTERM_EXPIRY_MS, RUNNING_EXPIRY_MS } = require('./utils/appConstants');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 const nodeConfirmationService = require('./nodeConfirmationService');
@@ -218,6 +218,13 @@ async function handleAppRunningSyncResponse(message, peerKey) {
       for (const broadcast of verifiedAppRunning) {
         const { data } = broadcast;
         if (!data || data.version !== 2 || !Array.isArray(data.apps) || !data.apps.length) continue;
+        // Skipped for the same reason messageStore skips it when it builds this
+        // map itself: an expired broadcast is not evidence of what an IP is
+        // running now. The prune it feeds only deletes rows at or below the
+        // broadcast's own timestamp, so an expired one could only ever take
+        // already-expired rows - but that is a bound to be read out of another
+        // file, and two builders of one input should not need reconciling.
+        if (data.broadcastedAt + RUNNING_EXPIRY_MS < Date.now()) continue;
         const seen = newestByIp.get(data.ip);
         if (!seen || data.broadcastedAt > seen.broadcastedAt) {
           newestByIp.set(data.ip, { names: data.apps.map((a) => a.name), broadcastedAt: data.broadcastedAt });
