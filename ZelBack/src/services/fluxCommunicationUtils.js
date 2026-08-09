@@ -24,6 +24,16 @@ async function deterministicFluxList(options = {}) {
   const sort = options.sort || false;
   const addressOnly = options.addressOnly || false;
 
+  // The node list takes a moment to arrive, and every accessor here answers an
+  // unknown state and a genuinely empty one identically - an empty list, a zero,
+  // a false. Waiting is the safe default, so the twelve callers that cannot tell
+  // those apart get the right answer without each having to remember to ask.
+  // Anything on a repeating schedule must NOT reach here unready: it checks
+  // networkStateService.isReady() and re-arms, the way it already does for the
+  // daemon. See fluxDiscovery, checkDeterministicNodesCollisions,
+  // monitorNodeStatus.
+  await networkStateService.waitStarted();
+
   if (!filter) {
     const state = networkStateService.networkState({ sort });
 
@@ -46,6 +56,7 @@ async function deterministicFluxList(options = {}) {
 }
 
 async function getNodeCount() {
+  await networkStateService.waitStarted();
   const count = networkStateService.nodeCount();
 
   return count;
@@ -57,6 +68,7 @@ async function getNodeCount() {
  * @returns {Proimse<Fluxnode | null}
  */
 async function getFluxnodeFromFluxList(socketAddress) {
+  await networkStateService.waitStarted();
   const node = await networkStateService.getFluxnodeBySocketAddress(socketAddress);
 
   return node;
@@ -68,6 +80,7 @@ async function getFluxnodeFromFluxList(socketAddress) {
  * @returns {Proimse<boolean>}
  */
 async function socketAddressInFluxList(socketAddress) {
+  await networkStateService.waitStarted();
   const found = await networkStateService.socketAddressInNetworkState(socketAddress);
 
   return found;

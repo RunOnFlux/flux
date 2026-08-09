@@ -1409,6 +1409,10 @@ describe('fluxNetworkHelper tests', () => {
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
       sinon.stub(fluxCommunicationUtils, 'socketAddressInFluxList').resolves(true);
+      // The check defers and re-arms while the node list is unknown, the same
+      // way it does for an unsynced daemon - these cases are all about what it
+      // decides once it HAS the list.
+      sinon.stub(networkStateService, 'isReady').returns(true);
       deterministicFluxnodeListResponse = [
         {
           collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
@@ -1464,6 +1468,28 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getDosMessage()).to.be.null;
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
+
+    it('does not read the node list while the list is unknown - it defers and re-arms', async () => {
+      // An unknown list is an empty list to every accessor here, and this check
+      // reads that as: no collision anywhere, this node absent from the
+      // confirmed list, that absence logged as the reason, and the availability
+      // check that clears DOS skipped. It waits for the list instead, the same
+      // way it already waits for an unsynced daemon two lines above.
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: { ipaddress: '127.0.0.1:5050' },
+      };
+      getBenchmarksStub.resolves(getBenchmarkResponseData);
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
+      networkStateService.isReady.returns(false);
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      sinon.assert.notCalled(deterministicFluxListStub);
+      expect(fluxNetworkHelper.getDosMessage()).to.be.null;
+    });
+
 
     it('should skip availability check when node status is not CONFIRMED', async () => {
       const ip = '127.0.0.1:5050';
