@@ -19,8 +19,20 @@ function extractIp(address) {
 
 // Bare IP from a node-list or app-location address. IPv6 literals pass through
 // whole; anything else is treated as ip[:port].
+//
+// An IPv4-mapped address is the one literal that is both: it is IPv6 in form and
+// IPv4 in substance, and it carries dots - so "contains a dot" cannot on its own
+// mean "ip[:port]". Split on the colon and ::ffff:1.2.3.4 yields the empty
+// string, which reads downstream as an address that would not parse rather than
+// as the ordinary IPv4 address it is. It resolves to that address instead.
+const IPV4_MAPPED = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i;
+
 function bareIp(address) {
   if (typeof address !== 'string' || !address) return null;
+  const mapped = IPV4_MAPPED.exec(address);
+  if (mapped) return mapped[1];
+  // More than one colon is an IPv6 literal, whatever else it holds.
+  if (address.indexOf(':') !== address.lastIndexOf(':')) return address;
   if (address.includes('.') || !address.includes(':')) return extractIp(address);
   return address;
 }
