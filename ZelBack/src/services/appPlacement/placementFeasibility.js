@@ -23,6 +23,7 @@
 const config = require('config');
 const log = require('../../lib/log');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
+const networkStateService = require('../networkStateService');
 const generalService = require('../generalService');
 const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
@@ -171,6 +172,13 @@ function domainShareLevel(domainSizes, instances) {
  */
 async function placementComputation(appSpecifications, minInstances) {
   const instances = minInstances ?? appSpecifications.instances ?? config.fluxapps.minimumInstances;
+  // Asked before the accessor rather than after: the accessor waits for the
+  // list, and this is reached from a request handler that cannot wait.
+  if (!networkStateService.isReady()) {
+    const error = new Error('Node list is not available yet');
+    error.statusCode = 503;
+    throw error;
+  }
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
   if (!Array.isArray(nodeList) || nodeList.length === 0) {
     // an empty node list is missing data, not an empty network - reporting
@@ -688,6 +696,18 @@ async function placementFeasibilityAPI(req, res) {
  *   continents: object}>}
  */
 async function placementLocations() {
+  // A request is waiting on this, so it may not block: the accessors below wait
+  // for the node list, and a client holding a connection through a boot is a
+  // worse answer than a plain "not yet". Its sibling placementComputation says
+  // the same thing the same way - without this the two would disagree, one
+  // refusing to answer and the other reporting that an app can be placed
+  // nowhere.
+  if (!networkStateService.isReady()) {
+    const error = new Error('Node list is not available yet');
+    error.statusCode = 503;
+    throw error;
+  }
+
   const { byIp, tableAvailable, tableGenerated } = nodeLocationView();
   if (!tableAvailable) {
     // the tree IS the product here - totals over /16 fallback domains are

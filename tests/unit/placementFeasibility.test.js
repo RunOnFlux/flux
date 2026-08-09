@@ -107,6 +107,7 @@ const VIEWED_IPS = [...bhNodes, bgNode, ...fiNodes, ...deNodes, unresolvedNode]
 describe('placementFeasibility tests', () => {
   let placementFeasibility;
   let deterministicFluxListStub;
+  let networkStateReadyStub;
   let collateralStub;
   let totalHWStub;
   let storeStub;
@@ -123,6 +124,7 @@ describe('placementFeasibility tests', () => {
 
   beforeEach(() => {
     deterministicFluxListStub = sinon.stub().resolves([]);
+    networkStateReadyStub = sinon.stub().returns(true);
     collateralStub = sinon.stub().resolves({ txhash: 'aa'.repeat(32), txindex: 0 });
     totalHWStub = sinon.stub().returns({ cpu: 1, ram: 1000, hdd: 10 });
     logStub = { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() };
@@ -138,11 +140,49 @@ describe('placementFeasibility tests', () => {
     };
     placementFeasibility = proxyquire('../../ZelBack/src/services/appPlacement/placementFeasibility', {
       '../fluxCommunicationUtils': { deterministicFluxList: deterministicFluxListStub },
+      // The entry points refuse with 503 rather than block a request while the
+      // node list is unknown; these cases are all about what they answer once
+      // it IS known.
+      '../networkStateService': { isReady: networkStateReadyStub },
       '../generalService': { obtainNodeCollateralInformation: collateralStub },
       '../appRequirements/hwRequirements': { totalAppHWRequirements: totalHWStub },
       './ipLocationStore': storeStub,
       '../verificationHelper': { verifyPrivilege: verifyPrivilegeStub },
       '../../lib/log': logStub,
+    });
+  });
+
+  describe('answering while the node list is unknown', () => {
+    // The accessors wait for the list, so a request handler that just called
+    // one would hold its client's connection open through a boot. These refuse
+    // instead - and both entry points refuse the same way, which is the point:
+    // one of them used to answer that an app could be placed nowhere.
+    it('refuses placementComputation with 503 rather than waiting', async () => {
+      networkStateReadyStub.returns(false);
+      await placementFeasibility.placementComputation({ instances: 3 }, 3).then(
+        () => { throw new Error('expected rejection'); },
+        (error) => {
+          expect(error.statusCode).to.equal(503);
+          expect(error.message).to.include('not available yet');
+        },
+      );
+      sinon.assert.notCalled(deterministicFluxListStub);
+    });
+
+    it('refuses placementLocations the same way, not with an empty tree', async () => {
+      // Matched exactly, not loosely: this function already refuses with a 503
+      // when the LOCATION TABLE is missing, and 'not available yet' appears in
+      // both messages - so a substring match here passes whether the node-list
+      // refusal exists or not.
+      networkStateReadyStub.returns(false);
+      await placementFeasibility.placementLocations().then(
+        () => { throw new Error('expected rejection'); },
+        (error) => {
+          expect(error.statusCode).to.equal(503);
+          expect(error.message).to.equal('Node list is not available yet');
+        },
+      );
+      sinon.assert.notCalled(deterministicFluxListStub);
     });
   });
 
