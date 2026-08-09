@@ -1093,7 +1093,7 @@ describe('hwRequirements tests', () => {
     }
 
     const inRegion = {
-      org: 'aabbccddeeff', block: null, countryCode: 'FI', continentCode: 'EU', region: 'FI-18',
+      org: 'aabbccddeeff', countryCode: 'FI', continentCode: 'EU', region: 'FI-18',
     };
     const otherRegion = { ...inRegion, region: 'FI-11' };
     const regionUnknown = { ...inRegion, region: null };
@@ -1123,6 +1123,29 @@ describe('hwRequirements tests', () => {
         .checkAppGeolocationRequirements({ version: 7, geolocation: ['a!cEU_FI_Uusimaa'] })
         .then(() => { throw new Error('expected rejection'); }, (err) => {
           expect(err.message).to.include('forbidden');
+        });
+    });
+
+    it('applies a named region deny by the self-reported name too, when the table disagrees', async () => {
+      // The node calls itself Uusimaa; the table puts its address in FI-11. An
+      // allow refuses here - the table is the only thing that may say yes. A DENY
+      // must still catch it: the rule that makes an allow conservative makes a
+      // ban permissive, and a ban is written for a reason the network cannot
+      // see, so the error worth making is excluding a node that was fine.
+      await gateWith(otherRegion, finnishNames)
+        .checkAppGeolocationRequirements({ version: 7, geolocation: ['a!cEU_FI_Uusimaa'] })
+        .then(() => { throw new Error('expected rejection'); }, (err) => {
+          expect(err.message).to.include('forbidden');
+        });
+    });
+
+    it('still lets the self-reported name grant nothing - it may only ever ban', async () => {
+      // The same node and the same disagreement, asked the other way round: the
+      // allow is refused, so the self-report cannot buy eligibility it lost.
+      await gateWith(otherRegion, finnishNames)
+        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] })
+        .then(() => { throw new Error('expected rejection'); }, (err) => {
+          expect(err.message).to.include('not matching');
         });
     });
 

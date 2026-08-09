@@ -228,11 +228,14 @@ async function checkAppGeolocationRequirements(appSpecs) {
       if (!code || !myTableRegion) return false;
       return `${parts[0]}_${parts[1]}` === myNodeLocationContCountry && code === myTableRegion;
     };
-    // A region part neither vocabulary resolves is left to this node's own
-    // ip-api region name - which the count cannot read for any other node, so
-    // it answers such an entry at country granularity and matching it here can
-    // only narrow what this node accepts. An entry the vocabulary DOES resolve
-    // must not also match by name: that would accept nodes the count excluded.
+    // This node's own ip-api region name. The count cannot read it for any other
+    // node, so an entry answered this way is answered by this node alone.
+    const matchesSelfReportedRegionName = (value) => value === myNodeLocationFull;
+    // For an ALLOW. A region part neither vocabulary resolves is left to the
+    // self-reported name, and matching it can only narrow what this node
+    // accepts. An entry the vocabulary DOES resolve must not also match by
+    // name: that would accept nodes the count excluded, and where the two
+    // sources disagree the table is the one to believe.
     const matchesSelfReportedRegion = (value) => {
       const parts = value.split('_');
       if (parts.length >= 3 && entryRegionCode(parts)) return false;
@@ -248,10 +251,19 @@ async function checkAppGeolocationRequirements(appSpecs) {
         throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
       }
     }
+    // A DENY takes either source, and this is the one place the self-reported
+    // name still counts for an entry the vocabulary resolves. The rule an allow
+    // uses would be the permissive choice here: declining to match by name lets
+    // a node the table places one region over run an app that named its own
+    // region, so a ban would catch fewer nodes than the owner wrote. Taking both
+    // keeps the self-report able only to STRENGTHEN a ban, never to grant
+    // eligibility - the table remains the only thing that can say yes. A ban is
+    // usually written for a reason the network cannot see, so the error worth
+    // making is excluding a node that would have been fine.
     geoCForbidden.forEach((locationNotAllowed) => {
       const v = locationNotAllowed.slice(3);
       if (v === myNodeLocationContinent || v === myNodeLocationContCountry
-        || matchesSelfReportedRegion(v) || matchesTableRegionEntry(v)) {
+        || matchesSelfReportedRegionName(v) || matchesTableRegionEntry(v)) {
         throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
       }
     });
