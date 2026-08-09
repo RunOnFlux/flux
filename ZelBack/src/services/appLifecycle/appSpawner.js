@@ -298,23 +298,42 @@ async function trySpawningGlobalApplication() {
         }
         return app.nodes.length === 0 || app.nodes.find((ip) => socketAddressesMatch(ip, localSocketAddr)) || app.version >= 8;
       });
-      // Selection uses the SAME eligibility implementation as candidate
-      // counting and the install gate - one truth table everywhere. The node's
-      // own location: self-reported continent and country, region from its own
-      // published table. Selection may only over-include (the installer
-      // re-checks with the same rules); the old string-prefix filters here
-      // hid every table-vocabulary region pin from spawning and stripped
-      // _NONE, which turned a no-op deny into a whole-country selection ban.
-      const [myContinentCode, myCountryCode] = (myNodeLocation ?? '').split('_');
+      // Selection uses the SAME eligibility implementation as candidate counting
+      // and the install gate, over the SAME source for where this node is - the
+      // published table, which is the only thing the count can read for the
+      // thousands of nodes it cannot ask. Taking continent and country from the
+      // node's ip-api self-report instead put this one reader on a different
+      // source from the other two: measured across the fleet, the two disagree on
+      // country for about one node in thirteen, and where they disagree the table
+      // is right roughly eighteen times out of nineteen. A node the count credits
+      // to the table's country would then never volunteer for an app pinned there,
+      // and the app sits below its instance count with candidates that look
+      // available.
+      //
+      // The self-report is the fallback, for a node the table cannot place at all
+      // - the same fallback, in the same direction, as the install gate. The old
+      // string-prefix filters here hid every table-vocabulary region pin from
+      // spawning and stripped _NONE, which turned a no-op deny into a whole-country
+      // selection ban.
+      const [selfContinentCode, selfCountryCode] = (myNodeLocation ?? '').split('_');
+      let myContinentCode = selfContinentCode ?? null;
+      let myCountryCode = selfCountryCode ?? null;
       let myTableRegion = null;
       try {
         const localHit = await ipLocationStore.lookup(extractIp(localSocketAddr));
+        // Both or neither: a hit carrying one without the other cannot place the
+        // node any better than its own report can.
+        if (localHit?.continentCode && localHit?.countryCode) {
+          myContinentCode = localHit.continentCode;
+          myCountryCode = localHit.countryCode;
+        }
         myTableRegion = localHit?.region ?? null;
       } catch (error) {
-        // store unreadable = region unknown; selection over-includes and the
+        // store unreadable = the table cannot place this node, so its self-report
+        // stands and the region is unknown; selection over-includes and the
         // installer arbitrates
       }
-      const myLocation = { continentCode: myContinentCode ?? null, countryCode: myCountryCode ?? null, region: myTableRegion };
+      const myLocation = { continentCode: myContinentCode, countryCode: myCountryCode, region: myTableRegion };
       globalAppNamesLocation = globalAppNamesLocation.filter(
         (app) => placementFeasibility.nodeLocationMatchesGeolocation(myLocation, app.geolocation),
       );

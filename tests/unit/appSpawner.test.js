@@ -407,6 +407,64 @@ describe('appSpawner tests', () => {
         expect(infoLogged('selected to try to spawn')).to.be.true;
       });
     });
+
+    describe('where this node is, when its own report and the table disagree', () => {
+      // Every test above has the two agreeing, so none of them can show which one
+      // selection reads - and it used to read the node's own report for continent
+      // and country while the candidate count and the install gate both read the
+      // table. The count has no alternative: it answers for thousands of nodes it
+      // cannot ask. Measured across the fleet the two disagree on country for
+      // about one node in thirteen, and the table is right in the large majority
+      // of those, so the disagreement is not rare and not evenly split.
+      function geoSources({ geolocation, selfReport, tableHit }) {
+        buildModule({
+          aggregateResult: [makeApp({ geolocation })],
+          nodeGeoString: selfReport,
+          storeLookup: sinon.stub().resolves(
+            tableHit === null ? null : { org: 'aabbccddeeff', block: null, ...tableHit },
+          ),
+        });
+      }
+
+      it('selects an app pinned to the country the TABLE puts it in, over its own report', async () => {
+        // The defect: the count credits this node to the table's country, so the
+        // app is short by one that never volunteers - it reads as an app sitting
+        // below its instance count with candidates apparently available.
+        geoSources({
+          geolocation: ['acEU_DE'],
+          selfReport: 'EU_FR_Ile-de-France',
+          tableHit: { continentCode: 'EU', countryCode: 'DE', region: 'DE-HE' },
+        });
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+        expect(infoLogged('selected to try to spawn')).to.be.true;
+      });
+
+      it('does not select an app pinned to the country its own report claims, when the table disagrees', async () => {
+        // The other direction costs a draw rather than correctness - the install
+        // gate reads the table and would refuse it - but a candidate that cannot
+        // install can still win the lottery ahead of one that could.
+        geoSources({
+          geolocation: ['acEU_DE'],
+          selfReport: 'EU_DE_Hesse',
+          tableHit: { continentCode: 'EU', countryCode: 'FR', region: 'FR-IDF' },
+        });
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+        expect(infoLogged('No app currently to be processed')).to.be.true;
+      });
+
+      it('falls back to its own report when the table cannot place it at all', async () => {
+        // The count treats a node it cannot place as unprovable and includes it,
+        // so falling back here can only make selection stricter than the count -
+        // the safe direction, and the same fallback the install gate takes.
+        geoSources({
+          geolocation: ['acEU_DE'],
+          selfReport: 'EU_DE_Hesse',
+          tableHit: null,
+        });
+        await appSpawner.trySpawningGlobalApplication().catch(() => {});
+        expect(infoLogged('selected to try to spawn')).to.be.true;
+      });
+    });
   });
 
   describe('expiration filter pipeline', () => {
