@@ -76,6 +76,7 @@ async function aptRunner(options = {}) {
   // any apt after 1.9.11 has the DPkg::Lock::Timeout option.
   const params = [
     '-y', // Auto-answer yes to prompts
+    '--no-install-recommends', // Only what the package needs, not what it suggests
     '-o', `DPkg::Lock::Timeout=${timeout}`, // How long to wait for a lock
     '-o', 'Dpkg::Options::=--force-confdef', // Use default for new config files
     '-o', 'Dpkg::Options::=--force-confold', // Keep old config files on conflict
@@ -530,8 +531,6 @@ async function monitorSyncthingPackage() {
   try {
     if (syncthingTimer) return;
 
-    await addSyncthingRepository();
-
     const versionChecker = async () => {
       const {
         data: { data },
@@ -571,6 +570,12 @@ async function monitorSyncthingPackage() {
           }
         }
       }
+
+      // Here, rather than before the version check: a node whose syncthing is
+      // already current has nothing to install, and writing it a keyring and an
+      // apt source it will never read is work it did not ask for. Only a node
+      // that is about to install needs somewhere to install from.
+      await addSyncthingRepository();
 
       const upgraded = await ensurePackageVersion(
         'syncthing',
