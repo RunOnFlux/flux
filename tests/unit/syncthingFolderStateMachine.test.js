@@ -54,6 +54,14 @@ const axiosMock = { get: sinon.stub() };
 // this node's own connectivity - how it tells a dead peer from its own isolation
 const fluxCommunicationMock = { peerResponsiveness: sinon.stub() };
 
+// an axios rejection that carries a reply: the peer answered, just not usefully.
+// A node that has not been upgraded yet has no /apps/promotedfolders and answers
+// 404 - which is what makes this the rollout case rather than a rare one.
+const httpStatus = (status) => Object.assign(
+  new Error(`Request failed with status code ${status}`),
+  { response: { status } },
+);
+
 // a directory entry as fs.readdir({ withFileTypes: true }) returns it
 const dirent = (name, isFile = true) => ({
   name,
@@ -476,6 +484,39 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache.restarted).to.be.true;
     });
 
+    it('leaves a holder that answers an error status in the election - it replied, so it is alive', async () => {
+      // The whole second-writer path this PR could have shipped. /apps/promotedfolders
+      // is new, so every node not yet upgraded answers 404 - and a 404 read as death
+      // drops a live holder out of the election, lets this node win it, and puts a
+      // second writable copy alongside a holder that is still writing. A reply is a
+      // reply: silence is the only thing that means gone.
+      mockParams.localSocketAddr = '10.0.0.2:16127';
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.rejects(httpStatus(404));
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+      // An empty folder, so the election is the only thing that can promote here:
+      // a synced one promotes on its own completion and would hide the answer.
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.restarted).to.not.equal(true);
+    });
+
     it('keeps deferring to an unreachable holder when this node is the one cut off', async () => {
       // Identical failed request, opposite meaning. The holder is very likely still
       // serving on the other side of the split, and electing ourselves over it is a
@@ -637,6 +678,37 @@ describe('syncthingFolderStateMachine tests', () => {
         { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
       ]);
       axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      expect(result.cache.restarted).to.be.true;
+    });
+
+    it('still seeds a cold start when a peer cannot be asked, instead of waiting to be upgraded', async () => {
+      // The other half, and the reason a peer that cannot answer must not be filed
+      // as "not ready yet": unready blocks with no bound, which it earns by
+      // resolving itself. A peer that predates the endpoint never will. Blocking
+      // there would hold this open until somebody upgrades that node - and since
+      // every other holder defers to this same lowest IP, one un-upgraded peer
+      // would stop the app starting anywhere at all.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.rejects(httpStatus(404));
       fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
       syncthingServiceMock.getDbStatus.resolves({
         status: 'success',

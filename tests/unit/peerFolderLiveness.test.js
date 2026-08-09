@@ -125,7 +125,37 @@ describe('peerFolderLiveness', () => {
 
       const answer = await liveness.read('10.0.0.2:16127');
 
-      expect(answer).to.deep.equal({ reachable: false, ready: false, folders: [] });
+      expect(answer).to.deep.equal({
+        reachable: false, answerable: false, ready: false, folders: [],
+      });
+    });
+
+    it('reports a peer that answers an error status as alive but unanswerable', async () => {
+      // The endpoint is new, so every node not yet upgraded replies 404. A reply
+      // is a reply: the peer is alive, and calling it dead drops a live holder
+      // out of the election.
+      const notFound = new Error('Request failed with status code 404');
+      notFound.response = { status: 404 };
+      axiosMock.get.rejects(notFound);
+      const liveness = createPeerFolderLiveness();
+
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(answer).to.deep.equal({
+        reachable: true, answerable: false, ready: false, folders: [],
+      });
+    });
+
+    it('reports a server error the same way - it answered, so it is alive', async () => {
+      const serverError = new Error('Request failed with status code 500');
+      serverError.response = { status: 500 };
+      axiosMock.get.rejects(serverError);
+      const liveness = createPeerFolderLiveness();
+
+      const answer = await liveness.read('10.0.0.2:16127');
+
+      expect(answer.reachable).to.be.true;
+      expect(answer.answerable).to.be.false;
     });
 
     it('passes through the folders a peer holds', async () => {
@@ -155,7 +185,9 @@ describe('peerFolderLiveness', () => {
 
       const answer = await liveness.read('10.0.0.2:16127');
 
-      expect(answer).to.deep.equal({ reachable: true, ready: false, folders: [] });
+      expect(answer).to.deep.equal({
+        reachable: true, answerable: true, ready: false, folders: [],
+      });
     });
 
     it('treats a non-array folder list as no folders', async () => {

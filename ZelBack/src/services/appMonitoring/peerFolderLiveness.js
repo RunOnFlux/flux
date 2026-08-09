@@ -36,8 +36,25 @@ const MIN_RESPONDING_PEER_FRACTION = 0.5;
 
 /**
  * Ask one peer what it is holding.
+ *
+ * Three outcomes, because the callers need to tell them apart:
+ *
+ *   REACHABLE AND ANSWERABLE - the peer replied with an answer. `ready` and
+ *   `folders` carry it.
+ *
+ *   REACHABLE BUT NOT ANSWERABLE - the peer replied with an error status. It is
+ *   alive, and that is the half that matters most: a peer that answered anything
+ *   is not a peer that has died, and treating it as dead drops a live holder out
+ *   of the election. It cannot answer THIS question - the endpoint is new, so
+ *   every node that has not been upgraded yet replies 404 - and that is not the
+ *   same as "has not looked yet": an older peer will never grow the endpoint, so
+ *   it never resolves the way an unready peer does.
+ *
+ *   NOT REACHABLE - no reply at all. Whether the peer is dead or this node is cut
+ *   off is the question its callers then have to answer.
+ *
  * @param {string} socketAddr Peer socket address
- * @returns {Promise<{reachable: boolean, ready: boolean, folders: string[]}>}
+ * @returns {Promise<{reachable: boolean, answerable: boolean, ready: boolean, folders: string[]}>}
  */
 async function probePeer(socketAddr) {
   const ip = extractIp(socketAddr);
@@ -49,10 +66,16 @@ async function probePeer(socketAddr) {
     // nothing" from "I have not looked", so its empty list is not a clearance.
     const ready = answer?.ready === true;
     const folders = Array.isArray(answer?.folders) ? answer.folders : [];
-    return { reachable: true, ready, folders };
+    return { reachable: true, answerable: true, ready, folders };
   } catch (error) {
+    // error.response exists only when the peer sent one, so this separates a
+    // reply we cannot use from no reply at all.
+    if (error.response) {
+      log.info(`peerFolderLiveness - ${ip} answered ${error.response.status} and cannot say which folders it holds`);
+      return { reachable: true, answerable: false, ready: false, folders: [] };
+    }
     log.info(`peerFolderLiveness - could not read ${ip}: ${error.message}`);
-    return { reachable: false, ready: false, folders: [] };
+    return { reachable: false, answerable: false, ready: false, folders: [] };
   }
 }
 
