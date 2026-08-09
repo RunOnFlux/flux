@@ -35,6 +35,15 @@ describe('FiFoQueue tests', () => {
 
       expect(queue.worker).to.equal(worker);
     });
+    it('should refuse a second worker rather than silently keeping the first', () => {
+      const worker = () => { };
+      const other = () => { };
+
+      const queue = new fifoQueue.FifoQueue({ worker });
+
+      expect(() => queue.addWorker(other)).to.throw('FifoQueue already has a worker');
+      expect(queue.worker).to.equal(worker);
+    });
     it('should not start work if work is avaiable but no worker present', () => {
       const queue = new fifoQueue.FifoQueue();
       queue.push('hi there');
@@ -120,6 +129,37 @@ describe('FiFoQueue tests', () => {
       expect(error).to.equal(0);
       expect(queue.working).to.equal(false);
       await queue.finished;
+    });
+
+    it('should drop a failed task the caller asked not to retain', async () => {
+      // Retained, the failed task sits at the head of the queue and runs again the
+      // instant anything resumes it - which the apt cache monitor does on every
+      // failure. With retries at 0 there is no delay between those attempts, so the
+      // pair of them spin flat out.
+      const worker = async () => { throw new Error('Simulated task error'); };
+
+      const queue = new fifoQueue.FifoQueue({ worker });
+
+      queue.push({ commandOptions: { command: 'update' }, workerOptions: { retries: 0, retainErrors: false } });
+      await queue.finished;
+
+      expect(queue.length).to.equal(0);
+    });
+
+    it('should name the failed command in the event, not the payload wrapping it', async () => {
+      // A listener asks what failed. For the {commandOptions, workerOptions} shape
+      // the command is a level down, so emitting the payload put it out of reach and
+      // every test against it matched nothing at all.
+      let seen = null;
+      const worker = async () => { throw new Error('Simulated task error'); };
+
+      const queue = new fifoQueue.FifoQueue({ worker });
+      queue.on('failed', (event) => { seen = event.options.command; });
+
+      queue.push({ commandOptions: { command: 'update' }, workerOptions: { retries: 0 } });
+      await queue.finished;
+
+      expect(seen).to.equal('update');
     });
 
     it('should emit error if task is unrecoverable', async () => {

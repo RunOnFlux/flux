@@ -71,7 +71,6 @@ describe('system Services tests', () => {
   describe('updateAptCache tests', () => {
     let statStub;
     let runCmdStub;
-    systemService.getQueue().addWorker(systemService.aptRunner);
 
     beforeEach(() => {
       statStub = sinon.stub(fs, 'stat');
@@ -913,6 +912,29 @@ describe('system Services tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.calledOnceWithExactly(writeStub, '/home/testuser/.flux/.zmqEnabled', '');
+    });
+  });
+
+  describe('queueAptGetCommand option forwarding tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('forwards every worker option the caller set, not just retries', async () => {
+      // updateAptCache asks for retainErrors: false precisely so a failed update is
+      // dropped instead of left at the head of the queue. Dropped here, the queue
+      // kept it, and the apt cache monitor's resume() ran it again immediately -
+      // with retries at 0 there is no delay, so the two of them span flat out.
+      sinon.stub(fs, 'stat').resolves({ mtimeMs: 0 });
+      const pushStub = sinon.stub(systemService.getQueue(), 'push').resolves({ error: null });
+
+      await systemService.updateAptCache({ force: true });
+
+      sinon.assert.calledOnce(pushStub);
+      const [payload] = pushStub.firstCall.args;
+      expect(payload.commandOptions.command).to.equal('update');
+      expect(payload.workerOptions.retries).to.equal(0);
+      expect(payload.workerOptions.retainErrors).to.equal(false);
     });
   });
 

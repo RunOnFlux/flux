@@ -75,11 +75,17 @@ class FifoQueue extends EventEmitter {
   }
 
   /**
-   * Setter for worker
+   * Setter for worker. A queue has one worker for its lifetime; prefer passing it
+   * to the constructor so the queue is never in a state where it accepts work it
+   * cannot run.
    * @param {() => Promise<void>} worker
+   * @throws {Error} If a worker is already set
    */
   addWorker(worker) {
-    if (this.worker) return;
+    // Refused rather than ignored. Silently keeping the first worker leaves the
+    // caller believing its own was installed, and the queue then runs somebody
+    // else's - which is a difference nothing downstream can see.
+    if (this.worker) throw new Error('FifoQueue already has a worker');
 
     this.worker = worker;
     if (this.workAvailable) this.finished = this.work();
@@ -195,7 +201,11 @@ class FifoQueue extends EventEmitter {
         if (!retriesRemaining) {
           // the emit callback runs before the resolve (resolve is awaited)
           resolve({ error });
-          this.emit('failed', { options, error });
+          // commandOptions, not the raw payload: a listener asks what failed, and
+          // for a payload of the {commandOptions, workerOptions} shape the command
+          // is a level down. Emitting the payload put it out of reach, so every
+          // listener test against it silently matched nothing.
+          this.emit('failed', { options: commandOptions, error });
           this.halted = true;
         }
         // Can get halted externally too.

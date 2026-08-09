@@ -24,10 +24,18 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 let syncthingTimer = null;
 
 /**
- * A FIFO queue used to store and run apt commands
+ * A FIFO queue used to store and run apt commands.
+ *
+ * Built complete. A queue that arrives without its worker has to be finished off
+ * later by whoever happens to get there first, and until they do it silently
+ * accepts work it cannot run - so its behaviour depends on call order, and a test
+ * that touches it inherits whatever the last one left behind.
  * @type {fifoQueue.FifoQueue}
  */
-const aptQueue = new fifoQueue.FifoQueue();
+// eslint-disable-next-line no-use-before-define
+const aptQueue = new fifoQueue.FifoQueue({ worker: aptRunner });
+// eslint-disable-next-line no-use-before-define
+aptQueue.on('failed', monitorAptCache);
 
 /**
  * For testing
@@ -130,7 +138,15 @@ async function queueAptGetCommand(command, options = {}) {
 
   const wait = options.wait || false;
   const commandOptions = { command, params, timeout: options.timeout };
-  const workerOptions = { retries: options.retries };
+  // Every worker option the caller set, not just retries. updateAptCache asks for
+  // retainErrors: false so a failed update is dropped rather than left at the head
+  // of the queue; dropping that request here left the queue holding a task it was
+  // told to bin, ready to run again the moment anything resumed it.
+  const workerOptions = {
+    retries: options.retries,
+    retryDelay: options.retryDelay,
+    retainErrors: options.retainErrors,
+  };
   return aptQueue.push({ commandOptions, workerOptions }, wait);
 }
 
@@ -673,9 +689,6 @@ async function monitorSystem() {
   if (isArcane) return;
 
   try {
-    aptQueue.addWorker(aptRunner);
-    aptQueue.on('failed', monitorAptCache);
-
     // don't await these, let the queue deal with it
 
     // ubuntu 18.04 -> 24.04 all share this package
