@@ -13,6 +13,7 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const systemService = require('../../ZelBack/src/services/systemService');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
+const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 describe('system Services tests', () => {
   describe('get last cache time update tests', () => {
@@ -935,6 +936,105 @@ describe('system Services tests', () => {
       expect(payload.commandOptions.command).to.equal('update');
       expect(payload.workerOptions.retries).to.equal(0);
       expect(payload.workerOptions.retainErrors).to.equal(false);
+    });
+  });
+
+  describe('monitorSystem tests', () => {
+    let runCmdStub;
+    let publishStub;
+    let installed;
+
+    // dpkg-query and apt-get, standing in for the package database. Stateful,
+    // because the outcome monitorSystem reports is the difference between what
+    // was there before a check and what is there after it - a fake that always
+    // answers the same thing cannot express an install having happened.
+    function fakeSystem(present) {
+      installed = { ...present };
+
+      runCmdStub.callsFake(async (command, options = {}) => {
+        const params = options.params || [];
+
+        if (command === 'dpkg-query') {
+          const systemPackage = params[params.length - 1];
+          const version = installed[systemPackage];
+          return version
+            ? { error: null, stdout: `'${version}|install ok installed'` }
+            : { error: new Error('no packages found'), stdout: '' };
+        }
+
+        // aptRunner shells out through `env` so DEBIAN_FRONTEND survives sudo.
+        if (command === 'env' && params.includes('install')) {
+          installed[params[params.length - 1]] = '9.9.9';
+          return { error: null, stdout: '' };
+        }
+
+        // systemd-timesyncd: an error means not active, which is what a node
+        // already running chrony looks like.
+        if (command === 'systemctl') return { error: new Error('inactive'), stdout: '' };
+
+        return { error: null, stdout: '' };
+      });
+    }
+
+    beforeEach(() => {
+      systemService.resetTimers();
+      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
+      publishStub = sinon.stub(fluxEventBus, 'publish');
+      // the syncthing apt source already exists, so addSyncthingRepository returns
+      // before it would fetch a keyring
+      sinon.stub(fs, 'stat').resolves(true);
+      sinon.stub(axios, 'get').resolves({ data: { status: 'success', data: {} } });
+      sinon.stub(log, 'info');
+      sinon.stub(log, 'error');
+      sinon.stub(log, 'warn');
+    });
+
+    afterEach(async () => {
+      // Only the queue's contents: the worker and the 'failed' listener belong to
+      // the queue for its lifetime now, so there is nothing here to put back.
+      await systemService.getQueue().clear();
+      sinon.restore();
+    });
+
+    it('reports an empty install list on a node that already has everything', async () => {
+      fakeSystem({
+        'ca-certificates': '20260601',
+        'netcat-openbsd': '1.234',
+        syncthing: '2.1.3',
+        chrony: '4.8',
+      });
+
+      await systemService.monitorSystem();
+
+      sinon.assert.calledOnceWithExactly(publishStub, 'system:packages-checked', { installed: [] });
+    });
+
+    it('names what it installed on a node that has nothing', async () => {
+      fakeSystem({});
+
+      await systemService.monitorSystem();
+
+      sinon.assert.calledOnce(publishStub);
+      const [event, payload] = publishStub.firstCall.args;
+      expect(event).to.equal('system:packages-checked');
+      expect(payload.installed).to.have.members([
+        'ca-certificates', 'netcat-openbsd', 'syncthing', 'chrony',
+      ]);
+    });
+
+    it('publishes even when a check throws, so a waiter fails rather than hangs', async () => {
+      fakeSystem({
+        'ca-certificates': '20260601',
+        'netcat-openbsd': '1.234',
+        syncthing: '2.1.3',
+        chrony: '4.8',
+      });
+      axios.get.rejects(new Error('stats unreachable'));
+
+      await systemService.monitorSystem();
+
+      sinon.assert.calledOnce(publishStub);
+      expect(publishStub.firstCall.args[0]).to.equal('system:packages-checked');
     });
   });
 

@@ -45,6 +45,14 @@ export async function waitForFileOpsRecovered(node, predicate = () => true, time
   return node.waitForEvent('fileops:recovered', predicate, timeout, opts);
 }
 
+// The boot's package checks are over, and the payload's `installed` says what
+// they did. A provisioned node has nothing else to go on: the packages are
+// present whether or not the checks ever ran, so presence alone cannot tell a
+// check that ran and found its work done from one that never started.
+export async function waitForPackagesChecked(node, predicate = () => true, timeout = 180000, opts) {
+  return node.waitForEvent('system:packages-checked', predicate, timeout, opts);
+}
+
 // Restart a node and return only once its boot recovery pass has finished.
 //
 // restartFluxos alone returns when /flux/version answers, and the API is up long

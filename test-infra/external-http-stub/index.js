@@ -1,4 +1,5 @@
 const zlib = require('zlib');
+const fs = require('fs');
 const express = require('express');
 
 const PORT = parseInt(process.env.STUB_PORT || '3000', 10);
@@ -301,6 +302,24 @@ function newRouteCounters() {
 const IPLOCATION_JSON_ROUTE = '/iplocation.json';
 const IPLOCATION_BINARY_ROUTE = '/iplocation.bin.gz';
 
+// The apt repository copied out of the node image at build time, served to the fleet
+// so a legacy node installs its packages from here instead of from the internet. It is
+// the same tree the image seeded itself from, so a node that purges and reinstalls gets
+// the file it started with.
+const APT_REPO_DIR = '/repo';
+
+/**
+ * The syncthing version the node image ships, recorded by the repository build.
+ * Absent only if the stub image was built against a node image without one, which is
+ * a build-ordering fault worth failing loudly on rather than papering over with a
+ * default that would quietly make the minimum-version check meaningless.
+ */
+function imageSyncthingVersion() {
+  const recorded = fs.readFileSync(`${APT_REPO_DIR}/syncthing.version`, 'utf8').trim();
+  if (!recorded) throw new Error(`${APT_REPO_DIR}/syncthing.version is empty`);
+  return recorded;
+}
+
 const state = {
   blockedRepositories: [],
   vettedRepositories: [],
@@ -308,10 +327,13 @@ const state = {
   tamperingBlocklist: [],
   latestRelease: { tag_name: 'v0.0.0', name: 'stub-release' },
   geolocation: {},
-  // The syncthing the node image ships (Dockerfile.fluxos SYNCTHING_VERSION). Serving the
-  // version the fleet already has is what makes the boot-time check a no-op; a suite that
-  // wants the upgrade path raises this instead of reaching syncthing's own service.
-  moduleMinimumVersions: { syncthing: '2.0.15', docker: '26.1.2' },
+  // The syncthing the node image ships, read from the repository the image was built
+  // with rather than restated here. Serving the version the fleet already has is what
+  // makes the boot-time check a no-op; a suite that wants the upgrade path raises this
+  // instead of reaching syncthing's own service. A restated version goes stale silently:
+  // it moves whenever the image is rebuilt, and a minimum every node exceeds asserts
+  // nothing at all.
+  moduleMinimumVersions: { syncthing: imageSyncthingVersion(), docker: '26.1.2' },
   marketplaceApps: [],
   appSpecsUsdPrice: [],
   // Fixed rates, so a price assertion is arithmetic rather than a bet on the market.
@@ -481,6 +503,14 @@ app.get('/upnp/device.xml', (req, res) => {
     + '</root>',
   );
 });
+
+// The apt repository a legacy node installs syncthing from. FluxOS writes this source
+// itself (systemService addSyncthingRepository) from config.syncthing.aptSourceUrl, and
+// fetches the keyring from config.syncthing.releaseKeyUrl, so both are pointed here and
+// the keyring fetch, the source write, apt's HTTP transport and signature verification
+// all run exactly as they do on a node - against a repository that never leaves the
+// fleet network.
+app.use('/apt', express.static(APT_REPO_DIR, { fallthrough: false }));
 
 // Stats: the minimum module versions a node checks its own syncthing against at boot.
 // The harness names the version its image ships, so the check is satisfied and no upgrade

@@ -14,6 +14,7 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const syncthingService = require('./syncthingService');
 const fifoQueue = require('./utils/fifoQueue');
+const fluxEventBus = require('./utils/fluxEventBus');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
@@ -548,7 +549,7 @@ async function monitorSyncthingPackage() {
           minSyncthingVersion,
         );
 
-        if (upToDate) return;
+        if (upToDate) return false;
 
         // The sources changed at version 2.0.0 from stable, to stable-v2
         const hasNewSources = serviceHelper.minVersionSatisfy(
@@ -560,7 +561,7 @@ async function monitorSyncthingPackage() {
           const updated = await updateSyncthingRepository();
           if (!updated) {
             log.warn('Failed to update syncthing repository sources, skipping syncthing upgrade');
-            return;
+            return false;
           }
         }
       }
@@ -576,13 +577,18 @@ async function monitorSyncthingPackage() {
         log.info('Syncthing upgraded, restarting to load new binary...');
         await syncthingService.systemRestart(null, null).catch(() => { });
       }
+
+      return upgraded;
     };
 
-    await versionChecker();
+    const upgraded = await versionChecker();
 
     syncthingTimer = setInterval(versionChecker, 1000 * 60 * 60 * 24); // 24 hours
+
+    return upgraded;
   } catch (error) {
     log.error(error);
+    return false;
   }
 }
 
@@ -689,18 +695,40 @@ async function monitorSystem() {
   if (isArcane) return;
 
   try {
-    // don't await these, let the queue deal with it
+    // ensureChronyd answers whether chrony ended up configured, which is true
+    // both when it installed it and when it was already there. What it installed
+    // is a different question, and only the package can answer it.
+    const chronyWasPresent = Boolean(await getPackageVersion('chrony'));
 
-    // ubuntu 18.04 -> 24.04 all share this package
-    setImmediate(() => ensurePackageVersion('ca-certificates', '20230311'));
-    // 18.04 == 1.187
-    // 20.04 == 1.206
-    // 22.04 == 1.218
-    // Debian 12 = 1.219
-    setImmediate(() => ensurePackageVersion('netcat-openbsd', '1.187'));
-    setImmediate(() => monitorSyncthingPackage());
-    // eslint-disable-next-line no-use-before-define
-    setImmediate(() => ensureChronyd());
+    // Started together and reported on together. The queue still serialises the
+    // apt work behind them, so running them concurrently costs nothing; the
+    // caller does not await monitorSystem, so the boot does not wait either.
+    const checks = {
+      // ubuntu 18.04 -> 24.04 all share this package
+      'ca-certificates': ensurePackageVersion('ca-certificates', '20230311'),
+      // 18.04 == 1.187
+      // 20.04 == 1.206
+      // 22.04 == 1.218
+      // Debian 12 = 1.219
+      'netcat-openbsd': ensurePackageVersion('netcat-openbsd', '1.187'),
+      syncthing: monitorSyncthingPackage(),
+      // eslint-disable-next-line no-use-before-define
+      chrony: ensureChronyd().then(
+        async () => !chronyWasPresent && Boolean(await getPackageVersion('chrony')),
+      ),
+    };
+
+    const outcomes = await Promise.all(Object.values(checks));
+    const names = Object.keys(checks);
+
+    // Published whether or not anything was installed, because "checked and had
+    // nothing to do" is a different fact from "has not run yet" and the logs
+    // below only speak in the first case. A node that is already provisioned -
+    // which is every node after its first boot - is otherwise indistinguishable
+    // from one whose checks have not started.
+    fluxEventBus.publish('system:packages-checked', {
+      installed: names.filter((_, i) => outcomes[i]),
+    });
   } catch (error) {
     log.error(error);
   }

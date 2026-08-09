@@ -44,7 +44,10 @@ build_fluxos() {
 
 build_stub() {
   echo "==> flux-e2e-$1:${TAG}"
-  docker build -t "flux-e2e-$1:${TAG}" "test-infra/$1"
+  # The tag reaches every stub so one can build FROM the node image under the same
+  # tag; a stub whose Dockerfile declares no such ARG ignores it. external-http-stub
+  # does, which is why fluxos-01 is built first.
+  docker build --build-arg "FLUX_E2E_TAG=${TAG}" -t "flux-e2e-$1:${TAG}" "test-infra/$1"
 }
 
 targets=("$@")

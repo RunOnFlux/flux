@@ -39,6 +39,19 @@ if [ "$FLUX_DISCOVERY_AUTOSTART" = "true" ]; then
   sed -i 's/discoveryAutostart: false/discoveryAutostart: true/' /flux/ZelBack/shared.js
 fi
 
+# The image ships these installed, which is the state a node is in on every boot
+# after its first. A suite that wants to exercise the install asks for a node
+# without them, and gets one here - before FluxOS starts, so monitorSystem()
+# meets the same absence a real first boot does.
+#
+# Purge, not remove: a removed package leaves its configuration behind and
+# dpkg-query reports `deinstall ok config-files`, which is neither installed nor
+# absent. getPackageVersion returns '' for that as well as for absent, so the
+# node would behave plausibly while sitting in a state no real node is ever in.
+if [ "$FLUX_APT_SEEDED" = "false" ]; then
+  DEBIAN_FRONTEND=noninteractive apt-get purge -y chrony syncthing netcat-openbsd >/dev/null 2>&1 || true
+fi
+
 # Syncthing listens on apiport+2 in production. The availability checker tests
 # that port.
 SYNCTHING_LISTEN_PORT=$((${FLUX_API_PORT:-16127} + 2))

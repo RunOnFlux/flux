@@ -29,6 +29,10 @@ module.exports = {
     stallNudgeMaxIntervalMs: 12000,
     stallRemoveMinWindowMs: 30000,
     stallRemoveMinNudges: 2,
+    // The repository a legacy node installs syncthing from, served by the external
+    // stub out of the node image rather than by apt.syncthing.net.
+    aptSourceUrl: 'http://198.18.0.6:3000/apt/',
+    releaseKeyUrl: 'http://198.18.0.6:3000/apt/keyring.gpg',
   },
   system: {
     bootIdPath: '/tmp/flux-boot-config/boot-id',

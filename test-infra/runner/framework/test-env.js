@@ -557,10 +557,16 @@ export async function createTestEnv({
   hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [],
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
-  rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub',
+  rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT, syncthing = 'stub', aptSeeded = true,
 } = {}) {
   if (syncthing !== 'stub' && syncthing !== 'binary') {
     throw new Error(`createTestEnv: syncthing must be 'stub' or 'binary', got '${syncthing}'`);
+  }
+  // Only a legacy node ever installs its own packages, so unseeding a fleet without
+  // one strips nothing and tests nothing. Refused rather than ignored: a flag that
+  // silently does nothing reads as covered.
+  if (!aptSeeded && legacyNodes.length === 0) {
+    throw new Error('createTestEnv: aptSeeded: false needs legacyNodes - no other node type installs packages');
   }
   // The boot-lock queue wait must not count against the suite's hook budget.
   // Mocha enforces a hook's timeout twice: the watchdog timer (which would fire
@@ -600,7 +606,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing, aptSeeded);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -629,7 +635,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub') {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight, syncthing = 'stub', aptSeeded = true) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -855,6 +861,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     }
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
     if (discoveryAutostart) nodeEnv.FLUX_DISCOVERY_AUTOSTART = 'true';
+    // Legacy only, because it is the only node type that installs anything:
+    // monitorSystem() returns on sight of FLUXOS_PATH, so an Arcane node purged
+    // of syncthing would simply never get it back.
+    if (!aptSeeded && isLegacy) nodeEnv.FLUX_APT_SEEDED = 'false';
     // Point the node's config at the base-derived infra IPs. The mounted config
     // files (shared.js / node-NN) carry the default 198.18 addresses; NODE_CONFIG
     // is deep-merged over them by the `config` package, so under a non-default base
@@ -867,7 +877,14 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       // FluxOS builds its syncthing API base from config at module load, so in
       // binary mode the node has to be pointed at its own daemon. NODE_CONFIG is
       // merged OVER the mounted shared.js, so this is the only place that wins.
-      syncthing: { ip: syncthing === 'binary' ? '127.0.0.1' : SYNCTHING_IP },
+      syncthing: {
+        ip: syncthing === 'binary' ? '127.0.0.1' : SYNCTHING_IP,
+        // The apt repository and its signing key, served by the external stub out of
+        // the node image. A legacy node writes this source and fetches this key itself
+        // on first boot; pointed here it does both without leaving the fleet network.
+        aptSourceUrl: `http://${EXTERNAL_STUB_IP}:3000/apt/`,
+        releaseKeyUrl: `http://${EXTERNAL_STUB_IP}:3000/apt/keyring.gpg`,
+      },
       github: { rawBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, apiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       geolocation: { ipApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       stats: { baseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
