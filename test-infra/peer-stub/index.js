@@ -31,6 +31,14 @@ const requestLog = [];
 let promotedFolders = { ready: true, folders: [] };
 const promotedFolderRequests = [];
 
+// The status this peer answers that question with. 200 is a peer that can answer
+// it; anything else is a peer that cannot, and the one that matters is 404 -
+// /apps/promotedfolders is new, so every node in the fleet answers 404 until it
+// is upgraded. The fleet runs one image and can never be version-mixed, so
+// without this a rollout is unreachable here and the asking node's handling of
+// it can only ever be guessed at.
+let promotedFoldersStatus = 200;
+
 // The nodes currently connected to this peer. Held so the stub can SAY things
 // rather than only answer them: a suite that needs a rival claim, a stale
 // broadcast or a message a real node would never send gets a real peer sending
@@ -132,7 +140,14 @@ const wsServer = http.createServer((req, res) => {
     return;
   }
   if (req.url === '/apps/promotedfolders') {
+    // Recorded before the status is applied: a peer that answers 404 was still
+    // asked, and a suite proving the asker kept asking needs to see that.
     promotedFolderRequests.push(Date.now());
+    if (promotedFoldersStatus !== 200) {
+      res.writeHead(promotedFoldersStatus);
+      res.end();
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'success', data: promotedFolders }));
     return;
@@ -219,6 +234,15 @@ const controlServer = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/promoted-folders-status') {
+      const body = await readBody(req);
+      const wanted = JSON.parse(body);
+      promotedFoldersStatus = Number(wanted.status) || 200;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', promotedFoldersStatus }));
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/load-message') {
       const body = await readBody(req);
       const msg = JSON.parse(body);
@@ -244,6 +268,7 @@ const controlServer = http.createServer(async (req, res) => {
       messagesServed = 0;
       promotedFolderRequests.length = 0;
       promotedFolders = { ready: true, folders: [] };
+      promotedFoldersStatus = 200;
       broadcastsSent = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));

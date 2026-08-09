@@ -33,6 +33,19 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Make this peer answer that question with an error status instead of an
+    // answer - 404 being a node that has not been upgraded yet and has no such
+    // endpoint. The fleet runs one image, so this is the only way a suite can
+    // put a node in front of a peer it cannot ask.
+    async answerPromotedFoldersWith(status) {
+      const res = await fetch(`${controlUrl}/promoted-folders-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      return res.json();
+    },
+
     // Arrival times of the node's "what are you holding?" requests.
     async promotedFolderRequests() {
       const stats = await this.getStats();
