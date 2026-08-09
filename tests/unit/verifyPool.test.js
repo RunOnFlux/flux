@@ -38,6 +38,28 @@ describe('verifyPool tests', () => {
     expect(results).to.deep.equal([true]);
   });
 
+  it('settles a batch that cannot be handed to a worker at all', async function () {
+    // The handover, not the verification, is what fails here: a function cannot
+    // be structured-cloned, so postMessage throws and the job goes back on the
+    // queue with the slot still free. Every other way back into dispatch is a
+    // worker event, and no worker is holding anything to raise one - so before
+    // this was fixed the job sat there and verify() never settled, with an idle
+    // worker and a queued job. It is bounded by the attempt count instead.
+    this.timeout(10000);
+    const unclonable = { messageToVerify: () => {}, pubKey: TEST_PUBKEY, signature: 'x' };
+
+    const settled = verifyPool.verify([unclonable]).then(
+      () => 'resolved',
+      () => 'rejected',
+    );
+    const outcome = await Promise.race([
+      settled,
+      new Promise((resolve) => { setTimeout(() => resolve('STILL PENDING'), 5000); }),
+    ]);
+
+    expect(outcome, 'verify() never settled - the queue has no way back into dispatch').to.not.equal('STILL PENDING');
+  });
+
   it('should verify a batch of valid broadcasts', async () => {
     const items = [];
     for (let i = 0; i < 20; i++) {

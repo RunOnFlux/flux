@@ -71,38 +71,50 @@ function clearJob(slot) {
  * Hand queued chunks to whichever workers are free.
  */
 function dispatch() {
-  for (const slot of slots) {
-    if (!queue.length) return;
-    if (slot.job || slot.retired) continue;
+  // A failed handover puts its job back and leaves the slot free, so a pass can
+  // end with work queued and a worker idle - and every other way back into here
+  // is a worker event, which cannot arrive while no worker holds anything. The
+  // job would sit until the next verify() call happened to re-enter. Looping is
+  // what settles it, and it terminates: the attempt is counted before the
+  // handover, so a chunk that cannot be posted at all is abandoned after
+  // MAX_JOB_ATTEMPTS rather than retried for ever.
+  let handoverFailed = false;
+  do {
+    handoverFailed = false;
+    for (const slot of slots) {
+      if (!queue.length) return;
+      if (slot.job || slot.retired) continue;
 
-    const job = queue.shift();
-    job.attempts += 1;
+      const job = queue.shift();
+      job.attempts += 1;
 
-    try {
-      slot.worker.postMessage(job.chunk);
-    } catch (error) {
-      // The handover never happened, so the slot is still free - claiming it
-      // before posting would retire the slot for the life of the process.
-      log.error(`Verify worker could not be given a batch: ${error.message}`);
-      requeue(job, `could not be handed to a worker: ${error.message}`);
-      continue;
+      try {
+        slot.worker.postMessage(job.chunk);
+      } catch (error) {
+        // The handover never happened, so the slot is still free - claiming it
+        // before posting would retire the slot for the life of the process.
+        log.error(`Verify worker could not be given a batch: ${error.message}`);
+        requeue(job, `could not be handed to a worker: ${error.message}`);
+        handoverFailed = true;
+        continue;
+      }
+
+      slot.job = job;
+      slot.timer = setTimeout(() => {
+        const stalled = clearJob(slot);
+        log.error('Verify worker did not answer in time, replacing it');
+        slot.retired = true;
+        const idx = slots.indexOf(slot);
+        if (idx !== -1) slots.splice(idx, 1);
+        slot.worker.terminate();
+        if (stalled) requeue(stalled, 'worker did not answer in time');
+        // eslint-disable-next-line no-use-before-define
+        ensureWorkers();
+        dispatch();
+      }, JOB_TIMEOUT_MS);
+      if (slot.timer.unref) slot.timer.unref();
     }
-
-    slot.job = job;
-    slot.timer = setTimeout(() => {
-      const stalled = clearJob(slot);
-      log.error('Verify worker did not answer in time, replacing it');
-      slot.retired = true;
-      const idx = slots.indexOf(slot);
-      if (idx !== -1) slots.splice(idx, 1);
-      slot.worker.terminate();
-      if (stalled) requeue(stalled, 'worker did not answer in time');
-      // eslint-disable-next-line no-use-before-define
-      ensureWorkers();
-      dispatch();
-    }, JOB_TIMEOUT_MS);
-    if (slot.timer.unref) slot.timer.unref();
-  }
+  } while (handoverFailed && queue.length);
 }
 
 /**
