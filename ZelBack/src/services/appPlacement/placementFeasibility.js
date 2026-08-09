@@ -378,6 +378,18 @@ async function checkPlacementFeasibility(appSpecFormatted, caller, previousSpec)
   }
   const category = placementCategory(feasibility, synced);
   const geoRestricted = (appSpecFormatted.geolocation ?? []).length > 0;
+  const pinned = appSpecFormatted.nodes ?? [];
+  if (category === 'impossible' && pinned.length >= feasibility.instances) {
+    // A pinned spec names the only machines it may ever use, and the owner
+    // holds them. Named enough of them and the shortfall is that some are not
+    // in the confirmed list at this moment - a node rebooting, one that missed
+    // a check-in, or one not yet installed. That resolves without touching the
+    // spec, and it is the owner's to resolve, so this reports rather than
+    // refuses. Naming FEWER machines than instances is the other thing entirely
+    // and still refuses below: no wait fixes arithmetic.
+    log.warn(`${caller} - App ${appSpecFormatted.name} requests ${feasibility.instances} instances and names ${pinned.length} node(s), of which ${feasibility.candidateCount} are in the confirmed node list right now; it will run below its instance count until the rest confirm`);
+    return feasibility;
+  }
   if (category === 'impossible') {
     // A geo-restricted request that resolves to NO candidate at all is a
     // shortfall this node usually cannot stand behind. Candidate countries
@@ -401,6 +413,12 @@ async function checkPlacementFeasibility(appSpecFormatted, caller, previousSpec)
     if (geoRestricted && feasibility.candidateCount === 0 && !allTableRegionPins) {
       log.warn(`${caller} - App ${appSpecFormatted.name} resolves no eligible node for its geolocation; the location table may not cover it, so the registration is allowed`);
       return feasibility;
+    }
+    // Two different shortfalls, and telling an owner the wrong one sends them to
+    // edit a field that was never the problem: a pinned spec has no allowed
+    // locations to widen, and the machines it may use are the ones it names.
+    if (pinned.length) {
+      throw new Error(`App ${appSpecFormatted.name} requests ${feasibility.instances} instances but names only ${pinned.length} node(s), so it can never reach that count. Name at least ${feasibility.instances} nodes or lower the instance count.`);
     }
     throw new Error(`App ${appSpecFormatted.name} requests ${feasibility.instances} instances but only ${feasibility.candidateCount} eligible nodes exist for its geolocation and tier requirements. Widen the allowed locations or lower the instance count.`);
   }

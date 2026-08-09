@@ -607,6 +607,46 @@ describe('placementFeasibility tests', () => {
       );
     });
 
+    it('lets a pinned spec register when a named node is not confirmed right now', async () => {
+      // The machines a pinned spec may use are the ones it names, and the owner
+      // holds them - one rebooting, one that missed a check-in, one not yet
+      // installed. That resolves without touching the spec, so it is reported
+      // rather than refused; refusing sells the owner a retry they cannot
+      // explain.
+      useTable();
+      deterministicFluxListStub.resolves([...bhNodes]);
+      const result = await placementFeasibility.checkPlacementFeasibility({
+        name: 'pinnedShort',
+        version: 7,
+        instances: 3,
+        nodes: [bhNodes[0].ip, bhNodes[1].ip, '203.0.113.77:16127'],
+        compose: [{ containerData: 'r:/data' }],
+      }, 'testCaller');
+
+      expect(result.candidateCount).to.equal(2);
+      expect(logStub.warn.args.some((a) => a[0].includes('are in the confirmed node list right now'))).to.equal(true);
+    });
+
+    it('refuses a pinned spec that names fewer nodes than instances, and says which it is', async () => {
+      // No wait fixes arithmetic - and the message must not blame geolocation,
+      // because a pinned spec has no allowed locations to widen.
+      useTable();
+      deterministicFluxListStub.resolves([...bhNodes]);
+      await placementFeasibility.checkPlacementFeasibility({
+        name: 'pinnedTooFew',
+        version: 7,
+        instances: 3,
+        nodes: [bhNodes[0].ip, bhNodes[1].ip],
+        compose: [{ containerData: 'r:/data' }],
+      }, 'testCaller').then(
+        () => { throw new Error('expected rejection'); },
+        (error) => {
+          expect(error.message).to.include('names only 2 node(s)');
+          expect(error.message).to.not.include('Widen the allowed locations');
+        },
+      );
+    });
+
     it('accepts non-synced and unconstrained placements without warning', async () => {
       useTable();
       deterministicFluxListStub.resolves([...bhNodes, ...fiNodes, ...deNodes, bgNode]);
