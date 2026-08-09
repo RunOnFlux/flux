@@ -385,13 +385,17 @@ module.exports = (app) => {
   // docker is the only thing that answers for a primary that outlived the process
   // holding its intent. Cached at one second - long enough to bound an anonymous
   // caller to one docker call a second, short enough to be meaningless against the
-  // tens of seconds this exists to cover.
-  app.get('/apps/heldcomponents', cache('1 second'), (req, res) => {
+  // tens of seconds this exists to cover. The cache keys on the request URL, so
+  // that bound holds only while the URL is the endpoint and nothing else: without
+  // the guard a caller varies a parameter and every request is a fresh miss.
+  app.get('/apps/heldcomponents', rejectQueryParameters, cache('1 second'), (req, res) => {
     appQueryService.heldComponents(req, res);
   });
   // promotedfolders needs no cache: it is served from the set the syncthing monitor
-  // already refreshes each pass, so the request touches nothing.
-  app.get('/apps/promotedfolders', (req, res) => {
+  // already refreshes each pass, so the request touches nothing. Guarded on the
+  // same terms as its neighbour - it takes no parameters either, and the two are
+  // read by the same callers on the same path.
+  app.get('/apps/promotedfolders', rejectQueryParameters, (req, res) => {
     appQueryService.promotedFolders(req, res);
   });
   app.get('/apps/listallapps', cache('30 seconds'), (req, res) => {
