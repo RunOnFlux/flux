@@ -37,6 +37,12 @@ let syncthingTimer = null;
 const aptQueue = new fifoQueue.FifoQueue({ worker: aptRunner });
 // eslint-disable-next-line no-use-before-define
 aptQueue.on('failed', monitorAptCache);
+// The queue has stopped handing this one back. Worth saying out loud: the caller
+// took its error long ago, so without this the work is simply never done again and
+// nothing ever mentions it.
+aptQueue.on('abandoned', ({ options, error, cycles }) => {
+  log.error(`Giving up on apt-get ${options.command} after ${cycles} attempts: ${error.message}`);
+});
 
 /**
  * For testing

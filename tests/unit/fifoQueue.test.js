@@ -162,6 +162,59 @@ describe('FiFoQueue tests', () => {
       expect(seen).to.equal('update');
     });
 
+    it('should put a failed task behind the others so it cannot block them', async () => {
+      // At the front, a task that can never succeed is handed straight back to the
+      // worker on every resume and nothing queued behind it ever runs - one package
+      // apt cannot find stops a node installing any of the others.
+      const ran = [];
+      const worker = async (opts) => {
+        ran.push(opts.command);
+        if (opts.command === 'bad') throw new Error('Simulated task error');
+      };
+
+      const queue = new fifoQueue.FifoQueue({ worker, retryDelay: 0 });
+      // the apt cache monitor resumes on failure, and it is async - so its resume
+      // lands after work() has exited, which is what restarts the queue at all.
+      // It awaits real commands, so the wait here is a macrotask too: awaiting a
+      // microtask instead starves the event loop and this test hangs rather than
+      // failing when the behaviour regresses.
+      queue.on('failed', async () => {
+        await new Promise((r) => { setTimeout(r, 0); });
+        queue.resume();
+      });
+
+      queue.push({ commandOptions: { command: 'bad' }, workerOptions: { retries: 0 } });
+      queue.push({ commandOptions: { command: 'good' }, workerOptions: { retries: 0 } });
+
+      await new Promise((r) => { setTimeout(r, 50); });
+
+      expect(ran).to.include('good');
+    });
+
+    it('should give up on a task that keeps failing, and say so', async () => {
+      // Each resume grants a fresh ladder of retries, so retain-and-resume is
+      // unbounded without a ceiling: the ladder ends, something resumes, it starts
+      // again, once a minute for the life of the process.
+      let abandoned = null;
+      const worker = async () => { throw new Error('Simulated task error'); };
+
+      const queue = new fifoQueue.FifoQueue({ worker, retryDelay: 0, maxRetainCycles: 2 });
+      queue.on('failed', async () => {
+        await new Promise((r) => { setTimeout(r, 0); });
+        queue.resume();
+      });
+      queue.on('abandoned', (event) => { abandoned = event; });
+
+      queue.push({ commandOptions: { command: 'bad' }, workerOptions: { retries: 0 } });
+
+      await new Promise((r) => { setTimeout(r, 50); });
+
+      expect(abandoned).to.not.equal(null);
+      expect(abandoned.options.command).to.equal('bad');
+      expect(abandoned.cycles).to.equal(3);
+      expect(queue.length).to.equal(0);
+    });
+
     it('should emit error if task is unrecoverable', async () => {
       const clock = sinon.useFakeTimers();
 
@@ -249,7 +302,10 @@ describe('FiFoQueue tests', () => {
 
     it('should halt any further tasks if a task errors', async () => {
       const clock = sinon.useFakeTimers();
-      const expectedRemaining = [3, 4, 5, 6, 7, 8, 9];
+      // The failed task goes to the BACK. At the front it is handed straight back
+      // to the worker on the next resume, ahead of everything else, so a task that
+      // cannot succeed is retried forever and nothing behind it ever runs.
+      const expectedRemaining = [4, 5, 6, 7, 8, 9, 3];
 
       let count = 0;
       let error = 0;
@@ -286,7 +342,6 @@ describe('FiFoQueue tests', () => {
 
       expect(queue.halted).to.equal(true);
       expect(queue.workAvailable).to.equal(true);
-      // task gets added back to start of queue
       expect(queue.length).to.equal(7);
 
       expect(count).to.equal(3);
