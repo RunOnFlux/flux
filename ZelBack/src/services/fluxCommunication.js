@@ -246,16 +246,16 @@ async function handleAppRunningSyncResponse(message, peerKey) {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     for (const event of [...evictions, ...stateEvents]) {
-        if (event.type === 'sigterm') {
-          await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-          const newExpireAt = new Date(event.data.broadcastedAt + SIGTERM_EXPIRY_MS);
-          await dbHelper.updateInDatabase(database, globalAppsLocations, { ip: event.data.ip }, { $set: { expireAt: newExpireAt } });
-        } else if (event.type === 'appremoved') {
-          await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
-          await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, { ip: event.data.ip, name: event.data.appName }, {});
-        } else if (event.type === 'evicted') {
-          await messageStore.storeAppStateEvent(event.type, { ip: event.ip });
-          await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: event.ip });
+      if (event.type === 'sigterm') {
+        await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
+        const newExpireAt = new Date(event.data.broadcastedAt + SIGTERM_EXPIRY_MS);
+        await dbHelper.updateInDatabase(database, globalAppsLocations, { ip: event.data.ip }, { $set: { expireAt: newExpireAt } });
+      } else if (event.type === 'appremoved') {
+        await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
+        await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, { ip: event.data.ip, name: event.data.appName }, {});
+      } else if (event.type === 'evicted') {
+        await messageStore.storeAppStateEvent(event.type, { ip: event.ip });
+        await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, { ip: event.ip });
       } else if (event.type === 'ipchanged') {
         await messageStore.storeAppStateEvent(event.type, { message: event.data, envelope: event.envelope });
       }
