@@ -461,26 +461,24 @@ describe('ipLocationStore tests', () => {
       );
     });
 
-    it('resolves the organisation, block and geography', async () => {
+    it('resolves the organisation and geography', async () => {
       dbHelperStub.findInDatabase.resolves([bahrainRow]);
 
       expect(await store.lookup('80.95.213.209')).to.eql({
         org: 'a1b2c3d4e5f6',
-        block: { start: v4Int('80.95.208.0'), end: v4Int('80.95.223.255') },
         countryCode: 'BH',
         continentCode: 'AS',
         region: null,
       });
     });
 
-    it('returns a null block for a row with no organisation', async () => {
+    it('resolves a null organisation for a row that names none', async () => {
       dbHelperStub.findInDatabase.resolves([{
         _id: v4Int('91.0.0.0'), e: v4Int('91.0.0.255'), o: null, c: 'BG', n: 'EU', r: null,
       }]);
 
       expect(await store.lookup('91.0.0.7')).to.eql({
         org: null,
-        block: null,
         countryCode: 'BG',
         continentCode: 'EU',
         region: null,
@@ -699,10 +697,10 @@ describe('ipLocationStore tests', () => {
       await withTable();
       dbHelperStub.findInDatabase.resolves([
         {
-          _id: '80.95.213.209', o: 'a1b2c3d4e5f6', bs: v4Int('80.95.208.0'), be: v4Int('80.95.223.255'), c: 'BH', n: 'AS', r: null, g: GENERATED,
+          _id: '80.95.213.209', o: 'a1b2c3d4e5f6', c: 'BH', n: 'AS', r: null, g: GENERATED,
         },
         {
-          _id: '91.0.0.7', o: null, bs: null, be: null, c: 'BG', n: 'EU', r: null, g: GENERATED,
+          _id: '91.0.0.7', o: null, c: 'BG', n: 'EU', r: null, g: GENERATED,
         },
       ]);
 
@@ -715,20 +713,9 @@ describe('ipLocationStore tests', () => {
       expect(byIp.get('80.95.213.209')).to.eql({
         d: 'org:a1b2c3d4e5f6', c: 'BH', n: 'AS', r: null, g: GENERATED,
       });
-      // no organisation means no block rung - the address falls to /16 downstream
+      // no organisation means no fault domain of its own - the address falls to
+      // /16 downstream, which is the only other rung there is
       expect(byIp.get('91.0.0.7').d).to.equal(null);
-    });
-
-    it('keys the allocation block when a location carries one without an organisation', async () => {
-      await withTable();
-      dbHelperStub.findInDatabase.resolves([{
-        _id: '80.95.213.209', o: null, bs: v4Int('80.95.208.0'), be: v4Int('80.95.223.255'), c: 'BH', n: 'AS', r: null, g: GENERATED,
-      }]);
-
-      await store.loadNodeLocationView();
-
-      expect(store.nodeLocationSnapshot().byIp.get('80.95.213.209').d)
-        .to.equal(`blk:${v4Int('80.95.208.0')}-${v4Int('80.95.223.255')}`);
     });
 
     it('surfaces a view load failure as store unavailable', async () => {
@@ -786,7 +773,7 @@ describe('ipLocationStore tests', () => {
     it('re-derives an entry left by an older baseline', async () => {
       await withTable();
       serveView([{
-        _id: '80.95.213.209', o: 'stale', bs: null, be: null, c: 'XX', n: 'XX', r: null, g: '2026-06-01T00:00:00Z',
+        _id: '80.95.213.209', o: 'stale', c: 'XX', n: 'XX', r: null, g: '2026-06-01T00:00:00Z',
       }]);
 
       const result = await store.refreshNodeLocations([{ ip: '80.95.213.209:16127' }]);
@@ -816,20 +803,18 @@ describe('ipLocationStore tests', () => {
       expect(written.has('80.95.213.209')).to.equal(false);
       expect(written.get('80.95.215.211')).to.eql({
         o: 'a1b2c3d4e5f6',
-        bs: v4Int('80.95.208.0'),
-        be: v4Int('80.95.223.255'),
         c: 'BH',
         n: 'AS',
         r: null,
         g: '2026-07-31T00:00:00Z',
       });
-      // no organisation means no block rung - the /16 rung applies downstream
+      // no organisation means no fault domain of its own - /16 applies downstream
       expect(written.get('91.0.0.7')).to.eql({
-        o: null, bs: null, be: null, c: 'BG', n: 'EU', r: null, g: '2026-07-31T00:00:00Z',
+        o: null, c: 'BG', n: 'EU', r: null, g: '2026-07-31T00:00:00Z',
       });
       // an address no row covers is still recorded, as an unresolved location
       expect(written.get('203.0.113.7')).to.eql({
-        o: null, bs: null, be: null, c: null, n: null, r: null, g: '2026-07-31T00:00:00Z',
+        o: null, c: null, n: null, r: null, g: '2026-07-31T00:00:00Z',
       });
     });
 

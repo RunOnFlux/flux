@@ -45,8 +45,6 @@ function storeLookup(ip) {
   if (!range) return null;
   return {
     org: range.o,
-    // no allocation means no block: the /16 rung applies instead
-    block: range.o === null ? null : { start: v4Int(range.start), end: v4Int(range.end) },
     countryCode: range.c,
     continentCode: CONTINENTS[range.c],
     region: null,
@@ -59,8 +57,6 @@ function locationDoc(ip) {
   return {
     _id: ip,
     o: range?.o ?? null,
-    bs: range?.o ? v4Int(range.start) : null,
-    be: range?.o ? v4Int(range.end) : null,
     c: range?.c ?? null,
     n: range ? CONTINENTS[range.c] : null,
     r: range?.r ?? null,
@@ -72,11 +68,8 @@ function locationDoc(ip) {
 // domain already keyed. The derivation itself is the store's, and is held by
 // its own suite - here it is the input placement reads.
 function viewEntry(doc) {
-  let domain = null;
-  if (doc.o) domain = `org:${doc.o}`;
-  else if (doc.bs !== null) domain = `blk:${doc.bs}-${doc.be}`;
   return {
-    d: domain, c: doc.c, n: doc.n, r: doc.r, g: doc.g,
+    d: doc.o ? `org:${doc.o}` : null, c: doc.c, n: doc.n, r: doc.r, g: doc.g,
   };
 }
 
@@ -200,18 +193,23 @@ describe('placementFeasibility tests', () => {
       expect(await domainOf('80.95.213.209:16127')).to.equal('org:etisalcom');
     });
 
-    it('keys on the allocation block when a document carries one without an organisation', async () => {
+    it('falls to /16 for an address the table covers but names no organisation for', async () => {
+      // The rung that used to sit between these two keyed on the range's own
+      // extent. The artifact carries no allocation to key on - a row is bounded
+      // by whichever of owner, country or region changes first - and the median
+      // ownerless range is around 512 addresses, so keying on it would split one
+      // /16 into up to 128 domains and call nodes diverse the /16 holds together.
       useTable();
       storeStub.nodeLocationSnapshot.returns({
         byIp: new Map([['80.95.213.209', viewEntry({
-          o: null, bs: v4Int('80.95.208.0'), be: v4Int('80.95.223.255'), c: 'BH', n: 'AS', r: null, g: GENERATED,
+          o: null, c: 'BH', n: 'AS', r: null, g: GENERATED,
         })]]),
         ready: true,
         generated: GENERATED,
       });
       deterministicFluxListStub.resolves([...bhNodes]);
       const { domainOf: fromSnapshot } = await placementFeasibility.placementComputation({ instances: 1 }, 1);
-      expect(fromSnapshot('80.95.213.209:16127')).to.equal(`blk:${v4Int('80.95.208.0')}-${v4Int('80.95.223.255')}`);
+      expect(fromSnapshot('80.95.213.209:16127')).to.equal('net:80.95.0.0/16');
     });
 
     it('falls to /16 for a document with neither, and for an address the view does not carry', async () => {

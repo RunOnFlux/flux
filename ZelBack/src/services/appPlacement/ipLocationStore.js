@@ -1,11 +1,11 @@
 // Mongo-backed store for the IP location baseline published in
 // RunOnFlux/fluxos-network-policy (iplocation.bin.gz, format 2).
 //
-// The table maps every allocated IPv4 range to the organisation that holds it,
-// the registry allocation block it belongs to, and where it is located
-// (DB-IP City Lite country and region over RIR allocation boundaries). It is
-// the input that makes placement fault domains computable locally - see
-// placementFeasibility.
+// The table maps every allocated IPv4 range to the organisation that holds it
+// and where it is located (DB-IP City Lite country and region over RIR
+// allocation boundaries). A range with no organisation carries no fault domain
+// of its own and falls to the /16 rung placement computes. It is the input that
+// makes placement fault domains computable locally - see placementFeasibility.
 //
 // The rows live in mongo, not in the process: two million ranges cost more
 // resident memory than a node can spare, and the covering-row query answers in
@@ -489,15 +489,21 @@ function regionCodeForName(countryCode, regionName) {
 
 /**
  * The fault-domain key a stored location gives its address: the organisation
- * holding the range, else the registry allocation block. Null when the table
- * resolved neither, which leaves the address on the /16 rung its caller
- * computes. Derived once, when the entry is built.
- * @param {{o: string|null, bs: number|null, be: number|null}} doc A stored location
+ * holding the range. Null when the table names none, which leaves the address on
+ * the /16 rung its caller computes. Derived once, when the entry is built.
+ *
+ * Two rungs, not three. A row's own extent was once keyed between these as the
+ * range's "registry allocation block", but the artifact carries no allocation -
+ * a row is bounded by whichever of owner, country or region changes first, so
+ * its extent is a fragment of an allocation rather than one. It would also be
+ * the wrong direction: the median ownerless range is around 512 addresses, so
+ * keying on it splits one /16 into up to 128 domains and calls nodes diverse
+ * that the /16 rung holds together.
+ * @param {{o: string|null}} doc A stored location
  * @returns {string | null}
  */
 function domainKeyFor(doc) {
   if (doc.o) return `org:${doc.o}`;
-  if (doc.bs !== null && doc.bs !== undefined) return `blk:${doc.bs}-${doc.be}`;
   return null;
 }
 
@@ -569,8 +575,8 @@ function nodeLocationSnapshot() {
  * could not answer: callers must treat that exactly like "no table" and fall
  * back to /16 arithmetic, never like "no covering row".
  * @param {string} ip Bare IP address (no port)
- * @returns {Promise<{org: string|null, block: {start: number, end: number}|null,
- *   countryCode: string|null, continentCode: string|null, region: string|null} | null>}
+ * @returns {Promise<{org: string|null, countryCode: string|null,
+ *   continentCode: string|null, region: string|null} | null>}
  */
 async function lookup(ip) {
   const parsed = cidrUtils.parseIp(ip);
@@ -591,11 +597,8 @@ async function lookup(ip) {
   }
   const row = rows?.[0];
   if (!row || !Number.isInteger(row.e) || row.e < needle) return null;
-  const org = row.o ?? null;
   return {
-    org,
-    // no allocation means no block rung: the /16 rung applies instead
-    block: org === null ? null : { start: row._id, end: row.e },
+    org: row.o ?? null,
     countryCode: row.c ?? null,
     continentCode: row.n ?? null,
     region: row.r ?? null,
@@ -665,15 +668,12 @@ async function refreshNodeLocations(nodeList) {
       const ip = missing[cursor];
       cursor += 1;
       const doc = {
-        o: null, bs: null, be: null, c: null, n: null, r: null, g: status.generated,
+        o: null, c: null, n: null, r: null, g: status.generated,
       };
       try {
         // eslint-disable-next-line no-await-in-loop
         const hit = await lookup(ip);
         doc.o = hit?.org ?? null;
-        // no allocation means no block rung: the /16 rung applies instead
-        doc.bs = hit?.block?.start ?? null;
-        doc.be = hit?.block?.end ?? null;
         doc.c = hit?.countryCode ?? null;
         doc.n = hit?.continentCode ?? null;
         doc.r = hit?.region ?? null;
