@@ -136,6 +136,7 @@ class StaticIpContainer extends GenericContainer {
   #staticIp;
   #networkName;
   #aliases = [];
+  #dnsServer;
 
   withStaticIp(networkName, ip, aliases = []) {
     this.#staticIp = ip;
@@ -144,10 +145,27 @@ class StaticIpContainer extends GenericContainer {
     return this;
   }
 
+  withDnsServer(ip) {
+    this.#dnsServer = ip;
+    return this;
+  }
+
   async beforeContainerCreated() {
     // Tag with this run's label so run-all.sh's between-suite cleanup can scope
     // removal to its own fleet (see runLabels()).
     this.createOpts.Labels = { ...(this.createOpts.Labels || {}), ...runLabels() };
+    if (this.#dnsServer) {
+      // hostConfig, NOT createOpts.HostConfig: testcontainers creates the container
+      // with `{ ...createOpts, HostConfig: this.hostConfig }`, so anything written to
+      // createOpts.HostConfig here is overwritten wholesale before it is ever sent.
+      // It is the property testcontainers mutates itself (withTmpFs, withCapAdd) and
+      // it is still being written after this hook, so writing it here holds.
+      //
+      // Docker keeps 127.0.0.11 as the container's nameserver either way; this is the
+      // upstream its embedded resolver forwards to, which is where a name the fleet
+      // does not serve ends up.
+      this.hostConfig.Dns = [this.#dnsServer];
+    }
     if (this.#staticIp && this.#networkName) {
       this.createOpts.NetworkingConfig = {
         EndpointsConfig: {
@@ -172,6 +190,14 @@ async function createNetwork() {
   await client.container.dockerode.createNetwork({
     Name: networkName,
     Driver: 'bridge',
+    // No route off the fleet. Every endpoint a node reaches is served on this
+    // network, so anything still leaving it is a hardcoded address nobody has
+    // found yet - and the point of Phase 3 is that it is found by a test rather
+    // than by a packet capture months later.
+    //
+    // The runner addresses nodes by static IP on this subnet and uses no
+    // published ports anywhere, so its own reach into the fleet is unaffected.
+    Internal: true,
     Labels: { 'org.testcontainers.session-id': reaper.sessionId, ...runLabels() },
     IPAM: {
       Driver: 'default',
@@ -920,6 +946,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     const builder = new StaticIpContainer(image('flux-e2e-fluxos-01'))
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
+      // Nodes resolve through the stub, which answers fleet names by relaying to
+      // Docker's own resolver and refuses everything else at once - so a name
+      // nothing on this fleet serves fails immediately, named and attributed,
+      // instead of stalling whatever asked for it until its own deadline.
+      // Only the nodes: the stub resolves normally, or it would relay to itself.
+      .withDnsServer(EXTERNAL_STUB_IP)
       .withExtraHosts(fdmExtraHosts(FDM_IP))
       .withBindMounts(bindMounts)
       .withLogConsumer(logCollector)

@@ -1,4 +1,5 @@
 const zlib = require('zlib');
+const dgram = require('dgram');
 const fs = require('fs');
 const express = require('express');
 
@@ -715,6 +716,89 @@ control.post('/reset', (req, res) => {
 control.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
+
+// Every name a node asked for that nothing on the fleet could answer, with the
+// node that asked. A suite asserts this is empty; when it is not, the failure
+// names the host and the node instead of describing itself as slow.
+control.get('/dns-attempts', (req, res) => {
+  res.json({ attempts: dnsAttempts });
+});
+
+control.post('/dns-attempts/reset', (req, res) => {
+  dnsAttempts.length = 0;
+  res.json({ ok: true });
+});
+
+// The fleet's resolver.
+//
+// Blocking a network is not the same as failing loudly on it: a blocked packet
+// surfaces as a timeout, and a timeout reads as slowness rather than as a node
+// reaching somewhere it should not. So the nodes resolve here instead, and a name
+// the fleet cannot answer comes back NXDOMAIN at once, recorded against the node
+// that asked for it.
+//
+// Fleet names still resolve, because this relays to its own embedded Docker
+// resolver at 127.0.0.11 - the same one that knows every container alias on this
+// network. Relaying rather than answering means aliases need no list here and
+// cannot drift from the ones the runner actually creates.
+const dnsAttempts = [];
+
+function questionName(query) {
+  // QNAME begins after the 12-byte header, as length-prefixed labels ending in 0.
+  let offset = 12;
+  const labels = [];
+  while (offset < query.length) {
+    const len = query[offset];
+    if (len === 0 || len > 63) break;
+    labels.push(query.subarray(offset + 1, offset + 1 + len).toString('ascii'));
+    offset += len + 1;
+  }
+  return labels.join('.');
+}
+
+function startResolver() {
+  const server = dgram.createSocket('udp4');
+
+  server.on('message', (query, rinfo) => {
+    const name = questionName(query);
+    const upstream = dgram.createSocket('udp4');
+    let settled = false;
+
+    const answer = (response, resolved) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      upstream.close();
+      if (!resolved) dnsAttempts.push({ name, node: rinfo.address, at: new Date().toISOString() });
+      server.send(response, rinfo.port, rinfo.address);
+    };
+
+    // NXDOMAIN built from the query: same id and question, QR and RCODE 3 set.
+    const refuse = () => {
+      const response = Buffer.from(query);
+      response[2] |= 0x80;
+      response[3] = (response[3] & 0xf0) | 0x03;
+      answer(response, false);
+    };
+
+    // Short, because this is the whole point: an unanswerable name must fail now
+    // rather than at whatever deadline the caller happens to carry.
+    const timer = setTimeout(refuse, 300);
+
+    upstream.on('error', refuse);
+    upstream.on('message', (response) => {
+      const rcode = response[3] & 0x0f;
+      if (rcode === 0) answer(response, true);
+      else refuse();
+    });
+
+    upstream.send(query, 53, '127.0.0.11');
+  });
+
+  server.bind(53, () => console.log('External HTTP stub resolver on port 53'));
+}
+
+startResolver();
 
 app.listen(PORT, () => {
   console.log(`External HTTP stub listening on port ${PORT}`);
