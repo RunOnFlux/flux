@@ -16,6 +16,7 @@ const { rejectQueryParameters } = require('../../ZelBack/src/services/utils/rout
 describe('routeGuards', () => {
   describe('rejectQueryParameters', () => {
     let app;
+    let server;
     let handlerCalls;
 
     // apicache's store and its expiry timers are module-global, so this suite
@@ -35,43 +36,56 @@ describe('routeGuards', () => {
       );
     });
 
-    afterEach(() => apicache.clear());
+    afterEach(() => {
+      apicache.clear();
+      if (server) { server.close(); server = null; }
+    });
+
+    // One server for the test, rather than one per request. supertest binds a
+    // fresh ephemeral server on every request(app) call, and a test making
+    // several of them opens several - which under a full-suite load produced a
+    // transient 'Parse Error: Expected HTTP/' from a socket that was not the
+    // one being spoken to. The lifetime is explicit here instead.
+    const get = (path) => {
+      if (!server) server = app.listen(0);
+      return request(server).get(path);
+    };
 
     it('answers a request that carries no query string', async () => {
-      const res = await request(app).get('/answer');
+      const res = await get('/answer');
       expect(res.status).to.equal(200);
       expect(res.body.data.answer).to.equal(42);
       expect(handlerCalls).to.equal(1);
     });
 
     it('refuses a query parameter the endpoint does not read', async () => {
-      const res = await request(app).get('/answer?x=1');
+      const res = await get('/answer?x=1');
       expect(res.status).to.equal(400);
       expect(res.body.status).to.equal('error');
       expect(res.body.data.message).to.equal('This endpoint takes no query parameters');
     });
 
     it('refuses a parameter with no value, and one repeated', async () => {
-      expect((await request(app).get('/answer?x')).status).to.equal(400);
-      expect((await request(app).get('/answer?x=1&x=2')).status).to.equal(400);
+      expect((await get('/answer?x')).status).to.equal(400);
+      expect((await get('/answer?x=1&x=2')).status).to.equal(400);
     });
 
     // express resolves '?=1' to an empty query object, so a guard reading
     // req.query waves it through - while the cache still files it under a key
     // of its own. The decision has to be made on the raw url.
     it('refuses a query string that parses to nothing but still varies the url', async () => {
-      expect((await request(app).get('/answer?=1')).status).to.equal(400);
-      expect((await request(app).get('/answer?&&')).status).to.equal(400);
+      expect((await get('/answer?=1')).status).to.equal(400);
+      expect((await get('/answer?&&')).status).to.equal(400);
     });
 
     it('answers a bare question mark, which carries no parameter', async () => {
-      const res = await request(app).get('/answer?');
+      const res = await get('/answer?');
       expect(res.status).to.equal(200);
     });
 
     it('never lets a refused request reach the handler', async () => {
-      await request(app).get('/answer?x=1');
-      await request(app).get('/answer?y=2');
+      await get('/answer?x=1');
+      await get('/answer?y=2');
       expect(handlerCalls).to.equal(0);
     });
 
@@ -79,11 +93,11 @@ describe('routeGuards', () => {
     // a distinct cache key, so it both recomputes the answer and retains
     // another copy of it for the cache window
     it('keeps the cache to one entry however many parameters are tried', async () => {
-      await request(app).get('/answer');
-      await request(app).get('/answer?x=1');
-      await request(app).get('/answer?x=2');
-      await request(app).get('/answer?x=3');
-      await request(app).get('/answer');
+      await get('/answer');
+      await get('/answer?x=1');
+      await get('/answer?x=2');
+      await get('/answer?x=3');
+      await get('/answer');
 
       expect(handlerCalls).to.equal(1);
       // scoped to this route: the index is module-global, so asserting on its
