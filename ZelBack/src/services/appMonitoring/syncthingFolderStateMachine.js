@@ -13,6 +13,7 @@ const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
 const { socketAddressesMatch, extractIp, extractPort } = require('../utils/socketAddressUtils');
 const globalState = require('../utils/globalState');
+const fluxEventBus = require('../utils/fluxEventBus');
 const {
   LEADER_CONFIRM_COUNT,
   SYNC_COMPLETE_PERCENTAGE,
@@ -450,6 +451,7 @@ async function holderIsGone(appId, holderIp, liveness) {
   if (answer.reachable) return false;
   if (await peerSyncthingIsConnected(appId, holderIp)) {
     log.info(`holderIsGone - ${extractIp(holderIp)}'s API is silent, but this node's syncthing still holds a live connection to it for ${appId}; it is restarting, not gone`);
+    fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp });
     return false;
   }
   const { connected, responding, total } = liveness.localConnectivity();
@@ -479,6 +481,7 @@ async function holderListExcludingDead(appId, allPeersList, localSocketAddr, liv
   if (!leader || socketAddressesMatch(leader, localSocketAddr)) return allPeersList;
   if (!await holderIsGone(appId, leader, liveness)) return allPeersList;
   log.warn(`holderListExcludingDead - elected holder ${leader} is gone and this node's own connectivity is healthy; re-electing without it`);
+  fluxEventBus.publish('syncthing:holderExcluded', { folder: appId, holder: leader });
   return allPeersList.filter((peer) => !socketAddressesMatch(peer.ip, leader));
 }
 

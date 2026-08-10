@@ -6,7 +6,6 @@ import { getSubnetConfig } from '../framework/subnet-config.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { resetSyncState, setPeerCompletion } from '../framework/syncthing-control.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
-import { waitForLog } from '../framework/log-reader.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -176,18 +175,18 @@ describe('a syncthing holder that predates the folder endpoint', function () {
       ip: subject.ip, folder: deferApp, device: '*', completion: 100, remoteState: 'valid',
     });
 
-    // The instrument, and it has to be the veto's own line rather than the
+    // The instrument, and it has to be the veto's own event rather than the
     // outcome. "Did not promote" is satisfied by too many other things here -
     // a peer reporting 100% makes this node defer for an entirely different
     // reason - so the outcome alone cannot tell the guard firing from the guard
     // never running.
-    await waitForLog(
-      subject.container.getId(),
-      /holderIsGone - .*syncthing still holds a live connection/,
-      { timeout: 180000 },
+    await subject.waitForEvent(
+      'syncthing:holderRetained',
+      (d) => d.folder.includes(deferApp),
+      180000,
     );
 
-    // And the decision that line describes: the holder keeps the folder, so this
+    // And the decision that event describes: the holder keeps the folder, so this
     // node stays receiveonly. Without the veto its API silence drops it from the
     // election, this node wins, and a second writable copy runs beside a holder
     // that never stopped.
