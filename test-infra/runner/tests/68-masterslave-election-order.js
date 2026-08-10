@@ -392,6 +392,11 @@ describe('primary election under a divergent placement order', function () {
         timeout: 420000, interval: 5000, label: 'a surviving holder seeds after the leader is lost',
       });
       expect(await survivorsUp(), 'both survivors seeded - split brain replacing the lost leader').to.equal(1);
+      // The other half of what this scenario can get wrong: the cut-off seed
+      // must not have crowned itself on its island. Its peers' silence is its
+      // own evidence that the fault is local, and confirmation cannot
+      // accumulate against it.
+      expect(await isUp(env.clients[seedIndex], genesisApp), 'the partitioned seed started the app in isolation').to.be.false;
     } finally {
       // Cleanup must not throw - a cleanup error would replace the test's own
       // failure in the report - but a failed step is the first clue when the
