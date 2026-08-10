@@ -393,9 +393,12 @@ describe('primary election under a divergent placement order', function () {
       });
       expect(await survivorsUp(), 'both survivors seeded - split brain replacing the lost leader').to.equal(1);
     } finally {
-      await setFolderPatchDelay({ ms: 0 }).catch(() => {});
-      await env.healPartition([seedIndex], survivors).catch(() => {});
-      await env.startDiscovery().catch(() => {});
+      // Cleanup must not throw - a cleanup error would replace the test's own
+      // failure in the report - but a failed step is the first clue when the
+      // NEXT test inherits its debris, so each one says so.
+      await setFolderPatchDelay({ ms: 0 }).catch((err) => console.warn(`cleanup: patch-delay reset failed: ${err.message}`));
+      await env.healPartition([seedIndex], survivors).catch((err) => console.warn(`cleanup: heal failed: ${err.message}`));
+      await env.startDiscovery().catch((err) => console.warn(`cleanup: discovery restart failed: ${err.message}`));
     }
   });
 
