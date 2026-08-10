@@ -830,7 +830,14 @@ async function handleReceiveOnlyTransition(params) {
   // pick, when this node can show the holder is gone rather than merely silent to it.
   const electionList = await holderListExcludingDead(appId, runningAppList, localSocketAddr, liveness);
   const electedLeader = isDesignatedLeader(electionList, localSocketAddr, aPeerHasData || !folderIsEmpty);
-  cache.leaderStreak = electedLeader ? (cache.leaderStreak || 0) + 1 : 0;
+  // The floor holderIsGone asks of a silent holder, asked of this node before
+  // its own win can count: a node whose peers have gone quiet is the one that
+  // fell over, and a win it confirms in that state seeds the app on a
+  // partition's minority side while the majority defers to its IP. Isolation
+  // resets the streak rather than pausing it, so a heal is followed by
+  // LEADER_CONFIRM_COUNT clean passes like any other blip.
+  const { connected } = liveness.localConnectivity();
+  cache.leaderStreak = electedLeader && connected ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
   // Withdrawn on every unpromoted pass, so a lost election drops the claim. It
   // is raised again only where the promotion actually commits: masterSlaveApps

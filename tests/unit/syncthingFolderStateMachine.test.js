@@ -427,6 +427,75 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
     });
 
+    it('does not crown itself while its own peers are silent - an isolated node cannot seed', async () => {
+      // The same floor holderIsGone asks of a silent holder, asked of this node
+      // before its own election can confirm: a node whose peers have all gone
+      // quiet is the one that fell over, and letting it seed anyway starts the
+      // app on a partition's minority side while the majority defers to its IP.
+      // Identical to the seed test above in every respect but the peers.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 0, total: 8 });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.not.equal('sendreceive');
+      expect(result.cache.designatedLeader).to.not.equal(true);
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
+      // The confirmation itself must not survive isolation: a heal is followed
+      // by LEADER_CONFIRM_COUNT clean passes, not an instant seed on stale wins.
+      expect(result.cache.leaderStreak).to.equal(0);
+    });
+
+    it('confirms again after a heal - isolation resets the streak, it does not end the candidacy', async () => {
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
+
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 0, total: 8 });
+      let result = await stateMachine.manageFolderSyncState(mockParams);
+      expect(result.syncthingFolder.type).to.not.equal('sendreceive');
+
+      // Healed. The stale streak is gone, so the win must confirm afresh over
+      // LEADER_CONFIRM_COUNT passes - deliberately not seeding on the first.
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+      for (let pass = 1; pass <= 2; pass += 1) {
+        mockParams.receiveOnlySyncthingAppsCache.set('test-app', result.cache);
+        // A liveness view is one pass's snapshot - the monitor builds a fresh
+        // one each pass, and so does this loop, else the isolated verdict is
+        // memoized across the heal.
+        mockParams.liveness = createPeerFolderLiveness();
+        // eslint-disable-next-line no-await-in-loop
+        result = await stateMachine.manageFolderSyncState(mockParams);
+        if (pass === 1) expect(result.syncthingFolder.type).to.not.equal('sendreceive');
+      }
+      expect(result.syncthingFolder.type).to.equal('sendreceive');
+      expect(result.cache.designatedLeader).to.be.true;
+    });
+
     it('does not seed a partial copy: a confirmed leader mid-sync stays receiveonly', async () => {
       // The seed path skips the sync check because a cold-start seed has nothing
       // to lose - an empty folder, or a synced survivor. A node can now reach the
