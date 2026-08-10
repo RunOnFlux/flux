@@ -8,7 +8,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import {
-  setSynced, resetSyncState, setFolderPatchDelay, getSyncthingState, severPeerSync,
+  setSynced, resetSyncState, setFolderPatchDelay, getSyncthingState,
 } from '../framework/syncthing-control.js';
 import { restartFluxos } from '../framework/container.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -354,35 +354,20 @@ describe('primary election under a divergent placement order', function () {
     // seed rather than defer to a corpse forever - the cold-start standoff, but with
     // the standoff-breaker removed after the fact. Nothing here is index 0, so the
     // stagger cannot rescue it either.
-    // Genesis must still be in flight when the seed is cut, and the designated
-    // leader seeds within seconds now, so the window has to be held open
-    // rather than raced: the delay pins every promotion PATCH until the
-    // partition is in place.
-    await setFolderPatchDelay({ ms: 300000 });
+    //
+    // The cut comes BEFORE the deploy, because that is the only ordering that
+    // cannot race genesis: the runner reaches every node either way (a
+    // partition drops node-to-node packets, not control traffic), so
+    // placement proceeds - but the seed is born unreachable to its peers, and
+    // nothing can have seeded when the election first looks. No holds, no
+    // fabricated evidence: the seed never declared anything, so the
+    // survivors' syncthing has no testimony to a connection that does not
+    // exist, and the election judges exactly what production would see.
+    const survivors = holders.filter((i) => i !== seedIndex);
+    await env.partitionGroups([seedIndex], survivors, { awaitSever: true });
     await deploy(genesisApp);
     const position = await electionIndexOf(env, genesisApp, seedIndex);
     expect(position, 'fixture: seed must be off index 0 for this scenario to mean anything').to.be.greaterThan(0);
-
-    // Cut the seed off from its peers, not from the world: detaching it from the
-    // docker network takes the shared mongo with it, and a node with no database is
-    // a broken node rather than a lost one - it answers nothing, including things a
-    // lost node still answers. Dropping node-to-node packets leaves its infra intact
-    // and makes it unreachable to exactly the nodes whose election is under test.
-    const survivors = holders.filter((i) => i !== seedIndex);
-    await env.partitionGroups([seedIndex], survivors, { awaitSever: true });
-    // Genesis commits when the container starts, and that is what must not
-    // have happened yet. Folder types are no proxy for it here: the delay
-    // above pins every folder PATCH, including the demotions that settle a
-    // newborn folder out of its writable birth state, so folder-shaped
-    // evidence flaps for exactly as long as the hold is on.
-    expect(await isUp(env.clients[seedIndex], genesisApp), 'fixture: the seed completed genesis before the cut').to.be.false;
-    // The partition severs the seed's syncthing connections too, and the
-    // fixture's source declaration outlives them - left standing, the
-    // survivors' syncthing keeps testifying to a live connection and the
-    // holder-retained veto defers to the corpse instead of re-electing.
-    await severPeerSync({ folder: `flux${genesisApp}_${genesisApp}`, deviceIp: env.clients[seedIndex].ip });
-    // The survivors' own promotions run free again; the seed is already cut.
-    await setFolderPatchDelay({ ms: 0 });
     const survivorsUp = async () => (await Promise.all(
       survivors.map((i) => isUp(env.clients[i], genesisApp)),
     )).filter(Boolean).length;
@@ -405,7 +390,6 @@ describe('primary election under a divergent placement order', function () {
       // Cleanup must not throw - a cleanup error would replace the test's own
       // failure in the report - but a failed step is the first clue when the
       // NEXT test inherits its debris, so each one says so.
-      await setFolderPatchDelay({ ms: 0 }).catch((err) => console.warn(`cleanup: patch-delay reset failed: ${err.message}`));
       await env.healPartition([seedIndex], survivors).catch((err) => console.warn(`cleanup: heal failed: ${err.message}`));
       await env.startDiscovery().catch((err) => console.warn(`cleanup: discovery restart failed: ${err.message}`));
     }
