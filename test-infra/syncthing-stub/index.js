@@ -669,6 +669,7 @@ control.post('/sync-state', (req, res) => {
     ip = '*', folder, state = 'idle', globalBytes = 0, inSyncBytes = 0, receiveOnlyChangedFiles = 0, statusUnreadable = false,
   } = req.body;
   if (!folder) return res.status(400).json({ error: 'folder required' });
+  console.log(`[write] sync-state from=${clientIp(req)} ip=${ip} folder=${folder} state=${state} bytes=${inSyncBytes}/${globalBytes} unreadable=${statusUnreadable}`);
   syncOverrides.set(`${ip}|${folder}`, {
     state, globalBytes, inSyncBytes, receiveOnlyChangedFiles, statusUnreadable,
   });
@@ -699,6 +700,7 @@ control.post('/peer-completion', (req, res) => {
   if (!folder || completion == null) return res.status(400).json({ error: 'folder and completion required' });
   // remoteState 'valid' (default) = connected peer; 'unknown' models a
   // disconnected peer whose last-known index still reports the completion
+  console.log(`[write] peer-completion from=${clientIp(req)} key=${ip}|${folder}|${device} completion=${completion} remoteState=${remoteState}`);
   completionOverrides.set(`${ip}|${folder}|${device}`, remoteState !== undefined ? { completion, remoteState } : completion);
   return res.json({ ok: true });
 });
@@ -747,6 +749,7 @@ control.post('/events-outage', (req, res) => {
 
 // Back to default always-synced/empty behaviour.
 control.post('/sync-reset', (req, res) => {
+  console.log(`[write] sync-reset from=${clientIp(req)}`);
   syncOverrides.clear();
   completionOverrides.clear();
   nudgeLogs.clear();
