@@ -164,7 +164,10 @@ for f in "${SUITES[@]}"; do
   # process, not a wrapper; -k escalates to KILL if the event loop is wedged.
   # A timed-out suite reports a nonzero rc in SUITE-END (observed 125 when the
   # TERM landed mid-boot; the exact code depends on how mocha dies).
-  timeout -k 30s "${E2E_SUITE_WALL_SEC:-1800}s" node_modules/.bin/mocha "$f" --reporter tap --timeout "$SUITE_TIMEOUT_MS" 2>&1 | tee "$LOG_DIR/$name.tap"
+  # MOCHA_GREP narrows a diagnostic run to one test by title - a fleet boot is
+  # most of a suite's cost, and a bisection loop should not pay for the tests
+  # it is not bisecting.
+  timeout -k 30s "${E2E_SUITE_WALL_SEC:-1800}s" node_modules/.bin/mocha "$f" --reporter tap --timeout "$SUITE_TIMEOUT_MS" ${MOCHA_GREP:+--grep "$MOCHA_GREP"} 2>&1 | tee "$LOG_DIR/$name.tap"
   rc=${PIPESTATUS[0]}
 
   # grep -c prints the count (0 when none) but exits 1 on zero matches; `|| true`
