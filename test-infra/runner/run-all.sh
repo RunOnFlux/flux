@@ -110,15 +110,12 @@ release_base() { [ -n "${CLAIMED_BASE:-}" ] && rm -rf "${LOCK_ROOT:?}/$CLAIMED_B
 cleanup_on_exit() {
   if [ -n "${RUN_LABEL:-}" ]; then
     docker ps -aq --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker rm -f >/dev/null 2>&1
-    # The base lock must outlive the network. Removal is not instantaneous: a
-    # network whose endpoints are still detaching refuses the rm and stays
-    # listed, and one mid-removal can be absent from ls while its subnet is
-    # still allocated - either way, releasing the lock first hands this base
-    # to the next run while it is still occupied, and that run dies in its
-    # before-all on "Pool overlaps with other one on this address space"
-    # (suites 40 and 41, 2026-08-10). Retry until the label answers empty;
-    # if the network will not die inside the budget, KEEP the lock - a dead
-    # owner's lock is reclaimed by a later scan, which is after any teardown.
+    # The base lock outlives the network: removal is not instantaneous - a
+    # network with detaching endpoints refuses the rm, and one mid-removal
+    # can be absent from ls while its subnet is still allocated - so a lock
+    # released any sooner hands the next run a base that is still occupied.
+    # A network that outlives the retry budget keeps the lock: a dead
+    # owner's lock is reclaimed by a later scan, after any teardown.
     tries=0
     while [ -n "$(docker network ls -q --filter "label=flux-e2e-run=$RUN_LABEL")" ]; do
       docker network ls -q --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker network rm >/dev/null 2>&1
