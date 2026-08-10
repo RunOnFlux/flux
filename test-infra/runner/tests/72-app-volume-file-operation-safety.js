@@ -26,9 +26,6 @@ import {
 // passes. A security test that cannot fail is worse than no test.
 
 const OPERATION_UUID = '11111111-2222-4333-8444-555555555555';
-// A second one, for a case that needs an entry the sweep WILL act on beside an
-// entry it must not touch.
-const STAGING_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 
 describe('app volume file operations - safety and recovery', function () {
   let env;
