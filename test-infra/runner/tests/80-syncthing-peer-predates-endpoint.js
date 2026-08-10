@@ -182,7 +182,7 @@ describe('a syncthing holder that predates the folder endpoint', function () {
     // reason - so the outcome alone cannot tell the guard firing from the guard
     // never running.
     await waitForLog(
-      subject.container,
+      subject.container.getId(),
       /holderIsGone - .*syncthing still holds a live connection/,
       { timeout: 180000 },
     );
