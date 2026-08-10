@@ -45,7 +45,7 @@ describe('volumeSession tests', () => {
         APP_NAME_REGEX: /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/,
         APP_NAME_REGEX_LEGACY: /^[a-zA-Z0-9]+$/,
       },
-      fs: { promises: fsStub },
+      'node:fs/promises': fsStub,
     });
   });
 

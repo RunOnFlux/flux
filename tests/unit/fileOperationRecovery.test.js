@@ -28,12 +28,22 @@ describe('fileOperationRecovery tests', () => {
       info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
     };
 
+    // The real one. What the sweep is handed has to be a session the executor
+    // will accept paths from, and a stub that merely looks like one would let a
+    // caller pass something the executor refuses without this test noticing.
+    const volumeSession = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
+      '../deviceHelper': deviceHelperStub,
+      '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+      '../IOUtils': { getFolderSize: sinon.stub(), getFileSize: sinon.stub() },
+      '../utils/appConstants': { appsFolder: APPS_FOLDER },
+    });
+
     recovery = proxyquire('../../ZelBack/src/services/appSystem/fileOperationRecovery', {
       '../deviceHelper': deviceHelperStub,
       './volumeExecutor': executorStub,
+      './volumeSession': volumeSession,
       '../../lib/log': logStub,
       '../utils/appConstants': { appsFolder: APPS_FOLDER },
-      fs: { promises: {} },
     });
   });
 
@@ -57,7 +67,7 @@ describe('fileOperationRecovery tests', () => {
 
     await recovery.recoverInterruptedFileOperations();
 
-    const swept = executorStub.sweepStagingDirectories.getCalls().map((c) => c.args[0]);
+    const swept = executorStub.sweepStagingDirectories.getCalls().map((c) => c.args[0].mount);
     expect(swept).to.deep.equal([`${APPS_FOLDER}fluxcomp_one`, `${APPS_FOLDER}fluxcomp_two`]);
   });
 
@@ -72,7 +82,7 @@ describe('fileOperationRecovery tests', () => {
 
     await recovery.recoverInterruptedFileOperations();
 
-    const swept = executorStub.sweepStagingDirectories.getCalls().map((c) => c.args[0]);
+    const swept = executorStub.sweepStagingDirectories.getCalls().map((c) => c.args[0].mount);
     expect(swept).to.deep.equal([`${APPS_FOLDER}fluxcomp_one`]);
   });
 

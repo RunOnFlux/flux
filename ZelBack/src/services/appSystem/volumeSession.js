@@ -1,6 +1,6 @@
 const path = require('node:path');
 const crypto = require('node:crypto');
-const fs = require('fs').promises;
+const fs = require('node:fs/promises');
 const IOUtils = require('../IOUtils');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
@@ -443,9 +443,42 @@ async function openVolume(req, options = {}) {
   return new VolumeSession(mount, availableBytes, identifier, owner, VolumeSession);
 }
 
+/**
+ * A session on a volume named by the mount table rather than by a request.
+ *
+ * The boot sweep has no user to authorise and no app name to look up - it walks
+ * the mount table and acts on whatever app volumes are mounted. It still needs
+ * a session, because every path the executor accepts comes from resolve() on
+ * one of these, and the paths the sweep acts on are read out of files the app
+ * owner can write. A caller with no user is exactly the caller that must not be
+ * given a way to skip the containment checks.
+ *
+ * @param {{target: string, availableBytes: number}} mountRow - a row from
+ *   deviceHelper.listMountedFilesystems
+ * @returns {VolumeSession}
+ */
+function sessionForMountedVolume(mountRow) {
+  const target = mountRow && mountRow.target;
+  // The same rule resolveVolumeMount applies to what it selected: a mount that
+  // is not under the apps folder is not an app volume, whatever it is called.
+  if (!target || !target.startsWith(appsFolder)) {
+    throw new Error(`${target} is not an app volume mount; refusing to use it`);
+  }
+  return new VolumeSession(
+    target,
+    mountRow.availableBytes,
+    path.basename(target),
+    // No user. The sweep acts for the node, and openVolume is the only path
+    // that may record an owner, because it is the only one that checked.
+    null,
+    VolumeSession,
+  );
+}
+
 module.exports = {
   openVolume,
   resolveVolumeMount,
+  sessionForMountedVolume,
   VolumePath,
   VolumeSession,
   WORK_ROOT,

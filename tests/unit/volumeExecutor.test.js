@@ -2,6 +2,9 @@ const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const os = require('node:os');
+const nodePath = require('node:path');
+const realFs = require('node:fs/promises');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -103,11 +106,9 @@ describe('volumeExecutor tests', () => {
     // figure undefined at the CALL rather than at load, inside a try, which is
     // how five earlier stubs in this suite passed while exercising nothing.
     fsStub = {
-      promises: {
-        lstat: sinon.stub().rejects(new Error('ENOENT')),
-        readdir: sinon.stub().resolves([]),
-        statfs: sinon.stub().resolves({ bsize: 4096, blocks: 1000, bfree: 1000 }),
-      },
+      lstat: sinon.stub().rejects(new Error('ENOENT')),
+      readdir: sinon.stub().resolves([]),
+      statfs: sinon.stub().resolves({ bsize: 4096, blocks: 1000, bfree: 1000 }),
     };
 
     volumeSession = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
@@ -119,7 +120,7 @@ describe('volumeExecutor tests', () => {
 
     volumeExecutor = proxyquire('../../ZelBack/src/services/appSystem/volumeExecutor', {
       config: configStub,
-      fs: fsStub,
+      'node:fs/promises': fsStub,
       '../dockerService': dockerServiceStub,
       '../deviceHelper': deviceHelperStub,
       '../serviceHelper': serviceHelperStub,
@@ -554,39 +555,91 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('sweepStagingDirectories', () => {
+    // On a real disk, deliberately. What this code decides is where a path
+    // LEADS, and a stubbed filesystem has no symlinks to lead anywhere - so the
+    // escape that reaches /etc/cron.d through a symlinked parent cannot be
+    // written against one at all. The rules about which names are swept could
+    // be, but splitting them across two filesystems is how a suite ends up
+    // asserting its own stub.
+    let tmpRoot;
+    let mount;
+    let session;
+    let sweeper;
+
     // flux-op derives both names from the staging directory's randomUUID, so a
     // fixture that is not one is not a fixture for anything this ever sees.
     const ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
     const OP = `.flux-op-${ID}`;
     const OLD = `.flux-old-${ID}`;
 
-    // The real fs sets .code, and the sweep tells an absent marker apart from
-    // an unreadable one by exactly that - a bare Error would make every read
-    // failure look like "no marker was ever written", and it deletes on the
-    // strength of that.
-    const enoent = () => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    const at = (...parts) => nodePath.join(mount, ...parts);
+    const exists = (p) => realFs.lstat(p).then(() => true).catch(() => false);
+    const write = (name, contents) => realFs.writeFile(at(name), contents);
 
-    const fsFor = (entries, files = {}, existing = []) => ({
-      readdir: sinon.stub().resolves(entries),
-      readFile: sinon.stub().callsFake(async (p) => {
-        const name = p.split('/').pop();
-        if (files[name] === undefined) throw enoent();
-        return files[name];
-      }),
-      lstat: sinon.stub().callsFake(async (p) => {
-        if (!existing.includes(p)) throw enoent();
-        return {};
-      }),
+    /** The parked entry and the marker naming where it belongs. */
+    const park = async (destination, payload = 'THE ONLY COPY\n') => {
+      await write(OLD, payload);
+      await write(`${OLD}${'.dest'}`, destination);
+    };
+
+    const publishes = () => dockerServiceStub.createContainer.getCalls()
+      .map((c) => c.args[0].Cmd)
+      .filter((cmd) => cmd && cmd[0] === 'flux-op');
+
+    beforeEach(async () => {
+      tmpRoot = await realFs.mkdtemp(nodePath.join(os.tmpdir(), 'fluxsweep-'));
+      // The apps folder for this test IS the temp root, so the containment
+      // checks compare against a real directory rather than a fictional one.
+      const appsFolder = `${tmpRoot}/`;
+      mount = nodePath.join(tmpRoot, 'fluxcomp_myapp');
+      await realFs.mkdir(mount);
+
+      const constants = { ...appConstantsStub, appsFolder };
+      deviceHelperStub.listMountedFilesystems = sinon.stub().resolves([mountRow(mount)]);
+
+      // rm really removes, so "the data is still there" is a claim about the
+      // disk rather than about which command was issued.
+      serviceHelperStub.runCommand = sinon.stub().callsFake(async (cmd, opts) => {
+        if (cmd === 'rm') await realFs.rm(opts.params[1], { recursive: true, force: true });
+        return { error: null, stdout: '', stderr: '' };
+      });
+
+      const sessions = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
+        '../deviceHelper': deviceHelperStub,
+        '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+        '../IOUtils': { getFolderSize: sinon.stub(), getFileSize: sinon.stub() },
+        '../utils/appConstants': constants,
+      });
+
+      // No fs stub on this one - that is the whole point of the block.
+      sweeper = proxyquire('../../ZelBack/src/services/appSystem/volumeExecutor', {
+        config: configStub,
+        '../dockerService': dockerServiceStub,
+        '../deviceHelper': deviceHelperStub,
+        '../serviceHelper': serviceHelperStub,
+        '../../lib/log': {
+          info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
+        },
+        '../utils/appConstants': constants,
+        './volumeSession': sessions,
+      });
+
+      session = sessions.sessionForMountedVolume(mountRow(mount));
     });
 
-    const mvCalls = () => serviceHelperStub.runCommand.getCalls().filter((c) => c.args[0] === 'mv');
+    afterEach(async () => {
+      if (tmpRoot) await realFs.rm(tmpRoot, { recursive: true, force: true });
+    });
 
     it('deletes an incomplete operation - nothing was published and nobody waits', async () => {
-      const fsp = fsFor([OP, 'realdata']);
-      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      await realFs.mkdir(at(OP));
+      await write('realdata', 'keep me');
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
       expect(removed).to.deep.equal([OP]);
       expect(restored).to.deep.equal([]);
+      expect(await exists(at('realdata'))).to.equal(true);
     });
 
     it('restores displaced data when the destination is missing', async () => {
@@ -594,12 +647,15 @@ describe('volumeExecutor tests', () => {
       // caller's only copy. The marker holds a path relative to the volume
       // root, because flux-op writes it from inside a container that has only
       // that root and no notion of where it sits on the host.
-      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: 'photos\n' }, []);
+      await park('photos\n');
 
-      const { restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      const { restored } = await sweeper.sweepStagingDirectories(session);
 
-      expect(restored).to.deep.equal([`${MOUNT}/photos`]);
-      expect(mvCalls()[0].args[1].params).to.deep.equal(['-T', `${MOUNT}/${OLD}`, `${MOUNT}/photos`]);
+      expect(restored).to.deep.equal([at('photos')]);
+      // Published by the executor, with both operands expressed as the
+      // container sees them - never as host paths.
+      expect(publishes()).to.have.lengthOf(1);
+      expect(publishes()[0].slice(-3)).to.deep.equal([`/work/${OLD}`, '/work/photos', '--']);
     });
 
     it('restores from a marker written by an older image', async () => {
@@ -607,88 +663,165 @@ describe('volumeExecutor tests', () => {
       // before it wrote the container path, and a node upgrading FluxOS can be
       // holding either - refusing the older one would strand exactly the data
       // this branch exists to put back.
-      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: '/work/photos\n' }, []);
+      await park('/work/photos\n');
 
-      const { restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      const { restored } = await sweeper.sweepStagingDirectories(session);
 
-      expect(restored).to.deep.equal([`${MOUNT}/photos`]);
-      expect(mvCalls()[0].args[1].params).to.deep.equal(['-T', `${MOUNT}/${OLD}`, `${MOUNT}/photos`]);
+      expect(restored).to.deep.equal([at('photos')]);
+      expect(publishes()[0].slice(-3)).to.deep.equal([`/work/${OLD}`, '/work/photos', '--']);
     });
 
     it('refuses a relative marker that climbs out of the volume', async () => {
-      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: '../../etc/shadow\n' }, []);
+      await park('../../etc/shadow\n');
 
-      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
-      expect(mvCalls()).to.deep.equal([]);
+      expect(publishes()).to.deep.equal([]);
       expect(restored).to.deep.equal([]);
       expect(removed).to.deep.equal([]);
+      expect(await exists(at(OLD))).to.equal(true);
     });
 
     it('refuses a marker naming a path outside the volume, and keeps the data', async () => {
-      // The marker lives in a directory the app owner can write to. Read as a
-      // host path it makes `mv` a way to create a root-owned file anywhere on
-      // the node, /etc/cron.d being the short route from there to running code.
-      // Nothing is moved - and the displaced entry is not deleted either, since
-      // it may be somebody's only copy.
-      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: '/etc/cron.d/pwn\n' }, []);
+      await park('/etc/cron.d/pwn\n');
 
-      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
-      expect(mvCalls()).to.deep.equal([]);
+      expect(publishes()).to.deep.equal([]);
       expect(restored).to.deep.equal([]);
       expect(removed).to.deep.equal([]);
+      expect(await exists(at(OLD))).to.equal(true);
     });
 
     it('refuses a marker that climbs out of the work root', async () => {
-      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: '/work/../../../etc/shadow\n' }, []);
+      await park('/work/../../../etc/shadow\n');
 
-      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
-      expect(mvCalls()).to.deep.equal([]);
+      expect(publishes()).to.deep.equal([]);
       expect(restored).to.deep.equal([]);
       expect(removed).to.deep.equal([]);
     });
 
-    it('deletes displaced data when the publish completed', async () => {
-      const fsp = fsFor([OLD, `${OLD}.dest`], { [`${OLD}.dest`]: '/work/photos\n' }, [`${MOUNT}/photos`]);
+    it('refuses a marker whose parent directory is a symlink off the volume', async () => {
+      // The one the lexical rules cannot see. Every component of the recorded
+      // path is innocent as TEXT and the whole of it normalises to somewhere
+      // inside the volume - but `appdata/escape` is a link the app owner made
+      // from inside its own container, and rename(2) follows every component of
+      // a destination but the last.
+      const outside = nodePath.join(tmpRoot, 'etc-cron.d');
+      await realFs.mkdir(outside);
+      await realFs.mkdir(at('appdata'));
+      await realFs.symlink(outside, at('appdata', 'escape'));
 
-      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      await park('appdata/escape/pwn');
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(publishes()).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(removed).to.deep.equal([]);
+      // Nothing reached the directory the link named, and the parked data is
+      // still parked.
+      expect(await exists(nodePath.join(outside, 'pwn'))).to.equal(false);
+      expect(await exists(at(OLD))).to.equal(true);
+    });
+
+    it('refuses a marker reaching a symlinked parent by an older image path', async () => {
+      // The same escape wearing the /work prefix, since both marker forms are
+      // accepted and the containment has to apply to whichever arrives.
+      const outside = nodePath.join(tmpRoot, 'etc-cron.d');
+      await realFs.mkdir(outside);
+      await realFs.mkdir(at('appdata'));
+      await realFs.symlink(outside, at('appdata', 'escape'));
+
+      await park('/work/appdata/escape/pwn');
+
+      const { restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(publishes()).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(await exists(nodePath.join(outside, 'pwn'))).to.equal(false);
+    });
+
+    it('deletes displaced data when the publish completed', async () => {
+      await write('photos', 'the published copy');
+      await park('/work/photos\n');
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
       expect(restored).to.deep.equal([]);
       expect(removed).to.include(OLD);
-      expect(mvCalls()).to.deep.equal([]);
+      expect(publishes()).to.deep.equal([]);
+    });
+
+    it('deletes displaced data when a link was what the publish placed', async () => {
+      // A move publishes a link as a link, so one resolving to something real
+      // at the destination is an ordinary completed publish.
+      await write('target', 'real');
+      await realFs.symlink(at('target'), at('photos'));
+      await park('/work/photos\n');
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(restored).to.deep.equal([]);
+      expect(removed).to.include(OLD);
+    });
+
+    it('keeps both when the destination is a link resolving to nothing', async () => {
+      // lstat succeeds on a broken link, so one at the destination is not
+      // evidence the publish completed. It is equally what an app leaves at a
+      // path nothing was ever published to, and the two cannot be told apart
+      // from here - while one of them means this entry is somebody's only copy.
+      await realFs.symlink(nodePath.join(tmpRoot, 'no-such-target'), at('photos'));
+      await park('/work/photos\n');
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(publishes()).to.deep.equal([]);
+      expect(await exists(at(OLD))).to.equal(true);
+      expect(await exists(at(`${OLD}.dest`))).to.equal(true);
     });
 
     it('deletes a marker whose entry never arrived', async () => {
       // The crash landed between writing the marker and the rename that uses
       // it, so nothing was displaced. Without this it stays in the volume root
       // forever, one per interruption, visible in the file browser.
-      const fsp = fsFor([`${OLD}.dest`], { [`${OLD}.dest`]: '/work/photos\n' }, []);
+      await write(`${OLD}.dest`, '/work/photos\n');
 
-      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
       expect(removed).to.deep.equal([`${OLD}.dest`]);
       expect(restored).to.deep.equal([]);
     });
 
     it('keeps displaced data when its marker cannot be read', async () => {
-      const fsp = fsFor([OLD, `${OLD}.dest`], {}, []);
-      fsp.readFile = sinon.stub().rejects(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
+      // A directory where the marker should be: readFile fails with EISDIR,
+      // which is not ENOENT, so it is not "no marker was ever written".
+      // Deleting on the strength of a read that failed once is the outcome the
+      // whole function exists to prevent.
+      await write(OLD, 'mine');
+      await realFs.mkdir(at(`${OLD}.dest`));
 
-      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
       expect(removed).to.deep.equal([]);
       expect(restored).to.deep.equal([]);
+      expect(await exists(at(OLD))).to.equal(true);
     });
 
     it('leaves a user folder that merely starts with a reserved prefix', async () => {
       // Nothing reserves these prefixes at creation time, and the sweep DELETES
       // what it matches - so the name has to be the exact shape flux-op
       // produces, not just something that begins like it.
-      const fsp = fsFor(['.flux-op-backups', '.flux-old-notes', '.flux-op-', `${OP}x`]);
+      await realFs.mkdir(at('.flux-op-backups'));
+      await realFs.mkdir(at('.flux-old-notes'));
+      await realFs.mkdir(at('.flux-op-'));
+      await realFs.mkdir(at(`${OP}x`));
 
-      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
       expect(removed).to.deep.equal([]);
       expect(restored).to.deep.equal([]);
@@ -696,8 +829,11 @@ describe('volumeExecutor tests', () => {
     });
 
     it('leaves everything else on the volume alone', async () => {
-      const fsp = fsFor(['uploads', 'wp-config.php', '.htaccess']);
-      const { removed, restored } = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      await realFs.mkdir(at('uploads'));
+      await write('wp-config.php', '<?php');
+      await write('.htaccess', 'deny');
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
       expect(removed).to.deep.equal([]);
       expect(restored).to.deep.equal([]);
@@ -705,8 +841,10 @@ describe('volumeExecutor tests', () => {
     });
 
     it('reports nothing when the volume cannot be read', async () => {
-      const fsp = { readdir: sinon.stub().rejects(new Error('EACCES')) };
-      const result = await volumeExecutor.sweepStagingDirectories(MOUNT, fsp);
+      await realFs.rm(mount, { recursive: true, force: true });
+
+      const result = await sweeper.sweepStagingDirectories(session);
+
       expect(result).to.deep.equal({ removed: [], restored: [] });
     });
   });
@@ -740,16 +878,16 @@ describe('volumeExecutor tests', () => {
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
-      fsStub.promises.statfs = fills(10, 20, 30);
-      fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
+      fsStub.statfs = fills(10, 20, 30);
+      fsStub.lstat = sinon.stub().resolves(fileEntry(4096));
 
       const seen = [];
       await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
 
-      expect(fsStub.promises.statfs.called).to.equal(true);
+      expect(fsStub.statfs.called).to.equal(true);
       // The staging path is never walked while the operation runs. The one
       // lstat call is the final reading, at the destination.
-      const walked = fsStub.promises.lstat.getCalls().map((c) => c.args[0]);
+      const walked = fsStub.lstat.getCalls().map((c) => c.args[0]);
       expect(walked.filter((p) => p.includes('.flux-op-x'))).to.deep.equal([]);
       expect(seen).to.not.deep.equal([]);
     });
@@ -760,7 +898,7 @@ describe('volumeExecutor tests', () => {
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
-      fsStub.promises.statfs = fills(1000, 1010, 1020);
+      fsStub.statfs = fills(1000, 1010, 1020);
 
       const seen = [];
       await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
@@ -775,7 +913,7 @@ describe('volumeExecutor tests', () => {
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
-      fsStub.promises.statfs = fills(1000, 900);
+      fsStub.statfs = fills(1000, 900);
 
       const seen = [];
       await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
@@ -790,8 +928,8 @@ describe('volumeExecutor tests', () => {
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
-      fsStub.promises.statfs = fills(1, 2);
-      fsStub.promises.lstat = sinon.stub().callsFake(async (p) => (
+      fsStub.statfs = fills(1, 2);
+      fsStub.lstat = sinon.stub().callsFake(async (p) => (
         p === `${MOUNT}/out` ? fileEntry(9000) : fileEntry(1)
       ));
 
@@ -805,11 +943,11 @@ describe('volumeExecutor tests', () => {
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
-      fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
+      fsStub.lstat = sinon.stub().resolves(fileEntry(4096));
 
       await volumeExecutor.run(vol, ['cp'], { publish, onBytes: () => {} });
 
-      const measured = fsStub.promises.lstat.getCalls().map((c) => c.args[0]);
+      const measured = fsStub.lstat.getCalls().map((c) => c.args[0]);
       expect(measured[measured.length - 1]).to.equal(`${MOUNT}/out`);
     });
 
@@ -819,20 +957,20 @@ describe('volumeExecutor tests', () => {
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = sinon.stub().resolves({ StatusCode: 1 });
-      fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
+      fsStub.lstat = sinon.stub().resolves(fileEntry(4096));
 
       await expect(volumeExecutor.run(vol, ['cp'], { publish, onBytes: () => {} }))
         .to.be.rejectedWith('exit code 1');
 
-      expect(fsStub.promises.lstat.calledWith(`${MOUNT}/out`)).to.equal(false);
+      expect(fsStub.lstat.calledWith(`${MOUNT}/out`)).to.equal(false);
     });
 
     it('stops reporting when the filesystem cannot be read at all', async () => {
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
-      fsStub.promises.statfs = sinon.stub().rejects(new Error('EIO'));
-      fsStub.promises.lstat = sinon.stub().resolves(fileEntry(4096));
+      fsStub.statfs = sinon.stub().rejects(new Error('EIO'));
+      fsStub.lstat = sinon.stub().resolves(fileEntry(4096));
 
       const seen = [];
       await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
@@ -996,7 +1134,7 @@ describe('volumeExecutor tests', () => {
       configStub.fluxapps.volumeOperations.stallTimeoutMs = 60;
       const vol = await openSession();
       containerStub.wait = runsFor(600);
-      fsStub.promises.statfs = sinon.stub().resolves(usedBlocks(500));
+      fsStub.statfs = sinon.stub().resolves(usedBlocks(500));
 
       await expect(volumeExecutor.run(vol, ['cp'], {
         publish: { staging: await vol.resolve('.flux-op-x'), destination: await vol.resolve('out') },
@@ -1011,7 +1149,7 @@ describe('volumeExecutor tests', () => {
       const vol = await openSession();
       containerStub.wait = runsFor(400);
       let used = 500;
-      fsStub.promises.statfs = sinon.stub().callsFake(async () => {
+      fsStub.statfs = sinon.stub().callsFake(async () => {
         used += 10;
         return usedBlocks(used);
       });
@@ -1031,7 +1169,7 @@ describe('volumeExecutor tests', () => {
       const vol = await openSession();
       containerStub.wait = runsFor(400);
       let used = 5000;
-      fsStub.promises.statfs = sinon.stub().callsFake(async () => {
+      fsStub.statfs = sinon.stub().callsFake(async () => {
         used -= 10;
         return usedBlocks(used);
       });
@@ -1053,7 +1191,7 @@ describe('volumeExecutor tests', () => {
       });
       const vol = await openSession();
       containerStub.wait = runsFor(100);
-      fsStub.promises.statfs = sinon.stub().resolves(usedBlocks(500));
+      fsStub.statfs = sinon.stub().resolves(usedBlocks(500));
 
       await volumeExecutor.run(vol, ['cp'], {
         publish: { staging: await vol.resolve('.flux-op-x'), destination: await vol.resolve('out') },
@@ -1252,6 +1390,40 @@ describe('volumeExecutor tests', () => {
       // maxConcurrentPerApp is 1, so this would be refused if it took its own.
       await upload(vol, sending(['data']), { slotHeld: true });
       release();
+    });
+
+    it('closes the socket to dockerd when the container never starts', async () => {
+      // Opened before start, so a start that throws leaves a duplex socket to
+      // dockerd with nobody holding either end.
+      containerStub.start = sinon.stub().rejects(new Error('no such image'));
+      const vol = await openSession();
+
+      await expect(upload(vol, sending(['data']))).to.be.rejectedWith(/no such image/);
+      expect(socket.destroy.called, 'the hijacked socket was left open').to.equal(true);
+    });
+
+    it('closes the socket to dockerd when the operation fails after starting', async () => {
+      // A failure other than the start, so the close cannot live on the start's
+      // own error path.
+      const vol = await openSession();
+      const boom = new Error('reporting blew up');
+
+      await expect(upload(vol, sending(['data']), {
+        onProgress: () => { throw boom; },
+      })).to.be.rejectedWith(/reporting blew up/);
+      expect(socket.destroy.called, 'the hijacked socket was left open').to.equal(true);
+    });
+
+    it('stops a container it has stopped waiting for', async () => {
+      // The slot is released when run() returns. Leaving the container running
+      // lets a second operation start on the same app while the first is still
+      // writing to the volume.
+      const vol = await openSession();
+
+      await expect(upload(vol, sending(['data']), {
+        onProgress: () => { throw new Error('reporting blew up'); },
+      })).to.be.rejected;
+      expect(containerStub.stop.called, 'the container was left running').to.equal(true);
     });
   });
 

@@ -2,7 +2,7 @@ const config = require('config');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const util = require('node:util');
-const fs = require('fs').promises;
+const fs = require('node:fs/promises');
 const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
@@ -48,8 +48,7 @@ const isSwapMarkerName = (name) => name.endsWith(MARKER_SUFFIX)
   && isSwapName(name.slice(0, -MARKER_SUFFIX.length));
 
 /**
- * The host path a marker records, or null when it does not name one inside this
- * volume.
+ * The place a marker records, as a VolumePath, or throws saying why not.
  *
  * The marker is written by flux-op, from inside the container, so it never
  * describes a host path. Reading it as one is what turned a file the app owner
@@ -62,32 +61,34 @@ const isSwapMarkerName = (name) => name.endsWith(MARKER_SUFFIX)
  * an interrupted publish has whichever its previous image wrote, and refusing
  * that one would strand the data this function exists to restore.
  *
- * Nothing about the contents is trusted either way. The host path derived from
- * them must still sit under the mount after normalisation, so neither an
- * absolute path nor a `..` inside a relative one can name anything the
- * operation was not entitled to touch.
+ * Normalising the text is necessary and not sufficient. A relative path with no
+ * `..` in it still leaves the volume when a directory INSIDE the mount is a
+ * symlink the app owner made, so `appdata/x/pwn` reads as contained and lands
+ * wherever `appdata/x` leads. session.resolve settles that, and it is the call
+ * every endpoint makes for the same reason: the marker's contents are user
+ * input arriving by a slower route.
  *
- * @param {string} mount
+ * @param {VolumeSession} session
  * @param {string} contents - raw marker file contents
- * @returns {string|null} absolute host path, or null if it names nothing valid
+ * @returns {Promise<VolumePath>} the destination, contained
+ * @throws {Error} if the contents name nothing, or name something outside
  */
-function resolveMarkerDestination(mount, contents) {
-  if (typeof contents !== 'string') return null;
+async function resolveMarkerDestination(session, contents) {
+  if (typeof contents !== 'string') throw new Error('marker holds no text');
   const recorded = contents.trim();
-  if (!recorded) return null;
+  if (!recorded) throw new Error('marker is empty');
 
-  // Both paths through this normalise first, so `/work/../etc/shadow`,
-  // `/etc/shadow` and `../etc/shadow` all come back starting with '..' and are
-  // refused here rather than deeper.
+  // Both forms normalise first, so `/work/../etc/shadow`, `/etc/shadow` and
+  // `../etc/shadow` all come back starting with '..' and are refused here
+  // rather than deeper.
   const relative = path.posix.isAbsolute(recorded)
     ? path.posix.relative(WORK_ROOT, recorded)
     : path.posix.normalize(recorded);
-  if (!relative || relative.startsWith('..') || path.posix.isAbsolute(relative)) return null;
+  if (!relative || relative.startsWith('..') || path.posix.isAbsolute(relative)) {
+    throw new Error(`marker names ${recorded}, which is outside the volume`);
+  }
 
-  const resolved = path.resolve(mount, relative);
-  const within = path.relative(mount, resolved);
-  if (!within || within.startsWith('..') || path.isAbsolute(within)) return null;
-  return resolved;
+  return session.resolve(relative);
 }
 
 /**
@@ -630,6 +631,21 @@ async function run(session, argv, options = {}) {
   const release = slotHeld ? () => {} : acquireSlot(session.identifier);
   let container = null;
   let ticker = null;
+  // Hoisted so the `finally` can reach them: everything this function opens is
+  // closed there, and a handle declared inside the `try` is out of scope.
+  let stdin = null;
+  let exited = null;
+  // The container's own exit has been observed, so it is reaping itself and
+  // must not be stopped from here.
+  let settled = false;
+  // stop, not kill: this sends SIGTERM first and only escalates to SIGKILL
+  // after the grace period. flux-op traps the TERM, stops the command and
+  // reclaims its staging directory - a SIGKILL reaches neither, and the space
+  // stays spent until the next boot sweep.
+  const stopContainer = () => {
+    if (!container) return;
+    container.stop({ t: settings().cancelGraceSeconds }).catch(() => {});
+  };
   let measuring = false;
   // Only scratch we created grows as the work proceeds. A move's operand is
   // whole from the first tick, so measuring it would report 100% throughout.
@@ -668,9 +684,9 @@ async function run(session, argv, options = {}) {
     // after start instead would race: a fast command can finish and be reaped
     // by AutoRemove before the request arrives, and the exit status is then
     // unknowable.
-    const exited = container.wait({ condition: 'next-exit' });
+    exited = container.wait({ condition: 'next-exit' });
     const output = await collectOutput(container);
-    const stdin = input ? await attachInput(container) : null;
+    stdin = input ? await attachInput(container) : null;
 
     try {
       await container.start();
@@ -678,13 +694,10 @@ async function run(session, argv, options = {}) {
       // AutoRemove only fires for a container that RAN, so one that never
       // started stays on the node - stopped, invisible to the app sweeps
       // because it is correctly labelled as ours, and holding a reference to
-      // the executor image that stops anything reclaiming it.
+      // the executor image that stops anything reclaiming it. Cleared so the
+      // handler below does not then try to stop a container that is gone.
       await container.remove({ force: true }).catch(() => {});
       container = null;
-      // Nobody is left to hear this now. An unsettled promise with no handler
-      // is what node ends the PROCESS over, so a container that failed to start
-      // would take FluxOS down with it.
-      exited.catch(() => {});
       throw error;
     }
 
@@ -728,14 +741,6 @@ async function run(session, argv, options = {}) {
         .finally(() => { measuring = false; });
     };
 
-    const stopContainer = () => {
-      // stop, not kill: this sends SIGTERM first and only escalates to SIGKILL
-      // after the grace period. flux-op traps the TERM, stops the command and
-      // reclaims its staging directory - a SIGKILL reaches neither, and the
-      // space stays spent until the next boot sweep.
-      container.stop({ t: settings().cancelGraceSeconds }).catch(() => {});
-    };
-
     ticker = setInterval(() => {
       if (isCanceled && isCanceled()) {
         log.info(`volumeExecutor - cancel requested, stopping ${session.identifier} operation`);
@@ -770,6 +775,7 @@ async function run(session, argv, options = {}) {
     const transfer = input ? await feedContainer(stdin, input, transferred, exited, stopContainer) : null;
 
     const result = await exited;
+    settled = true;
     if (stalled) {
       throw new Error('File operation stopped after making no progress');
     }
@@ -816,6 +822,17 @@ async function run(session, argv, options = {}) {
     // its figure is from part-way through, and landing it on a job already
     // marked Succeeded would show a finished copy stuck short of its total.
     stopMeasuring();
+    // The hijacked socket to dockerd. feedContainer closes it on the paths it
+    // owns, and destroy() is idempotent, so closing it here covers every other
+    // way out at no cost to those.
+    if (stdin) stdin.destroy();
+    // An unsettled promise with no handler is what node ends the PROCESS over,
+    // and a container can fail long after the wait was opened.
+    if (exited) exited.catch(() => {});
+    // Left running, it keeps writing to the volume with nobody waiting for it,
+    // while the slot released below lets another operation start on the same
+    // app. A container that has already exited reaps itself.
+    if (container && !settled) stopContainer();
     release();
   }
 }
@@ -895,20 +912,32 @@ async function reapOrphanedContainers() {
  * entry beside it might still be somebody's only copy - so the safe direction
  * is to keep it and say so, not to tidy it away.
  *
+ * A destination holding a DANGLING symlink is the same kind of answer: a
+ * completed publish can legitimately have placed a broken link there, and an
+ * app can equally have made one at a path nothing was ever published to. The
+ * two are indistinguishable from here, and one of them means the entry beside
+ * it is the only copy - so this is refused rather than guessed.
+ *
  * Everything here runs on names this function matched itself, in a directory
  * the app owner can also write to, so both the names and the marker contents
- * are treated as input rather than as state this module left behind.
+ * are treated as input rather than as state this module left behind. That is
+ * also why the restore runs in the executor rather than as a root `mv` here:
+ * the destination's own parent directories are the app owner's to replace with
+ * symlinks, and no check made in this process can be made to hold across the
+ * rename that follows it. In the container there is nowhere for one to lead.
  *
- * NOTE: this reads and writes the volume from the FluxOS process. When FluxOS
- * is demoted to an unprivileged system user it moves into a container, like
- * everything else here that touches app data.
+ * The filesystem is NOT injectable, deliberately. What this decides is where a
+ * path leads, and a stub has no symlinks to lead anywhere - so a test written
+ * against one asserts the stub's answer to the only question that matters here.
+ * The cases below are exercised against real directories on a real disk.
  *
- * @param {string} mount
- * @param {object} fsPromises - injected so the rules can be tested without a disk
+ * @param {VolumeSession} session - the volume, and the only source of paths the
+ *   executor will accept
  * @returns {Promise<{removed: string[], restored: string[]}>}
  */
-async function sweepStagingDirectories(mount, fsPromises) {
-  const entries = await fsPromises.readdir(mount).catch((error) => {
+async function sweepStagingDirectories(session) {
+  const { mount } = session;
+  const entries = await fs.readdir(mount).catch((error) => {
     log.warn(`volumeExecutor - could not read ${mount} to sweep: ${error.message}`);
     return null;
   });
@@ -917,6 +946,11 @@ async function sweepStagingDirectories(mount, fsPromises) {
   const removed = [];
   const restored = [];
 
+  // Stays on the host, where the restore does not. `name` came from readdir, so
+  // it is one component with nothing to traverse, and `rm -rf` removes a symlink
+  // rather than following it - neither is true of the destination a marker
+  // names. Keeping it here also means a node that cannot fetch the executor
+  // image still reclaims its debris, and only the restore waits for one.
   const remove = async (name) => {
     const result = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', path.join(mount, name)] });
     if (result.error) throw result.error;
@@ -939,7 +973,7 @@ async function sweepStagingDirectories(mount, fsPromises) {
         // could not be read this once is the outcome this whole function exists
         // to prevent.
         // eslint-disable-next-line no-await-in-loop
-        const contents = await fsPromises.readFile(path.join(mount, marker), 'utf8')
+        const contents = await fs.readFile(path.join(mount, marker), 'utf8')
           .catch((error) => {
             if (error.code === 'ENOENT') return null;
             throw error;
@@ -954,29 +988,53 @@ async function sweepStagingDirectories(mount, fsPromises) {
           continue;
         }
 
-        const destination = resolveMarkerDestination(mount, contents);
-        if (!destination) {
-          log.error(`volumeExecutor - ${marker} in ${mount} does not name a path inside the volume; leaving ${entry} in place`);
+        let destination = null;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          destination = await resolveMarkerDestination(session, contents);
+        } catch (error) {
+          log.error(`volumeExecutor - ${marker} in ${mount} does not name a path inside the volume (${error.message}); leaving ${entry} in place`);
           // eslint-disable-next-line no-continue
           continue;
         }
 
+        // lstat, so a link at the destination answers for ITSELF: a move
+        // publishes a link as a link, so one sitting there can be exactly what
+        // the interrupted publish put there.
         // eslint-disable-next-line no-await-in-loop
-        const destinationExists = await fsPromises.lstat(destination).then(() => true).catch(() => false);
+        const placed = await fs.lstat(destination.hostPath).catch(() => null);
+        // A link resolving to nothing cannot be told from one an app made at a
+        // path nothing was ever published to. Any stat failure counts, a loop
+        // included: the question is whether something is really there, and
+        // "cannot say" is not "no".
+        // eslint-disable-next-line no-await-in-loop
+        const dangling = Boolean(placed) && placed.isSymbolicLink()
+          // eslint-disable-next-line no-await-in-loop
+          && await fs.stat(destination.hostPath).then(() => false).catch(() => true);
 
-        if (destinationExists) {
+        if (dangling) {
+          log.error(`volumeExecutor - ${destination.relative} in ${mount} is a link resolving to nothing, so whether ${entry} was already published cannot be told; leaving both in place`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+
+        if (placed) {
           // The publish completed and only its cleanup was interrupted.
           // eslint-disable-next-line no-await-in-loop
           await remove(entry);
           // eslint-disable-next-line no-await-in-loop
           await remove(marker);
         } else {
+          // A move IS a publish whose source is already the result, which is
+          // what the executor's `source` form expresses. It runs in the
+          // container because the destination's parent directories are the app
+          // owner's to replace with links at any moment, and in there a link
+          // has nowhere off the volume to lead.
           // eslint-disable-next-line no-await-in-loop
-          const result = await serviceHelper.runCommand('mv', {
-            runAsRoot: true, params: ['-T', path.join(mount, entry), destination],
-          });
-          if (result.error) throw result.error;
-          restored.push(destination);
+          const source = await session.resolve(entry);
+          // eslint-disable-next-line no-await-in-loop
+          await run(session, [], { publish: { source, destination } });
+          restored.push(destination.hostPath);
           // eslint-disable-next-line no-await-in-loop
           await remove(marker);
         }

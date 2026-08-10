@@ -1,8 +1,8 @@
-const fs = require('fs').promises;
 const deviceHelper = require('../deviceHelper');
 const log = require('../../lib/log');
 const { appsFolder } = require('../utils/appConstants');
 const executor = require('./volumeExecutor');
+const { sessionForMountedVolume } = require('./volumeSession');
 
 /**
  * Reclaim what a FluxOS restart left behind from in-flight file operations.
@@ -45,7 +45,7 @@ async function recoverInterruptedFileOperations() {
   for (const volume of volumes) {
     try {
       // eslint-disable-next-line no-await-in-loop
-      const result = await executor.sweepStagingDirectories(volume.target, fs);
+      const result = await executor.sweepStagingDirectories(sessionForMountedVolume(volume));
       removed += result.removed.length;
       restored += result.restored.length;
     } catch (error) {
