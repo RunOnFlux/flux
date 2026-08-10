@@ -929,6 +929,47 @@ describe('syncthingMonitor tests', () => {
       expect(deletions).to.not.include('fluxweb_entapp');
     });
 
+    it('raises the designation only after the folder batch is applied', async () => {
+      // The state machine records intent; the flag masterSlaveApps starts
+      // containers on becomes true when the promotion reaches syncthing, not
+      // when it is decided - raised earlier, a primary starts against a
+      // folder that is still receiveonly for as long as the apply takes.
+      primaryMountSyncs();
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingFolderStateMachineMock.manageFolderSyncState.resolves({
+        syncthingFolder: { id: 'testapp', type: 'sendreceive' },
+        cache: { designationPending: true },
+      });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'receiveonly' }] });
+      syncthingMonitorHelpersMock.folderNeedsUpdate.returns(true);
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      await runOnePass();
+
+      const cache = mockState.receiveOnlySyncthingAppsCache.get('testapp');
+      expect(cache.designatedLeader).to.be.true;
+      expect(cache.designationPending).to.not.equal(true);
+    });
+
+    it('keeps the designation as intent when the apply fails, so the retry raises it', async () => {
+      primaryMountSyncs();
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingFolderStateMachineMock.manageFolderSyncState.resolves({
+        syncthingFolder: { id: 'testapp', type: 'sendreceive' },
+        cache: { designationPending: true },
+      });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'receiveonly' }] });
+      syncthingMonitorHelpersMock.folderNeedsUpdate.returns(true);
+      syncthingServiceMock.adjustConfigFolders
+        .withArgs('put', sinon.match.any).resolves({ status: 'error', data: { message: 'apply failed' } });
+
+      await runOnePass();
+
+      const cache = mockState.receiveOnlySyncthingAppsCache.get('testapp');
+      expect(cache.designationPending).to.be.true;
+      expect(cache.designatedLeader).to.not.equal(true);
+    });
+
     it('keeps a safety flag standing when its folder belongs to an app it cannot decrypt', async () => {
       // A flag is resolved when no installed app carries its folder - the
       // uninstall already removed whatever it protected. An unreadable app

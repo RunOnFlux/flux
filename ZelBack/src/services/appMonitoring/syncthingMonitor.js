@@ -764,6 +764,19 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       messageHelper.dataOrThrow(await syncthingService.adjustConfigFolders('put', newFoldersConfiguration));
     }
 
+    // Promotions decided this pass are applied now, so the claims they made
+    // become true here and nowhere earlier: masterSlaveApps starts containers
+    // on designatedLeader, and a flag raised before the folder batch landed
+    // would start a primary against a folder still receiveonly. A failed
+    // apply threw above, so intent survives untouched for the retry pass.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const [, folderCache] of state.receiveOnlySyncthingAppsCache) {
+      if (folderCache && folderCache.designationPending) {
+        folderCache.designationPending = false;
+        folderCache.designatedLeader = true;
+      }
+    }
+
     // Check for folder errors in parallel
     const folderErrorChecks = await Promise.all(
       foldersConfiguration.map(async (folder) => {

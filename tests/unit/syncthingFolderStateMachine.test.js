@@ -420,9 +420,12 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('sendreceive');
       expect(result.cache.restarted).to.be.true;
-      // the confirmed designation is published through the shared cache -
-      // masterSlaveApps reads it to skip the genesis index stagger
-      expect(result.cache.designatedLeader).to.be.true;
+      // The state machine only DECIDES: it records intent, and the monitor
+      // raises designatedLeader once the folder batch is applied. Raised here,
+      // masterSlaveApps could start a primary against a folder whose
+      // promotion has not reached syncthing yet.
+      expect(result.cache.designationPending).to.be.true;
+      expect(result.cache.designatedLeader).to.not.equal(true);
       // the start is now declared to the reconciler, not done imperatively here
       sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'test-app', 'running');
     });
@@ -493,7 +496,7 @@ describe('syncthingFolderStateMachine tests', () => {
         if (pass === 1) expect(result.syncthingFolder.type).to.not.equal('sendreceive');
       }
       expect(result.syncthingFolder.type).to.equal('sendreceive');
-      expect(result.cache.designatedLeader).to.be.true;
+      expect(result.cache.designationPending).to.be.true;
     });
 
     it('does not seed a partial copy: a confirmed leader mid-sync stays receiveonly', async () => {

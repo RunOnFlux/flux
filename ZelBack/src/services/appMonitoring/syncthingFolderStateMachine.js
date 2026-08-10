@@ -839,12 +839,15 @@ async function handleReceiveOnlyTransition(params) {
   const { connected } = liveness.localConnectivity();
   cache.leaderStreak = electedLeader && connected ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
-  // Withdrawn on every unpromoted pass, so a lost election drops the claim. It
-  // is raised again only where the promotion actually commits: masterSlaveApps
-  // reads this to skip the primary-selection index stagger, so it has to mean
-  // "is the writable holder", not "won the vote". A node that wins and then
-  // stands down at one of the gates below is not the former.
+  // Withdrawn on every unpromoted pass, so a lost election drops the claim
+  // and the intent behind it. It is raised again only where the promotion is
+  // APPLIED - the state machine records intent at the last gate, and the
+  // monitor flips it once the folder batch lands in syncthing.
+  // masterSlaveApps reads designatedLeader to skip the primary-selection
+  // index stagger, so it has to mean "the folder is writable", not "won the
+  // vote" and not "promotion decided".
   cache.designatedLeader = false;
+  cache.designationPending = false;
 
   // RESIDUAL LIMITATION (architectural - this election is a heuristic, not consensus):
   // a confirmed leader is the cold-start seed and flips to sendreceive WITHOUT a sync
@@ -907,9 +910,14 @@ async function handleReceiveOnlyTransition(params) {
       return { syncthingFolder, cache };
     }
 
-    // Every gate passed, so this node IS the writable holder and the claim the
-    // stagger skip is read from is now true.
-    cache.designatedLeader = true;
+    // Every gate passed - but deciding the promotion is not applying it. The
+    // designation masterSlaveApps reads has to mean "the folder IS writable",
+    // and the type below reaches syncthing only when the monitor applies this
+    // pass's folder batch - so the claim is recorded as intent here, and the
+    // monitor raises designatedLeader once the apply lands. Raising it now
+    // would let the container start against a folder still receiveonly for as
+    // long as the apply takes.
+    cache.designationPending = true;
 
     // Fix permissions before changing to sendreceive - ensures correct ownership for synced data
     await fixAppdataPermissions(appId);
