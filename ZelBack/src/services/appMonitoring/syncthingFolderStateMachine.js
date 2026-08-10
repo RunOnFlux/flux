@@ -11,7 +11,8 @@ const serviceHelper = require('../serviceHelper');
 const volumeService = require('../utils/volumeService');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
-const { socketAddressesMatch, extractIp } = require('../utils/socketAddressUtils');
+const { socketAddressesMatch, extractIp, extractPort } = require('../utils/socketAddressUtils');
+const globalState = require('../utils/globalState');
 const {
   LEADER_CONFIRM_COUNT,
   SYNC_COMPLETE_PERCENTAGE,
@@ -383,6 +384,46 @@ function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers =
 }
 
 /**
+ * Whether this node's own syncthing still has a live connection carrying this
+ * folder to a peer.
+ *
+ * FluxOS and syncthing are separate processes on that peer and fail
+ * independently, so silence from its API is not evidence that it has stopped
+ * writing - a FluxOS restart takes the API away for tens of seconds while
+ * syncthing and the container carry on. A live sync connection IS evidence:
+ * syncthing reports remoteState 'valid' only for a device whose connection is
+ * open, and clears it the moment the connection closes.
+ *
+ * Only 'valid' answers yes. A peer that has not yet exchanged its cluster
+ * config, one that has the folder paused, a device this node has never
+ * resolved, a completion call that fails, and a local folder that is not
+ * running all answer no - which leaves the caller's decision exactly where it
+ * was. That direction is deliberate: this is a veto on declaring a holder dead,
+ * never a reason to declare one dead, so no absence of evidence here can
+ * promote a second writer alongside a live one.
+ *
+ * The peer's own syncthing API is not reachable - it binds to localhost - and
+ * does not need to be. This is local state, maintained by the connection
+ * itself.
+ *
+ * @param {string} appId Folder id, always passed explicitly: the completion
+ *   endpoint's aggregate form never sets remoteState and reports 'unknown'.
+ * @param {string} peerIp
+ * @returns {Promise<boolean>}
+ */
+async function peerSyncthingIsConnected(appId, peerIp) {
+  const deviceId = globalState.syncthingDevicesIDCache.get(`${extractIp(peerIp)}:${extractPort(peerIp)}`);
+  if (!deviceId) return false;
+
+  const response = await syncthingService.getDbCompletion({
+    query: { folder: appId, device: deviceId },
+  }, null).catch(() => null);
+
+  if (response?.status !== 'success' || !response.data) return false;
+  return response.data.remoteState === 'valid';
+}
+
+/**
  * Whether this node can show that a holder is gone, rather than merely silent to
  * it. Same question the promotion check asks, one step earlier: the election picks
  * by identity and has no liveness in it, so a holder that dies keeps being elected
@@ -400,12 +441,17 @@ function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers =
  * election is the one thing this must never do: every survivor would then pick the
  * next IP and promote alongside a holder that is still writing.
  *
+ * @param {string} appId
  * @param {string} holderIp
  * @returns {Promise<boolean>}
  */
-async function holderIsGone(holderIp, liveness) {
+async function holderIsGone(appId, holderIp, liveness) {
   const answer = await liveness.read(holderIp);
   if (answer.reachable) return false;
+  if (await peerSyncthingIsConnected(appId, holderIp)) {
+    log.info(`holderIsGone - ${extractIp(holderIp)}'s API is silent, but this node's syncthing still holds a live connection to it for ${appId}; it is restarting, not gone`);
+    return false;
+  }
   const { connected, responding, total } = liveness.localConnectivity();
   if (!connected) {
     log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but only ${responding} of this node's ${total} peers are answering; treating this node as the isolated one`);
@@ -422,15 +468,16 @@ async function holderIsGone(holderIp, liveness) {
  * left, so they agree without coordinating, and the promotion check still catches
  * any second node that acts on it.
  *
+ * @param {string} appId
  * @param {Array<Object>} allPeersList
  * @param {string} localSocketAddr
  * @param {Object} liveness This pass's peer view
  * @returns {Promise<Array<Object>>}
  */
-async function holderListExcludingDead(allPeersList, localSocketAddr, liveness) {
+async function holderListExcludingDead(appId, allPeersList, localSocketAddr, liveness) {
   const leader = lowestIpHolder(allPeersList);
   if (!leader || socketAddressesMatch(leader, localSocketAddr)) return allPeersList;
-  if (!await holderIsGone(leader, liveness)) return allPeersList;
+  if (!await holderIsGone(appId, leader, liveness)) return allPeersList;
   log.warn(`holderListExcludingDead - elected holder ${leader} is gone and this node's own connectivity is healthy; re-electing without it`);
   return allPeersList.filter((peer) => !socketAddressesMatch(peer.ip, leader));
 }
@@ -778,7 +825,7 @@ async function handleReceiveOnlyTransition(params) {
   // keeps winning and every survivor defers to it until its location broadcast
   // expires - 125 minutes with the app down. Dropped from the list here, before the
   // pick, when this node can show the holder is gone rather than merely silent to it.
-  const electionList = await holderListExcludingDead(runningAppList, localSocketAddr, liveness);
+  const electionList = await holderListExcludingDead(appId, runningAppList, localSocketAddr, liveness);
   const electedLeader = isDesignatedLeader(electionList, localSocketAddr, aPeerHasData || !folderIsEmpty);
   cache.leaderStreak = electedLeader ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;

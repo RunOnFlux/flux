@@ -16,6 +16,10 @@ const syncthingServiceMock = {
   systemResume: sinon.stub(),
 };
 
+// The device cache the veto reads, owned by this suite and cleared between
+// tests so one test's entries decide only its own election.
+const globalStateMock = { syncthingDevicesIDCache: new Map() };
+
 const dockerServiceMock = {
   dockerContainerInspect: sinon.stub(),
   appDockerStart: sinon.stub(),
@@ -80,6 +84,7 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
   // stub new collaborators so the unit test doesn't load the real module graph
   './appReconciler': appReconcilerMock,
   '../appLifecycle/appUninstaller': appUninstallerMock,
+  '../utils/globalState': globalStateMock,
 });
 
 // The real liveness object, stubbed only where it leaves the process. The state
@@ -100,6 +105,7 @@ describe('syncthingFolderStateMachine tests', () => {
     syncthingServiceMock.systemRestart.resolves();
     syncthingServiceMock.getConfig.reset();
     syncthingServiceMock.getDbCompletion.reset();
+    globalStateMock.syncthingDevicesIDCache.clear();
     syncthingServiceMock.dbRevert.reset();
     syncthingServiceMock.dbRevert.resolves({ status: 'success' });
     syncthingServiceMock.systemPause.reset();
@@ -482,6 +488,54 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('sendreceive');
       expect(result.cache.restarted).to.be.true;
+    });
+
+    it('leaves a holder whose syncthing is still connected in the election - its FluxOS is restarting, not gone', async () => {
+      // FluxOS and syncthing are separate processes on that node. A FluxOS
+      // restart takes the API away for tens of seconds while syncthing and the
+      // container carry on writing, so API silence alone would drop a live
+      // writer out of the election and put a second writable copy beside it.
+      // A live sync connection is the evidence the API cannot give.
+      mockParams.localSocketAddr = '10.0.0.2:16127';
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      // Same conditions as the takeover test above: the holder's API is silent
+      // and this node's own peers are healthy. Only the sync connection differs.
+      axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 100000, inSyncBytes: 100000, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
+      globalStateMock.syncthingDevicesIDCache.set('10.0.0.1:16127', 'HOLDER-DEVICE-ID');
+      syncthingServiceMock.getDbCompletion.resolves({
+        status: 'success',
+        data: { remoteState: 'valid', completion: 100, globalBytes: 100000 },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      // The holder stays in the election, so this node does not win it. Asserted
+      // on the designation rather than on the folder type, because a synced
+      // follower reaches sendreceive by its own route and that route is not what
+      // this guard governs.
+      expect(result.cache.designatedLeader).to.not.equal(true);
+      // Asked about THIS folder: the completion endpoint's aggregate form never
+      // sets remoteState, so a query without one reports 'unknown' and would
+      // veto nothing.
+      const asked = syncthingServiceMock.getDbCompletion.getCalls()
+        .find((call) => call.args[0]?.query?.device === 'HOLDER-DEVICE-ID');
+      expect(asked, 'the holder was never asked about').to.not.equal(undefined);
+      expect(asked.args[0].query.folder).to.equal('test-app');
     });
 
     it('leaves a holder that answers an error status in the election - it replied, so it is alive', async () => {
