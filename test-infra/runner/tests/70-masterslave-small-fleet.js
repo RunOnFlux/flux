@@ -5,7 +5,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { resetFdm } from '../framework/fdm-control.js';
-import { resetSyncState, getSyncthingState, setPeerCompletion } from '../framework/syncthing-control.js';
+import { resetSyncState, getSyncthingState, severPeerSync } from '../framework/syncthing-control.js';
 import { waitFor } from '../framework/wait.js';
 import {
   bootAndPeer, placeGAppInOrder, electionIndexOf,
@@ -137,20 +137,11 @@ describe('masterSlave election on a three-node fleet', function () {
 
     await env.partitionGroups([holdingIndex], [survivor, 2], { awaitSever: false });
 
-    // The partition severs the syncthing connections too, and the stub cannot
-    // see that: the fixture's setSynced declared the holder a connected
-    // 'valid' source for every viewer, and that testimony would outlive the
-    // partition - the survivor's holder-retained veto then refuses this
-    // takeover forever, on the strength of a connection it no longer has.
-    // Shadow the survivor's view: its syncthing has lost the holder. Real
-    // syncthing reaches the same state on its own within its ReceiveTimeout
-    // (~450s TCP, ~30s QUIC); the harness compresses that detection lag to
-    // zero, as it compresses every timing.
-    const holderDevice = (await getSyncthingState()).nodes
-      .find((n) => n.ip.split(':')[0] === holdingIp)?.deviceId;
-    await setPeerCompletion({
-      ip: env.clients[survivor].ip.split(':')[0], folder, device: holderDevice, completion: 0, remoteState: 'unknown',
-    });
+    // The partition severs the holder's syncthing connections too, and the
+    // fixture's source declaration outlives them - left standing, the
+    // survivor's holder-retained veto refuses this takeover on the strength
+    // of a connection that no longer exists.
+    await severPeerSync({ folder, deviceIp: holdingIp });
 
     try {
       await waitFor(async () => {

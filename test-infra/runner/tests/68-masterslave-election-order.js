@@ -8,7 +8,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import {
-  setSynced, resetSyncState, setFolderPatchDelay, getSyncthingState,
+  setSynced, resetSyncState, setFolderPatchDelay, getSyncthingState, severPeerSync,
 } from '../framework/syncthing-control.js';
 import { restartFluxos } from '../framework/container.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -365,6 +365,11 @@ describe('primary election under a divergent placement order', function () {
     // and makes it unreachable to exactly the nodes whose election is under test.
     const survivors = holders.filter((i) => i !== seedIndex);
     await env.partitionGroups([seedIndex], survivors, { awaitSever: false });
+    // The partition severs the seed's syncthing connections too, and the
+    // fixture's source declaration outlives them - left standing, the
+    // survivors' syncthing keeps testifying to a live connection and the
+    // holder-retained veto defers to the corpse instead of re-electing.
+    await severPeerSync({ folder: `flux${genesisApp}_${genesisApp}`, deviceIp: env.clients[seedIndex].ip });
     const survivorsUp = async () => (await Promise.all(
       survivors.map((i) => isUp(env.clients[i], genesisApp)),
     )).filter(Boolean).length;

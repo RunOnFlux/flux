@@ -120,6 +120,22 @@ export async function setPeerDisconnected({ ip = '*', folder }) {
   });
 }
 
+// A declared source that has been cut off - a partition or a dead machine, as
+// the viewer's syncthing sees it within its ReceiveTimeout (which the harness
+// compresses to zero, as it does every timing). setSynced writes its testimony
+// against the source's own device id, which outranks the wildcard forms above,
+// so severing overwrites that same key: resolve the device, mark it
+// disconnected. A suite that cuts a declared source off from the fleet
+// declares this consequence too, or the fleet keeps trusting a connection
+// that no longer exists.
+export async function severPeerSync({ folder, deviceIp, viewerIp = '*' }) {
+  const bare = deviceIp.split(':')[0];
+  const device = ((await getSyncthingState()).nodes || []).find((n) => n.ip.split(':')[0] === bare)?.deviceId;
+  return setPeerCompletion({
+    ip: viewerIp === '*' ? '*' : viewerIp.split(':')[0], folder, device, completion: 0, remoteState: 'unknown',
+  });
+}
+
 // Device pause/resume calls the node has issued (the stall ladder's nudge).
 export async function getNudges(ip) {
   return get(`/nudges${ip ? `?ip=${ip}` : ''}`);
