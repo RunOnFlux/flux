@@ -131,6 +131,12 @@ export async function setPeerDisconnected({ ip = '*', folder }) {
 export async function severPeerSync({ folder, deviceIp, viewerIp = '*' }) {
   const bare = deviceIp.split(':')[0];
   const device = ((await getSyncthingState()).nodes || []).find((n) => n.ip.split(':')[0] === bare)?.deviceId;
+  if (!device) {
+    // Without the device id this would fall back to a wildcard write, which
+    // loses to the source's device-specific testimony - a sever that silently
+    // severs nothing. A fixture that cannot do what it claims fails loudly.
+    throw new Error(`severPeerSync: the stub has no device for ${deviceIp} (folder ${folder})`);
+  }
   return setPeerCompletion({
     ip: viewerIp === '*' ? '*' : viewerIp.split(':')[0], folder, device, completion: 0, remoteState: 'unknown',
   });

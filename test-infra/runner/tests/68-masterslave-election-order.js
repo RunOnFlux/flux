@@ -354,6 +354,11 @@ describe('primary election under a divergent placement order', function () {
     // seed rather than defer to a corpse forever - the cold-start standoff, but with
     // the standoff-breaker removed after the fact. Nothing here is index 0, so the
     // stagger cannot rescue it either.
+    // Genesis must still be in flight when the seed is cut, and the designated
+    // leader seeds within seconds now, so the window has to be held open
+    // rather than raced: the delay pins every promotion PATCH until the
+    // partition is in place.
+    await setFolderPatchDelay({ ms: 300000 });
     await deploy(genesisApp);
     const position = await electionIndexOf(env, genesisApp, seedIndex);
     expect(position, 'fixture: seed must be off index 0 for this scenario to mean anything').to.be.greaterThan(0);
@@ -364,12 +369,16 @@ describe('primary election under a divergent placement order', function () {
     // lost node still answers. Dropping node-to-node packets leaves its infra intact
     // and makes it unreachable to exactly the nodes whose election is under test.
     const survivors = holders.filter((i) => i !== seedIndex);
-    await env.partitionGroups([seedIndex], survivors, { awaitSever: false });
+    await env.partitionGroups([seedIndex], survivors, { awaitSever: true });
+    const writableAtCut = await writableHolders(genesisApp);
+    expect(writableAtCut, 'fixture: the seed must not have seeded before the cut').to.deep.equal([]);
     // The partition severs the seed's syncthing connections too, and the
     // fixture's source declaration outlives them - left standing, the
     // survivors' syncthing keeps testifying to a live connection and the
     // holder-retained veto defers to the corpse instead of re-electing.
     await severPeerSync({ folder: `flux${genesisApp}_${genesisApp}`, deviceIp: env.clients[seedIndex].ip });
+    // The survivors' own promotions run free again; the seed is already cut.
+    await setFolderPatchDelay({ ms: 0 });
     const survivorsUp = async () => (await Promise.all(
       survivors.map((i) => isUp(env.clients[i], genesisApp)),
     )).filter(Boolean).length;
@@ -384,6 +393,7 @@ describe('primary election under a divergent placement order', function () {
       });
       expect(await survivorsUp(), 'both survivors seeded - split brain replacing the lost leader').to.equal(1);
     } finally {
+      await setFolderPatchDelay({ ms: 0 }).catch(() => {});
       await env.healPartition([seedIndex], survivors).catch(() => {});
       await env.startDiscovery().catch(() => {});
     }
