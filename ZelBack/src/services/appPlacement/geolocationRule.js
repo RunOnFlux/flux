@@ -114,11 +114,14 @@ function parseAllowedBody(body, resolveRegion) {
 
 /**
  * A forbidden entry's body as a term. A deny excludes only at the granularities
- * install-time resolves: continent, continent_country, and a region part in the
- * table's vocabulary. Every other shape - `ALL`, `<CONT>_ALL`, `_NONE`, an
- * ip-api region name - bans nothing, which is why `_NONE` must never be
- * stripped: doing so would ban a whole country the installer would accept.
+ * install-time resolves: continent, continent_country, and a region part in
+ * either vocabulary - the table's own codes, or an ip-api name the published
+ * artifact's region-name vocabulary maps onto one. Every other shape - `ALL`,
+ * `<CONT>_ALL`, `_NONE`, a region part neither vocabulary resolves - bans
+ * nothing, which is why `_NONE` must never be stripped: doing so would ban a
+ * whole country the installer would accept.
  * @param {string} body The entry with its `a!c` prefix removed
+ * @param {(countryCode: string, regionName: string) => string|null} resolveRegion
  * @returns {GeoTerm}
  */
 function parseForbiddenBody(body, resolveRegion) {
