@@ -161,12 +161,21 @@ function touch(jobId) {
  * Append one human-readable step. Progress is append-only and polls return the
  * whole array, so a client that missed a poll loses nothing and can diff by
  * index rather than parsing a stream.
+ *
+ * A step repeated is not a step. The executor reports liveness on a timer,
+ * with a status line that is fixed for the whole operation - so recording each
+ * one would add an identical entry every couple of seconds, and because every
+ * poll re-sends the whole array, a long operation costs more to report on than
+ * to perform. A repeat still means the job is alive, which is what
+ * lastUpdatedAt carries.
  */
 function progress(jobId, message) {
   const job = jobs.get(jobId);
   if (!job || isTerminal(job.status)) return;
-  job.progress.push({ at: Date.now(), message });
   job.lastUpdatedAt = Date.now();
+  const last = job.progress[job.progress.length - 1];
+  if (last && last.message === message) return;
+  job.progress.push({ at: job.lastUpdatedAt, message });
 }
 
 function succeed(jobId) {

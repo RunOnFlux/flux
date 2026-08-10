@@ -62,6 +62,40 @@ describe('jobRegistry tests', () => {
       const messages = jobRegistry.get(handle.jobId).progress.map((entry) => entry.message);
       expect(messages).to.deep.equal(['one', 'two']);
     });
+
+    it('records a repeated step once, however long it repeats for', () => {
+      // The executor reports liveness on a timer with one fixed status line,
+      // and every poll re-sends the whole array - so recording each tick makes
+      // an hour-long copy cost more to report on than to perform.
+      const handle = jobRegistry.start({ kind: 'test' });
+      for (let i = 0; i < 500; i += 1) jobRegistry.progress(handle.jobId, 'Copying...');
+      jobRegistry.progress(handle.jobId, 'Publishing...');
+      jobRegistry.progress(handle.jobId, 'Copying...');
+
+      const messages = jobRegistry.get(handle.jobId).progress.map((entry) => entry.message);
+      // Consecutive only: the same message after a different one is a real step.
+      expect(messages).to.deep.equal(['Copying...', 'Publishing...', 'Copying...']);
+    });
+
+    it('still counts a repeated step as the job being alive', () => {
+      // lastUpdatedAt is the liveness signal. Skipping the append must not
+      // skip that, or a long operation reads as abandoned.
+      const clock = sinon.useFakeTimers({ now: 1_000_000, toFake: ['Date'] });
+      try {
+        const handle = jobRegistry.start({ kind: 'test' });
+        jobRegistry.progress(handle.jobId, 'Copying...');
+        const first = jobRegistry.get(handle.jobId).lastUpdatedAt;
+
+        clock.tick(60_000);
+        jobRegistry.progress(handle.jobId, 'Copying...');
+
+        const view = jobRegistry.get(handle.jobId);
+        expect(view.progress).to.have.lengthOf(1);
+        expect(view.lastUpdatedAt).to.equal(first + 60_000);
+      } finally {
+        clock.restore();
+      }
+    });
   });
 
   describe('failures', () => {
