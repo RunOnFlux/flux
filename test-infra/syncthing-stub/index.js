@@ -679,8 +679,11 @@ control.post('/sync-state', (req, res) => {
   // 100% source, setSyncing 40 -> a valid 40% one). Without this, peer
   // evidence could only come from the old always-synced default - an
   // accidental witness no real cluster produces (see /rest/db/completion).
-  // An unreadable-status declaration testifies to nothing.
-  if (!statusUnreadable) {
+  // An unreadable-status declaration testifies to nothing, and neither does
+  // an EMPTY one: a 0/0 clean-slate declaration is the absence of data, and
+  // stamping its declarer 'valid' makes every cold-start fixture a phantom
+  // connected source - the exact witness class this gate exists to kill.
+  if (!statusUnreadable && globalBytes > 0) {
     const sourceDevice = ip === '*' ? '*' : nodeState(ip).deviceID;
     completionOverrides.set(`*|${folder}|${sourceDevice}`, {
       completion: globalBytes > 0 ? Math.round((inSyncBytes / globalBytes) * 100) : 0,
