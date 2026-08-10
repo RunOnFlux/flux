@@ -1179,11 +1179,11 @@ describe('idService tests', () => {
     });
 
     // Which host volumes count towards node capacity is decided by
-    // volumeService.capacityVolumesInGb and covered by its own cases there.
+    // volumeService.capacityVolumesInGib and covered by its own cases there.
     // These assert only what this function adds: total the eligible volumes,
     // subtract the tier's locked space, and never go below the 2 GB base.
     const withVolumes = (...sizes) => sinon
-      .stub(volumeService, 'capacityVolumesInGb')
+      .stub(volumeService, 'capacityVolumesInGib')
       .resolves(sizes.map((size) => ({
         filesystem: '/dev/sda1', mount: '/dat', size, used: 0, available: size,
       })));
@@ -1211,7 +1211,7 @@ describe('idService tests', () => {
     beforeEach(async () => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       sinon.stub(generalService, 'getNewNodeTier').returns('stratus');
-      sinon.stub(volumeService, 'capacityVolumesInGb').resolves([
+      sinon.stub(volumeService, 'capacityVolumesInGib').resolves([
         {
           filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 0, available: 1000,
         },

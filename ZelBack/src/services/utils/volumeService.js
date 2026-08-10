@@ -10,6 +10,13 @@ const {
 } = require('./appConstants');
 
 /**
+ * The unit node capacity is counted in, which is the unit it is spent in:
+ * `fallocate -l <n>G` takes 1024^3 bytes per unit, so this is what an app's
+ * `hdd` actually costs the filesystem.
+ */
+const BYTES_PER_GIB = 1024 ** 3;
+
+/**
  * The host filesystems eligible to hold an app's FLUXFSVOL image.
  *
  * Block-backed, and neither the root nor a boot filesystem. Loop devices are
@@ -31,22 +38,22 @@ async function eligibleHostMounts() {
 
 /**
  * The host volumes that count towards this node's advertised capacity, sized in
- * whole GB.
+ * whole GiB.
  *
  * A wider set than eligibleHostMounts: a loop-mounted ROOT is included, because
  * on some images that is the host disk rather than an app volume. Callers that
  * place a FLUXFSVOL want the narrower set; callers that total up node capacity
  * want this one.
  *
- * GB here means DECIMAL GB. That is the unit the rest of the capacity
- * arithmetic uses - app hdd requirements and the config reserves are both
- * decimal - so reporting GiB would shrink every node's apparent capacity by
- * about 7% and start rejecting apps that fit.
+ * GiB, because that is the unit an app's `hdd` is spent in: `createAppVolume`
+ * allocates with `fallocate -l <hdd>G`, and util-linux reads a bare `G` as
+ * 1024^3. nodeSpecs.ssdStorage is GiB for the same reason - fluxbench reports
+ * the disk that way - so every side of a capacity check speaks one unit.
  *
  * @returns {Promise<Array<{filesystem: string, mount: string, size: number,
  *   used: number, available: number}>>}
  */
-async function capacityVolumesInGb() {
+async function capacityVolumesInGib() {
   const mounts = await deviceHelper.listMountedFilesystems();
   return mounts
     .filter((volume) => (volume.source.includes('/dev/') && !volume.source.includes('loop') && !volume.target.includes('boot'))
@@ -54,9 +61,9 @@ async function capacityVolumesInGb() {
     .map((volume) => ({
       filesystem: volume.source,
       mount: volume.target,
-      size: Math.round(volume.sizeBytes / 1e9),
-      used: Math.round(volume.usedBytes / 1e9),
-      available: Math.round(volume.availableBytes / 1e9),
+      size: Math.round(volume.sizeBytes / BYTES_PER_GIB),
+      used: Math.round(volume.usedBytes / BYTES_PER_GIB),
+      available: Math.round(volume.availableBytes / BYTES_PER_GIB),
     }));
 }
 
@@ -384,7 +391,7 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
 module.exports = {
   verifyAppVolumeMount,
   ensureMountPathsExist,
-  capacityVolumesInGb,
+  capacityVolumesInGib,
   isPathMounted,
   getVolumeFilePath,
   getComponentAppIdsFromVolumeFiles,

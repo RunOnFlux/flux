@@ -737,7 +737,7 @@ async function fluxShareFileExists(req, res) {
  * @returns {number} The quantity of space available (GB).
  */
 async function getSpaceAvailableForFluxShare() {
-  const okVolumes = await volumeService.capacityVolumesInGb();
+  const okVolumes = await volumeService.capacityVolumesInGib();
 
   // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
   let totalSpace = 0;

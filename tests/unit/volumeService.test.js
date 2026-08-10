@@ -126,7 +126,7 @@ describe('volumeService tests', () => {
     });
   });
 
-  describe('capacityVolumesInGb tests', () => {
+  describe('capacityVolumesInGib tests', () => {
     const mount = (source, target, sizeBytes) => ({
       source, target, sizeBytes, usedBytes: 0, availableBytes: sizeBytes,
     });
@@ -137,7 +137,7 @@ describe('volumeService tests', () => {
         mount('/dev/sdb1', '/dat2', 2e12),
       ]);
 
-      const result = await volumeService.capacityVolumesInGb();
+      const result = await volumeService.capacityVolumesInGib();
       expect(result.map((v) => v.mount)).to.deep.equal(['/dat', '/dat2']);
     });
 
@@ -147,7 +147,7 @@ describe('volumeService tests', () => {
         mount('tmpfs', '/run', 2e12),
       ]);
 
-      const result = await volumeService.capacityVolumesInGb();
+      const result = await volumeService.capacityVolumesInGib();
       expect(result.map((v) => v.mount)).to.deep.equal(['/dat']);
     });
 
@@ -157,7 +157,7 @@ describe('volumeService tests', () => {
         mount('/dev/loop3', '/dat/apps/fluxcomp_app', 2e12),
       ]);
 
-      const result = await volumeService.capacityVolumesInGb();
+      const result = await volumeService.capacityVolumesInGib();
       expect(result.map((v) => v.mount)).to.deep.equal(['/dat']);
     });
 
@@ -167,7 +167,7 @@ describe('volumeService tests', () => {
         mount('/dev/sda2', '/boot', 2e12),
       ]);
 
-      const result = await volumeService.capacityVolumesInGb();
+      const result = await volumeService.capacityVolumesInGib();
       expect(result.map((v) => v.mount)).to.deep.equal(['/dat']);
     });
 
@@ -177,22 +177,37 @@ describe('volumeService tests', () => {
         mount('/dev/loop0', '/', 2e12),
       ]);
 
-      const result = await volumeService.capacityVolumesInGb();
+      const result = await volumeService.capacityVolumesInGib();
       expect(result.map((v) => v.mount)).to.deep.equal(['/dat', '/']);
     });
 
-    it('reports whole DECIMAL GB', async () => {
-      // Decimal, not GiB: app hdd requirements and the config reserves this is
-      // compared against are decimal, so GiB here would understate every node
-      // by about 7% and reject apps that fit.
+    it('reports whole GiB', async () => {
       deviceHelperStub.listMountedFilesystems.resolves([
         { source: '/dev/sda1', target: '/dat', sizeBytes: 1e12, usedBytes: 4e11, availableBytes: 6e11 },
       ]);
 
-      const [volume] = await volumeService.capacityVolumesInGb();
+      const [volume] = await volumeService.capacityVolumesInGib();
       expect(volume).to.deep.equal({
-        filesystem: '/dev/sda1', mount: '/dat', size: 1000, used: 400, available: 600,
+        filesystem: '/dev/sda1', mount: '/dat', size: 931, used: 373, available: 559,
       });
+    });
+
+    it('counts the room for an app in the unit the app will spend', async () => {
+      // The number this produces is compared against an app's `hdd`, and that
+      // is spent by `fallocate -l <hdd>G`, which util-linux reads as 1024^3.
+      // Free space worth exactly twenty of those has to read as 20 - and
+      // twenty DECIMAL GB has to read as less, or a node admits an app it is
+      // 7.4% short for and finds out when fallocate returns ENOSPC.
+      const twentyGib = 20 * (1024 ** 3);
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sda1', target: '/dat', sizeBytes: twentyGib, usedBytes: 0, availableBytes: twentyGib },
+      ]);
+      expect((await volumeService.capacityVolumesInGib())[0].available).to.equal(20);
+
+      deviceHelperStub.listMountedFilesystems.resolves([
+        { source: '/dev/sda1', target: '/dat', sizeBytes: 2e10, usedBytes: 0, availableBytes: 2e10 },
+      ]);
+      expect((await volumeService.capacityVolumesInGib())[0].available).to.be.below(20);
     });
   });
 
