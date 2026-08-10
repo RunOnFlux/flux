@@ -547,6 +547,67 @@ describe('messageStore tests', () => {
     });
   });
 
+  describe('storeBatchAppInstallingMessages - version 2 withdrawal', () => {
+    // The batch path carries the same withdrawal rule as the single-message one
+    // and had no coverage of its own, which is where the two came apart: the
+    // location delete kept its "only if older" guard and the delete of the
+    // broadcast backing it did not.
+    let writes;
+
+    const withdrawal = (broadcastedAt) => ({
+      version: 2,
+      timestamp: broadcastedAt,
+      pubKey: 'pk',
+      signature: 'sig',
+      receivedAt: broadcastedAt,
+      data: {
+        version: 2, name: 'testapp', ip: '1.2.3.4:16127', withdrawn: true, broadcastedAt,
+      },
+    });
+
+    beforeEach(() => {
+      writes = [];
+      const collection = (name) => ({
+        bulkWrite: async (ops, options) => { writes.push({ name, ops, options }); return {}; },
+      });
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns({ collection }) });
+    });
+
+    const guardOf = (collectionName) => {
+      const write = writes.find((w) => w.name === collectionName);
+      expect(write, `nothing was written to ${collectionName}`).to.not.equal(undefined);
+      return write.ops[0].deleteOne.filter.broadcastedAt;
+    };
+
+    it('guards the broadcast delete exactly as it guards the location delete', async () => {
+      // A withdrawal that arrives after its sender has claimed again must erase
+      // neither. Guarding only the location leaves the newer claim standing with
+      // the signed message behind it gone, and nothing can serve it during sync.
+      const sent = Date.now() - 60000;
+
+      const result = await messageStore.storeBatchAppInstallingMessages([withdrawal(sent)]);
+
+      expect(result.stored).to.equal(1);
+      const locationGuard = guardOf('appsInstallingLocations');
+      const broadcastGuard = guardOf('appsInstallingBroadcasts');
+      expect(locationGuard).to.deep.equal({ $lt: new Date(sent) });
+      expect(broadcastGuard).to.deep.equal(locationGuard);
+    });
+
+    it('addresses the broadcast by its nested name and ip', async () => {
+      // The two collections shape their documents differently - the broadcast
+      // carries the message under `data` - so the guard has to travel without
+      // the rest of the filter travelling with it.
+      const sent = Date.now() - 60000;
+
+      await messageStore.storeBatchAppInstallingMessages([withdrawal(sent)]);
+
+      const write = writes.find((w) => w.name === 'appsInstallingBroadcasts');
+      expect(write.ops[0].deleteOne.filter['data.name']).to.equal('testapp');
+      expect(write.ops[0].deleteOne.filter['data.ip']).to.equal('1.2.3.4:16127');
+    });
+  });
+
   describe('storeAppRemovedMessage', () => {
     it('should return error for invalid message structure', async () => {
       const invalidMessage = { type: 'fluxappremoved' };

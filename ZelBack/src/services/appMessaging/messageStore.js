@@ -961,8 +961,18 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
     await database.collection(globalAppsInstallingLocations).bulkWrite(withdrawalOps, { ordered: false })
       .catch((err) => log.error(`storeBatchAppInstallingMessages withdrawals: ${err.message}`));
     await database.collection(appsInstallingBroadcasts).bulkWrite(
+      // The location's own guard, carried over rather than restated: the
+      // broadcast is what proves the location, so deleting one without the
+      // other leaves a claim nothing can serve during sync. Same object, so
+      // the two cannot come apart.
       withdrawalOps.map((op) => ({
-        deleteOne: { filter: { 'data.name': op.deleteOne.filter.name, 'data.ip': op.deleteOne.filter.ip } },
+        deleteOne: {
+          filter: {
+            'data.name': op.deleteOne.filter.name,
+            'data.ip': op.deleteOne.filter.ip,
+            broadcastedAt: op.deleteOne.filter.broadcastedAt,
+          },
+        },
       })),
       { ordered: false },
     ).catch((err) => log.error(`storeBatchAppInstallingMessages withdrawal broadcasts: ${err.message}`));
