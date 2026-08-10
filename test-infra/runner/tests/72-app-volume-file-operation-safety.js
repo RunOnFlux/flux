@@ -26,6 +26,9 @@ import {
 // passes. A security test that cannot fail is worse than no test.
 
 const OPERATION_UUID = '11111111-2222-4333-8444-555555555555';
+// A second one, for a case that needs an entry the sweep WILL act on beside an
+// entry it must not touch.
+const STAGING_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 
 describe('app volume file operations - safety and recovery', function () {
   let env;
@@ -381,6 +384,69 @@ describe('app volume file operations - safety and recovery', function () {
       await waitFor(async () => !await exists(node.container, `${root}/.flux-old-${OPERATION_UUID}.dest`), {
         timeout: 60000, interval: 2000, label: 'orphaned marker swept',
       });
+    });
+
+    it('does not follow a marker whose parent directory is a link off the volume', async function () {
+      this.timeout(300000);
+      // Hostile in its RESOLUTION rather than its text: `appdata/escape/pwn`
+      // normalises to a path inside the volume and passes every string rule.
+      // `appdata/escape` is a link, which the app owner can make because
+      // appdata is what its own container is bound at - and rename(2) follows
+      // every component of a destination but the last.
+      await inNode(`mkdir -p ${root}/appdata && rm -rf /etc/cron.d/pwn`);
+      // seedSymlink asserts itself - it throws unless the link exists and reads
+      // back as the target it was given.
+      await seedSymlink(node.container, appName, 'appdata/escape', '/etc/cron.d');
+
+      await inNode(
+        `mkdir -p ${root}/.flux-old-${OPERATION_UUID}`
+        + ` && echo pwned > ${root}/.flux-old-${OPERATION_UUID}/payload`
+        + ` && printf '%s' appdata/escape/pwn > ${root}/.flux-old-${OPERATION_UUID}.dest`,
+      );
+      const planted = await inNode(`cat ${root}/.flux-old-${OPERATION_UUID}.dest`);
+      expect(planted.stdout.trim(), 'FIXTURE: the marker was not planted').to.equal('appdata/escape/pwn');
+
+      await restartFluxos(node.container);
+
+      expect(
+        await exists(node.container, '/etc/cron.d/pwn'),
+        'the boot sweep wrote through a link the app owner made',
+      ).to.equal(false);
+      // Refused, so the entry stays where it is: it may be somebody's only copy.
+      expect(await exists(node.container, `${root}/.flux-old-${OPERATION_UUID}/payload`)).to.equal(true);
+    });
+
+    it('keeps displaced data when the destination is a link resolving to nothing', async function () {
+      this.timeout(300000);
+      // lstat succeeds on a broken link, so one at the destination is not
+      // evidence the publish completed. It is equally what an app leaves at a
+      // path nothing was ever published to, and one of those means the entry
+      // beside it is the only copy.
+      await seedSymlink(node.container, appName, 'photos', `${root}/no-such-target`);
+      expect(
+        await exists(node.container, `${root}/no-such-target`),
+        'FIXTURE: the link resolves, so this is not the dangling case',
+      ).to.equal(false);
+
+      await inNode(
+        `mkdir -p ${root}/.flux-old-${OPERATION_UUID}`
+        + ` && echo mine > ${root}/.flux-old-${OPERATION_UUID}/only-copy.txt`
+        + ` && printf '%s' photos > ${root}/.flux-old-${OPERATION_UUID}.dest`,
+      );
+      // Swept alongside, purely so this test can tell "the sweep decided to
+      // leave the data" from "the sweep had not run yet" - which a bare wait
+      // for something NOT to happen cannot do.
+      await inNode(`mkdir -p ${root}/.flux-op-${STAGING_UUID}`);
+
+      await restartFluxos(node.container);
+
+      await waitFor(async () => !await exists(node.container, `${root}/.flux-op-${STAGING_UUID}`), {
+        timeout: 60000, interval: 2000, label: 'boot sweep completed',
+      });
+      expect(
+        await exists(node.container, `${root}/.flux-old-${OPERATION_UUID}/only-copy.txt`),
+        'the only copy of the data was deleted on the strength of a broken link',
+      ).to.equal(true);
     });
   });
 });
