@@ -100,9 +100,13 @@ export async function setPeerCompletion({
   });
 }
 
-// No peer holds the full data (every peer < 100%).
+// No peer holds the full data (every peer < 100%). Explicitly not connection
+// testimony: without the remoteState, the stub's read-back default stamps the
+// bare completion 'valid', and "nobody has the data" quietly becomes "every
+// device you ask about is a connected peer at 0%" - a phantom witness that
+// outranks device-specific evidence from the viewer's own wildcard key.
 export async function setNoPeerData({ ip = '*', folder }) {
-  return setPeerCompletion({ ip, folder, completion: 0 });
+  return setPeerCompletion({ ip, folder, completion: 0, remoteState: 'unknown' });
 }
 
 // A peer holds the full data (100%) and is CONNECTED (trusted source).
