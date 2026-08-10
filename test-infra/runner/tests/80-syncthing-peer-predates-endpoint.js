@@ -68,6 +68,10 @@ describe('a syncthing holder that predates the folder endpoint', function () {
 
   const deferApp = `e2eold${Date.now()}`;
   const seedApp = `e2enew${Date.now()}`;
+  // App name -> the syncthing folder id FluxOS assigns it. The stub keys its
+  // sync state by folder id, and a bare app name matches nothing the product
+  // ever asks about.
+  const folders = new Map();
 
   before(async function () {
     this.timeout(900000);
@@ -99,7 +103,8 @@ describe('a syncthing holder that predates the folder endpoint', function () {
 
     for (const [name, index] of [[deferApp, deferringSubject], [seedApp, seedingSubject]]) {
       // eslint-disable-next-line no-await-in-loop
-      await seedSyncthingApp(env, { name, mode: 'r', index });
+      const { folder } = await seedSyncthingApp(env, { name, mode: 'r', index });
+      folders.set(name, folder);
       // The un-upgraded node joins each app's holder list, which is what puts it
       // in front of the subject's election.
       // eslint-disable-next-line no-await-in-loop
@@ -172,7 +177,7 @@ describe('a syncthing holder that predates the folder endpoint', function () {
     await stub.refusePromotedFolders();
     const subject = env.clients[deferringSubject];
     await setPeerCompletion({
-      ip: subject.ip, folder: deferApp, device: '*', completion: 100, remoteState: 'valid',
+      ip: subject.ip, folder: folders.get(deferApp), device: '*', completion: 100, remoteState: 'valid',
     });
 
     // The instrument, and it has to be the veto's own event rather than the
