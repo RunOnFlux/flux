@@ -903,6 +903,10 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
     // instead - and only where the stored claim is older, so a withdrawal that
     // arrives after the sender has claimed again cannot erase the newer claim.
     if (data.version === 2) {
+      // version 2 exists only to withdraw; anything else at that version is
+      // not something this protocol emits. The single-message path refuses
+      // it, and this path must not read it as a withdrawal.
+      if (data.withdrawn !== true) continue;
       withdrawalOps.push({
         deleteOne: {
           filter: { name: data.name, ip: data.ip, broadcastedAt: { $lt: new Date(data.broadcastedAt) } },

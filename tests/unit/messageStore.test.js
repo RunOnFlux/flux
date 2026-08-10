@@ -606,6 +606,20 @@ describe('messageStore tests', () => {
       expect(write.ops[0].deleteOne.filter['data.name']).to.equal('testapp');
       expect(write.ops[0].deleteOne.filter['data.ip']).to.equal('1.2.3.4:16127');
     });
+
+    it('does not read a version 2 message without withdrawn as a withdrawal', async () => {
+      // The single-message path refuses version 2 unless it is a withdrawal.
+      // Reading the version alone here would let a message the protocol never
+      // emits delete its sender's claim - the same one-rule-two-paths
+      // divergence as the guard above, in the other field.
+      const msg = withdrawal(Date.now() - 60000);
+      delete msg.data.withdrawn;
+
+      const result = await messageStore.storeBatchAppInstallingMessages([msg]);
+
+      expect(result.stored).to.equal(0);
+      expect(writes).to.have.length(0);
+    });
   });
 
   describe('storeAppRemovedMessage', () => {
