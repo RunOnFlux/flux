@@ -384,9 +384,15 @@ function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers =
   return isLeader && allPeersList.some((peer) => socketAddressesMatch(peer.ip, localSocketAddr));
 }
 
+const PeerConnection = Object.freeze({
+  CONNECTED: 'connected',
+  DISCONNECTED: 'disconnected',
+  UNKNOWN: 'unknown',
+});
+
 /**
- * Whether this node's own syncthing still has a live connection carrying this
- * folder to a peer.
+ * This node's syncthing's view of its own connection to a peer, for one
+ * folder: PeerConnection.CONNECTED, DISCONNECTED, or UNKNOWN.
  *
  * FluxOS and syncthing are separate processes on that peer and fail
  * independently, so silence from its API is not evidence that it has stopped
@@ -395,13 +401,14 @@ function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers =
  * syncthing reports remoteState 'valid' only for a device whose connection is
  * open, and clears it the moment the connection closes.
  *
- * Only 'valid' answers yes. A peer that has not yet exchanged its cluster
- * config, one that has the folder paused, a device this node has never
- * resolved, a completion call that fails, and a local folder that is not
- * running all answer no - which leaves the caller's decision exactly where it
- * was. That direction is deliberate: this is a veto on declaring a holder dead,
- * never a reason to declare one dead, so no absence of evidence here can
- * promote a second writer alongside a live one.
+ * The three answers are kept apart because the exclusion may act only on
+ * evidence. 'disconnected' is an answer - this node's syncthing was asked
+ * about the device and does not consider it connected. 'unknown' is the
+ * absence of one - the peer's device was never resolved (this node's own
+ * process restarted during the peer's outage and could not re-learn it), or
+ * this node's syncthing did not answer. Collapsing 'unknown' into
+ * 'disconnected' would let the one node with the least knowledge authorise a
+ * second writer.
  *
  * The peer's own syncthing API is not reachable - it binds to localhost - and
  * does not need to be. This is local state, maintained by the connection
@@ -410,18 +417,18 @@ function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers =
  * @param {string} appId Folder id, always passed explicitly: the completion
  *   endpoint's aggregate form never sets remoteState and reports 'unknown'.
  * @param {string} peerIp
- * @returns {Promise<boolean>}
+ * @returns {Promise<string>} One of PeerConnection
  */
-async function peerSyncthingIsConnected(appId, peerIp) {
+async function peerSyncthingConnection(appId, peerIp) {
   const deviceId = globalState.syncthingDevicesIDCache.get(`${extractIp(peerIp)}:${extractPort(peerIp)}`);
-  if (!deviceId) return false;
+  if (!deviceId) return PeerConnection.UNKNOWN;
 
   const response = await syncthingService.getDbCompletion({
     query: { folder: appId, device: deviceId },
   }, null).catch(() => null);
 
-  if (response?.status !== 'success' || !response.data) return false;
-  return response.data.remoteState === 'valid';
+  if (response?.status !== 'success' || !response.data) return PeerConnection.UNKNOWN;
+  return response.data.remoteState === 'valid' ? PeerConnection.CONNECTED : PeerConnection.DISCONNECTED;
 }
 
 /**
@@ -442,6 +449,11 @@ async function peerSyncthingIsConnected(appId, peerIp) {
  * election is the one thing this must never do: every survivor would then pick the
  * next IP and promote alongside a holder that is still writing.
  *
+ * And silence alone is still not enough: gone requires evidence. The verdict
+ * needs this node's own syncthing to have been asked about the holder's device
+ * and answered that it is not connected. A device this node cannot ask about
+ * proves nothing, and a proof of nothing keeps the holder.
+ *
  * @param {string} appId
  * @param {string} holderIp
  * @returns {Promise<boolean>}
@@ -449,9 +461,15 @@ async function peerSyncthingIsConnected(appId, peerIp) {
 async function holderIsGone(appId, holderIp, liveness) {
   const answer = await liveness.read(holderIp);
   if (answer.reachable) return false;
-  if (await peerSyncthingIsConnected(appId, holderIp)) {
+  const connection = await peerSyncthingConnection(appId, holderIp);
+  if (connection === PeerConnection.CONNECTED) {
     log.info(`holderIsGone - ${extractIp(holderIp)}'s API is silent, but this node's syncthing still holds a live connection to it for ${appId}; it is restarting, not gone`);
-    fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp });
+    fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp, reason: 'connectionAlive' });
+    return false;
+  }
+  if (connection === PeerConnection.UNKNOWN) {
+    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but this node cannot ask its own syncthing about it for ${appId}; gone requires evidence, keeping it`);
+    fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp, reason: 'noEvidence' });
     return false;
   }
   const { connected, responding, total } = liveness.localConnectivity();

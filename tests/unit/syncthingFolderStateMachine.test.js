@@ -547,6 +547,13 @@ describe('syncthingFolderStateMachine tests', () => {
       // the lowest-IP holder answers nothing; this node's own peers are fine
       axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
       fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+      // and the exclusion has its evidence: this node's syncthing was asked
+      // about the holder's device and answered that it is not connected
+      globalStateMock.syncthingDevicesIDCache.set('10.0.0.1:16127', 'HOLDER-DEVICE-ID');
+      syncthingServiceMock.getDbCompletion.resolves({
+        status: 'success',
+        data: { remoteState: 'unknown', completion: 0, globalBytes: 0 },
+      });
       // the survivor had been syncing alongside and holds a full copy - a partial
       // survivor must NOT take over (covered by the partial-copy test above)
       syncthingServiceMock.getDbStatus.resolves({
@@ -560,6 +567,40 @@ describe('syncthingFolderStateMachine tests', () => {
 
       expect(result.syncthingFolder.type).to.equal('sendreceive');
       expect(result.cache.restarted).to.be.true;
+    });
+
+    it('cannot declare a holder gone without evidence - an unresolvable device keeps it', async () => {
+      // Same silent holder, same healthy peers - but this node never resolved
+      // the holder's syncthing device: its own process restarted during the
+      // holder's outage, and a device it cannot ask about proves nothing.
+      // Gone requires evidence, and the node with the least knowledge must
+      // not be the one that authorises a second writer.
+      mockParams.localSocketAddr = '10.0.0.2:16127';
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.rejects(new Error('connect ECONNREFUSED'));
+      fluxCommunicationMock.peerResponsiveness.returns({ responding: 8, total: 8 });
+      // an empty folder, so no route to sendreceive exists except winning the
+      // election - which requires the holder's exclusion, which has no evidence
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 0, inSyncBytes: 0, state: 'idle', receiveOnlyChangedFiles: 0,
+        },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.not.equal('sendreceive');
+      expect(result.cache.designationPending).to.not.equal(true);
+      expect(result.cache.designatedLeader).to.not.equal(true);
     });
 
     it('leaves a holder whose syncthing is still connected in the election - its FluxOS is restarting, not gone', async () => {
