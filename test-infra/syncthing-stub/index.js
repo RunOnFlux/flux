@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const { EventEmitter } = require('events');
 
 const app = express();
 app.use(express.json());
@@ -61,6 +62,10 @@ function reqState(req) {
 
 // ip (or '*') -> milliseconds to hold a folder PATCH open before answering
 const folderPatchDelay = new Map();
+// Wakes parked PATCHes when a delay is cleared; unbounded listeners because
+// every held request registers one.
+const patchDelayWaker = new EventEmitter();
+patchDelayWaker.setMaxListeners(0);
 
 // --- drivable sync state -------------------------------------------------
 // Tests drive these via the control API; the defaults (below) reproduce the
@@ -318,7 +323,17 @@ app.patch('/rest/config/folders/:id', async (req, res) => {
   // has no container. Held open on request, that window becomes a chosen length
   // rather than whatever the box happened to do (see /folder-patch-delay).
   const delayMs = folderPatchDelay.get(clientIp(req)) ?? folderPatchDelay.get('*') ?? 0;
-  if (delayMs > 0) await new Promise((resolve) => { setTimeout(resolve, delayMs); });
+  if (delayMs > 0) {
+    // Interruptible: clearing the delay wakes every request already parked in
+    // it. A sleeper that outlives its release freezes whatever awaits it for
+    // the full duration - a monitor cycle, and every decision behind it.
+    await new Promise((resolve) => {
+      let timer;
+      const done = () => { clearTimeout(timer); patchDelayWaker.off('wake', done); resolve(); };
+      timer = setTimeout(done, delayMs);
+      patchDelayWaker.on('wake', done);
+    });
+  }
   state.folders.set(req.params.id, { ...existing, ...req.body });
   return res.json({});
 });
@@ -654,8 +669,12 @@ control.get('/state', (req, res) => {
 // started its container. Omit ip to target every node; 0 clears.
 control.post('/folder-patch-delay', (req, res) => {
   const { ip = '*', ms = 0 } = req.body;
-  if (ms > 0) folderPatchDelay.set(ip, ms);
-  else folderPatchDelay.delete(ip);
+  if (ms > 0) {
+    folderPatchDelay.set(ip, ms);
+  } else {
+    folderPatchDelay.delete(ip);
+    patchDelayWaker.emit('wake');
+  }
   return res.json({ ok: true, ip, ms });
 });
 
@@ -759,6 +778,7 @@ control.post('/sync-reset', (req, res) => {
   eventsBuffers.clear();
   eventsOutages.clear();
   folderPatchDelay.clear();
+  patchDelayWaker.emit('wake');
   res.json({ ok: true });
 });
 
