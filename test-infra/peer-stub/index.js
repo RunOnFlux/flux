@@ -146,6 +146,16 @@ const wsServer = http.createServer((req, res) => {
     res.end(JSON.stringify({ status: 'success', data: '8.0.0' }));
     return;
   }
+  if (req.url === '/syncthing/deviceid') {
+    // Every real node answers this, however old - the endpoint long predates
+    // /apps/promotedfolders, which is the only version distinction this stub
+    // models. Nodes cache the answer to name this peer in queries against
+    // their own syncthing, so a stub that 404s here starves that cache and
+    // silently disables every check built on it.
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'success', data: 'PEERSTUB-DEVICE-0000001' }));
+    return;
+  }
   if (req.url === '/apps/promotedfolders') {
     // Recorded before the status is applied: a peer that answers 404 was still
     // asked, and a suite proving the asker kept asking needs to see that.
