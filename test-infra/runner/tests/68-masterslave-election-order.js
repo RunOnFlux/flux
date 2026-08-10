@@ -370,8 +370,12 @@ describe('primary election under a divergent placement order', function () {
     // and makes it unreachable to exactly the nodes whose election is under test.
     const survivors = holders.filter((i) => i !== seedIndex);
     await env.partitionGroups([seedIndex], survivors, { awaitSever: true });
-    const writableAtCut = await writableHolders(genesisApp);
-    expect(writableAtCut, 'fixture: the seed must not have seeded before the cut').to.deep.equal([]);
+    // Genesis commits when the container starts, and that is what must not
+    // have happened yet. Folder types are no proxy for it here: the delay
+    // above pins every folder PATCH, including the demotions that settle a
+    // newborn folder out of its writable birth state, so folder-shaped
+    // evidence flaps for exactly as long as the hold is on.
+    expect(await isUp(env.clients[seedIndex], genesisApp), 'fixture: the seed completed genesis before the cut').to.be.false;
     // The partition severs the seed's syncthing connections too, and the
     // fixture's source declaration outlives them - left standing, the
     // survivors' syncthing keeps testifying to a live connection and the
