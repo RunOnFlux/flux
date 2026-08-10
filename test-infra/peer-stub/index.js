@@ -39,6 +39,13 @@ const promotedFolderRequests = [];
 // it can only ever be guessed at.
 let promotedFoldersStatus = 200;
 
+// Whether this peer answers that question AT ALL. A status - even 404 - is an
+// answer, and the asking node reads any answer as proof the peer is alive. A
+// peer whose FluxOS is down does not answer: the connection is refused. That is
+// a different fact and the node treats it differently, so a suite that needs a
+// holder which is alive but unanswerable has to be able to produce it.
+let promotedFoldersRefuse = false;
+
 // The nodes currently connected to this peer. Held so the stub can SAY things
 // rather than only answer them: a suite that needs a rival claim, a stale
 // broadcast or a message a real node would never send gets a real peer sending
@@ -143,6 +150,12 @@ const wsServer = http.createServer((req, res) => {
     // Recorded before the status is applied: a peer that answers 404 was still
     // asked, and a suite proving the asker kept asking needs to see that.
     promotedFolderRequests.push(Date.now());
+    if (promotedFoldersRefuse) {
+      // Destroyed rather than answered, so the asker sees the transport fail
+      // exactly as it does against a node whose FluxOS is not listening.
+      req.socket.destroy();
+      return;
+    }
     if (promotedFoldersStatus !== 200) {
       res.writeHead(promotedFoldersStatus);
       res.end();
@@ -238,8 +251,17 @@ const controlServer = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const wanted = JSON.parse(body);
       promotedFoldersStatus = Number(wanted.status) || 200;
+      promotedFoldersRefuse = false;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', promotedFoldersStatus }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/promoted-folders-refuse') {
+      const body = await readBody(req);
+      promotedFoldersRefuse = JSON.parse(body).refuse !== false;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', promotedFoldersRefuse }));
       return;
     }
 
@@ -269,6 +291,7 @@ const controlServer = http.createServer(async (req, res) => {
       promotedFolderRequests.length = 0;
       promotedFolders = { ready: true, folders: [] };
       promotedFoldersStatus = 200;
+      promotedFoldersRefuse = false;
       broadcastsSent = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));

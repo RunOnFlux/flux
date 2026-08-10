@@ -46,6 +46,19 @@ export function stubPeerClient(ip) {
       return res.json();
     },
 
+    // Make this peer refuse the question at the transport, which is what a node
+    // whose FluxOS is not listening does. A status is an answer and the asker
+    // reads any answer as "alive"; refusal is the only way a suite can put a
+    // holder in front of it that is running but unanswerable.
+    async refusePromotedFolders(refuse = true) {
+      const res = await fetch(`${controlUrl}/promoted-folders-refuse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refuse }),
+      });
+      return res.json();
+    },
+
     // Arrival times of the node's "what are you holding?" requests.
     async promotedFolderRequests() {
       const stats = await this.getStats();

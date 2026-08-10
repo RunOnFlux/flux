@@ -4,8 +4,9 @@ import { createTestEnv } from '../framework/test-env.js';
 import { dbClient } from '../framework/db-client.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { getAppContainerStatus } from '../framework/container.js';
-import { resetSyncState } from '../framework/syncthing-control.js';
+import { resetSyncState, setPeerCompletion } from '../framework/syncthing-control.js';
 import { waitFor, waitForUp } from '../framework/wait.js';
+import { waitForLog } from '../framework/log-reader.js';
 import { bootAndPeer, seedSyncthingApp } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -155,5 +156,48 @@ describe('a syncthing holder that predates the folder endpoint', function () {
       (await stub.promotedFolderRequests()).length,
       'fixture: the seeding subject never asked the un-upgraded peer',
     ).to.be.greaterThan(0);
+  });
+
+  it('leaves a holder whose syncthing is still connected, when its API answers nothing at all', async function () {
+    this.timeout(300000);
+
+    // The other case in this suite is a holder that ANSWERS badly. This one
+    // answers nothing: FluxOS is not listening, which is what a restart, a crash
+    // or a redeploy looks like from here. Its syncthing and its container are
+    // untouched and still writing, and those are separate processes that fail
+    // separately - so silence from the API is not evidence the writer stopped.
+    //
+    // The peer's own syncthing cannot be asked: it binds to localhost. This
+    // node's syncthing knows anyway, because it holds the connection, and that
+    // is the evidence used here.
+    await stub.refusePromotedFolders();
+    const subject = env.clients[deferringSubject];
+    await setPeerCompletion({
+      ip: subject.ip, folder: deferApp, device: '*', completion: 100, remoteState: 'valid',
+    });
+
+    // The instrument, and it has to be the veto's own line rather than the
+    // outcome. "Did not promote" is satisfied by too many other things here -
+    // a peer reporting 100% makes this node defer for an entirely different
+    // reason - so the outcome alone cannot tell the guard firing from the guard
+    // never running.
+    await waitForLog(
+      subject.container,
+      /holderIsGone - .*syncthing still holds a live connection/,
+      { timeout: 180000 },
+    );
+
+    // And the decision that line describes: the holder keeps the folder, so this
+    // node stays receiveonly. Without the veto its API silence drops it from the
+    // election, this node wins, and a second writable copy runs beside a holder
+    // that never stopped.
+    expect(
+      await isUp(subject, deferApp),
+      'promoted over a holder whose syncthing was still connected',
+    ).to.be.false;
+
+    // Restored so the refusal cannot outlive this test.
+    await stub.refusePromotedFolders(false);
+    await stub.answerPromotedFoldersWith(404);
   });
 });
