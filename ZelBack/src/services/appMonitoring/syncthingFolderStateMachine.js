@@ -829,11 +829,12 @@ async function handleReceiveOnlyTransition(params) {
   const electedLeader = isDesignatedLeader(electionList, localSocketAddr, aPeerHasData || !folderIsEmpty);
   cache.leaderStreak = electedLeader ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
-  // The confirmed designation is readable by masterSlaveApps through this
-  // shared cache: the genesis seed skips the primary-selection index stagger
-  // (nothing below it can become ready before it starts). Updated every
-  // unpromoted pass, so a lost election withdraws the claim.
-  cache.designatedLeader = isLeader;
+  // Withdrawn on every unpromoted pass, so a lost election drops the claim. It
+  // is raised again only where the promotion actually commits: masterSlaveApps
+  // reads this to skip the primary-selection index stagger, so it has to mean
+  // "is the writable holder", not "won the vote". A node that wins and then
+  // stands down at one of the gates below is not the former.
+  cache.designatedLeader = false;
 
   // RESIDUAL LIMITATION (architectural - this election is a heuristic, not consensus):
   // a confirmed leader is the cold-start seed and flips to sendreceive WITHOUT a sync
@@ -895,6 +896,10 @@ async function handleReceiveOnlyTransition(params) {
       syncthingFolder.type = 'receiveonly';
       return { syncthingFolder, cache };
     }
+
+    // Every gate passed, so this node IS the writable holder and the claim the
+    // stagger skip is read from is now true.
+    cache.designatedLeader = true;
 
     // Fix permissions before changing to sendreceive - ensures correct ownership for synced data
     await fixAppdataPermissions(appId);

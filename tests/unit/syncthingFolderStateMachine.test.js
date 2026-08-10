@@ -638,6 +638,28 @@ describe('syncthingFolderStateMachine tests', () => {
       sinon.assert.notCalled(appReconcilerMock.setControllerDesired);
     });
 
+    it('withdraws the designation when a gate turns the winner back', async () => {
+      // masterSlaveApps reads this flag to skip the primary-selection index
+      // stagger and start the container, so it has to mean "is the writable
+      // holder". A node that wins the election and then stands down - here
+      // because a peer already holds the copy - is not, and leaving the flag up
+      // starts its primary against a folder it deliberately left receiveonly.
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 1,
+        leaderStreak: 5,
+      });
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+        { ip: '10.0.0.2:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+      axiosMock.get.resolves({ data: { data: { ready: true, folders: ['test-app'] } } });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.cache.designatedLeader).to.not.equal(true);
+    });
+
     it('waits on a peer that has not determined its own folder state yet', async () => {
       // A booting peer cannot tell "I hold nothing" from "I have not looked", so its
       // empty list is not a clearance - a fleet-wide restart puts every holder of an
