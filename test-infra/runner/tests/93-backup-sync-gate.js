@@ -6,7 +6,7 @@ import { pushImage } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from '../framework/subnet-config.js';
 import {
-  setSynced, setSyncing, setStatusUnreadable, resetSyncState,
+  setSynced, setSyncing, setStatusUnreadable, setSyncState, resetSyncState,
 } from '../framework/syncthing-control.js';
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
@@ -110,19 +110,44 @@ describe('a backup refuses to archive a copy that is not there', function () {
     await waitFor(() => containerUp(), { timeout: 60000, interval: 2000, label: 'app running before the attempt' });
   });
 
-  it('refuses when this instance has never synced, and stops nothing doing it', async function () {
+  it('refuses when syncthing cannot answer, and says that rather than blaming the data', async function () {
     this.timeout(300000);
-    // the incident's own shape: the node could never verify its copy, because
-    // syncthing on it was never configured for this app at all
+    // Syncthing answering with an error is a fact about syncthing, not about
+    // the copy. Refusing is still right - an archive of a copy nobody verified
+    // is the one that looks fine now and loses data when it is restored months
+    // later - but reporting it as "this instance has never synced" tells the
+    // operator something false about their data at the moment they are trying
+    // to protect it, and force is API-only by design so they cannot get past it.
     await setStatusUnreadable({ ip: nodeIp, folder: folderId });
 
     const body = await client.appendBackupTask(appName, [comp], auth.zelidauth);
 
     expect(body).to.match(/Refusing to back up an incomplete copy/i);
-    expect(body).to.match(/never synced/i);
+    expect(body).to.match(/could not be determined/i);
+    expect(body, 'an unanswerable daemon is not a claim about the data').to.not.match(/never synced/i);
     expect(await archiveExists(), 'an archive was written anyway').to.equal(false);
     // a refusal must not cost a healthy app an outage - the gate runs before
     // anything is stopped, and this is what says so
+    expect(await containerUp(), 'the app was stopped by a refused backup').to.equal(true);
+  });
+
+  it('refuses an empty index without calling it 100% synced', async function () {
+    this.timeout(300000);
+    // The incident's own shape: syncthing holds nothing for this app, so this
+    // instance has never received the data. With no global index there is
+    // nothing for the synced bytes to be a fraction of, and the percentage
+    // falls back to 100 - which would tell the operator the copy is complete in
+    // the same breath as refusing it.
+    await setSyncState({
+      ip: nodeIp, folder: folderId, state: 'idle', globalBytes: 0, inSyncBytes: 0,
+    });
+
+    const body = await client.appendBackupTask(appName, [comp], auth.zelidauth);
+
+    expect(body).to.match(/Refusing to back up an incomplete copy/i);
+    expect(body).to.match(/nothing in the sync index yet/i);
+    expect(body, 'never claims completeness while refusing').to.not.match(/100\.00% synced/);
+    expect(await archiveExists(), 'an archive was written anyway').to.equal(false);
     expect(await containerUp(), 'the app was stopped by a refused backup').to.equal(true);
   });
 
