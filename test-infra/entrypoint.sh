@@ -3,17 +3,6 @@ set -e
 
 ip addr add 169.254.43.43/32 dev lo 2>/dev/null || true
 
-# The runner's per-node config arrives as JSON and is written here as local.js,
-# which node-config loads from the pinned config directory after every other file.
-# It used to arrive as NODE_CONFIG, but the config package merges that variable
-# over every file regardless of which directory is pinned - a redirect of any
-# endpoint that leaves no trace in the directory fluxbench hashes. The entry
-# points delete it now, so this is how a fleet configures its nodes: through a
-# file, like production, rather than through an environment the hash cannot see.
-if [ -n "$FLUX_TEST_CONFIG" ]; then
-  printf 'module.exports = %s;\n' "$FLUX_TEST_CONFIG" > /flux/ZelBack/config/local.js
-fi
-
 # App installs mount each app's FLUXFSVOL via `mount -o loop`. Loop devices are a
 # shared host-kernel resource (not namespaced); the kernel default pool (max_loop,
 # typically 8) is small and on-demand creation races under concurrent installs, so a
@@ -44,6 +33,31 @@ fi
 if [ -n "$NODE_CONFIG_DIR" ] && [ -d "$NODE_CONFIG_DIR" ]; then
   cp "$NODE_CONFIG_DIR"/default.js /flux/ZelBack/config/local.js
   cp "$(dirname "$NODE_CONFIG_DIR")/shared.js" /flux/ZelBack/ 2>/dev/null || true
+fi
+
+# The runner's own overrides arrive as JSON and are merged OVER the per-node file
+# copied above, which is where the per-node database names come from - replacing
+# that file rather than merging would take them with it.
+#
+# They used to arrive as NODE_CONFIG. The config package merges that variable over
+# every file whatever directory is pinned, so it could redirect any endpoint
+# without touching the directory fluxbenchd hashes - the one change tamper
+# detection cannot see. The entry points delete it now, and this carries the same
+# content to the same place through a file instead.
+if [ -n "$FLUX_TEST_CONFIG" ]; then
+  node -e '
+    const fs = require("fs");
+    const target = "/flux/ZelBack/config/local.js";
+    const base = fs.existsSync(target) ? require(target) : {};
+    const isPlain = (v) => v && typeof v === "object" && !Array.isArray(v);
+    const merge = (a, b) => {
+      const out = { ...a };
+      for (const [k, v] of Object.entries(b)) out[k] = isPlain(v) && isPlain(a[k]) ? merge(a[k], v) : v;
+      return out;
+    };
+    const merged = merge(base, JSON.parse(process.env.FLUX_TEST_CONFIG));
+    fs.writeFileSync(target, `module.exports = ${JSON.stringify(merged, null, 2)};\n`);
+  '
 fi
 
 if [ "$FLUX_DISCOVERY_AUTOSTART" = "true" ]; then
