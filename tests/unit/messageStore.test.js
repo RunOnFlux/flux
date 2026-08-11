@@ -497,6 +497,23 @@ describe('messageStore tests', () => {
       expect(dbHelperStub.updateOneInDatabase.called, 'a withdrawal records nothing').to.be.false;
     });
 
+    it('carries the freshness guard onto both deletes, not just the read', async () => {
+      // The read proves the stored claim was older a moment ago. Both deletes are
+      // filtered on it too, so a claim that lands between the read and the delete
+      // survives - and the broadcast row needs the guard in its own right, being a
+      // separate collection written by a separate path.
+      const sent = Date.now();
+      dbHelperStub.findOneInDatabase.resolves({ broadcastedAt: new Date(sent - 60000) });
+
+      await messageStore.storeAppInstallingMessage(withdrawal({ broadcastedAt: sent }));
+
+      const filters = dbHelperStub.removeDocumentsFromCollection.getCalls().map((c) => c.args[2]);
+      expect(filters).to.have.lengthOf(2);
+      filters.forEach((filter) => {
+        expect(filter.broadcastedAt, 'delete ran unguarded').to.deep.equal({ $lt: new Date(sent) });
+      });
+    });
+
     it('never touches the installing errors collection', async () => {
       dbHelperStub.findOneInDatabase.resolves({ broadcastedAt: new Date(Date.now() - 60000) });
 

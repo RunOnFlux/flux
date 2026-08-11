@@ -463,8 +463,21 @@ async function storeAppInstallingMessage(message) {
     // that arrives after the newer claim must not erase it. Reaching here means
     // the stored claim is older than this withdrawal, so it is the one being
     // retracted. Nothing is recorded in its place - the sender holds no claim.
-    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
-    await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.name': message.name, 'data.ip': message.ip });
+    // Carried on both deletes rather than rested on the read above. The read
+    // proves the stored claim was older a moment ago; the guard proves it at the
+    // moment of deletion, which is what the batch path does and what closes the
+    // window where a newer claim lands in between. The broadcast row needs it in
+    // its own right too - it is a separate collection written by a separate path,
+    // so a claim newer than this withdrawal can exist there while the location
+    // the read consulted is still the old one.
+    const olderThanWithdrawal = { broadcastedAt: { $lt: newAppInstallingMessage.broadcastedAt } };
+    await dbHelper.removeDocumentsFromCollection(
+      database, globalAppsInstallingLocations, { ...queryFind, ...olderThanWithdrawal },
+    );
+    await dbHelper.removeDocumentsFromCollection(
+      database, appsInstallingBroadcasts,
+      { 'data.name': message.name, 'data.ip': message.ip, ...olderThanWithdrawal },
+    );
     return true;
   }
 
