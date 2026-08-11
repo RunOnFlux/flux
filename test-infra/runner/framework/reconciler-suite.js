@@ -316,8 +316,13 @@ export async function installingErrorsByNode(env, appName) {
 // Wait until exactly `target` nodes have the app installed, then confirm the count
 // HOLDS at exactly `target` for `stableMs` (so a late overshoot is caught, not
 // missed by checking once). Returns the final sorted node indices.
+// exact:false holds the window against `>= target` instead of `=== target`, for
+// the callers whose subject is that the count is REACHED. Enforcing the ceiling
+// as well only belongs to a caller whose subject is the ceiling - otherwise a
+// suite proving one thing fails for the other, and the failure reads as the
+// thing it was written to prove.
 export async function waitForInstanceCount(env, appName, target, {
-  timeout = 120000, stableMs = 12000, interval = 3000,
+  timeout = 120000, stableMs = 12000, interval = 3000, exact = true,
 } = {}) {
   await waitFor(
     async () => (await installedInstanceIndices(env, appName)).length >= target,
@@ -330,8 +335,8 @@ export async function waitForInstanceCount(env, appName, target, {
     await sleepUnlessInfraDead(interval);
     // eslint-disable-next-line no-await-in-loop
     const now = await installedInstanceIndices(env, appName);
-    if (now.length !== target) {
-      throw new Error(`${appName} instance count = ${now.length} [${now.join(',')}], expected exactly ${target}`);
+    if (exact ? now.length !== target : now.length < target) {
+      throw new Error(`${appName} instance count = ${now.length} [${now.join(',')}], expected ${exact ? 'exactly' : 'at least'} ${target}`);
     }
     last = now;
   }
