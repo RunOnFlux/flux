@@ -196,13 +196,25 @@ describe('primary election under a divergent placement order', function () {
     // holding - and a fleet-wide restart puts every holder of an app in that state
     // together.
     //
-    // The standbys have genuinely synced from the seed by now, so pin them synced
-    // first: a standby with nothing to sync from is not election-eligible and could
-    // not start a second container whatever the restarting node answered, which would
-    // make this pass for no reason. Once they are synced their folders legitimately
-    // go sendreceive too, so the count that matters here is CONTAINERS - one running
-    // container is the invariant, not one writable folder.
-    await Promise.all(holders.filter((i) => i !== seedIndex).map(
+    // EVERY holder is pinned synced, the seed included, because by this point every
+    // one of them is a connected source of the folder and the stub only reports what
+    // a fixture declares - it will not invent a connected peer, which is what keeps
+    // it from manufacturing witnesses.
+    //
+    // The standbys matter because a standby with nothing to sync from is not
+    // election-eligible and could not start a second container whatever the
+    // restarting node answered, which would make this pass for no reason. The SEED
+    // matters because it is the node whose FluxOS is about to go away: the standbys
+    // synced from it, so their syncthing holds an open connection to it, and that
+    // connection is the whole evidence the probe reads while its API is silent. Leave
+    // the seed undeclared and the stub reports it disconnected - a state a live
+    // syncthing that never stopped cannot be in - and the peers correctly act on the
+    // false evidence they were handed.
+    //
+    // Once they are synced their folders legitimately go sendreceive too, so the count
+    // that matters here is CONTAINERS - one running container is the invariant, not
+    // one writable folder.
+    await Promise.all(holders.map(
       (i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: `flux${orderApp}_${orderApp}` }),
     ));
 
