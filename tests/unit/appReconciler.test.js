@@ -68,7 +68,7 @@ describe('appReconciler tests', () => {
         clearNetworkHeal: sinon.stub().resolves(),
       },
       appQueryService: {
-        decryptEnterpriseApps: sinon.stub().callsFake(async (arr) => arr),
+        decryptEnterpriseApps: sinon.stub().callsFake(async (arr) => ({ readable: arr, unreadable: [], inPlace: arr })),
         installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
       },
       containerHealthMonitor: { recreateMissingContainers: sinon.stub().resolves() },
@@ -235,6 +235,30 @@ describe('appReconciler tests', () => {
       sinon.assert.callOrder(stubs.volumeService.ensureAppVolumeMounted, stubs.dockerOperations.appDeleteDataInMountPoint);
     });
 
+    // An operator stopping an app says nothing about whether its local data can
+    // be trusted. Dropping the pending clear here loses it for good: the sync
+    // layer marks a component processed BEFORE it asks, so it never asks again,
+    // and the component eventually starts on the data the clear existed to
+    // remove.
+    it('keeps a pending data clear when the operator retracts the run opinion', async () => {
+      appReconciler.requestStopAndClearData('www_App', 'syncthing first-run clean install');
+      appReconciler.clearControllerDesired('www_App');
+      // requestStopAndClearData enqueues its own reconcile; wait for it to land
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.calledOnce).to.be.true;
+    });
+
+    // removal is the one case where nothing about the component is worth acting
+    // on, data clear included - it is gone
+    it('drops a pending data clear when the component is removed', async () => {
+      appReconciler.requestStopAndClearData('www_App', 'syncthing first-run clean install');
+      appReconciler.forgetDesiredState('www_App');
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+      expect(stubs.dockerOperations.appDeleteDataInMountPoint.called).to.be.false;
+    });
+
     it('ensures mount paths exist (recreating any syncthing-cleaned source) before starting', async () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.volumeService.ensureMountPathsExist.calledOnce).to.be.true;
@@ -389,13 +413,13 @@ describe('appReconciler tests', () => {
 
     it('does NOT act on a cleared controller verdict (removal seam wipes it)', async () => {
       // uninstall fires appUninstaller's component-removed seam -> serviceManager
-      // wires it to clearControllerDesired: a reinstalled g: component must await a
+      // wires it to forgetDesiredState: a reinstalled g: component must await a
       // fresh election rather than inherit the pre-uninstall verdict
       localSpec = { name: 'App', version: 4, compose: [{ name: 'db', containerData: 'g:/data' }] };
       stubs.globalState.bootContainerStateSettled = false;
       appReconciler.setControllerDesired('db_App', 'running', 'test');
       stubs.globalState.bootContainerStateSettled = true;
-      appReconciler.clearControllerDesired('db_App');
+      appReconciler.forgetDesiredState('db_App');
       await appReconciler.reconcile('db_App');
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
@@ -719,9 +743,11 @@ describe('appReconciler tests', () => {
       localSpec = {
         name: 'App', version: 8, enterprise: 'CIPHERTEXT', compose: [{ name: 'db', containerData: '' }],
       };
-      stubs.appQueryService.decryptEnterpriseApps.callsFake(async () => [
-        { name: 'App', version: 8, compose: [{ name: 'db', containerData: 'g:/data' }] },
-      ]);
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async () => ({
+        readable: [{ name: 'App', version: 8, compose: [{ name: 'db', containerData: 'g:/data' }] }],
+        unreadable: [],
+        inPlace: [{ name: 'App', version: 8, compose: [{ name: 'db', containerData: 'g:/data' }] }],
+      }));
       await appReconciler.reconcile('db_App');
       // treated as g: from the DECRYPTED containerData -> not started without a controller.
       // If it had acted on the encrypted spec (containerData '') it would be a plain start.
@@ -732,8 +758,8 @@ describe('appReconciler tests', () => {
       localSpec = {
         name: 'App', version: 8, enterprise: 'CIPHERTEXT', compose: [{ name: 'db', containerData: '' }],
       };
-      // throwOnError path: decryption failing (e.g. key not loaded at boot) must propagate
-      stubs.appQueryService.decryptEnterpriseApps.rejects(new Error('enterpriseKey is mandatory'));
+      // an unreadable spec (e.g. key not loaded at boot) must defer, never act
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({ readable: [], unreadable: arr, inPlace: arr }));
       await appReconciler.reconcile('db_App'); // must not throw
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
       expect(stubs.dockerService.appDockerStop.called).to.be.false;
@@ -767,7 +793,7 @@ describe('appReconciler tests', () => {
       const decrypted = { ...stored, compose: [{ name: 'c1', containerData: '/data' }, { name: 'c2', containerData: '/data' }] };
       stubs.appQueryService.installedApps.resolves({ status: 'success', data: [stored] });
       stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => (query.name === 'EntApp' ? stored : null));
-      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => arr.map((a) => (a.enterprise ? decrypted : a)));
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({ readable: arr.map((a) => (a.enterprise ? decrypted : a)), unreadable: [], inPlace: arr.map((a) => (a.enterprise ? decrypted : a)) }));
 
       const started = [];
       stubs.dockerService.appDockerStart.callsFake(async (id) => { started.push(id); });
@@ -783,11 +809,13 @@ describe('appReconciler tests', () => {
       };
       stubs.appQueryService.installedApps.resolves({ status: 'success', data: [stored] });
       stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => (query.name === 'EntApp' ? stored : null));
-      // benchd unavailable: lenient calls return the spec still encrypted, strict callers get the throw
-      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr, opts) => {
-        if (opts && opts.throwOnError) throw new Error('benchd unavailable');
-        return arr;
-      });
+      // benchd unavailable: the spec is reported unreadable, never handed back
+      // as an app with no components
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({
+        readable: arr.filter((a) => !a.enterprise),
+        unreadable: arr.filter((a) => a.enterprise),
+        inPlace: arr,
+      }));
       // the app's existing containers, plus an unrelated app's container that
       // this fallback must NOT sweep in (it is not part of the failed app)
       stubs.dockerService.dockerListContainers.resolves([
@@ -821,10 +849,11 @@ describe('appReconciler tests', () => {
       // the failing app FIRST: a sweep that dies on it would never reach Plain
       stubs.appQueryService.installedApps.resolves({ status: 'success', data: [ent, plain] });
       stubs.dbHelper.findOneInDatabase.callsFake(async (db, coll, query) => byName[query.name] ?? null);
-      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr, opts) => {
-        if (opts && opts.throwOnError && arr.some((a) => a.enterprise)) throw new Error('benchd unavailable');
-        return arr;
-      });
+      stubs.appQueryService.decryptEnterpriseApps.callsFake(async (arr) => ({
+        readable: arr.filter((a) => !a.enterprise),
+        unreadable: arr.filter((a) => a.enterprise),
+        inPlace: arr,
+      }));
       stubs.dockerService.dockerListContainers.resolves([{ Names: ['/fluxc1_EntApp'] }]);
 
       const started = [];

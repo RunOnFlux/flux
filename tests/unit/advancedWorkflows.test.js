@@ -466,6 +466,8 @@ describe('advancedWorkflows tests', () => {
     let registryManagerStub;
     let dockerServiceStub;
     let syncthingServiceStub;
+    let syncthingCompletionStub;
+    let syncthingDevicesStub;
     let axiosGetStub;
     let recursionCounter;
 
@@ -513,7 +515,7 @@ describe('advancedWorkflows tests', () => {
 
       // Stub decryptEnterpriseApps to return apps as-is
       const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
-      sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake((apps) => Promise.resolve(apps));
+      sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake((apps) => Promise.resolve({ readable: apps, unreadable: [], inPlace: apps }));
 
       // Stub database connection to prevent actual DB access
       sinon.stub(dbHelper, 'databaseConnection').returns({
@@ -521,13 +523,24 @@ describe('advancedWorkflows tests', () => {
       });
       sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
 
-      // The peer probe hits /apps/listrunningapps on the other nodes in the
-      // location list. Unstubbed these become real network calls with a 10s
-      // ceiling each, so every election test would hang on unroutable fixture
-      // IPs. Default to unreachable - which the probe treats as not-running,
-      // matching a peer that cannot be contacted - and let the tests that care
-      // override it.
+      // The peer probe hits /apps/heldcomponents and /apps/listrunningapps on the
+      // other nodes in the location list. Unstubbed these become real network
+      // calls with a 10s ceiling each, so every election test would hang on
+      // unroutable fixture IPs. Default to unreachable, which the probe treats as
+      // UNKNOWN and will not start beside - so a test that expects a start must
+      // say what its peers answer.
       axiosGetStub = sinon.stub(axios, 'get').rejects(new Error('peer unreachable (test default)'));
+
+      // The evidence half: this node's own syncthing view of a silent peer, and
+      // whether this node can still see the fleet. Defaults are the ignorant node
+      // (no device ever resolved) on a healthy fleet, so a test that wants a
+      // silence acted on has to supply the evidence for it.
+      const syncthingServiceModule = require('../../ZelBack/src/services/syncthingService');
+      syncthingCompletionStub = sinon.stub(syncthingServiceModule, 'getDbCompletion').resolves(null);
+      syncthingDevicesStub = sinon.stub(syncthingServiceModule, 'getConfigDevices').resolves({ status: 'success', data: [] });
+      globalState.syncthingDevicesIDCache.clear();
+      const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
+      sinon.stub(fluxCommunication, 'peerResponsiveness').returns({ responding: 4, total: 4 });
     });
 
     it('should skip execution if installation is in progress', async () => {
@@ -635,7 +648,14 @@ describe('advancedWorkflows tests', () => {
 
     // Shared fixture for the recovery tests below: a v3 g: app with this node in
     // the location list. `peers` are the other nodes, in election order.
-    const electionFixture = (appName, peers = []) => {
+    // `selfRunningSince` places this node in the election order; `receiveOnlyCache`
+    // lets a test seed the syncthing state machine's per-app cache and inspect it
+    // afterwards. Both default to the plain index-0 fixture.
+    const electionFixture = (appName, peers = [], options = {}) => {
+      const {
+        selfRunningSince = '2026-01-01T00:00:00.000Z',
+        receiveOnlyCache = new Map(),
+      } = options;
       // Mirror getAppIdentifier: a name that is neither zel- nor flux-prefixed gets
       // `flux`. The container names peers report are this exact string, and the
       // election compares whole names, so a stand-in value would not match.
@@ -646,14 +666,15 @@ describe('advancedWorkflows tests', () => {
         data: [{ name: appName, version: 3, containerData: 'g:/syncdata' }],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
-      const receiveOnlyCache = new Map();
-      receiveOnlyCache.set(appId, { restarted: true });
+      if (!receiveOnlyCache.has(appId)) receiveOnlyCache.set(appId, { restarted: true });
       fluxNetworkHelperStub.resolves('192.168.1.5:16127');
       // Election order is runningSince ascending, with ip only as a tiebreak. Give
-      // explicit, distinct timestamps so this node is unambiguously index 0 on the
-      // primary key rather than relying on how two IPs happen to sort as strings.
+      // explicit, distinct timestamps so this node's index rests on the primary key
+      // rather than on how two IPs happen to sort as strings. Peers are one minute
+      // apart from 00:01, so a selfRunningSince between two of them puts this node
+      // between those peers - the only arrangement with a peer ABOVE us.
       registryManagerStub.resolves([
-        { name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:00:00.000Z' },
+        { name: appName, ip: '192.168.1.5:16127', runningSince: selfRunningSince },
         ...peers.map((ip, n) => ({ name: appName, ip, runningSince: `2026-01-01T00:0${n + 1}:00.000Z` })),
       ]);
       syncthingServiceStub.resolves({
@@ -684,6 +705,31 @@ describe('advancedWorkflows tests', () => {
           globalState, installedApps, listRunningApps, receiveOnlyCache, [], [], require('https'),
         );
       };
+    };
+
+    // The probe asks /apps/heldcomponents first and only falls back to
+    // /apps/listrunningapps when a peer cannot serve it, so a stub has to answer
+    // per URL. `held: null` is a peer too old to know the endpoint.
+    // A node too old for /apps/heldcomponents replies 404, and axios carries that
+    // reply on error.response. A bare rejection is what an UNREACHABLE node looks
+    // like, and the two must not be interchangeable here: one is a peer answering
+    // the old way, the other is a peer that cannot be ruled out at all.
+    const peerAnswers = ({ held = null, running = [] }) => (url) => {
+      if (url.includes('/apps/heldcomponents')) {
+        return held === null
+          ? Promise.reject(Object.assign(new Error('Request failed with status code 404'), { response: { status: 404 } }))
+          : Promise.resolve({ data: { data: held } });
+      }
+      return Promise.resolve({ data: { data: running } });
+    };
+
+    // This node's own syncthing view of a peer's device, which is what a silence is
+    // judged on. 'valid' is a live connection; any other state is a closed one; and
+    // leaving the device out of the cache entirely is the third answer - this node
+    // never resolved the peer and cannot say.
+    const peerSyncthingSays = (peerSocketAddr, remoteState) => {
+      globalState.syncthingDevicesIDCache.set(peerSocketAddr, `DEVICE-${peerSocketAddr}`);
+      syncthingCompletionStub.resolves({ status: 'success', data: { remoteState } });
     };
 
     const linesMatching = (logInfo, needle) => logInfo.getCalls()
@@ -739,6 +785,11 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
       const logInfo = sinon.stub(log, 'info');
       const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      // The peer answers and holds nothing. Left unreachable it would hold the
+      // start on its own, and this test would pass or fail on the peer probe
+      // rather than on the eviction it is about.
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
 
       // Cycle 1: FDM names THIS node as primary, so the node records itself.
       serviceHelperStub.resetBehavior();
@@ -772,7 +823,7 @@ describe('advancedWorkflows tests', () => {
 
       // the peer IS running it - FDM simply has not caught up yet
       axiosGetStub.resetBehavior();
-      axiosGetStub.resolves({ data: { data: [{ Names: [`/flux${appName}`] }] } });
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
 
       await runPass();
 
@@ -789,12 +840,119 @@ describe('advancedWorkflows tests', () => {
 
       // peer answers, and is NOT running the component
       axiosGetStub.resetBehavior();
-      axiosGetStub.resolves({ data: { data: [{ Names: ['/fluxsomethingelse'] }] } });
+      axiosGetStub.callsFake(peerAnswers({ held: ['fluxsomethingelse'] }));
 
       await runPass();
 
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
+    });
+
+    it('seeds a confirmed leader even when a stagger was already scheduled for it', async () => {
+      // The election runs on its own cadence and the state machine confirms the
+      // leader on another, so a pass can schedule the stagger before the leadership
+      // is known. A seed that then defers to that schedule waits index*3min on peers
+      // that cannot become ready, which is the wait the claim exists to skip.
+      const appName = 'seedafterscheduleapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const cache = new Map([[`flux${appName}`, { restarted: true }]]);
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
+      );
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+
+      // pass one: not yet the confirmed leader, so the stagger gets scheduled
+      await runPass();
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
+
+      // pass two: leadership confirmed. The pending schedule must not hold it back.
+      logInfo.resetHistory();
+      cache.get(`flux${appName}`).designatedLeader = true;
+      await runPass();
+
+      expect(linesMatching(logInfo, 'seeds without the index stagger')).to.have.lengthOf(1);
+    });
+
+    it('does not start when a peer has committed to the component but has no container yet', async () => {
+      // The masterSlave primary path fixes ownership on the persistent data before
+      // it starts anything, so a committed peer legitimately has no container for
+      // that whole window. Asked only for containers it answers "free", and this
+      // node starts a second writer on the shared volume.
+      const appName = 'peerclaimedapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+
+      // holds the component, runs no containers at all
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`], running: [] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'is held on peer node')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('falls back to the running-container check against a peer that cannot answer heldcomponents', async () => {
+      // The fleet is mixed for the length of a rollout. A peer that cannot serve the
+      // endpoint must be asked the old way; reading its 404 as "holds nothing" is
+      // the same second-writer start, arrived at from the other direction.
+      const appName = 'peeroldapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: null, running: [{ Names: [`/flux${appName}`] }] }));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'is running on peer node')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('claims the component before the ownership fix, and releases it once the attempt ends', async () => {
+      // The claim has to be taken BEFORE the slow pre-start work, or it does not
+      // cover the window it exists for. Releasing it at the end is safe: a start
+      // that got as far as controllerDesired is held by that from then on, and one
+      // that failed must stop claiming rather than block the fleet.
+      const appName = 'claimlifecycleapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+      const claimStarting = sinon.stub(appReconciler, 'claimStarting');
+      const releaseStarting = sinon.stub(appReconciler, 'releaseStarting');
+      const setControllerDesired = sinon.stub(appReconciler, 'setControllerDesired');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] })); // nobody holds it - we start
+
+      await runPass();
+
+      // The start is deliberately not awaited by the election pass, so the release
+      // lands after it returns - wait for the attempt to finish rather than racing
+      // it. Waited on THIS app: earlier tests leave their own starts in flight, and
+      // any-call-happened is satisfied by one of those landing here.
+      const releasedThisApp = () => releaseStarting.getCalls().some((c) => c.args[0] === appName);
+      for (let tick = 0; tick < 100 && !releasedThisApp(); tick += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 20); });
+      }
+
+      sinon.assert.calledWith(claimStarting, appName);
+      sinon.assert.calledWith(releaseStarting, appName);
+      // the claim precedes any pre-start work, and outlives it
+      sinon.assert.callOrder(claimStarting, releaseStarting);
+      if (setControllerDesired.called) {
+        sinon.assert.callOrder(claimStarting, setControllerDesired, releaseStarting);
+      }
     });
 
     it('does not mistake a longer-named app on a peer for this component', async () => {
@@ -808,12 +966,76 @@ describe('advancedWorkflows tests', () => {
       serviceHelperStub.resolves({ data: [] });
 
       axiosGetStub.resetBehavior();
-      axiosGetStub.resolves({ data: { data: [{ Names: [`/flux${appName}1`] }] } });
+      // answered the OLD way, so the whole-name comparison is what is under test
+      axiosGetStub.callsFake(peerAnswers({ running: [{ Names: [`/flux${appName}1`] }] }));
 
       await runPass();
 
       expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(0);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    it('probes every peer, not just lower-index ones, before a designated leader leaves the stagger', async () => {
+      // The seed claim exists precisely to leave the index stagger, so the
+      // lower-index probe that serialises the staggered starts is the wrong set
+      // to ask: a peer ABOVE us in the order is the one it cannot see, and FDM's
+      // registration lag means nothing else reports that peer as live either.
+      // Starting anyway puts a second writer on the syncthing-shared volume.
+      const appName = 'seedjumpapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const cache = new Map([[`flux${appName}`, { restarted: true, designatedLeader: true }]]);
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127'],
+        { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
+      );
+      serviceHelperStub.resolves({ data: [] }); // FDM: no primary registered yet
+
+      // Order: .90 (00:01), .91 (00:02), this node (00:02:30), .92 (00:03). Only
+      // .92 - the peer above us, invisible to a lower-index probe - is running it.
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(async (url) => (url.includes('192.168.1.92')
+        ? peerAnswers({ held: [`flux${appName}`] })(url)
+        : peerAnswers({ held: [] })(url)));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'a peer is already running it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('spends the seed claim on the pass that uses it, so it cannot outlive genesis', async () => {
+      // designatedLeader describes genesis, and the state machine stops
+      // republishing it the moment the folder goes sendreceive - manageFolderSyncState
+      // returns on its already-syncing branch and never reaches the election again,
+      // so nothing retracts a claim left standing. This node would then skip the
+      // stagger on every later primary loss, for the life of the process.
+      const appName = 'seedspentapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const appId = `flux${appName}`;
+      const cache = new Map([[appId, { restarted: true, designatedLeader: true }]]);
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
+      );
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.resolves({ data: { data: [] } }); // no peer is running it
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'seeds without the index stagger')).to.have.lengthOf(1);
+      expect(cache.get(appId).designatedLeader).to.equal(false);
+
+      // and the next pass is an ordinary staggered candidate again
+      logInfo.resetHistory();
+      await runPass();
+
+      expect(linesMatching(logInfo, 'seeds without the index stagger')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
     });
 
     it('probes every peer at once, so an unreachable fleet costs one timeout and not N', async () => {
@@ -844,6 +1066,251 @@ describe('advancedWorkflows tests', () => {
 
       release.forEach((resolve) => resolve({ data: { data: [] } }));
       await pass;
+    });
+
+    it('leaves a silent peer alone while this node\'s syncthing still holds a connection to it', async () => {
+      // The FluxOS restart window. FluxOS and the container fail independently: the
+      // peer's API is gone for tens of seconds while its syncthing and its container
+      // carry on writing, so the silence is the strongest reason to suspect the peer
+      // IS running the component. In-fleet, six seconds of it was enough to start a
+      // second writer on the shared volume.
+      const appName = 'restartingpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+      // the peer answers nothing at all (the axios default), but its sync connection
+      // to this node is open
+      peerSyncthingSays('192.168.1.90:16127', 'valid');
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'still holds a live connection to it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('will not start beside a silent peer it cannot ask its own syncthing about', async () => {
+      // The correlated restart: this node's own process cycled while the peer was
+      // already down, so it never resolved the peer's device and has no view of it
+      // either way. The node with the least knowledge must not be the one that
+      // authorises a second writer - absence of evidence authorises nothing.
+      const appName = 'unknownpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+      // no device cached for the peer, and the peer answers nothing
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'cannot ask its own syncthing about it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('starts once a silent peer\'s sync connection is gone and this node can still see the fleet', async () => {
+      // The other direction, and the one that stops this becoming a stall: a peer
+      // that is genuinely down loses its sync connection, and that IS evidence. The
+      // start proceeds without waiting for the location record to expire.
+      const appName = 'deadpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    it('resolves a dead peer\'s device from this node\'s own syncthing when the cache never learned it', async () => {
+      // The device cache is in memory and is filled by asking the PEER, so it is
+      // empty for exactly the peer that matters: one that died while this node's own
+      // process was restarting. Without the on-disk fallback this node would call
+      // itself ignorant and hold the app down until the dead peer's location record
+      // expired - up to the full broadcast lifetime, for a peer it had a perfectly
+      // good local record of.
+      const appName = 'diskdeviceapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+      // nothing cached, but this node's syncthing still has the device configured
+      // under the name the monitor gave it, and reports the connection closed
+      syncthingDevicesStub.resolves({
+        status: 'success',
+        data: [{ name: '192.168.1.90:16127', deviceID: 'DEVICE-DEAD-PEER' }],
+      });
+      syncthingCompletionStub.resolves({ status: 'success', data: { remoteState: 'unknown' } });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    it('will not start when a silent peer\'s connection is gone but this node cannot see the fleet either', async () => {
+      // A dead peer and a live peer on the far side of a split this node is the
+      // small end of look identical from here - in both, the peer is silent and its
+      // sync connection has dropped. The proportional floor is the only thing that
+      // separates them, and below it the peer is very likely still serving.
+      const appName = 'isolatedselfapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+      const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
+      fluxCommunication.peerResponsiveness.returns({ responding: 1, total: 8 });
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'cannot see the fleet either')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('will not start beside a peer that answered with an error status', async () => {
+      // A peer that answered anything is alive, and "cannot say" is not "is not
+      // running it". The evidence path must not be reached at all here: a live peer
+      // whose sync connection happens to be down would otherwise read as free.
+      const appName = 'erroringpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.rejects(Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }));
+      peerSyncthingSays('192.168.1.90:16127', 'unknown');
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'alive, and cannot be ruled out')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'the component is free there')).to.have.lengthOf(0);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('holds the start on one unreadable peer even when every other peer answers', async () => {
+      // Peers answering "not me" say nothing about the one that did not answer.
+      // Folding the set as "some peer is free" rather than "every peer was ruled
+      // out" is how a single blind spot becomes a start.
+      const appName = 'onedarkpeerapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127', '192.168.1.92:16127'],
+      );
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(async (url) => (url.includes('192.168.1.92')
+        ? Promise.reject(new Error('peer unreachable'))
+        : peerAnswers({ held: [] })(url)));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'could not be ruled out')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('holds a due schedule rather than dropping it when a lower-index node cannot be read', async () => {
+      // The two ways of not starting are not the same. A lower-index node that IS
+      // running it settles the question, and the schedule is spent. A lower-index
+      // node this node could not read settles nothing - dropping the schedule there
+      // sends this node back through a fresh index * 3min wait for a peer it may be
+      // able to read on the very next pass.
+      const appName = 'holdscheduleapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { selfRunningSince: '2026-01-01T00:02:00.000Z' },
+      );
+      serviceHelperStub.resolves({ data: [] });
+      // Only Date is faked: the schedule is compared against Date.now(), and faking
+      // the timer functions as well would take the probe's own cancel timers with it.
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+      // Pass 1: index 1 behind an answering peer, so this node schedules its stagger.
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      await runPass();
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
+
+      // Pass 2: the schedule is due, and now the lower-index peer cannot be read.
+      clock.tick(3 * 60 * 1000);
+      logInfo.resetHistory();
+      axiosGetStub.resetBehavior();
+      axiosGetStub.rejects(new Error('lower-index node unreachable'));
+      await runPass();
+      expect(linesMatching(logInfo, 'holding the scheduled start')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+
+      // Pass 3 discriminates: the schedule is still there and still due, so this pass
+      // re-probes immediately. Had it been dropped, this node would be scheduling a
+      // fresh stagger instead.
+      logInfo.resetHistory();
+      await runPass();
+      expect(linesMatching(logInfo, 'holding the scheduled start')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(0);
+    });
+
+    it('keeps the seed claim when a peer cannot be ruled out, rather than spending it on a non-answer', async () => {
+      // The claim is what the seed decision is made FROM, and no decision was
+      // reached. Spending it here drops this node to the index stagger on no
+      // evidence - the exact wait the claim exists to remove, given up because a
+      // peer did not answer.
+      const appName = 'seedheldapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const appId = `flux${appName}`;
+      const cache = new Map([[appId, { restarted: true, designatedLeader: true }]]);
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:02:30.000Z', receiveOnlyCache: cache },
+      );
+      serviceHelperStub.resolves({ data: [] });
+      // both peers silent, and this node has no view of either
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'holding the seed')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+      expect(cache.get(appId).designatedLeader).to.equal(true);
+    });
+
+    it('keeps the component when the previous primary is silent and its sync connection is still alive', async () => {
+      // FDM dropping a primary is not evidence that it stopped - its registration
+      // lags reality in both directions. The remembered primary is the instance most
+      // likely to still hold the volume, so a silence there keeps the component
+      // rather than releasing it to an election.
+      const appName = 'prevprimaryapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+
+      // Cycle 1: FDM names the PEER, so this node records it as the previous primary.
+      serviceHelperStub.resetBehavior();
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      await runPass();
+      logInfo.resetHistory();
+
+      // Cycle 2: FDM reports no primary and the peer has gone silent - but its
+      // syncthing connection to this node is still open, so it is restarting.
+      serviceHelperStub.resetBehavior();
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.rejects(new Error('previous primary unreachable'));
+      peerSyncthingSays('192.168.1.90:16127', 'valid');
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'still holds a live connection to it')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
     it('keeps electing later g: apps when an earlier one is still held by its previous master', async () => {
@@ -909,16 +1376,16 @@ describe('advancedWorkflows tests', () => {
       await runPass();
       logInfo.resetHistory();
 
-      // Cycle 2: FDM reports no primary for either. The peer answers, and is still
-      // running the FIRST app only - so app one is settled and app two is free.
+      // Cycle 2: FDM reports no primary for either. The peer answers, and holds the
+      // FIRST component only - so app one is settled and app two is free.
       serviceHelperStub.resetBehavior();
       serviceHelperStub.resolves({ data: [] });
       axiosGetStub.resetBehavior();
-      axiosGetStub.resolves({ data: { data: [{ Names: [`/flux${first}`] }] } });
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${first}`] }));
 
       await runPass();
 
-      expect(linesMatching(logInfo, `component:${first} is not on fdm but previous master is running it`)).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, `component:${first} is held on peer node (previous primary)`)).to.have.lengthOf(1);
       // the assertion that discriminates: the pass carried on to the second app
       expect(linesMatching(logInfo, `starting docker component:${second}`)).to.have.lengthOf(1);
     });

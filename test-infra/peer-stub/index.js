@@ -10,9 +10,7 @@ if (process.env.FLUX_TEST_HARNESS !== 'true') {
 
 const WS_PORT = Number(process.env.WS_PORT) || 16127;
 const CONTROL_PORT = Number(process.env.CONTROL_PORT) || 16128;
-const PRIVATE_KEY = process.env.PRIVATE_KEY;
-const PUBLIC_KEY = process.env.PUBLIC_KEY;
-const NODE_IP = process.env.NODE_IP;
+const { PRIVATE_KEY, PUBLIC_KEY, NODE_IP } = process.env;
 
 if (!PRIVATE_KEY || !PUBLIC_KEY) {
   console.error('PRIVATE_KEY and PUBLIC_KEY env vars are required');
@@ -25,6 +23,35 @@ let connectionsReceived = 0;
 let requestsReceived = 0;
 let messagesServed = 0;
 const requestLog = [];
+
+// What this peer answers when a node asks what it is holding, and when it was
+// asked. The arrival times are the point: a node decides promotion for every
+// folder in one monitor pass, so two arrivals milliseconds apart mean it asked
+// once per folder rather than once for the pass.
+let promotedFolders = { ready: true, folders: [] };
+const promotedFolderRequests = [];
+
+// The status this peer answers that question with. 200 is a peer that can answer
+// it; anything else is a peer that cannot, and the one that matters is 404 -
+// /apps/promotedfolders is new, so every node in the fleet answers 404 until it
+// is upgraded. The fleet runs one image and can never be version-mixed, so
+// without this a rollout is unreachable here and the asking node's handling of
+// it can only ever be guessed at.
+let promotedFoldersStatus = 200;
+
+// Whether this peer answers that question AT ALL. A status - even 404 - is an
+// answer, and the asking node reads any answer as proof the peer is alive. A
+// peer whose FluxOS is down does not answer: the connection is refused. That is
+// a different fact and the node treats it differently, so a suite that needs a
+// holder which is alive but unanswerable has to be able to produce it.
+let promotedFoldersRefuse = false;
+
+// The nodes currently connected to this peer. Held so the stub can SAY things
+// rather than only answer them: a suite that needs a rival claim, a stale
+// broadcast or a message a real node would never send gets a real peer sending
+// it, signed and over the wire, instead of a row written behind the node's back.
+const connectedNodes = new Set();
+let broadcastsSent = 0;
 
 function hash256(data) {
   return sha256(sha256(data));
@@ -75,7 +102,7 @@ async function handleMessage(ws, rawData) {
 
     let hashes = [];
     if (data.version === 2 && Array.isArray(data.hashes)) {
-      hashes = data.hashes;
+      ({ hashes } = data);
     } else if (data.version === 1 && typeof data.hash === 'string') {
       hashes = [data.hash];
     }
@@ -107,6 +134,8 @@ wss.on('headers', (headers) => {
 
 wss.on('connection', (ws) => {
   connectionsReceived++;
+  connectedNodes.add(ws);
+  ws.on('close', () => connectedNodes.delete(ws));
   ws.on('message', (data) => handleMessage(ws, data));
   ws.on('error', () => {});
 });
@@ -115,6 +144,35 @@ const wsServer = http.createServer((req, res) => {
   if (req.url === '/flux/version') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'success', data: '8.0.0' }));
+    return;
+  }
+  if (req.url === '/syncthing/deviceid') {
+    // Every real node answers this, however old - the endpoint long predates
+    // /apps/promotedfolders, which is the only version distinction this stub
+    // models. Nodes cache the answer to name this peer in queries against
+    // their own syncthing, so a stub that 404s here starves that cache and
+    // silently disables every check built on it.
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'success', data: 'PEERSTUB-DEVICE-0000001' }));
+    return;
+  }
+  if (req.url === '/apps/promotedfolders') {
+    // Recorded before the status is applied: a peer that answers 404 was still
+    // asked, and a suite proving the asker kept asking needs to see that.
+    promotedFolderRequests.push(Date.now());
+    if (promotedFoldersRefuse) {
+      // Destroyed rather than answered, so the asker sees the transport fail
+      // exactly as it does against a node whose FluxOS is not listening.
+      req.socket.destroy();
+      return;
+    }
+    if (promotedFoldersStatus !== 200) {
+      res.writeHead(promotedFoldersStatus);
+      res.end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'success', data: promotedFolders }));
     return;
   }
   res.writeHead(404);
@@ -160,7 +218,60 @@ const controlServer = http.createServer(async (req, res) => {
         messagesServed,
         messagesLoaded: messages.size,
         requestLog,
+        promotedFolderRequests,
+        broadcastsSent,
+        connectedNodes: connectedNodes.size,
       }));
+      return;
+    }
+
+    // Say something to every node connected right now, signed with this peer's
+    // own key and framed exactly as a real broadcast - so the receiving node
+    // validates it, stores it and acts on it through the path it uses for any
+    // other peer. The caller supplies the whole message, because what makes a
+    // message interesting to a suite is usually the field a real peer would
+    // never get wrong.
+    if (req.method === 'POST' && req.url === '/broadcast') {
+      const body = await readBody(req);
+      const data = JSON.parse(body);
+      const wire = await serialiseAndSignBroadcast(data);
+      let sent = 0;
+      for (const ws of connectedNodes) {
+        if (ws.readyState === 1) { ws.send(wire); sent++; }
+      }
+      broadcastsSent += sent;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', sent, connected: connectedNodes.size }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/promoted-folders') {
+      const body = await readBody(req);
+      const wanted = JSON.parse(body);
+      promotedFolders = {
+        ready: wanted.ready !== false,
+        folders: Array.isArray(wanted.folders) ? wanted.folders : [],
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', promotedFolders }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/promoted-folders-status') {
+      const body = await readBody(req);
+      const wanted = JSON.parse(body);
+      promotedFoldersStatus = Number(wanted.status) || 200;
+      promotedFoldersRefuse = false;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', promotedFoldersStatus }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/promoted-folders-refuse') {
+      const body = await readBody(req);
+      promotedFoldersRefuse = JSON.parse(body).refuse !== false;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', promotedFoldersRefuse }));
       return;
     }
 
@@ -187,6 +298,11 @@ const controlServer = http.createServer(async (req, res) => {
       connectionsReceived = 0;
       requestsReceived = 0;
       messagesServed = 0;
+      promotedFolderRequests.length = 0;
+      promotedFolders = { ready: true, folders: [] };
+      promotedFoldersStatus = 200;
+      promotedFoldersRefuse = false;
+      broadcastsSent = 0;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok' }));
       return;

@@ -1,3 +1,5 @@
+import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
+
 export async function execInContainer(container, command) {
   const args = Array.isArray(command) ? command : ['sh', '-c', command];
   const result = await container.exec(args);
@@ -71,13 +73,15 @@ export async function restartDockerd(container, { readyTimeoutMs = 40000, interv
   const start = Date.now();
   let sawDown = false;
   while (Date.now() - start < readyTimeoutMs) {
+    // an infra death voids the run - don't spend the budget proving it
+    throwIfInfraDead();
     // eslint-disable-next-line no-await-in-loop
     const r = await execInContainer(container, 'docker info > /dev/null 2>&1');
     const up = r.exitCode === 0;
     if (!up) sawDown = true;
     if (sawDown && up) return;
     // eslint-disable-next-line no-await-in-loop
-    await new Promise((res) => setTimeout(res, interval));
+    await sleepUnlessInfraDead(interval);
   }
   throw new Error(`restartDockerd: dockerd did not cycle down and back up within ${readyTimeoutMs}ms`);
 }
@@ -99,13 +103,15 @@ export async function restartFluxos(container, { apiPort = 16127, readyTimeoutMs
   const start = Date.now();
   let sawDown = false;
   while (Date.now() - start < readyTimeoutMs) {
+    // an infra death voids the run - don't spend the budget proving it
+    throwIfInfraDead();
     // eslint-disable-next-line no-await-in-loop
     const r = await execInContainer(container, probe);
     const up = r.exitCode === 0;
     if (!up) sawDown = true;
     if (sawDown && up) return;
     // eslint-disable-next-line no-await-in-loop
-    await new Promise((res) => setTimeout(res, interval));
+    await sleepUnlessInfraDead(interval);
   }
   throw new Error(`restartFluxos: FluxOS did not cycle down and back up within ${readyTimeoutMs}ms`);
 }

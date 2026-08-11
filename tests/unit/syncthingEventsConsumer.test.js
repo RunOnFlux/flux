@@ -94,7 +94,7 @@ describe('syncthingEventsConsumer tests', () => {
     expect(secondCallQuery.since).to.equal(6);
   });
 
-  it('accumulates FolderErrors folder ids for the monitor to drain; draining clears', async () => {
+  it('flags FolderErrors folders as a durable level: reading never clears, only resolution does', async () => {
     syncthingServiceMock.getEvents.onFirstCall().resolves(eventsResponse([
       { id: 7, time: 't', type: 'FolderErrors', data: { folder: 'fluxcomp_bad', errors: [{ error: 'folder marker missing' }] } },
       { id: 8, time: 't', type: 'FolderSummary', data: { folder: 'fluxcomp_ok', summary: {} } },
@@ -104,9 +104,17 @@ describe('syncthingEventsConsumer tests', () => {
     consumer.start({ onFolderActivity, onResync });
     await new Promise((resolve) => { setImmediate(() => { setImmediate(resolve); }); });
 
-    // only the FolderErrors folder accumulates - plain activity never does
-    expect(consumer.drainErroredFolderIds()).to.deep.equal(['fluxcomp_bad']);
-    expect(consumer.drainErroredFolderIds()).to.deep.equal([]);
+    // only the FolderErrors folder is flagged - plain activity never is
+    expect(consumer.mountVerifyPendingIds()).to.deep.equal(['fluxcomp_bad']);
+    // a pass that read the flag but failed to act changes nothing: the read
+    // is non-destructive, so the next pass sees the same level and retries
+    expect(consumer.mountVerifyPendingIds()).to.deep.equal(['fluxcomp_bad']);
+    // only a completed outcome clears the flag
+    consumer.resolveMountVerify('fluxcomp_bad');
+    expect(consumer.mountVerifyPendingIds()).to.deep.equal([]);
+    // resolution is about the mount question only - the diagnostic record of
+    // the pull failure survives it
+    expect(consumer.getFolderErrors('fluxcomp_bad')).to.deep.equal({ time: 't', errors: [{ error: 'folder marker missing' }] });
   });
 
   it('treats an id regression as a lost-events signal (defensive: a conforming server never returns ids below since)', async () => {

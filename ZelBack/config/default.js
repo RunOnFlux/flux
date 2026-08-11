@@ -44,6 +44,9 @@ module.exports = {
         benchmark: 'benchmark',
         appTamperingEvents: 'apptamperingevents',
         nodeStartupTracker: 'nodestartuptracker',
+        policyDocuments: 'policydocuments', // last-known-good network policy documents, so an unreachable source does not drop enforcement
+        ipRanges: 'ipranges', // the IP location baseline, one document per allocated range, rebuilt and swapped in whole
+        nodeLocations: 'nodelocations', // per-node view derived from the baseline, invalidated when a new baseline lands
       },
     },
     daemon: {
@@ -445,6 +448,14 @@ module.exports = {
   github: {
     rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
     apiBaseUrl: 'https://api.github.com',
+  },
+  policy: {
+    // The directory holding the network's enforcement documents, fetched at runtime by
+    // policyStore. A repo of its own, so a merge to the application cannot change fleet
+    // policy as a side effect and a policy change is not a commit to the application's
+    // default branch. Releases predating this still read RunOnFlux/flux helpers/, so both
+    // copies are kept in step until minimumFluxOSAllowedVersion is above all of them.
+    baseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main',
   },
   geolocation: {
     ipApiBaseUrl: 'http://ip-api.com',

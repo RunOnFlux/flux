@@ -4,7 +4,7 @@
 process.env.TESTCONTAINERS_HOST_OVERRIDE ??= '127.0.0.1';
 process.env.TESTCONTAINERS_RYUK_RECONNECTION_TIMEOUT ??= '5s';
 
-import { GenericContainer, Network, Wait, getContainerRuntimeClient } from 'testcontainers';
+import { GenericContainer, Wait, getContainerRuntimeClient } from 'testcontainers';
 import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -14,9 +14,14 @@ import { nodeClient } from './node-client.js';
 import { execInContainer } from './container.js';
 import { HttpPollWaitStrategy } from './http-wait-strategy.js';
 import { TcpPollWaitStrategy } from './tcp-wait-strategy.js';
-import { getSubnetConfig, REGISTRY_ALIAS, REGISTRY_REPO_HOST } from './subnet-config.js';
+import { getSubnetConfig, REGISTRY_ALIAS } from './subnet-config.js';
 import { closeDb } from './db-client.js';
+import {
+  clearInfraDeath, infraDeathError, reportInfraDeath, sleepUnlessInfraDead,
+} from './infra-death.js';
+import { acquireBootLock, releaseBootLock, BOOT_LOCK_MAX_WAIT_MS } from './boot-lock.js';
 import { stubPeerClient } from './stub-peer-helper.js';
+import { derivePeerThresholds } from './peer-topology.js';
 import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
@@ -87,6 +92,15 @@ const INITIAL_HEIGHT = 2100000;
 // run standalone (no run-all), in which case the cleanup never fires anyway.
 const RUN_LABEL = process.env.E2E_RUN_LABEL || '';
 const runLabels = () => (RUN_LABEL ? { 'flux-e2e-run': RUN_LABEL } : {});
+
+// Image tag for every image this harness builds and runs. One box hosts more
+// than one branch's harness work at a time, and the image names are fixed, so
+// an untagged rebuild silently replaces whatever the other branch had built -
+// the "assume all images are the other branch's" trap. Build with
+// `FLUX_E2E_TAG=<slug> ./build-images.sh` and run with the same value set;
+// the default keeps single-branch use exactly as it was.
+const IMAGE_TAG = process.env.FLUX_E2E_TAG || 'latest';
+const image = (name) => `${name}:${IMAGE_TAG}`;
 
 // masterSlaveApps resolves the FDM by hostname (getMasterIpFromFdm tries EU/USA/ASIA
 // regions, server index from getFdmIndex by the app name's first letter). Every
@@ -169,6 +183,119 @@ async function removeNetwork(networkName) {
   await network.remove().catch(() => {});
 }
 
+// Register a container the whole run depends on with the death watch below.
+// A suite that stops one on purpose - suite 33 stops the registry so a recreate's
+// image pull fails for real - marks it through testcontainers' own pre-stop hook,
+// which StartedGenericContainer.stop() awaits before it stops the container, so
+// the `die` that follows is never read as a death.
+function watchInfra(env, name, container) {
+  const entry = { name, container, expected: false };
+  container.containerIsStopping = async () => { entry.expected = true; };
+  env.infraContainers.push(entry);
+}
+
+function handleContainerDie(env, line) {
+  // Teardown stops these containers deliberately (exit 0/137/143); every exit
+  // from that point on is ours. Exit code is NOT the guard - an OOM-killed mongo
+  // exits 137 exactly like a stopped one, and that voids the run just as surely.
+  if (env.stopping) return;
+  let event;
+  try {
+    event = JSON.parse(line);
+  } catch {
+    return; // garbled frame - the next line is authoritative
+  }
+  const id = event.Actor?.ID ?? event.id;
+  const entry = env.infraContainers.find((c) => c.container.getId() === id);
+  if (!entry || entry.expected) return;
+  // The daemon reports exitCode as a string attribute; timeNano is the death's own
+  // clock, which is what a reader correlates against the node logs.
+  const exitCode = event.Actor?.Attributes?.exitCode ?? 'unknown';
+  const ms = event.timeNano
+    ? Number(event.timeNano) / 1e6
+    : ((event.time && event.time * 1000) || Date.now());
+  reportInfraDeath({ name: entry.name, exitCode, at: new Date(ms).toISOString() });
+}
+
+// Docker emits a `die` event for every container exit. An infra container dying
+// while the env is meant to be alive voids the run, so trip the shared
+// kill-switch on the first one: every wait in flight then fails AT the death
+// naming it, instead of half a minute later as a generic timeout (see
+// infra-death.js). Event-driven off the daemon's own stream - the deaths this
+// catches happen 38-91s into a fleet boot, so a poll would either miss the window
+// or cost more than the watch.
+//
+// The stream is host-wide (other runs' fleets, every node, every app container),
+// so deaths are matched by id against THIS env's registered infra containers.
+async function startInfraDeathWatch(env) {
+  const client = await getContainerRuntimeClient();
+  const stream = await client.container.dockerode.getEvents({
+    filters: { type: ['container'], event: ['die'] },
+  });
+  stream.setEncoding('utf-8');
+  let partial = '';
+  stream.on('data', (chunk) => {
+    // newline-delimited JSON; a chunk boundary can split a line
+    const lines = (partial + chunk).split('\n');
+    partial = lines.pop();
+    for (const line of lines) {
+      if (line.trim()) handleContainerDie(env, line);
+    }
+  });
+  // A socket that goes away with the stream is not an error worth surfacing, and
+  // the watch must never be the reason a mocha process stays alive.
+  stream.on('error', () => {});
+  stream.socket?.unref?.();
+  env.infraWatch = {
+    stop() {
+      stream.removeAllListeners('data');
+      stream.destroy();
+    },
+  };
+}
+
+// Docker's log endpoint frames stdout and stderr into 8-byte-headed chunks for
+// any container without a TTY, which is every container here. Undo the framing so
+// what lands on disk is the plain text a reader expects; a header that is not a
+// valid stream type means the output was never framed, so the rest passes through
+// as-is. follow:false makes the read self-terminating — the daemon closes the
+// response at the end of the log, so this needs no timer to know when it is done.
+function demuxDockerLogs(raw) {
+  const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(String(raw));
+  const parts = [];
+  let i = 0;
+  while (i + 8 <= buf.length) {
+    const streamType = buf.readUInt8(i);
+    const length = buf.readUInt32BE(i + 4);
+    if (streamType > 2 || i + 8 + length > buf.length) break;
+    parts.push(buf.subarray(i + 8, i + 8 + length).toString('utf-8'));
+    i += 8 + length;
+  }
+  if (i < buf.length) parts.push(buf.subarray(i).toString('utf-8'));
+  return parts.join('');
+}
+
+// stdout/stderr of every infra container, read from the daemon on demand: nothing
+// streams these during the run the way the nodes' log collectors do, and until
+// now they were never captured at all - which is why the mongo SIGSEGV that
+// voided three suites has no explanation on disk. Best-effort per container: a
+// container the suite stopped on purpose is already removed, and a log fetch that
+// fails must never mask the failure being dumped.
+async function readInfraLogs(infraContainers) {
+  if (!infraContainers.length) return [];
+  const client = await getContainerRuntimeClient();
+  return Promise.all(infraContainers.map(async ({ name, container }) => {
+    try {
+      const raw = await client.container.dockerode
+        .getContainer(container.getId())
+        .logs({ stdout: true, stderr: true, follow: false, timestamps: true });
+      return { name, text: demuxDockerLogs(raw) };
+    } catch (err) {
+      return { name, text: '', error: err.message };
+    }
+  }));
+}
+
 // Every env this process ever booted, including partially-built ones whose boot
 // threw. log-on-failure falls back to this when the suite's own `env` variable
 // was never assigned (createTestEnv threw inside a before-hook) — the one case
@@ -196,6 +323,8 @@ function makeEnvShell(networkName) {
   const nodeConfigs = []; // per real node: { index, ip, num, logCollector, bootIdDir, ... }
   const volumeNames = [];
   const eventSnapshots = new Map(); // node index -> SSE events captured at teardown
+  const infraContainers = []; // { name, container, expected } - infra only, never nodes
+  let infraLogSnapshot = null; // infra logs captured at teardown when the run is void
   let tornDown = false;
 
   const env = {
@@ -205,7 +334,12 @@ function makeEnvShell(networkName) {
     clients,
     nodeConfigs,
     volumeNames,
+    infraContainers,
     stubPeerClients: new Map(),
+    // The death watch (armed by createTestEnv) reads both: `stopping` tells it
+    // the exits from here on are ours, `infraWatch` is its docker event stream.
+    stopping: false,
+    infraWatch: null,
     get nodeCount() { return clients.length; },
     get lastNodeIndex() { return clients.length - 1; },
 
@@ -233,10 +367,36 @@ function makeEnvShell(networkName) {
       return [...byIndex.values()].sort((a, b) => a.index - b.index);
     },
 
+    // Per-infra-container stdout/stderr for the failure dump. Live off the daemon
+    // while the containers exist; the teardown snapshot afterwards. Never rejects:
+    // the caller is already reporting a failure and must not lose it to this.
+    async infraDiagnostics() {
+      if (infraLogSnapshot) return infraLogSnapshot;
+      return readInfraLogs(infraContainers)
+        .catch((err) => [{ name: 'infra', text: '', error: err.message }]);
+    },
+
     async teardown() {
       if (tornDown) return;
       tornDown = true;
       const warn = (label, err) => console.warn(`teardown [${networkName}] ${label}: ${err.message}`);
+      // Everything stopped below exits on purpose. Silence the death watch BEFORE
+      // the first stop so a deliberate exit can never be reported as INFRA-DEAD:
+      // the flag covers events already queued on the stream, closing it covers
+      // the rest.
+      env.stopping = true;
+      try {
+        env.infraWatch?.stop();
+      } catch (err) {
+        warn('infra death watch', err);
+      }
+      // When the run is already void, the dump that wants the crash log runs
+      // AFTER this teardown (it is an after-all hook) and stopping a container
+      // removes it, taking its logs with it. Snapshot them first - exactly why
+      // the SSE buffers are snapshotted below.
+      if (infraDeathError()) {
+        infraLogSnapshot = await readInfraLogs(infraContainers).catch(() => null);
+      }
       // disconnectEventStream wipes the client's event buffer — snapshot first so
       // a failure dump running after teardown still has the events
       clients.forEach((client, i) => {
@@ -274,7 +434,7 @@ function makeEnvShell(networkName) {
           // throwaway container and retry, so even a wedged fleet cleans up.
           try {
             const helper = await cleanupClient.container.dockerode.createContainer({
-              Image: 'flux-e2e-fluxos-01',
+              Image: image('flux-e2e-fluxos-01'),
               Entrypoint: ['bash', '-c', 'chattr -R -i /v/flux-apps 2>/dev/null; true'],
               HostConfig: { Binds: [`${volName}:/v`], CapAdd: ['LINUX_IMMUTABLE'] },
             });
@@ -345,10 +505,17 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
           { upsert: true },
         );
       } else if (typeof bootContext === 'object') {
+        // lastAliveAgoMs pins the downtime the node will measure, not a wall
+        // clock: an absolute lastAlive computed in a before-hook rots for the
+        // whole boot-lock queue (minutes under a parallel gate), while this
+        // seed runs after the lock with only the node's own boot left ahead.
+        const lastAlive = bootContext.lastAliveAgoMs != null
+          ? Date.now() - bootContext.lastAliveAgoMs
+          : (bootContext.lastAlive ?? Date.now());
         await localDb.collection('nodestartuptracker').updateOne(
           { _id: 'heartbeat' },
           { $set: {
-            lastAlive: bootContext.lastAlive ?? Date.now(),
+            lastAlive,
             machineBootId: bootContext.machineBootId ?? 'old-boot-id',
             shutdownReason: bootContext.shutdownReason ?? null,
           } },
@@ -362,69 +529,62 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
   }
 }
 
-// ---- host-wide boot semaphore ----
-// Fleet boot is the only CPU-heavy phase a suite has: every node in the fleet
-// starts its own dockerd and runs FluxOS DB prep at once. When two suites' boots
-// overlap under run-parallel.sh, they starve each other and a healthy node can
-// blow its event-wait budget while merely slow (observed in the 42-suite gate:
-// suite 22's second fleet booted at load ~15 on 16 cores and mongo collection
-// prep crawled at 7-17s a step). Running fleets are cheap, so serialise just the
-// boot phase host-wide and let everything else overlap. The claim protocol
-// mirrors the subnet claim in run-all.sh: an atomic mkdir holding the owner pid,
-// reclaimable by any waiter once the owner process is dead.
-const BOOT_LOCK_DIR = process.env.E2E_BOOT_LOCK_DIR ?? join(tmpdir(), 'e2e-boot-lock');
-
-const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
-
-async function acquireBootLock() {
-  for (;;) {
-    try {
-      mkdirSync(BOOT_LOCK_DIR);
-      writeFileSync(join(BOOT_LOCK_DIR, 'pid'), String(process.pid));
-      return;
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err;
-    }
-    let owner = 0;
-    try {
-      owner = Number(readFileSync(join(BOOT_LOCK_DIR, 'pid'), 'utf-8'));
-    } catch {
-      // claimer is between mkdir and pid write — treat as live and wait
-    }
-    if (owner) {
-      try {
-        process.kill(owner, 0);
-      } catch {
-        // owner is dead — reclaim; if a sibling reclaims first, the next
-        // mkdir attempt just loses the race and waits
-        rmSync(BOOT_LOCK_DIR, { recursive: true, force: true });
-        continue;
-      }
-    }
-    await sleep(1000);
-  }
+// A node is ready when it can SERVE AUTH, not merely HTTP: the first thing every
+// suite does against a fresh or restarted node is authenticate (startDiscovery),
+// and /id/loginphrase needs the mongo connection, which comes up after express
+// starts answering /flux/version. During that window the route returns 200 with
+// an error body, so readiness must validate the body, not just res.ok.
+function nodeReadyWaitStrategy(nodeIp) {
+  const validate = async (res) => {
+    if (!res.ok) return false;
+    const body = await res.json().catch(() => null);
+    return !!(body && body.status === 'success');
+  };
+  return new HttpPollWaitStrategy(`http://${nodeIp}:16127/id/loginphrase`, { validate });
 }
 
-function releaseBootLock() {
-  try {
-    const owner = Number(readFileSync(join(BOOT_LOCK_DIR, 'pid'), 'utf-8'));
-    if (owner === process.pid) rmSync(BOOT_LOCK_DIR, { recursive: true, force: true });
-  } catch {
-    // already released or reclaimed
-  }
-}
-
-export async function createTestEnv({ hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [], configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true, tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {}, rpcFailures = [], bootContext = 'running' } = {}) {
+export async function createTestEnv({
+  hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [],
+  configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
+  tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
+  rpcFailures = [], bootContext = 'running',
+} = {}) {
+  // The boot-lock queue wait must not count against the suite's hook budget.
+  // Mocha enforces a hook's timeout twice: the watchdog timer (which would fire
+  // MID-QUEUE whenever the queue alone outlasts the budget), and a completion-time
+  // duration check that fails any hook whose TOTAL elapsed time exceeds the
+  // timeout VALUE — so merely re-setting the same value re-arms the watchdog but
+  // still fails the hook once it completes. Widen it to cover the longest wait the
+  // lock itself will tolerate, then set declared + queued once through: that value
+  // passes the duration check with exactly the declared budget left for the boot,
+  // and setting it re-arms the watchdog.
+  //
+  // Widened, never DISABLED. A hook with no timeout has no failure mode, only a
+  // silence: with the timeout off, a waiter that never reached the front of the
+  // queue hung until the runner's 1800s SIGKILL, which reports as rc=125 and
+  // discards every test the suite had already passed. The slack below keeps the
+  // lock's own deadline the one that fires, so the error names the queue instead
+  // of being an anonymous mocha timeout.
+  // Hooks that disabled their timeout (0) are left disabled.
+  const declaredMs = (hookCtx && typeof hookCtx.timeout === 'function') ? hookCtx.timeout() : 0;
+  if (declaredMs > 0) hookCtx.timeout(declaredMs + BOOT_LOCK_MAX_WAIT_MS + 30000);
+  const queuedFrom = process.hrtime.bigint();
   await acquireBootLock();
-  // The queue wait above must not count against the suite's hook budget. Mocha
-  // re-arms a running hook's watchdog from "now" when timeout() is set, so
-  // restart it with the suite's own declared value at the moment boot begins.
-  if (hookCtx && typeof hookCtx.timeout === 'function') hookCtx.timeout(hookCtx.timeout());
+  if (declaredMs > 0) {
+    const queuedMs = Number((process.hrtime.bigint() - queuedFrom) / 1000000n);
+    hookCtx.timeout(declaredMs + queuedMs);
+  }
   const networkName = await createNetwork();
   const env = makeEnvShell(networkName);
   activeEnvs.add(env);
+  // A previous env's death must not fail this one's waits.
+  clearInfraDeath();
 
   try {
+    // Armed before anything starts: the deaths this catches land 38-91s after
+    // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
+    // boot's own.
+    await startInfraDeathWatch(env);
     await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
     return env;
   } catch (err) {
@@ -463,25 +623,37 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   } = env;
   const stubPeerSet = new Set(stubPeers);
 
-  // Health check timeout must be < interval — Docker's health state machine
-  // produces spurious "unhealthy" on container restart when timeout >= interval.
-  const mongo = await new StaticIpContainer('mongo:8')
+  // NO docker health checks on infra containers, deliberately. Readiness is the
+  // wait strategy right below each one, host-side, polling the very endpoint a
+  // health check would have polled; death is a `die` event (watchInfra). Nothing
+  // reads Docker's health status here - the poll strategies exist BECAUSE
+  // Wait.forHealthCheck() destroys a fleet on one transient "unhealthy" under
+  // boot contention (see http-wait-strategy.js).
+  //
+  // It was not free to keep: every check spawned a process inside the container
+  // every 3 seconds - a full mongosh for mongo, measured at ~750ms of CPU each,
+  // and a node boot for every stub. Around 37% of a core per fleet, ~2 cores at
+  // six fleets in flight, spent producing a signal with no consumer.
+  //
+  // Pinned by digest so a crash can be bisected across image updates.
+  // nofile: Docker's default soft limit is 1024, and a whole fleet's connection
+  // pools plus WiredTiger's file-per-collection cross it during concurrent node
+  // boot — EMFILE panics WT (directory-sync fails) and mongod dies with what
+  // presents as a SIGSEGV. The compose envs already run mongo at 65536; this
+  // path was the only one still on the Docker default.
+  const mongo = await new StaticIpContainer('mongo:8@sha256:a706cb4e493bcd0262f345b3b0c78732ca0e54301f0d7bbe2b66f26313ce7ccb')
     .withCommand(['--wiredTigerCacheSizeGB', '1', '--setParameter', 'maxNumActiveUserIndexBuilds=64', '--setParameter', 'enableTestCommands=1'])
+    .withUlimits({ nofile: { soft: 65536, hard: 65536 } })
     .withStaticIp(networkName, MONGO_IP)
     .withWaitStrategy(new TcpPollWaitStrategy(MONGO_IP, 27017))
-    .withHealthCheck({
-      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"],
-      interval: 3000,
-      timeout: 2000,
-      retries: 10,
-    })
     .start();
   started.push(mongo);
   containers.mongo = mongo;
+  watchInfra(env, 'mongo', mongo);
 
   await seedMongo(MONGO_IP, nodes, bootContext, { dataCenter });
 
-  const daemonStub = await new StaticIpContainer('flux-e2e-daemon-stub')
+  const daemonStub = await new StaticIpContainer(image('flux-e2e-daemon-stub'))
     .withStaticIp(networkName, DAEMON_IP)
     .withEnvironment({
       FLUX_TEST_HARNESS: 'true',
@@ -497,15 +669,10 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       mode: 'ro',
     }])
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${DAEMON_IP}:18232/state`))
-    .withHealthCheck({
-      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:18232/state', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
-      interval: 3000,
-      timeout: 2000,
-      retries: 10,
-    })
     .start();
   started.push(daemonStub);
   containers.daemonStub = daemonStub;
+  watchInfra(env, 'daemonStub', daemonStub);
 
   // Render the deterministic node list for this run: identity from the committed
   // fixture, addresses from subnet-config (the single source of truth for node IPs).
@@ -541,47 +708,32 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     }
   }
 
-  const syncthingStub = await new StaticIpContainer('flux-e2e-syncthing-stub')
+  const syncthingStub = await new StaticIpContainer(image('flux-e2e-syncthing-stub'))
     .withStaticIp(networkName, SYNCTHING_IP)
     .withEnvironment({ SYNCTHING_PORT: '8384', CONTROL_PORT: '8385' })
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${SYNCTHING_IP}:8384/rest/noauth/health`))
-    .withHealthCheck({
-      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:8384/rest/noauth/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
-      interval: 3000,
-      timeout: 2000,
-      retries: 10,
-    })
     .start();
   started.push(syncthingStub);
   containers.syncthingStub = syncthingStub;
+  watchInfra(env, 'syncthingStub', syncthingStub);
 
-  const externalStub = await new StaticIpContainer('flux-e2e-external-http-stub')
+  const externalStub = await new StaticIpContainer(image('flux-e2e-external-http-stub'))
     .withStaticIp(networkName, EXTERNAL_STUB_IP)
     .withEnvironment({ STUB_PORT: '3000', CONTROL_PORT: '3001' })
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${EXTERNAL_STUB_IP}:3001/health`))
-    .withHealthCheck({
-      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3001/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
-      interval: 3000,
-      timeout: 2000,
-      retries: 10,
-    })
     .start();
   started.push(externalStub);
   containers.externalStub = externalStub;
+  watchInfra(env, 'externalStub', externalStub);
 
-  const fdmStub = await new StaticIpContainer('flux-e2e-fdm-stub')
+  const fdmStub = await new StaticIpContainer(image('flux-e2e-fdm-stub'))
     .withStaticIp(networkName, FDM_IP, fdmHostnames())
     .withEnvironment({ FDM_PORT: '16130', CONTROL_PORT: '16131' })
     .withWaitStrategy(new HttpPollWaitStrategy(`http://${FDM_IP}:16131/health`))
-    .withHealthCheck({
-      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:16131/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
-      interval: 3000,
-      timeout: 2000,
-      retries: 10,
-    })
     .start();
   started.push(fdmStub);
   containers.fdmStub = fdmStub;
+  watchInfra(env, 'fdmStub', fdmStub);
 
   if (!dataCenter) {
     for (let i = 1; i <= nodes; i++) {
@@ -613,6 +765,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     .start();
   started.push(registry);
   containers.registry = registry;
+  watchInfra(env, 'registry', registry);
 
   // Seed the default spec image so every env's registry can satisfy
   // registration verification and installs for buildAppSpec/buildSeedableApp
@@ -682,6 +835,21 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       syncthing: { ip: SYNCTHING_IP },
       github: { rawBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, apiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
       geolocation: { ipApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000`, statsApiBaseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      // Every base URL a node fetches from belongs here, not just in
+      // config/shared.js: a run claims its own /24, so an address baked into the
+      // shared config is only correct for the run that happens to claim the
+      // first one. A policy URL left pointing at another run's subnet is
+      // unreachable, and the fetch stalls the spawn attempt rather than failing
+      // it - the app is simply never installed, with nothing logged.
+      policy: { baseUrl: `http://${EXTERNAL_STUB_IP}:3000` },
+      // Peer thresholds follow the fleet, so a suite declares a shape and never a
+      // constant. The production values assume a network large enough to carry
+      // them; a smaller fleet cannot, and asking it to is what leaves a node short
+      // of a door it can never open. Derived here rather than in the suites so
+      // there is nothing to remember and nothing to keep in step - see
+      // peer-topology.js. A suite TESTING a threshold sets its own in
+      // configOverrides, which merges over this and wins.
+      fluxapps: derivePeerThresholds(nodes, stubPeers.length),
     };
     const nodeConfig = mergeConfigs(infraOverride, mergeConfigs(configOverrides, nodeConfigOverrides[i]));
     nodeEnv.NODE_CONFIG = JSON.stringify(nodeConfig);
@@ -690,14 +858,14 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     // state machine: under a contended 10-node fleet boot, Wait.forHealthCheck()
     // tears the fleet down on a transient "unhealthy" even when FluxOS is up. See
     // http-wait-strategy.js for the full rationale.
-    const builder = new StaticIpContainer('flux-e2e-fluxos-01')
+    const builder = new StaticIpContainer(image('flux-e2e-fluxos-01'))
       .withPrivilegedMode()
       .withStaticIp(networkName, nodeIp)
       .withExtraHosts(fdmExtraHosts(FDM_IP))
       .withBindMounts(bindMounts)
       .withLogConsumer(logCollector)
       .withEnvironment(nodeEnv)
-      .withWaitStrategy(new HttpPollWaitStrategy(`http://${nodeIp}:16127/flux/version`).withStartupTimeout(120000));
+      .withWaitStrategy(nodeReadyWaitStrategy(nodeIp).withStartupTimeout(120000));
 
     nodeConfigs.push({ index: i, builder, ip: nodeIp, num: i + 1, logCollector, bootIdDir });
   }
@@ -717,7 +885,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     const nodeIp = subnet.nodeIp(stubIdx + 1);
     const key = nodeKey(stubIdx + 1);
 
-    const stub = await new StaticIpContainer('flux-e2e-peer-stub')
+    const stub = await new StaticIpContainer(image('flux-e2e-peer-stub'))
       .withStaticIp(networkName, nodeIp)
       .withEnvironment({
         FLUX_TEST_HARNESS: 'true',
@@ -728,12 +896,6 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
         NODE_IP: nodeIp,
       })
       .withWaitStrategy(new HttpPollWaitStrategy(`http://${nodeIp}:16128/health`))
-      .withHealthCheck({
-        test: ['CMD', 'node', '-e', "require('http').get('http://localhost:16128/health', r => { r.on('data', () => {}); r.statusCode === 200 ? process.exit(0) : process.exit(1) })"],
-        interval: 3000,
-        timeout: 2000,
-        retries: 10,
-      })
       .start();
     started.push(stub);
     stubPeerClientsMap.set(stubIdx, stubPeerClient(nodeIp));
@@ -820,10 +982,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     // the same HttpPollWaitStrategy the initial fleet build uses.
     async restartNode(index, { timeout = 15000 } = {}) {
       if (clients[index]) clients[index].disconnectEventStream();
-      const container = fluxNodes[index].container;
+      const { container } = fluxNodes[index];
       const saved = container.waitStrategy;
-      const nodeUrl = `http://${fluxNodes[index].ip}:16127/flux/version`;
-      container.waitStrategy = new HttpPollWaitStrategy(nodeUrl);
+      container.waitStrategy = nodeReadyWaitStrategy(fluxNodes[index].ip);
       try {
         await container.restart({ timeout });
       } finally {
@@ -857,13 +1018,125 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       if (clients[index]) await clients[index].connectEventStream();
     },
 
+    // Split the fleet into two groups that stay internally connected but cannot reach
+    // each other, by dropping cross-group node-to-node packets inside each container
+    // (iptables; the image ships it and the nodes run privileged). Every node keeps its
+    // path to the daemon and to its same-group peers. A node held in the minority
+    // therefore stays daemon-confirmed (message capability intact) and above the peer
+    // floor, so it never degrades or resyncs. The host runner reaches nodes over the
+    // gateway, not a node IP, so its REST/SSE access to BOTH sides is unaffected — the
+    // minority is observable throughout.
+    //
+    // Returns only once the partition is REAL, which is a stronger guarantee than the
+    // rules alone give. iptables stops packets, but TCP retransmits across a DROP: the
+    // cross-group sockets stay up until ping/pong liveness gives up, and until then a
+    // message sent to the other group is QUEUED, not lost — healPartition then delivers
+    // the whole backlog, so a suite whose premise is "this node missed the gossip" gets
+    // the opposite of what it asked for, and finds out much later as an unrelated-looking
+    // timeout.
+    //
+    // So wait for both sides to actually drop the other group from their peer lists, and
+    // fail HERE, naming who is still connected. How long that takes is peer liveness —
+    // peers.wsPingIntervalMs x peers.wsMaxMissedPongs — so a suite that partitions should
+    // compress that interval in its configOverrides the same way it compresses every
+    // other cadence. Pass { awaitSever: false } for a caller that only wants packets
+    // dropped and is not asserting message loss.
+    async partitionGroups(groupA, groupB, { awaitSever = true, severTimeoutMs = 60000 } = {}) {
+      const ops = [];
+      for (const a of groupA) {
+        for (const b of groupB) {
+          ops.push([a, fluxNodes[b].ip]);
+          ops.push([b, fluxNodes[a].ip]);
+        }
+      }
+      await Promise.all(ops.map(async ([node, otherIp]) => {
+        const res = await fluxNodes[node].container.exec(['sh', '-c', `iptables -I INPUT -s ${otherIp} -j DROP`]);
+        if (res.exitCode !== 0) {
+          throw new Error(`partitionGroups: drop on node ${node} for ${otherIp} failed (exit ${res.exitCode}): ${res.output}`);
+        }
+      }));
+      if (!awaitSever) return;
+
+      // Each node paired with the cross-group IPs that must disappear from its peers.
+      const crossGroup = [
+        ...groupA.map((a) => [a, groupB.map((b) => fluxNodes[b].ip)]),
+        ...groupB.map((b) => [b, groupA.map((a) => fluxNodes[a].ip)]),
+      ];
+      const stillConnected = async () => {
+        const held = await Promise.all(crossGroup.map(async ([node, ips]) => {
+          const client = clients[node];
+          if (!client) return [];
+          const [outbound, inbound] = await Promise.all([client.getPeers(), client.getIncomingPeers()]);
+          const peers = new Set([...(outbound.data || []), ...(inbound.data || [])]);
+          return ips.filter((ip) => peers.has(ip)).map((ip) => `node ${node} -> ${ip}`);
+        }));
+        return held.flat();
+      };
+
+      let remaining = await stillConnected();
+      const deadline = Date.now() + severTimeoutMs;
+      while (remaining.length > 0 && Date.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 1000); });
+        // eslint-disable-next-line no-await-in-loop
+        remaining = await stillConnected();
+      }
+      if (remaining.length > 0) {
+        throw new Error(
+          `partitionGroups: sockets survived the partition after ${severTimeoutMs}ms (${remaining.join(', ')}). `
+          + 'Messages sent now would be queued and delivered on heal, not lost. Compress '
+          + 'peers.wsPingIntervalMs in the suite configOverrides, or raise severTimeoutMs.',
+        );
+      }
+    },
+
+    // Remove the cross-group drops added by partitionGroups(groupA, groupB). Per-rule
+    // best-effort (a rule already gone is not an error); the caller re-runs discovery so
+    // the dead cross-group sockets get re-dialed.
+    async healPartition(groupA, groupB) {
+      const ops = [];
+      for (const a of groupA) {
+        for (const b of groupB) {
+          ops.push([a, fluxNodes[b].ip]);
+          ops.push([b, fluxNodes[a].ip]);
+        }
+      }
+      await Promise.all(ops.map(([node, otherIp]) => fluxNodes[node].container.exec(
+        ['sh', '-c', `iptables -D INPUT -s ${otherIp} -j DROP || true`],
+      )));
+    },
+
     async startDiscovery(indices = null) {
       const teamKey = fluxTeamKey();
       const targets = indices
         ? indices.map((i) => clients[i]).filter(Boolean)
         : clients.filter(Boolean);
       await Promise.all(targets.map(async (client) => {
-        const auth = await authenticate(client.url, teamKey);
+        // Authenticating here races the node's own availability check. Boot
+        // readiness proved the node could serve a login phrase, but the periodic
+        // outside-communication check can flip it unavailable while the mesh is
+        // still forming - and forming the mesh is exactly what this call exists
+        // to do, so that refusal is transient by construction. Wait it out here,
+        // bounded; authenticate() itself stays one-shot so a suite asserting a
+        // node is genuinely unavailable still sees the refusal.
+        const deadline = Date.now() + 120000;
+        let auth;
+        for (;;) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            auth = await authenticate(client.url, teamKey);
+            break;
+          } catch (error) {
+            if (!error.message.includes('not available for outside communication')
+              || Date.now() >= deadline) throw error;
+            // eslint-disable-next-line no-await-in-loop
+            await sleepUnlessInfraDead(2000);
+          }
+        }
+        // kept on the client: endpoints that answer a paying user's question
+        // ask for a Flux ID, and every suite that reaches one has already come
+        // through here
+        client.zelidauth = auth.zelidauth;
         await client.getAuthed('/flux/startdiscovery', auth.zelidauth);
       }));
     },

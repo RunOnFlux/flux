@@ -1072,6 +1072,161 @@ describe('hwRequirements tests', () => {
     });
   });
 
+  describe('checkAppGeolocationRequirements with table-vocabulary regions', () => {
+    const geoNode = {
+      ip: '203.0.113.10', continentCode: 'EU', countryCode: 'FI', regionName: 'Uusimaa',
+    };
+
+    // vocabulary defaults to empty: a node holding no region-name vocabulary is
+    // the state every node is in until a baseline carrying one arrives
+    function gateWith(lookupResult, regionNames = {}) {
+      return proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
+        '../geolocationService': { getNodeGeolocation: sinon.stub().resolves(geoNode) },
+        '../appPlacement/ipLocationStore': {
+          lookup: lookupResult instanceof Error
+            ? sinon.stub().rejects(lookupResult)
+            : sinon.stub().resolves(lookupResult),
+          regionCodeForName: (cc, name) => regionNames[`${cc}|${name}`] ?? null,
+          isStoreUnavailable: () => false,
+        },
+      });
+    }
+
+    const inRegion = {
+      org: 'aabbccddeeff', countryCode: 'FI', continentCode: 'EU', region: 'FI-18',
+    };
+    const otherRegion = { ...inRegion, region: 'FI-11' };
+    const regionUnknown = { ...inRegion, region: null };
+
+    // Bavaria is DE-BY, and until the artifact carries that a node cannot know
+    // it. The vocabulary is what lets an entry written the way ip-api names
+    // regions be answered at region granularity instead of country.
+    const finnishNames = { 'FI|Uusimaa': 'FI-18', 'FI|Pirkanmaa': 'FI-11' };
+
+    it('resolves a named region allow through the vocabulary', async () => {
+      const ok = await gateWith(inRegion, finnishNames)
+        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] });
+      expect(ok).to.equal(true);
+    });
+
+    it('refuses a named region allow the table places elsewhere', async () => {
+      // the node calls itself Uusimaa; the table puts its address in FI-11
+      await gateWith(otherRegion, finnishNames)
+        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] })
+        .then(() => { throw new Error('expected rejection'); }, (err) => {
+          expect(err.message).to.include('not matching');
+        });
+    });
+
+    it('applies a named region deny through the vocabulary', async () => {
+      await gateWith(inRegion, finnishNames)
+        .checkAppGeolocationRequirements({ version: 7, geolocation: ['a!cEU_FI_Uusimaa'] })
+        .then(() => { throw new Error('expected rejection'); }, (err) => {
+          expect(err.message).to.include('forbidden');
+        });
+    });
+
+    it('applies a named region deny by the self-reported name too, when the table disagrees', async () => {
+      // The node calls itself Uusimaa; the table puts its address in FI-11. An
+      // allow refuses here - the table is the only thing that may say yes. A DENY
+      // must still catch it: the rule that makes an allow conservative makes a
+      // ban permissive, and a ban is written for a reason the network cannot
+      // see, so the error worth making is excluding a node that was fine.
+      await gateWith(otherRegion, finnishNames)
+        .checkAppGeolocationRequirements({ version: 7, geolocation: ['a!cEU_FI_Uusimaa'] })
+        .then(() => { throw new Error('expected rejection'); }, (err) => {
+          expect(err.message).to.include('forbidden');
+        });
+    });
+
+    it('still lets the self-reported name grant nothing - it may only ever ban', async () => {
+      // The same node and the same disagreement, asked the other way round: the
+      // allow is refused, so the self-report cannot buy eligibility it lost.
+      await gateWith(otherRegion, finnishNames)
+        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] })
+        .then(() => { throw new Error('expected rejection'); }, (err) => {
+          expect(err.message).to.include('not matching');
+        });
+    });
+
+    it('demands proof for a named region: an unknown table region satisfies no pin', async () => {
+      await gateWith(regionUnknown, finnishNames)
+        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] })
+        .then(() => { throw new Error('expected rejection'); }, (err) => {
+          expect(err.message).to.include('not matching');
+        });
+    });
+
+    // the count reads the same vocabulary, so a resolved entry must be decided
+    // on the table region alone - accepting it by self-reported name as well
+    // would take nodes the count excluded
+    it('does not fall back to the self-reported name once the vocabulary resolves', async () => {
+      await gateWith(otherRegion, finnishNames)
+        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] })
+        .then(() => { throw new Error('expected rejection'); }, (err) => {
+          expect(err.message).to.include('not matching');
+        });
+    });
+
+    it('falls back to the self-reported name when the vocabulary cannot resolve', async () => {
+      const ok = await gateWith(regionUnknown)
+        .checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] });
+      expect(ok).to.equal(true);
+    });
+
+    it('accepts an ISO region allow when the table places this node in it', async () => {
+      const ok = await gateWith(inRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
+      expect(ok).to.equal(true);
+    });
+
+    it('rejects an ISO region allow when the table places this node elsewhere', async () => {
+      try {
+        await gateWith(otherRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('not matching');
+      }
+    });
+
+    it('rejects an ISO region allow when its own region is unknown - a pin needs proof', async () => {
+      try {
+        await gateWith(regionUnknown).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('not matching');
+      }
+    });
+
+    it('treats an unreadable store exactly like an unknown region', async () => {
+      const err = new Error('iplocation store unavailable: no database connection');
+      err.code = 'IPLOCATION_STORE_UNAVAILABLE';
+      try {
+        await gateWith(err).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_FI-18'] });
+        expect.fail('should have thrown');
+      } catch (error) {
+        expect(error.message).to.include('not matching');
+      }
+    });
+
+    it('applies an ISO region deny only on proof', async () => {
+      try {
+        await gateWith(inRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU', 'a!cEU_FI_FI-18'] });
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err.message).to.include('forbidden');
+      }
+      const okElsewhere = await gateWith(otherRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU', 'a!cEU_FI_FI-18'] });
+      expect(okElsewhere).to.equal(true);
+      const okUnknown = await gateWith(regionUnknown).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU', 'a!cEU_FI_FI-18'] });
+      expect(okUnknown).to.equal(true);
+    });
+
+    it('keeps legacy name matching untouched alongside the table form', async () => {
+      const ok = await gateWith(otherRegion).checkAppGeolocationRequirements({ version: 7, geolocation: ['acEU_FI_Uusimaa'] });
+      expect(ok).to.equal(true);
+    });
+  });
+
   describe('exported functions', () => {
     it('should export requirement checking functions', () => {
       expect(hwRequirements.totalAppHWRequirements).to.be.a('function');

@@ -25,6 +25,28 @@ const { getNonGComponentIdentifiers, parseContainerName, appHasValidLocationOnNo
 const SYNC_TIMEOUT_MS = config.system.bootSyncTimeoutMs ?? 300000;
 
 /**
+ * Await a promise, giving up after a deadline. The timer is cleared however the
+ * race ends, so work that finishes early leaves nothing pending behind it.
+ * @param {Promise<any>} work What to wait for.
+ * @param {number} timeoutMs How long to wait.
+ * @param {string} reason Message of the error thrown when the deadline passes.
+ * @returns {Promise<any>} Whatever `work` resolved to.
+ */
+async function awaitWithin(work, timeoutMs, reason) {
+  let timer;
+  try {
+    return await Promise.race([
+      work,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(reason)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Get all installed apps from local database
  * @returns {Promise<Array>} Array of installed app specifications
  */
@@ -276,10 +298,7 @@ async function manageAppsOnBoot(bootContext) {
     // Locations still valid — wait for daemon + sync then reconcile.
     const DAEMON_TIMEOUT_MS = config.system.bootDaemonTimeoutMs ?? 300000;
     try {
-      await Promise.race([
-        globalState.waitForDaemonReady(),
-        new Promise((_, reject) => { setTimeout(() => reject(new Error('daemon_timeout')), DAEMON_TIMEOUT_MS); }),
-      ]);
+      await awaitWithin(globalState.waitForDaemonReady(), DAEMON_TIMEOUT_MS, 'daemon_timeout');
     } catch (error) {
       if (error.message === 'daemon_timeout') {
         log.error(`appStartupManager - Daemon not ready after ${DAEMON_TIMEOUT_MS / 1000}s, removing all apps`);
@@ -303,10 +322,7 @@ async function manageAppsOnBoot(bootContext) {
     }
 
     try {
-      await Promise.race([
-        globalState.waitForDbReady(),
-        new Promise((_, reject) => { setTimeout(() => reject(new Error('sync_timeout')), SYNC_TIMEOUT_MS); }),
-      ]);
+      await awaitWithin(globalState.waitForDbReady(), SYNC_TIMEOUT_MS, 'sync_timeout');
     } catch (error) {
       if (error.message === 'sync_timeout') {
         log.error(`appStartupManager - DB not ready after ${SYNC_TIMEOUT_MS / 1000}s, removing all apps`);

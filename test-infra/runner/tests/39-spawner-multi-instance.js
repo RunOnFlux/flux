@@ -23,6 +23,19 @@ describe('spawner places the requested number of instances', function () {
   let env;
   dumpLogsOnFailure(() => env);
 
+  // Every address the fleet was told is claiming this app, read from the event
+  // stream every node publishes. A claim is what makes convergence a contest:
+  // if no more nodes claim than the app needs, the resolver has nothing to
+  // resolve and a green result says nothing about whether it works.
+  const claimantIps = (appName) => new Set(
+    env.clients
+      .flatMap((client) => (client ? client.getEventBuffer() : []))
+      .filter((e) => e.event === 'network:appinstalling'
+        && e.data?.name === appName
+        && e.data?.withdrawn !== true)
+      .map((e) => e.data.ip.split(':')[0]),
+  );
+
   before(async function () {
     this.timeout(360000);
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
@@ -44,6 +57,19 @@ describe('spawner places the requested number of instances', function () {
     // reaches 3 and HOLDS at exactly 3 (a late 4th would fail the stability check)
     const placed = await waitForInstanceCount(env, appName, 3, { timeout: 120000, stableMs: 15000 });
     expect(placed.length).to.equal(3);
+
+    // Converging on three is only a result if more than three nodes wanted the
+    // app. With no more claimants than instances the resolver had nothing to
+    // decide, and a green result would say nothing about whether it works - so
+    // the premise is asserted rather than assumed. Measured at 6-9 of the ten
+    // nodes claiming across passing runs, so this floor separates contention
+    // from none rather than tuning a threshold: if it ever trips, the suite has
+    // stopped testing what it claims to and the contention must be built.
+    const claimants = claimantIps(appName).size;
+    expect(
+      claimants,
+      `fixture: ${claimants} node(s) claimed ${appName}, not more than the 3 it required - there was no contention to resolve`,
+    ).to.be.above(3);
   });
 
   it('places on every node when instances == nodeCount (deterministic floor)', async function () {

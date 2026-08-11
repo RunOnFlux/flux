@@ -19,7 +19,7 @@ const {
   globalAppStateEvents,
   appsHashesCollection,
 } = require('../utils/appConstants');
-const appsInstallingBroadcasts = config.database.appsglobal.collections.appsInstallingBroadcasts;
+const { appsInstallingBroadcasts } = config.database.appsglobal.collections;
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('../utils/appSyncEvents');
 
@@ -383,7 +383,22 @@ async function storeAppRunningMessage(message) {
 }
 
 /**
- * Store app installing message
+ * Store app installing message, or apply a version 2 withdrawal of one.
+ *
+ * A node claims an app before it knows whether it is needed - the claim is what
+ * lets every contender see the contention - so losing that race is ordinary and
+ * has to be retractable. Version 2 is that retraction: it carries
+ * `withdrawn: true` and removes the sender's claim instead of recording one.
+ *
+ * A claim stays at version 1 on purpose. Moving claims to 2 would have nodes
+ * that do not know the version reject them, and they would stop seeing
+ * contention at all - so the retraction is what carries the new version, and a
+ * node that rejects it simply lets the claim expire as it does today.
+ *
+ * Never an installing ERROR. That message means an install was attempted and
+ * failed, it is counted as such, and a node standing aside has attempted
+ * nothing - counting it would turn the apps most in demand, whose races have
+ * the most losers, into the apps that look most broken.
  * @param {object} message - Message to store
  * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
@@ -394,14 +409,21 @@ async function storeAppInstallingMessage(message) {
   * @param broadcastedAt number
   * @param name string
   * @param ip string
+  * @param withdrawn boolean - version 2 only, always true
   */
   if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
     || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string') {
     return new Error('Invalid Flux App Installing message for storing');
   }
 
-  if (message.version !== 1) {
+  if (message.version !== 1 && message.version !== 2) {
     return new Error(`Invalid Flux App Installing message for storing version ${message.version} not supported`);
+  }
+
+  // version 2 exists only to withdraw; anything else at that version is not
+  // something this protocol emits
+  if (message.version === 2 && message.withdrawn !== true) {
+    return new Error('Invalid Flux App Installing message for storing version 2 must be a withdrawal');
   }
 
   if (message.broadcastedAt + GOSSIP_VALIDITY_MS < Date.now()) {
@@ -428,6 +450,17 @@ async function storeAppInstallingMessage(message) {
   if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingMessage.broadcastedAt) {
     // found a message that was already stored/probably from duplicated message processsed
     return false;
+  }
+
+  if (message.version === 2) {
+    // The comparison above is what makes a withdrawal safe to apply late: a node
+    // may claim, stand aside, and claim again on a later pass, and a withdrawal
+    // that arrives after the newer claim must not erase it. Reaching here means
+    // the stored claim is older than this withdrawal, so it is the one being
+    // retracted. Nothing is recorded in its place - the sender holds no claim.
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
+    await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.name': message.name, 'data.ip': message.ip });
+    return true;
   }
 
   const queryUpdate = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
@@ -858,10 +891,29 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
   const signedOps = [];
   const locationOps = [];
 
+  const withdrawalOps = [];
+
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
     const validTill = data.broadcastedAt + INSTALLING_EXPIRY_MS;
     if (validTill < Date.now()) continue;
+
+    // A version 2 message withdraws its sender's claim. Reaching the claim path
+    // with one would store the very claim it retracts, so it is deleted here
+    // instead - and only where the stored claim is older, so a withdrawal that
+    // arrives after the sender has claimed again cannot erase the newer claim.
+    if (data.version === 2) {
+      // version 2 exists only to withdraw; anything else at that version is
+      // not something this protocol emits. The single-message path refuses
+      // it, and this path must not read it as a withdrawal.
+      if (data.withdrawn !== true) continue;
+      withdrawalOps.push({
+        deleteOne: {
+          filter: { name: data.name, ip: data.ip, broadcastedAt: { $lt: new Date(data.broadcastedAt) } },
+        },
+      });
+      continue;
+    }
 
     signedOps.push({
       updateOne: {
@@ -907,7 +959,29 @@ async function storeBatchAppInstallingMessages(verifiedBroadcasts) {
     await database.collection(globalAppsInstallingLocations).bulkWrite(locationOps, { ordered: false })
       .catch((err) => log.error(`storeBatchAppInstallingMessages locations: ${err.message}`));
   }
-  return { stored: signedOps.length };
+  // after the claims, so a claim and its withdrawal arriving in one batch settle
+  // in the order they were sent rather than the order they were read
+  if (withdrawalOps.length > 0) {
+    await database.collection(globalAppsInstallingLocations).bulkWrite(withdrawalOps, { ordered: false })
+      .catch((err) => log.error(`storeBatchAppInstallingMessages withdrawals: ${err.message}`));
+    await database.collection(appsInstallingBroadcasts).bulkWrite(
+      // The location's own guard, carried over rather than restated: the
+      // broadcast is what proves the location, so deleting one without the
+      // other leaves a claim nothing can serve during sync. Same object, so
+      // the two cannot come apart.
+      withdrawalOps.map((op) => ({
+        deleteOne: {
+          filter: {
+            'data.name': op.deleteOne.filter.name,
+            'data.ip': op.deleteOne.filter.ip,
+            broadcastedAt: op.deleteOne.filter.broadcastedAt,
+          },
+        },
+      })),
+      { ordered: false },
+    ).catch((err) => log.error(`storeBatchAppInstallingMessages withdrawal broadcasts: ${err.message}`));
+  }
+  return { stored: signedOps.length + withdrawalOps.length };
 }
 
 function storeSignedAppInstallingErrorBroadcast(signedBroadcast) {

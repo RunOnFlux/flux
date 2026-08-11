@@ -40,7 +40,7 @@ describe('appInspector tests', () => {
       '../messageHelper': messageHelperStub,
       '../../lib/log': logStub,
       '../appQuery/appQueryService': {
-        decryptEnterpriseApps: sinon.stub().returnsArg(0), // Return apps as-is by default
+        decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
       },
       '../serviceHelper': {
         ensureString: sinon.stub().returnsArg(0),
@@ -166,7 +166,7 @@ describe('appInspector tests', () => {
         '../messageHelper': messageHelperStub,
         '../../lib/log': logStub,
         '../appQuery/appQueryService': {
-          decryptEnterpriseApps: sinon.stub().returnsArg(0),
+          decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
         },
         '../serviceHelper': {
           ensureString: sinon.stub().returnsArg(0),
@@ -231,7 +231,7 @@ describe('appInspector tests', () => {
         },
         '../utils/appConstants': {
           '../appQuery/appQueryService': {
-            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+            decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
           },
           appConstants: {},
         },
@@ -358,7 +358,7 @@ describe('appInspector tests', () => {
         },
         '../utils/appConstants': {
           '../appQuery/appQueryService': {
-            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+            decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
           },
           appConstants: {},
         },
@@ -601,7 +601,7 @@ describe('appInspector tests', () => {
         },
         '../utils/appConstants': {
           '../appQuery/appQueryService': {
-            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+            decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
           },
           appConstants: {},
         },
@@ -736,7 +736,7 @@ describe('appInspector tests', () => {
         },
         '../utils/appConstants': {
           '../appQuery/appQueryService': {
-            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+            decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
           },
           appConstants: {},
         },
@@ -895,7 +895,7 @@ describe('appInspector tests', () => {
         },
         '../utils/appConstants': {
           '../appQuery/appQueryService': {
-            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+            decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
           },
           appConstants: {},
         },
@@ -1089,7 +1089,7 @@ describe('appInspector tests', () => {
         },
         '../utils/appConstants': {
           '../appQuery/appQueryService': {
-            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+            decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
           },
           appConstants: {},
         },

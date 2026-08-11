@@ -18,6 +18,7 @@ const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const messageHelper = require('./services/messageHelper');
+const { rejectQueryParameters } = require('./services/utils/routeGuards');
 
 // App modular services
 const appQueryService = require('./services/appQuery/appQueryService');
@@ -28,6 +29,7 @@ const fileSystemManager = require('./services/appSystem/fileSystemManager');
 const cryptographicKeys = require('./services/appMessaging/cryptographicKeys');
 const registryManager = require('./services/appDatabase/registryManager');
 const appValidator = require('./services/appRequirements/appValidator');
+const placementFeasibility = require('./services/appPlacement/placementFeasibility');
 const appSpecHelpers = require('./services/utils/appSpecHelpers');
 const appInspector = require('./services/appManagement/appInspector');
 const appController = require('./services/appManagement/appController');
@@ -72,6 +74,9 @@ function requireHttps(req, res, next) {
 }
 
 const cache = apicache.middleware;
+// caching a transient 503 would pin "unavailable" for the cache window after
+// the data arrives - only successful answers are worth keeping
+const cacheSuccessOnly = (req, res) => res.statusCode === 200;
 
 module.exports = (app) => {
   // GET PUBLIC methods
@@ -372,6 +377,27 @@ module.exports = (app) => {
   app.get('/apps/listrunningapps', cache('15 seconds'), (req, res) => {
     appQueryService.listRunningApps(req, res);
   });
+  // Read by peers mid-election. Both are unauthenticated, and the API has no rate
+  // limiting, so neither may do unbounded backend work per request.
+  //
+  // heldcomponents still lists docker containers: a component's commitment is
+  // in-memory and a FluxOS restart drops it while the container keeps running, so
+  // docker is the only thing that answers for a primary that outlived the process
+  // holding its intent. Cached at one second - long enough to bound an anonymous
+  // caller to one docker call a second, short enough to be meaningless against the
+  // tens of seconds this exists to cover. The cache keys on the request URL, so
+  // that bound holds only while the URL is the endpoint and nothing else: without
+  // the guard a caller varies a parameter and every request is a fresh miss.
+  app.get('/apps/heldcomponents', rejectQueryParameters, cache('1 second'), (req, res) => {
+    appQueryService.heldComponents(req, res);
+  });
+  // promotedfolders needs no cache: it is served from the set the syncthing monitor
+  // already refreshes each pass, so the request touches nothing. Guarded on the
+  // same terms as its neighbour - it takes no parameters either, and the two are
+  // read by the same callers on the same path.
+  app.get('/apps/promotedfolders', rejectQueryParameters, (req, res) => {
+    appQueryService.promotedFolders(req, res);
+  });
   app.get('/apps/listallapps', cache('30 seconds'), (req, res) => {
     appQueryService.listAllApps(req, res);
   });
@@ -447,7 +473,7 @@ module.exports = (app) => {
   app.post('/apps/calculatefiatandfluxprice', (req, res) => { // returns price in usd and flux for both new registration of app and update of app
     appSpecHelpers.getAppFiatAndFluxPrice(req, res);
   });
-  app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
+  app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => { // deprecated: whitelist retired, always returns []
     generalService.whitelistedRepositories(req, res);
   });
   app.post('/apps/verifyappregistrationspecifications', (req, res) => { // returns formatted app specifications
@@ -455,6 +481,12 @@ module.exports = (app) => {
   });
   app.post('/apps/verifyappupdatespecifications', (req, res) => { // returns formatted app specifications
     appValidator.verifyAppUpdateApi(req, res);
+  });
+  app.post('/apps/placementfeasibility', (req, res) => { // fault domains and per-domain instance share for a prospective spec
+    placementFeasibility.placementFeasibilityAPI(req, res);
+  });
+  app.get('/apps/placementlocations', rejectQueryParameters, cache('30 seconds', cacheSuccessOnly), (req, res) => { // node, fault-domain and tier counts per continent/country
+    placementFeasibility.placementLocationsAPI(req, res);
   });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
     deploymentInfoService.deploymentInformation(req, res);

@@ -22,8 +22,8 @@ describe('appTamperingBlocklistService tests', () => {
             collections: { appTamperingEvents: 'apptamperingevents' },
           },
         },
-        github: {
-          rawBaseUrl: 'https://raw.githubusercontent.com/RunOnFlux/flux/master',
+        policy: {
+          baseUrl: 'https://raw.githubusercontent.com/RunOnFlux/fluxos-network-policy/main',
         },
       },
       '../lib/log': {
@@ -96,20 +96,20 @@ describe('appTamperingBlocklistService tests', () => {
       sinon.assert.calledOnce(serviceHelperStub.axiosGet);
     });
 
-    it('returns [] on axios failure', async () => {
+    it('returns null on axios failure - could-not-fetch is not an empty list', async () => {
       serviceHelperStub.axiosGet.rejects(new Error('network timeout'));
 
       const result = await service.fetchBlocklist();
 
-      expect(result).to.deep.equal([]);
+      expect(result).to.equal(null);
     });
 
-    it('returns [] when response shape is unexpected', async () => {
+    it('returns null when response shape is unexpected', async () => {
       serviceHelperStub.axiosGet.resolves({ data: { notAnArray: true } });
 
       const result = await service.fetchBlocklist();
 
-      expect(result).to.deep.equal([]);
+      expect(result).to.equal(null);
     });
   });
 
@@ -159,20 +159,22 @@ describe('appTamperingBlocklistService tests', () => {
       expect(result).to.equal(0);
     });
 
-    it('returns 0 when DB is unavailable', async () => {
+    // null, never 0: a score that could not be read must not read as
+    // "no incidents" and clear an active DOS
+    it('returns null when DB is unavailable', async () => {
       dbHelperStub.databaseConnection = sinon.stub().returns(null);
 
       const result = await service.computeTamperScore();
 
-      expect(result).to.equal(0);
+      expect(result).to.equal(null);
     });
 
-    it('returns 0 on mongo errors', async () => {
+    it('returns null on mongo errors', async () => {
       dbHelperStub.aggregateInDatabase = sinon.stub().rejects(new Error('mongo boom'));
 
       const result = await service.computeTamperScore();
 
-      expect(result).to.equal(0);
+      expect(result).to.equal(null);
     });
   });
 
@@ -219,6 +221,21 @@ describe('appTamperingBlocklistService tests', () => {
       expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
     });
 
+    it('keeps an active DOS when the blocklist cannot be fetched', async () => {
+      // an unreadable blocklist is not an empty one: falling through would
+      // take the clear branch and a github outage would undo enforcement
+      serviceHelperStub.axiosGet.rejects(new Error('github outage'));
+      fluxNetworkHelperStub.getStickyDosMessage.returns(
+        `Node flagged via tampering blocklist: tamper score 99, txhash ${MOCK_TXHASH}`,
+      );
+      setTamperScore(100);
+
+      await service.enforceBlocklist();
+
+      expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
+      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+    });
+
     it('does nothing when txhash is not on the blocklist', async () => {
       serviceHelperStub.axiosGet.resolves({ data: ['otherhash'] });
       setTamperScore(100);
@@ -234,6 +251,16 @@ describe('appTamperingBlocklistService tests', () => {
 
       await service.enforceBlocklist();
 
+      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+    });
+
+    it('skips the tick when the score cannot be read, leaving an active DOS in place', async () => {
+      serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+      dbHelperStub.databaseConnection = sinon.stub().returns(null);
+
+      await service.enforceBlocklist();
+
+      expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
       expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
     });
 

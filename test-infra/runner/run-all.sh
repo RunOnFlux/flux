@@ -110,8 +110,24 @@ release_base() { [ -n "${CLAIMED_BASE:-}" ] && rm -rf "${LOCK_ROOT:?}/$CLAIMED_B
 cleanup_on_exit() {
   if [ -n "${RUN_LABEL:-}" ]; then
     docker ps -aq --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker rm -f >/dev/null 2>&1
-    docker network ls -q --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker network rm >/dev/null 2>&1
+    # The base lock outlives the network: removal is not instantaneous - a
+    # network with detaching endpoints refuses the rm, and one mid-removal
+    # can be absent from ls while its subnet is still allocated - so a lock
+    # released any sooner hands the next run a base that is still occupied.
+    # A network that outlives the retry budget keeps the lock: a dead
+    # owner's lock is reclaimed by a later scan, after any teardown.
+    tries=0
+    while [ -n "$(docker network ls -q --filter "label=flux-e2e-run=$RUN_LABEL")" ]; do
+      docker network ls -q --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker network rm >/dev/null 2>&1
+      tries=$((tries + 1)); [ "$tries" -ge 15 ] && break
+      sleep 1
+    done
     docker volume ls -q --filter "label=flux-e2e-run=$RUN_LABEL" | xargs -r docker volume rm >/dev/null 2>&1
+    if [ -n "$(docker network ls -q --filter "label=flux-e2e-run=$RUN_LABEL")" ]; then
+      return 0
+    fi
+    # ls answering empty slightly precedes the subnet actually freeing
+    sleep 1
   fi
   release_base
 }
@@ -148,7 +164,10 @@ for f in "${SUITES[@]}"; do
   # process, not a wrapper; -k escalates to KILL if the event loop is wedged.
   # A timed-out suite reports a nonzero rc in SUITE-END (observed 125 when the
   # TERM landed mid-boot; the exact code depends on how mocha dies).
-  timeout -k 30s "${E2E_SUITE_WALL_SEC:-1800}s" node_modules/.bin/mocha "$f" --reporter tap --timeout "$SUITE_TIMEOUT_MS" 2>&1 | tee "$LOG_DIR/$name.tap"
+  # MOCHA_GREP narrows a diagnostic run to one test by title - a fleet boot is
+  # most of a suite's cost, and a bisection loop should not pay for the tests
+  # it is not bisecting.
+  timeout -k 30s "${E2E_SUITE_WALL_SEC:-1800}s" node_modules/.bin/mocha "$f" --reporter tap --timeout "$SUITE_TIMEOUT_MS" ${MOCHA_GREP:+--grep "$MOCHA_GREP"} 2>&1 | tee "$LOG_DIR/$name.tap"
   rc=${PIPESTATUS[0]}
 
   # grep -c prints the count (0 when none) but exits 1 on zero matches; `|| true`

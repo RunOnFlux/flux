@@ -9,6 +9,7 @@ const fluxEventBus = require('../utils/fluxEventBus');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
 const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
+const placementFeasibility = require('../appPlacement/placementFeasibility');
 const {
   SIGTERM_EXPIRY_MS,
   globalAppsInformation,
@@ -404,6 +405,28 @@ async function appInstallingLocation(appname) {
   };
   const results = await dbHelper.findInDatabase(database, globalAppsInstallingLocations, query, projection);
   return results;
+}
+
+/**
+ * How many nodes are claiming each app, counted in one grouped pass.
+ *
+ * The spawner needs this for every candidate at once, to decide which apps
+ * still need a node before it picks one. Asking per app would be a read per
+ * candidate; this is a single scan of a collection that holds only live claims,
+ * since they expire on a TTL index.
+ *
+ * Names are lowercased because an app is addressed case-insensitively
+ * everywhere else here, so a caller must not have to know which case the
+ * claiming node happened to send.
+ * @returns {Promise<Map<string, number>>} Lowercased app name to claim count.
+ */
+async function installingCountsByApp() {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  const rows = await dbHelper.aggregateInDatabase(database, globalAppsInstallingLocations, [
+    { $group: { _id: { $toLower: '$name' }, count: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((row) => [row._id, row.count]));
 }
 
 /**
@@ -1797,6 +1820,11 @@ async function registerAppGlobalyApi(req, res) {
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await appValidator.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
+      // placement feasibility at the front door, while the spec is still
+      // decrypted: an impossible spec is rejected before it is paid for, a
+      // diversity-constrained one is accepted with a warning
+      await placementFeasibility.checkPlacementFeasibility(appSpecFormatted, 'registerAppGlobalyApi');
+
       if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
@@ -2132,6 +2160,7 @@ module.exports = {
   appLocation,
   appLocationFromEvents,
   appInstallingLocation,
+  installingCountsByApp,
   appInstallingErrorsLocation,
   countAppInstallingErrors,
   storeAppInstallingMessage,

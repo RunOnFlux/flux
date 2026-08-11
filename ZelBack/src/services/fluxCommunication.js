@@ -339,7 +339,13 @@ async function handleAppInstallingMessage(message, fromIP, port) {
   try {
     const rebroadcastToPeers = await messageStore.storeAppInstallingMessage(message.data);
     if (rebroadcastToPeers === true) {
-      fluxEventBus.publish('network:appinstalling', { ip: message.data.ip, name: message.data.name });
+      // Version 2 withdraws the sender's claim rather than recording one and
+      // arrives through this handler too, so the event names which it was.
+      fluxEventBus.publish('network:appinstalling', {
+        ip: message.data.ip,
+        name: message.data.name,
+        withdrawn: message.data.withdrawn === true,
+      });
     }
     messageStore.storeSignedAppInstallingBroadcast(message);
     const currentTimeStamp = Date.now();
@@ -509,7 +515,6 @@ async function handleNodeSigtermMessage(message, fromIP, port) {
  * @param {import('./utils/FluxPeerSocket').FluxPeerSocket} peerSocket FluxPeerSocket instance.
  */
 async function dispatchFluxMessage(msgObj, peerSocket) {
-  const isOutbound = peerSocket.direction === DIRECTION.OUTBOUND;
   const codes = peerSocket.closeCodes;
   const {
     pubKey, timestamp, signature, version, data,
@@ -793,6 +798,35 @@ function connectedPeersInfo(req, res) {
   const connections = [...peerManager.outboundValues()].map((p) => p.toPeerInfo());
   const message = messageHelper.createDataMessage(connections);
   return res ? res.json(message) : message;
+}
+
+/**
+ * How many peers answered our most recent ping, out of how many we hold.
+ *
+ * The freshest liveness signal this node has about the network, and the one that
+ * tells it whether IT is the thing that has gone quiet. Peer COUNT alone cannot: a
+ * socket survives wsMaxMissedPongs rounds before it is dropped, so a node that has
+ * just been cut off keeps a full peer list for ~45s and reads as perfectly healthy
+ * throughout - after the point a decision gated on two 30s monitor passes could
+ * already have been made. missedPongs moves on the first missed round instead
+ * (~15s), which lands before that.
+ *
+ * Reported as a ratio rather than a bare count because the useful question is
+ * proportional: one silent peer among many is that peer's problem, while all of
+ * them going quiet at once is this node's. An absolute floor would also be a fleet
+ * size in disguise - a node configured with two peers can never reach a threshold
+ * written for a node with twelve.
+ *
+ * @returns {{responding: number, total: number}} Peers with no missed pong, and all peers
+ */
+function peerResponsiveness() {
+  let responding = 0;
+  let total = 0;
+  for (const peer of peerManager.allValues()) {
+    total += 1;
+    if (peer.missedPongs === 0) responding += 1;
+  }
+  return { responding, total };
 }
 
 /**
@@ -1590,6 +1624,7 @@ module.exports = {
   removePeer,
   removeIncomingPeer,
   connectedPeersInfo,
+  peerResponsiveness,
   keepConnectionsAlive,
   fluxDiscovery,
   startDiscovery,
@@ -1599,6 +1634,7 @@ module.exports = {
   addPeer,
   logSocketsEvery,
   handleAppRunningMessage,
+  handleAppInstallingMessage,
   handleIPChangedMessage,
   handleAppRemovedMessage,
   handleNodeSigtermMessage,

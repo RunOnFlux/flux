@@ -15,8 +15,10 @@ import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
   waitForReconcileActuated,
 } from './wait.js';
+import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
-import { setSynced } from './syncthing-control.js';
+import { dialerCount, expectedPeerTotal } from './peer-topology.js';
+import { setSynced, setSyncState, setNoPeerData } from './syncthing-control.js';
 import { execInContainer } from './container.js';
 
 // A folder the suite pins "synced" (setSynced reports a non-zero global index)
@@ -69,19 +71,146 @@ export async function installOnNodes(env, app, indices, { timeout = 120000 } = {
   return indices;
 }
 
-export async function bootAndPeer(env) {
-  for (const client of env.clients) await waitForDaemonReady(client);
-  await Promise.all(env.clients.map(
+// The election's own comparator (masterSlaveApps): runningSince ascending, holders
+// carrying none first, ip as the final tiebreak. Exported so a suite can assert the
+// order it arranged rather than assume it.
+export function electionOrder(locations) {
+  return [...locations].sort((a, b) => {
+    if (!a.runningSince && b.runningSince) return -1;
+    if (a.runningSince && !b.runningSince) return 1;
+    if (a.runningSince < b.runningSince) return -1;
+    if (a.runningSince > b.runningSince) return 1;
+    if (a.ip < b.ip) return -1;
+    if (a.ip > b.ip) return 1;
+    return 0;
+  });
+}
+
+// Place a g: app on holders ONE AT A TIME so their runningSince values are distinct
+// and follow `placementOrder`. Two orderings decide who runs a g: app: the syncthing
+// seed is the LOWEST IP among the holders, while the masterSlave election index is
+// runningSince ascending — and runningSince is broadcast on placement, so it records
+// the order the holders were placed. Installing them in parallel (installOnNodes over
+// several indices) collapses that distinction: every holder's placement lands in the
+// same instant, the sort falls through to its ip tiebreak, and the lowest-IP seed is
+// always ALSO index 0. Every rule reading `index > 0` is dead under that fixture.
+//
+// Pass a placementOrder that puts the seed in the MIDDLE to get the divergent shape:
+// the seed sits at index > 0 with a peer ABOVE it. `coldStart` pins every holder to a
+// true cold start first (empty global, no connected peer holding the data), which must
+// happen BEFORE install so the first election evaluation sees it.
+export async function placeGAppInOrder(env, app, {
+  placementOrder, folder, identifier, coldStart = true, gapMs = 3000,
+}) {
+  if (coldStart) {
+    await Promise.all(placementOrder.map((i) => Promise.all([
+      setSyncState({
+        ip: getSubnetConfig().nodeIp(i + 1), folder, state: 'idle', globalBytes: 0, inSyncBytes: 0,
+      }),
+      setNoPeerData({ ip: getSubnetConfig().nodeIp(i + 1), folder }),
+    ])));
+  }
+  for (const i of placementOrder) {
+    const installAfter = env.clients[i].getLastEventId();
+    // eslint-disable-next-line no-await-in-loop
+    await installOnNodes(env, app, [i]);
+    // Wait out the sync layer's first-run reset before writing disk data, or the
+    // reset deletes it - a folder pinned synced later must hold what its index claims.
+    // eslint-disable-next-line no-await-in-loop
+    await waitForReconcileActuated(env.clients[i], identifier, 'dataCleared', 60000, { afterId: installAfter });
+    // eslint-disable-next-line no-await-in-loop
+    await seedSyncScopedData(env, app.spec.name, i);
+    // eslint-disable-next-line no-await-in-loop
+    await sleepUnlessInfraDead(gapMs);
+  }
+  return placementOrder;
+}
+
+// Resolve a holder's position in the election order, from the location list the
+// election itself reads. Returns -1 when the holder has not been broadcast yet.
+export async function electionIndexOf(env, appName, holderIndex, { timeout = 90000 } = {}) {
+  const targetIp = getSubnetConfig().nodeIp(holderIndex + 1);
+  let position = -1;
+  await waitFor(async () => {
+    const res = await env.clients[holderIndex].getAppLocations(appName);
+    if (res.status !== 'success' || !res.data?.length) return false;
+    position = electionOrder(res.data).findIndex((entry) => entry.ip.split(':')[0] === targetIp);
+    return position > -1;
+  }, { timeout, interval: 3000, label: `node ${holderIndex} present in ${appName}'s election order` });
+  return position;
+}
+
+export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
+  // A stub peer holds an index with no client behind it. It is something for the
+  // fleet to talk to, never a node this boots, confirms or reads a height from -
+  // so the waits run over the real nodes while the peering ceiling below still
+  // counts every index, because a stub IS a peer.
+  const nodes = env.clients.filter(Boolean);
+  for (const client of nodes) await waitForDaemonReady(client);
+  await Promise.all(nodes.map(
     (c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000),
   ));
   await advanceBlock();
-  for (const client of env.clients) {
+  for (const client of nodes) {
     await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
   }
   await env.startDiscovery();
-  await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
-  await env.clients[0].waitForEvent('peers:added', (d) => d.inbound >= 2, 120000);
+  // Peering is a property of the fleet, not a literal. The ring's two halves are
+  // disjoint only when dialers >= 2k+1 (peer-topology.js), and the fleet's own
+  // config is derived to satisfy that, so outbound and inbound both settle at k.
+  // A suite may still ask for its own numbers; they are capped by what a fleet of
+  // this size can hold rather than waiting out a timeout on an impossible one.
+  // Stubs are excluded: a stub holds a ring slot but supplies no connection.
+  const dialers = dialerCount(env.clients.length, env.stubPeerClients?.size ?? 0);
+  const ceiling = Math.max(dialers - 1, 1);
+  const outboundTarget = minOutbound ?? Math.min(4, ceiling);
+  const inboundTarget = minInbound ?? Math.min(2, ceiling);
+  // Waited as a TOTAL. With the arcs disjoint the split is the ring's to decide,
+  // but a suite that overrides the arc into an overlapping shape hands the split
+  // to whichever half reaches the shared peer first - a race. The sum survives
+  // both, and is the same demand either way.
+  const stubCount = env.stubPeerClients?.size ?? 0;
+  const totalTarget = expectedPeerTotal(outboundTarget, inboundTarget, dialers, stubCount);
+  // Every real node, not nodes[0]. One node's counts are not the fleet's, and
+  // node 0 is the least representative of them: it is the index every other
+  // node's backward arc wraps onto, so it is where an overlapping ring strands
+  // its connections first.
+  //
+  // Polled, not awaited on a peers:added event. That event is edge-triggered:
+  // a small fleet finishes peering in a handful of events, so if the counts are
+  // already satisfied when the listener attaches, nothing further is ever
+  // published and the wait burns its full timeout on a condition that is
+  // already true. The REST counts are the state itself.
+  await waitFor(
+    async () => {
+      const totals = await Promise.all(nodes.map(async (n) => {
+        const [outgoing, incoming] = await Promise.all([n.getPeers(), n.getIncomingPeers()]);
+        return (outgoing.data?.length ?? 0) + (incoming.data?.length ?? 0);
+      }));
+      return totals.every((t) => t >= totalTarget);
+    },
+    { timeout: 120000, interval: 2000, label: `>=${totalTarget} peers on each of ${nodes.length} nodes` },
+  );
   await startTicker();
+}
+
+// The location table never gates boot: the fetch starts at DB-ready and a
+// real-scale artifact takes seconds to ingest and swap, so a request racing
+// the boot lands on the designed degrade posture (/16 domains, geo answers
+// 503). A suite that asserts table-backed answers waits for the swap to land
+// first. domains: the organisation count the published artifact splits the
+// fleet into - reaching it proves every node resolved (an unresolved node
+// falls to its /16 rung and inflates the count).
+export async function waitForLocationTable(node, { domains, timeout = 90000 } = {}) {
+  await waitFor(async () => {
+    // the placement geography, which is what this is actually waiting for -
+    // asking the advice endpoint would be putting a question to a node to find
+    // out whether its data has loaded, and that endpoint wants a Flux ID
+    const response = await node.get('/apps/placementlocations');
+    return response.status === 'success'
+      && response.data.tableAvailable === true
+      && (domains === undefined || response.data.total.domains === domains);
+  }, { timeout, interval: 2000, label: `location table live${domains === undefined ? '' : ` with ${domains} domains`}` });
 }
 
 // Seed a pre-built app (buildSeedableApp / buildSeedableSyncthingApp) into every
@@ -152,6 +281,38 @@ export async function installedInstanceIndices(env, appName) {
   return idx.sort((a, b) => a - b);
 }
 
+// What each node believes about who is installing an app, as an array indexed by
+// node. A claim only matters where OTHER nodes can see it - it is their view
+// that decides whether they stand down - so a suite asserting a claim was
+// retracted has to ask every node, not the one that sent it.
+// A node that cannot answer contributes null rather than an empty list, so
+// "unreachable" is never mistaken for "holds no claims".
+export async function installingClaimIpsByNode(env, appName) {
+  return Promise.all(env.clients.map(async (client) => {
+    try {
+      const res = await client.get('/apps/installinglocations');
+      if (res?.status !== 'success') return null;
+      return res.data.filter((entry) => entry.name === appName).map((entry) => entry.ip);
+    } catch {
+      return null;
+    }
+  }));
+}
+
+// The installing ERRORS each node holds for an app, indexed by node. An error
+// means an install was attempted and failed; nothing else may appear here.
+export async function installingErrorsByNode(env, appName) {
+  return Promise.all(env.clients.map(async (client) => {
+    try {
+      const res = await client.get('/apps/installingerrorslocations');
+      if (res?.status !== 'success') return null;
+      return res.data.filter((entry) => entry.name === appName);
+    } catch {
+      return null;
+    }
+  }));
+}
+
 // Wait until exactly `target` nodes have the app installed, then confirm the count
 // HOLDS at exactly `target` for `stableMs` (so a late overshoot is caught, not
 // missed by checking once). Returns the final sorted node indices.
@@ -166,7 +327,7 @@ export async function waitForInstanceCount(env, appName, target, {
   let last = await installedInstanceIndices(env, appName);
   while (Date.now() < deadline) {
     // eslint-disable-next-line no-await-in-loop
-    await new Promise((r) => { setTimeout(r, interval); });
+    await sleepUnlessInfraDead(interval);
     // eslint-disable-next-line no-await-in-loop
     const now = await installedInstanceIndices(env, appName);
     if (now.length !== target) {
@@ -174,6 +335,9 @@ export async function waitForInstanceCount(env, appName, target, {
     }
     last = now;
   }
+  // A count that "held" over an env that died during the window must not read
+  // as a pass - nodes keep answering from memory over a dead env.
+  throwIfInfraDead();
   return last;
 }
 

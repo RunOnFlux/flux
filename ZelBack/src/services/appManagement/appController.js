@@ -7,11 +7,12 @@ const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('./appInspector');
 const appsRuntimeState = require('./appsRuntimeState');
+const appReconciler = require('../appMonitoring/appReconciler');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const log = require('../../lib/log');
 
-const globalCmdDelayMs = config.fluxapps.globalCmdDelayMs;
+const { globalCmdDelayMs } = config.fluxapps;
 
 /**
  * Get application locations from the global database
@@ -120,6 +121,20 @@ async function setAppOperatorStopped(appname, appSpecs, stopped) {
   for (const id of ids) {
     // eslint-disable-next-line no-await-in-loop
     await appsRuntimeState.setOperatorStopped(id, stopped);
+    // A stop retracts the controller's desire as well as taking the lock. The
+    // lock only suppresses the reconciler while it is held; a desire left
+    // standing is reconciled against the stopped container the moment the lock
+    // lifts, restarting a g:/r: component with no election pass and putting it
+    // beside whichever peer took over. Retracted, the component sits at "no
+    // controller opinion" - take no action - until its decider re-derives
+    // intent. Plain apps do not consult the controller, so their
+    // resume-on-start is unchanged.
+    //
+    // The RUN opinion only. A pending appdata clear is the sync layer's finding
+    // that the local data must not be trusted, and an operator stopping the app
+    // says nothing about that - dropping it here would lose it for good, since
+    // the sync layer marks a component processed before it asks.
+    if (stopped) appReconciler.clearControllerDesired(id);
   }
 }
 

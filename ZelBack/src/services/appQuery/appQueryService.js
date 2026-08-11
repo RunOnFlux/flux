@@ -71,16 +71,38 @@ async function decryptEnterpriseSpec(spec) {
 }
 
 /**
- * Decrypt enterprise apps from a list of apps
+ * Decrypt enterprise apps, reporting the ones that could not be read.
+ *
+ * An enterprise spec carries its components inside the encrypted blob, so a
+ * failed decrypt leaves a spec with no components - which is not a valid app
+ * and must never be handed out as though it were. Every caller that enumerates
+ * components would act on it as "this app has none": the sweep would delete its
+ * folders, the blocked-image scan would find no images to block, the update
+ * check would find nothing to update. All silent.
+ *
+ * So the result offers two views of one decryption, and the caller says at the
+ * point of use which it needs:
+ *
+ *   readable   only the specs whose components can be read. What a caller that
+ *              ACTS on components takes - it cannot be handed an invalid spec.
+ *   unreadable the specs that did not decrypt, to report or defer.
+ *   inPlace    every spec in the order asked about, unreadable ones left as
+ *              they arrived. What a caller that only DISPLAYS or counts takes -
+ *              an app missing from that list would read as uninstalled.
+ *
+ * One name with named views rather than two near-identical exports: picking the
+ * wrong one of those is silent, and a caller that reaches for the whole result
+ * where an array is meant fails loudly on the first array method instead.
  * @param {Array} apps - Array of app specifications
  * @param {Object} options - Options for decryption
  * @param {boolean} options.formatSpecs - Whether to format specs (strips metadata like hash, height). Default: true
- * @param {boolean} options.throwOnError - Rethrow a decrypt failure instead of returning the encrypted spec. Default: false
- * @returns {Promise<Array>} Array of decrypted app specifications
+ * @returns {Promise<{readable: Array, unreadable: Array, inPlace: Array}>}
  */
 async function decryptEnterpriseApps(apps, options = {}) {
-  const { formatSpecs = true, throwOnError = false } = options;
-  const decryptedApps = [];
+  const { formatSpecs = true } = options;
+  const readable = [];
+  const unreadable = [];
+  const inPlace = [];
 
   // eslint-disable-next-line no-restricted-syntax
   for (const spec of apps) {
@@ -94,21 +116,19 @@ async function decryptEnterpriseApps(apps, options = {}) {
 
         // Apply formatting if requested
         const result = formatSpecs ? specificationFormatter(decrypted) : decrypted;
-        decryptedApps.push(result);
+        readable.push(result);
+        inPlace.push(result);
       } catch (error) {
         log.error(`Failed to decrypt enterprise app ${spec.name}: ${error.message}`);
-        // Display/listing callers (default) keep the lenient behavior: include the
-        // still-encrypted spec so the rest of the list isn't lost. Callers that act
-        // on the spec (the reconciler) pass throwOnError so they can defer rather
-        // than operate on undecrypted data (wrong containerData, mis-typed g:/r:).
-        if (throwOnError) throw error;
-        decryptedApps.push(spec);
+        unreadable.push(spec);
+        inPlace.push(spec);
       }
     } else {
-      decryptedApps.push(spec);
+      readable.push(spec);
+      inPlace.push(spec);
     }
   }
-  return decryptedApps;
+  return { readable, unreadable, inPlace };
 }
 
 /**
@@ -207,6 +227,99 @@ async function listRunningApps(req, res) {
     });
     const appsResponse = messageHelper.createDataMessage(modifiedApps);
     return res ? res.json(appsResponse) : appsResponse;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * Component identifiers this node holds: running here, or committed to running
+ * and not started yet.
+ *
+ * The question a primary election actually asks a peer. Running containers alone
+ * answer it wrongly during the masterSlave primary path, which fixes ownership on
+ * the persistent data before it starts anything - for that whole window the node
+ * has decided but has no container, so a peer reading running containers is told
+ * the component is free and starts a second writer on the shared volume.
+ *
+ * Uncached, unlike listrunningapps: a 15-second-stale answer reopens the same
+ * window it exists to close.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message carrying an array of container-name identifiers.
+ */
+async function heldComponents(req, res) {
+  try {
+    const containers = await dockerService.dockerListContainers(false);
+    const running = containers
+      .map((container) => (container.Names?.[0] || '').replace(/^\//, ''))
+      .filter((name) => name.slice(0, 3) === 'zel' || name.slice(0, 4) === 'flux');
+
+    // eslint-disable-next-line global-require
+    const appReconciler = require('../appMonitoring/appReconciler');
+    const committed = appReconciler.committedIdentifiers()
+      .map((identifier) => dockerService.getAppIdentifier(identifier));
+
+    const held = [...new Set([...running, ...committed])];
+    const response = messageHelper.createDataMessage(held);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * Syncthing folder ids this node has promoted to sendreceive - the folders it
+ * holds the writable copy of.
+ *
+ * Asked by a peer before it promotes a folder of its own. Promotion is decided
+ * from each node's own view of the holder list, and those views fill in at
+ * different moments, so two nodes can each conclude they are the one - the first
+ * while it is briefly the only holder it knows of, the second once it can see
+ * more and wins the tiebreak among them. Neither revisits the decision, because a
+ * promoted folder never re-enters the election. Nothing else carries this: folder
+ * type is local syncthing config, and at genesis the promoted node has no data
+ * yet, so the has-data signal is silent exactly when it is needed.
+ *
+ * Served from the set the syncthing monitor refreshes each pass, not by reading
+ * syncthing per request: the route is unauthenticated and reachable by any peer,
+ * so an on-demand read would be an amplifier into syncthing, and the API has no
+ * rate limiting of its own. It is also then O(1), so it needs no response cache
+ * and carries no staleness beyond one monitor pass.
+ *
+ * `ready` is what stops a booting node being read as a free one. Before the
+ * monitor's first pass this node cannot distinguish "I hold nothing" from "I have
+ * not looked", and answering the first would invite a peer to promote alongside a
+ * folder this node is already holding. The asker treats an unready peer as a
+ * reason to wait rather than a clearance.
+ *
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message carrying { ready, folders }.
+ */
+async function promotedFolders(req, res) {
+  try {
+    // eslint-disable-next-line global-require
+    const globalState = require('../utils/globalState');
+    const ids = globalState.promotedFolderIds;
+    const response = messageHelper.createDataMessage({
+      ready: ids !== null,
+      folders: ids === null ? [] : [...ids],
+    });
+    return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -361,6 +474,8 @@ module.exports = {
   installedApps,
   decryptEnterpriseApps,
   listRunningApps,
+  heldComponents,
+  promotedFolders,
   listAllApps,
   getlatestApplicationSpecificationAPI,
   getApplicationOriginalOwner,

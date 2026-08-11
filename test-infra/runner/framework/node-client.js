@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { EventSource } from 'eventsource';
 import { getSubnetConfig } from './subnet-config.js';
+import { infraDeathError, offInfraDeath, onInfraDeath } from './infra-death.js';
 
 export function nodeClient(nodeNum) {
   const ip = getSubnetConfig().nodeIp(nodeNum);
@@ -73,6 +74,8 @@ export function nodeClient(nodeNum) {
         'peers:thresholdReached',
         'syncthing:folderErrors',
         'syncthing:eventsResync',
+        'syncthing:holderRetained',
+        'syncthing:holderExcluded',
         'spawner:blocked',
         'spawner:deferred',
         'spawner:installFailed',
@@ -123,6 +126,11 @@ export function nodeClient(nodeNum) {
   }
 
   function waitForEvent(name, predicate = () => true, timeout = 30000, { afterId = 0 } = {}) {
+    // An infra container the node depends on is already gone: the event can never
+    // arrive, so fail now instead of spending this wait's whole budget proving it.
+    const dead = infraDeathError();
+    if (dead) return Promise.reject(dead);
+
     const found = eventBuffer.find((e) => e.event === name && e.id > afterId && predicate(e.data));
     if (found) return Promise.resolve(found);
 
@@ -139,12 +147,21 @@ export function nodeClient(nodeNum) {
         }
       }
 
+      // Infra died while this wait was parked - fail AT the death, naming it,
+      // rather than at the deadline with a timeout that reads like a product bug.
+      function onDeath(err) {
+        cleanup();
+        reject(err);
+      }
+
       function cleanup() {
         clearTimeout(timer);
         emitter.removeListener(name, handler);
+        offInfraDeath(onDeath);
       }
 
       emitter.on(name, handler);
+      onInfraDeath(onDeath);
     });
   }
 

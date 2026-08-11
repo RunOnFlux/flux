@@ -6,7 +6,9 @@ const dbHelper = require('../dbHelper');
 const serviceHelper = require('../serviceHelper');
 const dockerService = require('../dockerService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
+const globalState = require('../utils/globalState');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const {
@@ -19,6 +21,8 @@ const {
   EARLY_EVAL_MIN_GAP_MS,
 } = require('./syncthingMonitorConstants');
 const { createMonitorAccelerator } = require('./syncthingMonitorAccelerator');
+const { createPeerFolderLiveness } = require('./peerFolderLiveness');
+const { socketAddressesMatch } = require('../utils/socketAddressUtils');
 const {
   sortAndFilterLocations,
   buildDeviceConfiguration,
@@ -69,43 +73,82 @@ async function verifyAppFolderMountWithRepair(appId, appFolder) {
 }
 
 /**
+ * The components of one installed app, each as its docker app identifier (which
+ * IS its syncthing folder id) paired with the containerData that decides
+ * whether it syncs. A version <= 3 app is a single component - itself.
+ * @param {object} installedApp - Installed app specification
+ * @returns {Array<{appId: string, containerData: string}>} The app's components
+ */
+function appComponents(installedApp) {
+  if (installedApp.version <= 3) {
+    return [{
+      appId: dockerService.getAppIdentifier(installedApp.name),
+      containerData: installedApp.containerData,
+    }];
+  }
+  return (installedApp.compose || []).map((component) => ({
+    appId: dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`),
+    containerData: component.containerData,
+  }));
+}
+
+/**
  * Check if app folders are properly mounted
- * Returns list of apps whose folders are not mounted yet
  * Uses verifyFolderMountSafety to detect folders that exist but aren't properly mounted
  * @param {Array} appsInstalled - List of installed apps
- * @returns {Promise<Array>} List of apps with unmounted folders
+ * @returns {Promise<{unmountedApps: Array, verifiedSafeIds: string[]}>} Apps with
+ *  unmounted folders, and the folder ids that verified safe (so a pending
+ *  mount-verify flag on them can be resolved)
  */
 async function checkAppFolderMounts(appsInstalled) {
   const unmountedApps = [];
+  const verifiedSafeIds = [];
+
+  const verifyOne = async (appId, appName) => {
+    const appFolder = `${appsFolder}${appId}`;
+    const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder);
+    if (mountSafety.isSafe) {
+      verifiedSafeIds.push(appId);
+    } else {
+      // Folder exists but mount is not safe (empty and not mounted - likely unmounted loop device)
+      unmountedApps.push({ appId, appName, reason: mountSafety.reason });
+    }
+  };
 
   // eslint-disable-next-line no-restricted-syntax
   for (const installedApp of appsInstalled) {
-    if (installedApp.version <= 3) {
-      // Legacy app - single folder
-      const appId = dockerService.getAppIdentifier(installedApp.name);
-      const appFolder = `${appsFolder}${appId}`;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const { appId } of appComponents(installedApp)) {
       // eslint-disable-next-line no-await-in-loop
-      const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder);
-      if (!mountSafety.isSafe) {
-        // Folder exists but mount is not safe (empty and not mounted - likely unmounted loop device)
-        unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
-      }
-    } else {
-      // Newer app - check each component
-      // eslint-disable-next-line no-restricted-syntax
-      for (const component of installedApp.compose || []) {
-        const appId = dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`);
-        const appFolder = `${appsFolder}${appId}`;
-        // eslint-disable-next-line no-await-in-loop
-        const mountSafety = await verifyAppFolderMountWithRepair(appId, appFolder);
-        if (!mountSafety.isSafe) {
-          unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
-        }
-      }
+      await verifyOne(appId, installedApp.name);
     }
   }
 
-  return unmountedApps;
+  return { unmountedApps, verifiedSafeIds };
+}
+
+/**
+ * The apps holding at least one syncing folder still awaiting a promotion
+ * decision. Only those folders ask a peer anything, so only their holders are
+ * worth asking about: a node whose synced apps are all running probes nothing,
+ * and must keep probing nothing.
+ * @param {Array} appsInstalled - List of installed apps (decrypted)
+ * @param {Set<string>} suspendedAppNames - Apps under backup or restore
+ * @param {Map} receiveOnlySyncthingAppsCache - Per-folder transition state
+ * @returns {Set<string>} App names
+ */
+function appsAwaitingPromotion(appsInstalled, suspendedAppNames, receiveOnlySyncthingAppsCache) {
+  const names = new Set();
+  appsInstalled.forEach((installedApp) => {
+    if (suspendedAppNames.has(installedApp.name)) return;
+    appComponents(installedApp).forEach(({ appId, containerData }) => {
+      const primaryContainer = (containerData ?? '').split('|')[0];
+      if (!requiresSyncing(getContainerDataFlags(primaryContainer))) return;
+      const cache = receiveOnlySyncthingAppsCache.get(appId);
+      if (cache && !cache.restarted) names.add(installedApp.name);
+    });
+  });
+  return names;
 }
 
 /**
@@ -118,14 +161,32 @@ async function checkAppFolderMounts(appsInstalled) {
 function appsMatchingFolderIds(appsInstalled, folderIds) {
   if (folderIds.length === 0) return [];
   const wanted = new Set(folderIds);
-  return appsInstalled.filter((installedApp) => {
-    if (installedApp.version <= 3) {
-      return wanted.has(dockerService.getAppIdentifier(installedApp.name));
-    }
-    return (installedApp.compose || []).some(
-      (component) => wanted.has(dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`)),
-    );
+  return appsInstalled.filter(
+    (installedApp) => appComponents(installedApp).some(({ appId }) => wanted.has(appId)),
+  );
+}
+
+/**
+ * The syncthing folder ids this node's installed apps own. A folder is owned
+ * when an installed component whose primary mount carries a sync flag (g:/r:/s:)
+ * maps to it - ownership is a property of the installed specification, not of
+ * what any one pass managed to process. Apps suspended for backup or restore are
+ * owner-exempt: those flows delete and rebuild their own folders, so a folder
+ * must be neither kept nor re-added underneath them.
+ * @param {Array} appsInstalled - List of installed apps (decrypted)
+ * @param {Set<string>} suspendedAppNames - Apps under backup or restore
+ * @returns {Set<string>} Owned folder ids
+ */
+function syncingFolderOwnerIds(appsInstalled, suspendedAppNames) {
+  const ownerIds = new Set();
+  appsInstalled.forEach((installedApp) => {
+    if (suspendedAppNames.has(installedApp.name)) return;
+    appComponents(installedApp).forEach(({ appId, containerData }) => {
+      const primaryContainer = (containerData ?? '').split('|')[0];
+      if (requiresSyncing(getContainerDataFlags(primaryContainer))) ownerIds.add(appId);
+    });
   });
+  return ownerIds;
 }
 
 // Helper function to get app locations
@@ -166,6 +227,7 @@ async function processContainerData(params) {
     folderIds,
     foldersConfiguration,
     newFoldersConfiguration,
+    liveness,
   } = params;
 
   const containersData = containerData.split('|');
@@ -227,6 +289,7 @@ async function processContainerData(params) {
       syncthingFolder,
       installedAppName,
       mountVerifyNeeded: state.syncthingAppsFirstRun || erroredFolderIds.has(appId),
+      liveness,
     });
 
     // Update cache if provided
@@ -346,8 +409,36 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       return;
     }
 
-    // Decrypt enterprise apps (version 8 with encrypted content)
-    appsInstalled.data = await decryptEnterpriseApps(appsInstalled.data);
+    // Decrypt enterprise apps (version 8 with encrypted content). This pass acts
+    // on the specification, and an app whose spec cannot be read tells us
+    // nothing about which folders it owns - so its folders are protected from
+    // the sweep and its safety flags are left standing, while every app that
+    // DID decrypt is managed normally. Aborting the whole pass instead would
+    // stop folder registration, mount safety, promotion and error draining for
+    // every app on the node, and stop publishing the writable-folder answer its
+    // peers block on - for as long as one app stays unreadable.
+    const decrypted = await decryptEnterpriseApps(appsInstalled.data);
+    appsInstalled.data = decrypted.readable;
+    const unreadableAppNames = new Set(decrypted.unreadable.map((app) => app.name));
+    if (unreadableAppNames.size) {
+      log.warn(`syncthingAppsCore - folders of undecryptable apps are protected this pass: ${[...unreadableAppNames].join(', ')}`);
+    }
+    // A folder id is the component identifier, which ends in _<appName> - and an
+    // app name cannot contain an underscore - so a folder always names the app
+    // that owns it, even when that app's components are unreadable.
+    const ownedByUnreadableApp = (folderId) => {
+      const appName = folderId.slice(folderId.lastIndexOf('_') + 1);
+      return unreadableAppNames.has(appName);
+    };
+
+    // The folders installed apps own. Computed here, before any decision the
+    // pass makes: the skip-gate below tells "syncthing has no such folder
+    // because this component does not sync" from "an owned folder has gone
+    // missing" by it, and the sweep at the end deletes by it.
+    const ownerIds = syncingFolderOwnerIds(
+      appsInstalled.data,
+      new Set([...state.backupInProgress, ...state.restoreInProgress]),
+    );
 
     // Mount safety is verified at decision points and in reaction to
     // syncthing's own storage signal - never as a steady-state sweep. The full
@@ -357,12 +448,32 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // halts the folder and raises FolderErrors, and only the flagged folders
     // are verified here (checkAppFolderMounts repairs an unmounted volume
     // itself when the backing image still exists, so a non-empty unmountedApps
-    // means repair failed too).
-    const erroredFolderIds = new Set(syncthingEventsConsumer.drainErroredFolderIds());
+    // means repair failed too). The flags are a durable level, resolved only
+    // by a completed outcome below - never consumed by being read - so a pass
+    // that fails mid-action leaves the flag standing and the next pass
+    // retries; the guard does not depend on FolderErrors ever re-firing.
+    const pendingFolderIds = syncthingEventsConsumer.mountVerifyPendingIds();
     const appsToVerify = state.syncthingAppsFirstRun
       ? appsInstalled.data
-      : appsMatchingFolderIds(appsInstalled.data, [...erroredFolderIds]);
-    const unmountedApps = appsToVerify.length > 0 ? await checkAppFolderMounts(appsToVerify) : [];
+      : appsMatchingFolderIds(appsInstalled.data, pendingFolderIds);
+    // A flagged folder no installed app carries can never be acted on -
+    // resolve it rather than re-match it forever (the uninstall already
+    // removed whatever the flag was protecting). An app whose spec could not be
+    // read carries nothing either, but for a reason that says nothing about the
+    // folder: its flag stays standing until its components can be enumerated.
+    if (!state.syncthingAppsFirstRun && pendingFolderIds.length > 0) {
+      const matchable = new Set();
+      appsToVerify.forEach((installedApp) => {
+        appComponents(installedApp).forEach(({ appId }) => matchable.add(appId));
+      });
+      pendingFolderIds.filter((id) => !matchable.has(id) && !ownedByUnreadableApp(id))
+        .forEach((id) => syncthingEventsConsumer.resolveMountVerify(id));
+    }
+    const { unmountedApps, verifiedSafeIds } = appsToVerify.length > 0
+      ? await checkAppFolderMounts(appsToVerify)
+      : { unmountedApps: [], verifiedSafeIds: [] };
+    // safe mount = the condition the flag exists for is gone
+    verifiedSafeIds.forEach((id) => syncthingEventsConsumer.resolveMountVerify(id));
     if (unmountedApps.length > 0) {
       const unmountedList = unmountedApps.map((app) => app.appId).join(', ');
       log.warn(`syncthingAppsCore - Skipping processing: ${unmountedApps.length} app folders not mounted yet: ${unmountedList}`);
@@ -371,21 +482,44 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       // Never leave an unsafe-mount folder sendreceive while processing is
       // skipped: the syncthing daemon keeps running as configured, so an
       // un-demoted sendreceive folder over a bad mount can still broadcast its
-      // (leaked or missing) disk state to the healthy peers. Demote those
-      // folders and hold their containers before bailing - idempotent, and the
-      // normal receiveonly machinery re-promotes once the mount is healthy.
-      const foldersResp = await syncthingService.getConfigFolders();
-      const folders = Array.isArray(foldersResp?.data) ? foldersResp.data : [];
+      // (leaked or missing) disk state to the healthy peers. The demotion is
+      // patched directly, with no config pre-read: a safety action must not be
+      // conditioned on a fallible read whose failure silently reads as
+      // "nothing to protect" (that exact silent no-op once cost a gate run).
+      // The patch is safe to repeat - syncthing restarts a folder only when
+      // its config actually changed (model.go CommitConfiguration diffs
+      // RequiresRestartOnly) - and a folder syncthing does not know answers
+      // 404, which means "not a syncthing app", not a failure. The normal
+      // receiveonly machinery re-promotes once the mount is healthy.
       // eslint-disable-next-line no-restricted-syntax
       for (const { appId, reason } of unmountedApps) {
-        const folder = folders.find((f) => f.id === appId);
-        if (folder && folder.type === 'sendreceive') {
-          log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder is sendreceive over an unsafe mount (${reason}); switching to receiveonly and holding the container`);
-          // eslint-disable-next-line no-await-in-loop
-          await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, appId).catch((err) => {
-            log.error(`syncthingAppsCore - Failed to switch ${appId} to receiveonly: ${err.message}`);
-          });
+        // eslint-disable-next-line no-await-in-loop
+        const patchResponse = await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, appId);
+        if (patchResponse.status === 'success') {
+          log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder over an unsafe mount (${reason}); switched to receiveonly and holding the container`);
           appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
+          syncthingEventsConsumer.resolveMountVerify(appId);
+        } else if (patchResponse.data?.code === 'ERR_BAD_REQUEST') {
+          // 4xx: syncthing has no such folder. What that means turns entirely on
+          // ownership.
+          if (ownerIds.has(appId)) {
+            // An installed syncing component owns this id, so "no such folder"
+            // is a contradiction, not an answer: the demotion could not be
+            // applied, so the flag stays standing for the next pass. The mount
+            // is unsafe either way, so the container is held now. Nothing is
+            // recreated from here - the level loop rebuilds the folder once the
+            // mount is healthy, under the normal receiveonly machinery.
+            log.error(`syncthingAppsCore - SAFETY BLOCK: ${appId} folder over an unsafe mount (${reason}) is unknown to syncthing though an installed component syncs it; holding the container, flag stands`);
+            appReconciler.setControllerDesired(appId, 'stopped', `mount safety block: ${reason}`);
+          } else {
+            // no installed component syncs this id - there is nothing to demote
+            // and nothing left to act on
+            syncthingEventsConsumer.resolveMountVerify(appId);
+          }
+        } else {
+          // transient failure: the flag stays standing and the next pass
+          // retries the demotion - loudly, never silently
+          log.error(`syncthingAppsCore - SAFETY BLOCK FAILED for ${appId} (${reason}): ${patchResponse.data?.message || 'unknown error'}; retrying next pass`);
         }
       }
       return;
@@ -411,20 +545,33 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     // CRITICAL: Validate Syncthing configuration is loaded before proceeding
     // On system restart, Syncthing API might be available but config not fully loaded
     // This prevents data deletion during the race condition window
-    if (!allFoldersResp || !allFoldersResp.data || !Array.isArray(allFoldersResp.data)) {
+    // Status first, shape second: an in-band transport error must never read
+    // as "empty configuration" (an EMPTY folders array is legal data).
+    if (allFoldersResp?.status !== 'success' || !Array.isArray(allFoldersResp.data)) {
       if (state.syncthingAppsFirstRun) {
         log.warn('syncthingAppsCore - Syncthing folder configuration not ready yet on first run. Waiting for next cycle to avoid data loss.');
       } else {
-        log.error('syncthingAppsCore - Failed to get Syncthing folders configuration');
+        log.error(`syncthingAppsCore - Failed to get Syncthing folders configuration: ${allFoldersResp?.data?.message || 'malformed response'}`);
       }
       return;
     }
 
-    if (!allDevicesResp || !allDevicesResp.data || !Array.isArray(allDevicesResp.data)) {
+    // Publish which folders this node holds writable, for the peers that ask before
+    // promoting one of their own. Recorded here rather than read on demand: the
+    // answer is a byproduct of a pass the monitor already makes, so serving it costs
+    // nothing, where an endpoint calling syncthing per request would be an
+    // unauthenticated amplifier into it. Replaced only by a validated response, so a
+    // failed read leaves the last good answer standing rather than momentarily
+    // claiming this node holds nothing writable.
+    globalState.promotedFolderIds = new Set(
+      allFoldersResp.data.filter((folder) => folder.type === 'sendreceive').map((folder) => folder.id),
+    );
+
+    if (allDevicesResp?.status !== 'success' || !Array.isArray(allDevicesResp.data)) {
       if (state.syncthingAppsFirstRun) {
         log.warn('syncthingAppsCore - Syncthing device configuration not ready yet on first run. Waiting for next cycle to avoid data loss.');
       } else {
-        log.error('syncthingAppsCore - Failed to get Syncthing devices configuration');
+        log.error(`syncthingAppsCore - Failed to get Syncthing devices configuration: ${allDevicesResp?.data?.message || 'malformed response'}`);
       }
       return;
     }
@@ -452,11 +599,14 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
             unsafeFoldersCount += 1;
             log.error(`syncthingAppsCore - STARTUP SAFETY: Folder ${appId} has unsafe mount (${mountSafety.reason}). Switching to receiveonly to prevent data loss.`);
 
-            // Immediately switch to receiveonly mode
+            // Immediately switch to receiveonly mode. In-band status check:
+            // performRequest never throws, so a .catch here would be dead code
+            // and a failed demotion would pass silently.
             // eslint-disable-next-line no-await-in-loop
-            await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, folder.id).catch((err) => {
-              log.error(`syncthingAppsCore - Failed to switch ${folder.id} to receiveonly: ${err.message}`);
-            });
+            const startupPatch = await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, folder.id);
+            if (startupPatch?.status !== 'success') {
+              log.error(`syncthingAppsCore - Failed to switch ${folder.id} to receiveonly: ${startupPatch?.data?.message || 'unknown error'}`);
+            }
           } else {
             log.info(`syncthingAppsCore - Folder ${appId} mount is safe (mounted=${mountSafety.isMounted}, files=${mountSafety.fileCount})`);
           }
@@ -477,12 +627,38 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     const foldersConfiguration = [];
     const newFoldersConfiguration = [];
 
+    // Peer liveness, answered once for the whole pass. Both promotion decisions
+    // ask the same peers the same question, and the folder loop is sequential -
+    // asked inside it, one unreachable holder costs its full timeout again for
+    // every folder that elects it, and past three the pass outruns the interval
+    // and the next cycle is dropped for every folder on the node. Asking the
+    // whole set at once costs one timeout no matter how many folders wait on it.
+    // Nothing is probed unless a folder is actually awaiting promotion.
+    const liveness = createPeerFolderLiveness();
+    const awaitingPromotion = appsAwaitingPromotion(
+      appsInstalled.data,
+      new Set([...state.backupInProgress, ...state.restoreInProgress]),
+      state.receiveOnlySyncthingAppsCache,
+    );
+    if (awaitingPromotion.size) {
+      const peerLists = await Promise.all([...awaitingPromotion].map((name) => appLocation(name)));
+      await liveness.prewarm(
+        peerLists.flat()
+          .map((entry) => entry?.ip)
+          .filter((ip) => ip && !socketAddressesMatch(ip, localSocketAddr)),
+      );
+    }
+
     // Shared parameters for processing
     const sharedParams = {
       localSocketAddr,
+      liveness,
       localDeviceId,
       state,
-      erroredFolderIds,
+      // the folders flagged when the pass began: the state machine re-verifies
+      // exactly these on its own decision points (resolution of the flag by
+      // this pass does not retract the request to look)
+      erroredFolderIds: new Set(pendingFolderIds),
       allFoldersResp,
       allDevicesResp,
       devicesConfiguration,
@@ -531,50 +707,85 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       }
     }
 
-    // Remove unused folders and devices (parallelized for better performance)
+    // Remove unused folders and devices (parallelized for better performance).
+    // A folder is unused when no installed syncing component owns it: the app
+    // was uninstalled, dropped the g:/r:/s: flag from its primary mount, or is
+    // suspended for backup/restore (those flows own their folders' lifecycle
+    // themselves). Whether this pass reached the component is a different
+    // question - a component skipped for an unmounted volume or deferred by the
+    // state machine still owns its folder, and deleting it would take
+    // syncthing's index, peer devices and any standing safety demotion with it.
     const nonUsedFolders = allFoldersResp.data.filter(
-      (syncthingFolder) => !folderIds.includes(syncthingFolder.id),
+      (syncthingFolder) => !ownerIds.has(syncthingFolder.id)
+        && !ownedByUnreadableApp(syncthingFolder.id),
     );
+    allFoldersResp.data
+      .filter((syncthingFolder) => !ownerIds.has(syncthingFolder.id)
+        && ownedByUnreadableApp(syncthingFolder.id))
+      .forEach((syncthingFolder) => log.warn(`syncthingAppsCore - keeping folder ${syncthingFolder.id}: its app could not be decrypted, so ownership is unknown`));
+    // An owned folder the pass never registered means its component went
+    // unprocessed: the folder survives, but the skip is never silent - no
+    // configuration is being applied to it until the component is reached again.
+    const processedFolderIds = new Set(folderIds);
+    allFoldersResp.data
+      .filter((syncthingFolder) => ownerIds.has(syncthingFolder.id) && !processedFolderIds.has(syncthingFolder.id))
+      .forEach((syncthingFolder) => log.warn(`syncthingAppsCore - keeping folder ${syncthingFolder.id}: its component went unprocessed this pass`));
     const nonUsedDevices = allDevicesResp.data.filter(
       (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== localDeviceId,
     );
 
     // Parallelize cleanup operations
     const cleanupPromises = [
-      ...nonUsedFolders.map((folder) => {
+      ...nonUsedFolders.map(async (folder) => {
         log.info(`syncthingAppsCore - Removing unused Syncthing folder ${folder.id}`);
-        return syncthingService.adjustConfigFolders('delete', undefined, folder.id).catch((err) => {
-          log.error(`Failed to remove folder ${folder.id}: ${err.message}`);
-        });
+        const response = await syncthingService.adjustConfigFolders('delete', undefined, folder.id);
+        if (response?.status !== 'success') {
+          log.error(`Failed to remove folder ${folder.id}: ${response?.data?.message || 'unknown error'}`);
+        }
       }),
-      ...nonUsedDevices.map((device) => {
+      ...nonUsedDevices.map(async (device) => {
         log.info(`syncthingAppsCore - Removing unused Syncthing device ${device.deviceID}`);
-        return syncthingService.adjustConfigDevices('delete', undefined, device.deviceID).catch((err) => {
-          log.error(`Failed to remove device ${device.deviceID}: ${err.message}`);
-        });
+        const response = await syncthingService.adjustConfigDevices('delete', undefined, device.deviceID);
+        if (response?.status !== 'success') {
+          log.error(`Failed to remove device ${device.deviceID}: ${response?.data?.message || 'unknown error'}`);
+        }
       }),
     ];
 
     await Promise.all(cleanupPromises);
 
-    // Apply new configuration
+    // Apply new configuration. A failed apply aborts the pass loudly (outer
+    // catch): the steps below reason about the configuration this was meant
+    // to install, and the level loop reassembles everything next pass anyway.
     if (devicesConfiguration.length > 0) {
-      await syncthingService.adjustConfigDevices('put', devicesConfiguration);
+      messageHelper.dataOrThrow(await syncthingService.adjustConfigDevices('put', devicesConfiguration));
     }
     if (newFoldersConfiguration.length > 0) {
-      await syncthingService.adjustConfigFolders('put', newFoldersConfiguration);
+      messageHelper.dataOrThrow(await syncthingService.adjustConfigFolders('put', newFoldersConfiguration));
+    }
+
+    // Promotions decided this pass are applied now, so the claims they made
+    // become true here and nowhere earlier: masterSlaveApps starts containers
+    // on designatedLeader, and a flag raised before the folder batch landed
+    // would start a primary against a folder still receiveonly. A failed
+    // apply threw above, so intent survives untouched for the retry pass.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const [, folderCache] of state.receiveOnlySyncthingAppsCache) {
+      if (folderCache && folderCache.designationPending) {
+        folderCache.designationPending = false;
+        folderCache.designatedLeader = true;
+      }
     }
 
     // Check for folder errors in parallel
     const folderErrorChecks = await Promise.all(
       foldersConfiguration.map(async (folder) => {
-        try {
-          const folderError = await syncthingService.getFolderIdErrors(folder.id);
-          if (folderError?.status === 'success' && folderError.data.errors?.length > 0) {
-            return { folder, error: folderError };
-          }
-        } catch (error) {
-          log.warn(`Failed to check errors for folder ${folder.id}: ${error.message}`);
+        const folderError = await syncthingService.getFolderIdErrors(folder.id);
+        if (folderError?.status === 'success' && folderError.data.errors?.length > 0) {
+          return { folder, error: folderError };
+        }
+        if (folderError?.status !== 'success') {
+          log.warn(`Failed to check errors for folder ${folder.id}: ${folderError?.data?.message || 'malformed response'}`);
         }
         return null;
       }),
@@ -627,9 +838,14 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
 
     // Check if Syncthing restart is needed
     const restartRequired = await syncthingService.getConfigRestartRequired();
-    if (restartRequired?.status === 'success' && restartRequired.data.requiresRestart === true) {
+    if (restartRequired?.status !== 'success') {
+      log.warn(`syncthingAppsCore - could not read restart-required state: ${restartRequired?.data?.message || 'malformed response'}; next pass re-checks`);
+    } else if (restartRequired.data.requiresRestart === true) {
       log.info('syncthingAppsCore - New configuration applied. Syncthing restart required, restarting...');
-      await syncthingService.systemRestart();
+      const restartResponse = await syncthingService.systemRestart();
+      if (restartResponse?.status !== 'success') {
+        log.error(`syncthingAppsCore - syncthing restart request failed: ${restartResponse?.data?.message || 'unknown error'}; next pass re-checks`);
+      }
     }
   } catch (error) {
     log.error(`syncthingAppsCore - Error in sync monitoring: ${error.message}`);

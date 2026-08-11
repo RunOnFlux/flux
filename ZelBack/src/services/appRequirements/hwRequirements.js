@@ -2,6 +2,8 @@ const os = require('os');
 const config = require('config');
 const generalService = require('../generalService');
 const geolocationService = require('../geolocationService');
+const ipLocationStore = require('../appPlacement/ipLocationStore');
+const geolocationRule = require('../appPlacement/geolocationRule');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const { socketAddressesMatch } = require('../utils/socketAddressUtils');
@@ -169,30 +171,106 @@ async function checkAppGeolocationRequirements(appSpecs) {
     const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac')); // this ensures that new specs can only run on updated nodes.
     const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
 
-    const myNodeLocationContinent = nodeGeo.continentCode;
-    const myNodeLocationContCountry = `${nodeGeo.continentCode}_${nodeGeo.countryCode}`;
-    const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`;
+    // This node's own continent, country and region, resolved through the SAME
+    // published table the candidate count reads for every other node - so the
+    // two cannot disagree about where this node is.
+    //
+    // That matters in one direction. The count has no alternative source: it is
+    // answering for thousands of nodes it cannot ask. So if this check read the
+    // node's ip-api self-report instead, the two would differ wherever the table
+    // and the self-report differ, and the count would exclude nodes this check
+    // would have accepted - a candidate count below the instance count, and a
+    // registration refused for a spec that would have deployed.
+    //
+    // The self-report is the fallback, for a node the table cannot place at all.
+    // The count treats such a node as unprovable and includes it, so falling
+    // back here can only make this check stricter than the count, which is the
+    // safe direction.
+    let myContinent = nodeGeo.continentCode;
+    let myCountry = nodeGeo.countryCode;
+    let myTableRegion = null;
+    try {
+      const hit = nodeGeo.ip ? await ipLocationStore.lookup(nodeGeo.ip) : null;
+      if (hit?.countryCode && hit.continentCode) {
+        myContinent = hit.continentCode;
+        myCountry = hit.countryCode;
+        myTableRegion = hit.region ?? null;
+      }
+    } catch (error) {
+      log.warn(`checkAppGeolocationRequirements - node location unavailable from the table: ${error.message}`);
+    }
+
+    const myNodeLocationContinent = myContinent;
+    const myNodeLocationContCountry = `${myContinent}_${myCountry}`;
+    // the region part of a legacy entry is an ip-api region NAME, which only
+    // this node knows about itself - the count cannot read it for other nodes
+    // and deliberately answers such entries at country granularity, so matching
+    // it here can only narrow what this node accepts
+    const myNodeLocationFull = `${myContinent}_${myCountry}_${nodeGeo.regionName}`;
     const myNodeLocationContinentALL = 'ALL';
-    const myNodeLocationContCountryALL = `${nodeGeo.continentCode}_ALL`;
-    const myNodeLocationFullALL = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_ALL`;
+    const myNodeLocationContCountryALL = `${myContinent}_ALL`;
+    const myNodeLocationFullALL = `${myContinent}_${myCountry}_ALL`;
+    // A region entry matches on proof only, in both directions: an allow is
+    // satisfied - and a deny applies - exactly when this node's table region is
+    // known and equal. An unknown region satisfies no region pin and is caught
+    // by no region deny.
+    //
+    // The entry may name its region in either vocabulary, an ISO 3166-2 code or
+    // the name ip-api uses, and the published vocabulary resolves the second to
+    // the first. Whichever it is, the count resolves it the same way and both
+    // sides compare against the same table region.
+    const entryRegionCode = (parts) => (parts.length < 3
+      ? null
+      : geolocationRule.regionCodeOf(parts, ipLocationStore.regionCodeForName));
+    const matchesTableRegionEntry = (value) => {
+      const parts = value.split('_');
+      const code = entryRegionCode(parts);
+      if (!code || !myTableRegion) return false;
+      return `${parts[0]}_${parts[1]}` === myNodeLocationContCountry && code === myTableRegion;
+    };
+    // This node's own ip-api region name. The count cannot read it for any other
+    // node, so an entry answered this way is answered by this node alone.
+    const matchesSelfReportedRegionName = (value) => value === myNodeLocationFull;
+    // For an ALLOW. A region part neither vocabulary resolves is left to the
+    // self-reported name, and matching it can only narrow what this node
+    // accepts. An entry the vocabulary DOES resolve must not also match by
+    // name: that would accept nodes the count excluded, and where the two
+    // sources disagree the table is the one to believe.
+    const matchesSelfReportedRegion = (value) => {
+      const parts = value.split('_');
+      if (parts.length >= 3 && entryRegionCode(parts)) return false;
+      return value === myNodeLocationFull;
+    };
     if (appContinent && !geoC.length && !geoCForbidden.length) { // backwards old style compatible. Can be removed after a month
-      if (appContinent.slice(1) !== nodeGeo.continentCode) {
+      if (appContinent.slice(1) !== myContinent) {
         throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
       }
     }
     if (appCountry) {
-      if (appCountry.slice(1) !== nodeGeo.countryCode) {
+      if (appCountry.slice(1) !== myCountry) {
         throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
       }
     }
+    // A DENY takes either source, and this is the one place the self-reported
+    // name still counts for an entry the vocabulary resolves. The rule an allow
+    // uses would be the permissive choice here: declining to match by name lets
+    // a node the table places one region over run an app that named its own
+    // region, so a ban would catch fewer nodes than the owner wrote. Taking both
+    // keeps the self-report able only to STRENGTHEN a ban, never to grant
+    // eligibility - the table remains the only thing that can say yes. A ban is
+    // usually written for a reason the network cannot see, so the error worth
+    // making is excluding a node that would have been fine.
     geoCForbidden.forEach((locationNotAllowed) => {
-      if (locationNotAllowed.slice(3) === myNodeLocationContinent || locationNotAllowed.slice(3) === myNodeLocationContCountry || locationNotAllowed.slice(3) === myNodeLocationFull) {
+      const v = locationNotAllowed.slice(3);
+      if (v === myNodeLocationContinent || v === myNodeLocationContCountry
+        || matchesSelfReportedRegionName(v) || matchesTableRegionEntry(v)) {
         throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
       }
     });
     if (geoC.length) {
-      const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry || locationAllowed.slice(2) === myNodeLocationFull
-        || locationAllowed.slice(2) === myNodeLocationContinentALL || locationAllowed.slice(2) === myNodeLocationContCountryALL || locationAllowed.slice(2) === myNodeLocationFullALL);
+      const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry
+        || locationAllowed.slice(2) === myNodeLocationContinentALL || locationAllowed.slice(2) === myNodeLocationContCountryALL || locationAllowed.slice(2) === myNodeLocationFullALL
+        || matchesSelfReportedRegion(locationAllowed.slice(2)) || matchesTableRegionEntry(locationAllowed.slice(2)));
       if (!nodeLocationOK) {
         throw new Error('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
       }

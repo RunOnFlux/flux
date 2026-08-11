@@ -7,6 +7,7 @@ const dockerService = require('../../ZelBack/src/services/dockerService');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const { requireMongo } = require('./dbTestHelper');
 
@@ -254,6 +255,38 @@ describe('appController tests', () => {
 
       sinon.assert.calledOnceWithExactly(setOperatorStopped, 'Component_TestApp', true);
       sinon.assert.callOrder(setOperatorStopped, dockerService.appDockerStop);
+    });
+
+    it('retracts the controller desire so a released lock cannot restart it behind the election', async () => {
+      // The lock only suppresses the reconciler while it is held. A g: component
+      // carries a controller desire of "running" from the masterSlave primary
+      // start; left standing, it is reconciled against the stopped container once
+      // the lock lifts and restarts it without an election pass, beside whichever
+      // peer took over.
+      verificationHelperStub.resolves(true);
+      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      const clearControllerDesired = sinon.stub(appReconciler, 'clearControllerDesired');
+
+      const req = { params: { appname: 'Component_TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop(req, res);
+
+      sinon.assert.calledOnceWithExactly(clearControllerDesired, 'Component_TestApp');
+    });
+
+    it('leaves the controller desire alone when the operator STARTS a component', async () => {
+      // Only a stop overrides the controller. Clearing on start too would be
+      // indistinguishable here but wrong in meaning: start hands the decision back
+      // to the decider, it does not express one.
+      verificationHelperStub.resolves(true);
+      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      const clearControllerDesired = sinon.stub(appReconciler, 'clearControllerDesired');
+
+      const req = { params: { appname: 'Component_TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStart(req, res);
+
+      sinon.assert.notCalled(clearControllerDesired);
     });
   });
 

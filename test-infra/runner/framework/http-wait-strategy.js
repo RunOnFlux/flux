@@ -1,3 +1,5 @@
+import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
+
 // A testcontainers WaitStrategy that polls an HTTP URL until it responds OK,
 // bypassing Docker's health state machine entirely.
 //
@@ -27,11 +29,16 @@ export class HttpPollWaitStrategy {
   #startupTimeoutSet = false;
   #pollIntervalMs;
   #probeTimeoutMs;
+  #validate;
 
-  constructor(url, { pollIntervalMs = 500, probeTimeoutMs = 2000 } = {}) {
+  // `validate` inspects the response beyond res.ok — needed when the target
+  // returns 200 with an error body while a dependency (e.g. mongo) is still
+  // coming up. Defaults to res.ok when omitted.
+  constructor(url, { pollIntervalMs = 500, probeTimeoutMs = 2000, validate = null } = {}) {
     this.#url = url;
     this.#pollIntervalMs = pollIntervalMs;
     this.#probeTimeoutMs = probeTimeoutMs;
+    this.#validate = validate;
   }
 
   withStartupTimeout(startupTimeoutMs) {
@@ -51,13 +58,17 @@ export class HttpPollWaitStrategy {
   async waitUntilReady() {
     const deadline = Date.now() + this.#startupTimeoutMs;
     while (Date.now() < deadline) {
+      // An infra container died while this one was coming up: nothing that
+      // depends on it can answer, so surface the death instead of spending the
+      // full startup budget proving mongo is gone.
+      throwIfInfraDead();
       try {
         const res = await fetch(this.#url, { signal: AbortSignal.timeout(this.#probeTimeoutMs) });
-        if (res.ok) return;
+        if (this.#validate ? await this.#validate(res) : res.ok) return;
       } catch {
         // not serving yet — keep polling until the deadline
       }
-      await new Promise((r) => setTimeout(r, this.#pollIntervalMs));
+      await sleepUnlessInfraDead(this.#pollIntervalMs);
     }
     throw new Error(`HttpPollWaitStrategy: ${this.#url} not ready after ${this.#startupTimeoutMs}ms`);
   }

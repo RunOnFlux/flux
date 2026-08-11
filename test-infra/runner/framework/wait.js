@@ -1,11 +1,17 @@
 import { getAppContainerStatus } from './container.js';
+import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 
 export async function waitFor(condition, { timeout = 60000, interval = 2000, label = '' } = {}) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
+    // An infra container died: the condition is unreachable, not merely unmet.
+    throwIfInfraDead();
     if (await condition()) return true;
-    await new Promise((r) => setTimeout(r, interval));
+    await sleepUnlessInfraDead(interval);
   }
+  // ...including a death that landed during the last sleep, which would
+  // otherwise be reported as this wait's own timeout.
+  throwIfInfraDead();
   throw new Error(`Timeout after ${timeout}ms waiting for: ${label || 'condition'}`);
 }
 
@@ -145,8 +151,13 @@ export async function waitForAppRunning(node, appName, timeout = 60000) {
   return node.waitForEvent('app:running', (d) => d.apps?.some((a) => a.name === appName), timeout);
 }
 
-export async function waitForPeersRemoved(node, predicate = () => true, timeout = 30000) {
-  return node.waitForEvent('peers:removed', predicate, timeout);
+// The payload carries outbound/inbound/total as they stand after the removal, so
+// a caller can wait on the COUNT rather than on any particular peer leaving.
+// Pass { afterId } from getLastEventId() before the change is triggered: the
+// buffer holds every removal since boot, and without an anchor a wait for
+// total === 0 can match one of those and pass without observing anything.
+export async function waitForPeersRemoved(node, predicate = () => true, timeout = 30000, opts) {
+  return node.waitForEvent('peers:removed', predicate, timeout, opts);
 }
 
 // --- reconciler (appReconciler) ---
@@ -189,7 +200,10 @@ export async function waitForReconcileSwept(node, reason, timeout = 60000, opts)
  */
 export async function assertNoEvent(node, name, predicate = () => true, windowMs = 5000) {
   const afterId = node.getLastEventId();
-  await new Promise((r) => setTimeout(r, windowMs));
+  await sleepUnlessInfraDead(windowMs);
+  // A dead infra container makes "no event arrived" trivially true, so this
+  // assertion would PASS on a void run. Fail it instead.
+  throwIfInfraDead();
   const match = node.getEventBuffer().find(
     (e) => e.event === name && e.id > afterId && predicate(e.data),
   );

@@ -631,4 +631,101 @@ describe('syncthingService tests', () => {
       // sinon.assert.calledOnce(unrefStub);
     });
   });
+
+  describe('collectSyncthingMetrics error surfacing', () => {
+    // Syncthing's /rest/system/error buffer is cumulative for the daemon's
+    // lifetime, and the daemon outlives FluxOS restarts. The collector must
+    // treat each entry as an occurrence: log its content, clear the buffer,
+    // and report unhealthy only for the pass the errors arrived in - never
+    // re-count history every cycle as a bare number.
+    let fakeInstance;
+    let logErrorStub;
+    let logWarnStub;
+    let routes;
+
+    const route = (urlpath, data) => { routes[urlpath] = data; };
+
+    beforeEach(() => {
+      routes = {};
+      fakeInstance = {
+        get: sinon.stub().callsFake((urlpath) => (urlpath in routes
+          ? Promise.resolve({ data: routes[urlpath] })
+          : Promise.reject(new Error(`no route for ${urlpath}`)))),
+        post: sinon.stub().resolves({ data: 'ok' }),
+      };
+      const cache = syncthingService.getAxiosCache();
+      cache.axiosInstance = fakeInstance;
+      cache.syncthingApiKey = 'testkey';
+      cache.lastUpdate = Date.now();
+      logErrorStub = sinon.stub(log, 'error');
+      logWarnStub = sinon.stub(log, 'warn');
+      sinon.stub(log, 'info');
+      route('/rest/noauth/health', { status: 'OK' });
+      route('/rest/system/status', { uptime: 1 });
+      route('/rest/system/connections', { connections: {} });
+      route('/rest/stats/folder', {});
+      route('/rest/stats/device', {});
+      route('/rest/config/folders', []);
+      route('/rest/system/error', { errors: [] });
+    });
+
+    afterEach(() => {
+      syncthingService.getAxiosCache().reset();
+      sinon.restore();
+    });
+
+    it('drains the system error buffer: each message to the error log, buffer cleared, unhealthy for the pass', async () => {
+      route('/rest/system/error', {
+        errors: [
+          { when: '2026-07-30T14:52:50Z', message: 'Failed to auto-accept folder due to path conflict (folder.id=fluxwp_x)' },
+          { when: '2026-07-30T15:40:03Z', message: 'database is corrupted' },
+        ],
+      });
+
+      const metrics = await syncthingService.collectSyncthingMetrics();
+
+      expect(metrics.overall.healthy).to.equal(false);
+      expect(logErrorStub.args.some((a) => String(a[0]).includes('path conflict'))).to.equal(true);
+      expect(logErrorStub.args.some((a) => String(a[0]).includes('database is corrupted'))).to.equal(true);
+      expect(fakeInstance.post.calledWith('/rest/system/error/clear')).to.equal(true);
+      // the health summary names what happened rather than carrying a bare count
+      expect(metrics.overall.issues.some((issue) => issue.includes('system error'))).to.equal(true);
+    });
+
+    it('an empty buffer stays healthy, logs nothing, and is not cleared', async () => {
+      const metrics = await syncthingService.collectSyncthingMetrics();
+
+      expect(metrics.overall.healthy).to.equal(true);
+      expect(logErrorStub.called).to.equal(false);
+      expect(fakeInstance.post.called).to.equal(false);
+    });
+
+    it('a failed clear is labeled as such and the pass still completes', async () => {
+      route('/rest/system/error', { errors: [{ when: '2026-08-02T10:00:00Z', message: 'boom' }] });
+      fakeInstance.post.rejects(new Error('connection refused'));
+
+      const metrics = await syncthingService.collectSyncthingMetrics();
+
+      expect(metrics.overall.healthy).to.equal(false);
+      expect(logWarnStub.args.some((a) => String(a[0]).includes('clear'))).to.equal(true);
+    });
+
+    it('folder errors log their file-level causes, capped with a remainder line', async () => {
+      route('/rest/config/folders', [{ id: 'fluxwp_app', label: 'fluxwp_app' }]);
+      route('/rest/db/status?folder=fluxwp_app', {
+        state: 'idle', globalBytes: 10, inSyncBytes: 10, pullErrors: 7, errors: 0,
+      });
+      route('/rest/folder/errors?folder=fluxwp_app', {
+        errors: Array.from({ length: 7 }, (unused, i) => ({ path: `file-${i}`, error: `cause-${i}` })),
+      });
+
+      const metrics = await syncthingService.collectSyncthingMetrics();
+
+      expect(metrics.errors.folder.fluxwp_app.pullErrors).to.equal(7);
+      expect(logErrorStub.args.some((a) => String(a[0]).includes('file-0') && String(a[0]).includes('cause-0'))).to.equal(true);
+      expect(logErrorStub.args.some((a) => String(a[0]).includes('file-4'))).to.equal(true);
+      expect(logErrorStub.args.some((a) => String(a[0]).includes('file-5'))).to.equal(false);
+      expect(logErrorStub.args.some((a) => String(a[0]).includes('2 further'))).to.equal(true);
+    });
+  });
 });

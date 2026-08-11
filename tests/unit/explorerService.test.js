@@ -750,6 +750,10 @@ describe('explorerService tests', () => {
     let daemonServiceMiscRpcsStub;
 
     beforeEach(async () => {
+      // An unsynced daemon makes processBlock retry itself in two minutes. Left
+      // real, that timer outlives this file and re-enters block processing
+      // against restored stubs.
+      sinon.useFakeTimers({ toFake: ['setTimeout'], shouldAdvanceTime: true });
       sinon.stub(dbHelper, 'findOneInDatabase');
       sinon.stub(dbHelper, 'insertManyToDatabase');
       dbStubUpdate = sinon.stub(dbHelper, 'updateOneInDatabase');
@@ -1691,13 +1695,6 @@ describe('explorerService tests', () => {
     let logErrorSpy;
     let logInfoSpy;
 
-    const generateResponse = () => {
-      const res = { test: 'testing' };
-      res.status = sinon.stub().returns(res);
-      res.json = sinon.stub().returns(res);
-      return res;
-    };
-
     beforeEach(async () => {
       findInDatabaseStub = sinon.stub(dbHelper, 'findOneInDatabase');
       dropCollectionStub = sinon.stub(dbHelper, 'dropCollection');
@@ -2133,7 +2130,20 @@ describe('explorerService tests', () => {
 
     it('should skip tx below minPrice', () => {
       const hashBatch = [];
-      explorerService.processBootstrapTx(makeTx({ vout: [{ valueSat: 100, scriptPubKey: { addresses: [config.fluxapps.address], asm: 'OP_RETURN 6162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738394142434445464748494a4b4c4d4e4f505152535455565758595a3031' } }] }), [{ height: -1, minPrice: 1 }], new Set(), hashBatch);
+      explorerService.processBootstrapTx(
+        makeTx({
+          vout: [{
+            valueSat: 100,
+            scriptPubKey: {
+              addresses: [config.fluxapps.address],
+              asm: 'OP_RETURN 6162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738394142434445464748494a4b4c4d4e4f505152535455565758595a3031',
+            },
+          }],
+        }),
+        [{ height: -1, minPrice: 1 }],
+        new Set(),
+        hashBatch,
+      );
       expect(hashBatch).to.have.length(0);
     });
 
@@ -2353,7 +2363,7 @@ describe('explorerService tests', () => {
       await explorerService.bootstrapSoftForks(2579000);
 
       sinon.assert.calledOnce(executeCallStub);
-      const args = executeCallStub.firstCall.args;
+      const { args } = executeCallStub.firstCall;
       expect(args[0]).to.equal('getaddressdeltas');
       expect(args[1][0].addresses).to.include(multisigA);
       expect(args[1][0].addresses).to.include(multisigB);

@@ -215,7 +215,7 @@ describe('Boot manager: shutdownReason sequence', function () {
       env = await createTestEnv({ hookCtx: this,
         nodes: 1,
         tickerAutostart: false,
-        bootContext: { lastAlive: Date.now() - 60000, machineBootId: 'old-boot-id' },
+        bootContext: { lastAliveAgoMs: 60000, machineBootId: 'old-boot-id' },
       });
       await waitForDaemonReady(env.clients[0]);
     });

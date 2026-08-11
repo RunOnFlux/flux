@@ -7,7 +7,7 @@ const serviceHelper = require('../serviceHelper');
 // helpers/ lives at the repo root, four levels up from this file.
 const HELPERS_DIR = path.join(__dirname, '..', '..', '..', '..', 'helpers');
 const FILE = 'enterprisenodes.json';
-const URL = `${config.github.rawBaseUrl}/helpers/${FILE}`;
+const URL = `${config.policy.baseUrl}/${FILE}`;
 
 const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const FETCH_TIMEOUT_MS = 10 * 1000; // bound the github fetch so boot is never stuck on it

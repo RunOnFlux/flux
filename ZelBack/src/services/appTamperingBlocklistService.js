@@ -7,7 +7,7 @@ const generalService = require('./generalService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const benchmarkService = require('./benchmarkService');
 
-const BLOCKLIST_URL = `${config.github.rawBaseUrl}/helpers/tamperingblockednodes.json`;
+const BLOCKLIST_URL = `${config.policy.baseUrl}/tamperingblockednodes.json`;
 const CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const SYNC_POLL_MS = 60 * 1000; // 60s while waiting for daemon sync
 const TAMPER_SCORE_THRESHOLD = 10;
@@ -31,18 +31,19 @@ function isOurStickyDos() {
 }
 
 /**
- * Fetch the manually-curated txhash blocklist from the RunOnFlux repo.
- * Returns [] on any failure so the caller never crashes the enforcer loop.
+ * Fetch the manually-curated txhash blocklist from the policy repo.
+ * Returns null on any failure - could-not-fetch is not an empty list, and the
+ * enforcer must distinguish them or an outage clears an active DOS.
  */
 async function fetchBlocklist() {
   try {
     const res = await serviceHelper.axiosGet(BLOCKLIST_URL);
     if (res && Array.isArray(res.data)) return res.data;
     log.warn('appTamperingBlocklist - unexpected response shape from blocklist URL');
-    return [];
+    return null;
   } catch (error) {
     log.warn(`appTamperingBlocklist - failed to fetch blocklist: ${error.message}`);
-    return [];
+    return null;
   }
 }
 
@@ -83,7 +84,11 @@ async function isArcaneOs() {
 async function computeTamperScore() {
   try {
     const db = dbHelper.databaseConnection();
-    if (!db) return 0;
+    // null, never 0: a score this node could not read is not a score of zero,
+    // and returning zero would take the clear branch and release a node this
+    // service had deliberately DOSed - the same distinction the blocklist
+    // fetch makes between could-not-ask and nothing-listed
+    if (!db) return null;
     const database = db.db(config.database.local.database);
     const pipeline = [
       { $match: { schemaVersion: { $gte: 1 } } },
@@ -93,7 +98,7 @@ async function computeTamperScore() {
     return incidents.reduce((score, incident) => score + (incident.severity ?? 0), 0);
   } catch (error) {
     log.warn(`appTamperingBlocklist - failed to compute tamper score: ${error.message}`);
-    return 0;
+    return null;
   }
 }
 
@@ -164,7 +169,22 @@ async function enforceBlocklist() {
     return;
   }
 
-  const listed = Array.isArray(blocklist) && blocklist.includes(myTxhash);
+  // An unreadable blocklist is not an empty one. Falling through on null would
+  // take the clear branch below and release a node this service had already
+  // DOSed - an outage would undo enforcement rather than postpone it.
+  if (blocklist === null) {
+    log.warn('appTamperingBlocklist - blocklist unavailable, skipping this tick');
+    return;
+  }
+
+  // Same rule for the other input to the decision: an unreadable score cannot
+  // clear an active DOS.
+  if (tamperScore === null) {
+    log.warn('appTamperingBlocklist - tamper score unavailable, skipping this tick');
+    return;
+  }
+
+  const listed = blocklist.includes(myTxhash);
   const exceedsThreshold = tamperScore > TAMPER_SCORE_THRESHOLD;
   const shouldDos = listed && exceedsThreshold;
 

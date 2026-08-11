@@ -100,9 +100,13 @@ export async function setPeerCompletion({
   });
 }
 
-// No peer holds the full data (every peer < 100%).
+// No peer holds the full data (every peer < 100%). Explicitly not connection
+// testimony: without the remoteState, the stub's read-back default stamps the
+// bare completion 'valid', and "nobody has the data" quietly becomes "every
+// device you ask about is a connected peer at 0%" - a phantom witness that
+// outranks device-specific evidence from the viewer's own wildcard key.
 export async function setNoPeerData({ ip = '*', folder }) {
-  return setPeerCompletion({ ip, folder, completion: 0 });
+  return setPeerCompletion({ ip, folder, completion: 0, remoteState: 'unknown' });
 }
 
 // A peer holds the full data (100%) and is CONNECTED (trusted source).
@@ -117,6 +121,28 @@ export async function setPeerHasData({ ip = '*', folder }) {
 export async function setPeerDisconnected({ ip = '*', folder }) {
   return setPeerCompletion({
     ip, folder, completion: 100, remoteState: 'unknown',
+  });
+}
+
+// A declared source that has been cut off - a partition or a dead machine, as
+// the viewer's syncthing sees it within its ReceiveTimeout (which the harness
+// compresses to zero, as it does every timing). setSynced writes its testimony
+// against the source's own device id, which outranks the wildcard forms above,
+// so severing overwrites that same key: resolve the device, mark it
+// disconnected. A suite that cuts a declared source off from the fleet
+// declares this consequence too, or the fleet keeps trusting a connection
+// that no longer exists.
+export async function severPeerSync({ folder, deviceIp, viewerIp = '*' }) {
+  const bare = deviceIp.split(':')[0];
+  const device = ((await getSyncthingState()).nodes || []).find((n) => n.ip.split(':')[0] === bare)?.deviceId;
+  if (!device) {
+    // Without the device id this would fall back to a wildcard write, which
+    // loses to the source's device-specific testimony - a sever that silently
+    // severs nothing. A fixture that cannot do what it claims fails loudly.
+    throw new Error(`severPeerSync: the stub has no device for ${deviceIp} (folder ${folder})`);
+  }
+  return setPeerCompletion({
+    ip: viewerIp === '*' ? '*' : viewerIp.split(':')[0], folder, device, completion: 0, remoteState: 'unknown',
   });
 }
 
@@ -159,4 +185,11 @@ export async function clearStatusUnreadable({ ip = '*', folder }) {
 
 export async function resetSyncState() {
   return post('/sync-reset');
+}
+
+// Hold a node's folder PATCH calls open, stretching the window in which a
+// masterSlave primary has committed to a component but has not started its
+// container. ms=0 clears.
+export async function setFolderPatchDelay({ ip = '*', ms = 0 }) {
+  return post('/folder-patch-delay', { ip, ms });
 }

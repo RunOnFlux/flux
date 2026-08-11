@@ -7,6 +7,7 @@ const {
   parseSocketAddress,
   socketAddressesMatch,
   ipsMatch,
+  bareIp,
 } = require('../../ZelBack/src/services/utils/socketAddressUtils');
 
 describe('socketAddressUtils tests', () => {
@@ -242,6 +243,35 @@ describe('socketAddressUtils tests', () => {
       expect(ipsMatch('1.2.3.4', null)).to.be.false;
       expect(ipsMatch(null, null)).to.be.false;
       expect(ipsMatch(undefined, '1.2.3.4')).to.be.false;
+    });
+  });
+
+  describe('bareIp', () => {
+    // Placement resolves every node's address through this - the fault domain,
+    // the country and the region all hang off what it returns.
+    it('strips a port from an IPv4 address, and leaves a bare one alone', () => {
+      expect(bareIp('1.2.3.4:16127')).to.equal('1.2.3.4');
+      expect(bareIp('1.2.3.4')).to.equal('1.2.3.4');
+    });
+
+    it('passes an IPv6 literal through whole', () => {
+      expect(bareIp('2001:db8::1')).to.equal('2001:db8::1');
+      expect(bareIp('::1')).to.equal('::1');
+    });
+
+    it('resolves an IPv4-mapped address to the IPv4 address it is', () => {
+      // Both forms at once: IPv6 in shape, IPv4 in substance, and it carries
+      // dots - so the ip[:port] split claimed it and returned the empty string,
+      // which reads downstream as an address that would not parse.
+      expect(bareIp('::ffff:1.2.3.4')).to.equal('1.2.3.4');
+      expect(bareIp('::FFFF:203.0.113.9')).to.equal('203.0.113.9');
+    });
+
+    it('answers null for what is not an address at all', () => {
+      expect(bareIp('')).to.equal(null);
+      expect(bareIp(null)).to.equal(null);
+      expect(bareIp(undefined)).to.equal(null);
+      expect(bareIp(1234)).to.equal(null);
     });
   });
 });

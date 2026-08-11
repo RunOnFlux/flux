@@ -220,7 +220,7 @@ describe('appInstaller tests', () => {
       '../appQuery/appQueryService': {
         installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
         listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
-        decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => apps),
+        decryptEnterpriseApps: sinon.stub().callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps })),
       },
       '../utils/enterpriseHelper': enterpriseHelperStub,
       '../utils/appSpecHelpers': appSpecHelpersStub,
@@ -1125,7 +1125,7 @@ describe('appInstaller tests', () => {
         '../appQuery/appQueryService': {
           installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
           listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
-          decryptEnterpriseApps: sinon.stub().callsFake((apps) => Promise.resolve(apps)),
+          decryptEnterpriseApps: sinon.stub().callsFake((apps) => Promise.resolve({ readable: apps, unreadable: [], inPlace: apps })),
         },
         util: { promisify: (fn) => fn },
       });
@@ -1156,7 +1156,7 @@ describe('appInstaller tests', () => {
         compose: [{ name: 'MyComponent', containerData: 'r:' }],
         enterprise: 'encryptedblob',
       };
-      const decryptEnterpriseAppsStub = sinon.stub().resolves([decryptedApp]);
+      const decryptEnterpriseAppsStub = sinon.stub().resolves({ readable: [decryptedApp], unreadable: [], inPlace: [decryptedApp] });
       const pruneContainersStub = sinon.stub().resolves();
 
       // Use proxyquire without noCallThru so lazy requires are intercepted

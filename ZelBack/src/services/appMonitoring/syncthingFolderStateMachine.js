@@ -5,12 +5,15 @@ const log = require('../../lib/log');
 const dockerService = require('../dockerService');
 const appReconciler = require('./appReconciler');
 const appUninstaller = require('../appLifecycle/appUninstaller');
+const messageHelper = require('../messageHelper');
 const syncthingService = require('../syncthingService');
 const serviceHelper = require('../serviceHelper');
 const volumeService = require('../utils/volumeService');
 const { appsFolder } = require('../utils/appConstants');
 const appTamperingDetectionService = require('../appTamperingDetectionService');
-const { socketAddressesMatch } = require('../utils/socketAddressUtils');
+const { socketAddressesMatch, extractIp } = require('../utils/socketAddressUtils');
+const fluxEventBus = require('../utils/fluxEventBus');
+const { silenceVerdict, SilenceVerdict } = require('./peerFolderLiveness');
 const {
   LEADER_CONFIRM_COUNT,
   SYNC_COMPLETE_PERCENTAGE,
@@ -336,6 +339,17 @@ async function getFolderSyncCompletion(folderId) {
  * @param {string} localSocketAddr - The current node's IP address
  * @returns {boolean} True if this node is the designated leader
  */
+// Lowest IP among the holders - the deterministic pick every node computes
+// identically. Identity only: it says nothing about whether that node still exists.
+function lowestIpHolder(allPeersList) {
+  const sorted = [...(allPeersList || [])].sort((a, b) => {
+    if (a.ip < b.ip) return -1;
+    if (a.ip > b.ip) return 1;
+    return 0;
+  });
+  return sorted[0]?.ip ?? null;
+}
+
 function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers = true) {
   if (!allPeersList || allPeersList.length === 0) {
     return false; // Be conservative - wait for peers to broadcast
@@ -364,16 +378,168 @@ function isDesignatedLeader(allPeersList, localSocketAddr, deferToRunningPeers =
   // re-broadcast time and propagates with per-node delay, so on a fresh cluster each
   // node can momentarily order the timestamps differently and every node elects itself
   // (split-brain). The lowest IP is the single, agreed cold-start seed.
-  const sortedPeers = [...allPeersList].sort((a, b) => {
-    if (a.ip < b.ip) return -1;
-    if (a.ip > b.ip) return 1;
-    return 0;
-  });
-
-  const leader = sortedPeers[0];
-  const isLeader = socketAddressesMatch(leader?.ip, localSocketAddr);
+  const leader = lowestIpHolder(allPeersList);
+  const isLeader = socketAddressesMatch(leader, localSocketAddr);
 
   return isLeader && allPeersList.some((peer) => socketAddressesMatch(peer.ip, localSocketAddr));
+}
+
+/**
+ * Whether this node can show that a holder is gone, rather than merely silent to
+ * it. Same question the promotion check asks, one step earlier: the election picks
+ * by identity and has no liveness in it, so a holder that dies keeps being elected
+ * by everyone else and they defer to it until its location broadcast expires -
+ * 125 minutes, with the app down throughout.
+ *
+ * Answered from this node's own connectivity, which is the only half it can know:
+ * a node still trading pings with the fleet is watching one holder fall over, a
+ * node whose peers have all gone quiet is the one that fell over and must keep
+ * deferring - the holder is very likely still serving on the other side of the
+ * split.
+ *
+ * "Gone" means silent, and only silent. A holder that answers - even to say it
+ * cannot answer this question - is alive, and dropping a live holder out of the
+ * election is the one thing this must never do: every survivor would then pick the
+ * next IP and promote alongside a holder that is still writing.
+ *
+ * And silence alone is still not enough: gone requires evidence. The verdict
+ * needs this node's own syncthing to have been asked about the holder's device
+ * and answered that it is not connected. A device this node cannot ask about
+ * proves nothing, and a proof of nothing keeps the holder.
+ *
+ * @param {string} appId
+ * @param {string} holderIp
+ * @returns {Promise<boolean>}
+ */
+async function holderIsGone(appId, holderIp, liveness) {
+  const answer = await liveness.read(holderIp);
+  if (answer.reachable) return false;
+
+  const verdict = await silenceVerdict(appId, holderIp, liveness);
+  if (verdict === SilenceVerdict.CONNECTION_ALIVE) {
+    log.info(`holderIsGone - ${extractIp(holderIp)}'s API is silent, but this node's syncthing still holds a live connection to it for ${appId}; it is restarting, not gone`);
+    fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp, reason: 'connectionAlive' });
+    return false;
+  }
+  if (verdict === SilenceVerdict.NO_EVIDENCE) {
+    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but this node cannot ask its own syncthing about it for ${appId}; gone requires evidence, keeping it`);
+    fluxEventBus.publish('syncthing:holderRetained', { folder: appId, holder: holderIp, reason: 'noEvidence' });
+    return false;
+  }
+  if (verdict === SilenceVerdict.LOCALLY_ISOLATED) {
+    const { responding, total } = liveness.localConnectivity();
+    log.info(`holderIsGone - ${extractIp(holderIp)} is unreachable, but only ${responding} of this node's ${total} peers are answering; treating this node as the isolated one`);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * The holder list with the elected leader removed when this node can show it is
+ * gone. One holder per pass: if the next-lowest is also gone, the following pass
+ * drops that one too, so a run of failures converges without a loop here. Every
+ * survivor drops the same holder and then picks the same lowest IP of what is
+ * left, so they agree without coordinating, and the promotion check still catches
+ * any second node that acts on it.
+ *
+ * @param {string} appId
+ * @param {Array<Object>} allPeersList
+ * @param {string} localSocketAddr
+ * @param {Object} liveness This pass's peer view
+ * @returns {Promise<Array<Object>>}
+ */
+async function holderListExcludingDead(appId, allPeersList, localSocketAddr, liveness) {
+  const leader = lowestIpHolder(allPeersList);
+  if (!leader || socketAddressesMatch(leader, localSocketAddr)) return allPeersList;
+  if (!await holderIsGone(appId, leader, liveness)) return allPeersList;
+  log.warn(`holderListExcludingDead - elected holder ${leader} is gone and this node's own connectivity is healthy; re-electing without it`);
+  fluxEventBus.publish('syncthing:holderExcluded', { folder: appId, holder: leader });
+  return allPeersList.filter((peer) => !socketAddressesMatch(peer.ip, leader));
+}
+
+/**
+ * The first peer found already holding a writable copy of this folder, or null.
+ *
+ * Two answers block, for different reasons, and the difference is the whole point
+ * of asking:
+ *
+ *   UNREACHABLE blocks only while this node cannot show that the silence is the
+ *   peer's and not its own. "That peer is dead" and "I have been cut off" look
+ *   identical from the failed request, and they need opposite answers: the first
+ *   means promote, the second means do not. The node cannot prove a peer is alive
+ *   without agreement, but it can answer whether IT is - a node still exchanging
+ *   pings with the rest of the fleet is watching one node fall over, while a node
+ *   whose peers have all gone quiet is the one that fell over. Once that is
+ *   established the peer is treated as gone, because a dead node must never strand
+ *   an app with no writable copy anywhere.
+ *
+ *   UNREADY does block, with no bound and none needed. The peer is alive and
+ *   saying it cannot answer yet, which is a live node that may already be holding.
+ *   It resolves itself: the peer finishes its first monitor pass and answers, or
+ *   it stops responding and becomes the unreachable case above. A peer that stays
+ *   alive and permanently unreadable is the one case that waits indefinitely, and
+ *   waiting is right there - promoting because we gave up is exactly the second
+ *   writer this exists to prevent, and a stalled app is visible where diverged
+ *   data is not.
+ *
+ *   UNANSWERABLE does NOT block, and must not. A peer that predates this endpoint
+ *   is alive and cannot be asked, ever - it will not finish a pass and start
+ *   answering, so the unbounded wait UNREADY earns by resolving itself is not
+ *   earned here. Blocking on it would hold promotion open until somebody upgrades
+ *   that node: on a cold start every other holder defers to the same lowest IP, so
+ *   one un-upgraded peer would stop the app starting anywhere. This check simply
+ *   cannot cover a peer that cannot answer, and the honest reading of that is that
+ *   the folder gets the behaviour it had before this check existed - decided by the
+ *   election alone - rather than a guess dressed as a guarantee. Peers that CAN
+ *   answer are still checked, so the cover grows as the fleet upgrades and is
+ *   complete once it has.
+ *
+ * It narrows the window rather than closing it: two nodes that both ask before
+ * either promotes still both promote. Closing that needs the consensus-grounded
+ * election the residual-limitation note above describes.
+ *
+ * @param {string} appId Folder id
+ * @param {Array} peers App location entries
+ * @param {string} localSocketAddr This node's socket address
+ * @param {Object} liveness This pass's peer view
+ * @returns {Promise<{ip: string, reason: string}|null>} The blocking peer, or null
+ */
+async function findPeerBlockingPromotion(appId, peers, localSocketAddr, liveness) {
+  const others = (peers || []).filter((peer) => peer?.ip && !socketAddressesMatch(peer.ip, localSocketAddr));
+  if (!others.length) return null;
+
+  const answers = await Promise.all(others.map(
+    async (peer) => ({ ip: peer.ip, ...await liveness.read(peer.ip) }),
+  ));
+
+  const holder = answers.find((answer) => answer.reachable && answer.ready && answer.folders.includes(appId));
+  if (holder) return { ip: holder.ip, reason: 'already holds the writable copy' };
+  const unready = answers.find((answer) => answer.reachable && answer.answerable && !answer.ready);
+  if (unready) return { ip: unready.ip, reason: 'has not determined its folder state yet' };
+
+  // Recorded, not blocked - see UNANSWERABLE above. Worth a line of its own so a
+  // promotion made without full cover is visible as that, and so the remedy reads
+  // as "upgrade that node" rather than "debug its monitor".
+  const unanswerable = answers.find((answer) => answer.reachable && !answer.answerable);
+  if (unanswerable) {
+    log.info(`findPeerBlockingPromotion - ${appId}: ${extractIp(unanswerable.ip)} is alive but cannot be asked which folders it holds; promoting on the election alone, as this node would have before this check existed`);
+  }
+
+  const unreachable = answers.find((answer) => !answer.reachable);
+  if (unreachable) {
+    // Whose silence is it? A node still trading pings with the fleet is watching a
+    // peer die; a node whose own peers have gone quiet is the one that is cut off,
+    // and must not promote over a holder that is very likely still running on the
+    // other side of the split.
+    const { connected, responding, total } = liveness.localConnectivity();
+    if (!connected) {
+      return {
+        ip: unreachable.ip,
+        reason: `is unreachable, and only ${responding} of this node's ${total} peers are answering - it cannot tell that peer apart from its own isolation`,
+      };
+    }
+  }
+  return null;
 }
 
 /**
@@ -524,6 +690,10 @@ async function checkIfPeersAreSynced(folderId) {
           } else if (completion === 100) {
             log.warn(`checkIfPeersAreSynced - ${folderId}: device ${device.deviceID.substring(0, 7)}... reports 100% but 0 bytes (empty); not treating it as a synced source`);
           }
+        } else {
+          // an in-band failure silently skipping the device would read as
+          // "peer not synced" with zero diagnostics - fail-safe, but loud
+          log.warn(`checkIfPeersAreSynced - ${folderId}: completion read for device ${device.deviceID.substring(0, 7)}... failed: ${completionResponse?.data?.message || 'malformed response'}`);
         }
       } catch (deviceError) {
         log.warn(`checkIfPeersAreSynced - Error checking device ${device.deviceID}: ${deviceError.message}`);
@@ -556,8 +726,11 @@ async function nudgeFolderDevices(folderId) {
     for (const device of folder.devices || []) {
       let paused = false;
       try {
+        // dataOrThrow: pause/resume answer in-band, so without it these
+        // try/catches are dead code and a failed resume would pass silently -
+        // the exact outcome the error log below exists to make loud
         // eslint-disable-next-line no-await-in-loop
-        await syncthingService.systemPause({ params: { device: device.deviceID }, query: {} }, null);
+        messageHelper.dataOrThrow(await syncthingService.systemPause({ params: { device: device.deviceID }, query: {} }, null));
         paused = true;
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(OPERATION_DELAY_MS);
@@ -572,7 +745,7 @@ async function nudgeFolderDevices(folderId) {
         if (paused) {
           try {
             // eslint-disable-next-line no-await-in-loop
-            await syncthingService.systemResume({ params: { device: device.deviceID }, query: {} }, null);
+            messageHelper.dataOrThrow(await syncthingService.systemResume({ params: { device: device.deviceID }, query: {} }, null));
           } catch (error) {
             log.error(`nudgeFolderDevices - ${folderId}: RESUME of device ${device.deviceID.substring(0, 7)} FAILED - device left paused (its connection stays suspended): ${error.message}`);
           }
@@ -597,6 +770,7 @@ async function handleReceiveOnlyTransition(params) {
     localSocketAddr,
     containerDataFlags,
     syncthingFolder,
+    liveness,
   } = params;
 
   log.info(`handleReceiveOnlyTransition - ${appId} in cache and not restarted, processing receive-only logic`);
@@ -622,9 +796,30 @@ async function handleReceiveOnlyTransition(params) {
   // LEADER_CONFIRM_COUNT consecutive cycles, so a single transient peer-visibility blip
   // doesn't flip a follower to leader. Defer to a running peer UNLESS this is a true,
   // safe cold start (no peer serving AND this node holds no data) - then elect one seed.
-  const electedLeader = isDesignatedLeader(runningAppList, localSocketAddr, aPeerHasData || !folderIsEmpty);
-  cache.leaderStreak = electedLeader ? (cache.leaderStreak || 0) + 1 : 0;
+  // The election picks by identity and carries no liveness, so a holder that dies
+  // keeps winning and every survivor defers to it until its location broadcast
+  // expires - 125 minutes with the app down. Dropped from the list here, before the
+  // pick, when this node can show the holder is gone rather than merely silent to it.
+  const electionList = await holderListExcludingDead(appId, runningAppList, localSocketAddr, liveness);
+  const electedLeader = isDesignatedLeader(electionList, localSocketAddr, aPeerHasData || !folderIsEmpty);
+  // The floor holderIsGone asks of a silent holder, asked of this node before
+  // its own win can count: a node whose peers have gone quiet is the one that
+  // fell over, and a win it confirms in that state seeds the app on a
+  // partition's minority side while the majority defers to its IP. Isolation
+  // resets the streak rather than pausing it, so a heal is followed by
+  // LEADER_CONFIRM_COUNT clean passes like any other blip.
+  const { connected } = liveness.localConnectivity();
+  cache.leaderStreak = electedLeader && connected ? (cache.leaderStreak || 0) + 1 : 0;
   const isLeader = electedLeader && cache.leaderStreak >= LEADER_CONFIRM_COUNT;
+  // Withdrawn on every unpromoted pass, so a lost election drops the claim
+  // and the intent behind it. It is raised again only where the promotion is
+  // APPLIED - the state machine records intent at the last gate, and the
+  // monitor flips it once the folder batch lands in syncthing.
+  // masterSlaveApps reads designatedLeader to skip the primary-selection
+  // index stagger, so it has to mean "the folder is writable", not "won the
+  // vote" and not "promotion decided".
+  cache.designatedLeader = false;
+  cache.designationPending = false;
 
   // RESIDUAL LIMITATION (architectural - this election is a heuristic, not consensus):
   // a confirmed leader is the cold-start seed and flips to sendreceive WITHOUT a sync
@@ -642,7 +837,38 @@ async function handleReceiveOnlyTransition(params) {
   // candidate over the on-chain confirmed node set + a data-aware quorum lease that
   // subsumes the data-version check) - a separate, proposed redesign, out of scope here.
   if (isLeader) {
+    // The seed flip below runs WITHOUT a sync check, and that is only sound when
+    // there is nothing to lose: an empty folder (the cold start this election
+    // exists for) or a fully synced copy (a survivor taking over). A node can
+    // reach a confirmed designation MID-SYNC - its source dropped out of the
+    // election as provably gone and the list collapsed to itself - and promoting
+    // there publishes a partial copy as the truth: the files it has not fetched
+    // yet become deletions on every peer the moment a source returns. A leader
+    // holding a partial copy therefore waits, receiveonly - either the sync
+    // completes against a returning source, or the stall ladder decides the data
+    // question. An unreadable status counts as partial: it cannot show there is
+    // nothing to lose.
+    if (!folderIsEmpty && !(syncStatus && syncStatus.isSynced)) {
+      log.info(`handleReceiveOnlyTransition - ${appId} is the confirmed designated leader but holds a partial copy (${syncStatus ? `${syncStatus.syncPercentage.toFixed(2)}% synced` : 'sync status unreadable'}); staying receiveonly until synced`);
+      syncthingFolder.type = 'receiveonly';
+      return { syncthingFolder, cache };
+    }
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers, confirmed ${cache.leaderStreak}x), starting immediately`);
+
+    // Winning the election is not the same as being the first to win it. Each node
+    // decides from its own view of the holder list, and those views fill in at
+    // different moments: the first-placed node is briefly the only holder it knows
+    // of and seeds on that basis, which is correct - somebody has to seed an empty
+    // folder or the app never starts. A node that can see further then wins the
+    // tiebreak among the holders it can see and seeds too, and neither revisits it,
+    // because a promoted folder never re-enters this election. So the last check
+    // before promoting is whether somebody already has.
+    const blocker = await findPeerBlockingPromotion(appId, runningAppList, localSocketAddr, liveness);
+    if (blocker) {
+      log.info(`handleReceiveOnlyTransition - ${appId} won the election but ${blocker.ip} ${blocker.reason}; staying receiveonly`);
+      syncthingFolder.type = 'receiveonly';
+      return { syncthingFolder, cache };
+    }
 
     // A folder must pass the sendreceive safety verification BEFORE it ever
     // flips - the seed included. An empty cold-start folder passes (empty index
@@ -655,6 +881,15 @@ async function handleReceiveOnlyTransition(params) {
       syncthingFolder.type = 'receiveonly';
       return { syncthingFolder, cache };
     }
+
+    // Every gate passed - but deciding the promotion is not applying it. The
+    // designation masterSlaveApps reads has to mean "the folder IS writable",
+    // and the type below reaches syncthing only when the monitor applies this
+    // pass's folder batch - so the claim is recorded as intent here, and the
+    // monitor raises designatedLeader once the apply lands. Raising it now
+    // would let the container start against a folder still receiveonly for as
+    // long as the apply takes.
+    cache.designationPending = true;
 
     // Fix permissions before changing to sendreceive - ensures correct ownership for synced data
     await fixAppdataPermissions(appId);
@@ -692,7 +927,9 @@ async function handleReceiveOnlyTransition(params) {
     if (syncStatus.isSynced && syncStatus.receiveOnlyChangedFiles > 0) {
       log.warn(`handleReceiveOnlyTransition - ${appId} is synced but the receive-only folder has ${syncStatus.receiveOnlyChangedFiles} locally changed item(s); reverting local changes instead of promoting (promotion would propagate them to the cluster)`);
       try {
-        await syncthingService.dbRevert(appId);
+        // dataOrThrow: dbRevert answers in-band; without it this catch is
+        // dead code and a failed revert reads as reverted
+        messageHelper.dataOrThrow(await syncthingService.dbRevert(appId));
       } catch (error) {
         log.error(`handleReceiveOnlyTransition - revert of local changes for ${appId} failed: ${error.message}`);
       }
@@ -860,6 +1097,7 @@ async function manageFolderSyncState(params) {
     syncthingFolder,
     installedAppName,
     mountVerifyNeeded = true,
+    liveness,
   } = params;
 
   // Check if folder already exists and is in sendreceive mode
@@ -953,6 +1191,7 @@ async function manageFolderSyncState(params) {
       localSocketAddr,
       containerDataFlags,
       syncthingFolder,
+      liveness,
     });
     return result;
   }

@@ -32,8 +32,8 @@ const crontabLoad = util.promisify(systemcrontab.load);
 
 // Fired once per component identifier after a successful local removal, beside
 // the durable runtime-state clear (mirrors appInstaller.setOnInstallComplete).
-// serviceManager wires it to appReconciler.clearControllerDesired so the
-// reconciler's in-memory controller verdict dies with the component - a
+// serviceManager wires it to appReconciler.forgetDesiredState so every
+// in-memory verdict about the component dies with it - a
 // back-require of appReconciler here would capture a stale partial export
 // (appReconciler already requires this module and both replace module.exports).
 let onComponentRemoved = null;

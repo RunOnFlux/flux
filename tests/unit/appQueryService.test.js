@@ -120,30 +120,53 @@ describe('appQueryService tests', () => {
     it('returns non-enterprise apps unchanged without decrypting', async () => {
       const apps = [{ name: 'plain', version: 4 }];
       const result = await appQueryService.decryptEnterpriseApps(apps, { formatSpecs: false });
-      expect(result).to.deep.equal(apps);
+      expect(result.readable).to.deep.equal(apps);
+      expect(result.unreadable).to.deep.equal([]);
       expect(enterpriseHelperStub.checkAndDecryptAppSpecs.called).to.be.false;
     });
 
-    it('swallows a decryption failure and returns the encrypted spec by default (lenient)', async () => {
+    // A spec that did not decrypt has no components, and an app with no
+    // components is not a valid app. Reporting it separately is what stops a
+    // caller reading "owns no folders" / "has no images" and acting on it.
+    it('reports a spec it could not decrypt instead of returning it as an app', async () => {
       // resetBehavior first: a stub's returnsArg(0) (set in beforeEach) otherwise wins over rejects()
       enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
       enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('enterpriseKey is mandatory'));
+
       const result = await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
-      // display/listing callers keep the whole list; the failed one stays encrypted
-      expect(result).to.deep.equal([enterpriseApp]);
+
+      expect(result.readable).to.deep.equal([]);
+      expect(result.unreadable).to.deep.equal([enterpriseApp]);
     });
 
-    it('rethrows a decryption failure when throwOnError is set', async () => {
+    it('keeps the readable apps when one of several cannot be decrypted', async () => {
+      const plain = { name: 'plain', version: 4 };
       enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
       enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('enterpriseKey is mandatory'));
-      let threw = false;
-      try {
-        await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false, throwOnError: true });
-      } catch (err) {
-        threw = true;
-        expect(err.message).to.match(/enterpriseKey is mandatory/);
-      }
-      expect(threw, 'should propagate the decrypt error so the caller can defer, not act on ciphertext').to.be.true;
+
+      const result = await appQueryService.decryptEnterpriseApps([plain, enterpriseApp], { formatSpecs: false });
+
+      expect(result.readable).to.deep.equal([plain]);
+      expect(result.unreadable).to.deep.equal([enterpriseApp]);
+    });
+
+    // listing callers want the app to still appear, in the position it was in
+    it('puts an undecryptable spec back in place for listing', async () => {
+      const first = { name: 'first', version: 4 };
+      const last = { name: 'last', version: 4 };
+      enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
+      enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('enterpriseKey is mandatory'));
+
+      const { inPlace, readable, unreadable } = await appQueryService.decryptEnterpriseApps(
+        [first, enterpriseApp, last], { formatSpecs: false },
+      );
+
+      // inPlace keeps the caller's order with the unreadable spec where it was;
+      // readable is the same list minus it, so an acting caller cannot be handed
+      // a spec whose components are still inside the blob
+      expect(inPlace).to.deep.equal([first, enterpriseApp, last]);
+      expect(readable).to.deep.equal([first, last]);
+      expect(unreadable).to.deep.equal([enterpriseApp]);
     });
 
     // Call-volume contract: with many components in defer loops, benchd must
@@ -169,8 +192,8 @@ describe('appQueryService tests', () => {
         const [r1, r2] = await Promise.all([p1, p2]);
 
         expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'concurrent callers must share one benchd attempt').to.equal(1);
-        expect(r1[0].compose).to.have.lengthOf(1);
-        expect(r2[0].compose).to.have.lengthOf(1);
+        expect(r1.readable[0].compose).to.have.lengthOf(1);
+        expect(r2.readable[0].compose).to.have.lengthOf(1);
       });
 
       it('remembers a decryption failure briefly - retries inside the window skip benchd', async () => {
@@ -190,19 +213,14 @@ describe('appQueryService tests', () => {
         }
       });
 
-      it('a remembered failure still rejects strict callers without another benchd call', async () => {
+      it('a remembered failure answers the next caller without another benchd call', async () => {
         enterpriseHelperStub.checkAndDecryptAppSpecs.resetBehavior();
         enterpriseHelperStub.checkAndDecryptAppSpecs.rejects(new Error('benchd unavailable'));
 
         await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false }); // seeds the failure window
-        let threw = false;
-        try {
-          await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false, throwOnError: true });
-        } catch (err) {
-          threw = true;
-          expect(err.message).to.match(/benchd unavailable/);
-        }
-        expect(threw, 'strict caller must still get the failure (reconcile defers on it)').to.be.true;
+        const again = await appQueryService.decryptEnterpriseApps([enterpriseApp], { formatSpecs: false });
+
+        expect(again.unreadable, 'the spec is still reported unreadable').to.deep.equal([enterpriseApp]);
         expect(enterpriseHelperStub.checkAndDecryptAppSpecs.callCount, 'the cached failure answers without re-hitting benchd').to.equal(1);
       });
     });
@@ -431,6 +449,70 @@ describe('appQueryService tests', () => {
       await appQueryService.listRunningApps(undefined, res);
 
       expect(res.json.calledOnceWith({ status: 'success', data: expectedApps })).to.be.true;
+    });
+  });
+
+  describe('promotedFolders', () => {
+    // eslint-disable-next-line global-require
+    const globalState = require('../../ZelBack/src/services/utils/globalState');
+
+    afterEach(() => {
+      globalState.promotedFolderIds = new Set();
+    });
+
+    it('reports the folders this node holds writable, from the monitor set', async () => {
+      globalState.promotedFolderIds = new Set(['fluxa_a', 'fluxb_b']);
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      const result = await appQueryService.promotedFolders();
+
+      expect(result).to.deep.equal({ ready: true, folders: ['fluxa_a', 'fluxb_b'] });
+    });
+
+    it('answers not-ready before the monitor has ever read the folder config', async () => {
+      // The state that made this necessary: holding nothing and not having looked
+      // are the same empty set but opposite answers, and a booting node that IS
+      // holding a folder would otherwise read as free and be promoted alongside.
+      globalState.promotedFolderIds = null;
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      const result = await appQueryService.promotedFolders();
+
+      expect(result).to.deep.equal({ ready: false, folders: [] });
+    });
+
+    it('distinguishes holding nothing from not having looked', async () => {
+      globalState.promotedFolderIds = new Set();
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      const result = await appQueryService.promotedFolders();
+
+      expect(result.folders).to.deep.equal([]);
+      expect(result.ready, 'an empty set after a real read is a genuine answer').to.equal(true);
+    });
+
+    it('touches no backend, so an anonymous caller cannot amplify into syncthing', async () => {
+      // The route is unauthenticated and the API has no rate limiting, so this
+      // must answer from memory rather than reading syncthing per request.
+      globalState.promotedFolderIds = new Set(['fluxa_a']);
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      await appQueryService.promotedFolders();
+
+      expect(dockerServiceStub.dockerListContainers.called).to.be.false;
+    });
+
+    it('drops a folder that is no longer promoted', async () => {
+      // The monitor replaces the set wholesale from the folder config each pass, so
+      // a demotion or an uninstall leaves by simply not being rebuilt - there is no
+      // separate removal path that could be missed.
+      globalState.promotedFolderIds = new Set(['fluxa_a', 'fluxb_b']);
+      messageHelperStub.createDataMessage.returnsArg(0);
+
+      globalState.promotedFolderIds = new Set(['fluxa_a']); // b demoted to receiveonly
+      const result = await appQueryService.promotedFolders();
+
+      expect(result.folders).to.deep.equal(['fluxa_a']);
     });
   });
 

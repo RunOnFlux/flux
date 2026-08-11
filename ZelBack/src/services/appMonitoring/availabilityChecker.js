@@ -146,7 +146,7 @@ async function checkMyAppsAvailability(installedAppsFn, dosState, portsNotWorkin
     }
 
     // Decrypt enterprise apps (version 8 with encrypted content)
-    installedAppsRes.data = await decryptEnterpriseApps(installedAppsRes.data);
+    ({ inPlace: installedAppsRes.data } = await decryptEnterpriseApps(installedAppsRes.data));
 
     const apps = installedAppsRes.data;
     const appPorts = [];

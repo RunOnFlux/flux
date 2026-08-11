@@ -21,6 +21,9 @@ function databaseConfig(prefix) {
         benchmark: 'benchmark',
         appTamperingEvents: 'apptamperingevents',
         nodeStartupTracker: 'nodestartuptracker',
+        policyDocuments: 'policydocuments',
+        ipRanges: 'ipranges',
+        nodeLocations: 'nodelocations',
       },
     },
     daemon: {

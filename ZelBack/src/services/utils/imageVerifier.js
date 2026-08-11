@@ -1,7 +1,4 @@
-const config = require('config');
 const serviceHelper = require('../serviceHelper');
-
-const { AsyncLock } = require('./asyncLock');
 
 /**
  * Docker Architecture
@@ -22,15 +19,6 @@ class ImageVerifier {
     'application/vnd.docker.distribution.manifest.list.v2+json',
   ];
 
-  static whitelistedImages = [];
-
-  static lastWhitelistFetchTime = 0;
-
-  static resetWhitelist() {
-    ImageVerifier.whitelistedImages = [];
-    ImageVerifier.lastWhitelistFetchTime = 0;
-  }
-
   /**
    * Parse www-authenticate header
    * @param {string} authHeader # www-auth header
@@ -43,8 +31,6 @@ class ImageVerifier {
 
     return { ...match.groups };
   }
-
-  static fetchLock = new AsyncLock();
 
   #abortController = new AbortController();
 
@@ -166,49 +152,6 @@ class ImageVerifier {
       signal: this.#abortController.signal,
       headers: { Accept: ImageVerifier.supportedMediaTypes.join(', ') },
     });
-  }
-
-  async #fetchWhitelist() {
-    // ToDo: use etag
-    if (
-      this.error
-      && !this.#lookupErrorDetail.match('Unable to fetch whitelisted repositories')
-    ) {
-      return;
-    }
-
-    const now = Number(process.hrtime.bigint() / BigInt(1_000_000_000));
-
-    await ImageVerifier.fetchLock.enable();
-
-    try {
-      if (
-        ImageVerifier.whitelistedImages.length
-        && ImageVerifier.lastWhitelistFetchTime + 600 > now
-      ) return;
-
-      const { data } = await serviceHelper
-        .axiosGet(
-          `${config.github.rawBaseUrl}/helpers/repositories.json`,
-          { timeout: 20_000 },
-        )
-        .catch((err) => {
-          this.#lookupErrorDetail = 'Unable to fetch whitelisted repositories. Try again later.';
-          this.#lookupErrorMeta = {
-            httpStatus: err?.response?.status || null,
-            errorCode: err?.code || null,
-            errorType: 'whitelist_fetch_error',
-          };
-          return { data: [] };
-        });
-
-      ImageVerifier.lastWhitelistFetchTime = now;
-
-      // this could throw if data not array
-      if (data.length) ImageVerifier.whitelistedImages = data;
-    } finally {
-      ImageVerifier.fetchLock.disable();
-    }
   }
 
   #parseDockerTag() {
@@ -636,49 +579,6 @@ class ImageVerifier {
    */
   abort() {
     this.#abortController.abort();
-  }
-
-  async isWhitelisted() {
-    await this.#fetchWhitelist();
-
-    if (this.error) return false;
-
-    if (!this.useable) {
-      this.#evaluationErrorDetail = `Image Tag: ${this.rawImageTag} is not in valid format [HOST[:PORT_NUMBER]/][NAMESPACE/]REPOSITORY:TAG`;
-      this.#lookupErrorMeta = {
-        httpStatus: null,
-        errorCode: null,
-        errorType: 'invalid_format',
-      };
-      return false;
-    }
-
-    const separators = ['/', ':'];
-
-    const whitelisted = ImageVerifier.whitelistedImages.find(
-      // doesn't matter if rawImageTag is shorter than img
-      (otherTag) => {
-        const len = otherTag.length;
-        const thisTag = this.rawImageTag;
-
-        return (
-          thisTag === otherTag
-          || (thisTag.slice(0, len) === otherTag
-            && separators.includes(thisTag.slice(len, len + 1)))
-        );
-      },
-    );
-
-    if (!whitelisted) {
-      this.#evaluationErrorDetail = 'Repository is not whitelisted. Please contact Flux Team.';
-      this.#lookupErrorMeta = {
-        httpStatus: null,
-        errorCode: null,
-        errorType: 'not_whitelisted',
-      };
-    }
-
-    return Boolean(whitelisted);
   }
 
   /**
