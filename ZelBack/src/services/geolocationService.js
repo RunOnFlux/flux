@@ -250,9 +250,7 @@ async function getNodeGeolocation() {
   const dbData = await getGeolocationFromDb();
   if (dbData.geolocation) {
     storedGeolocation = dbData.geolocation;
-    staticIp = dbData.staticIp;
-    dataCenter = dbData.dataCenter;
-    lastIpChangeDate = dbData.lastIpChangeDate;
+    ({ staticIp, dataCenter, lastIpChangeDate } = dbData);
     log.info('Geolocation restored from database');
   }
   return storedGeolocation;

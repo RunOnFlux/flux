@@ -237,7 +237,16 @@ describe('system Services tests', () => {
       const error = await systemService.upgradePackage('syncthing');
 
       expect(error).to.equal(false);
-      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', {
+        runAsRoot: true,
+        params: [
+          'DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends',
+          '-o', 'DPkg::Lock::Timeout=180',
+          '-o', 'Dpkg::Options::=--force-confdef',
+          '-o', 'Dpkg::Options::=--force-confold',
+          'install', 'syncthing',
+        ],
+      });
     });
   });
 
@@ -353,7 +362,16 @@ describe('system Services tests', () => {
 
       await systemService.monitorSyncthingPackage();
 
-      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', {
+        runAsRoot: true,
+        params: [
+          'DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends',
+          '-o', 'DPkg::Lock::Timeout=180',
+          '-o', 'Dpkg::Options::=--force-confdef',
+          '-o', 'Dpkg::Options::=--force-confold',
+          'install', 'syncthing',
+        ],
+      });
     });
 
     it('should upgrade syncthing immediately if correct version present but uninstalled', async () => {
@@ -382,7 +400,16 @@ describe('system Services tests', () => {
 
       await systemService.monitorSyncthingPackage();
 
-      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', {
+        runAsRoot: true,
+        params: [
+          'DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '--no-install-recommends',
+          '-o', 'DPkg::Lock::Timeout=180',
+          '-o', 'Dpkg::Options::=--force-confdef',
+          '-o', 'Dpkg::Options::=--force-confold',
+          'install', 'syncthing',
+        ],
+      });
     });
 
     it('creates the missing apt source before the sources update can give up', async () => {

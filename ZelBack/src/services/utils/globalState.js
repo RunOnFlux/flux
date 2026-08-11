@@ -67,7 +67,7 @@ function initializeCaches(cacheManager) {
   if (cacheManager && cacheManager.appSpawnErrorCache && cacheManager.appSpawnCache) {
     spawnErrorsLongerAppCache = cacheManager.appSpawnErrorCache;
     trySpawningGlobalAppCache = cacheManager.appSpawnCache;
-    pendingAppUpdatesCache = cacheManager.pendingAppUpdatesCache;
+    ({ pendingAppUpdatesCache } = cacheManager);
   }
 }
 
