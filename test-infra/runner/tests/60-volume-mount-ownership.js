@@ -159,13 +159,33 @@ describe('FluxOS-owned volume mounting (no crontab) + inert unmounted app dirs',
     this.timeout(120000);
     const client = env.clients[0];
     const dir = appDir(syncName);
+    const vol = volFile(syncName);
 
-    // stop the container (releases the bind), unmount, then immediately probe a
-    // write on the bare dir - all in ONE shell so the monitor's 3s repair cycle
-    // cannot remount in between. The immutable mountpoint must refuse the write.
+    // Hold the backing file aside BEFORE anything can trigger a reconcile.
+    // getVolumeFilePath matches an exact name, so a renamed volume reads as
+    // volume_file_missing and ensureAppVolumeMounted returns without mounting.
+    //
+    // The stop cannot come first. Its die event drives a reconcile, and the
+    // reconciler mounts the volume before ANY actuation - correctly, since a
+    // start against a bare mountpoint would write to the host filesystem. So a
+    // probe that stops first is racing a repair it just asked for, and losing
+    // that race looks exactly like the leak this test exists to catch. Suite
+    // test 5 states the same rule: the broken state must fully exist before the
+    // die event fires. A rename does not disturb the loop mount, which holds the
+    // file by inode.
     const r = await execInContainer(client.container,
-      `docker stop ${appId(syncName)} >/dev/null 2>&1; umount ${dir} || exit 9; touch ${dir}/leak-probe 2>/dev/null; echo TOUCH_EXIT:$?`);
+      `mv ${vol} ${vol}.held || exit 8; `
+      + `docker stop ${appId(syncName)} >/dev/null 2>&1; `
+      + `umount ${dir} || exit 9; `
+      + `mountpoint -q ${dir}; echo MOUNTED:$?; `
+      + `touch ${dir}/leak-probe 2>/dev/null; echo TOUCH_EXIT:$?; `
+      + `mv ${vol}.held ${vol}`);
+    expect(r.exitCode, `could not hold the volume file aside: ${r.output}`).to.not.equal(8);
     expect(r.exitCode, `umount failed: ${r.output}`).to.not.equal(9);
+    // The probe only means anything against a bare dir. Asserted rather than
+    // assumed, so a remount that beat us is reported as such instead of being
+    // read as a leak.
+    expect(r.output.match(/MOUNTED:(\d+)/)?.[1], `still mounted at probe time: ${r.output}`).to.not.equal('0');
     const touchExit = r.output.match(/TOUCH_EXIT:(\d+)/)?.[1];
     expect(touchExit, `expected the bare-dir write to fail, got: ${r.output}`).to.not.equal('0');
 
