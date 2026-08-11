@@ -314,7 +314,7 @@ describe('appHashSyncService tests', () => {
 
       dbHelperStub.findOneInDatabase.resolves({ generalScannedHeight: 2555000 });
 
-      const result = await appHashSyncService.syncMissingHashes();
+      await appHashSyncService.syncMissingHashes();
 
       // Should have attempted bulk fetch (axiosGet called for explorer sync check + permanent messages)
       expect(serviceHelperStub.axiosGet.called).to.be.true;
@@ -638,7 +638,7 @@ describe('appHashSyncService tests', () => {
       dbHelperStub.findInDatabase.resolves(missing);
       // getMissingHashes adds $or filter for nextRetryHeight, but since we stub findInDatabase
       // the filter is applied by the DB. For this test, verify the query includes the filter.
-      const result = await appHashSyncService.getMissingHashes();
+      await appHashSyncService.getMissingHashes();
       // All 3 returned because findInDatabase stub ignores the query — but verify the query was correct
       const query = dbHelperStub.findInDatabase.firstCall.args[2];
       expect(query.message).to.equal(false);
