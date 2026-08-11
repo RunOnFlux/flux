@@ -392,3 +392,9 @@ test-infra/runner/test-logs/
 # mirrorImage). Content-addressed and re-fetchable, so only the first suite of
 # a gate pays for the download.
 test-infra/runner/.image-cache/
+
+# node-config loads this last, over everything in the pinned directory, so a
+# committed one would redirect a production node's endpoints. The harness writes
+# it inside the container at boot; it never belongs in the repo.
+ZelBack/config/local.js
+ZelBack/config/local-*.js

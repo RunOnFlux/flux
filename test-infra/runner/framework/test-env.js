@@ -892,17 +892,17 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
     // of syncthing would simply never get it back.
     if (!aptSeeded && isLegacy) nodeEnv.FLUX_APT_SEEDED = 'false';
     // Point the node's config at the base-derived infra IPs. The mounted config
-    // files (shared.js / node-NN) carry the default 198.18 addresses; NODE_CONFIG
-    // is deep-merged over them by the `config` package, so under a non-default base
-    // these overrides take effect (and are a no-op when base === '198.18'). Explicit
-    // test overrides still win (merged on top of this).
+    // files carry the default 198.18 addresses; this is written into the node's
+    // config directory as local.js, which node-config loads after them, so under a
+    // non-default base these overrides take effect (and are a no-op when
+    // base === '198.18'). Explicit test overrides still win (merged on top of this).
     const infraOverride = {
       database: { url: MONGO_IP },
       daemon: { host: DAEMON_IP },
       benchmark: { host: DAEMON_IP },
       // FluxOS builds its syncthing API base from config at module load, so in
-      // binary mode the node has to be pointed at its own daemon. NODE_CONFIG is
-      // merged OVER the mounted shared.js, so this is the only place that wins.
+      // binary mode the node has to be pointed at its own daemon. local.js is
+      // loaded after the mounted files, so this is the only place that wins.
       syncthing: {
         ip: syncthing === 'binary' ? '127.0.0.1' : SYNCTHING_IP,
         // The apt repository and its signing key, served by the external stub out of
@@ -937,7 +937,13 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       fluxapps: derivePeerThresholds(nodes, stubPeers.length),
     };
     const nodeConfig = mergeConfigs(infraOverride, mergeConfigs(configOverrides, nodeConfigOverrides[i]));
-    nodeEnv.NODE_CONFIG = JSON.stringify(nodeConfig);
+    // Handed over as a file rather than as NODE_CONFIG. The config package merges
+    // that variable over every file, which is a redirect no hash can see, so the
+    // entry points delete it - production has no environment path into config at
+    // all now. The entrypoint writes this JSON into the pinned config directory
+    // instead, where node-config picks it up as local.js and the same override
+    // arrives through a file like every other one.
+    nodeEnv.FLUX_TEST_CONFIG = JSON.stringify(nodeConfig);
 
     // Wait on an HTTP poll of the node's own /flux/version, not Docker's health
     // state machine: under a contended 10-node fleet boot, Wait.forHealthCheck()

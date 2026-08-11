@@ -3,6 +3,17 @@ set -e
 
 ip addr add 169.254.43.43/32 dev lo 2>/dev/null || true
 
+# The runner's per-node config arrives as JSON and is written here as local.js,
+# which node-config loads from the pinned config directory after every other file.
+# It used to arrive as NODE_CONFIG, but the config package merges that variable
+# over every file regardless of which directory is pinned - a redirect of any
+# endpoint that leaves no trace in the directory fluxbench hashes. The entry
+# points delete it now, so this is how a fleet configures its nodes: through a
+# file, like production, rather than through an environment the hash cannot see.
+if [ -n "$FLUX_TEST_CONFIG" ]; then
+  printf 'module.exports = %s;\n' "$FLUX_TEST_CONFIG" > /flux/ZelBack/config/local.js
+fi
+
 # App installs mount each app's FLUXFSVOL via `mount -o loop`. Loop devices are a
 # shared host-kernel resource (not namespaced); the kernel default pool (max_loop,
 # typically 8) is small and on-demand creation races under concurrent installs, so a
@@ -60,8 +71,8 @@ if [ "$FLUX_SYNCTHING_MODE" = "binary" ]; then
   # generates its own identity on first run, which is what gives each node a
   # distinct device id, and FluxOS then sets discovery off, NAT off and
   # listenAddresses to apiport+2 through the API exactly as it does on a node.
-  # The endpoint is decided by the runner through NODE_CONFIG, which the config
-  # package merges over the mounted shared.js. No socat either way: whoever
+  # The endpoint is decided by the runner through the local.js written above,
+  # which node-config loads last. No socat either way: whoever
   # starts the daemon, it binds apiport+2 itself.
   #
   # WHO starts it depends on the node type, and SYNCTHING_PATH is the same

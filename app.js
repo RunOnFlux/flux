@@ -1,4 +1,11 @@
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
+// The directory is pinned above so config loads from the one fluxbench
+// hashes. NODE_CONFIG is the same door: the config package merges whatever
+// JSON it holds over every file, after the directory is settled, so leaving
+// it open redirects any endpoint without touching a hashed file - the one
+// redirect tamper detection cannot see. Deleted rather than emptied, because
+// an empty value is parsed and fails rather than being ignored.
+delete process.env.NODE_CONFIG;
 
 const log = require('./ZelBack/src/lib/log');
 const path = require('path');
