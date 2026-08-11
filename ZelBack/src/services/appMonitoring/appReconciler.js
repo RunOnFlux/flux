@@ -964,8 +964,12 @@ async function reconcile(rawIdentifier) {
   } catch (err) {
     // No die event fires for a failed start (the container never ran), so a
     // dropped throw here leaves the component down until the hourly sweep.
-    // Schedule our own retry; pacing is free - the attempt was recorded above,
-    // so a persistent failure walks the backoff ladder instead of hammering.
+    // Schedule our own retry. A start that never ran carries no exit code, so it
+    // is not a fault and does not walk the ladder directly - it reaches the
+    // ladder by filling the burst window, which these retries do comfortably
+    // (restartBurstCount x MANAGED_RETRY_MS against restartBurstWindowMs). That
+    // relationship is what bounds a permanently failing start, and the config
+    // comment on the window is where it is stated.
     log.error(`appReconciler - failed to start ${identifier}: ${err.message}; retrying`);
     fluxEventBus.publish('reconciler:actuated', { identifier, action: 'startFailed', reason: err.message });
     scheduleRetry(identifier, MANAGED_RETRY_MS);

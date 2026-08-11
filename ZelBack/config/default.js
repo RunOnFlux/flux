@@ -132,11 +132,20 @@ module.exports = {
     // and the run length that counts as stable (resets the ladder)
     crashBackoffDelaysMs: [0, 30000, 300000, 900000, 1800000],
     crashBackoffStableRunMs: 600000,
-    // cause-blind backstop for images whose entrypoint discards the payload's
-    // exit status: this many automatic restarts inside the window is treated as
-    // a crash and enters the ladder above
+    // Backstop for images whose entrypoint discards the payload's exit status.
+    // A clean exit proves nothing, so for those images restart RATE is the only
+    // fault evidence left and this is the only thing that ever paces them.
+    // This many automatic restarts inside the window is treated as a crash and
+    // enters the ladder above, which reaches anything restarting closer together
+    // than window/count - 60s apart at these values. Slower is deliberately left
+    // alone: Palworld's segfault-restart cycle is ~77s at its worst, and coming
+    // straight back is better for the customer than being paced.
+    // Keep the window wider than the reconciler's retry interval times this
+    // count. A container that fails to START never ran, so it is never a fault
+    // and never walks the ladder directly - it reaches it only by filling this
+    // window, and a window narrower than that retries forever.
     restartBurstCount: 5,
-    restartBurstWindowMs: 60000,
+    restartBurstWindowMs: 300000,
     // How long a finished operation stays readable at /apps/operations/:jobId,
     // and how long a client is told to wait between polls while one runs. A
     // RUNNING job never expires - only terminal ones are retained on a clock.

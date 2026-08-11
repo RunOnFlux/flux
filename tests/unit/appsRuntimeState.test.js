@@ -334,6 +334,40 @@ describe('appsRuntimeState tests', () => {
       expect(store.get(id).restartHistory).to.be.undefined;
     });
 
+    // How far the ceiling reaches is window/count, NOT the window: the check runs
+    // BEFORE the append, so the five entries it judges span five gaps. Nothing
+    // pinned that derived number, and the PR body described the reach as "a
+    // minute or two" while the shipped values reached twelve seconds.
+    const spacingIsPaced = async (id, spacingMs) => {
+      for (let i = 0; i < appsRuntimeState.RESTART_BURST_COUNT * 3; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await appsRuntimeState.restartWaitMs(id, null, false) > 0) return true;
+        // eslint-disable-next-line no-await-in-loop
+        await appsRuntimeState.recordRestart(id, false);
+        clock.tick(spacingMs);
+      }
+      return false;
+    };
+
+    it('reaches restarts spaced window/count apart, and nothing slower', async () => {
+      const reach = appsRuntimeState.RESTART_BURST_WINDOW_MS / appsRuntimeState.RESTART_BURST_COUNT;
+      expect(await spacingIsPaced('atReach_App', reach), 'at the reach').to.equal(true);
+      expect(await spacingIsPaced('pastReach_App', reach + 1), 'one millisecond past it').to.equal(false);
+    });
+
+    // The reach is a product decision, not just a mechanism: an image that
+    // launders its exit status has no other protection, so what the shipped
+    // configuration actually catches is the whole guarantee. Asserted in seconds
+    // on purpose - a test derived from the same constants cannot notice them
+    // being retuned, which is how the twelve-second reach went unnoticed.
+    it('paces a laundered-exit container dying every 30 seconds', async () => {
+      expect(await spacingIsPaced('halfMinute_App', 30_000)).to.equal(true);
+    });
+
+    it('leaves a container restarting every 90 seconds alone', async () => {
+      expect(await spacingIsPaced('ninetySeconds_App', 90_000)).to.equal(false);
+    });
+
     it('caps the burst window so a permanently restarting container cannot grow the document', async () => {
       for (let i = 0; i < appsRuntimeState.RESTART_BURST_COUNT + 5; i += 1) {
         // eslint-disable-next-line no-await-in-loop
