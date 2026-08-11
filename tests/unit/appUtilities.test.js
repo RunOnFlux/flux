@@ -202,6 +202,29 @@ describe('appUtilities tests', () => {
       sinon.assert.calledOnce(runStub);
     });
 
+    it('refuses to size anything when the shared filesystem cannot be identified', async () => {
+      const utils = build({ '/apps/myapp/appdata': VOLUME_DEV });
+      sinon.stub(log, 'error');
+      inspectStub.resolves({
+        SizeRootFs: 500,
+        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+      });
+      // Every mount is classified against the apps folder's device. Without it
+      // nothing can be classified, and the honest answer is no answer: sizing
+      // each mount at zero would report a working node as using almost no disk,
+      // and the UI only blanks its values on an error.
+      statStub.callsFake(async (target) => {
+        if (target === '/apps/myapp/appdata') return { dev: VOLUME_DEV };
+        throw new Error('ENOENT: apps folder is gone');
+      });
+
+      const result = await utils.getContainerStorage('myapp');
+
+      expect(result.status, 'an unclassifiable node is an error, not zero bytes').to.equal('error');
+      sinon.assert.notCalled(statfsStub);
+      sinon.assert.notCalled(runStub);
+    });
+
     it('should serve repeat calls from cache without re-measuring', async () => {
       const utils = build({ '/apps/myapp/appdata': VOLUME_DEV });
       inspectStub.resolves({

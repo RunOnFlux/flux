@@ -162,15 +162,13 @@ async function nodeFullGeolocation() {
  * identify the volume by device and leave anything sharing the apps folder's device to
  * the caller.
  * @param {string} source - Mount source path
+ * @param {number} sharedDevice - Device of the filesystem the node shares, resolved once by the caller
  * @returns {Promise<{device: number, used: number}|null>} Usage, or null when not a dedicated volume
  */
-async function dedicatedVolumeUsage(source) {
-  const [sourceStat, appsFolderStat] = await Promise.all([
-    fs.stat(source),
-    fs.stat(appConstants.appsFolderPath),
-  ]);
+async function dedicatedVolumeUsage(source, sharedDevice) {
+  const sourceStat = await fs.stat(source);
 
-  if (sourceStat.dev === appsFolderStat.dev) return null;
+  if (sourceStat.dev === sharedDevice) return null;
 
   const { blocks, bfree, bsize } = await fs.statfs(source);
   return { device: sourceStat.dev, used: (blocks - bfree) * bsize };
@@ -206,6 +204,15 @@ async function getContainerStorage(appName) {
     let volumeMountsSize = 0;
     const containerRootFsSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
     if (containerInfo?.Mounts?.length) {
+      // Which filesystem the node shares is one fact about this call rather than
+      // a step in the loop: every mount is classified against it. Resolved here,
+      // once, before any mount is examined - inside the loop its failure arrives
+      // as one caught error per mount, each contributing zero, and the total is
+      // then cached and served as a successful reading of almost no disk.
+      // Nothing to classify means nothing to resolve, so a container with no
+      // mounts never asks.
+      const { dev: sharedDevice } = await fs.stat(appConstants.appsFolderPath);
+
       // Collect all mount sources and filter out nested mounts to avoid double-counting
       const allMounts = containerInfo.Mounts.filter((m) => m?.Source);
       const mountsToCount = [];
@@ -242,7 +249,7 @@ async function getContainerStorage(appName) {
         let size = 0;
         try {
           // eslint-disable-next-line no-await-in-loop
-          const volume = await dedicatedVolumeUsage(source);
+          const volume = await dedicatedVolumeUsage(source, sharedDevice);
           if (volume) {
             if (countedDevices.has(volume.device)) {
               // eslint-disable-next-line no-continue
