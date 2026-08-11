@@ -181,15 +181,13 @@ describe('primary election under a divergent placement order', function () {
     expect(holdersWritable.length, 'nobody ever seeded the folder').to.equal(1);
   });
 
-  // Skipped: a holder whose FluxOS is down mid-restart is indistinguishable from a
-  // dead one to the peer probe, which fails open so a network fault cannot strand the
-  // app forever - so a synced standby whose probe lands inside the restart window
-  // starts a second writer beside the holder's still-running container, and nothing
-  // demotes either side afterwards. Proven here in-fleet: a six-second outage was
-  // enough. A bounded takeover needs the quorum-granted mastership lease that
-  // supersedes this election in a later change; this test is its acceptance test,
-  // alongside the partition suite's heal test.
-  it.skip('does not read a restarting holder as free to start alongside', async function () {
+  // The peer probe no longer reads a silence as a clearance: a holder whose FluxOS is
+  // down mid-restart still has its syncthing connection open, and that connection is
+  // the evidence the probe now demands before it will start beside a peer. Written
+  // against the old probe this ran red in this fleet - a six-second outage was enough
+  // to put a second writer on the volume - which is what makes it worth keeping rather
+  // than trusting the unit coverage alone.
+  it('does not read a restarting holder as free to start alongside', async function () {
     this.timeout(420000);
     // A node that has just restarted has not yet read its own folder config, so it
     // cannot tell "I hold nothing" from "I have not looked". It must answer the

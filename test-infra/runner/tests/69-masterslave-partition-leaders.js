@@ -21,13 +21,16 @@ import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 // LIMITATION, written into the code it exercises: the seed election is gossip plus
 // lowest-IP and "guarantees neither a single master under partition (split-brain) nor
 // that the seed holds the newest data" (syncthingFolderStateMachine.js, the residual-
-// limitation note above the leader branch), and the peer probe that guards the start
-// "fails open by design ... so a network fault cannot strand an app forever"
-// (advancedWorkflows.js, checkPeersRunning). A partitioned minority therefore CAN start
-// its own writer, by construction. Asserting otherwise would be asserting a fix that
-// does not exist, so this suite does not - and a green run here is NOT evidence of
-// mutual exclusion under partition. Closing that needs the consensus-grounded election
-// and quorum lease those notes call out as a separate redesign.
+// limitation note above the leader branch). The peer probe that guards the start no
+// longer fails open - it acts on a silence only with evidence, and refuses outright
+// from a node that cannot see the fleet - but that floor detects TOTAL isolation, and
+// says so: "it does NOT establish that this node is on the majority side of a partial
+// split; no local count can" (peerFolderLiveness.js). A minority still hearing enough
+// of its own peers therefore reads the far side as dead and CAN start its own writer.
+// Asserting otherwise would be asserting a fix that does not exist, so this suite does
+// not - and a green run here is NOT evidence of mutual exclusion under partition.
+// Closing that needs the consensus-grounded election and quorum lease those notes call
+// out as a separate redesign.
 //
 // RECONVERGENCE ON HEAL - the invariant a customer actually experiences, that a
 // partition is SURVIVABLE - is the subject of the skipped test below, and is not
@@ -141,8 +144,9 @@ describe('a g: app with holders on both sides of a partition', function () {
     await env.partitionGroups(groupA, groupB);
 
     // Let both sides act on their own view. Deliberately NOT asserted: how many
-    // primaries exist right now. The probe fails open, so the minority may well start
-    // a second writer, and that is the documented contract today (see the header).
+    // primaries exist right now. A minority that still hears enough of its own peers
+    // clears the isolation floor and may well start a second writer, and that is the
+    // documented contract today (see the header).
     await sleepUnlessInfraDead(90000);
 
     await env.healPartition(groupA, groupB);
