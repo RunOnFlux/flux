@@ -1511,6 +1511,30 @@ describe('appInspector tests', () => {
       expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly('myapp', 1.8e9)).to.be.true;
     });
 
+    it('does not strand a sample that arrives while the decision is being made', async () => {
+      // The window is snapshotted before the inspect, so a sample landing during
+      // it is not in this decision. Dating the watermark after the awaits would
+      // also put that sample behind the NEXT window's floor, and no decision
+      // would ever count it - the gap the watermark exists to close.
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 1, 1]) } };
+      let midFlight;
+      dockerServiceStub.dockerContainerInspect.callsFake(async () => {
+        await new Promise((resolve) => { setTimeout(resolve, 20); });
+        midFlight = cpuSample(1, 0);
+        globalStateStub.appsMonitored.myapp.statsStore.push(midFlight);
+        return { HostConfig: { NanoCpus: 2e9 }, State: { Pid: 1234 } };
+      });
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(midFlight, 'the sample really did arrive mid-decision').to.not.be.undefined;
+      expect(globalStateStub.appsMonitored.myapp.lastCpuDecisionAt)
+        .to.be.below(midFlight.elapsed);
+    });
+
     it('leaves cpu alone when load was high on less than 80% of the window', async () => {
       globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 0.5, 0.5]) } };
 

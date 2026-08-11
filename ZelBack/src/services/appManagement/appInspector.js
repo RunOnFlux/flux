@@ -771,6 +771,12 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled) {
       if (app.version <= 3) {
+        // Stamped from BEFORE the window was taken, not from after the awaits
+        // below. The watermark marks where this decision stopped looking; a
+        // sample arriving during the inspect is not in the snapshot, so dating
+        // the watermark later would put it behind the next window too and no
+        // decision would ever count it.
+        const decisionAt = monotonicMs();
         stats = cpuDecisionWindow(appsMonitored[app.name]);
         // eslint-disable-next-line no-await-in-loop
         const inspect = await dockerService.dockerContainerInspect(app.name);
@@ -783,7 +789,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
           log.info(`checkApplicationsCpuUSage ${app.name} burst-active, skipping CPU throttling`);
           if (appsMonitored[app.name]) {
             // eslint-disable-next-line no-param-reassign
-            appsMonitored[app.name].lastCpuDecisionAt = monotonicMs();
+            appsMonitored[app.name].lastCpuDecisionAt = decisionAt;
           }
           // eslint-disable-next-line no-continue
           continue;
@@ -804,7 +810,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
             cpuThrottling = true;
           }
           // eslint-disable-next-line no-param-reassign
-          appsMonitored[app.name].lastCpuDecisionAt = monotonicMs();
+          appsMonitored[app.name].lastCpuDecisionAt = decisionAt;
           log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: ${cpuThrottling}`);
           log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
           if (cpuThrottling && app.cpu > 1) {
@@ -840,6 +846,9 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of app.compose) {
           const compName = `${appComponent.name}_${app.name}`;
+          // As above: the watermark dates the snapshot, not the decision, so a
+          // sample landing during the awaits is not lost between the two.
+          const decisionAt = monotonicMs();
           stats = cpuDecisionWindow(appsMonitored[compName]);
           // eslint-disable-next-line no-await-in-loop
           const inspect = await dockerService.dockerContainerInspect(compName);
@@ -851,7 +860,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
             log.info(`checkApplicationsCpuUSage ${compName} burst-active, skipping CPU throttling`);
             if (appsMonitored[compName]) {
               // eslint-disable-next-line no-param-reassign
-              appsMonitored[compName].lastCpuDecisionAt = monotonicMs();
+              appsMonitored[compName].lastCpuDecisionAt = decisionAt;
             }
             // eslint-disable-next-line no-continue
             continue;
@@ -872,7 +881,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
               cpuThrottling = true;
             }
             // eslint-disable-next-line no-param-reassign
-            appsMonitored[compName].lastCpuDecisionAt = monotonicMs();
+            appsMonitored[compName].lastCpuDecisionAt = decisionAt;
             log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
             log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
             if (cpuThrottling && appComponent.cpu > 1) {
