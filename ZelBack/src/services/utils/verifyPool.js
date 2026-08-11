@@ -134,6 +134,11 @@ function reapIdle() {
   }
 }
 
+// Armed from the reply path alone, which reads like an omission and is not: the
+// only workers that can still be resident when a burst ends are the ones that
+// replied. A worker that dies takes its own slot out of the pool in its exit
+// handler, and one that is abandoned as unpostable never held a slot - so a burst
+// ending in an exit or an abandon has nothing raised left behind to release.
 function scheduleReap() {
   if (reapTimer) clearTimeout(reapTimer);
   reapTimer = setTimeout(reapIdle, IDLE_REAP_MS);
