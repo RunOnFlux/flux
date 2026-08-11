@@ -516,6 +516,17 @@ describe('syncthingService tests', () => {
       sinon.restore();
     });
 
+    it('never asks syncthing whether a restart is required', async () => {
+      // requiresRestart is a one-way latch FluxOS cannot set: it is written only
+      // for auditEnabled/auditFile, which FluxOS never touches. So a true here is
+      // always something else's, set hours earlier and never cleared - and this
+      // runs every eight minutes, so acting on it restarts the daemon on every
+      // pass until syncthing's own supervisor gives up and leaves it down.
+      await syncthingService.runSyncthingSentinel();
+
+      sinon.assert.notCalled(fakeRestartRequired);
+    });
+
     it('should call adjustSyncthing on the first iteration', async () => {
       const ms = await syncthingService.runSyncthingSentinel();
       expect(ms).to.equal(60000);
