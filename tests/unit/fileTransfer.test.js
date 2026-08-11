@@ -46,6 +46,30 @@ describe('fileTransfer tests', () => {
     body = collected(res);
   });
 
+  it('releases the descriptor when the client aborts part way', async () => {
+    // pipe() stops forwarding when the destination dies but does not destroy the
+    // source, so without the response handler the read stream is neither ended nor
+    // destroyed, its 'close' never fires, and the handle stays open. One descriptor
+    // per aborted download, on a route any caller can abort at will.
+    const file = path.join(directory, 'big.txt');
+    await fsPromises.writeFile(file, 'x'.repeat(4 * 1024 * 1024));
+
+    let closed = false;
+    const realOpen = fsPromises.open.bind(fsPromises);
+    sinon.stub(fsPromises, 'open').callsFake(async (...args) => {
+      const handle = await realOpen(...args);
+      const realClose = handle.close.bind(handle);
+      handle.close = async () => { closed = true; return realClose(); };
+      return handle;
+    });
+
+    await sendFile(res, file, 'big.txt');
+    res.destroy(); // the client goes away mid-transfer
+    await new Promise((resolve) => { setTimeout(resolve, 100); });
+
+    expect(closed, 'the descriptor was never released').to.equal(true);
+  });
+
   afterEach(async () => {
     sinon.restore();
     await fsPromises.rm(directory, { recursive: true, force: true });

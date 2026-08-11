@@ -73,6 +73,13 @@ async function sendFile(res, filepath, filename) {
     res.destroy();
   });
 
+  // pipe() forwards data and ends the destination; it does not destroy the source
+  // when the destination dies. A client that disconnects part way therefore
+  // destroys the response and leaves this stream neither ended nor destroyed, so
+  // its 'close' never fires and the descriptor above is never released - one
+  // leaked per aborted download, on a route a caller can abort at will.
+  res.on('close', () => stream.destroy());
+
   stream.pipe(res);
 }
 
