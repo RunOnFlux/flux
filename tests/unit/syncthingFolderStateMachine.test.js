@@ -11,6 +11,7 @@ const syncthingServiceMock = {
   systemRestart: sinon.stub(),
   getConfig: sinon.stub(),
   getDbCompletion: sinon.stub(),
+  getConfigDevices: sinon.stub(),
   dbRevert: sinon.stub(),
   systemPause: sinon.stub(),
   systemResume: sinon.stub(),
@@ -73,6 +74,23 @@ const dirent = (name, isFile = true) => ({
   isDirectory: () => !isFile,
 });
 
+// The real liveness module, stubbed only where it leaves the process. It carries
+// both halves the state machine asks of a peer - whether it answered, and what
+// this node's own syncthing says about it - so the decisions under test are still
+// driven end to end by what a peer answers, what syncthing reports, and this
+// node's own connectivity. Loaded before the state machine because the state
+// machine is handed this same mocked copy: a second, unmocked one would reach the
+// real syncthing service and answer every evidence question with silence.
+const peerFolderLivenessMock = proxyquire('../../ZelBack/src/services/appMonitoring/peerFolderLiveness', {
+  '../fluxCommunication': fluxCommunicationMock,
+  '../syncthingService': syncthingServiceMock,
+  '../utils/globalState': globalStateMock,
+  axios: axiosMock,
+});
+
+// A fresh liveness object per call is the contract: it holds one pass's view.
+const { createPeerFolderLiveness } = peerFolderLivenessMock;
+
 // Load module with mocked dependencies
 const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine', {
   '../dockerService': dockerServiceMock,
@@ -84,16 +102,7 @@ const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncth
   // stub new collaborators so the unit test doesn't load the real module graph
   './appReconciler': appReconcilerMock,
   '../appLifecycle/appUninstaller': appUninstallerMock,
-  '../utils/globalState': globalStateMock,
-});
-
-// The real liveness object, stubbed only where it leaves the process. The state
-// machine reads peers exclusively through it, so the decisions under test are
-// still driven end to end by what a peer answers and by this node's own
-// connectivity. A fresh one per call is the contract: it holds one pass's view.
-const { createPeerFolderLiveness } = proxyquire('../../ZelBack/src/services/appMonitoring/peerFolderLiveness', {
-  '../fluxCommunication': fluxCommunicationMock,
-  axios: axiosMock,
+  './peerFolderLiveness': peerFolderLivenessMock,
 });
 
 describe('syncthingFolderStateMachine tests', () => {
@@ -105,6 +114,10 @@ describe('syncthingFolderStateMachine tests', () => {
     syncthingServiceMock.systemRestart.resolves();
     syncthingServiceMock.getConfig.reset();
     syncthingServiceMock.getDbCompletion.reset();
+    syncthingServiceMock.getConfigDevices.reset();
+    // default: this node's syncthing has no device configured for the peer either,
+    // so a cache miss stays a genuine "cannot say" rather than silently resolving
+    syncthingServiceMock.getConfigDevices.resolves({ status: 'success', data: [] });
     globalStateMock.syncthingDevicesIDCache.clear();
     syncthingServiceMock.dbRevert.reset();
     syncthingServiceMock.dbRevert.resolves({ status: 'success' });

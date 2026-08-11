@@ -17,6 +17,8 @@
 const axios = require('axios');
 const log = require('../../lib/log');
 const fluxCommunication = require('../fluxCommunication');
+const syncthingService = require('../syncthingService');
+const globalState = require('../utils/globalState');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 
 // Bounded because this runs on the pass a node is about to promote, and a slow
@@ -129,8 +131,119 @@ function createPeerFolderLiveness() {
   };
 }
 
+const PeerConnection = Object.freeze({
+  CONNECTED: 'connected',
+  DISCONNECTED: 'disconnected',
+  UNKNOWN: 'unknown',
+});
+
+/**
+ * Why this node cannot hear a peer. `GONE` is the only answer that authorises
+ * acting on the silence; the other three are reasons to leave the peer alone.
+ */
+const SilenceVerdict = Object.freeze({
+  GONE: 'gone',
+  CONNECTION_ALIVE: 'connectionAlive',
+  NO_EVIDENCE: 'noEvidence',
+  LOCALLY_ISOLATED: 'locallyIsolated',
+});
+
+/**
+ * The syncthing device id this node knows the peer by, or null.
+ *
+ * @param {string} peerIp
+ * @returns {Promise<string|null>}
+ */
+async function peerDeviceId(peerIp) {
+  const name = `${extractIp(peerIp)}:${extractPort(peerIp)}`;
+  const cached = globalState.syncthingDevicesIDCache.get(name);
+  if (cached) return cached;
+
+  // That cache is in-memory and is filled by asking the PEER, so it is empty for
+  // exactly the peer this matters for: one that died while this node's own process
+  // was restarting, and can no longer be asked anything. This node's syncthing
+  // holds the answer on disk - the monitor configured the device under this same
+  // name while the peer was still up, and that config outlives both processes.
+  // Left unread, the node with a perfectly good local record would report itself
+  // ignorant and hold a start for as long as the dead peer's location record lives.
+  const response = await syncthingService.getConfigDevices(null, null).catch(() => null);
+  if (response?.status !== 'success' || !Array.isArray(response.data)) return null;
+  return response.data.find((device) => device.name === name)?.deviceID ?? null;
+}
+
+/**
+ * This node's syncthing's view of its own connection to a peer, for one
+ * folder: PeerConnection.CONNECTED, DISCONNECTED, or UNKNOWN.
+ *
+ * FluxOS and syncthing are separate processes on that peer and fail
+ * independently, so silence from its API is not evidence that it has stopped
+ * writing - a FluxOS restart takes the API away for tens of seconds while
+ * syncthing and the container carry on. A live sync connection IS evidence:
+ * syncthing reports remoteState 'valid' only for a device whose connection is
+ * open, and clears it the moment the connection closes.
+ *
+ * The three answers are kept apart because a silence may be acted on only with
+ * evidence. 'disconnected' is an answer - this node's syncthing was asked
+ * about the device and does not consider it connected. 'unknown' is the
+ * absence of one - the peer's device is in neither this node's cache nor its
+ * syncthing's own device config, or this node's syncthing did not answer.
+ * Collapsing 'unknown' into 'disconnected' would let the one node with the
+ * least knowledge authorise a second writer.
+ *
+ * The peer's own syncthing API is not reachable - it binds to localhost - and
+ * does not need to be. This is local state, maintained by the connection
+ * itself.
+ *
+ * @param {string} folderId Folder id, always passed explicitly: the completion
+ *   endpoint's aggregate form never sets remoteState and reports 'unknown'.
+ * @param {string} peerIp
+ * @returns {Promise<string>} One of PeerConnection
+ */
+async function peerSyncthingConnection(folderId, peerIp) {
+  const deviceId = await peerDeviceId(peerIp);
+  if (!deviceId) return PeerConnection.UNKNOWN;
+
+  const response = await syncthingService.getDbCompletion({
+    query: { folder: folderId, device: deviceId },
+  }, null).catch(() => null);
+
+  if (response?.status !== 'success' || !response.data) return PeerConnection.UNKNOWN;
+  return response.data.remoteState === 'valid' ? PeerConnection.CONNECTED : PeerConnection.DISCONNECTED;
+}
+
+/**
+ * What a peer's silence is worth as evidence that it has stopped: one of
+ * SilenceVerdict. The caller has already established the silence - this
+ * answers only whether it may be acted on.
+ *
+ * Two decisions rest on this and they ask it identically: dropping a dead
+ * holder out of the election, and starting a container a peer may still be
+ * running. Both turn a silence into an action over a shared volume, so both
+ * owe the same proof.
+ *
+ * Silence alone is never enough. The verdict needs this node's own syncthing
+ * to have been asked about the peer's device and to have answered that it is
+ * not connected, AND this node to still be able to see the fleet - a node
+ * whose peers have all gone quiet is the one that fell over, and the peer is
+ * very likely still serving on the other side of the split.
+ *
+ * @param {string} folderId
+ * @param {string} peerIp
+ * @param {Object} liveness This pass's peer view
+ * @returns {Promise<string>} One of SilenceVerdict
+ */
+async function silenceVerdict(folderId, peerIp, liveness) {
+  const connection = await peerSyncthingConnection(folderId, peerIp);
+  if (connection === PeerConnection.CONNECTED) return SilenceVerdict.CONNECTION_ALIVE;
+  if (connection === PeerConnection.UNKNOWN) return SilenceVerdict.NO_EVIDENCE;
+  if (!liveness.localConnectivity().connected) return SilenceVerdict.LOCALLY_ISOLATED;
+  return SilenceVerdict.GONE;
+}
+
 module.exports = {
   createPeerFolderLiveness,
+  silenceVerdict,
+  SilenceVerdict,
   PROBE_TIMEOUT_MS,
   MIN_RESPONDING_PEER_FRACTION,
 };
