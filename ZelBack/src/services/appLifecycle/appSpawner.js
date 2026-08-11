@@ -534,7 +534,19 @@ async function trySpawningGlobalApplication() {
     let placementDomainOf = null;
     let myDomain = null;
     if (syncthingApp && !pinnedHere) {
-      const computation = await placementFeasibility.placementComputation(appSpecifications, minInstances);
+      // placementComputation refuses a geo-restricted question while the location
+      // table is still loading, because answering it over the whole network would
+      // advise on numbers that mean nothing. That refusal is addressed to the HTTP
+      // caller; reaching the catch below instead would read as a pre-install error
+      // and park this app for six hours over a table that is seconds from ready.
+      let computation;
+      try {
+        computation = await placementFeasibility.placementComputation(appSpecifications, minInstances);
+      } catch (error) {
+        if (error.statusCode !== 503) throw error;
+        log.info(`trySpawningGlobalApplication - ${appSpecifications.name} deferred: ${error.message}`);
+        return shortDelayTime;
+      }
       placementShare = computation.feasibility;
       placementDomainOf = computation.domainOf;
       myDomain = placementDomainOf(localIp);

@@ -324,6 +324,7 @@ module.exports = {
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
+    nodeMonitorCheckIntervalMs: 120000,
     nodeMonitorCheckTimeoutMs: 10000,
     spawnDeferrals: {
       targetedNodesMs: { enterprise: 1800000, standard: 3420000 },

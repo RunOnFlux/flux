@@ -839,6 +839,25 @@ describe('appSpawner tests', () => {
       expect(placementFeasibilityStub.placementComputation.calledWith(syncedSpec, 3)).to.be.true;
     });
 
+    it('defers rather than parking the app when the location table is not ready yet', async () => {
+      // The refusal is addressed to an HTTP caller. Letting it reach the spawner's
+      // outer catch reads as a pre-install error, which parks the app for six hours
+      // over a table that is usually seconds from ready.
+      const installStub = sinon.stub().resolves(true);
+      buildModule({ aggregateResult: [spawnableApp], appSpec: syncedSpec, installStub });
+      const notReady = new Error('The IP location table is not available yet - geolocation feasibility cannot be answered');
+      notReady.statusCode = 503;
+      placementFeasibilityStub.placementComputation.rejects(notReady);
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(installStub.called).to.be.false;
+      // the deferral, not the pre-install-error path - the cache key is set on every
+      // attempt regardless, so what separates them is which one handled it
+      expect(logStub.info.args.some((a) => String(a[0]).includes('deferred'))).to.be.true;
+      expect(logStub.error.args.some((a) => String(a[0]?.message ?? a[0]).includes('IP location table'))).to.be.false;
+    });
+
     it('stands aside when many domains are eligible and this one holds its share', async () => {
       const { installStub, logged } = await runAttempt({
         appLocations: sameDomainLocation,
