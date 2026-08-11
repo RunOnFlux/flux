@@ -2773,7 +2773,7 @@ describe('advancedWorkflows tests', () => {
     it('refuses when this instance has no syncthing folder at all', async () => {
       // the incident shape: the node was never configured to sync, so its copy
       // is empty by construction
-      sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves(null);
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({ status: null, reason: 'absent' });
       const res = makeRes();
 
       const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
@@ -2786,9 +2786,29 @@ describe('advancedWorkflows tests', () => {
       expect(globalState.backupInProgress).to.not.include(appname);
     });
 
+    it('refuses when syncthing cannot be reached, and does not call that "never synced"', async () => {
+      // A daemon that is down or restarting says nothing about the data. The
+      // refusal is still right - an archive of an unverified copy looks fine and
+      // loses data when it is restored months later - but telling an operator
+      // their instance has never synced, at the moment they are trying to protect
+      // it, is a false statement about their data.
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({ status: null, reason: 'unknown' });
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      sinon.assert.notCalled(IOUtils.createTarGz);
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+      expect(said, 'says what actually happened').to.include('could not be determined');
+      expect(said, 'and does not claim anything about the data').to.not.include('never synced');
+    });
+
     it('refuses a copy that is still catching up', async () => {
-      sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves({
-        isSynced: false, syncPercentage: 41.5, inSyncBytes: 415, globalBytes: 1000,
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: false, syncPercentage: 41.5, inSyncBytes: 415, globalBytes: 1000 },
+        reason: 'ok',
       });
       const res = makeRes();
 
@@ -2800,7 +2820,7 @@ describe('advancedWorkflows tests', () => {
     });
 
     it('proceeds over an incomplete copy when force is given', async () => {
-      sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves(null);
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({ status: null, reason: 'absent' });
       const req = backupReq();
       req.body.force = true;
 
@@ -2814,8 +2834,9 @@ describe('advancedWorkflows tests', () => {
       // deleting the folder loses its config, and only the syncthing monitor's
       // per-app pass ever recreates it - on a node where that pass cannot
       // complete, the app silently stops being redundant for good
-      sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves({
-        isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000,
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
       });
 
       const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
@@ -2830,8 +2851,9 @@ describe('advancedWorkflows tests', () => {
       // folder ids are docker app identifiers, so a composed app's folder is
       // flux<component>_<app>. Addressing it as flux<app> matches nothing, and
       // the freeze silently does not happen.
-      const completion = sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves({
-        isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000,
+      const completion = sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
       });
 
       await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
@@ -2841,8 +2863,9 @@ describe('advancedWorkflows tests', () => {
     });
 
     it('resumes the folder when the archive fails', async () => {
-      sinon.stub(stateMachine, 'getFolderSyncCompletion').resolves({
-        isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000,
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
       });
       IOUtils.createTarGz.resolves({ status: false, error: 'no space left on device' });
 

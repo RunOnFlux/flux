@@ -240,6 +240,65 @@ describe('syncthingFolderStateMachine tests', () => {
     });
   });
 
+  describe('probeFolderSyncCompletion', () => {
+    // Syncthing saying "no such folder" is a finding about the data. Syncthing
+    // not answering is a finding about syncthing. The backup gate reports one of
+    // these to an operator as a fact about their data, so they must not arrive
+    // here as the same thing.
+    it('calls a 404 absent - syncthing answered, and the folder is not there', async () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'error',
+        data: { message: 'Request failed with status code 404', code: 'ERR_BAD_REQUEST' },
+      });
+
+      const result = await stateMachine.probeFolderSyncCompletion('test-folder');
+
+      expect(result).to.deep.equal({ status: null, reason: 'absent' });
+    });
+
+    it('calls an unreachable daemon unknown, not absent', async () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'error',
+        data: { message: 'connect ECONNREFUSED 127.0.0.1:8384', code: 'ECONNREFUSED' },
+      });
+
+      const result = await stateMachine.probeFolderSyncCompletion('test-folder');
+
+      expect(result).to.deep.equal({ status: null, reason: 'unknown' });
+    });
+
+    it('calls a server error unknown - a 500 is not the folder telling us anything', async () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'error',
+        data: { message: 'Request failed with status code 500', code: 'ERR_BAD_RESPONSE' },
+      });
+
+      const result = await stateMachine.probeFolderSyncCompletion('test-folder');
+
+      expect(result.reason).to.equal('unknown');
+    });
+
+    it('calls a thrown lookup unknown', async () => {
+      syncthingServiceMock.getDbStatus.rejects(new Error('socket hang up'));
+
+      const result = await stateMachine.probeFolderSyncCompletion('test-folder');
+
+      expect(result).to.deep.equal({ status: null, reason: 'unknown' });
+    });
+
+    it('reports a real reading as ok', async () => {
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: { globalBytes: 1000, inSyncBytes: 1000, state: 'idle' },
+      });
+
+      const result = await stateMachine.probeFolderSyncCompletion('test-folder');
+
+      expect(result.reason).to.equal('ok');
+      expect(result.status.isSynced).to.equal(true);
+    });
+  });
+
   describe('getFolderSyncCompletion', () => {
     it('should return sync status when successful', async () => {
       syncthingServiceMock.getDbStatus.resolves({

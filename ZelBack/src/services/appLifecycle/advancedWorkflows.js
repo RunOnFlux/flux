@@ -2375,9 +2375,16 @@ async function appendBackupTask(req, res) {
       // eslint-disable-next-line no-restricted-syntax
       for (const { componentName, folderId } of syncedComponents) {
         // eslint-disable-next-line no-await-in-loop
-        const syncStatus = await syncthingFolderStateMachine.getFolderSyncCompletion(folderId);
-        if (!syncStatus) {
+        const { status: syncStatus, reason } = await syncthingFolderStateMachine
+          .probeFolderSyncCompletion(folderId);
+        if (reason === 'absent') {
           incomplete.push(`${componentName}: no syncthing folder - this instance has never synced`);
+        } else if (reason === 'unknown') {
+          // Syncthing not answering says nothing about the data. Refusing is
+          // still right - an archive of an unverified copy is the thing that
+          // looks fine now and loses data when it is restored months later -
+          // but the reason given has to be the one that actually happened.
+          incomplete.push(`${componentName}: syncthing did not answer - sync state could not be determined`);
         } else if (!syncStatus.isSynced) {
           incomplete.push(`${componentName}: ${syncStatus.syncPercentage.toFixed(2)}% synced (${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes)`);
         }

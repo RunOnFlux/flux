@@ -285,11 +285,25 @@ async function fixAppdataPermissions(appId) {
 }
 
 /**
- * Helper function to get Syncthing folder sync completion status
+ * Reads a folder's sync completion, and says which of the two ways it failed.
+ *
+ * "Syncthing says there is no such folder" is a finding about the data. "Syncthing
+ * did not answer" is a finding about syncthing, and the caller that refuses a
+ * backup must not report the second as the first - telling an operator their
+ * instance has never synced, when what happened is that a daemon was restarting,
+ * is a false statement about their data at the moment they are trying to protect
+ * it.
+ *
+ * Only an HTTP status proves syncthing replied at all, and performRequest keeps
+ * it in the error message, so that is what separates the two. Anything that is
+ * not a plain 404 - a transport failure, a 500, an unreadable api key - is
+ * unknown rather than absent, because none of them are the folder telling us
+ * anything.
+ *
  * @param {string} folderId - The Syncthing folder ID
- * @returns {Promise<Object|null>} Sync status object or null if unavailable
+ * @returns {Promise<{status: Object|null, reason: 'ok'|'absent'|'unknown'}>}
  */
-async function getFolderSyncCompletion(folderId) {
+async function probeFolderSyncCompletion(folderId) {
   try {
     const statusResponse = await syncthingService.getDbStatus({
       query: { folder: folderId },
@@ -302,7 +316,7 @@ async function getFolderSyncCompletion(folderId) {
 
       const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
 
-      return {
+      const status = {
         syncPercentage,
         globalBytes,
         inSyncBytes,
@@ -320,15 +334,40 @@ async function getFolderSyncCompletion(folderId) {
         // handled separately above.
         isSynced: globalBytes > 0 && syncPercentage === SYNC_COMPLETE_PERCENTAGE,
       };
+
+      return { status, reason: 'ok' };
     }
 
-    log.warn(`Failed to get sync status for folder ${folderId}`);
-    return null;
+    const message = statusResponse?.data?.message || '';
+    const httpStatus = Number((/status code (\d{3})/.exec(message) || [])[1]);
+    if (httpStatus === 404) {
+      log.warn(`No syncthing folder ${folderId}`);
+      return { status: null, reason: 'absent' };
+    }
+
+    log.warn(`Could not read sync status for folder ${folderId}: ${message}`);
+    return { status: null, reason: 'unknown' };
   } catch (error) {
     log.error(`Error checking sync completion for ${folderId}: ${error.message}`);
-    return null;
+    return { status: null, reason: 'unknown' };
   }
 }
+
+/**
+ * The folder's sync status, or null when it cannot be read for any reason.
+ *
+ * Callers that only need "do I have a usable reading" keep this contract: both
+ * failures are equally unusable to them, and both must be treated conservatively.
+ * Callers that report the failure to a person want probeFolderSyncCompletion.
+ *
+ * @param {string} folderId - The Syncthing folder ID
+ * @returns {Promise<Object|null>} Sync status object or null if unavailable
+ */
+async function getFolderSyncCompletion(folderId) {
+  const { status } = await probeFolderSyncCompletion(folderId);
+  return status;
+}
+
 
 /**
  * Determines if this node should be the designated leader for starting an app first.
@@ -1191,6 +1230,7 @@ async function manageFolderSyncState(params) {
 module.exports = {
   manageFolderSyncState,
   getFolderSyncCompletion,
+  probeFolderSyncCompletion,
   isDesignatedLeader,
   verifyFolderMountSafety,
   verifySendReceiveFolderSafety,
