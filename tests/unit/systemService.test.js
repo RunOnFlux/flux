@@ -1060,18 +1060,24 @@ describe('system Services tests', () => {
     });
 
     it('publishes even when a check throws, so a waiter fails rather than hangs', async () => {
+      // The rejection has to land somewhere the code does not already catch.
+      // monitorSyncthingPackage's own axios call carries a .catch(), so failing
+      // that one leaves nothing to throw and the test passes without reaching
+      // the path it is named for.
       fakeSystem({
         'ca-certificates': '20260601',
         'netcat-openbsd': '1.234',
         syncthing: '2.1.3',
         chrony: '4.8',
       });
-      axios.get.rejects(new Error('stats unreachable'));
+      runCmdStub.rejects(new Error('dpkg-query unavailable'));
 
       await systemService.monitorSystem();
 
       sinon.assert.calledOnce(publishStub);
       expect(publishStub.firstCall.args[0]).to.equal('system:packages-checked');
+      // and it says nothing was installed, rather than reporting a stale set
+      expect(publishStub.firstCall.args[1]).to.deep.equal({ installed: [] });
     });
   });
 

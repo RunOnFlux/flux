@@ -705,6 +705,7 @@ async function monitorAptCache(event) {
 async function monitorSystem() {
   if (isArcane) return;
 
+  let installed = [];
   try {
     // ensureChronyd answers whether chrony ended up configured, which is true
     // both when it installed it and when it was already there. What it installed
@@ -729,19 +730,24 @@ async function monitorSystem() {
       ),
     };
 
-    const outcomes = await Promise.all(Object.values(checks));
     const names = Object.keys(checks);
-
-    // Published whether or not anything was installed, because "checked and had
-    // nothing to do" is a different fact from "has not run yet" and the logs
-    // below only speak in the first case. A node that is already provisioned -
-    // which is every node after its first boot - is otherwise indistinguishable
-    // from one whose checks have not started.
-    fluxEventBus.publish('system:packages-checked', {
-      installed: names.filter((_, i) => outcomes[i]),
+    const settled = await Promise.allSettled(Object.values(checks));
+    // Named individually rather than as one failure, so a log says which check
+    // could not answer instead of only that something could not.
+    settled.forEach((outcome, i) => {
+      if (outcome.status === 'rejected') log.error(`monitorSystem - the ${names[i]} check failed: ${outcome.reason?.message ?? outcome.reason}`);
     });
+    installed = names.filter((_, i) => settled[i].status === 'fulfilled' && settled[i].value);
   } catch (error) {
     log.error(error);
+  } finally {
+    // Published on every path out of here, including the ones that failed.
+    // "Checked and had nothing to do" is a different fact from "has not run
+    // yet", and a check that threw is a third - tried and could not. All three
+    // are silence to a waiter, which then waits out its whole timeout for an
+    // answer that is never coming, and a node already provisioned looks the
+    // same as one whose checks never started.
+    fluxEventBus.publish('system:packages-checked', { installed });
   }
 }
 
