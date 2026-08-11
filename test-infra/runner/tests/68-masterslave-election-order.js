@@ -8,7 +8,7 @@ import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import { electMaster, clearMaster, resetFdm } from '../framework/fdm-control.js';
 import {
-  setSynced, resetSyncState, setFolderPatchDelay, getSyncthingState,
+  setSynced, setPeerHasData, resetSyncState, setFolderPatchDelay, getSyncthingState,
 } from '../framework/syncthing-control.js';
 import { restartFluxos } from '../framework/container.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
@@ -196,27 +196,28 @@ describe('primary election under a divergent placement order', function () {
     // holding - and a fleet-wide restart puts every holder of an app in that state
     // together.
     //
-    // EVERY holder is pinned synced, the seed included, because by this point every
-    // one of them is a connected source of the folder and the stub only reports what
-    // a fixture declares - it will not invent a connected peer, which is what keeps
-    // it from manufacturing witnesses.
+    // Both halves of the cluster's real state are declared here, for every holder,
+    // because the stub reports only what a fixture declares - it will not invent a
+    // connected peer, which is what keeps it from manufacturing witnesses.
     //
-    // The standbys matter because a standby with nothing to sync from is not
-    // election-eligible and could not start a second container whatever the
-    // restarting node answered, which would make this pass for no reason. The SEED
-    // matters because it is the node whose FluxOS is about to go away: the standbys
-    // synced from it, so their syncthing holds an open connection to it, and that
-    // connection is the whole evidence the probe reads while its API is silent. Leave
-    // the seed undeclared and the stub reports it disconnected - a state a live
-    // syncthing that never stopped cannot be in - and the peers correctly act on the
-    // false evidence they were handed.
+    // SYNCED, because a standby with nothing to sync from is not election-eligible
+    // and could not start a second container whatever the restarting node answered,
+    // which would make this pass for no reason. Their folders legitimately go
+    // sendreceive once synced, so the count that matters here is CONTAINERS - one
+    // running container is the invariant, not one writable folder.
     //
-    // Once they are synced their folders legitimately go sendreceive too, so the count
-    // that matters here is CONTAINERS - one running container is the invariant, not
-    // one writable folder.
-    await Promise.all(holders.map(
-      (i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: `flux${orderApp}_${orderApp}` }),
-    ));
+    // CONNECTED, and this has to RETRACT the genesis declaration rather than add to
+    // it. placeGAppInOrder declares no-peer-data under each viewer's own wildcard
+    // key, and the stub resolves `viewer|folder|*` before `*|folder|<source device>`
+    // - left standing it hides every per-source declaration underneath it and each
+    // holder reads its peers as disconnected, which is a state a syncthing that never
+    // stopped cannot be in. The fixture has moved past genesis: these holders hold
+    // the data and are connected to one another, and the connection to the node whose
+    // FluxOS is about to go away is the whole evidence the probe reads while its API
+    // is silent.
+    const orderFolder = `flux${orderApp}_${orderApp}`;
+    await Promise.all(holders.map((i) => setSynced({ ip: subnet.nodeIp(i + 1), folder: orderFolder })));
+    await Promise.all(holders.map((i) => setPeerHasData({ ip: subnet.nodeIp(i + 1), folder: orderFolder })));
 
     expect(await countUp(orderApp), 'fixture: exactly one holder must run the component before the restart').to.equal(1);
     // Restart the holder that is actually running it, rather than whichever node was
