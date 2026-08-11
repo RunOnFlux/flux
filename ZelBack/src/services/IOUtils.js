@@ -177,21 +177,26 @@ async function getFolderSize(folderPath) {
  */
 async function getDirectorySizeBytes(dirPath) {
   try {
-    // argv, not a command string, for the same reason the tar calls are: a path
-    // that reaches this from anywhere a user can name a file would otherwise
-    // turn a directory containing $( ) into arbitrary root execution.
-    const result = await serviceHelper.runCommand('du', {
+    // Without -s, du reports each directory as it walks it and its own total
+    // last, so the answer is unchanged while the walk becomes observable - which
+    // is what an idle limit needs to mean anything. argv, no shell, for the same
+    // reason as the tar calls.
+    let total = null;
+    const result = await serviceHelper.runStreamingCommand('du', {
       runAsRoot: true,
-      params: ['-sb', dirPath],
-      maxBuffer: 1024 * 64,
+      params: ['-b', dirPath],
+      idleTimeout: 5 * 60 * 1000,
+      onLine: (line) => {
+        const value = Number.parseInt(line.split(/\s+/)[0], 10);
+        if (Number.isFinite(value)) total = value;
+      },
     });
     if (result.error) {
-      const message = (result.stderr || result.stdout || result.error.message || '').replace(/\n/g, ' ');
+      const message = (result.stderr || result.error.message || '').replace(/\n/g, ' ').trim();
       log.error(`Error measuring directory ${dirPath}: ${message}`);
       return null;
     }
-    const bytes = Number.parseInt(result.stdout.trim().split(/\s+/)[0], 10);
-    return Number.isFinite(bytes) ? bytes : null;
+    return total;
   } catch (error) {
     log.error(`Error measuring directory ${dirPath}: ${error.message}`);
     return null;
@@ -473,9 +478,8 @@ async function untarFile(extractPath, tarFilePath) {
  * The whole stream has to be inflated: gzip's CRC is in the trailing bytes, so
  * a truncated or corrupt archive cannot be recognised any other way, and the
  * ISIZE field beside it wraps at 4 GiB - useless on exactly the archives where
- * the size answer matters. Aggregating in awk keeps the output two numbers wide
- * however many members the archive holds, which is what keeps the listing of a
- * file-count-heavy tree from overflowing the read buffer.
+ * the size answer matters. The listing is counted as it arrives and never held,
+ * so an archive of any member count costs the same to read.
  *
  * @param {string} tarFilePath - The path of the tarball (tar.gz) file to read.
  * @returns {Promise<{status: boolean, entries?: number, bytes?: number, error?: string}>}
@@ -483,29 +487,39 @@ async function untarFile(extractPath, tarFilePath) {
  */
 async function inspectTarGz(tarFilePath) {
   try {
-    // The aggregation needs a pipeline, so this one does take a shell - but the
-    // path never reaches it as syntax. It is passed as a positional argument and
-    // read as "$1", so a filename containing $( ) is a filename rather than
-    // arbitrary root execution on the node.
+    let entries = 0;
+    let bytes = 0;
+    let sized = 0;
+
+    // argv, and no shell: root is the only reason this is a child process, and
+    // a path reaches tar as an argument rather than as anything parsed.
     //
     // `sized` counts the members whose size column actually parsed as a number,
     // which is what separates a differently-shaped listing from an archive whose
     // members are all genuinely zero length.
-    const listScript = 'set -o pipefail; tar -tzvf "$1" '
-      + '| awk \'{ entries += 1; if ($3 ~ /^[0-9]+$/) { sized += 1; bytes += $3 } } END { print entries+0, bytes+0, sized+0 }\'';
-    const result = await serviceHelper.runCommand('bash', {
+    const result = await serviceHelper.runStreamingCommand('tar', {
       runAsRoot: true,
-      params: ['-c', listScript, 'inspectTarGz', tarFilePath],
-      maxBuffer: 1024 * 64,
+      params: ['-tzvf', tarFilePath],
+      // Bounded by work rather than by size. These archives are the largest
+      // thing the node handles, and a total limit can only kill the ones that
+      // are merely big - which this then reports to an operator as their backup
+      // being unreadable. Every line of the listing is proof of progress, so
+      // silence this long is a read that has stalled.
+      idleTimeout: 5 * 60 * 1000,
+      onLine: (line) => {
+        entries += 1;
+        const size = line.split(/\s+/)[2];
+        if (/^[0-9]+$/.test(size)) {
+          sized += 1;
+          bytes += Number(size);
+        }
+      },
     });
+
     if (result.error) {
-      const message = (result.stderr || result.stdout || result.error.message || '').replace(/\n/g, ' ');
+      const message = (result.stderr || result.error.message || '').replace(/\n/g, ' ').trim();
       log.error(`Error reading archive: ${message}`);
       return { status: false, error: message };
-    }
-    const [entries, bytes, sized] = result.stdout.trim().split(/\s+/).map(Number);
-    if (!Number.isFinite(entries) || !Number.isFinite(bytes) || !Number.isFinite(sized)) {
-      return { status: false, error: 'archive listing unreadable' };
     }
     // The size column is the third field of GNU tar's verbose listing. If no
     // member's third field parsed as a number the listing is a different tar's
