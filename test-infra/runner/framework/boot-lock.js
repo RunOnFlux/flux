@@ -115,8 +115,16 @@ export async function acquireBootLock(fleet) {
     if (aheadOnArrival === null) aheadOnArrival = Math.max(0, queue.indexOf(ticket));
     const waitedMs = Number((process.hrtime.bigint() - startedAt) / 1000000n);
     // Arrival order still decides service; the width only changes how many of the
-    // front of the queue are being served at once.
-    if (queue.indexOf(ticket) < BOOT_LOCK_WIDTH) {
+    // front of the queue are being served at once. A ticket that is NOT in the
+    // queue indexes to -1, which is inside any width - so the position has to be
+    // real before it can be compared. bootQueue() returns [] whenever the
+    // directory cannot be read, and run-parallel.sh removes that directory, so
+    // without this every waiter would read "I hold the lock" at the same moment
+    // and the semaphore would be silently defeated - exactly the contention it
+    // exists to prevent. Holding instead means the wait ends at the explicit
+    // wedged error, which is the honest signal.
+    const position = queue.indexOf(ticket);
+    if (position >= 0 && position < BOOT_LOCK_WIDTH) {
       heldSince = process.hrtime.bigint();
       report(`acquired waited_ms=${waitedMs} ahead_on_arrival=${aheadOnArrival} width=${BOOT_LOCK_WIDTH} ${heldFleet} pid=${process.pid}`);
       return;
