@@ -886,7 +886,6 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       }
     }
     if (!isLegacy) nodeEnv.FLUXOS_PATH = '/flux';
-    if (discoveryAutostart) nodeEnv.FLUX_DISCOVERY_AUTOSTART = 'true';
     // Legacy only, because it is the only node type that installs anything:
     // monitorSystem() returns on sight of FLUXOS_PATH, so an Arcane node purged
     // of syncthing would simply never get it back.
@@ -934,7 +933,16 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       // there is nothing to remember and nothing to keep in step - see
       // peer-topology.js. A suite TESTING a threshold sets its own in
       // configOverrides, which merges over this and wins.
-      fluxapps: derivePeerThresholds(nodes, stubPeers.length),
+      fluxapps: {
+        ...derivePeerThresholds(nodes, stubPeers.length),
+        // Travels as configuration, like every other override. It used to be an
+        // env var the entrypoint sed into shared.js - but the merged config is
+        // written by REQUIRING the per-node file, which spreads shared.js at
+        // that moment and freezes the result, so a patch applied to shared.js
+        // afterwards landed on a file nothing read again. Discovery then never
+        // started for the suites that asked for it.
+        discoveryAutostart,
+      },
     };
     const nodeConfig = mergeConfigs(infraOverride, mergeConfigs(configOverrides, nodeConfigOverrides[i]));
     // Handed over as a file rather than as NODE_CONFIG. The config package merges

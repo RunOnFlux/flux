@@ -60,10 +60,6 @@ if [ -n "$FLUX_TEST_CONFIG" ]; then
   '
 fi
 
-if [ "$FLUX_DISCOVERY_AUTOSTART" = "true" ]; then
-  sed -i 's/discoveryAutostart: false/discoveryAutostart: true/' /flux/ZelBack/shared.js
-fi
-
 # The image ships these installed, which is the state a node is in on every boot
 # after its first. A suite that wants to exercise the install asks for a node
 # without them, and gets one here - before FluxOS starts, so monitorSystem()
