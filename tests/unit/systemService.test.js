@@ -1,5 +1,6 @@
 const chai = require('chai');
 const sinon = require('sinon');
+const proxyquire = require('proxyquire').noCallThru();
 
 const { expect } = chai;
 
@@ -16,6 +17,44 @@ const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/dae
 const fluxEventBus = require('../../ZelBack/src/services/utils/fluxEventBus');
 
 describe('system Services tests', () => {
+  describe('apt queue construction', () => {
+    // The queue is built COMPLETE and LATE. Complete because one that arrives
+    // without its worker silently accepts work it cannot run; late because
+    // importing a module should not start anything - an Arcane node never queues
+    // apt work, and a test or script reaching in for one unrelated function
+    // should not acquire a worker it never asked for.
+    function loadWithSpy() {
+      const instance = {
+        on: sinon.stub(), push: sinon.stub(), resume: sinon.stub(), clear: sinon.stub(),
+      };
+      const FifoQueue = sinon.stub().returns(instance);
+      const service = proxyquire('../../ZelBack/src/services/systemService', {
+        './utils/fifoQueue': { FifoQueue },
+      });
+      return { service, FifoQueue, instance };
+    }
+
+    it('builds nothing merely because the module was imported', () => {
+      const { FifoQueue } = loadWithSpy();
+
+      sinon.assert.notCalled(FifoQueue);
+    });
+
+    it('builds it complete on first use, and only once', () => {
+      const { service, FifoQueue, instance } = loadWithSpy();
+
+      const first = service.getQueue();
+      const second = service.getQueue();
+
+      sinon.assert.calledOnce(FifoQueue);
+      expect(first).to.equal(second);
+      // the worker arrives WITH it, never bolted on afterwards
+      expect(FifoQueue.firstCall.args[0].worker).to.be.a('function');
+      sinon.assert.calledWith(instance.on, 'failed');
+      sinon.assert.calledWith(instance.on, 'abandoned');
+    });
+  });
+
   describe('get last cache time update tests', () => {
     let statStub;
     let stubFake;

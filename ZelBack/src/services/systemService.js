@@ -26,29 +26,37 @@ let syncthingTimer = null;
 
 /**
  * A FIFO queue used to store and run apt commands.
- *
- * Built complete. A queue that arrives without its worker has to be finished off
- * later by whoever happens to get there first, and until they do it silently
- * accepts work it cannot run - so its behaviour depends on call order, and a test
- * that touches it inherits whatever the last one left behind.
- * @type {fifoQueue.FifoQueue}
+ * @type {fifoQueue.FifoQueue|null}
  */
-// eslint-disable-next-line no-use-before-define
-const aptQueue = new fifoQueue.FifoQueue({ worker: aptRunner });
-// eslint-disable-next-line no-use-before-define
-aptQueue.on('failed', monitorAptCache);
-// The queue has stopped handing this one back. Worth saying out loud: the caller
-// took its error long ago, so without this the work is simply never done again and
-// nothing ever mentions it.
-aptQueue.on('abandoned', ({ options, error, cycles }) => {
-  log.error(`Giving up on apt-get ${options.command} after ${cycles} attempts: ${error.message}`);
-});
+let aptQueue = null;
 
 /**
- * For testing
+ * The apt queue, built on first use.
+ *
+ * Built COMPLETE, and built LATE. Complete because a queue that arrives without
+ * its worker has to be finished off later by whoever happens to get there first,
+ * and until they do it silently accepts work it cannot run - so its behaviour
+ * depends on call order, and a test that touches it inherits whatever the last
+ * one left behind. Late because a module that is merely imported should not have
+ * started anything: an Arcane node never queues apt work at all, and a script or
+ * a test reaching in here for one unrelated function should not acquire a worker
+ * it did not ask for. Constructing the whole thing on first use is what satisfies
+ * both - there is no window in which the queue exists without its worker.
+ *
  * @returns {fifoQueue.FifoQueue}
  */
 function getQueue() {
+  if (aptQueue) return aptQueue;
+
+  aptQueue = new fifoQueue.FifoQueue({ worker: aptRunner });
+  aptQueue.on('failed', monitorAptCache);
+  // The queue has stopped handing this one back. Worth saying out loud: the caller
+  // took its error long ago, so without this the work is simply never done again and
+  // nothing ever mentions it.
+  aptQueue.on('abandoned', ({ options, error, cycles }) => {
+    log.error(`Giving up on apt-get ${options.command} after ${cycles} attempts: ${error.message}`);
+  });
+
   return aptQueue;
 }
 
@@ -155,7 +163,7 @@ async function queueAptGetCommand(command, options = {}) {
     retryDelay: options.retryDelay,
     retainErrors: options.retainErrors,
   };
-  return aptQueue.push({ commandOptions, workerOptions }, wait);
+  return getQueue().push({ commandOptions, workerOptions }, wait);
 }
 
 /**
@@ -622,7 +630,7 @@ async function monitorAptCache(event) {
   // than apt-get install)
   if (options.command === 'update') {
     // we don't need to log here, as the error gets logged automatically by runCommand
-    aptQueue.resume();
+    getQueue().resume();
     return;
   }
 
@@ -659,7 +667,7 @@ async function monitorAptCache(event) {
     // eslint-disable-next-line no-await-in-loop
     const { error: lockCheckError } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
     if (!lockCheckError) {
-      aptQueue.resume();
+      getQueue().resume();
       return;
     }
 
@@ -691,12 +699,12 @@ async function monitorAptCache(event) {
 
   const { error: checkError } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
   if (!checkError) {
-    aptQueue.resume();
+    getQueue().resume();
     return;
   }
 
   log.error('Unable to run apt-get command(s), clearing the queue and resetting state.');
-  aptQueue.clear();
+  getQueue().clear();
 }
 
 /**
