@@ -624,6 +624,13 @@ async function refreshNodeLocations(nodeList) {
   // without a baseline there is nothing to derive a location from, and the
   // entries already held stay as they are
   if (!status.ready) return { refreshed: 0, dropped: 0 };
+  // An empty list is not a fleet with no nodes, it is a list this node failed to
+  // obtain. Taken at face value it makes every held address "departed" below and
+  // deletes the entire view in one call. The caller's accessor is supposed to make
+  // that unreachable, and does today - but the cost of it ever not holding is the
+  // whole collection, and that is too much to rest on a contract kept in another
+  // file.
+  if (!nodeList?.length) return { refreshed: 0, dropped: 0 };
   const database = db();
   if (!database) throw unavailable('no database connection');
   if (!nodeViewLoaded) await loadNodeLocationView();
