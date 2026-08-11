@@ -637,8 +637,7 @@ async function storeIPChangedMessage(message) {
   return true;
 }
 
-async function storeBatchAppRunningMessages(verifiedBroadcasts, options = {}) {
-  const { prune = true } = options;
+async function storeBatchAppRunningMessages(verifiedBroadcasts) {
   if (verifiedBroadcasts.length === 0) return { stored: 0, writeFailed: false };
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -662,20 +661,12 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts, options = {}) {
       });
   };
 
-  const v2AppsByIp = new Map();
-
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
     const validTill = data.broadcastedAt + RUNNING_EXPIRY_MS;
     if (validTill < Date.now()) continue;
 
     const apps = data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }];
-    if (data.version === 2 && apps.length > 0) {
-      const existing = v2AppsByIp.get(data.ip);
-      if (!existing || data.broadcastedAt > existing.broadcastedAt) {
-        v2AppsByIp.set(data.ip, { names: apps.map((a) => a.name), broadcastedAt: data.broadcastedAt });
-      }
-    }
     const incomingDate = new Date(data.broadcastedAt);
     const incomingExpiry = new Date(validTill);
     const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
@@ -710,27 +701,9 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts, options = {}) {
 
   await flushLocationOps();
 
-  // Pruning only ever deletes. If the upserts that should have replaced those
-  // rows did not land, leaving stale locations is recoverable on the next
-  // broadcast - deleting live ones is not.
-  if (writeFailed) {
-    log.warn('storeBatchAppRunningMessages: skipping location pruning, an upsert batch failed');
-    return { stored, writeFailed };
-  }
-
-  if (!prune) return { stored, writeFailed };
-
-  for (const [ip, { names, broadcastedAt }] of v2AppsByIp) {
-    const cutoff = new Date(broadcastedAt);
-    locationOps.push({
-      deleteMany: {
-        filter: { ip, name: { $nin: names }, broadcastedAt: { $lte: cutoff } },
-      },
-    });
-  }
-
-  await flushLocationOps();
-
+  // Upserts only. Removing the rows a node no longer reports belongs to
+  // pruneAppRunningLocations, which is driven from the newest broadcast per node
+  // rather than from whatever happened to arrive in this batch.
   return { stored, writeFailed };
 }
 

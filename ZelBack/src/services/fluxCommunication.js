@@ -232,7 +232,7 @@ async function handleAppRunningSyncResponse(message, peerKey) {
       }
 
       if (verifiedAppRunning.length > 0) {
-        const { stored, writeFailed } = await messageStore.storeBatchAppRunningMessages(verifiedAppRunning, { prune: false });
+        const { stored, writeFailed } = await messageStore.storeBatchAppRunningMessages(verifiedAppRunning);
         if (writeFailed) locationWriteFailed = true;
         log.info(`handleAppRunningSyncResponse - Stored ${stored} of ${verifiedAppRunning.length} verified apprunning events`);
         fluxEventBus.publish('sync:chunkVerified', { syncType: 'apprunning', peer: peerKey, verified: verifiedAppRunning.length, stored });
