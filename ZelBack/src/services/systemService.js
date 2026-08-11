@@ -135,11 +135,16 @@ async function cacheUpdateTime() {
 
 /**
  * @param {string} command The command to run
- * @param {{params?: Array, timeout?: number, retries?: number, wait?: Boolean}} options
+ * @param {{params?: Array, timeout?: number, retries?: number, retryDelay?: number,
+ *   retainErrors?: boolean, wait?: Boolean}} options
  *
  * params: params to pass to command
- * timeout: how many seconds to wait (60 default)
- * retries: how many times to retry (3 default)
+ * timeout: how many seconds to wait (180 default)
+ * retries: how many times to retry (queue default, 5)
+ * retryDelay: how long to wait between attempts in ms (queue default, 60000)
+ * retainErrors: keep a failed task and try it again later rather than dropping
+ *   it (queue default, true). Every one of these is forwarded, so an option left
+ *   unset takes the queue's default rather than this function's.
  * wait: should the queue item be awaited
  *
  * @returns {Promise<Object | void>}

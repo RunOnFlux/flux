@@ -4,8 +4,11 @@
 # Downloads the latest dist.tar.gz from fluxos-frontend GitHub releases,
 # verifies the SHA256 checksum, and updates the CloudUI folder.
 #
-# Usage: npm run update:cloudui
-#        or: bash scripts/update-cloudui.sh
+# The API base URL is required - see the note on API_BASE_URL below for why it is
+# an argument rather than a default or an environment variable.
+#
+# Usage: npm run update:cloudui -- <api-base-url>
+#        or: bash scripts/update-cloudui.sh <api-base-url>
 #
 # Output:
 # - CloudUI/ folder with the latest frontend build
