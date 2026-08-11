@@ -16,6 +16,16 @@ set -uo pipefail
 
 cd "$(dirname "$0")" || exit 99
 
+# A targeted run is where a stale image bites hardest: one suite, failing in a
+# way that reads like the product. run-parallel checks once for the whole gate
+# and says so, so this does not repeat it 85 times.
+if [ -z "${E2E_IMAGES_VERIFIED:-}" ]; then
+  if ! "$PWD/../verify-images.sh"; then
+    echo "###ABORT images do not match the tree - see above."
+    exit 96
+  fi
+fi
+
 # A live FluxOS on this host owns BOTH container-name spaces: anything NOT
 # named zel*/flux* is stopped by its 2-hourly stopAllNonFluxRunningApps sweep
 # (killed suite 28's fleet mid-boot in the 2026-06-12 gate), and flux*/zel*

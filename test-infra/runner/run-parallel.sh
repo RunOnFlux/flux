@@ -52,6 +52,18 @@ if [ -z "${E2E_ALLOW_HOST_FLUXOS:-}" ]; then
   done
 fi
 
+# The other way a gate is wrong before it starts: an image built from an older
+# tree runs this branch's suites and fails as though the product were broken. A
+# stale syncthing-stub cost a whole 85-suite gate on 2026-08-11. Decide it once,
+# in a second, rather than let the suites discover it one confusing failure at a
+# time - and tell the per-suite runners it is settled so they do not each repeat
+# a check that walks the whole build context.
+if ! "$PWD/../verify-images.sh"; then
+  echo "###ABORT images do not match the tree - see above."
+  exit 96
+fi
+export E2E_IMAGES_VERIFIED=1
+
 LOGROOT="${E2E_LOG_DIR:-/tmp/e2e-logs}"
 MAXN="${MAXN:-3}"
 MIN_FREE_MB="${MIN_FREE_MB:-15000}"
