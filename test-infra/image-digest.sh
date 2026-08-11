@@ -28,7 +28,7 @@ if command -v sha256sum >/dev/null 2>&1; then HASH=sha256sum; else HASH="shasum 
 # an answer.
 digest_roots() {
   local out
-  out="$(find "$@" -type f -print0 2>/dev/null \
+  out="$(find "$@" -type f -not -path 'test-infra/runner/*' -print0 2>/dev/null \
     | LC_ALL=C sort -z \
     | xargs -0 -r $HASH \
     | $HASH | cut -d' ' -f1)"
@@ -40,6 +40,13 @@ digest_roots() {
 # top-level entry .dockerignore does not exclude. Derived from the file rather
 # than restated here: a new exclusion would otherwise change what docker bakes
 # without changing what this measures.
+#
+# test-infra/runner is the one exception, and it is a principled one rather than
+# a list: the runner DRIVES the fleet from the host and never executes inside a
+# node container, so a suite edit changes bytes the image carries but nothing it
+# does. Counting it would force a full node rebuild for every suite tweak - the
+# kind of friction that gets a check bypassed, which costs more than it saves.
+# Excluded for the stubs too, where it can never match anything.
 fluxos_roots() {
   local ignore=() line entry skip i
   while IFS= read -r line || [ -n "$line" ]; do
