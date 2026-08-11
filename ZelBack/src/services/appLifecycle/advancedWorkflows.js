@@ -2385,6 +2385,12 @@ async function appendBackupTask(req, res) {
           // looks fine now and loses data when it is restored months later -
           // but the reason given has to be the one that actually happened.
           incomplete.push(`${componentName}: syncthing did not answer - sync state could not be determined`);
+        } else if (syncStatus.globalBytes === 0) {
+          // With nothing in the global index there is nothing to be a fraction
+          // of, and the percentage defaults to 100 - which would tell an operator
+          // the copy is complete in the same breath as refusing it. isSynced is
+          // already false here for the same reason; only the wording was wrong.
+          incomplete.push(`${componentName}: nothing in the sync index yet - cannot confirm this copy holds the data`);
         } else if (!syncStatus.isSynced) {
           incomplete.push(`${componentName}: ${syncStatus.syncPercentage.toFixed(2)}% synced (${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes)`);
         }

@@ -2805,6 +2805,26 @@ describe('advancedWorkflows tests', () => {
       expect(said, 'and does not claim anything about the data').to.not.include('never synced');
     });
 
+    it('does not call an empty index "100% synced" while refusing it', async () => {
+      // Nothing in the global index means nothing to take a fraction of, so the
+      // percentage falls back to 100. Printing it says the copy is complete in
+      // the same message that refuses it for being incomplete.
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: {
+          isSynced: false, syncPercentage: 100, inSyncBytes: 0, globalBytes: 0,
+        },
+        reason: 'ok',
+      });
+      const res = makeRes();
+
+      const result = await advancedWorkflows.appendBackupTask(backupReq(), res);
+
+      expect(result).to.equal(false);
+      const said = res.write.getCalls().map((c) => c.args[0]).join(' ');
+      expect(said, 'never claims completeness while refusing').to.not.include('100.00% synced');
+      expect(said).to.include('nothing in the sync index yet');
+    });
+
     it('refuses a copy that is still catching up', async () => {
       sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
         status: { isSynced: false, syncPercentage: 41.5, inSyncBytes: 415, globalBytes: 1000 },
