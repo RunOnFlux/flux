@@ -63,6 +63,7 @@ class ConfigManager extends EventEmitter {
       if (isReload) {
         this.emit('configReloaded', userconfig);
       }
+      return true;
     } catch (error) {
       console.error('Error loading userconfig:', error);
       // A node that already holds a config keeps it. The defaults below carry no zelid
@@ -70,7 +71,7 @@ class ConfigManager extends EventEmitter {
       // under an identity that is not its own — and the read that failed is most often
       // a write in progress, which the next change event resolves.
       if (globalThis.userconfig && globalThis.userconfig.initial) {
-        return;
+        return false;
       }
       // Initialize with defaults if load fails
       globalThis.userconfig = {
@@ -88,6 +89,7 @@ class ConfigManager extends EventEmitter {
           blockedRepositories: [],
         },
       };
+      return false;
     }
   }
 
@@ -100,8 +102,13 @@ class ConfigManager extends EventEmitter {
     if (hashCurrent === this.initialHash) {
       return;
     }
-    this.initialHash = hashCurrent;
-    this.loadConfig(true);
+    // Recorded only once the file has actually been read. Stamping it first marks a
+    // half-written file as the version this node holds, when what it holds is still
+    // the previous config - so the write that completes a moment later has to be
+    // noticed all over again to be picked up.
+    if (this.loadConfig(true)) {
+      this.initialHash = hashCurrent;
+    }
   }
 
   /**
