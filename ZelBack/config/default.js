@@ -163,6 +163,25 @@ module.exports = {
       // moved without its ids is refused by every node, loudly, which is the
       // right direction to fail in but is not something to discover during a
       // rollout.
+      //
+      // It also means rotating the image needs a FluxOS release, which is
+      // deliberate rather than a limitation to work around. What the image does
+      // is coupled to the code that drives it - the marker it writes is parsed
+      // here, so a change to one is a change to both - and the alternative,
+      // publishing the pin where the fleet reads policy, would let a merge
+      // choose the program every node runs as root over an app's volume, with
+      // no staged rollout. The urgency that would buy is small: the container
+      // has no network, a read-only rootfs, every capability dropped but three,
+      // and one volume mounted, so a CVE in what it packages is not reachable
+      // the way one in a network-facing service is.
+      //
+      // What the image DOES is proven in its own repository, not here: the
+      // ceiling, the link refusal, discarding staging, the marker written
+      // before anything moves, and the signal handling all have tests there
+      // that run in a container configured exactly as this one configures it,
+      // on both architectures. Nothing in this repository can exercise them,
+      // and a reviewer looking only here should not conclude they are
+      // unexercised.
       ...volumeToolsImage,
       // One per app stops a single owner monopolising a node; the node-wide cap
       // stops the disk being saturated by several at once. A reached limit is
