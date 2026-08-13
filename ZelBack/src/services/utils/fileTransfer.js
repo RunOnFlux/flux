@@ -1,6 +1,5 @@
-const fs = require('fs');
-const fsPromises = require('fs').promises;
 const log = require('../../lib/log');
+const { openNoFollow } = require('./pathSecurity');
 
 /**
  * Send a file to a client, from a handle rather than from a name.
@@ -34,7 +33,7 @@ const log = require('../../lib/log');
  * @returns {Promise<void>}
  */
 async function sendFile(res, filepath, filename) {
-  const handle = await fsPromises.open(filepath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  const handle = await openNoFollow(filepath);
 
   let stats;
   try {

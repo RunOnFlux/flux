@@ -436,7 +436,27 @@ async function sanitizeAndVerifyPath(userPath, basePath, options = {}) {
   return verifyRealPath(sanitizedPath, basePath);
 }
 
+/**
+ * Open a file without following a link at its final component.
+ *
+ * The one way to read a path an application owns. A checked name is only ever a
+ * claim about the moment it was checked - the owner keeps running and can
+ * replace what it refers to, and this process is root, so following a link
+ * there reads a file the owner could not open themselves. Everything after this
+ * is decided from the descriptor rather than from the name.
+ *
+ * The caller closes the handle. Swapping a PARENT directory stays expressible
+ * and is what the containment checks in this module cover; this closes the half
+ * of it that a check cannot.
+ * @param {string} filePath - already checked for containment
+ * @returns {Promise<import('node:fs/promises').FileHandle>} An open handle.
+ */
+async function openNoFollow(filePath) {
+  return fs.promises.open(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+}
+
 module.exports = {
+  openNoFollow,
   sanitizePath,
   validateFilename,
   validatePathAllowlist,
