@@ -66,6 +66,13 @@ const isSwapMarkerName = (name) => name.endsWith(MARKER_SUFFIX)
  * `.stversions` is deliberately absent: file versioning is not configured on
  * any folder FluxOS creates, so that name never appears and reserving it would
  * be reserving a name we do not use.
+ *
+ * `backup` is deliberately absent for the opposite reason. It sits in the same
+ * root and FluxOS writes it, but what it holds is the owner's own archives:
+ * the upload path creates it when a restore needs one, and the backup
+ * interface lists it through its own endpoint rather than this browser. Hiding
+ * it would take away something they have a reason to reach, and refusing to
+ * write it would break the restore that puts files there.
  */
 const SYNCTHING_FOLDER_MARKER = '.stfolder';
 const SYNCTHING_IGNORE_FILE = '.stignore';
