@@ -577,10 +577,22 @@ describe('volumeExecutor tests', () => {
     const exists = (p) => realFs.lstat(p).then(() => true).catch(() => false);
     const write = (name, contents) => realFs.writeFile(at(name), contents);
 
-    /** The parked entry and the marker naming where it belongs. */
-    const park = async (destination, payload = 'THE ONLY COPY\n') => {
+    // The identity of an entry as flux-op recorded it: what a publish renames
+    // into place keeps its inode and modification time, so this is what a
+    // completed publish looks like from here.
+    const identityOf = async (name) => {
+      const stats = await realFs.lstat(at(name), { bigint: true });
+      return `${stats.ino} ${stats.mtimeNs}`;
+    };
+
+    /**
+     * The parked entry and the marker placing it. The identity defaults to one
+     * nothing on disk carries, because most of these are about a destination
+     * that is empty or a path that is refused.
+     */
+    const park = async (destination, { payload = 'THE ONLY COPY\n', identity = '1 1' } = {}) => {
       await write(OLD, payload);
-      await write(`${OLD}${'.dest'}`, destination);
+      await write(`${OLD}${'.dest'}`, `${destination}\n${identity}\n`);
     };
 
     const publishes = () => dockerServiceStub.createContainer.getCalls()
@@ -649,7 +661,7 @@ describe('volumeExecutor tests', () => {
       // caller's only copy. The marker holds a path relative to the volume
       // root, because flux-op writes it from inside a container that has only
       // that root and no notion of where it sits on the host.
-      await park('photos\n');
+      await park('photos');
 
       const { restored } = await sweeper.sweepStagingDirectories(session);
 
@@ -660,21 +672,8 @@ describe('volumeExecutor tests', () => {
       expect(publishes()[0].slice(-3)).to.deep.equal([`/work/${OLD}`, '/work/photos', '--']);
     });
 
-    it('restores from a marker written by an older image', async () => {
-      // flux-op records the destination relative to the volume root. Images
-      // before it wrote the container path, and a node upgrading FluxOS can be
-      // holding either - refusing the older one would strand exactly the data
-      // this branch exists to put back.
-      await park('/work/photos\n');
-
-      const { restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(restored).to.deep.equal([at('photos')]);
-      expect(publishes()[0].slice(-3)).to.deep.equal([`/work/${OLD}`, '/work/photos', '--']);
-    });
-
     it('refuses a relative marker that climbs out of the volume', async () => {
-      await park('../../etc/shadow\n');
+      await park('../../etc/shadow');
 
       const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
@@ -685,7 +684,7 @@ describe('volumeExecutor tests', () => {
     });
 
     it('refuses a marker naming a path outside the volume, and keeps the data', async () => {
-      await park('/etc/cron.d/pwn\n');
+      await park('/etc/cron.d/pwn');
 
       const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
@@ -696,7 +695,7 @@ describe('volumeExecutor tests', () => {
     });
 
     it('refuses a marker that climbs out of the work root', async () => {
-      await park('/work/../../../etc/shadow\n');
+      await park('/work/../../../etc/shadow');
 
       const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
@@ -729,26 +728,9 @@ describe('volumeExecutor tests', () => {
       expect(await exists(at(OLD))).to.equal(true);
     });
 
-    it('refuses a marker reaching a symlinked parent by an older image path', async () => {
-      // The same escape wearing the /work prefix, since both marker forms are
-      // accepted and the containment has to apply to whichever arrives.
-      const outside = nodePath.join(tmpRoot, 'etc-cron.d');
-      await realFs.mkdir(outside);
-      await realFs.mkdir(at('appdata'));
-      await realFs.symlink(outside, at('appdata', 'escape'));
-
-      await park('/work/appdata/escape/pwn');
-
-      const { restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(publishes()).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(await exists(nodePath.join(outside, 'pwn'))).to.equal(false);
-    });
-
     it('deletes displaced data when the publish completed', async () => {
       await write('photos', 'the published copy');
-      await park('/work/photos\n');
+      await park('photos', { identity: await identityOf('photos') });
 
       const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
@@ -762,7 +744,7 @@ describe('volumeExecutor tests', () => {
       // at the destination is an ordinary completed publish.
       await write('target', 'real');
       await realFs.symlink(at('target'), at('photos'));
-      await park('/work/photos\n');
+      await park('photos', { identity: await identityOf('photos') });
 
       const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
@@ -770,13 +752,27 @@ describe('volumeExecutor tests', () => {
       expect(removed).to.include(OLD);
     });
 
-    it('keeps both when the destination is a link resolving to nothing', async () => {
-      // lstat succeeds on a broken link, so one at the destination is not
-      // evidence the publish completed. It is equally what an app leaves at a
-      // path nothing was ever published to, and the two cannot be told apart
-      // from here - while one of them means this entry is somebody's only copy.
+    it('cleans up a published link without asking where it leads', async () => {
+      // A link published as a link is an ordinary completed publish whether or
+      // not it resolves. Where it leads is a question about the host, and an
+      // absolute link written inside a container never named a host path - so
+      // the identity settles it and nothing follows anything.
       await realFs.symlink(nodePath.join(tmpRoot, 'no-such-target'), at('photos'));
-      await park('/work/photos\n');
+      await park('photos', { identity: await identityOf('photos') });
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(restored).to.deep.equal([]);
+      expect(removed).to.include(OLD);
+      expect(publishes()).to.deep.equal([]);
+    });
+
+    it('keeps both when the destination holds something else entirely', async () => {
+      // The app owner created something at the destination while it stood
+      // empty. Restoring would overwrite what they have and deleting would lose
+      // the copy held for them, so neither is decided here.
+      await write('photos', 'the app owner put this here');
+      await park('photos');
 
       const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 
@@ -785,13 +781,28 @@ describe('volumeExecutor tests', () => {
       expect(publishes()).to.deep.equal([]);
       expect(await exists(at(OLD))).to.equal(true);
       expect(await exists(at(`${OLD}.dest`))).to.equal(true);
+      expect(await realFs.readFile(at('photos'), 'utf8')).to.equal('the app owner put this here');
+    });
+
+    it('refuses a marker that records no identity', async () => {
+      // Every marker flux-op writes carries one. Without it a completed publish
+      // cannot be told from the app owner's own entry, which is the whole
+      // decision - so the data stays parked rather than being guessed about.
+      await write(OLD, 'THE ONLY COPY\n');
+      await write(`${OLD}.dest`, 'photos\n');
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(await exists(at(OLD))).to.equal(true);
     });
 
     it('deletes a marker whose entry never arrived', async () => {
       // The crash landed between writing the marker and the rename that uses
       // it, so nothing was displaced. Without this it stays in the volume root
       // forever, one per interruption, visible in the file browser.
-      await write(`${OLD}.dest`, '/work/photos\n');
+      await write(`${OLD}.dest`, 'photos\n1 1\n');
 
       const { removed, restored } = await sweeper.sweepStagingDirectories(session);
 

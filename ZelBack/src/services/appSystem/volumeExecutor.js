@@ -48,55 +48,78 @@ const isSwapMarkerName = (name) => name.endsWith(MARKER_SUFFIX)
   && isSwapName(name.slice(0, -MARKER_SUFFIX.length));
 
 /**
- * The place a marker records, as a VolumePath, or throws saying why not.
+ * The longest a marker can be and still hold what it holds. It sits in a
+ * directory the app owner writes to, so its size is theirs to choose: read
+ * unbounded, a marker is an unbounded allocation on a boot path, and its
+ * contents reach a log line that is written to disk.
+ */
+const MARKER_MAX_BYTES = 4096;
+
+/** An inode number and a modification time in nanoseconds, as flux-op writes them. */
+const MARKER_IDENTITY = /^\d+ \d+$/;
+
+/**
+ * What flux-op recorded before it displaced anything: where the entry belongs,
+ * and which object the publish was placing.
  *
- * The marker is written by flux-op, from inside the container, so it never
- * describes a host path. Reading it as one is what turned a file the app owner
- * can write into an argument to a root `mv`: an absolute path in there would be
- * followed to wherever it pointed.
- *
- * TWO forms are accepted, because both exist on disk. flux-op records the
- * destination relative to the volume root; the images before it wrote the
- * container path, `/work/<relative>`. A node that upgrades FluxOS while holding
- * an interrupted publish has whichever its previous image wrote, and refusing
- * that one would strand the data this function exists to restore.
+ * The marker is written from inside the container, so it never describes a host
+ * path. Reading one as a host path is what turned a file the app owner can
+ * write into an argument to a root `mv`, so an absolute path is refused here
+ * rather than translated.
  *
  * Normalising the text is necessary and not sufficient. A relative path with no
  * `..` in it still leaves the volume when a directory INSIDE the mount is a
  * symlink the app owner made, so `appdata/x/pwn` reads as contained and lands
  * wherever `appdata/x` leads. session.resolve settles that, and it is the call
- * every endpoint makes for the same reason: the marker's contents are user
- * input arriving by a slower route.
+ * every endpoint makes for the same reason: a marker's contents are user input
+ * arriving by a slower route.
+ *
+ * The identity is what tells a completed publish from an entry the app owner
+ * created at the destination while it stood empty. It is compared, never
+ * followed - a marker carrying no identity is one this cannot decide about, and
+ * is refused so the displaced data stays where it is.
  *
  * @param {VolumeSession} session
  * @param {string} contents - raw marker file contents
- * @returns {Promise<VolumePath>} the destination, contained
- * @throws {Error} if the contents name nothing, or name something outside
+ * @returns {Promise<{destination: VolumePath, identity: string}>}
+ * @throws {Error} if the contents name nothing, name something outside, or
+ *   record no identity
  */
-/**
- * The longest a marker can be and still name a path. It sits in a directory the
- * app owner writes to, so its size is theirs to choose: read unbounded, a
- * marker is an unbounded allocation on a boot path, and its contents reach a
- * log line that is written to disk.
- */
-const MARKER_MAX_BYTES = 4096;
-
-async function resolveMarkerDestination(session, contents) {
+async function resolveMarkerRecord(session, contents) {
   if (typeof contents !== 'string') throw new Error('marker holds no text');
-  const recorded = contents.trim();
+
+  const [namedPath = '', namedIdentity = ''] = contents.split('\n');
+  const recorded = namedPath.trim();
   if (!recorded) throw new Error('marker is empty');
 
-  // Both forms normalise first, so `/work/../etc/shadow`, `/etc/shadow` and
-  // `../etc/shadow` all come back starting with '..' and are refused here
-  // rather than deeper.
-  const relative = path.posix.isAbsolute(recorded)
-    ? path.posix.relative(WORK_ROOT, recorded)
-    : path.posix.normalize(recorded);
+  const identity = namedIdentity.trim();
+  if (!MARKER_IDENTITY.test(identity)) {
+    throw new Error('marker records no identity for what was being published');
+  }
+
+  const relative = path.posix.normalize(recorded);
   if (!relative || relative.startsWith('..') || path.posix.isAbsolute(relative)) {
     throw new Error(`marker names ${recorded}, which is outside the volume`);
   }
 
-  return session.resolve(relative);
+  return { destination: await session.resolve(relative), identity };
+}
+
+/**
+ * How an entry on disk compares with what a marker recorded.
+ *
+ * A publish is a rename, which carries the inode and the modification time with
+ * it, so an entry matching the record IS the object flux-op placed. Both are
+ * needed: inode numbers are reused, so one an app owner creates at the
+ * destination afterwards can carry the number recorded here, and an mtime to
+ * the nanosecond does not collide by accident.
+ *
+ * @param {import('node:fs').BigIntStats} stats - from lstat, so a link answers
+ *   for itself rather than for whatever it leads to
+ * @returns {string}
+ */
+function identityOf(stats) {
+  return `${stats.ino} ${stats.mtimeNs}`;
 }
 
 /**
@@ -1000,32 +1023,30 @@ async function sweepStagingDirectories(session) {
           continue;
         }
 
-        let destination = null;
+        let record = null;
         try {
           // eslint-disable-next-line no-await-in-loop
-          destination = await resolveMarkerDestination(session, contents);
+          record = await resolveMarkerRecord(session, contents);
         } catch (error) {
-          log.error(`volumeExecutor - ${marker} in ${mount} does not name a path inside the volume (${error.message}); leaving ${entry} in place`);
+          log.error(`volumeExecutor - ${marker} in ${mount} does not place ${entry} (${error.message}); leaving it alone`);
           // eslint-disable-next-line no-continue
           continue;
         }
+        const { destination } = record;
 
         // lstat, so a link at the destination answers for ITSELF: a move
         // publishes a link as a link, so one sitting there can be exactly what
-        // the interrupted publish put there.
+        // the interrupted publish put there - and what it leads to is a
+        // question about the host, which an absolute link written inside a
+        // container was never about.
         // eslint-disable-next-line no-await-in-loop
-        const placed = await fs.lstat(destination.hostPath).catch(() => null);
-        // A link resolving to nothing cannot be told from one an app made at a
-        // path nothing was ever published to. Any stat failure counts, a loop
-        // included: the question is whether something is really there, and
-        // "cannot say" is not "no".
-        // eslint-disable-next-line no-await-in-loop
-        const dangling = Boolean(placed) && placed.isSymbolicLink()
-          // eslint-disable-next-line no-await-in-loop
-          && await fs.stat(destination.hostPath).then(() => false).catch(() => true);
+        const placed = await fs.lstat(destination.hostPath, { bigint: true }).catch(() => null);
 
-        if (dangling) {
-          log.error(`volumeExecutor - ${destination.relative} in ${mount} is a link resolving to nothing, so whether ${entry} was already published cannot be told; leaving both in place`);
+        if (placed && identityOf(placed) !== record.identity) {
+          // Something the app owner put at the destination while it stood
+          // empty. Restoring would overwrite what they have; deleting would
+          // lose the copy held for them. Neither is this function's to choose.
+          log.warn(`volumeExecutor - ${destination.relative} in ${mount} is not what was being published when ${entry} was displaced; leaving both in place`);
           // eslint-disable-next-line no-continue
           continue;
         }
