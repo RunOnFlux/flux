@@ -1121,8 +1121,9 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
  * @param {number} [options.maxBytes] - ceiling on what the command may leave in
  *   staging. Enforced on the RESULT rather than on what the input claims about
  *   itself, because an archive's declared sizes are written by whoever built it.
- * @param {boolean} [options.noLinks] - refuse a result containing symlinks or
- *   hard links.
+ * @param {boolean} [options.ordinaryOnly] - refuse a result holding anything
+ *   that is not ordinary data: symlinks and hard links, which reach outside the
+ *   result, and FIFOs, sockets and device nodes, which are not data at all.
  * @param {VolumePath} [options.workingDir] - the directory the command runs in,
  *   defaulting to the volume root. An archiver decides its stored layout from
  *   where it is run and what it is handed, and zip has no equivalent of tar's
@@ -1143,7 +1144,7 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
 async function run(session, argv, options = {}) {
   const {
     onProgress = null, isCanceled = null, status = 'Working...',
-    publish = null, mkdirStaging = false, maxBytes = 0, noLinks = false,
+    publish = null, mkdirStaging = false, maxBytes = 0, ordinaryOnly = false,
     onBytes = null, workingDir = null, input = null, slotHeld = false,
   } = options;
 
@@ -1198,7 +1199,7 @@ async function run(session, argv, options = {}) {
       ...(publish.staging ? ['--discard-staging'] : []),
       ...(mkdirStaging ? ['--mkdir'] : []),
       ...(maxBytes > 0 ? ['--max-bytes', String(Math.floor(maxBytes))] : []),
-      ...(noLinks ? ['--no-links'] : []),
+      ...(ordinaryOnly ? ['--ordinary-only'] : []),
       ...(input ? ['--from-stdin'] : []),
       toParam(target),
       toParam(publish.destination),

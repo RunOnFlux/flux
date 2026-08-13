@@ -423,11 +423,11 @@ describe('fileSystemManager tests', () => {
       expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
     });
 
-    it('refuses a result containing links', async () => {
+    it('refuses a result holding anything that is not ordinary data', async () => {
       req.body.source = 'backup.zip';
       await fileSystemManager.extractAppsObject(req, res);
 
-      expect(runOptions().noLinks).to.equal(true);
+      expect(runOptions().ordinaryOnly).to.equal(true);
     });
 
     it('creates the staging directory, which tar -C and unzip -d both need', async () => {

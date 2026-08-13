@@ -642,7 +642,11 @@ async function extractAppsObject(req, res) {
       // wherever the link points. Inside the container that is nowhere useful,
       // but the result is published onto a volume that the download endpoints
       // still read from the host and that syncthing replicates to other nodes.
-      noLinks: true,
+      //
+      // A FIFO is refused by the same flag and for a different reason: tar
+      // carries and recreates one, and it holds no data at all - whatever opens
+      // it without O_NONBLOCK waits for a writer that is never coming.
+      ordinaryOnly: true,
     }));
   } catch (error) {
     respondError(res, error);

@@ -806,13 +806,13 @@ describe('volumeExecutor tests', () => {
       const destination = await vol.resolve('out');
 
       await volumeExecutor.run(vol, ['tar', '-xzf', '/work/a.tgz'], {
-        publish: { staging, destination }, mkdirStaging: true, maxBytes: 1234.7, noLinks: true,
+        publish: { staging, destination }, mkdirStaging: true, maxBytes: 1234.7, ordinaryOnly: true,
       });
 
       const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
       expect(flags(Cmd)).to.deep.equal([
         'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging', '--mkdir',
-        '--max-bytes', '1234', '--no-links', '/work/.flux-op-x', '/work/out',
+        '--max-bytes', '1234', '--ordinary-only', '/work/.flux-op-x', '/work/out',
       ]);
     });
 
