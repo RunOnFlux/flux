@@ -1379,7 +1379,7 @@ async function run(session, argv, options = {}) {
           const seconds = Math.round(idleMs / 1000);
           stalled = true;
           stallReason = input
-            ? `The upload sent ${carried} bytes in ${seconds}s, under the ${minUploadBitsPerSecond / 1000} kbit/s a transfer has to keep`
+            ? `The upload sent ${carried} bytes in ${seconds}s, under the ${minUploadBitsPerSecond} bit/s a transfer has to keep`
             : 'File operation stopped after making no progress';
           log.error(`volumeExecutor - ${session.identifier} ${stallReason}; stopping it`);
           stopContainer();

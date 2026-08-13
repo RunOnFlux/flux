@@ -1949,7 +1949,7 @@ describe('volumeExecutor tests', () => {
       // hours later - and four of those take every file operation slot the node
       // has. The same trickle as above, against a floor it cannot keep.
       configStub.fluxapps.volumeOperations.stallTimeoutMs = 120;
-      // 1 kbit/s over a 120ms window asks for 15 bytes. The sender manages ~3.
+      // 1000 bit/s over a 120ms window asks for 15 bytes. The sender manages ~3.
       configStub.fluxapps.volumeOperations.minUploadBitsPerSecond = 1000;
       // The volume never moves either, so the bytes are the only thing that
       // could have spoken for this transfer.
@@ -1960,7 +1960,7 @@ describe('volumeExecutor tests', () => {
       setTimeout(() => { clearInterval(sendingSlowly); trickle.push(null); }, 500);
 
       const vol = await openSession();
-      await expect(upload(vol, trickle)).to.be.rejectedWith('under the 1 kbit/s');
+      await expect(upload(vol, trickle)).to.be.rejectedWith('under the 1000 bit/s');
 
       clearInterval(sendingSlowly);
       expect(containerStub.stop.called, 'a caller under the floor was left running').to.equal(true);

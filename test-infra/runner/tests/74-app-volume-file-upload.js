@@ -316,6 +316,39 @@ describe('app volume file upload', function () {
       expect(await artefacts()).to.deep.equal([]);
     });
 
+    it('stops a sender too slow to ever finish, and answers rather than hanging', async function () {
+      this.timeout(180000);
+      // The direction none of the rate tests covered, which is how the hole
+      // shipped: any arriving byte used to count as progress, so a caller
+      // sending one per window kept its slot until the request itself timed out
+      // two hours later - and four of those hold every file operation slot the
+      // node has, for every app on it.
+      //
+      // Half a byte a second against a floor of four. The trickle above clears
+      // that floor five times over on the same volume, so what separates them
+      // is the rate and nothing else.
+      const started = Date.now();
+      const { status, body } = await node.uploadSlowly(
+        `/ioutils/fileupload/volume/${appName}/${appName}/${encodeURIComponent('photos')}`,
+        { name: 'tooslow.txt', contents: 'ten bytes.' },
+        { zelidauth: auth.zelidauth },
+        { pieces: 10, everyMs: 2000 },
+      );
+
+      expect(status).to.equal(200);
+      const refusal = failureIn(body);
+      expect(refusal, `expected a refusal, got: ${body.slice(0, 400)}`).to.not.equal(null);
+      // Named as itself. A caller who was sending needs to know it was the rate
+      // rather than their file or their credentials.
+      expect(JSON.stringify(refusal)).to.contain('bit/s');
+      // Stopped while the caller is STILL sending, so the answer has to reach a
+      // client mid-request - which is why feedContainer unpipes rather than
+      // destroys, leaving the parser able to drain and read this.
+      expect(Date.now() - started, 'the refusal took long enough to look like a stall').to.be.below(120000);
+      expect(await exists(node.container, `${root}/photos/tooslow.txt`)).to.equal(false);
+      expect(await artefacts()).to.deep.equal([]);
+    });
+
     it('leaves the volume as it was when an upload is refused', async function () {
       this.timeout(300000);
       await fillVolumeLeaving(20);
