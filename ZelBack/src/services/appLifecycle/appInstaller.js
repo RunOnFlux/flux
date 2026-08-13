@@ -47,9 +47,7 @@ const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Je
 const legacyPinnedOctets = appsThatMightBeUsingOldGatewayIpAssignment.map((name) => name.charCodeAt(name.length - 1));
 
 // Helper functions and constants for installApplicationHard
-const util = require('util');
 
-const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 
 const supportedArchitectures = ['amd64', 'arm64'];
 
@@ -253,7 +251,7 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   pullConfig.provider = imgVerifier.provider;
 
   // eslint-disable-next-line no-unused-vars
-  await dockerPullStreamPromise(pullConfig, res);
+  await dockerService.pullImage(pullConfig, res);
 
   const pullStatus = {
     status: isComponent ? `Pulling component ${appSpecifications.name} of Flux App ${appName}` : `Pulling global Flux App ${appName} was successful`,

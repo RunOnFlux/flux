@@ -2,7 +2,6 @@ const config = require('config');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const os = require('node:os');
-const util = require('node:util');
 const fs = require('node:fs/promises');
 const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
@@ -22,7 +21,6 @@ const {
 
 const settings = () => config.fluxapps.volumeOperations;
 
-const dockerPull = util.promisify(dockerService.dockerPullStream);
 
 
 /**
@@ -251,7 +249,7 @@ async function fetchImage(image, expected, onProgress) {
 
   try {
     if (onProgress) onProgress('Fetching the file operation image...');
-    await dockerPull({ repoTag: image }, null);
+    await dockerService.pullImage({ repoTag: image });
     // dockerPullStream reports the progress stream, not the outcome: a pull can
     // end on an error event and still call back without one. Ask the store.
     if (await dockerService.imageExists(expected)) return;
@@ -288,6 +286,85 @@ const PEER_IMAGE_TIMEOUT_MS = 120000;
 const PEER_IMAGE_SERVE_LIMIT = 2;
 
 let peerImageServes = 0;
+
+/**
+ * How widely the fleet's prefetch is spread.
+ *
+ * The peer path is only worth having if peers actually hold the image, and an
+ * image that arrives only when someone uses the file browser reaches almost
+ * nobody - which is exactly the state the fleet is in just after a release,
+ * when a node that cannot reach the registry most needs a peer that can.
+ * Every node fetching it makes the fleet the second source in practice rather
+ * than in principle.
+ *
+ * Spread, because the alternative is every node fetching at once each time the
+ * fleet restarts.
+ */
+const PREFETCH_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+/** How long a node that could not fetch waits before trying again. */
+const PREFETCH_RETRY_MS = 60 * 60 * 1000;
+
+let prefetchTimer = null;
+
+/**
+ * Where in the window this node fetches, derived from its own address.
+ *
+ * Derived rather than drawn at random so it is the same slot on every restart:
+ * a node that re-rolls picks a new slot each boot, which turns a restarting
+ * fleet back into the burst the window exists to spread. Hashed because
+ * addresses are not evenly distributed and their low bits least of all.
+ *
+ * @returns {number}
+ */
+function prefetchDelayMs() {
+  const identity = userconfig.initial.ipaddress;
+  if (!identity) return Math.floor(PREFETCH_WINDOW_MS / 2);
+  const digest = crypto.createHash('sha256').update(identity).digest();
+  return digest.readUInt32BE(0) % PREFETCH_WINDOW_MS;
+}
+
+/**
+ * Fetch the image before anything asks for it, so the node holds it and so the
+ * fleet does.
+ *
+ * Failure is expected and is not an error: a node with no route to the registry
+ * and no peer holding it yet tries again later, and the on-demand path is still
+ * there for a node whose slot has not come round.
+ *
+ * @returns {Promise<void>}
+ */
+async function prefetchImage() {
+  try {
+    await ensureImage();
+    log.info('volumeExecutor - the file operation image is on this node');
+  } catch (error) {
+    log.info(`volumeExecutor - could not fetch the file operation image yet, will try again: ${error.message}`);
+    prefetchTimer = setTimeout(prefetchImage, PREFETCH_RETRY_MS);
+    if (prefetchTimer.unref) prefetchTimer.unref();
+  }
+}
+
+/**
+ * Schedule this node's prefetch.
+ * @returns {void}
+ */
+function startImagePrefetch() {
+  if (prefetchTimer) return;
+  const delay = prefetchDelayMs();
+  log.info(`volumeExecutor - the file operation image will be fetched in ${Math.round(delay / 60000)} minute(s)`);
+  prefetchTimer = setTimeout(prefetchImage, delay);
+  if (prefetchTimer.unref) prefetchTimer.unref();
+}
+
+/**
+ * Stop a scheduled prefetch.
+ * @returns {void}
+ */
+function stopImagePrefetch() {
+  if (prefetchTimer) clearTimeout(prefetchTimer);
+  prefetchTimer = null;
+}
 
 /**
  * Take the image from another Flux node.
@@ -1272,6 +1349,8 @@ module.exports = {
   run,
   ensureImage,
   serveImageToPeer,
+  startImagePrefetch,
+  stopImagePrefetch,
   assertCapacity,
   reapOrphanedContainers,
   sweepStagingDirectories,

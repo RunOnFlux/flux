@@ -16,7 +16,7 @@ const makeDockerServiceStub = (overrides = {}) => ({
   appDockerCreate: sinon.stub().resolves(),
   appDockerStart: sinon.stub().resolves('container-started'),
   getAppIdentifier: sinon.stub().returns('testapp'),
-  dockerPullStream: sinon.stub().resolves('pulled'),
+  pullImage: sinon.stub().resolves('pulled'),
   ...overrides,
 });
 
@@ -159,7 +159,7 @@ describe('appInstaller tests', () => {
       '../geolocationService': {
         isStaticIP: sinon.stub().returns(true),
       },
-      '../dockerService': makeDockerServiceStub({ dockerPullStream: sinon.stub().yields(null, 'pulled') }),
+      '../dockerService': makeDockerServiceStub({ pullImage: sinon.stub().resolves('pulled') }),
       './appUninstaller': {
         removeAppLocally: sinon.stub().resolves(),
       },

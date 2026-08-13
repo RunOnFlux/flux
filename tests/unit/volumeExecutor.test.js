@@ -95,7 +95,7 @@ describe('volumeExecutor tests', () => {
       // have to say so. A stub missing either of these resolves to undefined at
       // the CALL rather than at load, and the failure lands inside a try.
       imageExists: sinon.stub().callsFake(async () => pulled),
-      dockerPullStream: sinon.stub().callsFake((cfg, res, cb) => { pulled = true; cb(null, []); }),
+      pullImage: sinon.stub().callsFake(async () => { pulled = true; }),
     };
 
     serviceHelperStub = {
@@ -239,17 +239,17 @@ describe('volumeExecutor tests', () => {
       const lines = [];
       await volumeExecutor.run(vol, ['true'], { onProgress: (line) => lines.push(line) });
 
-      expect(dockerServiceStub.dockerPullStream.calledOnce).to.equal(true);
-      expect(dockerServiceStub.dockerPullStream.firstCall.args[0]).to.deep.equal({ repoTag: IMAGE });
+      expect(dockerServiceStub.pullImage.calledOnce).to.equal(true);
+      expect(dockerServiceStub.pullImage.firstCall.args[0]).to.deep.equal({ repoTag: IMAGE });
       expect(lines).to.include('Fetching the file operation image...');
-      expect(dockerServiceStub.dockerPullStream.calledBefore(dockerServiceStub.createContainer)).to.equal(true);
+      expect(dockerServiceStub.pullImage.calledBefore(dockerServiceStub.createContainer)).to.equal(true);
     });
 
     it('does not pull an image the node already has', async () => {
       const vol = await openSession();
       await volumeExecutor.run(vol, ['true']);
 
-      expect(dockerServiceStub.dockerPullStream.called).to.equal(false);
+      expect(dockerServiceStub.pullImage.called).to.equal(false);
     });
 
     it('fetches once for operations that start together', async () => {
@@ -258,12 +258,11 @@ describe('volumeExecutor tests', () => {
       pulled = false;
       configStub.fluxapps.volumeOperations.maxConcurrentPerApp = 2;
       const waiters = [];
-      // callsFake, not a replacement: the module promisifies dockerPullStream
-      // at load, so it holds THIS function object - assigning a new stub to the
-      // property afterwards would leave the executor calling the old one.
-      dockerServiceStub.dockerPullStream.callsFake((cfg, res, cb) => {
-        waiters.push(() => { pulled = true; cb(null, []); });
-      });
+      // The pull is awaited through dockerService at the call, so a stub set up
+      // here is the one that runs.
+      dockerServiceStub.pullImage.callsFake(() => new Promise((resolve) => {
+        waiters.push(() => { pulled = true; resolve(); });
+      }));
 
       const vol = await openSession();
       const running = [
@@ -275,7 +274,7 @@ describe('volumeExecutor tests', () => {
       waiters[0]();
       await Promise.all(running);
 
-      expect(dockerServiceStub.dockerPullStream.callCount).to.equal(1);
+      expect(dockerServiceStub.pullImage.callCount).to.equal(1);
     });
 
     it('fails clearly when the image cannot be fetched', async () => {
@@ -288,10 +287,10 @@ describe('volumeExecutor tests', () => {
     });
 
     it('refuses when the pull reports success but leaves no image', async () => {
-      // dockerPullStream reports the progress stream, not the outcome - a pull
+      // The pull reports the progress stream, not the outcome - a pull
       // can end on an error event and still call back without one.
       dockerServiceStub.imageExists = sinon.stub().resolves(false);
-      dockerServiceStub.dockerPullStream.callsFake((cfg, res, cb) => cb(null, []));
+      dockerServiceStub.pullImage.callsFake(async () => {});
 
       const vol = await openSession();
       await expect(volumeExecutor.run(vol, ['true']))
@@ -317,9 +316,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.imageExists = sinon.stub();
       dockerServiceStub.imageExists.onFirstCall().resolves(false);
       dockerServiceStub.imageExists.resolves(true);
-      // Reconfigured rather than replaced: dockerPull is promisified when the
-      // module loads, so a new stub here would never be the one it calls.
-      dockerServiceStub.dockerPullStream.callsFake((cfg, res, cb) => cb(new Error('getaddrinfo ENOTFOUND ghcr.io')));
+      dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
       dockerServiceStub.loadImage = sinon.stub().resolves([IMAGE_ID]);
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
       serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
@@ -338,7 +335,7 @@ describe('volumeExecutor tests', () => {
       // the disk.
       const wrong = 'sha256:2222222222222222222222222222222222222222222222222222222222222222';
       dockerServiceStub.imageExists = sinon.stub().resolves(false);
-      dockerServiceStub.dockerPullStream.callsFake((cfg, res, cb) => cb(new Error('offline')));
+      dockerServiceStub.pullImage.rejects(new Error('offline'));
       dockerServiceStub.loadImage = sinon.stub().resolves([wrong]);
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
@@ -348,6 +345,57 @@ describe('volumeExecutor tests', () => {
       await expect(volumeExecutor.run(vol, ['true'])).to.be.rejected;
 
       sinon.assert.calledWith(dockerServiceStub.appDockerImageRemove, wrong);
+    });
+  });
+
+  describe('taking the image before anything asks for it', () => {
+    let originalAddress;
+
+    const scheduledDelay = () => Object.values(setTimeout.clock.timers)[0].delay;
+
+    beforeEach(() => {
+      originalAddress = globalThis.userconfig.initial.ipaddress;
+    });
+
+    afterEach(() => {
+      volumeExecutor.stopImagePrefetch();
+      globalThis.userconfig.initial.ipaddress = originalAddress;
+    });
+
+    it('fetches at the same point in the window on every restart', () => {
+      // A node drawing its slot at random picks a new one each boot, which
+      // turns a restarting fleet back into the burst the window exists to
+      // spread.
+      const clock = sinon.useFakeTimers();
+      try {
+        globalThis.userconfig.initial.ipaddress = '198.18.0.7';
+        volumeExecutor.startImagePrefetch();
+        const first = scheduledDelay();
+        volumeExecutor.stopImagePrefetch();
+
+        volumeExecutor.startImagePrefetch();
+
+        expect(scheduledDelay()).to.equal(first);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('puts different nodes at different points in the window', () => {
+      const clock = sinon.useFakeTimers();
+      const delays = new Set();
+      try {
+        for (const address of ['198.18.0.7', '198.18.0.8', '198.18.1.7', '203.0.113.4']) {
+          globalThis.userconfig.initial.ipaddress = address;
+          volumeExecutor.startImagePrefetch();
+          delays.add(scheduledDelay());
+          volumeExecutor.stopImagePrefetch();
+        }
+      } finally {
+        clock.restore();
+      }
+
+      expect(delays.size).to.equal(4);
     });
   });
 
@@ -1353,9 +1401,9 @@ describe('volumeExecutor tests', () => {
       // takes seconds and is not the operation making no progress.
       configStub.fluxapps.volumeOperations.stallTimeoutMs = 200;
       pulled = false;
-      dockerServiceStub.dockerPullStream = sinon.stub().callsFake((cfg, res, cb) => {
-        setTimeout(() => { pulled = true; cb(null, []); }, 300);
-      });
+      dockerServiceStub.pullImage = sinon.stub().callsFake(() => new Promise((resolve) => {
+        setTimeout(() => { pulled = true; resolve(); }, 300);
+      }));
       const vol = await openSession();
       containerStub.wait = runsFor(100);
       fsStub.statfs = sinon.stub().resolves(usedBlocks(500));

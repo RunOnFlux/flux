@@ -31,6 +31,7 @@ const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
 const fileOperationRecovery = require('./appSystem/fileOperationRecovery');
+const volumeExecutor = require('./appSystem/volumeExecutor');
 const appStartupManager = require('./appLifecycle/appStartupManager');
 const hardwareValidationService = require('./appLifecycle/hardwareValidationService');
 const globalState = require('./utils/globalState');
@@ -403,6 +404,11 @@ async function startFluxFunctions() {
     await fileOperationRecovery.recoverInterruptedFileOperations().catch((error) => {
       log.error(`File operation recovery error: ${error.message}`);
     });
+    // Not awaited, and not now: the node takes the file operation image at its
+    // own place in a window, so the fleet ends up holding it without every node
+    // fetching at the same moment. A node that cannot reach the registry takes
+    // it from one that did, which only works if they have it.
+    volumeExecutor.startImagePrefetch();
     syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
     // Awaited: generating an identity rewrites config/userconfig.js, and that

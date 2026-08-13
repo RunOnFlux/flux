@@ -1379,6 +1379,29 @@ async function imageExists(reference) {
 }
 
 /**
+ * Pull an image, resolving when the pull has finished.
+ *
+ * dockerPullStream reports progress through a callback, so a caller that wants
+ * to await it has to wrap it - and wrapping it at the call site, as two of them
+ * did, captures this function when the CALLING module loads. That pins whichever
+ * version was in place at that moment, which is a detail of this module that has
+ * no business reaching callers, and it makes the wrapped copy unreachable to
+ * anything that replaces this one afterwards.
+ *
+ * @param {object} pullConfig - repoTag and optional auth
+ * @param {object} [res] - response to stream progress to, if any
+ * @returns {Promise<*>}
+ */
+function pullImage(pullConfig, res = null) {
+  return new Promise((resolve, reject) => {
+    dockerPullStream(pullConfig, res, (error, result) => {
+      if (error) reject(error);
+      else resolve(result);
+    });
+  });
+}
+
+/**
  * Stream an image out of the local store as a tar archive.
  *
  * The archive carries the image's config and layers, which is what makes an id
@@ -2019,6 +2042,7 @@ module.exports = {
   appDockerUpdateCpu,
   appDockerImageRemove,
   imageExists,
+  pullImage,
   exportImage,
   loadImage,
   appDockerKill,
