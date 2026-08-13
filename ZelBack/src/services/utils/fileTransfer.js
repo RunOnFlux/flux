@@ -13,7 +13,10 @@ const { openNoFollow } = require('./pathSecurity');
  * O_NOFOLLOW refuses to open a symlink at the final component, which is the
  * swap that turns a checked path into somebody else's file. What remains
  * expressible - swapping a parent directory - the earlier path check still
- * covers, and this removes the half of it that a check cannot.
+ * covers, and this removes the half of it that a check cannot. Opening also
+ * refuses anything that is not a regular file, and refuses to WAIT for one: a
+ * named pipe at this path would otherwise hold the request open for as long as
+ * the app owner left it there.
  *
  * The length is measured from the same descriptor and the send is capped at it.
  * An application writing to its own file during a download would otherwise make
@@ -33,18 +36,10 @@ const { openNoFollow } = require('./pathSecurity');
  * @returns {Promise<void>}
  */
 async function sendFile(res, filepath, filename) {
-  const handle = await openNoFollow(filepath);
-
-  let stats;
-  try {
-    stats = await handle.stat();
-    if (!stats.isFile()) {
-      throw new Error('Only a regular file can be downloaded');
-    }
-  } catch (error) {
-    await handle.close().catch(() => {});
-    throw error;
-  }
+  // Both from the one open: the handle to send from, and the length as it was
+  // at the moment that handle was made. Measuring it again here would be a
+  // later answer, and the app is writing to the file the whole time.
+  const { handle, stats } = await openNoFollow(filepath);
 
   res.attachment(filename);
   res.setHeader('Content-Length', String(stats.size));

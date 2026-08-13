@@ -437,7 +437,8 @@ async function sanitizeAndVerifyPath(userPath, basePath, options = {}) {
 }
 
 /**
- * Open a file without following a link at its final component.
+ * Open a regular file without following a link at its final component, and
+ * without waiting for one.
  *
  * The one way to read a path an application owns. A checked name is only ever a
  * claim about the moment it was checked - the owner keeps running and can
@@ -445,14 +446,51 @@ async function sanitizeAndVerifyPath(userPath, basePath, options = {}) {
  * there reads a file the owner could not open themselves. Everything after this
  * is decided from the descriptor rather than from the name.
  *
+ * O_NONBLOCK because opening a FIFO for reading WAITS for a writer, and the
+ * application owns the directory. A named pipe left where a file is expected
+ * blocks the open for as long as the pipe exists - and the boot sweep awaits
+ * its read, so one pipe planted in one app's own volume stops everything after
+ * it in startup: the app network reclaim, syncthing, the PGP identity. It
+ * survives the reboot, because the pipe is still there. The flag does nothing
+ * to a regular file.
+ *
+ * The type is then checked from the DESCRIPTOR, which is the same reason
+ * everything else here is. With the flag above a pipe or a device opens rather
+ * than hanging, so a caller would otherwise go on to read one as if it were a
+ * file. Callers get a regular file or an error, and never have to ask.
+ *
+ * The stats are handed back with the handle because they were taken to make
+ * that check, and every caller needs the size. Asking again would be a second
+ * answer to a settled question - and a later one: the application is writing to
+ * this file throughout, so a size measured a turn afterwards can already be
+ * larger than the one a download has announced.
+ *
  * The caller closes the handle. Swapping a PARENT directory stays expressible
  * and is what the containment checks in this module cover; this closes the half
  * of it that a check cannot.
  * @param {string} filePath - already checked for containment
- * @returns {Promise<import('node:fs/promises').FileHandle>} An open handle.
+ * @returns {Promise<{handle: import('node:fs/promises').FileHandle,
+ *   stats: import('node:fs').Stats}>} An open handle and what it is.
+ * @throws {Error} if the path is not a regular file
  */
 async function openNoFollow(filePath) {
-  return fs.promises.open(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  const handle = await fs.promises.open(
+    filePath,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+  );
+
+  try {
+    const stats = await handle.stat();
+    if (!stats.isFile()) {
+      // No path in the message: this reaches an API caller, and the host path
+      // is not theirs to learn.
+      throw new Error('Only a regular file can be read');
+    }
+    return { handle, stats };
+  } catch (error) {
+    await handle.close().catch(() => {});
+    throw error;
+  }
 }
 
 module.exports = {

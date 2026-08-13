@@ -344,9 +344,9 @@ class VolumeSession {
     if (!Number.isInteger(maxBytes) || maxBytes < 1) {
       throw new Error('readSmallFile requires a positive byte ceiling');
     }
-    const handle = await openNoFollow(volumePath.hostPath);
+    const { handle, stats } = await openNoFollow(volumePath.hostPath);
     try {
-      const { size } = await handle.stat();
+      const { size } = stats;
       if (size > maxBytes) {
         throw new Error(`${volumePath.relative} is ${size} bytes, over the ${maxBytes} byte ceiling`);
       }

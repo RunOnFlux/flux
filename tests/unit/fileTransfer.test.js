@@ -5,6 +5,7 @@ const fsPromises = require('fs').promises;
 const os = require('os');
 const path = require('path');
 const { PassThrough } = require('stream');
+const childProcess = require('child_process');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -119,6 +120,20 @@ describe('fileTransfer tests', () => {
     await expect(sendFile(res, folder, 'a-directory')).to.be.rejectedWith(/regular file/);
   });
 
+  it('refuses a named pipe rather than waiting for a writer', async () => {
+    // Opening a FIFO for reading waits for somebody to open it for writing.
+    // The app owner can put one anywhere in their own volume, so without
+    // O_NONBLOCK this request is held open for as long as they leave it there -
+    // and the assertion is that this call RETURNS at all.
+    const pipe = path.join(directory, 'download.txt');
+    await new Promise((resolve, reject) => {
+      childProcess.execFile('mkfifo', [pipe], (error) => (error ? reject(error) : resolve()));
+    });
+
+    await expect(sendFile(res, pipe, 'download.txt')).to.be.rejectedWith(/regular file/);
+    expect(written.length, 'bytes were sent from something that is not a file').to.equal(0);
+  });
+
   it('refuses a name that is not there at all', async () => {
     await expect(sendFile(res, path.join(directory, 'missing'), 'missing')).to.be.rejected;
   });
@@ -140,20 +155,33 @@ describe('fileTransfer tests', () => {
     expect(sent.toString()).to.equal('x'.repeat(1000));
   });
 
-  it('leaves no descriptor open behind it', async () => {
+  it('releases the descriptor when the transfer completes', async () => {
+    // The same property as the aborted case above, on the ordinary path.
+    //
+    // Asked of the descriptor itself rather than inferred from the process's
+    // total libuv handle count, which is what this did: that count includes
+    // every timer, socket and watcher belonging to the whole test run, so it
+    // moved for reasons that had nothing to do with this function and failed
+    // about one run in five. A leak here is one descriptor per download, so the
+    // question is whether THIS handle was closed - which the handle can answer.
     const file = path.join(directory, 'report.txt');
     await fsPromises.writeFile(file, 'the contents');
 
-    const before = process.report ? process.report.getReport().libuv.length : null;
+    let closed = false;
+    const realOpen = fsPromises.open.bind(fsPromises);
+    sinon.stub(fsPromises, 'open').callsFake(async (...args) => {
+      const handle = await realOpen(...args);
+      const realClose = handle.close.bind(handle);
+      handle.close = async () => { closed = true; return realClose(); };
+      return handle;
+    });
+
     await sendFile(res, file, 'report.txt');
     await body;
     // Settle whatever the stream teardown scheduled.
     await new Promise((resolve) => { setTimeout(resolve, 50); });
 
-    if (before !== null) {
-      const after = process.report.getReport().libuv.length;
-      expect(after).to.be.at.most(before);
-    }
+    expect(closed, 'the descriptor was never released').to.equal(true);
   });
 
   it('does not advertise a range it cannot serve', async () => {
