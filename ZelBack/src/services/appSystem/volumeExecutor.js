@@ -12,40 +12,16 @@ const { AsyncLock } = require('../utils/asyncLock');
 const { measureTree } = require('../utils/treeSize');
 const { appsFolder } = require('../utils/appConstants');
 const {
-  VolumePath, VolumeSession, WORK_ROOT, STAGING_PREFIX,
+  VolumePath, VolumeSession, WORK_ROOT,
 } = require('./volumeSession');
+const {
+  MARKER_SUFFIX, isStagingName, isSwapName, isSwapMarkerName,
+} = require('./volumeReservedNames');
 
 const settings = () => config.fluxapps.volumeOperations;
 
 const dockerPull = util.promisify(dockerService.dockerPullStream);
 
-/** Prefix of the directory an interrupted publish leaves the previous data under. */
-const SWAP_PREFIX = '.flux-old-';
-
-/** Suffix of the file recording where a displaced entry belongs. */
-const MARKER_SUFFIX = '.dest';
-
-/**
- * The identifier flux-op derives both names from - the staging directory's, and
- * the swap directory's after it strips the staging prefix. A randomUUID, so the
- * shape is exact.
- *
- * Names are matched against this rather than by prefix alone because the sweep
- * DELETES what it matches, in a directory the app owner can write to. Nothing
- * reserves these prefixes at creation time, so a folder called
- * `.flux-op-backups` is a name a user can legitimately choose - and would lose
- * on the next restart if a prefix test were the whole rule.
- */
-const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-const isStagingName = (name) => name.startsWith(STAGING_PREFIX)
-  && OPERATION_ID.test(name.slice(STAGING_PREFIX.length));
-
-const isSwapName = (name) => name.startsWith(SWAP_PREFIX)
-  && OPERATION_ID.test(name.slice(SWAP_PREFIX.length));
-
-const isSwapMarkerName = (name) => name.endsWith(MARKER_SUFFIX)
-  && isSwapName(name.slice(0, -MARKER_SUFFIX.length));
 
 /**
  * The longest a marker can be and still hold what it holds. It sits in a
@@ -1006,7 +982,7 @@ async function sweepStagingDirectories(session) {
         // Through the session, so the read is subject to the same rules as
         // every other touch of a path the app owner controls.
         // eslint-disable-next-line no-await-in-loop
-        const markerPath = await session.resolve(marker);
+        const markerPath = await session.resolve(marker, { allowReserved: true });
         // eslint-disable-next-line no-await-in-loop
         const contents = await session.readSmallFile(markerPath, MARKER_MAX_BYTES)
           .catch((error) => {
@@ -1064,7 +1040,7 @@ async function sweepStagingDirectories(session) {
           // owner's to replace with links at any moment, and in there a link
           // has nowhere off the volume to lead.
           // eslint-disable-next-line no-await-in-loop
-          const source = await session.resolve(entry);
+          const source = await session.resolve(entry, { allowReserved: true });
           // eslint-disable-next-line no-await-in-loop
           await run(session, [], { publish: { source, destination } });
           restored.push(destination.hostPath);
@@ -1101,5 +1077,4 @@ module.exports = {
   sweepStagingDirectories,
   acquireSlot,
   EXECUTOR_LABELS,
-  SWAP_PREFIX,
 };

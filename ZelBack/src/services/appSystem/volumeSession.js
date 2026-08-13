@@ -9,6 +9,7 @@ const {
   sanitizePath, verifyRealPath, verifyRealPathOfExistingPath, openNoFollow,
 } = require('../utils/pathSecurity');
 const { appsFolder, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY } = require('../utils/appConstants');
+const { STAGING_PREFIX, isReservedName } = require('./volumeReservedNames');
 
 /**
  * Where an app's volume is mounted inside the executor container. Operands in
@@ -24,7 +25,6 @@ const WORK_ROOT = '/work';
 const SPACE_HEADROOM = 1.05;
 
 /** Prefix of the staging directories a boot sweep reclaims. */
-const STAGING_PREFIX = '.flux-op-';
 
 /**
  * A path inside one app's volume that has passed every containment check.
@@ -187,17 +187,31 @@ class VolumeSession {
    * host, so the string check alone is not sufficient.
    *
    * @param {string} userPath - relative to the mount root
-   * @param {{mustExist?: boolean, allowRoot?: boolean}} [options]
+   * @param {{mustExist?: boolean, allowRoot?: boolean, allowReserved?: boolean}} [options]
    * @returns {Promise<VolumePath>}
    */
   async resolve(userPath, options = {}) {
-    const { mustExist = false, allowRoot = false } = options;
+    const { mustExist = false, allowRoot = false, allowReserved = false } = options;
 
     const hostPath = sanitizePath(userPath, this.#mount);
     const relative = path.relative(this.#mount, hostPath);
 
     if (!allowRoot && relative === '') {
       throw new Error('Refusing to operate on the volume root');
+    }
+
+    // Names in the volume root that are not the owner's: syncthing's control
+    // files, the filesystem's own recovery directory, and what an interrupted
+    // operation leaves for the boot sweep. Refused here rather than at each
+    // endpoint because every one of them arrives through this method, and being
+    // able to write one of these is being able to stop a folder replicating or
+    // to hand the sweep its input.
+    //
+    // Root only: these mean something to the reader that looks for them there
+    // and nowhere else, and reserving them deeper would take names away from
+    // the owner inside their own data.
+    if (!allowReserved && relative && !relative.includes(path.sep) && isReservedName(relative)) {
+      throw new Error(`${relative} is not an application's to write`);
     }
 
     // The parent is checked because a directory inside the mount can itself be
@@ -523,6 +537,5 @@ module.exports = {
   VolumePath,
   VolumeSession,
   WORK_ROOT,
-  STAGING_PREFIX,
   SPACE_HEADROOM,
 };

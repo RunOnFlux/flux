@@ -69,6 +69,71 @@ describe('fileQueryService tests', () => {
       expect(response.data[2].size).to.equal(10240);
     });
 
+    it('hides what the volume root holds that is not the application\'s', async () => {
+      // The browser opens at the root so an app with several mounts shows them
+      // all. That root also holds syncthing's control files, the filesystem's
+      // recovery directory and what an interrupted operation left for the boot
+      // sweep - none of them the owner's, and none of them writable through any
+      // endpoint, so offering them invites an operation that is only refused.
+      const mount = '/mnt/appvolumes/TestApp_Component1';
+      const id = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+      const req = { params: { appname: 'TestApp', component: 'Component1' }, query: {} };
+      const res = { json: sinon.stub() };
+
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves([{ mount }]);
+      sinon.stub(fs, 'readdir').resolves([
+        'appdata', 'backup', '.flux-op-backups',
+        '.stfolder', '.stignore', 'lost+found',
+        `.flux-op-${id}`, `.flux-old-${id}`, `.flux-old-${id}.dest`,
+      ]);
+      sinon.stub(fs, 'lstat').resolves({
+        isDirectory: () => false,
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: 1,
+        birthtime: new Date('2024-01-01'),
+        mtime: new Date('2024-01-02'),
+      });
+      sinon.stub(IOUtils, 'getFolderSize').resolves(0);
+      sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
+
+      await fileQueryService.getAppsFolder(req, res);
+
+      const listed = res.json.firstCall.args[0].data.map((entry) => entry.name);
+      // backup holds the owner's own archives, and a folder merely resembling
+      // an artefact is a name they are entitled to choose.
+      expect(listed).to.deep.equal(['appdata', 'backup', '.flux-op-backups']);
+    });
+
+    it('hides them at the root only, not inside the application\'s own data', async () => {
+      const mount = '/mnt/appvolumes/TestApp_Component1';
+      const req = {
+        params: { appname: 'TestApp', component: 'Component1', folder: 'appdata' },
+        query: {},
+      };
+      const res = { json: sinon.stub() };
+
+      sinon.stub(verificationHelper, 'verifyPrivilege').resolves(true);
+      sinon.stub(IOUtils, 'getVolumeInfo').resolves([{ mount }]);
+      sinon.stub(fs, 'readdir').resolves(['.stignore', 'notes.txt']);
+      sinon.stub(fs, 'lstat').resolves({
+        isDirectory: () => false,
+        isFile: () => true,
+        isSymbolicLink: () => false,
+        size: 1,
+        birthtime: new Date('2024-01-01'),
+        mtime: new Date('2024-01-02'),
+      });
+      sinon.stub(IOUtils, 'getFolderSize').resolves(0);
+      sinon.stub(messageHelper, 'createDataMessage').callsFake((data) => ({ status: 'success', data }));
+
+      await fileQueryService.getAppsFolder(req, res);
+
+      const listed = res.json.firstCall.args[0].data.map((entry) => entry.name);
+      expect(listed).to.deep.equal(['.stignore', 'notes.txt']);
+    });
+
     it('should reject unauthorized request', async () => {
       const req = {
         params: { appname: 'TestApp', component: 'Component1' },

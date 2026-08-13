@@ -2,6 +2,9 @@ const config = require('config');
 const util = require('util');
 const fs = require('node:fs');
 const path = require('node:path');
+const {
+  SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE,
+} = require('../appSystem/volumeReservedNames');
 const nodecmd = require('node-cmd');
 const axios = require('axios');
 const dbHelper = require('../dbHelper');
@@ -757,7 +760,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       // mountpoint - it is syncthing's own guard against syncing an unmounted
       // dir, and the immutable bare mountpoint guarantees it can never be
       // recreated there.
-      await execAsRoot('mkdir', ['-p', path.join(appDir, '.stfolder')]);
+      await execAsRoot('mkdir', ['-p', path.join(appDir, SYNCTHING_FOLDER_MARKER)]);
       const stFolderCreation2 = {
         status: '.stfolder created',
       };
@@ -769,7 +772,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
 
       // Create .stignore file to exclude backup directory (in parent
       // directory; the app dir is 777 by now so no elevation is needed)
-      await fs.promises.writeFile(path.join(appDir, '.stignore'), '/backup\n');
+      await fs.promises.writeFile(path.join(appDir, SYNCTHING_IGNORE_FILE), '/backup\n');
       const stiFileCreation = {
         status: '.stignore created',
       };

@@ -168,6 +168,45 @@ describe('volumeSession tests', () => {
         .to.be.rejectedWith('Source does not exist');
     });
 
+    it('refuses a name in the root that is not the application\'s', async () => {
+      // Syncthing stops replicating a folder whose .stfolder is gone, and the
+      // boot sweep reads the operation artefacts to decide whether to restore
+      // data or delete it - so writing one is handing that decision an input.
+      const vol = await volumeSession.openVolume(reqFor());
+      const id = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+
+      await expect(vol.resolve('.stfolder')).to.be.rejectedWith('not an application');
+      await expect(vol.resolve('.stignore')).to.be.rejectedWith('not an application');
+      await expect(vol.resolve('lost+found')).to.be.rejectedWith('not an application');
+      await expect(vol.resolve(`.flux-op-${id}`)).to.be.rejectedWith('not an application');
+      await expect(vol.resolve(`.flux-old-${id}`)).to.be.rejectedWith('not an application');
+      await expect(vol.resolve(`.flux-old-${id}.dest`)).to.be.rejectedWith('not an application');
+    });
+
+    it('reserves those names in the root and nowhere else', async () => {
+      // They mean something to the reader that looks for them at the folder
+      // root; deeper down they are names like any other, and taking them from
+      // the owner inside their own data buys nothing.
+      const vol = await volumeSession.openVolume(reqFor());
+      const inside = await vol.resolve('appdata/.stignore');
+      expect(inside.relative).to.equal('appdata/.stignore');
+    });
+
+    it('leaves a name that merely resembles an artefact alone', async () => {
+      // The identifier shape is the whole rule: a folder called
+      // .flux-op-backups is a name a user can legitimately choose.
+      const vol = await volumeSession.openVolume(reqFor());
+      const chosen = await vol.resolve('.flux-op-backups');
+      expect(chosen.relative).to.equal('.flux-op-backups');
+    });
+
+    it('lets the sweep name what it is there to clean up', async () => {
+      const vol = await volumeSession.openVolume(reqFor());
+      const id = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+      const artefact = await vol.resolve(`.flux-old-${id}`, { allowReserved: true });
+      expect(artefact.relative).to.equal(`.flux-old-${id}`);
+    });
+
     it('expresses the operand as a container path, never a host path', async () => {
       // The executor binds the volume at /work and mounts nothing else, so a
       // host path in argv would name a file that does not exist in there.
