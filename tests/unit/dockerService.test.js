@@ -6,6 +6,7 @@ const chaiAsPromised = require('chai-as-promised');
 const Dockerode = require('dockerode');
 const sinon = require('sinon');
 const path = require('path');
+const { PassThrough } = require('stream');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const globalState = require('../../ZelBack/src/services/utils/globalState');
 
@@ -1335,6 +1336,80 @@ describe('dockerService tests', () => {
       };
 
       await expect(dockerService.appDockerCreate(nodeApp, appName, true)).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'forEach\')');
+    });
+  });
+  describe('loadImage tests', () => {
+    const ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
+
+    /** What the daemon writes back: newline-delimited JSON, one object per line. */
+    const narration = (lines) => lines.map((line) => `${JSON.stringify(line)}\n`).join('');
+
+    /** Deliver a body in the pieces a network actually hands over. */
+    const delivered = (pieces) => {
+      const stream = new PassThrough();
+      process.nextTick(() => {
+        pieces.forEach((piece) => stream.write(piece));
+        stream.end();
+      });
+      return stream;
+    };
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('finds an id whose line arrived in two pieces', async () => {
+      // The bug this covers. The narration was matched by concatenating chunks
+      // and then clearing the buffer on EVERY chunk, so nothing was ever
+      // carried forward: a line split across two writes matched neither half,
+      // and an archive that did contain the image reported that it did not -
+      // and the node went and asked more peers for thirteen megabytes it
+      // already had.
+      const body = narration([{ stream: `Loaded image ID: ${ID}\n` }]);
+      const half = Math.floor(body.length / 2);
+      sinon.stub(Dockerode.prototype, 'loadImage')
+        .resolves(delivered([body.slice(0, half), body.slice(half)]));
+
+      const loaded = await dockerService.loadImage(new PassThrough());
+
+      expect(loaded.ids).to.deep.equal([ID]);
+    });
+
+    it('reports a tagged image too, under the name it was given', async () => {
+      // Docker says "Loaded image ID:" for an untagged image and "Loaded
+      // image:" for a tagged one. Reading only the first form left anything
+      // tagged on the disk with nothing that could name it - carrying whatever
+      // name the sender chose.
+      sinon.stub(Dockerode.prototype, 'loadImage').resolves(delivered([narration([
+        { stream: `Loaded image ID: ${ID}\n` },
+        { stream: 'Loaded image: runonflux/website:latest\n' },
+      ])]));
+
+      const loaded = await dockerService.loadImage(new PassThrough());
+
+      expect(loaded.ids).to.deep.equal([ID]);
+      expect(loaded.tags).to.deep.equal(['runonflux/website:latest']);
+    });
+
+    it('reports every id an archive brought, not just the first', async () => {
+      const second = 'sha256:2222222222222222222222222222222222222222222222222222222222222222';
+      sinon.stub(Dockerode.prototype, 'loadImage').resolves(delivered([narration([
+        { stream: `Loaded image ID: ${ID}\n` },
+        { stream: `Loaded image ID: ${second}\n` },
+      ])]));
+
+      const loaded = await dockerService.loadImage(new PassThrough());
+
+      expect(loaded.ids).to.deep.equal([ID, second]);
+    });
+
+    it('says nothing arrived when the daemon named nothing', async () => {
+      sinon.stub(Dockerode.prototype, 'loadImage')
+        .resolves(delivered([narration([{ stream: 'The archive was empty\n' }])]));
+
+      const loaded = await dockerService.loadImage(new PassThrough());
+
+      expect(loaded).to.deep.equal({ ids: [], tags: [] });
     });
   });
 });

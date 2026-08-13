@@ -1379,6 +1379,26 @@ async function imageExists(reference) {
 }
 
 /**
+ * The id an image reference currently resolves to, or null if there is none.
+ *
+ * A tag says nothing about WHICH image it names - it is moved by whoever loads
+ * or pulls one next - so anything deciding what to do with a reference someone
+ * else chose has to ask what it points at now.
+ *
+ * @param {string} reference - repo:tag, an id, or repo@digest
+ * @returns {Promise<string|null>}
+ */
+async function getImageId(reference) {
+  try {
+    const info = await docker.getImage(reference).inspect();
+    return info.Id;
+  } catch (error) {
+    if (error.statusCode === 404) return null;
+    throw error;
+  }
+}
+
+/**
  * Pull an image, resolving when the pull has finished.
  *
  * dockerPullStream reports progress through a callback, so a caller that wants
@@ -1416,34 +1436,53 @@ async function exportImage(reference) {
 }
 
 /**
- * Load images from a tar archive, answering which ids arrived.
+ * Load images from a tar archive, answering what arrived.
  *
- * The ids are the point. An archive names itself - its tags are whatever the
- * sender wrote - so a caller taking one from anywhere it does not control has to
- * check what actually landed, and remove it if it is not what was wanted.
+ * The ids are what identifies the image. An archive names itself - its tags are
+ * whatever the sender wrote - so a caller taking one from anywhere it does not
+ * control decides from the ids, and removes whatever it did not want.
+ *
+ * Tags are reported as well, and separately. They cannot say WHICH image
+ * something is, but an archive can carry them, and something loaded onto this
+ * node under a name of the sender's choosing is exactly what a caller has to be
+ * able to remove again. Reporting only the ids left those on the disk with
+ * nothing that could name them.
+ *
+ * The daemon narrates the load as a JSON stream and dockerode's reader frames
+ * it, the same way pullImage does. Concatenating chunks and matching a regex
+ * over them - which this did - loses any line that falls across two network
+ * writes, so an archive that did contain the wanted image reported that it did
+ * not.
  *
  * @param {NodeJS.ReadableStream} stream - a docker image archive
- * @returns {Promise<Array<string>>} the ids the daemon reports loading
+ * @returns {Promise<{ids: Array<string>, tags: Array<string>}>} what the daemon
+ *   reports loading
  */
 async function loadImage(stream) {
   const progress = await docker.loadImage(stream);
 
-  return new Promise((resolve, reject) => {
-    const loaded = [];
-    let buffered = '';
-
-    progress.on('data', (chunk) => {
-      buffered += chunk.toString();
-      // The daemon reports "Loaded image ID: sha256:..." for an untagged
-      // archive and "Loaded image: name:tag" for a tagged one; only the first
-      // form names something that cannot have been chosen by the sender.
-      const found = buffered.match(/Loaded image ID: (sha256:[0-9a-f]{64})/g) || [];
-      for (const line of found) loaded.push(line.replace('Loaded image ID: ', ''));
-      buffered = '';
-    });
-    progress.on('end', () => resolve([...new Set(loaded)]));
-    progress.on('error', reject);
+  const events = await new Promise((resolve, reject) => {
+    docker.modem.followProgress(progress, (error, output) => (
+      error ? reject(error) : resolve(output || [])
+    ));
   });
+
+  const ids = new Set();
+  const tags = new Set();
+
+  for (const event of events) {
+    const narration = (event && event.stream) || '';
+
+    const id = narration.match(/Loaded image ID: (sha256:[0-9a-f]{64})/);
+    if (id) {
+      ids.add(id[1]);
+    } else {
+      const tag = narration.match(/Loaded image: (\S+)/);
+      if (tag) tags.add(tag[1]);
+    }
+  }
+
+  return { ids: [...ids], tags: [...tags] };
 }
 
 /**
@@ -2102,6 +2141,7 @@ module.exports = {
   appDockerUpdateCpu,
   appDockerImageRemove,
   imageExists,
+  getImageId,
   pullImage,
   exportImage,
   loadImage,
