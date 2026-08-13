@@ -200,6 +200,13 @@ class VolumeSession {
       throw new Error('Refusing to operate on the volume root');
     }
 
+    // The parent is checked because a directory inside the mount can itself be
+    // a symlink pointing anywhere on the host. The volume root is the exception:
+    // its parent is outside the mount by definition, and the mount IS the trust
+    // boundary, so it is verified directly instead.
+    const parent = relative === '' ? hostPath : path.dirname(hostPath);
+    await verifyRealPathOfExistingPath(parent, this.#mount);
+
     // Names in the volume root that are not the owner's: syncthing's control
     // files, the filesystem's own recovery directory, and what an interrupted
     // operation leaves for the boot sweep. Refused here rather than at each
@@ -210,15 +217,26 @@ class VolumeSession {
     // Root only: these mean something to the reader that looks for them there
     // and nowhere else, and reserving them deeper would take names away from
     // the owner inside their own data.
-    if (!allowReserved && relative && !relative.includes(path.sep) && isReservedName(relative)) {
-      throw new Error(`${relative} is not an application's to write`);
+    //
+    // Which root is decided from where the path LANDS, not from how it was
+    // spelled. An app can `ln -s . here` inside its own volume and reach the
+    // root as `here/.stignore`: that carries a separator, so a test on the
+    // string never fires, and it resolves inside the mount, so containment is
+    // satisfied. Both are true, and neither is the question being asked.
+    //
+    // Only for a name that is reserved at all, so the ordinary path costs
+    // nothing. verifyRealPath returns a path it cannot resolve unchanged, so a
+    // name under a directory that does not exist yet compares as itself and
+    // stays the owner's.
+    if (!allowReserved && relative !== '' && isReservedName(path.basename(hostPath))) {
+      const [realParent, realMount] = await Promise.all([
+        verifyRealPath(parent, this.#mount),
+        verifyRealPath(this.#mount, this.#mount),
+      ]);
+      if (realParent === realMount) {
+        throw new Error(`${relative} is not an application's to write`);
+      }
     }
-
-    // The parent is checked because a directory inside the mount can itself be
-    // a symlink pointing anywhere on the host. The volume root is the exception:
-    // its parent is outside the mount by definition, and the mount IS the trust
-    // boundary, so it is verified directly instead.
-    await verifyRealPathOfExistingPath(relative === '' ? hostPath : path.dirname(hostPath), this.#mount);
 
     // Operations act on a link rather than through it (mv, rm and cp -a all
     // do), so verifying a link's TARGET would reject legitimate work on a

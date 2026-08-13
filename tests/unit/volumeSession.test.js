@@ -2,6 +2,9 @@ const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire').noCallThru();
+const os = require('node:os');
+const nodePath = require('node:path');
+const realFs = require('node:fs/promises');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -385,6 +388,86 @@ describe('volumeSession tests', () => {
       deviceHelperStub.listMountedFilesystems.resolves([mountRow(MOUNT, NaN)]);
       const vol = await volumeSession.openVolume(reqFor());
       expect(() => vol.requireSpace(1)).to.throw('Unable to determine free space');
+    });
+  });
+  // On a real disk, deliberately. What this decides is where a path LEADS, and
+  // a stubbed filesystem has no symlinks to lead anywhere - so the bypass
+  // cannot be written against one at all.
+  describe('reserved names, decided from where a path lands', () => {
+    const ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+    let tmpRoot;
+    let mount;
+    let vol;
+
+    beforeEach(async () => {
+      tmpRoot = await realFs.mkdtemp(nodePath.join(os.tmpdir(), 'fluxreserved-'));
+      mount = nodePath.join(tmpRoot, 'fluxcomp_myapp');
+      await realFs.mkdir(mount);
+
+      deviceHelperStub.listMountedFilesystems = sinon.stub().resolves([mountRow(mount)]);
+      // The real node:fs/promises, so a symlink on disk is what answers.
+      const onDisk = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
+        '../deviceHelper': deviceHelperStub,
+        '../verificationHelper': verificationHelperStub,
+        '../IOUtils': IOUtilsStub,
+        '../utils/pathSecurity': pathSecurity,
+        '../utils/appConstants': {
+          appsFolder: `${tmpRoot}/`,
+          APP_NAME_REGEX: /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/,
+          APP_NAME_REGEX_LEGACY: /^[a-zA-Z0-9]+$/,
+        },
+      });
+      vol = await onDisk.openVolume(reqFor());
+    });
+
+    afterEach(async () => {
+      if (tmpRoot) await realFs.rm(tmpRoot, { recursive: true, force: true });
+    });
+
+    it('refuses a reserved name reached through a symlink the app made itself', async () => {
+      // `ln -s . here` is something an app runs in its own container. The path
+      // then carries a separator, so a test on the string never fires, and it
+      // resolves inside the mount, so containment is satisfied - both
+      // truthfully, and neither is the question being asked.
+      await realFs.symlink('.', nodePath.join(mount, 'here'));
+
+      await expect(vol.resolve('here/.stignore')).to.be.rejectedWith('not an application');
+      await expect(vol.resolve('here/.stfolder')).to.be.rejectedWith('not an application');
+      await expect(vol.resolve(`here/.flux-old-${ID}.dest`)).to.be.rejectedWith('not an application');
+    });
+
+    it('refuses one reached through a chain of them', async () => {
+      // Nothing stops the app nesting the trick, and a check that only looked
+      // one level up would pass this.
+      await realFs.mkdir(nodePath.join(mount, 'a'));
+      await realFs.symlink('..', nodePath.join(mount, 'a', 'up'));
+
+      await expect(vol.resolve('a/up/.stignore')).to.be.rejectedWith('not an application');
+    });
+
+    it('refuses one in the root when the mount is a real directory', async () => {
+      // The case that looks redundant next to the stubbed test above and is
+      // not: here the mount EXISTS, so the comparison runs on resolved paths
+      // rather than on two strings neither of which resolves. os.tmpdir() is
+      // itself a symlink on macOS, so a check that compared the parent against
+      // the unresolved mount would stop refusing here and every other test in
+      // this block would still pass.
+      await expect(vol.resolve('.stignore')).to.be.rejectedWith('not an application');
+      await expect(vol.resolve(`.flux-old-${ID}`)).to.be.rejectedWith('not an application');
+    });
+
+    it('still allows those names in a directory that is really a directory', async () => {
+      // The reserved set is root-only on purpose. Deciding from the real path
+      // must not take these names from the owner deeper in their own data.
+      await realFs.mkdir(nodePath.join(mount, 'appdata'));
+
+      const inside = await vol.resolve('appdata/.stignore');
+      expect(inside.relative).to.equal('appdata/.stignore');
+    });
+
+    it('still allows a name that only resembles an artefact', async () => {
+      const chosen = await vol.resolve('.flux-op-backups');
+      expect(chosen.relative).to.equal('.flux-op-backups');
     });
   });
 });
