@@ -79,9 +79,17 @@ function requiredParam(req, name) {
  * `removeobject` is a job by the same rule - `rm -rf` scales with the tree -
  * but it answered inline before jobs existed, and two dashboards call it. So it
  * keeps answering inline WHEN IT IS QUICK and becomes a job only when it
- * outlives its deadline. That last clause is compatibility, not design: when
- * v2 makes the job shape the default it goes, and remove is simply a job like
- * the others.
+ * outlives its deadline.
+ *
+ * THAT CLAUSE IS COMPATIBILITY, NOT DESIGN, AND HERE IS HOW TO KNOW IT CAN GO.
+ * The callers are fluxos-frontend's VolumeBrowser and the palworld dashboard's
+ * ModManager, and today neither polls: a delete answering 202 would be read as
+ * finished the moment it was accepted. Check them - if both poll a job through
+ * to a terminal state, the only callers still needing an inline answer are ones
+ * nobody here can see, and taking it away becomes a version boundary rather
+ * than a surprise. Then delete REMOVE_INLINE_DEADLINE_MS, pass no
+ * inlineDeadlineMs, and remove is a job like the others - along with the option
+ * itself, which exists for nothing else.
  */
 
 /**
@@ -152,6 +160,9 @@ async function renameAppsObject(req, res) {
  * existed keeps getting the completed answer it has always had. A tree big
  * enough to outlive this is the case where holding a request open was already
  * wrong.
+ *
+ * Temporary: see the shape rule at the top of this file for what has to be true
+ * before this goes, and what goes with it.
  */
 const REMOVE_INLINE_DEADLINE_MS = 10000;
 
@@ -348,6 +359,10 @@ async function resolveOperands(req, volume) {
  *   only where a denominator is genuinely knowable
  * @param {function(object): Promise<void>} work - receives the executor options
  *   carrying progress, cancellation and byte reporting, and runs the operation
+ * @param {{inlineDeadlineMs?: number}} [options] - answer inline if the work
+ *   finishes within this, rather than 202 immediately. Compatibility for an
+ *   operation that answered inline before jobs existed, and temporary: the
+ *   shape rule at the top of this file records what removes it
  */
 function startOperation(res, volume, meta, work, { inlineDeadlineMs = 0 } = {}) {
   // Before the job exists, so a caller with no slot gets 503 + Retry-After now
