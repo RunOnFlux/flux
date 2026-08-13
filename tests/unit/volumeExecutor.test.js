@@ -44,6 +44,7 @@ describe('volumeExecutor tests', () => {
         maxConcurrentPerApp: 1,
         maxConcurrentPerNode: 2,
         stallTimeoutMs: 900000,
+        minUploadBitsPerSecond: 64 * 1000,
         memoryBytes: 512 * 1024 * 1024,
         pidsLimit: 256,
         cancelGraceSeconds: 15,
@@ -1922,6 +1923,9 @@ describe('volumeExecutor tests', () => {
       // while something plainly is. Bytes arriving are the direct evidence, and
       // they are exact where a block is rounded.
       configStub.fluxapps.volumeOperations.stallTimeoutMs = 120;
+      // Scaled with the window, the same thousandfold as 120ms stands in for
+      // ten minutes: this sender manages ~200 bit/s, comfortably over.
+      configStub.fluxapps.volumeOperations.minUploadBitsPerSecond = 64;
       // The volume never moves: too little has arrived to fill a block.
       fsStub.statfs = sinon.stub().resolves({ bsize: 4096, blocks: 100000, bfree: 99500 });
 
@@ -1936,6 +1940,30 @@ describe('volumeExecutor tests', () => {
       // Without ticks past the window, "not stopped" would say nothing.
       expect(fsStub.statfs.callCount, 'FIXTURE: the ticker never polled').to.be.above(3);
       expect(containerStub.stop.called, 'a caller that was still sending was stopped').to.equal(false);
+    });
+
+    it('stops one sending too slowly to ever finish', async () => {
+      // The direction that was never tested, which is why the hole shipped: the
+      // check above used to accept ANY byte as evidence, so a caller sending
+      // one per window kept its slot until the request itself timed out two
+      // hours later - and four of those take every file operation slot the node
+      // has. The same trickle as above, against a floor it cannot keep.
+      configStub.fluxapps.volumeOperations.stallTimeoutMs = 120;
+      // 1 kbit/s over a 120ms window asks for 15 bytes. The sender manages ~3.
+      configStub.fluxapps.volumeOperations.minUploadBitsPerSecond = 1000;
+      // The volume never moves either, so the bytes are the only thing that
+      // could have spoken for this transfer.
+      fsStub.statfs = sinon.stub().resolves({ bsize: 4096, blocks: 100000, bfree: 99500 });
+
+      const trickle = new Readable({ read() {} });
+      const sendingSlowly = setInterval(() => trickle.push('.'), 40);
+      setTimeout(() => { clearInterval(sendingSlowly); trickle.push(null); }, 500);
+
+      const vol = await openSession();
+      await expect(upload(vol, trickle)).to.be.rejectedWith('under the 1 kbit/s');
+
+      clearInterval(sendingSlowly);
+      expect(containerStub.stop.called, 'a caller under the floor was left running').to.equal(true);
     });
 
     it('opens stdin with hijack, before the container starts', async () => {

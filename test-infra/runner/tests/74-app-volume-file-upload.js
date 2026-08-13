@@ -121,6 +121,11 @@ describe('app volume file upload', function () {
             // Short enough that a trickle crosses it several times over, and
             // far longer than any other upload here takes.
             stallTimeoutMs: 6000,
+            // Scaled with the window, the same way. The trickle below sends
+            // ~160 bit/s, so it clears this five times over while still moving
+            // no whole filesystem block - which is the condition the test is
+            // here to put the executor in.
+            minUploadBitsPerSecond: 32,
           },
         },
       },
@@ -186,7 +191,7 @@ describe('app volume file upload', function () {
       // client on a slow link sending a small file moves nothing measurable for
       // the whole window, and being stopped for it is indistinguishable from
       // being stopped for wedging.
-      const contents = 'trickled through a window it never fills';
+      const contents = 'trickled through a window it never fills\n'.repeat(10);
 
       const { status, body } = await node.uploadSlowly(
         `/ioutils/fileupload/volume/${appName}/${appName}/${encodeURIComponent('photos')}`,

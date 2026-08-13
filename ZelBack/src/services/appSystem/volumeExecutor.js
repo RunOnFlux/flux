@@ -1247,7 +1247,18 @@ async function run(session, argv, options = {}) {
   let lastUsed = null;
   let lastChangeAt = process.hrtime.bigint();
   let stalled = false;
-  let lastReceived = 0;
+  let stallReason = null;
+  // What the caller had sent when the current liveness window opened. Bytes are
+  // measured against this as a RATE, because "has a byte arrived" is a question
+  // one byte per window answers forever.
+  let receivedAtWindowStart = 0;
+  // Opened wherever progress is seen, so that the next window has to earn its
+  // own. Kept together because a window that moved its clock without moving its
+  // byte mark would measure the new window against the old one's total.
+  const openLivenessWindow = () => {
+    lastChangeAt = process.hrtime.bigint();
+    receivedAtWindowStart = received.bytes;
+  };
   // Closed once the final figure is in, so a read that started before the
   // operation ended cannot report over it.
   let reportsClosed = false;
@@ -1303,7 +1314,7 @@ async function run(session, argv, options = {}) {
     // Timed from here, not from when run() was entered: fetching the image can
     // take a minute on a cold node, and that is not the operation making no
     // progress.
-    lastChangeAt = process.hrtime.bigint();
+    openLivenessWindow();
 
     // One timer serves four jobs: report that the operation is still alive,
     // notice a cancellation, read how far it has got, and notice that it has
@@ -1321,7 +1332,7 @@ async function run(session, argv, options = {}) {
           if (used === null) return;
           if (used !== lastUsed) {
             lastUsed = used;
-            lastChangeAt = process.hrtime.bigint();
+            openLivenessWindow();
           }
           if (reportsClosed || !measurable) return;
           // Never negative: the application is writing to this volume too, and
@@ -1347,22 +1358,33 @@ async function run(session, argv, options = {}) {
       // shell commands. The volume's own usage is the honest signal, and it is
       // already being read - if it has not moved in either direction for this
       // long, nothing is happening.
-      // Bytes arriving from the caller are the operation getting somewhere,
-      // and while a slow upload is in flight they are the only signal that
-      // says so. A byte received is evidence now; a filesystem block appears
-      // only once enough of them have.
-      if (received.bytes !== lastReceived) {
-        lastReceived = received.bytes;
-        lastChangeAt = process.hrtime.bigint();
-      }
-
-      const { stallTimeoutMs } = settings();
+      const { stallTimeoutMs, minUploadBitsPerSecond } = settings();
       const idleMs = Number(process.hrtime.bigint() - lastChangeAt) / 1e6;
       if (!stalled && stallTimeoutMs > 0 && idleMs > stallTimeoutMs) {
-        stalled = true;
-        log.error(`volumeExecutor - ${session.identifier} operation has written nothing for ${Math.round(idleMs / 1000)}s; stopping it`);
-        stopContainer();
-        return;
+        // The volume has not moved for a whole window. For an upload that is
+        // not yet an answer: a slow caller fills no whole filesystem block for
+        // minutes, so the only evidence it is alive is the bytes it has sent -
+        // asked as a rate over the window that just elapsed, never as "did any
+        // byte arrive", which one byte per window satisfies until the request
+        // itself times out hours later.
+        //
+        // Only for an operation with a caller attached. A copy or a move sends
+        // nothing, so measuring it against a floor would stop every one of them
+        // on the first window.
+        const carried = received.bytes - receivedAtWindowStart;
+        const floorBytes = (minUploadBitsPerSecond / 8) * (idleMs / 1000);
+        if (input && carried >= floorBytes) {
+          openLivenessWindow();
+        } else {
+          const seconds = Math.round(idleMs / 1000);
+          stalled = true;
+          stallReason = input
+            ? `The upload sent ${carried} bytes in ${seconds}s, under the ${minUploadBitsPerSecond / 1000} kbit/s a transfer has to keep`
+            : 'File operation stopped after making no progress';
+          log.error(`volumeExecutor - ${session.identifier} ${stallReason}; stopping it`);
+          stopContainer();
+          return;
+        }
       }
 
       if (onProgress) onProgress(status);
@@ -1378,7 +1400,7 @@ async function run(session, argv, options = {}) {
     const result = await exited;
     settled = true;
     if (stalled) {
-      throw new Error('File operation stopped after making no progress');
+      throw new Error(stallReason);
     }
     // An upload that did not arrive is not a failure of the operation - the
     // container did exactly what it was told. Reported as itself, because

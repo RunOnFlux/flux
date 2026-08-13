@@ -202,6 +202,20 @@ module.exports = {
       // all recently" is free and is the question actually worth asking.
       // Generous, because a slow disk under load is not a stuck one.
       stallTimeoutMs: 10 * 60 * 1000,
+      // The floor an upload has to keep to count as still sending. Bytes from
+      // the caller are the only evidence a slow upload is alive - it moves no
+      // whole filesystem block for minutes, so the volume reads as idle - but
+      // the evidence has to be a RATE. Treating any byte at all as progress
+      // lets one byte per window hold a slot until the request itself times
+      // out two hours later, and four of those block every file operation on
+      // the node for every app on it.
+      //
+      // Set where a caller below it could not finish anyway: 64 kbit/s carries
+      // ~58MB in the two hours server.requestTimeout allows, so this mostly
+      // writes down a limit that already exists. It clears the worst usable
+      // mobile link by a wide margin and sits thousands of times above the
+      // trickle it is here to stop.
+      minUploadBitsPerSecond: 64 * 1000,
       // Bounds a runaway archive. How much can be WRITTEN is already capped by
       // the size of the volume itself.
       memoryBytes: 512 * 1024 * 1024,
