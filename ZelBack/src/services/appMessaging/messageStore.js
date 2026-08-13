@@ -31,6 +31,11 @@ const {
   EVICTED_EXPIRY_MS,
 } = require('../utils/appConstants');
 
+// Cap on how many location operations are handed to one bulk write. The driver
+// encodes the whole batch before sending it, and that encoding is what a large
+// sync response leaves behind in memory.
+const LOCATION_OPS_PER_WRITE = 500;
+
 const APP_STATE_EVENT_TYPES = Object.freeze({
   APPRUNNING: 'apprunning',
   SIGTERM: 'sigterm',
@@ -458,8 +463,21 @@ async function storeAppInstallingMessage(message) {
     // that arrives after the newer claim must not erase it. Reaching here means
     // the stored claim is older than this withdrawal, so it is the one being
     // retracted. Nothing is recorded in its place - the sender holds no claim.
-    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
-    await dbHelper.removeDocumentsFromCollection(database, appsInstallingBroadcasts, { 'data.name': message.name, 'data.ip': message.ip });
+    // Carried on both deletes rather than rested on the read above. The read
+    // proves the stored claim was older a moment ago; the guard proves it at the
+    // moment of deletion, which is what the batch path does and what closes the
+    // window where a newer claim lands in between. The broadcast row needs it in
+    // its own right too - it is a separate collection written by a separate path,
+    // so a claim newer than this withdrawal can exist there while the location
+    // the read consulted is still the old one.
+    const olderThanWithdrawal = { broadcastedAt: { $lt: newAppInstallingMessage.broadcastedAt } };
+    await dbHelper.removeDocumentsFromCollection(
+      database, globalAppsInstallingLocations, { ...queryFind, ...olderThanWithdrawal },
+    );
+    await dbHelper.removeDocumentsFromCollection(
+      database, appsInstallingBroadcasts,
+      { 'data.name': message.name, 'data.ip': message.ip, ...olderThanWithdrawal },
+    );
     return true;
   }
 
@@ -633,14 +651,28 @@ async function storeIPChangedMessage(message) {
 }
 
 async function storeBatchAppRunningMessages(verifiedBroadcasts) {
-  if (verifiedBroadcasts.length === 0) return { stored: 0 };
+  if (verifiedBroadcasts.length === 0) return { stored: 0, writeFailed: false };
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const { stored } = await storeBatchAppRunningEvents(verifiedBroadcasts);
 
+  // One operation is built per app per broadcast and each carries a merge
+  // pipeline, so a sync response of a few thousand broadcasts expands into tens
+  // of thousands of them. Writing in bounded batches keeps both this array and
+  // the driver's encoding of it small; the operations are independent of one
+  // another, which is what makes the unordered write safe to split.
   const locationOps = [];
-  const v2AppsByIp = new Map();
+  let writeFailed = false;
+  const flushLocationOps = async () => {
+    if (!locationOps.length) return;
+    const batch = locationOps.splice(0, locationOps.length);
+    await database.collection(globalAppsLocations).bulkWrite(batch, { ordered: false })
+      .catch((err) => {
+        writeFailed = true;
+        log.error(`storeBatchAppRunningMessages locations: ${err.message}`);
+      });
+  };
 
   for (const broadcast of verifiedBroadcasts) {
     const { data } = broadcast;
@@ -648,12 +680,6 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
     if (validTill < Date.now()) continue;
 
     const apps = data.version === 2 ? (data.apps || []) : [{ name: data.name, hash: data.hash }];
-    if (data.version === 2 && apps.length > 0) {
-      const existing = v2AppsByIp.get(data.ip);
-      if (!existing || data.broadcastedAt > existing.broadcastedAt) {
-        v2AppsByIp.set(data.ip, { names: apps.map((a) => a.name), broadcastedAt: data.broadcastedAt });
-      }
-    }
     const incomingDate = new Date(data.broadcastedAt);
     const incomingExpiry = new Date(validTill);
     const isNewer = { $gt: [incomingDate, { $ifNull: ['$broadcastedAt', new Date(0)] }] };
@@ -678,24 +704,61 @@ async function storeBatchAppRunningMessages(verifiedBroadcasts) {
           upsert: true,
         },
       });
+
+      if (locationOps.length >= LOCATION_OPS_PER_WRITE) {
+        // eslint-disable-next-line no-await-in-loop
+        await flushLocationOps();
+      }
     }
   }
 
-  for (const [ip, { names, broadcastedAt }] of v2AppsByIp) {
-    const cutoff = new Date(broadcastedAt);
-    locationOps.push({
+  await flushLocationOps();
+
+  // Upserts only. Removing the rows a node no longer reports belongs to
+  // pruneAppRunningLocations, which is driven from the newest broadcast per node
+  // rather than from whatever happened to arrive in this batch.
+  return { stored, writeFailed };
+}
+
+/**
+ * Drop location rows a node no longer reports.
+ *
+ * Only the newest broadcast from a node says which apps it still runs, so this
+ * cannot be done from part of a sync response - a slice holding an older
+ * broadcast would prune against a stale app list, and one holding a newer
+ * broadcast would leave rows an earlier slice had already written. The caller
+ * passes the newest broadcast seen per node across the whole response.
+ *
+ * @param {Map<string, {names: Array<string>, broadcastedAt: number}>} newestByIp Newest broadcast per node.
+ * @returns {Promise<void>}
+ */
+async function pruneAppRunningLocations(newestByIp) {
+  if (!newestByIp || newestByIp.size === 0) return;
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const ops = [];
+
+  const flush = async () => {
+    if (!ops.length) return;
+    const batch = ops.splice(0, ops.length);
+    await database.collection(globalAppsLocations).bulkWrite(batch, { ordered: false })
+      .catch((err) => log.error(`pruneAppRunningLocations: ${err.message}`));
+  };
+
+  for (const [ip, { names, broadcastedAt }] of newestByIp) {
+    ops.push({
       deleteMany: {
-        filter: { ip, name: { $nin: names }, broadcastedAt: { $lte: cutoff } },
+        filter: { ip, name: { $nin: names }, broadcastedAt: { $lte: new Date(broadcastedAt) } },
       },
     });
+    if (ops.length >= LOCATION_OPS_PER_WRITE) {
+      // eslint-disable-next-line no-await-in-loop
+      await flush();
+    }
   }
 
-  if (locationOps.length > 0) {
-    await database.collection(globalAppsLocations).bulkWrite(locationOps, { ordered: false })
-      .catch((err) => log.error(`storeBatchAppRunningMessages locations: ${err.message}`));
-  }
-
-  return { stored };
+  await flush();
 }
 
 // --- Event Log Functions ---
@@ -1076,6 +1139,7 @@ module.exports = {
   storeAppPermanentMessage,
   storeAppRunningMessage,
   storeBatchAppRunningMessages,
+  pruneAppRunningLocations,
   storeAppStateEvent,
   storeBatchAppRunningEvents,
   APP_STATE_EVENT_TYPES,

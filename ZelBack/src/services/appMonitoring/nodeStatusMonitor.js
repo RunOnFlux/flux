@@ -7,6 +7,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
 const messageStore = require('../appMessaging/messageStore');
 const nodeConfirmationService = require('../nodeConfirmationService');
+const networkStateService = require('../networkStateService');
 const log = require('../../lib/log');
 const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 
@@ -77,6 +78,17 @@ async function monitorNodeStatus(installedAppsFn, removeAppLocallyFn) {
       return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
     } if (nodeConfirmationService.isConfirmed()) {
       log.info('monitorNodeStatus - Node is Confirmed');
+      // Everything above this point is app removal and needs no node list. What
+      // follows compares every app location against it, so an unknown list
+      // makes every location read as departed and sends the whole set down the
+      // HTTP probe path. The accessors wait for the list, and this loop only
+      // re-arms once it has finished, so it checks and comes back rather than
+      // awaiting in here - the same shape as the branches above.
+      if (!networkStateService.isReady()) {
+        log.info('monitorNodeStatus - node list not known yet, deferring the location sweep');
+        await serviceHelper.delay(config.fluxapps.nodeMonitorCheckIntervalMs ?? 120000);
+        return monitorNodeStatus(installedAppsFn, removeAppLocallyFn);
+      }
       // lets remove from locations when nodes are no longer confirmed
       const db = dbHelper.databaseConnection();
       const database = db.db(config.database.appsglobal.database);

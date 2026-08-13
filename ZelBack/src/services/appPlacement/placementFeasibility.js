@@ -23,6 +23,7 @@
 const config = require('config');
 const log = require('../../lib/log');
 const fluxCommunicationUtils = require('../fluxCommunicationUtils');
+const networkStateService = require('../networkStateService');
 const generalService = require('../generalService');
 const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
@@ -171,6 +172,13 @@ function domainShareLevel(domainSizes, instances) {
  */
 async function placementComputation(appSpecifications, minInstances) {
   const instances = minInstances ?? appSpecifications.instances ?? config.fluxapps.minimumInstances;
+  // Asked before the accessor rather than after: the accessor waits for the
+  // list, and this is reached from a request handler that cannot wait.
+  if (!networkStateService.isReady()) {
+    const error = new Error('Node list is not available yet');
+    error.statusCode = 503;
+    throw error;
+  }
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
   if (!Array.isArray(nodeList) || nodeList.length === 0) {
     // an empty node list is missing data, not an empty network - reporting
@@ -649,12 +657,17 @@ async function placementAdvice(spec) {
 /**
  * API handler: POST /apps/placementfeasibility.
  *
- * Requires a signed-in Flux ID. Every caller sends a different spec, so every
- * caller gets a different answer and no shared cache can bound the work the way
- * one does for the placement geography - the question is asked by whoever is
- * about to buy a deployment, and answering it costs a pass over the whole node
- * list. Registering an app needs a signature regardless, so this asks for
- * nothing the deploy path does not already hold.
+ * Requires a signed-in Flux ID, and the reason is compatibility rather than
+ * cost. This endpoint is new, so it could ask from the outset without breaking
+ * a caller, and whoever asks it is about to sign a registration anyway - the
+ * gate takes nothing the deploy path does not already hold.
+ *
+ * Cost is deliberately not the reason, because it does not survive contact with
+ * the neighbours: verifyAppRegistrationParameters and validateAppUpdate run the
+ * same pass over the node list and stay open, because tooling calls them to
+ * check a spec before there is a signature to gate on. Every caller does send a
+ * different spec, so no shared cache bounds this the way one bounds the
+ * placement geography - but that is a fact about caching, not a reason to gate.
  * @param {object} req Request
  * @param {object} res Response
  */
@@ -688,6 +701,18 @@ async function placementFeasibilityAPI(req, res) {
  *   continents: object}>}
  */
 async function placementLocations() {
+  // A request is waiting on this, so it may not block: the accessors below wait
+  // for the node list, and a client holding a connection through a boot is a
+  // worse answer than a plain "not yet". Its sibling placementComputation says
+  // the same thing the same way - without this the two would disagree, one
+  // refusing to answer and the other reporting that an app can be placed
+  // nowhere.
+  if (!networkStateService.isReady()) {
+    const error = new Error('Node list is not available yet');
+    error.statusCode = 503;
+    throw error;
+  }
+
   const { byIp, tableAvailable, tableGenerated } = nodeLocationView();
   if (!tableAvailable) {
     // the tree IS the product here - totals over /16 fallback domains are

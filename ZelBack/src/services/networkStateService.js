@@ -14,6 +14,14 @@ const networkStateManager = require('./utils/networkStateManager');
 let stateManager = null;
 
 /**
+ * Resolves once the node list has been fetched and indexed. It exists before
+ * start() is called, so a caller that arrives early waits for the state rather
+ * than being handed an empty list and reading it as a network with no nodes.
+ */
+let resolveStarted;
+let started = new Promise((resolve) => { resolveStarted = resolve; });
+
+/**
  * Throttle state for daemon RPC calls
  */
 // eslint-disable-next-line no-unused-vars
@@ -70,6 +78,7 @@ async function start(options = {}) {
 
     stateManager.once('populated', () => {
       clearTimeout(timeout);
+      resolveStarted();
       resolve();
     });
 
@@ -86,6 +95,7 @@ async function stop() {
 
   await stateManager.stop();
   stateManager = null;
+  started = new Promise((resolve) => { resolveStarted = resolve; });
 }
 
 /**
@@ -103,10 +113,46 @@ function networkState(options = {}) {
   return state;
 }
 
-async function waitStarted() {
-  if (!stateManager) return;
+/**
+ * Whether the node list has been fetched and indexed.
+ *
+ * Every accessor on this service answers an unknown state and a genuinely empty
+ * one with the same value - an empty list, a zero, a null. Callers that would
+ * read those differently ask this first rather than guessing.
+ * @returns {boolean}
+ */
+function isReady() {
+  return Boolean(stateManager && stateManager.started);
+}
 
-  await stateManager.waitStarted;
+/**
+ * Runs a callback once the network state is known, immediately if it already is.
+ *
+ * This is for work that cannot begin without the node list, so that it starts
+ * when the list arrives rather than whenever the next poll happens to come
+ * round. Callers on a schedule of their own should use isReady() instead.
+ * @param {Function} callback
+ * @returns {void}
+ */
+function onReady(callback) {
+  if (isReady()) {
+    callback();
+    return;
+  }
+
+  started.then(callback);
+}
+
+/**
+ * Waits until the network state is known.
+ *
+ * Only for one-shot startup gates. Anything on a repeating schedule must use
+ * isReady() - several of those only re-arm once they have finished, so awaiting
+ * here would retire them for the life of the process rather than delay them.
+ * @returns {Promise<void>}
+ */
+async function waitStarted() {
+  await started;
 }
 
 function nodeCount() {
@@ -200,8 +246,10 @@ module.exports = {
   getFluxnodeBySocketAddress,
   getFluxnodesByPubkey,
   getRandomSocketAddress,
+  isReady,
   networkState,
   nodeCount,
+  onReady,
   pubkeyInNetworkState,
   socketAddressInNetworkState,
   start,

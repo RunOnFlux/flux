@@ -65,6 +65,61 @@ const insertApp = {
 describe('verificationHelperUtils tests', () => {
   before(requireMongo);
 
+  describe('nodeAdminZelid tests', () => {
+    let savedConfig;
+
+    beforeEach(() => { savedConfig = globalThis.userconfig; });
+    afterEach(() => { globalThis.userconfig = savedConfig; });
+
+    it('answers null rather than throwing when the node holds no configuration', () => {
+      // The state a node is in before anything has read userconfig, and the state a
+      // failed read leaves it in. Reading it off globalThis threw here, which reached
+      // the caller as a server error on an ordinary restart.
+      delete globalThis.userconfig;
+
+      expect(verificationHelperUtils.nodeAdminZelid()).to.equal(null);
+    });
+
+    it('answers null when the configuration carries no identity', () => {
+      // What a failed load actually installs: defaults, with no zelid.
+      globalThis.userconfig = { initial: { zelid: null } };
+
+      expect(verificationHelperUtils.nodeAdminZelid()).to.equal(null);
+    });
+
+    it('denies an admin session rather than throwing when the identity is unknown', async () => {
+      // Denial is the only safe answer to "are you the operator?" asked of a node
+      // that cannot say. It must not throw, and it must not pass.
+      delete globalThis.userconfig;
+      const headers = {
+        zelidauth: {
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
+        },
+      };
+
+      expect(await verificationHelperUtils.verifyAdminSession(headers)).to.be.false;
+    });
+
+    it('leaves the flux team path working when the node identity is unknown', async () => {
+      // The team IDs come from the static config, not from userconfig, so an
+      // unreadable node identity must not take them down with it.
+      delete globalThis.userconfig;
+      const headers = {
+        zelidauth: {
+          zelid: config.fluxTeamFluxID,
+          loginPhrase: 'nonexistent',
+          signature: 'nonexistent',
+        },
+      };
+
+      // reaches the session lookup rather than being refused on identity - the
+      // lookup then fails on the absent login, which is a different answer
+      expect(await verificationHelperUtils.verifyAdminAndFluxTeamSession(headers)).to.be.false;
+    });
+  });
+
   describe('verifyAdminSession tests', () => {
     beforeEach(async () => {
       await dbHelper.initiateDB();

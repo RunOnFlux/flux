@@ -1022,8 +1022,7 @@ async function clockDrift(req, res) {
  * @param {object} res Response.
  */
 function isCommunicationEstablished(req, res) {
-  const outboundCount = peerManager.outboundCount;
-  const inboundCount = peerManager.inboundCount;
+  const { outboundCount, inboundCount } = peerManager;
   let message;
   if (outboundCount < config.fluxapps.minOutgoing) { // easier to establish
     message = messageHelper.createErrorMessage(`Not enough outgoing connections established to Flux network. Minimum required ${config.fluxapps.minOutgoing} found ${outboundCount}`);
@@ -1406,6 +1405,20 @@ async function checkDeterministicNodesCollisions() {
         }, 120 * 1000);
         return;
       }
+      // Same shape as the daemon check above, for the same reason. The list
+      // accessors wait for the list to arrive, and this loop only re-arms once
+      // it has finished - so awaiting in here would retire it for the life of
+      // the process rather than delay it, and this is the only thing that ever
+      // clears this node's DOS state. Reading an unknown list instead is no
+      // better: it makes every branch below conclude this node is not in the
+      // confirmed list, log that as the reason, and skip the availability check
+      // that would have cleared the DOS.
+      if (!networkStateService.isReady()) {
+        setTimeout(() => {
+          checkDeterministicNodesCollisions();
+        }, 120 * 1000);
+        return;
+      }
       const nodeList = await fluxCommunicationUtils.deterministicFluxList();
       const result = nodeList.filter((node) => socketAddressesMatch(node.ip, localSocketAddr));
       const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
@@ -1567,7 +1580,7 @@ async function setDOSStateApi(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  let body = req.body;
+  let { body } = req;
   if (typeof body !== 'object') {
     try { body = JSON.parse(body); } catch { body = {}; }
   }

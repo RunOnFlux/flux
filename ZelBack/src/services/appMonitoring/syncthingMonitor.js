@@ -762,6 +762,18 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     }
     if (newFoldersConfiguration.length > 0) {
       messageHelper.dataOrThrow(await syncthingService.adjustConfigFolders('put', newFoldersConfiguration));
+      // The published set was built from the folder list this pass opened with, so
+      // a promotion applied on this line is absent from it until the next pass
+      // reads syncthing again - and findPeerBlockingPromotion asks a peer for
+      // exactly this set before promoting a folder of its own. Two nodes promoting
+      // in one cycle would each advertise nothing and neither would block, which is
+      // the collision that check exists to catch. Reconciled here instead, in both
+      // directions, so the answer is true from the moment it became true.
+      // eslint-disable-next-line no-restricted-syntax
+      for (const folder of newFoldersConfiguration) {
+        if (folder.type === 'sendreceive') globalState.promotedFolderIds.add(folder.id);
+        else globalState.promotedFolderIds.delete(folder.id);
+      }
     }
 
     // Promotions decided this pass are applied now, so the claims they made

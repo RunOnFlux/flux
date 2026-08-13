@@ -394,6 +394,10 @@ async function startFluxFunctions() {
     });
     syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
+    // Awaited: generating an identity rewrites config/userconfig.js, and that
+    // write is not atomic - a reload landing inside it leaves the process with
+    // no userconfig.initial at all. A node that already has an identity returns
+    // from here immediately, so this costs the fleet nothing.
     await pgpService.generateIdentity();
     log.info('PGP service initiated');
     // Ensure watchdog is installed and running on legacy OS (non-ArcaneOS) nodes

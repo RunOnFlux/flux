@@ -108,6 +108,75 @@ describe('networkStateService tests', () => {
     await networkStateService.stop();
   });
 
+  it('should keep waitStarted pending until the service is started', async () => {
+    const blockEmitter = new EventEmitter();
+    fluxnodeRpcStub.resolves(defaultNetworkState);
+
+    let known = false;
+    const waiter = networkStateService.waitStarted().then(() => { known = true; });
+
+    // a macrotask turn, so every microtask a resolved promise could have
+    // scheduled has already run
+    await new Promise((resolve) => { setImmediate(resolve); });
+
+    expect(known, 'waitStarted resolved before the network state was known').to.be.false;
+    expect(networkStateService.networkState()).to.be.deep.equal([]);
+
+    await networkStateService.start({ stateEmitter: blockEmitter });
+    await waiter;
+
+    expect(networkStateService.networkState()).to.be.deep.equal(defaultNetworkState.data);
+
+    await networkStateService.stop();
+  });
+
+  it('should report readiness only once the node list is indexed', async () => {
+    const blockEmitter = new EventEmitter();
+    fluxnodeRpcStub.resolves(defaultNetworkState);
+
+    expect(networkStateService.isReady(), 'ready before start').to.be.false;
+
+    await networkStateService.start({ stateEmitter: blockEmitter });
+
+    expect(networkStateService.isReady(), 'not ready after start').to.be.true;
+
+    await networkStateService.stop();
+
+    expect(networkStateService.isReady(), 'still ready after stop').to.be.false;
+  });
+
+  it('should run an onReady callback when the node list arrives', async () => {
+    const blockEmitter = new EventEmitter();
+    fluxnodeRpcStub.resolves(defaultNetworkState);
+
+    let ranWith = null;
+    networkStateService.onReady(() => { ranWith = networkStateService.nodeCount(); });
+
+    await new Promise((resolve) => { setImmediate(resolve); });
+    expect(ranWith, 'onReady ran before the state was known').to.be.null;
+
+    await networkStateService.start({ stateEmitter: blockEmitter });
+    await new Promise((resolve) => { setImmediate(resolve); });
+
+    expect(ranWith).to.be.equal(3);
+
+    await networkStateService.stop();
+  });
+
+  it('should run an onReady callback immediately when already ready', async () => {
+    const blockEmitter = new EventEmitter();
+    fluxnodeRpcStub.resolves(defaultNetworkState);
+
+    await networkStateService.start({ stateEmitter: blockEmitter });
+
+    let ranSynchronously = false;
+    networkStateService.onReady(() => { ranSynchronously = true; });
+
+    expect(ranSynchronously).to.be.true;
+
+    await networkStateService.stop();
+  });
+
   it('should get the node count from the network state', async () => {
     const blockEmitter = new EventEmitter();
     fluxnodeRpcStub.resolves(defaultNetworkState);

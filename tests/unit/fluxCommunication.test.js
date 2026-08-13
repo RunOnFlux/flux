@@ -1473,6 +1473,9 @@ describe('fluxCommunication tests', () => {
       // Mock delay to return immediately
       sinon.stub(serviceHelper, 'delay').resolves();
 
+      // everything being set up properly now includes knowing the network
+      sinon.stub(networkStateService, 'isReady').returns(true);
+
       // Mock different addresses to avoid infinite loop
       const addresses = ['1.2.3.4:16137', '1.2.3.5:16137', '1.2.3.6:16137'];
       let addressIndex = 0;

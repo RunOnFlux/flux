@@ -1,6 +1,5 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
-const path = require('path');
 
 // Mock userconfig module BEFORE any other requires
 const mockUserConfig = {
@@ -393,6 +392,78 @@ describe('configManager tests', () => {
 
       // Should reflect the change since it's the same reference
       expect(configManager.getConfigValue('initial.blockedPorts')).to.include(6000);
+    });
+  });
+
+  describe('A read that lands mid-write', () => {
+    const configManagerPath = require.resolve('../../ZelBack/src/services/utils/configManager');
+    let restoreLoad = null;
+
+    // The writers rewrite userconfig.js whole, so loadConfig's require can resolve a
+    // half-written file. That require happens inside the function and after the module
+    // cache entry is dropped, so the only way to present it with one is to answer the
+    // load itself.
+    function answerUserconfigRequireWith(result) {
+      // eslint-disable-next-line global-require
+      const Module = require('module');
+      const original = Module._load;
+      Module._load = function stubbedLoad(request, parent, ...rest) {
+        if (request === '../../../../config/userconfig' && parent && parent.filename === configManagerPath) {
+          if (result instanceof Error) throw result;
+          return result;
+        }
+        return original.call(this, request, parent, ...rest);
+      };
+      restoreLoad = () => { Module._load = original; };
+    }
+
+    afterEach(() => {
+      if (restoreLoad) restoreLoad();
+      restoreLoad = null;
+    });
+
+    it('keeps the config it holds when a reload reads a truncated file', () => {
+      configManager = require('../../ZelBack/src/services/utils/configManager');
+      expect(globalThis.userconfig.initial.zelid).to.equal('1TestZelID123');
+
+      // require() of an empty file resolves to an empty object without throwing
+      answerUserconfigRequireWith({});
+      configManager.loadConfig(true);
+
+      expect(globalThis.userconfig.initial.zelid).to.equal('1TestZelID123');
+      expect(globalThis.userconfig.initial.pgpPrivateKey).to.equal('test-private-key');
+    });
+
+    it('keeps the config it holds when a reload cannot parse the file', () => {
+      configManager = require('../../ZelBack/src/services/utils/configManager');
+
+      answerUserconfigRequireWith(new SyntaxError('Unexpected end of input'));
+      configManager.loadConfig(true);
+
+      expect(globalThis.userconfig.initial.zelid).to.equal('1TestZelID123');
+    });
+
+    it('does not announce a reload it rejected', () => {
+      configManager = require('../../ZelBack/src/services/utils/configManager');
+      const onReload = sinon.spy();
+      configManager.on('configReloaded', onReload);
+
+      answerUserconfigRequireWith({});
+      configManager.loadConfig(true);
+
+      expect(onReload.called).to.equal(false);
+      configManager.removeListener('configReloaded', onReload);
+    });
+
+    it('falls back to defaults when the very first read is truncated', () => {
+      delete globalThis.userconfig;
+      delete require.cache[configManagerPath];
+
+      answerUserconfigRequireWith({});
+      configManager = require('../../ZelBack/src/services/utils/configManager');
+
+      expect(globalThis.userconfig.initial).to.be.an('object');
+      expect(globalThis.userconfig.initial.zelid).to.equal(null);
     });
   });
 });

@@ -497,6 +497,23 @@ describe('messageStore tests', () => {
       expect(dbHelperStub.updateOneInDatabase.called, 'a withdrawal records nothing').to.be.false;
     });
 
+    it('carries the freshness guard onto both deletes, not just the read', async () => {
+      // The read proves the stored claim was older a moment ago. Both deletes are
+      // filtered on it too, so a claim that lands between the read and the delete
+      // survives - and the broadcast row needs the guard in its own right, being a
+      // separate collection written by a separate path.
+      const sent = Date.now();
+      dbHelperStub.findOneInDatabase.resolves({ broadcastedAt: new Date(sent - 60000) });
+
+      await messageStore.storeAppInstallingMessage(withdrawal({ broadcastedAt: sent }));
+
+      const filters = dbHelperStub.removeDocumentsFromCollection.getCalls().map((c) => c.args[2]);
+      expect(filters).to.have.lengthOf(2);
+      filters.forEach((filter) => {
+        expect(filter.broadcastedAt, 'delete ran unguarded').to.deep.equal({ $lt: new Date(sent) });
+      });
+    });
+
     it('never touches the installing errors collection', async () => {
       dbHelperStub.findOneInDatabase.resolves({ broadcastedAt: new Date(Date.now() - 60000) });
 
@@ -875,6 +892,72 @@ describe('messageStore tests', () => {
       };
       await messageStore.storeAppStateEvent(messageStore.APP_STATE_EVENT_TYPES.APPRUNNING, payload);
       expect(collectionStub.updateOne.called).to.be.false;
+    });
+  });
+  describe('storeBatchAppRunningMessages batching', () => {
+    function buildBroadcasts(nodeCount, appsPerNode) {
+      const broadcastedAt = Date.now();
+      return Array.from({ length: nodeCount }, (_, n) => ({
+        version: 1,
+        timestamp: broadcastedAt,
+        pubKey: 'pub',
+        signature: 'sig',
+        data: {
+          type: 'fluxapprunning',
+          version: 2,
+          ip: `10.0.0.${n}:16127`,
+          broadcastedAt,
+          osUptime: 1000,
+          staticIp: false,
+          apps: Array.from({ length: appsPerNode }, (_, a) => ({
+            name: `app${a}`,
+            hash: `hash${n}-${a}`,
+            runningSince: new Date(broadcastedAt).toISOString(),
+          })),
+        },
+      }));
+    }
+
+    it('should write app locations in bounded batches rather than one giant bulk write', async () => {
+      const locationBatches = [];
+      const database = {
+        collection: (name) => ({
+          bulkWrite: (ops) => {
+            if (name === 'appsLocations') locationBatches.push(ops);
+            return Promise.resolve({});
+          },
+          updateOne: sinon.stub().resolves({}),
+        }),
+      };
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(database) });
+
+      // 30 apps per node does not divide the 500 cap - a per-broadcast check
+      // would overrun it
+      await messageStore.storeBatchAppRunningMessages(buildBroadcasts(40, 30));
+
+      expect(locationBatches.length).to.be.above(1);
+      locationBatches.forEach((batch) => {
+        expect(batch.length).to.be.at.most(500);
+      });
+    });
+
+    it('should still write every location operation across the batches', async () => {
+      const locationBatches = [];
+      const database = {
+        collection: (name) => ({
+          bulkWrite: (ops) => {
+            if (name === 'appsLocations') locationBatches.push(ops);
+            return Promise.resolve({});
+          },
+          updateOne: sinon.stub().resolves({}),
+        }),
+      };
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns(database) });
+
+      await messageStore.storeBatchAppRunningMessages(buildBroadcasts(60, 20));
+
+      const upserts = locationBatches.flat().filter((op) => op.updateOne);
+      expect(upserts.length).to.equal(1200);
     });
   });
 });

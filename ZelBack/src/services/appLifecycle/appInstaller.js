@@ -23,9 +23,6 @@ const { systemArchitecture } = require('../appSystem/systemIntegration');
 const { checkApplicationImagesCompliance, verifyRepository } = require('../appSecurity/imageManager');
 const { startAppMonitoring } = require('../appManagement/appInspector');
 const imageVerifier = require('../utils/imageVerifier');
-// pgpService is used in commented out code
-// eslint-disable-next-line no-unused-vars
-const pgpService = require('../pgpService');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');

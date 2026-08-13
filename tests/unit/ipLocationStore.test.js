@@ -739,6 +739,35 @@ describe('ipLocationStore tests', () => {
       expect(dbHelperStub.updateOneInDatabase.called).to.equal(false);
     });
 
+    it('keeps the whole view when the node list comes back empty', async () => {
+      // An empty list is a failed fetch, not a fleet with no nodes. Taken at face
+      // value every held address reads as departed and the collection is deleted in
+      // one call - the accessor contract is supposed to prevent that, and the point
+      // of this guard is not to depend on a contract kept in another file.
+      await withTable();
+      serveView([
+        { _id: '80.95.213.209', g: GENERATED },
+        { _id: '91.0.0.7', g: GENERATED },
+      ]);
+      // hold the view first, so that losing it would be visible
+      await store.refreshNodeLocations([{ ip: '80.95.213.209:16127' }, { ip: '91.0.0.7:16127' }]);
+      dbHelperStub.removeDocumentsFromCollection.resetHistory();
+
+      expect(await store.refreshNodeLocations([])).to.eql({ refreshed: 0, dropped: 0 });
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.equal(false);
+      expect([...store.nodeLocationSnapshot().byIp.keys()]).to.eql(['80.95.213.209', '91.0.0.7']);
+    });
+
+    it('keeps the whole view when the node list is absent altogether', async () => {
+      await withTable();
+      serveView([{ _id: '80.95.213.209', g: GENERATED }]);
+      await store.refreshNodeLocations([{ ip: '80.95.213.209:16127' }]);
+      dbHelperStub.removeDocumentsFromCollection.resetHistory();
+
+      expect(await store.refreshNodeLocations(undefined)).to.eql({ refreshed: 0, dropped: 0 });
+      expect(dbHelperStub.removeDocumentsFromCollection.called).to.equal(false);
+    });
+
     it('drops the addresses the node list no longer carries', async () => {
       await withTable();
       serveView([
@@ -862,7 +891,10 @@ describe('ipLocationStore tests', () => {
       serveView([{ _id: '91.0.0.7', g: GENERATED }]);
       dbHelperStub.removeDocumentsFromCollection.rejects(new Error('not authorized'));
 
-      const error = await store.refreshNodeLocations([]).then((value) => value, (err) => err);
+      // a real list that still departs the held address - an empty one is refused
+      // before the drop is reached
+      const error = await store.refreshNodeLocations([{ ip: '80.95.213.209:16127' }])
+        .then((value) => value, (err) => err);
       expect(store.isStoreUnavailable(error)).to.equal(true);
     });
 
@@ -870,7 +902,8 @@ describe('ipLocationStore tests', () => {
       await withTable();
       dbHelperStub.findInDatabase = sinon.stub().rejects(new Error('connection reset'));
 
-      const error = await store.refreshNodeLocations([]).then((value) => value, (err) => err);
+      const error = await store.refreshNodeLocations([{ ip: '80.95.213.209:16127' }])
+        .then((value) => value, (err) => err);
       expect(store.isStoreUnavailable(error)).to.equal(true);
     });
   });

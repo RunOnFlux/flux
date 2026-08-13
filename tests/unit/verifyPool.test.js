@@ -38,6 +38,28 @@ describe('verifyPool tests', () => {
     expect(results).to.deep.equal([true]);
   });
 
+  it('settles a batch that cannot be handed to a worker at all', async function () {
+    // The handover, not the verification, is what fails here: a function cannot
+    // be structured-cloned, so postMessage throws and the job goes back on the
+    // queue with the slot still free. Every other way back into dispatch is a
+    // worker event, and no worker is holding anything to raise one - so before
+    // this was fixed the job sat there and verify() never settled, with an idle
+    // worker and a queued job. It is bounded by the attempt count instead.
+    this.timeout(10000);
+    const unclonable = { messageToVerify: () => {}, pubKey: TEST_PUBKEY, signature: 'x' };
+
+    const settled = verifyPool.verify([unclonable]).then(
+      () => 'resolved',
+      () => 'rejected',
+    );
+    const outcome = await Promise.race([
+      settled,
+      new Promise((resolve) => { setTimeout(() => resolve('STILL PENDING'), 5000); }),
+    ]);
+
+    expect(outcome, 'verify() never settled - the queue has no way back into dispatch').to.not.equal('STILL PENDING');
+  });
+
   it('should verify a batch of valid broadcasts', async () => {
     const items = [];
     for (let i = 0; i < 20; i++) {
@@ -95,5 +117,122 @@ describe('verifyPool tests', () => {
   it('should handle empty input', async () => {
     const results = await verifyPool.verify([]);
     expect(results).to.deep.equal([]);
+  });
+
+  describe('elastic sizing', () => {
+    // 256 items per chunk, so this batch is five chunks of work
+    const CHUNKS_IN_LARGE_BATCH = 5;
+    const LARGE_BATCH = 256 * CHUNKS_IN_LARGE_BATCH;
+
+    function repeatedBatch(size) {
+      const item = createSignedBroadcast({ type: 'fluxappinstallingerror', ip: '1.2.3.4', name: 'bulk' });
+      return Array.from({ length: size }, () => item);
+    }
+
+    it('should raise workers to match the chunks a batch splits into', async () => {
+      const { maxWorkers } = verifyPool.stats();
+      const pending = verifyPool.verify(repeatedBatch(LARGE_BATCH));
+
+      // sizing happens before the first await, so the pool is already scaled.
+      // Read it now, but always drain before asserting - an assertion thrown
+      // with work in flight would leave the pool dirty for the next test
+      const scaledTo = verifyPool.stats().workers;
+      const results = await pending;
+
+      expect(scaledTo).to.equal(Math.min(maxWorkers, CHUNKS_IN_LARGE_BATCH));
+      expect(results.length).to.equal(LARGE_BATCH);
+      expect(results.every(Boolean)).to.equal(true);
+    });
+
+    it('should not raise more workers than there are spare cores', async () => {
+      const { maxWorkers } = verifyPool.stats();
+      const item = createSignedBroadcast({ type: 'fluxappinstallingerror', ip: '1.2.3.4', name: 'depth' });
+
+      // queue depth, not batch size, is what drives sizing here: nothing can
+      // complete while these calls are still being issued
+      const pending = [];
+      for (let i = 0; i < maxWorkers + 5; i++) {
+        pending.push(verifyPool.verify([item]));
+      }
+
+      const scaledTo = verifyPool.stats().workers;
+      const results = await Promise.all(pending);
+
+      expect(scaledTo).to.equal(maxWorkers);
+      expect(results.every((result) => result[0] === true)).to.equal(true);
+    });
+
+    it('should preserve item order across chunk boundaries', async () => {
+      const items = repeatedBatch(LARGE_BATCH).map((item) => ({ ...item }));
+      const tampered = [0, 255, 256, 700, LARGE_BATCH - 1];
+      tampered.forEach((index) => { items[index].signature = 'bad'; });
+
+      const results = await verifyPool.verify(items);
+
+      expect(results.length).to.equal(LARGE_BATCH);
+      results.forEach((result, index) => {
+        expect(result).to.equal(!tampered.includes(index));
+      });
+    });
+
+    it('should release the extra workers once the burst is over', async () => {
+      const clock = sinon.useFakeTimers({
+        toFake: ['setTimeout', 'clearTimeout'],
+        shouldClearNativeTimers: true,
+      });
+      try {
+        await verifyPool.verify(repeatedBatch(LARGE_BATCH));
+        expect(verifyPool.stats().workers).to.be.above(1);
+
+        clock.tick(60001);
+
+        expect(verifyPool.stats().workers).to.equal(1);
+        expect(verifyPool.stats().busy).to.equal(0);
+      } finally {
+        clock.restore();
+      }
+    });
+  });
+
+  describe('failure handling', () => {
+    const crashingWorker = require('path').join(__dirname, 'fixtures', 'workers', 'crashingVerifyWorker.js');
+
+    afterEach(() => {
+      verifyPool.stop();
+      verifyPool.start(2);
+    });
+
+    it('should give up on a batch that keeps killing its worker instead of retrying for ever', async () => {
+      verifyPool.stop();
+      verifyPool.start(1, { workerPath: crashingWorker });
+
+      const results = await verifyPool.verify([
+        { messageToVerify: 'a', pubKey: 'b', signature: 'c' },
+        { messageToVerify: 'd', pubKey: 'e', signature: 'f' },
+      ]);
+
+      // a signature we could not check is one we do not trust
+      expect(results).to.deep.equal([false, false]);
+    });
+
+    it('should leave the pool usable after abandoning a batch', async () => {
+      verifyPool.stop();
+      verifyPool.start(1, { workerPath: crashingWorker });
+      await verifyPool.verify([{ messageToVerify: 'a', pubKey: 'b', signature: 'c' }]);
+
+      const stats = verifyPool.stats();
+      expect(stats.queued).to.equal(0);
+      expect(stats.busy).to.equal(0);
+    });
+
+    it('should settle callers waiting on work when the pool is stopped', async () => {
+      verifyPool.stop();
+      verifyPool.start(1, { workerPath: crashingWorker });
+
+      const pending = verifyPool.verify([{ messageToVerify: 'a', pubKey: 'b', signature: 'c' }]);
+      verifyPool.stop();
+
+      expect(await pending).to.deep.equal([false]);
+    });
   });
 });

@@ -5,3 +5,8 @@
 /ZelApps/
 /docs/
 /dev/
+# ESM, and these rules are written for the CommonJS backend: an ESM import must
+# carry its .js extension, which import/extensions is configured to forbid. It
+# needs a config of its own rather than this one, so it is out of scope here
+# instead of silently wrong.
+/test-infra/
