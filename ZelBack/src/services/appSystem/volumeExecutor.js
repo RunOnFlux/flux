@@ -1437,7 +1437,13 @@ async function run(session, argv, options = {}) {
       reportsClosed = true;
       stopMeasuring();
 
-      const published = await measureTree(publish.destination.hostPath, fs).catch(() => null);
+      // Occupied, because every other figure this progress bar is built from
+      // is: the running one is the volume's own used-bytes, read through
+      // statfs. A final reading in apparent bytes would make the bar jump at
+      // the last tick - downwards, and by orders of magnitude for a tree of
+      // small files - which is the very thing this reading exists to prevent.
+      const published = await measureTree(publish.destination.hostPath, fs, { occupied: true })
+        .catch(() => null);
       if (published !== null) onBytes(published);
     }
   } finally {

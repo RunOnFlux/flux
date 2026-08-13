@@ -13,6 +13,12 @@ const path = require('path');
 const DEFAULT_CONCURRENCY = 32;
 
 /**
+ * The unit lstat reports allocated blocks in. Fixed, and unrelated to the
+ * filesystem's own block size.
+ */
+const BLOCK_UNIT = 512;
+
+/**
  * Bytes under a path, following nothing.
  *
  * `lstat`, never `stat`. The difference is the whole point of this module: an
@@ -31,13 +37,25 @@ const DEFAULT_CONCURRENCY = 32;
  * Iterative, so a deep tree cannot overflow the stack, and batched, so a wide
  * one cannot open a handle per entry.
  *
+ * Two different questions can be asked of a tree, and which one a caller wants
+ * is not guessable - so it has to say. `occupied` reports what the tree costs
+ * the filesystem: a file occupies whole blocks, so a hundred one-byte files are
+ * 100 bytes by their own account and 409,600 on disk. Anything compared against
+ * free space needs that one, because free space is itself a count of blocks.
+ * The default reports what the files say, which is what a listing shows a user
+ * and what every file browser means by the size of a folder.
+ *
+ * Directories are counted only for `occupied`, where they hold blocks like
+ * anything else. Their apparent size is an implementation detail of the
+ * filesystem rather than an amount of anyone's data.
+ *
  * @param {string} root - absolute path to measure
  * @param {object} fsPromises - fs.promises, or a stand-in with lstat/readdir
- * @param {{concurrency?: number}} [options]
+ * @param {{concurrency?: number, occupied?: boolean}} [options]
  * @returns {Promise<number>} bytes
  */
 async function measureTree(root, fsPromises, options = {}) {
-  const { concurrency = DEFAULT_CONCURRENCY } = options;
+  const { concurrency = DEFAULT_CONCURRENCY, occupied = false } = options;
 
   let bytes = 0;
   const pending = [root];
@@ -56,7 +74,13 @@ async function measureTree(root, fsPromises, options = {}) {
     for (const [entryPath, stats] of entries) {
       if (!stats) continue;
       if (stats.isDirectory()) directories.push(entryPath);
-      else if (stats.isFile()) bytes += stats.size;
+      // A symlink is neither, and contributes nothing either way: the
+      // operations this feeds copy the link rather than what it points at.
+      if (occupied) {
+        if (stats.isDirectory() || stats.isFile()) bytes += stats.blocks * BLOCK_UNIT;
+      } else if (stats.isFile()) {
+        bytes += stats.size;
+      }
     }
 
     if (directories.length) {
@@ -76,4 +100,5 @@ async function measureTree(root, fsPromises, options = {}) {
 module.exports = {
   measureTree,
   DEFAULT_CONCURRENCY,
+  BLOCK_UNIT,
 };

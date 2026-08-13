@@ -1,7 +1,6 @@
 const path = require('node:path');
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
-const IOUtils = require('../IOUtils');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
@@ -10,6 +9,7 @@ const {
 } = require('../utils/pathSecurity');
 const { appsFolder, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY } = require('../utils/appConstants');
 const { STAGING_PREFIX, isReservedName } = require('./volumeReservedNames');
+const { measureTree, BLOCK_UNIT } = require('../utils/treeSize');
 
 /**
  * Where an app's volume is mounted inside the executor container. Operands in
@@ -442,13 +442,20 @@ class VolumeSession {
     });
     if (stats.isSymbolicLink()) return 0;
 
+    // What it OCCUPIES, not what it says. This figure is handed to
+    // requireSpace, which compares it against the volume's free space - a count
+    // of blocks - and a file occupies whole blocks. A directory of ten thousand
+    // one-byte files reports ten kilobytes for itself and costs forty megabytes,
+    // so measuring what the files say passes a copy that cannot fit.
     const size = stats.isDirectory()
-      ? await IOUtils.getFolderSize(volumePath.hostPath)
-      : await IOUtils.getFileSize(volumePath.hostPath);
+      ? await measureTree(volumePath.hostPath, fs, { occupied: true })
+      : stats.blocks * BLOCK_UNIT;
 
-    // Both report false rather than throwing. Refuse rather than treating an
-    // unmeasurable source as free.
-    if (size === false) throw new Error('Unable to measure source');
+    // Fails closed by throwing rather than by reporting a figure: a source that
+    // cannot be read is a refusal, because an operation that runs out of space
+    // partway leaves a partial tree the user has to identify and clean up. That
+    // is measureTree's behaviour and the lstat's above, so there is no
+    // unmeasurable answer left to check for here.
     return size;
   }
 

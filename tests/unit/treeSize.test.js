@@ -4,8 +4,13 @@ const { measureTree } = require('../../ZelBack/src/services/utils/treeSize');
 describe('treeSize tests', () => {
   const ROOT = '/vol';
 
-  const dir = () => ({ isDirectory: () => true, isFile: () => false });
-  const file = (size) => ({ isDirectory: () => false, isFile: () => true, size });
+  // blocks is what lstat reports allocated, in 512-byte units - a one-byte file
+  // still occupies a whole filesystem block, which is the difference this module
+  // now has to be able to express.
+  const dir = (blocks = 8) => ({ isDirectory: () => true, isFile: () => false, size: 4096, blocks });
+  const file = (size, blocks = Math.ceil(size / 4096) * 8) => ({
+    isDirectory: () => false, isFile: () => true, size, blocks,
+  });
   // Neither a file nor a directory, which is what lstat reports for a symlink.
   const link = () => ({ isDirectory: () => false, isFile: () => false });
 
@@ -113,5 +118,42 @@ describe('treeSize tests', () => {
     };
 
     expect(await measureTree('/vol', fs)).to.equal(3);
+  });
+
+  describe('what a capacity check needs', () => {
+    // A file occupies whole blocks, so a tree of tiny files consumes far more
+    // than it reports. The figure this feeds is compared against free space,
+    // which is counted in blocks - so the two have to be the same kind of
+    // number, or a copy passes a check it has already exceeded.
+    it('measures what the tree occupies rather than what its files say', async () => {
+      const entries = { [ROOT]: dir() };
+      const names = [];
+      for (let i = 0; i < 100; i += 1) {
+        names.push(`f${i}`);
+        // One byte each, one 4096-byte block each.
+        entries[`${ROOT}/f${i}`] = file(1, 8);
+      }
+      const fs = fakeFs(entries, { [ROOT]: names });
+
+      expect(await measureTree(ROOT, fs)).to.equal(100);
+      expect(await measureTree(ROOT, fs, { occupied: true })).to.equal(100 * 4096 + 4096);
+    });
+
+    it('counts the directories too, which hold blocks of their own', async () => {
+      const fs = fakeFs({
+        [ROOT]: dir(),
+        [`${ROOT}/sub`]: dir(),
+        [`${ROOT}/sub/a`]: file(1, 8),
+      }, { [ROOT]: ['sub'], [`${ROOT}/sub`]: ['a'] });
+
+      // Apparent counts the file alone; occupied counts both directories as well.
+      expect(await measureTree(ROOT, fs)).to.equal(1);
+      expect(await measureTree(ROOT, fs, { occupied: true })).to.equal(3 * 4096);
+    });
+
+    it('still counts a symlink as nothing', async () => {
+      const fs = fakeFs({ [ROOT]: dir(), [`${ROOT}/link`]: link() }, { [ROOT]: ['link'] });
+      expect(await measureTree(ROOT, fs, { occupied: true })).to.equal(4096);
+    });
   });
 });

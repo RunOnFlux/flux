@@ -1509,7 +1509,11 @@ describe('volumeExecutor tests', () => {
       new Promise((resolve) => { setTimeout(() => resolve({ StatusCode: 0 }), ms); }),
     );
 
-    const fileEntry = (size) => ({ isDirectory: () => false, isFile: () => true, size });
+    // blocks as a real lstat reports them: 512-byte units, and a file occupies
+    // whole filesystem blocks however few bytes it holds.
+    const fileEntry = (size) => ({
+      isDirectory: () => false, isFile: () => true, size, blocks: Math.ceil(size / 4096) * 8,
+    });
 
     const operands = async (vol) => ({
       staging: await vol.resolve('.flux-op-x'),
@@ -1590,7 +1594,10 @@ describe('volumeExecutor tests', () => {
       const seen = [];
       await volumeExecutor.run(vol, ['cp'], { publish, onBytes: (bytes) => seen.push(bytes) });
 
-      expect(seen[seen.length - 1], 'the last figure is not the published size').to.equal(9000);
+      // 9000 bytes occupy three 4096-byte blocks, and occupied is what every
+      // other figure in this progress bar is counted in - the running one is
+      // the volume's own used-bytes through statfs.
+      expect(seen[seen.length - 1], 'the last figure is not the published size').to.equal(12288);
     });
 
     it('measures the destination for that final reading, because staging is gone by then', async () => {

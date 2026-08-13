@@ -152,6 +152,10 @@ function convertFileSize(sizes, targetUnit = 'auto', decimal = 2, returnNumber =
  */
 async function getFolderSize(folderPath) {
   try {
+    // What the files say, which is what a listing means by the size of a
+    // folder and what every file browser shows. Anything comparing a figure
+    // against free space wants measureTree's `occupied` instead, because that
+    // is a count of blocks and this is not.
     return await measureTree(folderPath, fs);
   } catch (err) {
     log.error(`Error getting folder size: ${err}`);

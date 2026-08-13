@@ -309,13 +309,35 @@ describe('volumeSession tests', () => {
   });
 
   describe('measure', () => {
-    it('measures a directory with getFolderSize, not getFileSize', async () => {
-      fsStub.lstat.withArgs(`${MOUNT}/dir`).resolves({ isSymbolicLink: () => false, isDirectory: () => true });
+    it('measures a directory by what it occupies, not by what its files say', async () => {
+      // The figure goes to requireSpace, which compares it against free space -
+      // a count of blocks. A one-byte file still costs a whole block, so a tree
+      // of small files measured by their own lengths passes a check it cannot
+      // meet.
+      fsStub.lstat.withArgs(`${MOUNT}/dir`).resolves({
+        isSymbolicLink: () => false, isDirectory: () => true, blocks: 8,
+      });
+      fsStub.lstat.withArgs(`${MOUNT}/dir/tiny`).resolves({
+        isDirectory: () => false, isFile: () => true, size: 1, blocks: 8,
+      });
+      fsStub.readdir = sinon.stub().resolves([]);
+      fsStub.readdir.withArgs(`${MOUNT}/dir`).resolves(['tiny']);
+
       const vol = await volumeSession.openVolume(reqFor());
       const dir = await vol.resolve('dir');
 
-      expect(await vol.measure(dir)).to.equal(1000);
-      expect(IOUtilsStub.getFileSize.called).to.equal(false);
+      // The directory's own block plus the file's, not the 1 byte it holds.
+      expect(await vol.measure(dir)).to.equal(8192);
+    });
+
+    it('measures a file by what it occupies too', async () => {
+      fsStub.lstat.withArgs(`${MOUNT}/small`).resolves({
+        isSymbolicLink: () => false, isDirectory: () => false, size: 12, blocks: 8,
+      });
+      const vol = await volumeSession.openVolume(reqFor());
+      const file = await vol.resolve('small');
+
+      expect(await vol.measure(file)).to.equal(4096);
     });
 
     it('measures a symlink as zero', async () => {
@@ -329,14 +351,19 @@ describe('volumeSession tests', () => {
     });
 
     it('refuses when the source cannot be measured', async () => {
-      // getFolderSize reports false rather than throwing; treating that as free
-      // would let an unmeasurable tree through the capacity check.
-      fsStub.lstat.withArgs(`${MOUNT}/dir`).resolves({ isSymbolicLink: () => false, isDirectory: () => true });
-      IOUtilsStub.getFolderSize.resolves(false);
+      // Fails closed: treating an unmeasurable source as free would let it
+      // through the capacity check, and an operation that runs out of space
+      // partway leaves a partial tree the user has to find and clean up.
+      // Readable when it is resolved and not when it is measured, which is the
+      // ordinary case rather than a contrived one: the application is writing
+      // to this volume while the operation is being set up.
+      fsStub.lstat.withArgs(`${MOUNT}/dir`)
+        .onFirstCall().resolves({ isSymbolicLink: () => false, isDirectory: () => true, blocks: 8 })
+        .onSecondCall().rejects(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
       const vol = await volumeSession.openVolume(reqFor());
       const dir = await vol.resolve('dir');
 
-      await expect(vol.measure(dir)).to.be.rejectedWith('Unable to measure source');
+      await expect(vol.measure(dir)).to.be.rejectedWith('EACCES');
     });
 
     it('rejects a plain string', async () => {
