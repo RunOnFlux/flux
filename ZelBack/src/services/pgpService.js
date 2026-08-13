@@ -3,24 +3,28 @@ const path = require('path');
 const fs = require('fs').promises;
 const generalService = require('./generalService');
 const workerRunner = require('./utils/workerRunner');
+const configManager = require('./utils/configManager');
 const log = require('../lib/log');
 
 const runPgp = (operation, params) => workerRunner.runInWorker('pgpWorker', { operation, params });
 
 /**
- * To adjust PGP identity
+ * To adjust PGP identity. The file is this node's only record of its keypair,
+ * so the in-process copy is refreshed from it here. A caller that stores an
+ * identity and then reads the previous one back cannot tell that the write
+ * happened, and every other writer of this file rebuilds it from the same
+ * in-process copy - so a stale one puts the replaced keypair straight back.
  * @param {string} privateKey Armored version of private key
  * @param {string} publicKey Armored version of public key
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Rejects if the identity could not be stored.
  */
 async function adjustPGPidentity(privateKey, publicKey) {
-  try {
-    const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-    if (publicKey === userconfig.initial.pgpPublicKey && privateKey === userconfig.initial.pgpPrivateKey) {
-      return;
-    }
-    log.info(`Adjusting Identity to ${publicKey}`);
-    const dataToWrite = `module.exports = {
+  const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+  if (publicKey === userconfig.initial.pgpPublicKey && privateKey === userconfig.initial.pgpPrivateKey) {
+    return;
+  }
+  log.info(`Adjusting Identity to ${publicKey}`);
+  const dataToWrite = `module.exports = {
   initial: {
     ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
     zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
@@ -36,14 +40,36 @@ async function adjustPGPidentity(privateKey, publicKey) {
   }
 }`;
 
-    await fs.writeFile(fluxDirPath, dataToWrite);
-  } catch (error) {
-    log.error(error);
-  }
+  await fs.writeFile(fluxDirPath, dataToWrite);
+  configManager.reloadConfig();
+}
+
+/**
+ * The private key this node has already been shown to hold the public half of.
+ * @type {string | null}
+ */
+let verifiedPrivateKey = null;
+
+/**
+ * The identity repair that is running, if any. Every caller relying on the
+ * private key meets the same corrupt pair, and a repair rewrites
+ * config/userconfig.js whole - a file that is emptied before it is written, and
+ * that a reader landing mid-write finds carrying no identity at all. Callers
+ * share one repair rather than each running theirs over the top of the others.
+ * @type {Promise<void> | null}
+ */
+let repairInFlight = null;
+
+/**
+ * @returns {void}
+ */
+function clearRepairInFlight() {
+  repairInFlight = null;
 }
 
 /**
  * To generate a keypair and store it as this node's identity
+ * @returns {Promise<void>}
  */
 async function createIdentity() {
   const collateralInfo = await generalService.obtainNodeCollateralInformation();
@@ -53,14 +79,10 @@ async function createIdentity() {
   const name = `${collateralInfo.txhash}:${collateralInfo.txindex}`; // '0000000567ad22d02e3fc7631d94eb0dac5f1d5eb4adbd63349766f2665640c6:0'
   const keypair = await runPgp('generateKey', { name, email });
   await adjustPGPidentity(keypair.privateKey, keypair.publicKey);
+  // the halves were generated together, so the check this saves has one answer
+  verifiedPrivateKey = keypair.privateKey;
   log.info('PGP identity generated');
 }
-
-/**
- * The private key this node has already been shown to hold the public half of.
- * @type {string | null}
- */
-let verifiedPrivateKey = null;
 
 /**
  * To replace the stored keypair if the public key does not belong to the
@@ -86,8 +108,12 @@ async function ensureIdentityVerified() {
       return;
     }
 
-    log.warn('Existing PGP identity is corrupted. Generating new identity');
-    await createIdentity();
+    if (!repairInFlight) {
+      log.warn('Existing PGP identity is corrupted. Generating new identity');
+      log.warn('Whatever was sealed to the previous public key was never readable here and has to be published again');
+      repairInFlight = createIdentity().finally(clearRepairInFlight);
+    }
+    await repairInFlight;
   } catch (error) {
     // an identity that could not be checked is not a reason to refuse the work
     // that prompted the check - a genuinely broken key fails the decrypt itself
