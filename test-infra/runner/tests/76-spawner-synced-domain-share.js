@@ -59,12 +59,12 @@ describe('spawner shares one fault domain among synced-app instances', function 
     expect(placed.length).to.be.at.least(3);
   });
 
-  // Skipped: the ceiling is not a property of the share arithmetic, and no amount
-  // of it can be. A node admits itself by counting the claimants ahead of it in a
-  // gossiped list; two nodes whose lists are each missing the other both count
-  // themselves inside the remaining share and both install. Nothing removes the
-  // surplus within this window either - checkAndRemoveApplicationInstance is paced
-  // at 44 blocks, roughly 22 minutes.
+  // Skipped until the spawner is redesigned: the ceiling is not a property of the
+  // share arithmetic, and no amount of it can be. A node admits itself by counting
+  // the claimants ahead of it in a gossiped list; two nodes whose lists are each
+  // missing the other both count themselves inside the remaining share and both
+  // install. Nothing removes the surplus within this window either -
+  // checkAndRemoveApplicationInstance is paced at 44 blocks, roughly 22 minutes.
   //
   // Observed at about one run in fourteen, and worse under a loaded gate, which is
   // the worst frequency to carry live: often enough to cost an investigation, rare
