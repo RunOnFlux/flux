@@ -422,4 +422,7 @@ module.exports = {
   mongodb: {
     signingKeyBaseUrl: 'https://pgp.mongodb.com',
   },
+  residentialDos: {
+    enabled: true,
+  },
 };

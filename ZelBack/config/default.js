@@ -622,6 +622,13 @@ module.exports = {
     // has expired. The version is appended: /server-<major.minor>.asc
     signingKeyBaseUrl: 'https://pgp.mongodb.com',
   },
+  residentialDos: {
+    // A node on a residential connection is only fit to serve the network when it
+    // runs ArcaneOS; without it, the host is unattested and the connection has no
+    // datacenter uptime behind it. Such a node is put into DOS until it migrates.
+    // Set false to disable enforcement fleet-wide from a config change alone.
+    enabled: true,
+  },
   analytics: {
     url: 'https://cloudaudit.runonflux.io', // analytics server URL (e.g. 'https://analytics.runonflux.io'). Empty = disabled.
   },
