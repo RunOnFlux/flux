@@ -203,14 +203,6 @@ async function assertMountIsLive(session) {
 }
 
 /**
- * In-flight pull of the executor image, shared by everything waiting for it.
- *
- * Four operations starting on a cold node must not start four downloads of the
- * same image.
- */
-let imagePull = null;
-
-/**
  * The image id this node must run.
  *
  * A tag says which image to fetch; it does not say what is in it. One at a
@@ -232,42 +224,83 @@ function expectedImageId() {
 }
 
 /**
- * Fetch the image, from the registry if it can be reached and from a peer if it
- * cannot.
- *
- * Whichever answers, the image is only accepted if it carries the id this node
- * is pinned to. A peer is not trusted to say what it is sending, and neither is
- * the registry - the check is the same one either way.
- *
- * @param {string} image - the tag to fetch
- * @param {string} expected - the id it has to resolve to
- * @param {function(string): void} [onProgress]
- * @returns {Promise<void>}
+ * Monotonic milliseconds. A backoff measured against the wall clock expires
+ * early or never when the clock is corrected.
+ * @returns {number}
  */
-async function fetchImage(image, expected, onProgress) {
-  const refused = [];
+function monotonicMs() {
+  return Number(process.hrtime.bigint() / 1000000n);
+}
 
-  try {
-    if (onProgress) onProgress('Fetching the file operation image...');
-    await dockerService.pullImage({ repoTag: image });
-    // dockerPullStream reports the progress stream, not the outcome: a pull can
-    // end on an error event and still call back without one. Ask the store.
-    if (await dockerService.imageExists(expected)) return;
-    refused.push(`${image} resolved to an image this node is not pinned to`);
-  } catch (error) {
-    refused.push(`registry: ${error.message}`);
-  }
+/**
+ * How widely the fleet's REGISTRY fetch is spread.
+ *
+ * Only the registry is spread, because only the registry is one place every
+ * node reaches at once. Asking peers costs the fleet nothing it does not
+ * already have, so a node that boots without the image asks them straight away
+ * and, once the fleet holds it, is done in a moment.
+ */
+const PREFETCH_WINDOW_MS = 6 * 60 * 60 * 1000;
 
-  try {
-    if (onProgress) onProgress('Fetching the file operation image from a peer...');
-    await fetchImageFromPeer(expected);
-    if (await dockerService.imageExists(expected)) return;
-    refused.push('no peer held the image this node is pinned to');
-  } catch (error) {
-    refused.push(`peers: ${error.message}`);
-  }
+/** How long a caller waits for an image already on its way before being told to come back. */
+const IMAGE_WAIT_MS = 10000;
 
-  throw new Error(`Could not fetch the file operation image ${image} (${expected}): ${refused.join('; ')}`);
+/**
+ * How long a failed attempt answers callers without searching again.
+ *
+ * Without it every click repeats the whole search - the registry and four peers
+ * - so a node that cannot get the image makes every file operation cost minutes
+ * rather than telling the user in milliseconds. The background loop owns
+ * retrying; a caller only needs the answer.
+ */
+const IMAGE_FAILURE_SILENCE_MS = 60000;
+
+/** One registry attempt loses a transient error - a DNS blip, a single 503 - to bad luck. */
+const REGISTRY_ATTEMPTS = 2;
+const REGISTRY_RETRY_MS = 3000;
+
+/** Between cycles: soon enough that a node whose network returns is not stuck for an hour. */
+const ACQUIRE_BACKOFF_MS = 30000;
+const ACQUIRE_BACKOFF_CEILING_MS = 60 * 60 * 1000;
+
+let acquiring = null;
+let failedAt = 0;
+let backoffMs = 0;
+let backoffUntil = 0;
+let acquireTimer = null;
+
+/**
+ * A refusal the HTTP layer answers 503 to, carrying how long to wait.
+ *
+ * The node is not broken and the request is not wrong: what it needs is on its
+ * way, which is a different thing from a failure and reads differently to
+ * whoever is looking at it.
+ *
+ * @param {number} retryAfterMs
+ * @returns {Error}
+ */
+function imageComing(retryAfterMs) {
+  const error = new Error('The file operation image is not on this node yet and is being fetched; try again shortly');
+  error.kind = 'busy';
+  error.retryAfterMs = Math.min(Math.max(retryAfterMs || IMAGE_WAIT_MS, 5000), 300000);
+  return error;
+}
+
+/**
+ * Where in the window this node asks the REGISTRY, derived from its own address.
+ *
+ * Derived rather than drawn at random so it is the same slot on every restart:
+ * a node that re-rolls picks a new one each boot, which turns a restarting
+ * fleet back into the burst the window exists to spread. Hashed because
+ * addresses are not evenly distributed and their low bits least of all.
+ *
+ * @returns {number}
+ */
+function prefetchDelayMs() {
+  const identity = userconfig.initial.ipaddress;
+  if (!identity) return Math.floor(PREFETCH_WINDOW_MS / 2);
+  const digest = crypto.createHash('sha256').update(identity).digest();
+  return digest.readUInt32BE(0) % PREFETCH_WINDOW_MS;
 }
 
 /** How many peers are asked for the image before the attempt is given up. */
@@ -286,85 +319,6 @@ const PEER_IMAGE_TIMEOUT_MS = 120000;
 const PEER_IMAGE_SERVE_LIMIT = 2;
 
 let peerImageServes = 0;
-
-/**
- * How widely the fleet's prefetch is spread.
- *
- * The peer path is only worth having if peers actually hold the image, and an
- * image that arrives only when someone uses the file browser reaches almost
- * nobody - which is exactly the state the fleet is in just after a release,
- * when a node that cannot reach the registry most needs a peer that can.
- * Every node fetching it makes the fleet the second source in practice rather
- * than in principle.
- *
- * Spread, because the alternative is every node fetching at once each time the
- * fleet restarts.
- */
-const PREFETCH_WINDOW_MS = 6 * 60 * 60 * 1000;
-
-/** How long a node that could not fetch waits before trying again. */
-const PREFETCH_RETRY_MS = 60 * 60 * 1000;
-
-let prefetchTimer = null;
-
-/**
- * Where in the window this node fetches, derived from its own address.
- *
- * Derived rather than drawn at random so it is the same slot on every restart:
- * a node that re-rolls picks a new slot each boot, which turns a restarting
- * fleet back into the burst the window exists to spread. Hashed because
- * addresses are not evenly distributed and their low bits least of all.
- *
- * @returns {number}
- */
-function prefetchDelayMs() {
-  const identity = userconfig.initial.ipaddress;
-  if (!identity) return Math.floor(PREFETCH_WINDOW_MS / 2);
-  const digest = crypto.createHash('sha256').update(identity).digest();
-  return digest.readUInt32BE(0) % PREFETCH_WINDOW_MS;
-}
-
-/**
- * Fetch the image before anything asks for it, so the node holds it and so the
- * fleet does.
- *
- * Failure is expected and is not an error: a node with no route to the registry
- * and no peer holding it yet tries again later, and the on-demand path is still
- * there for a node whose slot has not come round.
- *
- * @returns {Promise<void>}
- */
-async function prefetchImage() {
-  try {
-    await ensureImage();
-    log.info('volumeExecutor - the file operation image is on this node');
-  } catch (error) {
-    log.info(`volumeExecutor - could not fetch the file operation image yet, will try again: ${error.message}`);
-    prefetchTimer = setTimeout(prefetchImage, PREFETCH_RETRY_MS);
-    if (prefetchTimer.unref) prefetchTimer.unref();
-  }
-}
-
-/**
- * Schedule this node's prefetch.
- * @returns {void}
- */
-function startImagePrefetch() {
-  if (prefetchTimer) return;
-  const delay = prefetchDelayMs();
-  log.info(`volumeExecutor - the file operation image will be fetched in ${Math.round(delay / 60000)} minute(s)`);
-  prefetchTimer = setTimeout(prefetchImage, delay);
-  if (prefetchTimer.unref) prefetchTimer.unref();
-}
-
-/**
- * Stop a scheduled prefetch.
- * @returns {void}
- */
-function stopImagePrefetch() {
-  if (prefetchTimer) clearTimeout(prefetchTimer);
-  prefetchTimer = null;
-}
 
 /**
  * Take the image from another Flux node.
@@ -492,10 +446,158 @@ async function serveImageToPeer(req, res) {
 }
 
 /**
- * Make sure the executor image is on this node, fetching it if it is not.
+ * One attempt at getting the image: peers, then the registry if it is allowed.
+ *
+ * Peers first, everywhere. Once the fleet holds the image they are the faster
+ * answer and they cost one central place nothing; a peer that does not have it
+ * refuses at once rather than timing out, so asking is cheap even when it is
+ * futile.
+ *
+ * @param {string} expected
+ * @param {{registry: boolean}} sources
+ * @returns {Promise<boolean>} whether the node now holds it
+ */
+async function acquisitionCycle(expected, sources) {
+  await fetchImageFromPeer(expected).catch((error) => {
+    log.info(`volumeExecutor - no peer provided the file operation image: ${error.message}`);
+  });
+  if (await dockerService.imageExists(expected)) return true;
+
+  if (!sources.registry) return false;
+
+  const { image } = settings();
+  for (let attempt = 0; attempt < REGISTRY_ATTEMPTS; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await dockerService.pullImage({ repoTag: image });
+      // A pull can end on an error event and still call back without one, so
+      // the store is asked rather than the pull taken at its word.
+      // eslint-disable-next-line no-await-in-loop
+      if (await dockerService.imageExists(expected)) return true;
+      log.warn(`volumeExecutor - ${image} resolved to an image this node is not pinned to`);
+      return false;
+    } catch (error) {
+      log.info(`volumeExecutor - the registry did not provide ${image}: ${error.message}`);
+    }
+    // eslint-disable-next-line no-await-in-loop
+    if (attempt + 1 < REGISTRY_ATTEMPTS) await serviceHelper.delay(REGISTRY_RETRY_MS);
+  }
+
+  return false;
+}
+
+/**
+ * Try again later, doubling the wait to a ceiling and jittered so nodes that
+ * failed together do not return together.
+ *
+ * @param {string} expected
+ * @returns {void}
+ */
+function scheduleAcquisition(expected) {
+  backoffMs = backoffMs
+    ? Math.min(backoffMs * 2, ACQUIRE_BACKOFF_CEILING_MS)
+    : ACQUIRE_BACKOFF_MS;
+  const wait = Math.round(backoffMs * (0.8 + (crypto.randomInt(0, 400) / 1000)));
+  backoffUntil = monotonicMs() + wait;
+
+  if (acquireTimer) clearTimeout(acquireTimer);
+  // eslint-disable-next-line no-use-before-define
+  acquireTimer = setTimeout(() => { acquireImage(expected, { registry: true, thenRetry: true }); }, wait);
+  if (acquireTimer.unref) acquireTimer.unref();
+}
+
+/**
+ * Run a cycle, sharing one between everything waiting on it, and decide what
+ * happens when it comes back empty.
+ *
+ * @param {string} expected
+ * @param {{registry: boolean, thenRetry: boolean}} options
+ * @returns {Promise<boolean>}
+ */
+function acquireImage(expected, options) {
+  if (acquiring) return acquiring;
+
+  acquiring = acquisitionCycle(expected, options)
+    .then((held) => {
+      if (held) {
+        failedAt = 0;
+        backoffMs = 0;
+        backoffUntil = 0;
+        log.info('volumeExecutor - the file operation image is on this node');
+        return true;
+      }
+      failedAt = monotonicMs();
+      if (options.thenRetry) scheduleAcquisition(expected);
+      return false;
+    })
+    .catch((error) => {
+      failedAt = monotonicMs();
+      log.error(`volumeExecutor - could not fetch the file operation image: ${error.message}`);
+      if (options.thenRetry) scheduleAcquisition(expected);
+      return false;
+    })
+    .finally(() => { acquiring = null; });
+
+  return acquiring;
+}
+
+/**
+ * Take the image before anything asks for it.
+ *
+ * Peers immediately, because once the fleet holds the image that is the whole
+ * job and it costs nobody anything - a node that reboots into a fleet that has
+ * it is done in a moment. Only when no peer has it does this node need the
+ * registry, and that is the fetch worth spreading, so it waits for its own
+ * point in the window before going there.
+ *
+ * @returns {Promise<void>}
+ */
+async function prefetchImage() {
+  const expected = expectedImageId();
+  if (await dockerService.imageExists(expected)) return;
+
+  await acquireImage(expected, { registry: false, thenRetry: false });
+  if (await dockerService.imageExists(expected)) return;
+
+  const wait = prefetchDelayMs();
+  log.info(`volumeExecutor - no peer had the file operation image; the registry will be asked in ${Math.round(wait / 60000)} minute(s)`);
+  acquireTimer = setTimeout(() => { acquireImage(expected, { registry: true, thenRetry: true }); }, wait);
+  if (acquireTimer.unref) acquireTimer.unref();
+}
+
+/**
+ * Start this node's fetch.
+ *
+ * Returns the first attempt so a caller can wait for it. Nothing in the boot
+ * path does - it is deliberately not awaited there - but a test that asserts
+ * what was scheduled has to know the scheduling has happened.
+ *
+ * @returns {Promise<void>}
+ */
+function startImagePrefetch() {
+  if (acquireTimer) return Promise.resolve();
+  return prefetchImage().catch((error) => {
+    log.error(`volumeExecutor - could not start the image fetch: ${error.message}`);
+  });
+}
+
+/**
+ * Stop a scheduled fetch.
+ * @returns {void}
+ */
+function stopImagePrefetch() {
+  if (acquireTimer) clearTimeout(acquireTimer);
+  acquireTimer = null;
+  backoffMs = 0;
+  backoffUntil = 0;
+  failedAt = 0;
+}
+
+/**
+ * Make sure the executor image is on this node.
  *
  * Creating a container does not pull - docker answers 404 for an image it does
- * not hold - so without this the first file operation on any node fails with an
+ * not hold - so without this the first file operation on a node fails with an
  * opaque docker error, and so does every one after it.
  *
  * Checked before EVERY operation rather than once at startup, because nothing
@@ -505,34 +607,35 @@ async function serveImageToPeer(req, res) {
  *
  * `performDockerCleanup` is NOT one of the things that removes it, despite
  * running before every app install: `pruneImages` filters on dangling, and a
- * tagged image is not dangling. Recorded here because the opposite was written
- * down once and it is the kind of claim that gets a working fetch removed as
- * redundant.
+ * tagged image is not dangling.
  *
- * Deliberately NOT pulled at startup as well. It would save a few seconds on
- * the first operation, and cost a synchronised fetch from every node on the
- * network each time the fleet restarts, for an image most of them will not use.
- * Fetching on demand spreads that across actual use, and the peer path means a
- * node whose fetch comes late is not left without one.
+ * A caller waits a short while and is then told to come back. It does not wait
+ * for the fetch's own patience - a peer has two minutes to hand over thirteen
+ * megabytes and nobody clicking a button has two minutes - and the fetch is not
+ * abandoned because a caller stopped waiting. A cycle that has just failed
+ * answers immediately, so a node that cannot get the image costs a click
+ * milliseconds rather than minutes.
  *
  * @param {function(string): void} [onProgress]
  * @returns {Promise<string>} the id of the image to run
  */
 async function ensureImage(onProgress = null) {
-  const { image } = settings();
   const expected = expectedImageId();
 
-  // However it got here. An image that carries this id is the image, whether it
-  // came from the registry, from a peer, or was already on the node.
+  // However it got here. An image carrying this id is the image, whether it came
+  // from the registry, from a peer, or was already on the node.
   if (await dockerService.imageExists(expected)) return expected;
 
-  if (!imagePull) {
-    log.info(`volumeExecutor - ${image} is not present on this node, fetching it`);
-    imagePull = fetchImage(image, expected, onProgress).finally(() => { imagePull = null; });
+  if (failedAt && monotonicMs() - failedAt < IMAGE_FAILURE_SILENCE_MS) {
+    throw imageComing(backoffUntil - monotonicMs());
   }
 
-  await imagePull;
-  return expected;
+  if (onProgress) onProgress('Fetching the file operation image...');
+  const cycle = acquireImage(expected, { registry: true, thenRetry: true });
+  await Promise.race([cycle, serviceHelper.delay(IMAGE_WAIT_MS)]);
+
+  if (await dockerService.imageExists(expected)) return expected;
+  throw imageComing(backoffUntil - monotonicMs());
 }
 
 /**

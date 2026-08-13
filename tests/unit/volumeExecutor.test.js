@@ -5,6 +5,7 @@ const proxyquire = require('proxyquire').noCallThru();
 const os = require('node:os');
 const nodePath = require('node:path');
 const realFs = require('node:fs/promises');
+const nodeCrypto = require('node:crypto');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -102,6 +103,11 @@ describe('volumeExecutor tests', () => {
       ensureString: sinon.stub().callsFake((v) => (typeof v === 'string' ? v : JSON.stringify(v))),
       runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
       axiosGet: sinon.stub().rejects(new Error('no peer answered')),
+      // The caller's deadline never resolves, so a test about what the fetch
+      // does is decided by the fetch rather than by a race it did not mean to
+      // run. Short waits inside the fetch - the gap between registry attempts -
+      // are instant, because waiting for them is not what any test is about.
+      delay: sinon.stub().callsFake((ms) => (ms >= 10000 ? new Promise(() => {}) : Promise.resolve())),
     };
 
     networkStateStub = {
@@ -231,9 +237,7 @@ describe('volumeExecutor tests', () => {
     it('pulls the pinned image when the node does not have it', async () => {
       // Creating a container does not pull: docker 404s for an image it does
       // not hold. Without this the FIRST file operation on any node fails.
-      dockerServiceStub.imageExists = sinon.stub();
-      dockerServiceStub.imageExists.onFirstCall().resolves(false);
-      dockerServiceStub.imageExists.onSecondCall().resolves(true);
+      pulled = false;
 
       const vol = await openSession();
       const lines = [];
@@ -282,7 +286,7 @@ describe('volumeExecutor tests', () => {
 
       const vol = await openSession();
       await expect(volumeExecutor.run(vol, ['true']))
-        .to.be.rejectedWith(/Could not fetch the file operation image/);
+        .to.be.rejectedWith(/is being fetched/);
       expect(dockerServiceStub.createContainer.called).to.equal(false);
     });
 
@@ -294,7 +298,7 @@ describe('volumeExecutor tests', () => {
 
       const vol = await openSession();
       await expect(volumeExecutor.run(vol, ['true']))
-        .to.be.rejectedWith('Could not fetch the file operation image');
+        .to.be.rejectedWith(/is being fetched/);
       expect(dockerServiceStub.createContainer.called).to.equal(false);
     });
   });
@@ -308,16 +312,16 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.imageExists = sinon.stub().resolves(false);
 
       const vol = await openSession();
-      await expect(volumeExecutor.run(vol, ['true']))
-        .to.be.rejectedWith(/is not pinned to/);
+      // Refused as "on its way" rather than as a failure: the node is not
+      // broken, and the background loop keeps trying.
+      const error = await volumeExecutor.run(vol, ['true']).catch((thrown) => thrown);
+      expect(error.kind).to.equal('busy');
     });
 
     it('takes the image from a peer when the registry cannot be reached', async () => {
-      dockerServiceStub.imageExists = sinon.stub();
-      dockerServiceStub.imageExists.onFirstCall().resolves(false);
-      dockerServiceStub.imageExists.resolves(true);
+      pulled = false;
       dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
-      dockerServiceStub.loadImage = sinon.stub().resolves([IMAGE_ID]);
+      dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return [IMAGE_ID]; });
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
       serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
 
@@ -351,10 +355,16 @@ describe('volumeExecutor tests', () => {
   describe('taking the image before anything asks for it', () => {
     let originalAddress;
 
-    const scheduledDelay = () => Object.values(setTimeout.clock.timers)[0].delay;
+    // Derived here rather than read out of the module, so the derivation is
+    // pinned rather than echoed back.
+    const slotFor = (address) => nodeCrypto.createHash('sha256').update(address).digest()
+      .readUInt32BE(0) % (6 * 60 * 60 * 1000);
 
     beforeEach(() => {
       originalAddress = globalThis.userconfig.initial.ipaddress;
+      // A node that does not hold the image yet, with a peer to ask about it.
+      pulled = false;
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
     });
 
     afterEach(() => {
@@ -362,40 +372,66 @@ describe('volumeExecutor tests', () => {
       globalThis.userconfig.initial.ipaddress = originalAddress;
     });
 
-    it('fetches at the same point in the window on every restart', () => {
+    it('asks peers straight away and the registry only at its own point in the window', async () => {
+      // Asking peers costs one central place nothing, so a node that boots into
+      // a fleet holding the image is done at once. The registry is the fetch
+      // that herds, so it waits.
+      const clock = sinon.useFakeTimers();
+      try {
+        globalThis.userconfig.initial.ipaddress = '198.18.0.7';
+
+        await volumeExecutor.startImagePrefetch();
+
+        expect(serviceHelperStub.axiosGet.called, 'peers were not asked at once').to.equal(true);
+        expect(dockerServiceStub.pullImage.called, 'the registry was asked immediately').to.equal(false);
+
+        await clock.tickAsync(slotFor('198.18.0.7') - 1);
+        expect(dockerServiceStub.pullImage.called, 'the registry was asked before its slot').to.equal(false);
+
+        await clock.tickAsync(1);
+        expect(dockerServiceStub.pullImage.called, 'the registry was not asked at its slot').to.equal(true);
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it('asks at the same point on every restart', async () => {
       // A node drawing its slot at random picks a new one each boot, which
       // turns a restarting fleet back into the burst the window exists to
       // spread.
       const clock = sinon.useFakeTimers();
       try {
         globalThis.userconfig.initial.ipaddress = '198.18.0.7';
-        volumeExecutor.startImagePrefetch();
-        const first = scheduledDelay();
+        const slot = slotFor('198.18.0.7');
+
+        await volumeExecutor.startImagePrefetch();
         volumeExecutor.stopImagePrefetch();
+        await volumeExecutor.startImagePrefetch();
 
-        volumeExecutor.startImagePrefetch();
-
-        expect(scheduledDelay()).to.equal(first);
+        await clock.tickAsync(slot - 1);
+        expect(dockerServiceStub.pullImage.called).to.equal(false);
+        await clock.tickAsync(1);
+        expect(dockerServiceStub.pullImage.called).to.equal(true);
       } finally {
         clock.restore();
       }
     });
 
-    it('puts different nodes at different points in the window', () => {
+    it('puts a different address at a different point', async () => {
+      // This node's slot is the later of the two, so reaching the other one
+      // must not set it going.
       const clock = sinon.useFakeTimers();
-      const delays = new Set();
       try {
-        for (const address of ['198.18.0.7', '198.18.0.8', '198.18.1.7', '203.0.113.4']) {
-          globalThis.userconfig.initial.ipaddress = address;
-          volumeExecutor.startImagePrefetch();
-          delays.add(scheduledDelay());
-          volumeExecutor.stopImagePrefetch();
-        }
+        expect(slotFor('198.18.0.7')).to.be.greaterThan(slotFor('198.18.0.8'));
+        globalThis.userconfig.initial.ipaddress = '198.18.0.7';
+
+        await volumeExecutor.startImagePrefetch();
+        await clock.tickAsync(slotFor('198.18.0.8'));
+
+        expect(dockerServiceStub.pullImage.called, 'it went at another address\'s slot').to.equal(false);
       } finally {
         clock.restore();
       }
-
-      expect(delays.size).to.equal(4);
     });
   });
 
