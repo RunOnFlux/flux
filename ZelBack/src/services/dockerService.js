@@ -1379,6 +1379,51 @@ async function imageExists(reference) {
 }
 
 /**
+ * Stream an image out of the local store as a tar archive.
+ *
+ * The archive carries the image's config and layers, which is what makes an id
+ * checkable at the other end: the id IS the digest of that config, so a receiver
+ * can tell what it was sent from the bytes rather than from the sender.
+ *
+ * @param {string} reference - repo:tag, repo@digest or an image id
+ * @returns {Promise<NodeJS.ReadableStream>}
+ */
+async function exportImage(reference) {
+  return docker.getImage(reference).get();
+}
+
+/**
+ * Load images from a tar archive, answering which ids arrived.
+ *
+ * The ids are the point. An archive names itself - its tags are whatever the
+ * sender wrote - so a caller taking one from anywhere it does not control has to
+ * check what actually landed, and remove it if it is not what was wanted.
+ *
+ * @param {NodeJS.ReadableStream} stream - a docker image archive
+ * @returns {Promise<Array<string>>} the ids the daemon reports loading
+ */
+async function loadImage(stream) {
+  const progress = await docker.loadImage(stream);
+
+  return new Promise((resolve, reject) => {
+    const loaded = [];
+    let buffered = '';
+
+    progress.on('data', (chunk) => {
+      buffered += chunk.toString();
+      // The daemon reports "Loaded image ID: sha256:..." for an untagged
+      // archive and "Loaded image: name:tag" for a tagged one; only the first
+      // form names something that cannot have been chosen by the sender.
+      const found = buffered.match(/Loaded image ID: (sha256:[0-9a-f]{64})/g) || [];
+      for (const line of found) loaded.push(line.replace('Loaded image ID: ', ''));
+      buffered = '';
+    });
+    progress.on('end', () => resolve([...new Set(loaded)]));
+    progress.on('error', reject);
+  });
+}
+
+/**
  * Removes app's docker image.
  *
  * @param {string} idOrName
@@ -1974,6 +2019,8 @@ module.exports = {
   appDockerUpdateCpu,
   appDockerImageRemove,
   imageExists,
+  exportImage,
+  loadImage,
   appDockerKill,
   appDockerPause,
   appDockerRemove,

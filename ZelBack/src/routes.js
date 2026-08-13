@@ -26,6 +26,7 @@ const resourceQueryService = require('./services/appQuery/resourceQueryService')
 const deploymentInfoService = require('./services/appQuery/deploymentInfoService');
 const fileQueryService = require('./services/appQuery/fileQueryService');
 const fileSystemManager = require('./services/appSystem/fileSystemManager');
+const volumeExecutor = require('./services/appSystem/volumeExecutor');
 const operationsController = require('./services/appManagement/operationsController');
 const cryptographicKeys = require('./services/appMessaging/cryptographicKeys');
 const registryManager = require('./services/appDatabase/registryManager');
@@ -1566,6 +1567,12 @@ module.exports = (app) => {
   });
   app.get('/apps/fluxshare/downloadfolder/:folder?', (req, res) => {
     fluxshareService.fluxShareDownloadFolder(req, res);
+  });
+  // Handing the file operation image to a node that cannot reach the registry.
+  // Open to other Flux nodes rather than to an owner: it carries no app data,
+  // and a node needing it has nobody to authenticate as.
+  app.get('/apps/fileoperationimage/:imageid', (req, res) => {
+    volumeExecutor.serveImageToPeer(req, res);
   });
   // Volume Browser
   app.get('/apps/getfolderinfo/:appname?/:component?/:folder?', (req, res) => {

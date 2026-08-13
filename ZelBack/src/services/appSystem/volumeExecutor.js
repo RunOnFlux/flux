@@ -1,11 +1,13 @@
 const config = require('config');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const os = require('node:os');
 const util = require('node:util');
 const fs = require('node:fs/promises');
 const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
+const networkStateService = require('../networkStateService');
 const log = require('../../lib/log');
 const { Writable } = require('node:stream');
 const { AsyncLock } = require('../utils/asyncLock');
@@ -211,6 +213,208 @@ async function assertMountIsLive(session) {
 let imagePull = null;
 
 /**
+ * The image id this node must run.
+ *
+ * A tag says which image to fetch; it does not say what is in it. One at a
+ * registry can be moved, and one inside an image a peer hands over is whatever
+ * that peer wrote into the archive - so the tag is the name and this is the
+ * proof. It is the digest of the image's own config, which docker reports as
+ * the image id, and it is per architecture.
+ *
+ * @returns {string}
+ */
+function expectedImageId() {
+  const { image, imageIds } = settings();
+  const architecture = os.arch() === 'x64' ? 'amd64' : os.arch();
+  const expected = imageIds && imageIds[architecture];
+  if (!expected) {
+    throw new Error(`No file operation image is pinned for ${architecture}, so ${image} cannot be verified`);
+  }
+  return expected;
+}
+
+/**
+ * Fetch the image, from the registry if it can be reached and from a peer if it
+ * cannot.
+ *
+ * Whichever answers, the image is only accepted if it carries the id this node
+ * is pinned to. A peer is not trusted to say what it is sending, and neither is
+ * the registry - the check is the same one either way.
+ *
+ * @param {string} image - the tag to fetch
+ * @param {string} expected - the id it has to resolve to
+ * @param {function(string): void} [onProgress]
+ * @returns {Promise<void>}
+ */
+async function fetchImage(image, expected, onProgress) {
+  const refused = [];
+
+  try {
+    if (onProgress) onProgress('Fetching the file operation image...');
+    await dockerPull({ repoTag: image }, null);
+    // dockerPullStream reports the progress stream, not the outcome: a pull can
+    // end on an error event and still call back without one. Ask the store.
+    if (await dockerService.imageExists(expected)) return;
+    refused.push(`${image} resolved to an image this node is not pinned to`);
+  } catch (error) {
+    refused.push(`registry: ${error.message}`);
+  }
+
+  try {
+    if (onProgress) onProgress('Fetching the file operation image from a peer...');
+    await fetchImageFromPeer(expected);
+    if (await dockerService.imageExists(expected)) return;
+    refused.push('no peer held the image this node is pinned to');
+  } catch (error) {
+    refused.push(`peers: ${error.message}`);
+  }
+
+  throw new Error(`Could not fetch the file operation image ${image} (${expected}): ${refused.join('; ')}`);
+}
+
+/** How many peers are asked for the image before the attempt is given up. */
+const PEER_IMAGE_ATTEMPTS = 4;
+
+/** How long a peer has to hand over the whole archive. */
+const PEER_IMAGE_TIMEOUT_MS = 120000;
+
+/**
+ * How many peers this node hands the image to at once.
+ *
+ * The archive is around thirteen megabytes and the endpoint answers anyone the
+ * network state recognises, so without a ceiling a node can be asked to spend
+ * its bandwidth by whoever asks most often.
+ */
+const PEER_IMAGE_SERVE_LIMIT = 2;
+
+let peerImageServes = 0;
+
+/**
+ * Take the image from another Flux node.
+ *
+ * The registry is one place, and a node that cannot reach it has no file
+ * browser at all - `mkdir` included, which used to be a local call. Every other
+ * node that has ever run a file operation holds the same image, so the fleet is
+ * the second place.
+ *
+ * A peer is not trusted for what it sends. The archive names itself, so the ids
+ * the daemon reports loading are checked against the one this node is pinned to
+ * and anything else is removed again rather than left on the disk.
+ *
+ * @param {string} expected - the image id this node must end up holding
+ * @returns {Promise<void>}
+ */
+async function fetchImageFromPeer(expected) {
+  const asked = new Set();
+
+  for (let attempt = 0; attempt < PEER_IMAGE_ATTEMPTS; attempt += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const socketAddress = await networkStateService.getRandomSocketAddress(null);
+    if (!socketAddress || asked.has(socketAddress)) {
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    asked.add(socketAddress);
+
+    const [ip, port = '16127'] = socketAddress.split(':');
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const response = await serviceHelper.axiosGet(
+        `http://${ip}:${port}/apps/fileoperationimage/${expected}`,
+        { responseType: 'stream', timeout: PEER_IMAGE_TIMEOUT_MS },
+      );
+      // eslint-disable-next-line no-await-in-loop
+      const loaded = await dockerService.loadImage(response.data);
+
+      if (loaded.includes(expected)) {
+        log.info(`volumeExecutor - took the file operation image from ${socketAddress}`);
+        return;
+      }
+
+      log.warn(`volumeExecutor - ${socketAddress} sent ${loaded.length} image(s), none of them ${expected}`);
+      for (const id of loaded) {
+        // eslint-disable-next-line no-await-in-loop
+        await dockerService.appDockerImageRemove(id).catch(() => {});
+      }
+    } catch (error) {
+      log.warn(`volumeExecutor - ${socketAddress} could not provide the file operation image: ${error.message}`);
+    }
+  }
+
+  throw new Error(`asked ${asked.size} peer(s), none provided it`);
+}
+
+/**
+ * Hand the image to another Flux node that cannot reach the registry.
+ *
+ * Narrow on purpose. The caller names the id it wants and gets it only if that
+ * is the id THIS node is pinned to, so there is no "send me image X" here and
+ * it cannot become one: a node of another architecture asks for an id this one
+ * does not have and is refused, which is the right answer rather than a case to
+ * handle. Only an address the network state recognises is answered, and only a
+ * couple at a time.
+ *
+ * @param {object} req
+ * @param {object} res
+ * @returns {Promise<void>}
+ */
+async function serveImageToPeer(req, res) {
+  let serving = false;
+
+  try {
+    // The remote address rather than a forwarded header: this answers other
+    // nodes directly, and a header is written by whoever sends it.
+    const remote = (req.socket.remoteAddress || '').replace(/^.*:/, '');
+    if (!remote) {
+      res.status(400).end();
+      return;
+    }
+
+    const asked = req.params.imageid;
+    const expected = expectedImageId();
+    if (asked !== expected) {
+      res.status(404).end();
+      return;
+    }
+
+    // By address rather than by socketAddress: a node's API port cannot be read
+    // off an inbound connection, whose source port is ephemeral, and the fleet
+    // does not all run on the default one.
+    if (!networkStateService.networkState().some((node) => node.ip.split(':')[0] === remote)) {
+      res.status(403).end();
+      return;
+    }
+
+    if (peerImageServes >= PEER_IMAGE_SERVE_LIMIT) {
+      res.set('Retry-After', '30');
+      res.status(503).end();
+      return;
+    }
+
+    if (!await dockerService.imageExists(expected)) {
+      res.status(404).end();
+      return;
+    }
+
+    serving = true;
+    peerImageServes += 1;
+    const archive = await dockerService.exportImage(expected);
+    res.set('Content-Type', 'application/x-tar');
+    archive.on('error', () => res.destroy());
+    res.on('close', () => { archive.destroy(); });
+    archive.pipe(res);
+    await new Promise((resolve) => { res.on('close', resolve); });
+  } catch (error) {
+    log.error(`volumeExecutor - could not hand over the file operation image: ${error.message}`);
+    if (!res.headersSent) res.status(500).end();
+  } finally {
+    // Only the request that took a slot gives one back: an early refusal that
+    // decremented would release somebody else's.
+    if (serving) peerImageServes -= 1;
+  }
+}
+
+/**
  * Make sure the executor image is on this node, fetching it if it is not.
  *
  * Creating a container does not pull - docker answers 404 for an image it does
@@ -223,41 +427,35 @@ let imagePull = null;
  * it every time costs nothing and removes a whole class of "worked yesterday".
  *
  * `performDockerCleanup` is NOT one of the things that removes it, despite
- * running before every app install. Measured on docker 29.3.1: an image pulled
- * by digest keeps its repository name and carries `<none>` only as its TAG, so
- * it does not match the dangling filter that `pruneImages` uses. Recorded here
- * because the opposite was written down once and it is the kind of claim that
- * gets a working fetch removed as redundant.
+ * running before every app install: `pruneImages` filters on dangling, and a
+ * tagged image is not dangling. Recorded here because the opposite was written
+ * down once and it is the kind of claim that gets a working fetch removed as
+ * redundant.
  *
  * Deliberately NOT pulled at startup as well. It would save a few seconds on
  * the first operation, and cost a synchronised fetch from every node on the
  * network each time the fleet restarts, for an image most of them will not use.
- * Fetching on demand spreads that across actual use.
+ * Fetching on demand spreads that across actual use, and the peer path means a
+ * node whose fetch comes late is not left without one.
  *
  * @param {function(string): void} [onProgress]
+ * @returns {Promise<string>} the id of the image to run
  */
 async function ensureImage(onProgress = null) {
   const { image } = settings();
-  if (await dockerService.imageExists(image)) return;
+  const expected = expectedImageId();
+
+  // However it got here. An image that carries this id is the image, whether it
+  // came from the registry, from a peer, or was already on the node.
+  if (await dockerService.imageExists(expected)) return expected;
 
   if (!imagePull) {
     log.info(`volumeExecutor - ${image} is not present on this node, fetching it`);
-    imagePull = dockerPull({ repoTag: image }, null).finally(() => { imagePull = null; });
+    imagePull = fetchImage(image, expected, onProgress).finally(() => { imagePull = null; });
   }
 
-  if (onProgress) onProgress('Fetching the file operation image...');
-
-  try {
-    await imagePull;
-  } catch (error) {
-    throw new Error(`Could not fetch the file operation image: ${error.message}`);
-  }
-
-  // dockerPullStream reports the progress stream, not the outcome: a pull can
-  // end on an error event and still call back without one. Ask the store.
-  if (!await dockerService.imageExists(image)) {
-    throw new Error('Could not fetch the file operation image');
-  }
+  await imagePull;
+  return expected;
 }
 
 /**
@@ -364,10 +562,8 @@ async function volumeUsedBytes(mount, fsPromises) {
  * needed to read and re-stamp files the container does not own. Everything else
  * stays dropped, including MKNOD, so an archive cannot create device nodes.
  */
-function containerOptions(session, argv, workingDir = WORK_ROOT, withInput = false) {
-  const {
-    image, memoryBytes, pidsLimit,
-  } = settings();
+function containerOptions(session, argv, image, workingDir = WORK_ROOT, withInput = false) {
+  const { memoryBytes, pidsLimit } = settings();
 
   return {
     Image: image,
@@ -673,13 +869,16 @@ async function run(session, argv, options = {}) {
   try {
     // Before the mount check, not after: fetching can take seconds, and the
     // mount is re-read immediately before the bind on purpose.
-    await ensureImage(onProgress);
+    // By id rather than by tag: the id is what was verified, and a tag is a
+    // local name that anything with docker access can move.
+    const image = await ensureImage(onProgress);
     await assertMountIsLive(session);
 
     container = await dockerService.createContainer(
       containerOptions(
         session,
         params,
+        image,
         workingDir ? workingDir.containerPath : undefined,
         Boolean(input),
       ),
@@ -1072,6 +1271,7 @@ async function sweepStagingDirectories(session) {
 module.exports = {
   run,
   ensureImage,
+  serveImageToPeer,
   assertCapacity,
   reapOrphanedContainers,
   sweepStagingDirectories,

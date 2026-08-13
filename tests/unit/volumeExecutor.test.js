@@ -12,7 +12,10 @@ const { expect } = chai;
 describe('volumeExecutor tests', () => {
   const APPS_FOLDER = '/test/apps/folder/';
   const MOUNT = `${APPS_FOLDER}fluxcomp_myapp`;
-  const IMAGE = 'ghcr.io/runonflux/flux-volume-tools@sha256:deadbeef';
+  const IMAGE = 'ghcr.io/runonflux/flux-volume-tools:v1.0.0';
+  // What the tag has to resolve to. The id is what a container is created from,
+  // so it is what the assertions below look for.
+  const IMAGE_ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
 
   let dockerServiceStub;
   let deviceHelperStub;
@@ -25,6 +28,7 @@ describe('volumeExecutor tests', () => {
   let volumeExecutor;
 
   let configStub;
+  let networkStateStub;
 
   // Rebuilt per test: a test that raises a limit to exercise something must not
   // leave it raised for the concurrency tests, which assert a refusal.
@@ -32,6 +36,7 @@ describe('volumeExecutor tests', () => {
     fluxapps: {
       volumeOperations: {
         image: IMAGE,
+        imageIds: { amd64: IMAGE_ID, arm64: IMAGE_ID },
         maxConcurrentPerApp: 1,
         maxConcurrentPerNode: 2,
         stallTimeoutMs: 900000,
@@ -96,6 +101,13 @@ describe('volumeExecutor tests', () => {
     serviceHelperStub = {
       ensureString: sinon.stub().callsFake((v) => (typeof v === 'string' ? v : JSON.stringify(v))),
       runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
+      axiosGet: sinon.stub().rejects(new Error('no peer answered')),
+    };
+
+    networkStateStub = {
+      getRandomSocketAddress: sinon.stub().resolves(null),
+      networkState: sinon.stub().returns([]),
+      getFluxnodeBySocketAddress: sinon.stub().resolves(null),
     };
 
     // Deliberately WITHOUT a `stat`, so a walk that followed symlinks would
@@ -124,6 +136,7 @@ describe('volumeExecutor tests', () => {
       '../dockerService': dockerServiceStub,
       '../deviceHelper': deviceHelperStub,
       '../serviceHelper': serviceHelperStub,
+      '../networkStateService': networkStateStub,
       '../../lib/log': {
         info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
       },
@@ -141,7 +154,9 @@ describe('volumeExecutor tests', () => {
 
       const [options] = dockerServiceStub.createContainer.firstCall.args;
       expect(options.HostConfig.Binds).to.deep.equal([`${MOUNT}:/work`]);
-      expect(options.Image).to.equal(IMAGE);
+      // The id, not the tag: the id is what was verified, and a tag is a local
+      // name anything with docker access can move.
+      expect(options.Image).to.equal(IMAGE_ID);
     });
 
     it('drops every capability except the three cp -a needs', async () => {
@@ -282,6 +297,112 @@ describe('volumeExecutor tests', () => {
       await expect(volumeExecutor.run(vol, ['true']))
         .to.be.rejectedWith('Could not fetch the file operation image');
       expect(dockerServiceStub.createContainer.called).to.equal(false);
+    });
+  });
+
+  describe('the image is identified by what is in it', () => {
+    it('refuses an image the registry resolves the tag to that is not the pinned one', async () => {
+      // A tag is mutable, so a pull proves only that something arrived. What is
+      // run is decided by the id, and a mismatch means the tag moved without
+      // its ids - which every node refuses rather than half the fleet running
+      // something else.
+      dockerServiceStub.imageExists = sinon.stub().resolves(false);
+
+      const vol = await openSession();
+      await expect(volumeExecutor.run(vol, ['true']))
+        .to.be.rejectedWith(/is not pinned to/);
+    });
+
+    it('takes the image from a peer when the registry cannot be reached', async () => {
+      dockerServiceStub.imageExists = sinon.stub();
+      dockerServiceStub.imageExists.onFirstCall().resolves(false);
+      dockerServiceStub.imageExists.resolves(true);
+      // Reconfigured rather than replaced: dockerPull is promisified when the
+      // module loads, so a new stub here would never be the one it calls.
+      dockerServiceStub.dockerPullStream.callsFake((cfg, res, cb) => cb(new Error('getaddrinfo ENOTFOUND ghcr.io')));
+      dockerServiceStub.loadImage = sinon.stub().resolves([IMAGE_ID]);
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      expect(serviceHelperStub.axiosGet.firstCall.args[0])
+        .to.equal(`http://198.18.0.5:16127/apps/fileoperationimage/${IMAGE_ID}`);
+      sinon.assert.calledOnce(dockerServiceStub.loadImage);
+    });
+
+    it('removes what a peer sent when it is not the image that was asked for', async () => {
+      // The archive names itself, so a peer saying "this is the image" proves
+      // nothing. What arrived is checked, and anything else does not stay on
+      // the disk.
+      const wrong = 'sha256:2222222222222222222222222222222222222222222222222222222222222222';
+      dockerServiceStub.imageExists = sinon.stub().resolves(false);
+      dockerServiceStub.dockerPullStream.callsFake((cfg, res, cb) => cb(new Error('offline')));
+      dockerServiceStub.loadImage = sinon.stub().resolves([wrong]);
+      dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+
+      const vol = await openSession();
+      await expect(volumeExecutor.run(vol, ['true'])).to.be.rejected;
+
+      sinon.assert.calledWith(dockerServiceStub.appDockerImageRemove, wrong);
+    });
+  });
+
+  describe('handing the image to a peer', () => {
+    const responseFor = () => {
+      const res = {
+        statusCode: null,
+        headers: {},
+        status(code) { this.statusCode = code; return this; },
+        set(key, value) { this.headers[key] = value; return this; },
+        end: sinon.stub(),
+        on: sinon.stub(),
+        destroy: sinon.stub(),
+        headersSent: false,
+      };
+      return res;
+    };
+    const requestFrom = (ip, imageid) => ({ socket: { remoteAddress: ip }, params: { imageid } });
+
+    it('serves only the id this node is pinned to', async () => {
+      networkStateStub.networkState.returns([{ ip: '198.18.0.5:16127' }]);
+      const res = responseFor();
+
+      await volumeExecutor.serveImageToPeer(
+        requestFrom('198.18.0.5', 'sha256:3333333333333333333333333333333333333333333333333333333333333333'),
+        res,
+      );
+
+      expect(res.statusCode).to.equal(404);
+      expect(dockerServiceStub.exportImage).to.equal(undefined);
+    });
+
+    it('answers only an address the network state knows', async () => {
+      networkStateStub.networkState.returns([{ ip: '198.18.0.5:16127' }]);
+      const res = responseFor();
+
+      await volumeExecutor.serveImageToPeer(requestFrom('203.0.113.9', IMAGE_ID), res);
+
+      expect(res.statusCode).to.equal(403);
+    });
+
+    it('matches a peer on its address, whatever api port it runs on', async () => {
+      // A node's api port cannot be read off an inbound connection, and the
+      // fleet does not all run on the default one.
+      networkStateStub.networkState.returns([{ ip: '198.18.0.5:16187' }]);
+      dockerServiceStub.imageExists = sinon.stub().resolves(true);
+      dockerServiceStub.exportImage = sinon.stub().resolves({
+        on: sinon.stub(), pipe: sinon.stub(), destroy: sinon.stub(),
+      });
+      const res = responseFor();
+      res.on = sinon.stub().callsFake((event, cb) => { if (event === 'close') cb(); });
+
+      await volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res);
+
+      sinon.assert.calledWith(dockerServiceStub.exportImage, IMAGE_ID);
     });
   });
 
