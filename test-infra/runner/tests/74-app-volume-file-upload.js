@@ -116,7 +116,12 @@ describe('app volume file upload', function () {
         fluxapps: {
           minOutgoing: 1,
           minIncoming: 1,
-          volumeOperations: { image: executorImageReference() },
+          volumeOperations: {
+            image: executorImageReference(),
+            // Short enough that a trickle crosses it several times over, and
+            // far longer than any other upload here takes.
+            stallTimeoutMs: 6000,
+          },
         },
       },
     });
@@ -171,6 +176,29 @@ describe('app volume file upload', function () {
       expect(status).to.equal(200);
       expect(failureIn(body), body).to.equal(null);
       expect(await contentOf(node.container, `${root}/photos/notes.txt`)).to.equal('uploaded content');
+      expect(await artefacts()).to.deep.equal([]);
+    });
+
+    it('carries a file whose sender is slower than the stall window', async function () {
+      this.timeout(180000);
+      // The stall check reads what the volume has consumed, and an upload only
+      // moves that once enough bytes have arrived to fill a filesystem block. A
+      // client on a slow link sending a small file moves nothing measurable for
+      // the whole window, and being stopped for it is indistinguishable from
+      // being stopped for wedging.
+      const contents = 'trickled through a window it never fills';
+
+      const { status, body } = await node.uploadSlowly(
+        `/ioutils/fileupload/volume/${appName}/${appName}/${encodeURIComponent('photos')}`,
+        { name: 'slow.txt', contents },
+        { zelidauth: auth.zelidauth },
+        // Twenty seconds of sending against a six second window.
+        { pieces: 20, everyMs: 1000 },
+      );
+
+      expect(status).to.equal(200);
+      expect(failureIn(body), body).to.equal(null);
+      expect(await contentOf(node.container, `${root}/photos/slow.txt`)).to.equal(contents);
       expect(await artefacts()).to.deep.equal([]);
     });
 

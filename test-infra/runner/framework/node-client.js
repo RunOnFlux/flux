@@ -92,6 +92,56 @@ export function nodeClient(nodeNum) {
     return { status: res.status, body: await res.text() };
   }
 
+  /**
+   * Upload one file with the body arriving in pieces, slowly.
+   *
+   * The stall check stops an operation that has got nowhere, and it reads how
+   * much the volume has consumed - which for an upload only moves once enough
+   * bytes have arrived to fill a filesystem block. A client on a slow link
+   * sending a small file moves nothing measurable for the whole window, so this
+   * is what tells a trickle apart from a wedged container.
+   *
+   * The body is built by hand rather than by FormData: what is under test is
+   * bytes arriving over time, and FormData hands over a body that is already
+   * complete.
+   *
+   * @param {string} path
+   * @param {{name: string, contents: string}} file
+   * @param {object} headers
+   * @param {{pieces?: number, everyMs?: number}} pace
+   * @returns {Promise<{status: number, body: string}>}
+   */
+  async function uploadSlowly(path, file, headers = {}, pace = {}) {
+    const { pieces = 10, everyMs = 500 } = pace;
+    const boundary = `----fluxharness${Date.now()}`;
+    const head = `--${boundary}\r\nContent-Disposition: form-data; name="${file.name}"; filename="${file.name}"\r\n`
+      + 'Content-Type: application/octet-stream\r\n\r\n';
+    const tail = `\r\n--${boundary}--\r\n`;
+    const size = Math.max(1, Math.ceil(file.contents.length / pieces));
+
+    const body = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(encoder.encode(head));
+        for (let at = 0; at < file.contents.length; at += size) {
+          // eslint-disable-next-line no-await-in-loop, no-promise-executor-return
+          await new Promise((resolve) => { setTimeout(resolve, everyMs); });
+          controller.enqueue(encoder.encode(file.contents.slice(at, at + size)));
+        }
+        controller.enqueue(encoder.encode(tail));
+        controller.close();
+      },
+    });
+
+    const res = await fetch(`${url}${path}`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      body,
+      duplex: 'half',
+    });
+    return { status: res.status, body: await res.text() };
+  }
+
   let eventSource = null;
   const eventBuffer = [];
   const emitter = new EventEmitter();
@@ -244,6 +294,7 @@ export function nodeClient(nodeNum) {
     post,
     del,
     upload,
+    uploadSlowly,
     request,
     connectEventStream,
     disconnectEventStream,
