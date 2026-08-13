@@ -1,5 +1,6 @@
 // eslint-disable-next-line prefer-const
 let userconfig = require('../../config/userconfig');
+const volumeToolsImage = require('./volumeToolsImage.json');
 
 const isDevelopment = userconfig.initial.development || false;
 
@@ -140,6 +141,14 @@ module.exports = {
     volumeOperations: {
       // The tag is the NAME and the id is the PROOF, and they rotate together.
       //
+      // In their own file because the harness reads them too, and reads them
+      // from here rather than repeating them: a rebuilt image must not leave
+      // the harness testing something the fleet does not run. It cannot
+      // `require` this config to get at them - line 2 pulls in userconfig.js,
+      // which is gitignored and absent from a fresh checkout - so it used to
+      // match them out of this source with a regular expression, and changing
+      // the shape of a pin broke the runner rather than the thing under test.
+      //
       // A tag alone decides nothing: it is mutable at the registry, and one
       // inside an image a peer hands over is whatever that peer wrote in it. So
       // what a node runs is decided by the image id - the digest of the image's
@@ -147,21 +156,23 @@ module.exports = {
       // from the registry, from a peer, or was already here. An id is per
       // architecture, hence one for each.
       //
-      // ROTATING THIS MEANS CHANGING BOTH. An id belongs to a specific build:
-      // the same commit rebuilt under a new tag carries different labels and
-      // therefore a different id. Read them from the release that published the
-      // tag, never from a previous one. A tag moved without its ids is refused
-      // by every node, loudly, which is the right direction to fail in but is
-      // not something to discover during a rollout.
-      image: 'ghcr.io/runonflux/flux-volume-tools:v1.0.0',
-      imageIds: {
-        amd64: 'sha256:115488f65ef6a810e04bfc5c0a85f12ba9f59f3e5601e1314ff7b0465209c139',
-        arm64: 'sha256:efd358a1ab3f1993ef55380d31d0eaeff95e08edc7ee63810b00c61286644b60',
-      },
+      // ROTATING THIS MEANS CHANGING BOTH, which is why they sit together. An
+      // id belongs to a specific build: the same commit rebuilt under a new tag
+      // carries different labels and therefore a different id. Read them from
+      // the release that published the tag, never from a previous one. A tag
+      // moved without its ids is refused by every node, loudly, which is the
+      // right direction to fail in but is not something to discover during a
+      // rollout.
+      ...volumeToolsImage,
       // One per app stops a single owner monopolising a node; the node-wide cap
       // stops the disk being saturated by several at once. A reached limit is
       // refused rather than queued - a queued request waits silently behind
       // someone else's long copy until an intermediate proxy kills it.
+      // How widely the fleet's registry fetch is spread. Only the registry is
+      // spread: it is the one place every node reaches at once, where asking
+      // peers costs the fleet nothing it does not already have. Configurable so
+      // a test fleet can watch a window it would otherwise sit inside of.
+      prefetchWindowMs: 6 * 60 * 60 * 1000,
       maxConcurrentPerApp: 1,
       maxConcurrentPerNode: 4,
       // How long an operation may make NO progress before it is stopped. Not a

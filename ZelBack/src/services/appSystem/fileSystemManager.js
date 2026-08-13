@@ -66,6 +66,25 @@ function requiredParam(req, name) {
 }
 
 /**
+ * WHICH SHAPE AN OPERATION ANSWERS IN
+ *
+ * An operation bounded by construction answers inline: a mkdir and a rename are
+ * one syscall whatever the tree holds, so making a caller poll for them is
+ * ceremony. An operation whose duration scales with the data registers a job
+ * and answers 202 - a copy, a move, a compression, an extraction. The rule is
+ * about the WORST case rather than the common one: `moveobject` is a job
+ * because overwriting does an unbounded rm of what it displaced, not because
+ * moving is usually slow.
+ *
+ * `removeobject` is a job by the same rule - `rm -rf` scales with the tree -
+ * but it answered inline before jobs existed, and two dashboards call it. So it
+ * keeps answering inline WHEN IT IS QUICK and becomes a job only when it
+ * outlives its deadline. That last clause is compatibility, not design: when
+ * v2 makes the job shape the default it goes, and remove is simply a job like
+ * the others.
+ */
+
+/**
  * To create a folder in app's volume. Only accessible by app owners and above.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -126,16 +145,31 @@ async function renameAppsObject(req, res) {
  * @param {object} req Request.
  * @param {object} res Response.
  */
+/**
+ * How long a remove may take before it becomes something to come back for.
+ *
+ * Deleting an ordinary folder is sub-second, so a caller written before jobs
+ * existed keeps getting the completed answer it has always had. A tree big
+ * enough to outlive this is the case where holding a request open was already
+ * wrong.
+ */
+const REMOVE_INLINE_DEADLINE_MS = 10000;
+
 async function removeAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
     const object = requiredParam(req, 'object');
     const target = await volume.resolve(object, { mustExist: true });
 
-    await executor.run(volume, ['rm', '-rf', target]);
-    respondSuccess(res, 'File Removed');
+    return startOperation(
+      res,
+      volume,
+      { kind: 'fileoperation.remove', status: 'Removing...', owner: volume.owner },
+      (progress) => executor.run(volume, ['rm', '-rf', target], progress),
+      { inlineDeadlineMs: REMOVE_INLINE_DEADLINE_MS },
+    );
   } catch (error) {
-    respondError(res, error);
+    return respondError(res, error);
   }
 }
 
@@ -315,7 +349,7 @@ async function resolveOperands(req, volume) {
  * @param {function(object): Promise<void>} work - receives the executor options
  *   carrying progress, cancellation and byte reporting, and runs the operation
  */
-function startOperation(res, volume, meta, work) {
+function startOperation(res, volume, meta, work, { inlineDeadlineMs = 0 } = {}) {
   // Before the job exists, so a caller with no slot gets 503 + Retry-After now
   // rather than an operation that is only ever going to report that it never
   // started.
@@ -365,7 +399,7 @@ function startOperation(res, volume, meta, work) {
   // job too. Without it such a throw escapes past these handlers, and the job it
   // left behind stays Running - which never expires, because only terminal jobs
   // are retained on a clock.
-  Promise.resolve()
+  const running = Promise.resolve()
     .then(() => work({
       status: meta.status,
       onProgress: (message) => jobRegistry.progress(handle.jobId, message),
@@ -387,7 +421,18 @@ function startOperation(res, volume, meta, work) {
       else jobRegistry.fail(handle.jobId, error);
     });
 
-  return operationsController.accepted(res, handle);
+  if (!inlineDeadlineMs) return operationsController.accepted(res, handle);
+
+  // An operation that used to answer inline still does when it is quick, so a
+  // client written before jobs existed is never worse off: a delete of an
+  // ordinary folder is sub-second and answers 200 exactly as it always has.
+  // Only one that outlives the deadline becomes something to come back for -
+  // and that is the case where holding the request was already wrong, since an
+  // unbounded one is held open until an intermediate proxy kills it.
+  return Promise.race([running.then(() => true), serviceHelper.delay(inlineDeadlineMs)])
+    .then((finished) => (finished
+      ? operationsController.completed(res, handle)
+      : operationsController.accepted(res, handle)));
 }
 
 /**

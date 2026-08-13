@@ -10,6 +10,7 @@ describe('fileSystemManager tests', () => {
 
   let fileSystemManager;
   let executorStub;
+  let serviceHelperStub;
   let volumeSessionStub;
   let messageHelperStub;
   let sessionStub;
@@ -58,6 +59,21 @@ describe('fileSystemManager tests', () => {
       SPACE_HEADROOM: 1.05,
     };
     executorStub = { run: sinon.stub().resolves(), assertCapacity: sinon.stub() };
+    serviceHelperStub = {
+      ensureString: sinon.stub().callsFake((v) => JSON.stringify(v)),
+      // Mirrors the real one: an object passes through, anything falsy
+      // becomes {}. A stub returning undefined would make every body read
+      // throw, and the throw is caught, so the tests would pass having
+      // exercised nothing.
+      ensureObject: sinon.stub().callsFake((v) => {
+        if (typeof v === 'object' && v !== null) return v;
+        if (!v) return {};
+        try { return JSON.parse(v); } catch (e) { return {}; }
+      }),
+      // Never resolves, so an operation's own deadline never wins a race the
+      // test did not mean to run. The one test about the deadline resolves it.
+      delay: sinon.stub().returns(new Promise(() => {})),
+    };
 
     messageHelperStub = {
       createSuccessMessage: sinon.stub().callsFake((message) => ({ status: 'success', data: { message } })),
@@ -81,18 +97,7 @@ describe('fileSystemManager tests', () => {
     fileSystemManager = proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
       '../messageHelper': messageHelperStub,
       '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
-      '../serviceHelper': {
-        ensureString: sinon.stub().callsFake((v) => JSON.stringify(v)),
-        // Mirrors the real one: an object passes through, anything falsy
-        // becomes {}. A stub returning undefined would make every body read
-        // throw, and the throw is caught, so the tests would pass having
-        // exercised nothing.
-        ensureObject: sinon.stub().callsFake((v) => {
-          if (typeof v === 'object' && v !== null) return v;
-          if (!v) return {};
-          try { return JSON.parse(v); } catch (e) { return {}; }
-        }),
-      },
+      '../serviceHelper': serviceHelperStub,
       '../IOUtils': { getVolumeInfo: sinon.stub() },
       '../../lib/log': { error: sinon.stub(), info: sinon.stub(), warn: sinon.stub() },
       '../utils/pathSecurity': { sanitizePath: sinon.stub(), verifyRealPath: sinon.stub() },
@@ -190,6 +195,30 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.removeAppsObject(req, res);
 
       expect(sessionStub.resolve.firstCall.args[1]).to.deep.equal({ mustExist: true });
+    });
+
+    it('answers a quick remove inline, as it did before it was a job', async () => {
+      // Two dashboards call this and neither polls. A delete of an ordinary
+      // folder is sub-second, so what they have always received is what they
+      // keep receiving.
+      req.params.object = 'uploads/old.txt';
+
+      await fileSystemManager.removeAppsObject(req, res);
+
+      expect(res.statusCode).to.equal(200);
+    });
+
+    it('hands over a job when the remove outlives its deadline', async () => {
+      // rm -rf scales with the tree, and a request held open for an unbounded
+      // one is killed by whatever proxy is in the way.
+      req.params.object = 'uploads/enormous';
+      executorStub.run = sinon.stub().returns(new Promise(() => {}));
+      serviceHelperStub.delay.resolves();
+
+      await fileSystemManager.removeAppsObject(req, res);
+
+      expect(res.statusCode).to.equal(202);
+      expect(res.setHeader.getCalls().map((call) => call.args[0])).to.include('Operation-Id');
     });
   });
 

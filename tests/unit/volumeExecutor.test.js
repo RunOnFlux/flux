@@ -38,6 +38,7 @@ describe('volumeExecutor tests', () => {
       volumeOperations: {
         image: IMAGE,
         imageIds: { amd64: IMAGE_ID, arm64: IMAGE_ID },
+        prefetchWindowMs: 6 * 60 * 60 * 1000,
         maxConcurrentPerApp: 1,
         maxConcurrentPerNode: 2,
         stallTimeoutMs: 900000,
@@ -350,7 +351,28 @@ describe('volumeExecutor tests', () => {
 
       sinon.assert.calledWith(dockerServiceStub.appDockerImageRemove, wrong);
     });
+
+    it('asks four different peers rather than four times', async () => {
+      // The draw is random, so counting draws lets a repeat stand in for a
+      // peer - and on a small fleet that is the difference between asking the
+      // node that has the image and never reaching it.
+      pulled = false;
+      dockerServiceStub.pullImage.rejects(new Error('offline'));
+      dockerServiceStub.loadImage = sinon.stub().resolves([]);
+      const drawn = ['198.18.0.5:16127', '198.18.0.5:16127', '198.18.0.6:16127',
+        '198.18.0.5:16127', '198.18.0.7:16127', '198.18.0.8:16127'];
+      let next = 0;
+      networkStateStub.getRandomSocketAddress.callsFake(async () => drawn[next++] ?? null);
+      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']).catch(() => {});
+
+      const addresses = serviceHelperStub.axiosGet.getCalls().map((call) => call.args[0]);
+      expect(new Set(addresses).size).to.equal(4);
+    });
   });
+
 
   describe('taking the image before anything asks for it', () => {
     let originalAddress;

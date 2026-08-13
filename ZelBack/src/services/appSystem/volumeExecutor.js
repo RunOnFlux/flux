@@ -232,16 +232,6 @@ function monotonicMs() {
   return Number(process.hrtime.bigint() / 1000000n);
 }
 
-/**
- * How widely the fleet's REGISTRY fetch is spread.
- *
- * Only the registry is spread, because only the registry is one place every
- * node reaches at once. Asking peers costs the fleet nothing it does not
- * already have, so a node that boots without the image asks them straight away
- * and, once the fleet holds it, is done in a moment.
- */
-const PREFETCH_WINDOW_MS = 6 * 60 * 60 * 1000;
-
 /** How long a caller waits for an image already on its way before being told to come back. */
 const IMAGE_WAIT_MS = 10000;
 
@@ -297,14 +287,18 @@ function imageComing(retryAfterMs) {
  * @returns {number}
  */
 function prefetchDelayMs() {
+  const { prefetchWindowMs } = settings();
   const identity = userconfig.initial.ipaddress;
-  if (!identity) return Math.floor(PREFETCH_WINDOW_MS / 2);
+  if (!identity) return Math.floor(prefetchWindowMs / 2);
   const digest = crypto.createHash('sha256').update(identity).digest();
-  return digest.readUInt32BE(0) % PREFETCH_WINDOW_MS;
+  return digest.readUInt32BE(0) % prefetchWindowMs;
 }
 
 /** How many peers are asked for the image before the attempt is given up. */
 const PEER_IMAGE_ATTEMPTS = 4;
+
+/** How many draws that costs at most, since the same peer can come up twice. */
+const PEER_IMAGE_DRAWS = 20;
 
 /** How long a peer has to hand over the whole archive. */
 const PEER_IMAGE_TIMEOUT_MS = 120000;
@@ -338,7 +332,11 @@ let peerImageServes = 0;
 async function fetchImageFromPeer(expected) {
   const asked = new Set();
 
-  for (let attempt = 0; attempt < PEER_IMAGE_ATTEMPTS; attempt += 1) {
+  // Bounded by peers CONTACTED, not by draws. The draw is random, so counting
+  // draws lets a repeat stand in for a peer: on a small fleet that is the
+  // difference between asking the node that has the image and never reaching
+  // it. The draw ceiling is what stops a fleet of one from looping.
+  for (let draw = 0; asked.size < PEER_IMAGE_ATTEMPTS && draw < PEER_IMAGE_DRAWS; draw += 1) {
     // eslint-disable-next-line no-await-in-loop
     const socketAddress = await networkStateService.getRandomSocketAddress(null);
     if (!socketAddress || asked.has(socketAddress)) {

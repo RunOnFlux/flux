@@ -50,6 +50,29 @@ function accepted(res, handle, extra = {}) {
  * @param {import('express').Request} req
  * @returns {number} 0 when absent or unusable
  */
+/**
+ * Answer an operation that finished while the caller was still waiting.
+ *
+ * 200 rather than 202, because there is nothing to come back for: the job is in
+ * its terminal state and the body carries it. A client that predates jobs sees
+ * what it has always seen - a completed request - and one that knows about them
+ * reads the same status it would have polled for.
+ *
+ * @param {object} res
+ * @param {{jobId: string, statusUrl: string}} handle
+ * @returns {object}
+ */
+function completed(res, handle) {
+  res.setHeader('Operation-Id', handle.jobId);
+  const job = jobRegistry.get(handle.jobId);
+  return res.status(200).json(messageHelper.createDataMessage({
+    jobId: handle.jobId,
+    statusUrl: handle.statusUrl,
+    status: job ? job.status : jobRegistry.JobStatus.SUCCEEDED,
+    ...(job && job.error ? { error: job.error } : {}),
+  }));
+}
+
 function readCursor(req) {
   const raw = req.query && req.query.sinceSeq;
   if (raw === undefined || raw === null || raw === '') return 0;
@@ -124,6 +147,7 @@ async function cancelOperation(req, res) {
 }
 
 module.exports = {
+  completed,
   accepted,
   getOperation,
   cancelOperation,
