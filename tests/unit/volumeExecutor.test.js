@@ -1602,6 +1602,28 @@ describe('volumeExecutor tests', () => {
       });
     };
 
+    it('is not stopped while the caller is still sending, however slowly', async () => {
+      // A client trickling a small file over a slow link moves no whole
+      // filesystem block for minutes, so the volume says nothing is happening
+      // while something plainly is. Bytes arriving are the direct evidence, and
+      // they are exact where a block is rounded.
+      configStub.fluxapps.volumeOperations.stallTimeoutMs = 120;
+      // The volume never moves: too little has arrived to fill a block.
+      fsStub.statfs = sinon.stub().resolves({ bsize: 4096, blocks: 100000, bfree: 99500 });
+
+      const trickle = new Readable({ read() {} });
+      const sendingSlowly = setInterval(() => trickle.push('.'), 40);
+      setTimeout(() => { clearInterval(sendingSlowly); trickle.push(null); }, 400);
+
+      const vol = await openSession();
+      await upload(vol, trickle);
+
+      clearInterval(sendingSlowly);
+      // Without ticks past the window, "not stopped" would say nothing.
+      expect(fsStub.statfs.callCount, 'FIXTURE: the ticker never polled').to.be.above(3);
+      expect(containerStub.stop.called, 'a caller that was still sending was stopped').to.equal(false);
+    });
+
     it('opens stdin with hijack, before the container starts', async () => {
       const vol = await openSession();
       await upload(vol, sending(['data']));

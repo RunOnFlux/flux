@@ -863,6 +863,29 @@ function watchInput(input) {
 }
 
 /**
+ * Count what arrives from the caller.
+ *
+ * The stall check reads the volume, which answers for a command writing into
+ * staging and does not answer for an upload: what a client sends lands in
+ * filesystem blocks, so a slow one moves nothing measurable for minutes and
+ * reads as a container getting nowhere. Bytes arriving are the direct evidence
+ * that something is happening, and they are exact where a block is rounded.
+ *
+ * Attached where the pipe is, not before: a `data` listener starts the stream
+ * flowing, and one added before the destination exists loses what arrives in
+ * between.
+ *
+ * @param {import('node:stream').Readable} input
+ * @param {{bytes: number}} received - updated in place
+ * @returns {void}
+ */
+function countInput(input, received) {
+  input.on('data', (chunk) => {
+    received.bytes += chunk.length;
+  });
+}
+
+/**
  * Feed the caller's own bytes to a container that is writing them into staging,
  * and decide how the transfer ended.
  *
@@ -894,10 +917,13 @@ function watchInput(input) {
  *   watchInput, subscribed before any of this was awaited
  * @param {Promise<object>} exited
  * @param {function(): void} stopContainer
+ * @param {{bytes: number}} [received] - counted as it arrives, so a caller
+ *   sending slowly is not mistaken for a container getting nowhere
  * @returns {Promise<{delivered: boolean, reason: string|null}>}
  */
-async function feedContainer(stdin, input, transferred, exited, stopContainer) {
+async function feedContainer(stdin, input, transferred, exited, stopContainer, received = null) {
   input.pipe(stdin, { end: false });
+  if (received) countInput(input, received);
 
   const ended = exited.then(() => 'exited', () => 'exited');
   const outcome = await Promise.race([transferred, ended]);
@@ -1058,6 +1084,10 @@ async function run(session, argv, options = {}) {
   // fetched or the container created, and an error event with no listener
   // ends the process.
   const transferred = input ? watchInput(input) : null;
+  // What the caller has sent. The volume answers for a command writing into
+  // staging; it does not answer for an upload, where a slow client moves no
+  // whole block for minutes and reads as a container doing nothing.
+  const received = { bytes: 0 };
 
   const release = slotHeld ? () => {} : acquireSlot(session.identifier);
   let container = null;
@@ -1090,6 +1120,7 @@ async function run(session, argv, options = {}) {
   let lastUsed = null;
   let lastChangeAt = process.hrtime.bigint();
   let stalled = false;
+  let lastReceived = 0;
   // Closed once the final figure is in, so a read that started before the
   // operation ended cannot report over it.
   let reportsClosed = false;
@@ -1189,6 +1220,15 @@ async function run(session, argv, options = {}) {
       // shell commands. The volume's own usage is the honest signal, and it is
       // already being read - if it has not moved in either direction for this
       // long, nothing is happening.
+      // Bytes arriving from the caller are the operation getting somewhere,
+      // and while a slow upload is in flight they are the only signal that
+      // says so. A byte received is evidence now; a filesystem block appears
+      // only once enough of them have.
+      if (received.bytes !== lastReceived) {
+        lastReceived = received.bytes;
+        lastChangeAt = process.hrtime.bigint();
+      }
+
       const { stallTimeoutMs } = settings();
       const idleMs = Number(process.hrtime.bigint() - lastChangeAt) / 1e6;
       if (!stalled && stallTimeoutMs > 0 && idleMs > stallTimeoutMs) {
@@ -1206,7 +1246,7 @@ async function run(session, argv, options = {}) {
     // still subject to the same "has this got anywhere" check as everything
     // else - a client that opens an upload and then sends nothing holds a
     // container open otherwise.
-    const transfer = input ? await feedContainer(stdin, input, transferred, exited, stopContainer) : null;
+    const transfer = input ? await feedContainer(stdin, input, transferred, exited, stopContainer, received) : null;
 
     const result = await exited;
     settled = true;
