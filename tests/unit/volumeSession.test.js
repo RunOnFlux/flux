@@ -251,6 +251,31 @@ describe('volumeSession tests', () => {
       await expect(vol.pair('uploads', 'uploads/backup')).to.be.rejectedWith('Destination is inside the source');
     });
 
+    it('rejects a destination that contains the source', async () => {
+      // The other direction, and the one overwrite lets through: moving
+      // photos/2024 onto photos asks for photos to be replaced by something
+      // inside it. flux-op cannot carry that out - displacing the destination
+      // takes the source with it - and completing it would delete everything
+      // else in photos, which the caller never named. Refused here so the answer
+      // is a sentence rather than an exit code from a container.
+      existsAsFile(`${MOUNT}/photos/2024`);
+      existsAsFile(`${MOUNT}/photos`);
+      const vol = await volumeSession.openVolume(reqFor());
+
+      await expect(vol.pair('photos/2024', 'photos', { overwrite: true }))
+        .to.be.rejectedWith('Destination contains the source');
+    });
+
+    it('still allows operands that merely share a prefix', async () => {
+      // photos and photos-2024 are separate entries. A test on the string alone
+      // would read the second as living inside the first.
+      existsAsFile(`${MOUNT}/photos`);
+      const vol = await volumeSession.openVolume(reqFor());
+
+      const { destination } = await vol.pair('photos', 'photos-2024');
+      expect(destination.containerPath).to.equal('/work/photos-2024');
+    });
+
     it('refuses an existing destination without overwrite, and proceeds with it', async () => {
       existsAsFile(`${MOUNT}/a.txt`);
       existsAsFile(`${MOUNT}/b.txt`);

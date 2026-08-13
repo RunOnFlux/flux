@@ -282,12 +282,33 @@ class VolumeSession {
       throw new Error('Source and destination are the same');
     }
 
-    // '' means identical; a '..'-prefixed or absolute result means the
-    // destination sits outside the source. Anything else means it is nested,
-    // which for a directory copy recurses until the volume fills.
-    const nesting = path.relative(from.hostPath, to.hostPath);
-    if (nesting && !nesting.startsWith('..') && !path.isAbsolute(nesting)) {
+    // '' means identical; a '..'-prefixed or absolute result means the two sit
+    // on separate branches. Anything else means one holds the other.
+    //
+    // Compared this way rather than by string prefix, which reads photos-2024 as
+    // living inside photos.
+    const holds = (ancestor, descendant) => {
+      const within = path.relative(ancestor.hostPath, descendant.hostPath);
+      return Boolean(within) && !within.startsWith('..') && !path.isAbsolute(within);
+    };
+
+    // For a directory copy this recurses until the volume fills.
+    if (holds(from, to)) {
       throw new Error('Destination is inside the source');
+    }
+
+    // The other direction, which only overwrite lets through: replacing photos
+    // with photos/2024. The executor cannot carry it out - displacing the
+    // destination takes the source away inside it, so the publish stops between
+    // its two renames and the caller's whole folder is parked under a name the
+    // reserved names hide from them until the next boot sweep. Completing it
+    // instead would delete everything else in photos, which they never named.
+    //
+    // Refused here as well as in the image so the caller is told in a sentence
+    // rather than through a container's exit code. The image refuses it too,
+    // because that invariant is not one it should hold on trust from a caller.
+    if (holds(to, from)) {
+      throw new Error('Destination contains the source');
     }
 
     if (!overwrite) {
