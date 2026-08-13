@@ -56,6 +56,7 @@ const volumeValidationService = require('./volumeValidationService');
 const watchdogService = require('./watchdogService');
 const cloudUIUpdateService = require('./cloudUIUpdateService');
 const appTamperingBlocklistService = require('./appTamperingBlocklistService');
+const residentialNodeDosService = require('./residentialNodeDosService');
 const nodeConfirmationService = require('./nodeConfirmationService');
 const appTamperingDetectionService = require('./appTamperingDetectionService');
 const appsRuntimeState = require('./appManagement/appsRuntimeState');
@@ -518,6 +519,12 @@ async function startFluxFunctions() {
     fluxNetworkHelper.checkDeterministicNodesCollisions();
     appTamperingBlocklistService.start().catch((err) => {
       log.error(`appTamperingBlocklist start error: ${err.message}`);
+    });
+    // Not awaited, and started ahead of setNodeGeolocation below on purpose: the
+    // first tick reads geolocation from the db when there is one, and otherwise
+    // decides nothing and retries until the lookup this boot has landed.
+    residentialNodeDosService.start().catch((err) => {
+      log.error(`residentialNodeDos start error: ${err.message}`);
     });
     log.info('Flux checks operational');
     fluxCommunication.initializeDiscovery();
