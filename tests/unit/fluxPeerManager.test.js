@@ -160,6 +160,69 @@ describe('FluxPeerSocket tests', () => {
     });
   });
 
+  describe('liveness credited from any traffic', () => {
+    // A pong is an ordinary frame and queues behind everything else that peer sent, so the busier
+    // a peer is talking to us the later its pong is read. Crediting only pongs therefore fires the
+    // heartbeat first on the connections we have the most evidence are alive. Measured in the peer
+    // simulator at 3,000 nodes: 245,936 messages read in one minute, of which 13 were pings, and
+    // 45s later every node terminated every peer — then rebuilt and did it again, indefinitely.
+
+    it('should not terminate a peer that missed pongs but sent other traffic', () => {
+      const ws = createMockWs();
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+      const terminate = sinon.stub(peer, 'terminate');
+
+      peer.ws.onmessage({ data: 'anything' });
+      for (let i = 0; i < peer.maxMissedPongs; i += 1) peer.onPingSent();
+
+      expect(peer.missedPongs).to.be.at.least(peer.maxMissedPongs);
+      sinon.assert.notCalled(terminate);
+      expect(peer.isAlive).to.equal(true);
+    });
+
+    it('should still terminate a peer that has sent nothing at all', () => {
+      const ws = createMockWs();
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+      const terminate = sinon.stub(peer, 'terminate');
+
+      expect(peer.lastMessageMono).to.equal(null);
+      expect(peer.heardFromRecently).to.equal(false);
+      for (let i = 0; i < peer.maxMissedPongs; i += 1) peer.onPingSent();
+      sinon.assert.called(terminate);
+    });
+
+    it('should stop crediting traffic older than the window the pong count allows', () => {
+      const ws = createMockWs();
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+
+      peer.ws.onmessage({ data: 'anything' });
+      expect(peer.heardFromRecently).to.equal(true);
+
+      // Older than pingInterval * maxMissedPongs — the same window a silent peer already gets.
+      peer.lastMessageMono -= peer.livenessWindowMs + 1;
+      expect(peer.heardFromRecently).to.equal(false);
+    });
+
+    it('should measure the window on a clock the system cannot move', () => {
+      const ws = createMockWs();
+      const peer = new FluxPeerSocket(ws, '10.0.0.1', '16127', manager);
+      peer.source = PEER_SOURCE.RANDOM;
+      peer.ws.onmessage({ data: 'anything' });
+
+      // A wall clock jumping forward — NTP correction, a manual set — must not age a peer out.
+      const realNow = Date.now;
+      Date.now = () => realNow() + 3600000;
+      try {
+        expect(peer.heardFromRecently).to.equal(true);
+      } finally {
+        Date.now = realNow;
+      }
+    });
+  });
+
   describe('onPongReceived', () => {
     it('should reset missedPongs, set lastPongTime, and compute latency', () => {
       const ws = createMockWs();
