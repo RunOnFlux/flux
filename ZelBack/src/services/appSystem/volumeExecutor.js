@@ -8,6 +8,7 @@ const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const networkStateService = require('../networkStateService');
 const jobRegistry = require('../utils/jobRegistry');
+const fluxEventBus = require('../utils/fluxEventBus');
 const log = require('../../lib/log');
 const { Writable } = require('node:stream');
 const { AsyncLock } = require('../utils/asyncLock');
@@ -32,8 +33,15 @@ const settings = () => config.fluxapps.volumeOperations;
  */
 const MARKER_MAX_BYTES = 4096;
 
-/** An inode number and a modification time in nanoseconds, as flux-op writes them. */
-const MARKER_IDENTITY = /^\d+ \d+$/;
+/**
+ * An inode number, a time in nanoseconds, and which clock that time came from,
+ * as flux-op writes them.
+ *
+ * The clock is optional because the first release of the image did not name
+ * one, and a marker it wrote can still be sitting on a volume. Those recorded a
+ * modification time, so that is what an unnamed clock means.
+ */
+const MARKER_IDENTITY = /^(\d+) (\d+)(?: (btime|mtime))?$/;
 
 /**
  * What flux-op recorded before it displaced anything: where the entry belongs,
@@ -58,7 +66,8 @@ const MARKER_IDENTITY = /^\d+ \d+$/;
  *
  * @param {VolumeSession} session
  * @param {string} contents - raw marker file contents
- * @returns {Promise<{destination: VolumePath, identity: string}>}
+ * @returns {Promise<{destination: VolumePath,
+ *   identity: {ino: string, when: string, clock: 'btime'|'mtime'}}>}
  * @throws {Error} if the contents name nothing, name something outside, or
  *   record no identity
  */
@@ -69,34 +78,59 @@ async function resolveMarkerRecord(session, contents) {
   const recorded = namedPath.trim();
   if (!recorded) throw new Error('marker is empty');
 
-  const identity = namedIdentity.trim();
-  if (!MARKER_IDENTITY.test(identity)) {
+  const recordedIdentity = MARKER_IDENTITY.exec(namedIdentity.trim());
+  if (!recordedIdentity) {
     throw new Error('marker records no identity for what was being published');
   }
+  const [, ino, when, clock = 'mtime'] = recordedIdentity;
 
   const relative = path.posix.normalize(recorded);
   if (!relative || relative.startsWith('..') || path.posix.isAbsolute(relative)) {
     throw new Error(`marker names ${recorded}, which is outside the volume`);
   }
 
-  return { destination: await session.resolve(relative), identity };
+  return { destination: await session.resolve(relative), identity: { ino, when, clock } };
 }
 
 /**
- * How an entry on disk compares with what a marker recorded.
+ * Whether an entry on disk is the object a marker recorded.
  *
- * A publish is a rename, which carries the inode and the modification time with
- * it, so an entry matching the record IS the object flux-op placed. Both are
- * needed: inode numbers are reused, so one an app owner creates at the
- * destination afterwards can carry the number recorded here, and an mtime to
- * the nanosecond does not collide by accident.
+ * A publish is a rename, which carries the inode and the timestamps with it, so
+ * an entry matching the record IS the object flux-op placed. The inode alone
+ * will not do, because filesystems reuse inode numbers: one the app owner
+ * creates at the destination afterwards can carry the number recorded here.
+ *
+ * The time is normally the object's CREATION time, which is the field that
+ * answers which object this is rather than what has been done to it. A
+ * modification time cannot answer it: an app writing into a directory that was
+ * just published to it moves that directory's mtime, so the sweep would stop
+ * recognising its own work and keep the displaced copy for ever - hidden from
+ * the file browser by the reserved names and refused by the delete path, on a
+ * volume whose size is fixed.
+ *
+ * Verified on a Flux node (chud, kernel 6.17) that a creation time survives
+ * both the publishing rename and the app writing into what was published, and
+ * that a later object receives a different one:
+ *
+ *   ext4 (FLUXFSVOL)   yes      the filesystem a file operation actually runs on
+ *   xfs (/dat)         yes      the filesystem holding the volume images
+ *   overlayfs          yes
+ *   tmpfs              yes
+ *
+ * Which clock the record used is flux-op's decision, not a guess made here: it
+ * reads the statx mask and knows whether the kernel really supplied a creation
+ * time. This side cannot tell, because Node reports ctime as birthtime when it
+ * has nothing better - which looks correct until the first write. So the record
+ * names its clock and this compares the field it names.
  *
  * @param {import('node:fs').BigIntStats} stats - from lstat, so a link answers
  *   for itself rather than for whatever it leads to
- * @returns {string}
+ * @param {{ino: string, when: string, clock: 'btime'|'mtime'}} identity
+ * @returns {boolean}
  */
-function identityOf(stats) {
-  return `${stats.ino} ${stats.mtimeNs}`;
+function isRecordedObject(stats, identity) {
+  const when = identity.clock === 'btime' ? stats.birthtimeNs : stats.mtimeNs;
+  return String(stats.ino) === identity.ino && String(when) === identity.when;
 }
 
 /**
@@ -365,6 +399,48 @@ const PEER_IMAGE_SERVE_LIMIT = 2;
 let peerImageServes = 0;
 
 /**
+ * Remove everything an archive brought that was not the image being fetched.
+ *
+ * A peer answers with a tar of its own making. The wanted id is kept and
+ * everything else goes - extra images are not free, and one carrying a name the
+ * sender chose is worse than not free: nothing else on this node would ever
+ * look at it again.
+ *
+ * A tag is resolved before it is removed, because an archive may perfectly well
+ * deliver the wanted image WITH a tag on it, and removing that tag would delete
+ * the image this just went and fetched. A tag that cannot be resolved is left
+ * alone rather than guessed at.
+ *
+ * Best effort throughout: failing to tidy up is not a reason to fail an
+ * acquisition that otherwise worked.
+ *
+ * @param {{ids: Array<string>, tags: Array<string>}} loaded
+ * @param {string} expected - the id to keep
+ * @param {string} socketAddress - the peer, for the log
+ * @returns {Promise<void>}
+ */
+async function discardUnwantedImages(loaded, expected, socketAddress) {
+  const unwanted = loaded.ids.filter((id) => id !== expected);
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const tag of loaded.tags) {
+    // eslint-disable-next-line no-await-in-loop
+    const id = await dockerService.getImageId(tag).catch(() => null);
+    if (id && id !== expected) unwanted.push(tag);
+  }
+
+  if (!unwanted.length) return;
+
+  log.warn(`volumeExecutor - ${socketAddress} sent ${unwanted.length} image(s) that were not asked for; removing them`);
+  fluxEventBus.publish('fileoperation:imageDiscarded', { peer: socketAddress, count: unwanted.length });
+  // eslint-disable-next-line no-restricted-syntax
+  for (const reference of unwanted) {
+    // eslint-disable-next-line no-await-in-loop
+    await dockerService.appDockerImageRemove(reference).catch(() => {});
+  }
+}
+
+/**
  * Take the image from another Flux node.
  *
  * The registry is one place, and a node that cannot reach it has no file
@@ -377,7 +453,9 @@ let peerImageServes = 0;
  * and anything else is removed again rather than left on the disk.
  *
  * @param {string} expected - the image id this node must end up holding
- * @returns {Promise<void>}
+ * @returns {Promise<{peer: string, asked: number}>} which peer provided it, and
+ *   how many were asked to get there
+ * @throws {Error} if no peer provided it
  */
 async function fetchImageFromPeer(expected) {
   const asked = new Set();
@@ -404,17 +482,19 @@ async function fetchImageFromPeer(expected) {
       );
       // eslint-disable-next-line no-await-in-loop
       const loaded = await dockerService.loadImage(response.data);
+      // Whatever else came in the archive goes, whether or not the wanted image
+      // was in it. Returning on success first - which is what this did - left a
+      // peer able to put images of its choosing on this node permanently, since
+      // nothing else ever looks at them.
+      // eslint-disable-next-line no-await-in-loop
+      await discardUnwantedImages(loaded, expected, socketAddress);
 
-      if (loaded.includes(expected)) {
+      if (loaded.ids.includes(expected)) {
         log.info(`volumeExecutor - took the file operation image from ${socketAddress}`);
-        return;
+        return { peer: socketAddress, asked: asked.size };
       }
 
-      log.warn(`volumeExecutor - ${socketAddress} sent ${loaded.length} image(s), none of them ${expected}`);
-      for (const id of loaded) {
-        // eslint-disable-next-line no-await-in-loop
-        await dockerService.appDockerImageRemove(id).catch(() => {});
-      }
+      log.warn(`volumeExecutor - ${socketAddress} sent ${loaded.ids.length} image(s), none of them ${expected}`);
     } catch (error) {
       log.warn(`volumeExecutor - ${socketAddress} could not provide the file operation image: ${error.message}`);
     }
@@ -443,7 +523,13 @@ async function serveImageToPeer(req, res) {
   try {
     // The remote address rather than a forwarded header: this answers other
     // nodes directly, and a header is written by whoever sends it.
-    const remote = (req.socket.remoteAddress || '').replace(/^.*:/, '');
+    //
+    // Only the IPv4-mapped prefix is stripped. Cutting to the LAST colon, which
+    // is the usual spelling of this, turns 2001:db8::1 into "1" - so a genuine
+    // IPv6 caller could never match the network state whatever it held, and the
+    // 403 it received said nothing about why. Stripping just the prefix leaves
+    // such an address intact to be compared as itself.
+    const remote = (req.socket.remoteAddress || '').replace(/^::ffff:/i, '');
     if (!remote) {
       res.status(400).end();
       return;
@@ -477,12 +563,37 @@ async function serveImageToPeer(req, res) {
 
     serving = true;
     peerImageServes += 1;
-    const archive = await dockerService.exportImage(expected);
+
+    // Subscribed BEFORE the export, because the caller can hang up while docker
+    // is still packing the archive. `close` fires once, so a listener attached
+    // after it has already happened never sees it: the wait at the end would
+    // never settle, the slot would never be given back, and two of those leave
+    // this node serving no peer at all until FluxOS restarts - which pushes
+    // everyone who asks it back onto the registry, the load peer serving exists
+    // to avoid. Same reason collectOutput subscribes before the container
+    // starts.
+    let archive = null;
+    let callerGone = false;
+    let noteCallerGone = null;
+    const disconnected = new Promise((resolve) => { noteCallerGone = resolve; });
+    res.on('close', function callerWentAway() {
+      callerGone = true;
+      if (archive) archive.destroy();
+      noteCallerGone();
+    });
+
+    archive = await dockerService.exportImage(expected);
+    if (callerGone) {
+      // Nobody to send it to, and the export is this node's to close. Returning
+      // here still gives the slot back, because that happens in the finally.
+      archive.destroy();
+      return;
+    }
+
     res.set('Content-Type', 'application/x-tar');
-    archive.on('error', () => res.destroy());
-    res.on('close', () => { archive.destroy(); });
+    archive.on('error', function exportFailed() { res.destroy(); });
     archive.pipe(res);
-    await new Promise((resolve) => { res.on('close', resolve); });
+    await disconnected;
   } catch (error) {
     log.error(`volumeExecutor - could not hand over the file operation image: ${error.message}`);
     if (!res.headersSent) res.status(500).end();
@@ -506,10 +617,23 @@ async function serveImageToPeer(req, res) {
  * @returns {Promise<boolean>} whether the node now holds it
  */
 async function acquisitionCycle(expected, sources) {
-  await fetchImageFromPeer(expected).catch((error) => {
+  const fromPeer = await fetchImageFromPeer(expected).catch((error) => {
     log.info(`volumeExecutor - no peer provided the file operation image: ${error.message}`);
+    return null;
   });
-  if (await dockerService.imageExists(expected)) return true;
+
+  if (await dockerService.imageExists(expected)) {
+    // Where it came from, not just that it is here. The store is asked either
+    // way, so "the node holds it" cannot tell a transfer that was read
+    // correctly from one that was not - a peer whose archive was misread still
+    // leaves the image on the disk, and the node goes on asking other peers for
+    // something it already has. `unrecognised` is that case, and is the only
+    // way it is visible from outside.
+    fluxEventBus.publish('fileoperation:imageAcquired', fromPeer
+      ? { source: 'peer', peer: fromPeer.peer, asked: fromPeer.asked }
+      : { source: 'unrecognised' });
+    return true;
+  }
 
   if (!sources.registry) return false;
 
@@ -521,7 +645,10 @@ async function acquisitionCycle(expected, sources) {
       // A pull can end on an error event and still call back without one, so
       // the store is asked rather than the pull taken at its word.
       // eslint-disable-next-line no-await-in-loop
-      if (await dockerService.imageExists(expected)) return true;
+      if (await dockerService.imageExists(expected)) {
+        fluxEventBus.publish('fileoperation:imageAcquired', { source: 'registry', asked: attempt + 1 });
+        return true;
+      }
       log.warn(`volumeExecutor - ${image} resolved to an image this node is not pinned to`);
       return false;
     } catch (error) {
@@ -1485,7 +1612,7 @@ async function sweepStagingDirectories(session) {
         // eslint-disable-next-line no-await-in-loop
         const placed = await fs.lstat(destination.hostPath, { bigint: true }).catch(() => null);
 
-        if (placed && identityOf(placed) !== record.identity) {
+        if (placed && !isRecordedObject(placed, record.identity)) {
           // Something the app owner put at the destination while it stood
           // empty. Restoring would overwrite what they have; deleting would
           // lose the copy held for them. Neither is this function's to choose.

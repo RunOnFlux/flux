@@ -43,6 +43,15 @@ describe('app volume file operations - where the image comes from', function () 
     return r.stdout.trim() === '0';
   }
 
+  // Every image the node holds, so what an archive BROUGHT can be told apart
+  // from what was already there. A peer answers with a tar of its own making,
+  // and anything it packed in beside the image that was asked for is on this
+  // node afterwards with nothing that would ever look at it again.
+  async function imageIdsOn(index) {
+    const r = await inNode(index, 'docker images --no-trunc --format "{{.ID}}"');
+    return new Set(r.stdout.trim().split('\n').filter(Boolean));
+  }
+
   async function forgetImageEverywhere() {
     await Promise.all(env.clients.map((_, index) => inNode(index, `docker rmi -f ${executorImage} >/dev/null 2>&1 || true`)));
   }
@@ -133,6 +142,8 @@ describe('app volume file operations - where the image comes from', function () 
     await giveImageTo(2);
     await cutOffRegistry(0);
     expect(await imageHeldOn(0), 'FIXTURE: node 0 still holds the image').to.equal(false);
+    const heldBefore = await imageIdsOn(0);
+    const acquisition = env.clients[0].waitForEvent('fileoperation:imageAcquired', () => true, 240000);
 
     const accepted = await post(env.clients[0], '/apps/copyobject', {
       appname: appName, component: appName, source: 'photos', destination: 'copied',
@@ -142,6 +153,22 @@ describe('app volume file operations - where the image comes from', function () 
 
     expect(job.status, JSON.stringify(job.error)).to.equal('Succeeded');
     expect(await imageHeldOn(0), 'the image never arrived').to.equal(true);
+
+    // The image ARRIVING is not the whole contract, and it is the one thing
+    // this test could otherwise see. The node re-checks its own store after the
+    // transfer, so it ends up holding the image whether the peer's archive was
+    // read correctly or not - the node says which of those happened.
+    const acquired = await acquisition;
+    expect(acquired.source, 'the archive a peer sent was not read as holding the image').to.equal('peer');
+
+    // And one peer was enough. A misread archive left the node asking further
+    // peers for the same thirteen megabytes it was already holding.
+    expect(acquired.asked, `asked ${acquired.asked} peers for an image the first one sent`).to.equal(1);
+
+    // Nothing came with it. An archive can carry more than one image, and one
+    // carrying a name the sender chose is worse than one that does not.
+    const arrived = [...await imageIdsOn(0)].filter((id) => !heldBefore.has(id));
+    expect(arrived, `node 0 gained images it never asked for: ${arrived.join(', ')}`).to.have.lengthOf(1);
   });
 
   it('falls back to the registry when no peer has it', async function () {

@@ -6,6 +6,8 @@ const os = require('node:os');
 const nodePath = require('node:path');
 const realFs = require('node:fs/promises');
 const nodeCrypto = require('node:crypto');
+const { EventEmitter } = require('node:events');
+const childProcess = require('node:child_process');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -322,7 +324,7 @@ describe('volumeExecutor tests', () => {
     it('takes the image from a peer when the registry cannot be reached', async () => {
       pulled = false;
       dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
-      dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return [IMAGE_ID]; });
+      dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [IMAGE_ID], tags: [] }; });
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
       serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
 
@@ -341,7 +343,7 @@ describe('volumeExecutor tests', () => {
       const wrong = 'sha256:2222222222222222222222222222222222222222222222222222222222222222';
       dockerServiceStub.imageExists = sinon.stub().resolves(false);
       dockerServiceStub.pullImage.rejects(new Error('offline'));
-      dockerServiceStub.loadImage = sinon.stub().resolves([wrong]);
+      dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [wrong], tags: [] });
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
       serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
@@ -352,13 +354,80 @@ describe('volumeExecutor tests', () => {
       sinon.assert.calledWith(dockerServiceStub.appDockerImageRemove, wrong);
     });
 
+    it('removes the extras a peer packed in beside the image that was asked for', async () => {
+      // This used to return the moment the wanted id was seen, before the
+      // removal below it - so a peer answering with the right image AND three
+      // others of its own got all four onto the node, permanently, since
+      // nothing else ever looks at them again.
+      const extra = 'sha256:4444444444444444444444444444444444444444444444444444444444444444';
+      pulled = false;
+      dockerServiceStub.pullImage.rejects(new Error('offline'));
+      dockerServiceStub.loadImage = sinon.stub().callsFake(async () => {
+        pulled = true;
+        return { ids: [IMAGE_ID, extra], tags: [] };
+      });
+      dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      sinon.assert.calledWith(dockerServiceStub.appDockerImageRemove, extra);
+      expect(dockerServiceStub.appDockerImageRemove.getCalls().map((call) => call.args[0]))
+        .to.not.include(IMAGE_ID);
+    });
+
+    it('removes an image a peer sent under a name of its own choosing', async () => {
+      // A tagged image is reported as "Loaded image: name:tag" and never as an
+      // id, so reporting only ids left it on the disk with nothing that could
+      // name it - carrying whatever tag the sender picked.
+      const planted = 'runonflux/website:latest';
+      pulled = false;
+      dockerServiceStub.pullImage.rejects(new Error('offline'));
+      dockerServiceStub.loadImage = sinon.stub().callsFake(async () => {
+        pulled = true;
+        return { ids: [IMAGE_ID], tags: [planted] };
+      });
+      dockerServiceStub.getImageId = sinon.stub().resolves('sha256:5555555555555555555555555555555555555555555555555555555555555555');
+      dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      sinon.assert.calledWith(dockerServiceStub.appDockerImageRemove, planted);
+    });
+
+    it('keeps a tag that names the image that was asked for', async () => {
+      // An archive may perfectly well deliver the wanted image WITH a tag on
+      // it. Removing that tag deletes the image this just went and fetched, so
+      // the tag is resolved before anything is done with it.
+      pulled = false;
+      dockerServiceStub.pullImage.rejects(new Error('offline'));
+      dockerServiceStub.loadImage = sinon.stub().callsFake(async () => {
+        pulled = true;
+        return { ids: [IMAGE_ID], tags: ['flux-volume-tools:v1.0.0'] };
+      });
+      dockerServiceStub.getImageId = sinon.stub().resolves(IMAGE_ID);
+      dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      expect(dockerServiceStub.appDockerImageRemove.called, 'the image it had just fetched was removed').to.equal(false);
+    });
+
     it('asks four different peers rather than four times', async () => {
       // The draw is random, so counting draws lets a repeat stand in for a
       // peer - and on a small fleet that is the difference between asking the
       // node that has the image and never reaching it.
       pulled = false;
       dockerServiceStub.pullImage.rejects(new Error('offline'));
-      dockerServiceStub.loadImage = sinon.stub().resolves([]);
+      dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [], tags: [] });
       const drawn = ['198.18.0.5:16127', '198.18.0.5:16127', '198.18.0.6:16127',
         '198.18.0.5:16127', '198.18.0.7:16127', '198.18.0.8:16127'];
       let next = 0;
@@ -458,20 +527,34 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('handing the image to a peer', () => {
+    // A real EventEmitter, because every question here is about WHEN a
+    // listener was attached relative to an event. A stubbed `on` cannot answer
+    // it: however it is written, it delivers close to a listener that did not
+    // exist yet - which is exactly the case that held a slot for ever.
     const responseFor = () => {
-      const res = {
-        statusCode: null,
-        headers: {},
-        status(code) { this.statusCode = code; return this; },
-        set(key, value) { this.headers[key] = value; return this; },
-        end: sinon.stub(),
-        on: sinon.stub(),
-        destroy: sinon.stub(),
-        headersSent: false,
-      };
+      const res = new EventEmitter();
+      res.statusCode = null;
+      res.headers = {};
+      res.status = (code) => { res.statusCode = code; return res; };
+      res.set = (key, value) => { res.headers[key] = value; return res; };
+      res.end = sinon.stub();
+      res.destroy = sinon.stub();
+      res.headersSent = false;
       return res;
     };
     const requestFrom = (ip, imageid) => ({ socket: { remoteAddress: ip }, params: { imageid } });
+
+    /** A docker export stream, which produces nothing unless it is piped. */
+    const archiveStub = () => ({ on: sinon.stub(), pipe: sinon.stub(), destroy: sinon.stub() });
+
+    /** Let the handler run on to whatever it is waiting for. */
+    const settle = () => new Promise((resolve) => { setImmediate(resolve); });
+
+    /** A peer this node will answer, holding the image it is pinned to. */
+    const willServe = () => {
+      networkStateStub.networkState.returns([{ ip: '198.18.0.5:16127' }]);
+      dockerServiceStub.imageExists = sinon.stub().resolves(true);
+    };
 
     it('serves only the id this node is pinned to', async () => {
       networkStateStub.networkState.returns([{ ip: '198.18.0.5:16127' }]);
@@ -484,6 +567,35 @@ describe('volumeExecutor tests', () => {
 
       expect(res.statusCode).to.equal(404);
       expect(dockerServiceStub.exportImage).to.equal(undefined);
+    });
+
+    it('reads an IPv4-mapped address as the IPv4 address it is', async () => {
+      // What a dual-stack listener hands over for an ordinary IPv4 peer.
+      willServe();
+      dockerServiceStub.exportImage = sinon.stub().resolves(archiveStub());
+      const res = responseFor();
+
+      const served = volumeExecutor.serveImageToPeer(requestFrom('::ffff:198.18.0.5', IMAGE_ID), res);
+      await settle();
+      res.emit('close');
+      await served;
+
+      expect(res.statusCode).to.not.equal(403);
+    });
+
+    it('does not read an IPv6 address as its last group', async () => {
+      // Cutting to the LAST colon turns 2001:db8::1 into "1", so the network
+      // state is asked about something that is not the caller. The fleet is
+      // IPv4 only - validIpv4Address gates what can be registered - so this
+      // address is refused either way; what is pinned here is that it is
+      // refused for the right reason rather than by accident.
+      networkStateStub.networkState.returns([{ ip: '1:16127' }]);
+      dockerServiceStub.imageExists = sinon.stub().resolves(true);
+      const res = responseFor();
+
+      await volumeExecutor.serveImageToPeer(requestFrom('2001:db8::1', IMAGE_ID), res);
+
+      expect(res.statusCode).to.equal(403);
     });
 
     it('answers only an address the network state knows', async () => {
@@ -500,15 +612,105 @@ describe('volumeExecutor tests', () => {
       // fleet does not all run on the default one.
       networkStateStub.networkState.returns([{ ip: '198.18.0.5:16187' }]);
       dockerServiceStub.imageExists = sinon.stub().resolves(true);
-      dockerServiceStub.exportImage = sinon.stub().resolves({
-        on: sinon.stub(), pipe: sinon.stub(), destroy: sinon.stub(),
-      });
+      dockerServiceStub.exportImage = sinon.stub().resolves(archiveStub());
       const res = responseFor();
-      res.on = sinon.stub().callsFake((event, cb) => { if (event === 'close') cb(); });
 
-      await volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res);
+      const served = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res);
+      await settle();
+      res.emit('close');
+      await served;
 
       sinon.assert.calledWith(dockerServiceStub.exportImage, IMAGE_ID);
+    });
+
+    it('gives the slot back when the caller hangs up while docker is packing', async () => {
+      // The leak this covers. `close` fires once, and it used to be subscribed
+      // to only AFTER the export - so a caller that went away while docker was
+      // still packing was never noticed, the wait never settled, and the slot
+      // was never returned. Two of those and this node serves no peer until
+      // FluxOS restarts, which pushes everyone who asks it back onto the
+      // registry - the load peer serving exists to avoid.
+      willServe();
+
+      const abandoned = [responseFor(), responseFor()];
+      const archives = [];
+      dockerServiceStub.exportImage = sinon.stub().callsFake(async () => {
+        const archive = archiveStub();
+        archives.push(archive);
+        // The caller goes away mid-export, before there is anything to pipe to.
+        abandoned[archives.length - 1].emit('close');
+        return archive;
+      });
+
+      // Both slots, which is the whole limit.
+      await volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), abandoned[0]);
+      await volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), abandoned[1]);
+
+      // The proof: a third caller is served rather than refused, which can only
+      // happen if both slots came back.
+      dockerServiceStub.exportImage = sinon.stub().resolves(archiveStub());
+      const third = responseFor();
+      const served = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), third);
+      await settle();
+      third.emit('close');
+      await served;
+
+      expect(third.statusCode, 'the third caller was refused, so a slot never came back').to.not.equal(503);
+      // And the export nobody was waiting for was closed rather than left open.
+      expect(archives[0].destroy.called, 'the abandoned export stream was left open').to.equal(true);
+    });
+
+    it('gives the slot back when the caller hangs up mid-stream', async () => {
+      // The control for the test above. This window always released the slot,
+      // so it has to keep doing so - otherwise that test could pass for a
+      // reason that has nothing to do with when the listener was attached.
+      willServe();
+      dockerServiceStub.exportImage = sinon.stub().callsFake(async () => archiveStub());
+
+      const hangUpAfterPiping = async () => {
+        const res = responseFor();
+        const served = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res);
+        await settle();
+        res.emit('close');
+        await served;
+      };
+
+      // Both slots, taken and released the way they always were.
+      await hangUpAfterPiping();
+      await hangUpAfterPiping();
+
+      const third = responseFor();
+      const served = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), third);
+      await settle();
+      third.emit('close');
+      await served;
+
+      expect(third.statusCode).to.not.equal(503);
+    });
+
+    it('still refuses a third caller while two are genuinely being served', async () => {
+      // The limit itself, which the fix must not have loosened: two streams in
+      // flight and the next caller is told to come back.
+      willServe();
+      dockerServiceStub.exportImage = sinon.stub().callsFake(async () => archiveStub());
+
+      const first = responseFor();
+      const second = responseFor();
+      const inFlight = [
+        volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), first),
+        volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), second),
+      ];
+      await settle();
+
+      const third = responseFor();
+      await volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), third);
+
+      expect(third.statusCode).to.equal(503);
+      expect(third.headers['Retry-After']).to.equal('30');
+
+      first.emit('close');
+      second.emit('close');
+      await Promise.all(inFlight);
     });
   });
 
@@ -870,12 +1072,32 @@ describe('volumeExecutor tests', () => {
     const exists = (p) => realFs.lstat(p).then(() => true).catch(() => false);
     const write = (name, contents) => realFs.writeFile(at(name), contents);
 
-    // The identity of an entry as flux-op recorded it: what a publish renames
-    // into place keeps its inode and modification time, so this is what a
-    // completed publish looks like from here.
-    const identityOf = async (name) => {
+    // The identity as the FIRST release of the image wrote it: two fields and
+    // no clock named, which is read as a modification time.
+    const legacyIdentityOf = async (name) => {
       const stats = await realFs.lstat(at(name), { bigint: true });
       return `${stats.ino} ${stats.mtimeNs}`;
+    };
+
+    // The identity flux-op records wherever the kernel supplies a creation
+    // time, which is every filesystem a Flux node puts an app volume on.
+    const identityOf = async (name) => {
+      const stats = await realFs.lstat(at(name), { bigint: true });
+      return `${stats.ino} ${stats.birthtimeNs} btime`;
+    };
+
+    // Whether this filesystem really keeps a creation time. Node reports ctime
+    // as birthtime when it has nothing better, and at creation the two are
+    // identical - so the question is whether it MOVES when the object is
+    // written to, not whether it is there at all.
+    const keepsCreationTime = async () => {
+      const probe = at('.birthtime-probe');
+      await realFs.mkdir(probe);
+      const before = (await realFs.lstat(probe, { bigint: true })).birthtimeNs;
+      await realFs.writeFile(nodePath.join(probe, 'x'), 'x');
+      const after = (await realFs.lstat(probe, { bigint: true })).birthtimeNs;
+      await realFs.rm(probe, { recursive: true });
+      return before === after;
     };
 
     /**
@@ -1021,6 +1243,29 @@ describe('volumeExecutor tests', () => {
       expect(await exists(at(OLD))).to.equal(true);
     });
 
+    it('does not wait for a writer when a marker is a named pipe', async () => {
+      // The whole of the rest of startup sits behind this sweep. Opening a FIFO
+      // for reading waits for somebody to open it for writing, and the app owns
+      // its own volume root - so a pipe planted where a marker belongs held the
+      // open for ever. The recovery is awaited at boot, so the app network
+      // reclaim, syncthing and the PGP identity never ran, on every boot, for
+      // as long as the pipe was there. What is asserted here is that this call
+      // RETURNS at all.
+      await realFs.mkdir(at(OLD));
+      await new Promise((resolve, reject) => {
+        childProcess.execFile('mkfifo', [at(`${OLD}.dest`)], (error) => (error ? reject(error) : resolve()));
+      });
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      // And that it decides nothing. What the marker holds could not be read,
+      // so where the parked entry belongs is unknown and it stays put - the one
+      // outcome that cannot lose somebody's only copy.
+      expect(removed).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(await exists(at(OLD))).to.equal(true);
+    });
+
     it('deletes displaced data when the publish completed', async () => {
       await write('photos', 'the published copy');
       await park('photos', { identity: await identityOf('photos') });
@@ -1030,6 +1275,75 @@ describe('volumeExecutor tests', () => {
       expect(restored).to.deep.equal([]);
       expect(removed).to.include(OLD);
       expect(publishes()).to.deep.equal([]);
+    });
+
+    it('deletes displaced data after the app has written into what was published', async function writtenInto() {
+      // The regression this covers. The identity used to be the modification
+      // time, which an app moves simply by using its own volume - so the sweep
+      // stopped recognising its own work and kept the displaced copy for ever.
+      // With the reserved names in this same release that copy is hidden from
+      // the file browser and refused at the delete path, so the owner could
+      // neither see it nor remove it, on a volume with a fixed size.
+      if (!await keepsCreationTime()) this.skip();
+
+      await realFs.mkdir(at('photos'));
+      await park('photos', { identity: await identityOf('photos') });
+
+      // Exactly what a running app does to its own volume.
+      await realFs.writeFile(at('photos', 'written-by-the-app'), 'x');
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(restored).to.deep.equal([]);
+      expect(removed).to.include(OLD);
+    });
+
+    it('cannot do the same for a marker written before the image recorded a creation time', async () => {
+      // The control for the test above - without it that assertion could pass
+      // for a reason that has nothing to do with the clock. It is also the
+      // honest limit of the fix: a marker left by the first release of the
+      // image carries only an mtime, so the sweep still gives up on it. Nothing
+      // is lost, and the entry stays visible to its owner.
+      await realFs.mkdir(at('photos'));
+      await park('photos', { identity: await legacyIdentityOf('photos') });
+      await realFs.writeFile(at('photos', 'written-by-the-app'), 'x');
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(await exists(at(OLD))).to.equal(true);
+    });
+
+    it('still places data for a marker written before the image recorded a creation time', async () => {
+      // Two fields and no clock is what is already sitting on volumes, and it
+      // has to keep working: this is the case where the destination is empty
+      // and the parked entry is the only copy.
+      await park('photos', { identity: '1 1' });
+
+      const { restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(restored).to.deep.equal([at('photos')]);
+    });
+
+    it('keeps both when the creation time says the destination is not what was published', async function notOurs() {
+      // The safety the comparison exists for, unchanged: the app owner created
+      // something at the destination while it stood empty. A reused inode
+      // number cannot make this match, because a new object has a new creation
+      // time.
+      if (!await keepsCreationTime()) this.skip();
+
+      await realFs.mkdir(at('photos'));
+      const theirs = await identityOf('photos');
+      await realFs.rm(at('photos'), { recursive: true });
+      await realFs.mkdir(at('photos'));
+      await park('photos', { identity: theirs });
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(await exists(at(OLD))).to.equal(true);
     });
 
     it('deletes displaced data when a link was what the publish placed', async () => {

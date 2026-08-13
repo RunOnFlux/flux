@@ -180,6 +180,8 @@ export function nodeClient(nodeNum) {
         'app:removed',
         'app:specStored',
         'app:running',
+        'fileoperation:imageAcquired',
+        'fileoperation:imageDiscarded',
         'imageUpdate:checked',
         'imageUpdate:redeployTriggered',
         'imageUpdate:redeployComplete',
