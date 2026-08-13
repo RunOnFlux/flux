@@ -7,6 +7,7 @@ const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const networkStateService = require('../networkStateService');
+const jobRegistry = require('../utils/jobRegistry');
 const log = require('../../lib/log');
 const { Writable } = require('node:stream');
 const { AsyncLock } = require('../utils/asyncLock');
@@ -130,6 +131,32 @@ function lockForApp(identifier) {
  * @param {string} identifier
  * @returns {function(): void} release
  */
+/**
+ * How long to tell a refused caller to wait.
+ *
+ * Derived from the operation in the way only it is measured: a copy that has
+ * moved a known fraction of a known total in a known time says when it will be
+ * done. Anything else gets the default, because this PR's own rule about
+ * progress applies here too - a denominator is only offered where one is real,
+ * and an invented wait is worse than an honest shrug.
+ *
+ * Capped, because an estimate of hours belongs in the job a caller can watch
+ * rather than in a header telling it to sleep.
+ *
+ * @param {{startedAt: number, detail: object}|null} operation
+ * @returns {number} milliseconds
+ */
+function retryAfterFor(operation) {
+  const detail = operation && operation.detail;
+  if (!detail || !detail.bytesTotal || !detail.bytesDone) return BUSY_RETRY_AFTER_MS;
+
+  const elapsed = Date.now() - operation.startedAt;
+  if (elapsed <= 0 || detail.bytesDone >= detail.bytesTotal) return BUSY_RETRY_AFTER_MS;
+
+  const remaining = ((detail.bytesTotal - detail.bytesDone) / detail.bytesDone) * elapsed;
+  return Math.min(Math.max(Math.round(remaining), BUSY_RETRY_AFTER_MS), BUSY_RETRY_AFTER_CEILING_MS);
+}
+
 function acquireSlot(identifier) {
   const { maxConcurrentPerApp, maxConcurrentPerNode } = settings();
   const appLock = lockForApp(identifier);
@@ -138,15 +165,32 @@ function acquireSlot(identifier) {
   // a generic failure: a caller turned away before any work started should
   // learn that immediately, not by registering an operation and polling to
   // discover it was refused.
-  const busy = (message) => {
+  const busy = (message, operation = null) => {
     const error = new Error(message);
     error.kind = 'busy';
-    error.retryAfterMs = 5000;
+    error.retryAfterMs = retryAfterFor(operation);
+    // What the caller is waiting behind, so a refusal is something to watch or
+    // cancel rather than an invitation to guess. A client with nothing to name
+    // can only retry blindly, which behind a four hour copy is a thousand
+    // refusals telling it nothing it did not already know.
+    if (operation) {
+      error.operation = {
+        jobId: operation.jobId,
+        kind: operation.kind,
+        statusUrl: operation.statusUrl,
+      };
+    }
     return error;
   };
 
   if (appLock.activeCount >= maxConcurrentPerApp) {
-    throw busy(`Another file operation is already running for ${identifier}`);
+    const running = jobRegistry.runningForApp(identifier);
+    throw busy(
+      running
+        ? `${running.kind} is already running for ${identifier}`
+        : `Another file operation is already running for ${identifier}`,
+      running,
+    );
   }
   if (nodeLock.activeCount >= maxConcurrentPerNode) {
     throw busy('This node is running its maximum number of file operations; try again shortly');
@@ -296,6 +340,12 @@ function prefetchDelayMs() {
 
 /** How many peers are asked for the image before the attempt is given up. */
 const PEER_IMAGE_ATTEMPTS = 4;
+
+/** What a refused caller waits when nothing better can be said. */
+const BUSY_RETRY_AFTER_MS = 5000;
+
+/** The most a refusal asks anyone to sleep, however long the operation has left. */
+const BUSY_RETRY_AFTER_CEILING_MS = 5 * 60 * 1000;
 
 /** How many draws that costs at most, since the same peer can come up twice. */
 const PEER_IMAGE_DRAWS = 20;

@@ -148,6 +148,35 @@ function start(params) {
   return { jobId, statusUrl: statusUrlFor(jobId) };
 }
 
+/**
+ * The operation currently running for an app, if there is one.
+ *
+ * A caller refused for want of a slot is refused BECAUSE of this job, so it is
+ * what the refusal should name: something to watch or cancel rather than a
+ * suggestion to try again and find out. Scanned rather than indexed - a node
+ * runs a handful of these at a time, and an index would be a second thing to
+ * keep true.
+ *
+ * @param {string} app
+ * @returns {{jobId: string, kind: string, statusUrl: string,
+ *   startedAt: number, detail: object}|null}
+ */
+function runningForApp(app) {
+  for (const job of jobs.values()) {
+    if (job.status !== JobStatus.RUNNING) continue;
+    const detail = typeof job.detail === 'function' ? job.detail() : job.detail;
+    if (!detail || detail.app !== app) continue;
+    return {
+      jobId: job.jobId,
+      kind: job.kind,
+      statusUrl: statusUrlFor(job.jobId),
+      startedAt: job.createdAt,
+      detail,
+    };
+  }
+  return null;
+}
+
 function statusUrlFor(jobId) {
   return `/apps/operations/${jobId}`;
 }
@@ -293,6 +322,7 @@ module.exports = {
   isTerminal,
   retryAfterSeconds,
   statusUrlFor,
+  runningForApp,
   mintJobId,
   start,
   touch,

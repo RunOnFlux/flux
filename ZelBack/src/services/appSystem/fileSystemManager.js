@@ -47,6 +47,12 @@ function respondError(res, error) {
     if (error.retryAfterMs) {
       res.setHeader('Retry-After', String(Math.ceil(error.retryAfterMs / 1000)));
     }
+    // The operation being waited on travels in the body rather than only in the
+    // message, so a client can link to it, poll it or cancel it instead of
+    // retrying until it happens to succeed.
+    if (error.operation) {
+      errorResponse.data.operation = error.operation;
+    }
     res.status(503).json(errorResponse);
     return;
   }

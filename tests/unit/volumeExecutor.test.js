@@ -719,6 +719,72 @@ describe('volumeExecutor tests', () => {
       await first;
     });
 
+    it('names the operation the caller is waiting behind', async () => {
+      // A refusal that only says "busy" leaves a client retrying blindly. What
+      // it is waiting for is knowable, watchable and cancellable, so the
+      // refusal carries it.
+      const jobRegistry = require('../../ZelBack/src/services/utils/jobRegistry');
+      let releaseFirst;
+      containerStub.wait.returns(new Promise((resolve) => { releaseFirst = resolve; }));
+
+      const vol = await openSession();
+      const first = volumeExecutor.run(vol, ['true']);
+      const handle = jobRegistry.start({
+        kind: 'fileoperation.copy',
+        detail: () => ({ app: vol.identifier }),
+      });
+
+      const error = await volumeExecutor.run(await openSession(), ['true']).catch((thrown) => thrown);
+
+      expect(error.kind).to.equal('busy');
+      expect(error.operation.jobId).to.equal(handle.jobId);
+      expect(error.operation.kind).to.equal('fileoperation.copy');
+      expect(error.operation.statusUrl).to.equal(handle.statusUrl);
+
+      jobRegistry.succeed(handle.jobId);
+      releaseFirst({ StatusCode: 0 });
+      await first;
+    });
+
+    it('says how long to wait only when the operation can say', async () => {
+      // The same rule this code applies to progress: a denominator is only
+      // offered where one is real. A copy that has moved a known fraction in a
+      // known time can answer; anything else gets the default rather than an
+      // invented number.
+      const jobRegistry = require('../../ZelBack/src/services/utils/jobRegistry');
+      let releaseFirst;
+      containerStub.wait.returns(new Promise((resolve) => { releaseFirst = resolve; }));
+
+      const vol = await openSession();
+      const first = volumeExecutor.run(vol, ['true']);
+
+      const measured = jobRegistry.start({
+        kind: 'fileoperation.copy',
+        detail: () => ({ app: vol.identifier, bytesDone: 1, bytesTotal: 1000 }),
+      });
+      // A second of it having run, without a second passing: the estimate is
+      // rate over elapsed, and a job created microseconds ago has no rate.
+      const startedAt = Date.now();
+      sinon.stub(Date, 'now').returns(startedAt + 1000);
+      const withEstimate = await volumeExecutor.run(await openSession(), ['true']).catch((e) => e);
+      Date.now.restore();
+      jobRegistry.succeed(measured.jobId);
+
+      const unmeasured = jobRegistry.start({
+        kind: 'fileoperation.compress',
+        detail: () => ({ app: vol.identifier }),
+      });
+      const withoutEstimate = await volumeExecutor.run(await openSession(), ['true']).catch((e) => e);
+      jobRegistry.succeed(unmeasured.jobId);
+
+      expect(withEstimate.retryAfterMs, 'an operation that can be estimated was not')
+        .to.be.above(withoutEstimate.retryAfterMs);
+      expect(withoutEstimate.retryAfterMs).to.equal(5000);
+
+      releaseFirst({ StatusCode: 0 });
+      await first;
+    });
+
     it('frees the slot once the operation finishes', async () => {
       const vol = await openSession();
       await volumeExecutor.run(vol, ['true']);
