@@ -31,6 +31,27 @@ function isOurStickyDos() {
 }
 
 /**
+ * Give up the DOS this service is holding. The slot is only cleared when the
+ * message in it is still ours: the slot holds one message and has more than one
+ * enforcer writing to it, so clearing on our own `ourDosActive` alone would drop
+ * another owner's DOS on the floor. Dropping our claim is all we are entitled to
+ * do once the slot has changed hands.
+ * @param {string} reason Logged context for the release.
+ */
+function releaseOurDos(reason) {
+  if (isOurStickyDos()) {
+    log.info(`appTamperingBlocklist - clearing sticky DOS (${reason})`);
+    fluxNetworkHelper.clearStickyDosMessage();
+    ourDosActive = false;
+    return;
+  }
+  if (ourDosActive) {
+    log.info(`appTamperingBlocklist - our DOS was replaced by another owner, releasing our claim only (${reason})`);
+    ourDosActive = false;
+  }
+}
+
+/**
  * Fetch the manually-curated txhash blocklist from the policy repo.
  * Returns null on any failure - could-not-fetch is not an empty list, and the
  * enforcer must distinguish them or an outage clears an active DOS.
@@ -191,6 +212,15 @@ async function enforceBlocklist() {
   log.info(`appTamperingBlocklist - txhash=${myTxhash} listed=${listed} score=${tamperScore} shouldDos=${shouldDos}`);
 
   if (shouldDos) {
+    // Another owner's DOS already has this node out of service for its own
+    // reason. Taking the single slot from it would leave that owner unable to
+    // recognise or release its own state, and the node is DOSed either way -
+    // so leave it and re-check next tick.
+    const sticky = fluxNetworkHelper.getStickyDosMessage();
+    if (sticky && !isOurStickyDos()) {
+      log.info('appTamperingBlocklist - another sticky DOS is active, not overwriting it');
+      return;
+    }
     const message = `${DOS_MESSAGE_PREFIX}: tamper score ${tamperScore}, txhash ${myTxhash}`;
     fluxNetworkHelper.setStickyDosMessage(message);
     fluxNetworkHelper.setStickyDosStateValue(100);
@@ -199,11 +229,7 @@ async function enforceBlocklist() {
     return;
   }
 
-  if (ourDosActive || isOurStickyDos()) {
-    log.info(`appTamperingBlocklist - clearing sticky DOS (listed=${listed}, score=${tamperScore})`);
-    fluxNetworkHelper.clearStickyDosMessage();
-    ourDosActive = false;
-  }
+  releaseOurDos(`listed=${listed}, score=${tamperScore}`);
 }
 
 /**
