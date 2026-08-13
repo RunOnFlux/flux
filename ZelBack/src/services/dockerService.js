@@ -1685,6 +1685,66 @@ async function getFreeFluxAppNetworkOctet(excludeOctets = new Set()) {
 }
 
 /**
+ * Remove app networks that no installed app owns.
+ *
+ * A network is created per app and removed by the uninstaller, and by nothing
+ * else. An uninstall interrupted between the container going and the network
+ * going - a reboot, a crash, a removal that failed both its retries - leaves
+ * one behind for ever, because nothing looks again.
+ *
+ * That is not free. Each carries an explicitly assigned `172.23.<octet>.0/24`,
+ * and getFreeFluxAppNetworkOctet walks 1..255 for one nothing is using: a
+ * leaked network holds its octet permanently, and when the last one goes the
+ * answer is null and no app can be installed on the node again. Rare, never
+ * self-healing, and terminal when it arrives.
+ *
+ * The caller supplies the names it expects, rather than this deriving them: an
+ * app name can be recovered from a network name only by assuming what is in it,
+ * and being wrong there deletes a live app's network.
+ *
+ * A network with anything attached is left alone whatever the caller said,
+ * because something is using it and this cannot be the thing that decides
+ * otherwise.
+ *
+ * @param {Set<string>} expected - network names installed apps account for
+ * @returns {Promise<string[]>} what was reclaimed
+ */
+async function reclaimAppNetworks(expected) {
+  const reclaimed = [];
+  const networks = await getFluxDockerNetworks();
+
+  for (const summary of networks) {
+    const name = summary.Name;
+    if (!name || !name.startsWith('fluxDockerNetwork_') || expected.has(name)) {
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+
+    const network = docker.getNetwork(name);
+    // eslint-disable-next-line no-await-in-loop
+    const detail = await dockerNetworkInspect(network).catch(() => null);
+    if (!detail) {
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+    if (Object.keys(detail.Containers || {}).length) {
+      log.info(`reclaimAppNetworks - ${name} has no installed app but something is attached; leaving it`);
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+
+    // eslint-disable-next-line no-await-in-loop
+    const removed = await dockerRemoveNetwork(network).then(() => true).catch((error) => {
+      log.warn(`reclaimAppNetworks - could not remove ${name}: ${error.message}`);
+      return false;
+    });
+    if (removed) reclaimed.push(name);
+  }
+
+  return reclaimed;
+}
+
+/**
  * Creates flux application docker network if doesn't exist
  *
  * @returns {object} response
@@ -2074,6 +2134,7 @@ module.exports = {
   dockerNetworkInspect,
   dockerPullStream,
   dockerRemoveNetwork,
+  reclaimAppNetworks,
   dockerVersion,
   getAppDockerNameIdentifier,
   getAppIdentifier,

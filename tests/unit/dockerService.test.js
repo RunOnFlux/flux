@@ -389,6 +389,74 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('reclaimAppNetworks tests', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    const listing = (...names) => names.map((Name) => ({ Name }));
+
+    it('removes an app network no installed app accounts for', async () => {
+      // The uninstaller is the only thing that removes one, so an uninstall
+      // interrupted between the container going and the network going leaves it
+      // for ever - holding an octet nothing can hand out again.
+      const remove = sinon.stub().resolves();
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_gone'));
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
+        inspect: sinon.stub().resolves({ Name: 'fluxDockerNetwork_gone', Containers: {} }),
+        remove,
+      });
+
+      const reclaimed = await dockerService.reclaimAppNetworks(new Set());
+
+      expect(reclaimed).to.deep.equal(['fluxDockerNetwork_gone']);
+      sinon.assert.calledOnce(remove);
+    });
+
+    it('leaves a network an installed app owns', async () => {
+      const remove = sinon.stub().resolves();
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_live'));
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
+        inspect: sinon.stub().resolves({ Containers: {} }),
+        remove,
+      });
+
+      const reclaimed = await dockerService.reclaimAppNetworks(new Set(['fluxDockerNetwork_live']));
+
+      expect(reclaimed).to.deep.equal([]);
+      sinon.assert.notCalled(remove);
+    });
+
+    it('leaves a network something is attached to, whatever the caller said', async () => {
+      // Something is using it, and this is not the thing that decides otherwise.
+      const remove = sinon.stub().resolves();
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_busy'));
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
+        inspect: sinon.stub().resolves({ Containers: { abc123: { Name: 'fluxsomething' } } }),
+        remove,
+      });
+
+      const reclaimed = await dockerService.reclaimAppNetworks(new Set());
+
+      expect(reclaimed).to.deep.equal([]);
+      sinon.assert.notCalled(remove);
+    });
+
+    it('leaves a network it cannot inspect', async () => {
+      const remove = sinon.stub().resolves();
+      sinon.stub(Dockerode.prototype, 'listNetworks').resolves(listing('fluxDockerNetwork_unknown'));
+      sinon.stub(Dockerode.prototype, 'getNetwork').returns({
+        inspect: sinon.stub().rejects(new Error('EAI_AGAIN')),
+        remove,
+      });
+
+      const reclaimed = await dockerService.reclaimAppNetworks(new Set());
+
+      expect(reclaimed).to.deep.equal([]);
+      sinon.assert.notCalled(remove);
+    });
+  });
+
   describe('dockerNetworkState tests', () => {
     afterEach(() => {
       sinon.restore();

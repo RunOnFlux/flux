@@ -122,6 +122,34 @@ async function ensureIndex(collection, spec, options = {}) {
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
  */
+/**
+ * Remove app networks no installed app accounts for.
+ *
+ * The names are built from the database rather than parsed back out of the
+ * networks: an app name can only be recovered from `fluxDockerNetwork_<name>`
+ * by assuming what a name may contain, and being wrong there removes a live
+ * app's network.
+ *
+ * @returns {Promise<void>}
+ */
+async function reclaimOrphanedAppNetworks() {
+  try {
+    const installed = await appQueryService.installedApps();
+    if (!installed || installed.status !== 'success') {
+      log.warn('Skipping app network reclaim: the installed app list could not be read');
+      return;
+    }
+
+    const expected = new Set(installed.data.map((app) => `fluxDockerNetwork_${app.name}`));
+    const reclaimed = await dockerService.reclaimAppNetworks(expected);
+    if (reclaimed.length) {
+      log.info(`Reclaimed ${reclaimed.length} app network(s) no installed app owns: ${reclaimed.join(', ')}`);
+    }
+  } catch (error) {
+    log.error(`App network reclaim error: ${error.message}`);
+  }
+}
+
 async function startFluxFunctions() {
   try {
     if (!config.server.allowedPorts.includes(+apiPort)) {
@@ -409,6 +437,17 @@ async function startFluxFunctions() {
     // fetching at the same moment. A node that cannot reach the registry takes
     // it from one that did, which only works if they have it.
     volumeExecutor.startImagePrefetch();
+
+    // At boot, before anything installs: an app network is created per app and
+    // removed only by the uninstaller, so an uninstall interrupted between the
+    // container going and the network going leaves one behind for ever. Each
+    // holds an octet that getFreeFluxAppNetworkOctet cannot hand out again, and
+    // when the last of 255 is gone nothing can be installed on the node.
+    //
+    // Here rather than on a schedule because a sweep must not meet an install
+    // in progress: at boot the expected names are simply what the database
+    // holds, with no window in which an app has a network and no record yet.
+    await reclaimOrphanedAppNetworks();
     syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
     // Awaited: generating an identity rewrites config/userconfig.js, and that
