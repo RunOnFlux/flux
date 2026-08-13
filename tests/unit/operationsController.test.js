@@ -70,6 +70,72 @@ describe('operationsController tests', () => {
     });
   });
 
+  describe('answering work that finished inline', () => {
+    // An operation quick enough to beat its deadline answers on the original
+    // request rather than handing back something to poll. That answer is built
+    // from the JOB, and a job registered by an authenticated caller is owned -
+    // so the read has to present the owner or the registry refuses it.
+
+    it('reports a job that succeeded as a success', async () => {
+      const controller = build();
+      const res = mkRes();
+      const handle = jobRegistry.start({ kind: 'fileoperation.remove', owner: 'F1' });
+      jobRegistry.succeed(handle.jobId);
+
+      controller.completed(res, handle, 'F1');
+
+      expect(res.status.calledWith(200)).to.equal(true);
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+      expect(res.json.firstCall.args[0].data).to.include({
+        jobId: handle.jobId, status: 'Succeeded',
+      });
+    });
+
+    it('reports a job that FAILED as a failure, carrying what went wrong', async () => {
+      // The regression this covers: the read was made without an owner, so the
+      // registry refused it, the job came back empty, and the answer fell
+      // through to a hardcoded Succeeded. A remove that failed was reported to
+      // its caller as having worked.
+      const controller = build();
+      const res = mkRes();
+      const handle = jobRegistry.start({ kind: 'fileoperation.remove', owner: 'F1' });
+      jobRegistry.fail(handle.jobId, new Error('File operation failed with exit code 2'));
+
+      controller.completed(res, handle, 'F1');
+
+      const body = res.json.firstCall.args[0];
+      expect(body.status).to.equal('error');
+      // message, name and code: the shape a failed file operation has always
+      // answered with, so a client written before jobs existed still reads it.
+      expect(body.data.message).to.equal('File operation failed with exit code 2');
+      expect(body.data.name).to.equal('Error');
+    });
+
+    it('does not call a result it could not read a success', async () => {
+      // Expired, evicted, or presented with the wrong identity - all one answer
+      // from the registry. None of them means the work succeeded.
+      const controller = build();
+      const res = mkRes();
+      const handle = jobRegistry.start({ kind: 'fileoperation.remove', owner: 'F1' });
+      jobRegistry.succeed(handle.jobId);
+
+      controller.completed(res, handle, 'someone-else');
+
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+    });
+
+    it('names the operation in the header whatever the outcome', async () => {
+      const controller = build();
+      const res = mkRes();
+      const handle = jobRegistry.start({ kind: 'fileoperation.remove', owner: 'F1' });
+      jobRegistry.fail(handle.jobId, new Error('nope'));
+
+      controller.completed(res, handle, 'F1');
+
+      expect(res.setHeader.calledWith('Operation-Id', handle.jobId)).to.equal(true);
+    });
+  });
+
   describe('polling', () => {
     it('tells a client when to come back while the operation runs', async () => {
       const controller = build();

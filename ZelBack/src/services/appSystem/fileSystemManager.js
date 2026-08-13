@@ -452,7 +452,7 @@ function startOperation(res, volume, meta, work, { inlineDeadlineMs = 0 } = {}) 
   // unbounded one is held open until an intermediate proxy kills it.
   return Promise.race([running.then(() => true), serviceHelper.delay(inlineDeadlineMs)])
     .then((finished) => (finished
-      ? operationsController.completed(res, handle)
+      ? operationsController.completed(res, handle, meta.owner)
       : operationsController.accepted(res, handle)));
 }
 

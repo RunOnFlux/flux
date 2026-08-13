@@ -7,6 +7,11 @@ const jobRegistry = require('../../ZelBack/src/services/utils/jobRegistry');
 
 describe('fileSystemManager tests', () => {
   const MOUNT = '/test/apps/folder/fluxcomp_myapp';
+  // A real FluxID, because a session opened by an authenticated caller carries
+  // one and the registry refuses a read that does not present it. Left off, the
+  // job is registered ownerless and every read here is allowed - which is a
+  // world these tests never run in.
+  const OWNER = '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC';
 
   let fileSystemManager;
   let executorStub;
@@ -29,6 +34,7 @@ describe('fileSystemManager tests', () => {
     sessionStub = {
       mount: MOUNT,
       identifier: 'fluxcomp_myapp',
+      owner: OWNER,
       availableBytes: 1e9,
       resolve: sinon.stub().callsFake(async (p) => volumePath(p)),
       pair: sinon.stub().callsFake(async (source, destination) => ({
@@ -206,6 +212,27 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.removeAppsObject(req, res);
 
       expect(res.statusCode).to.equal(200);
+      expect(res.json.firstCall.args[0].status).to.equal('success');
+    });
+
+    it('reports a remove that failed as a failure, not as a success', async () => {
+      // The inline answer is built from the job, and the job is owned by the
+      // caller who opened the volume. Read without that owner the registry
+      // refuses, the job comes back empty, and the answer falls through to a
+      // hardcoded Succeeded - so the dashboard reports a delete that worked
+      // while the object is still sitting there.
+      req.params.object = 'uploads/old.txt';
+      executorStub.run.rejects(new Error('File operation failed with exit code 2'));
+
+      await fileSystemManager.removeAppsObject(req, res);
+
+      // The job really did fail, so the assertions below are about how that is
+      // reported rather than about the work never having run. The error body
+      // carries no jobId, so it is read from the header that always carries it.
+      const jobId = res.setHeader.getCalls().find((call) => call.args[0] === 'Operation-Id').args[1];
+      expect(jobRegistry.get(jobId, OWNER).status).to.equal('Failed');
+      expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.message).to.equal('File operation failed with exit code 2');
     });
 
     it('hands over a job when the remove outlives its deadline', async () => {
@@ -445,7 +472,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.copyAppsObject(req, res);
       await settle();
 
-      expect(jobRegistry.get(jobIdOf(), null).status).to.equal('Succeeded');
+      expect(jobRegistry.get(jobIdOf(), OWNER).status).to.equal('Succeeded');
     });
 
     it('is Canceled when the work actually stopped', async () => {
@@ -459,7 +486,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.copyAppsObject(req, res);
       await settle();
 
-      expect(jobRegistry.get(jobIdOf(), null).status).to.equal('Canceled');
+      expect(jobRegistry.get(jobIdOf(), OWNER).status).to.equal('Canceled');
     });
 
     it('is Failed when the work failed on its own', async () => {
@@ -468,7 +495,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.copyAppsObject(req, res);
       await settle();
 
-      expect(jobRegistry.get(jobIdOf(), null).status).to.equal('Failed');
+      expect(jobRegistry.get(jobIdOf(), OWNER).status).to.equal('Failed');
     });
   });
 
@@ -525,7 +552,7 @@ describe('fileSystemManager tests', () => {
       await settle();
 
       expect(res.statusCode).to.equal(202);
-      const view = jobRegistry.get(acceptedBody().jobId, null);
+      const view = jobRegistry.get(acceptedBody().jobId, OWNER);
       expect(view.status).to.equal('Failed');
       expect(view.error.detail).to.match(/exit code 2/);
     });
@@ -570,7 +597,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.copyAppsObject(req, res);
       await settle();
 
-      expect(jobRegistry.get(acceptedBody().jobId, null).status).to.equal('Succeeded');
+      expect(jobRegistry.get(acceptedBody().jobId, OWNER).status).to.equal('Succeeded');
     });
 
     it('answers 202 for a move too, so paste is one shape whichever it was', async () => {

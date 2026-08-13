@@ -62,14 +62,39 @@ function accepted(res, handle, extra = {}) {
  * @param {{jobId: string, statusUrl: string}} handle
  * @returns {object}
  */
-function completed(res, handle) {
+function completed(res, handle, owner = null) {
   res.setHeader('Operation-Id', handle.jobId);
-  const job = jobRegistry.get(handle.jobId);
+
+  // The owner has to be given, because a job carries one and the registry
+  // refuses a read that does not match it. Read without it, every owned job
+  // came back null and the answer fell through to a hardcoded Succeeded - so an
+  // operation that FAILED was reported to its caller as having worked.
+  const job = jobRegistry.get(handle.jobId, owner);
+
+  // Gone or unreadable is not the same as succeeded. The caller is told the
+  // work is over, and is not told that it worked.
+  if (!job) {
+    return res.status(200).json(messageHelper.createErrorMessage(
+      'The operation finished but its result could not be read',
+    ));
+  }
+
+  if (job.status !== jobRegistry.JobStatus.SUCCEEDED) {
+    // message, name and code, which is the shape a failed file operation has
+    // always answered with and what the dashboards read. The problem document
+    // is built from an Error, so its title IS that error's name.
+    const problem = job.error || {};
+    return res.status(200).json(messageHelper.createErrorMessage(
+      problem.detail || problem.title || `Operation ${job.status}`,
+      problem.title,
+      problem.code,
+    ));
+  }
+
   return res.status(200).json(messageHelper.createDataMessage({
     jobId: handle.jobId,
     statusUrl: handle.statusUrl,
-    status: job ? job.status : jobRegistry.JobStatus.SUCCEEDED,
-    ...(job && job.error ? { error: job.error } : {}),
+    status: job.status,
   }));
 }
 
