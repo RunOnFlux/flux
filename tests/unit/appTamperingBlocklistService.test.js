@@ -50,11 +50,16 @@ describe('appTamperingBlocklistService tests', () => {
       aggregateInDatabase: sinon.stub().resolves([]),
     };
 
+    // Stateful on purpose: the real fluxNetworkHelper reads back the message it
+    // was given, and every ownership rule in this service is written against
+    // that read-back. A getter pinned to null would let a clear that must not
+    // happen pass as if it had.
+    let sticky = null;
     fluxNetworkHelperStub = {
-      setStickyDosMessage: sinon.stub(),
+      setStickyDosMessage: sinon.stub().callsFake((msg) => { sticky = msg; }),
       setStickyDosStateValue: sinon.stub(),
-      clearStickyDosMessage: sinon.stub(),
-      getStickyDosMessage: sinon.stub().returns(null),
+      clearStickyDosMessage: sinon.stub().callsFake(() => { sticky = null; }),
+      getStickyDosMessage: sinon.stub().callsFake(() => sticky),
     };
 
     generalServiceStub = {
@@ -317,6 +322,44 @@ describe('appTamperingBlocklistService tests', () => {
       await service.enforceBlocklist();
 
       sinon.assert.called(fluxNetworkHelperStub.clearStickyDosMessage);
+    });
+
+    it('does NOT clear a sticky slot a different module took over after we set ours', async () => {
+      serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+      setTamperScore(15);
+      await service.enforceBlocklist();
+      expect(service.isDosActive()).to.be.true;
+
+      // Another enforcer overwrote the single sticky slot with its own message.
+      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('Residential node not running ArcaneOS');
+      // ...and our own condition stops holding.
+      serviceHelperStub.axiosGet.resolves({ data: [] });
+      await service.enforceBlocklist();
+
+      expect(fluxNetworkHelperStub.clearStickyDosMessage.called).to.be.false;
+      expect(service.isDosActive()).to.be.false;
+    });
+
+    it('does NOT overwrite a sticky DOS another module already holds', async () => {
+      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('Residential node not running ArcaneOS');
+      serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+      setTamperScore(15);
+
+      await service.enforceBlocklist();
+
+      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(service.isDosActive()).to.be.false;
+    });
+
+    it('refreshes its own sticky DOS rather than treating it as foreign', async () => {
+      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns(`${service.DOS_MESSAGE_PREFIX}: tamper score 42, txhash xyz`);
+      serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+      setTamperScore(15);
+
+      await service.enforceBlocklist();
+
+      sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDosMessage);
+      sinon.assert.calledWith(fluxNetworkHelperStub.setStickyDosStateValue, 100);
     });
 
     it('does NOT clear a sticky DOS set by a different module', async () => {
