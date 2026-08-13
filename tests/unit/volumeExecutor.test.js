@@ -565,6 +565,7 @@ describe('volumeExecutor tests', () => {
     let mount;
     let session;
     let sweeper;
+    let logStub;
 
     // flux-op derives both names from the staging directory's randomUUID, so a
     // fixture that is not one is not a fixture for anything this ever sees.
@@ -595,6 +596,9 @@ describe('volumeExecutor tests', () => {
       await realFs.mkdir(mount);
 
       const constants = { ...appConstantsStub, appsFolder };
+      logStub = {
+        info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
+      };
       deviceHelperStub.listMountedFilesystems = sinon.stub().resolves([mountRow(mount)]);
 
       // rm really removes, so "the data is still there" is a claim about the
@@ -617,9 +621,7 @@ describe('volumeExecutor tests', () => {
         '../dockerService': dockerServiceStub,
         '../deviceHelper': deviceHelperStub,
         '../serviceHelper': serviceHelperStub,
-        '../../lib/log': {
-          info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
-        },
+        '../../lib/log': logStub,
         '../utils/appConstants': constants,
         './volumeSession': sessions,
       });
@@ -795,6 +797,39 @@ describe('volumeExecutor tests', () => {
 
       expect(removed).to.deep.equal([`${OLD}.dest`]);
       expect(restored).to.deep.equal([]);
+    });
+
+    it('refuses a marker that is a link, rather than reading through it as root', async () => {
+      // The volume root is the app owner's to write, and this process is root:
+      // a marker replaced with a link names a file the owner cannot read and
+      // this can. Following it both discloses the file and puts it in a log.
+      const hostOnly = nodePath.join(tmpRoot, 'host-only');
+      await realFs.writeFile(hostOnly, '/etc/SUPERSECRET-TOKEN-9f3\n');
+      await write(OLD, 'mine');
+      await realFs.symlink(hostOnly, at(`${OLD}.dest`));
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(await exists(at(OLD))).to.equal(true);
+      const logged = [...logStub.error.getCalls(), ...logStub.warn.getCalls()]
+        .map((call) => call.args[0]).join('\n');
+      expect(logged).to.not.contain('SUPERSECRET-TOKEN-9f3');
+    });
+
+    it('refuses a marker longer than any path it could name', async () => {
+      await write(OLD, 'mine');
+      await write(`${OLD}.dest`, 'A'.repeat(64 * 1024));
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(await exists(at(OLD))).to.equal(true);
+      const logged = [...logStub.error.getCalls(), ...logStub.warn.getCalls()]
+        .map((call) => call.args[0]).join('\n');
+      expect(logged.length).to.be.below(1000);
     });
 
     it('keeps displaced data when its marker cannot be read', async () => {

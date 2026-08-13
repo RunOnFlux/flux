@@ -3,6 +3,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const util = require('node:util');
 const fs = require('node:fs/promises');
+const { constants: fsConstants } = require('node:fs');
 const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
@@ -73,6 +74,40 @@ const isSwapMarkerName = (name) => name.endsWith(MARKER_SUFFIX)
  * @returns {Promise<VolumePath>} the destination, contained
  * @throws {Error} if the contents name nothing, or name something outside
  */
+/**
+ * The longest a marker can be and still name a path. It sits in a directory the
+ * app owner writes to, so its size is theirs to choose: read unbounded, a
+ * marker is an unbounded allocation on a boot path, and its contents reach a
+ * log line that is written to disk.
+ */
+const MARKER_MAX_BYTES = 4096;
+
+/**
+ * Read a swap marker without following a link and without trusting its size.
+ *
+ * The volume root is the app owner's to write and this process is root, so a
+ * marker replaced with a link names any file on the host - including ones the
+ * owner cannot read. O_NOFOLLOW makes that an error rather than a read, and the
+ * size is taken from the open handle so it cannot change between the two.
+ *
+ * Every failure other than an absent marker leaves the entry alone, which is
+ * the sweep's existing rule for a marker it cannot read.
+ * @param {string} markerPath Absolute path of the marker.
+ * @returns {Promise<string>} The marker's contents.
+ */
+async function readSwapMarker(markerPath) {
+  const handle = await fs.open(markerPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const { size } = await handle.stat();
+    if (size > MARKER_MAX_BYTES) {
+      throw new Error(`marker is ${size} bytes, longer than any path it could name`);
+    }
+    return await handle.readFile('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
 async function resolveMarkerDestination(session, contents) {
   if (typeof contents !== 'string') throw new Error('marker holds no text');
   const recorded = contents.trim();
@@ -973,7 +1008,7 @@ async function sweepStagingDirectories(session) {
         // could not be read this once is the outcome this whole function exists
         // to prevent.
         // eslint-disable-next-line no-await-in-loop
-        const contents = await fs.readFile(path.join(mount, marker), 'utf8')
+        const contents = await readSwapMarker(path.join(mount, marker))
           .catch((error) => {
             if (error.code === 'ENOENT') return null;
             throw error;
