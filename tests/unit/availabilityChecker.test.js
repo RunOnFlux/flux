@@ -395,6 +395,10 @@ describe('availabilityChecker tests', () => {
       mockInstalledAppsFn.resolves({ status: 'success', data: apps });
       sinon.stub(upnpService, 'isUPNP').returns(true);
       sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
+      // The port under test is drawn at random, so this gate has to be closed
+      // too: left real, it refuses whenever the draw lands in upnpBannedPorts
+      // and the run returns before it ever reaches mapUpnpPort.
+      sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
       sinon.stub(fluxNetworkHelper, 'isPortUserBlocked').returns(false);
       sinon.stub(networkStateService, 'getRandomSocketAddress').resolves('192.168.1.200:16127');
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
@@ -426,6 +430,10 @@ describe('availabilityChecker tests', () => {
       mockInstalledAppsFn.resolves({ status: 'success', data: apps });
       sinon.stub(upnpService, 'isUPNP').returns(true);
       sinon.stub(fluxNetworkHelper, 'isPortBanned').returns(false);
+      // The port under test is drawn at random, so this gate has to be closed
+      // too: left real, it refuses whenever the draw lands in upnpBannedPorts
+      // and the run returns before it ever reaches mapUpnpPort.
+      sinon.stub(fluxNetworkHelper, 'isPortUPNPBanned').returns(false);
       sinon.stub(fluxNetworkHelper, 'isPortUserBlocked').returns(false);
       sinon.stub(networkStateService, 'getRandomSocketAddress').resolves('192.168.1.200:16127');
       sinon.stub(fluxNetworkHelper, 'isFirewallActive').resolves(true);
