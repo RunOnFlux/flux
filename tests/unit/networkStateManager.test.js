@@ -434,6 +434,128 @@ describe('networkStateManager tests', () => {
     expect(response).to.equal(null);
   });
 
+  describe('lookups before the first population', () => {
+    const knownPubkey = '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
+
+    let nsm;
+    let releaseFetch;
+
+    async function flush() {
+      await new Promise((r) => { setImmediate(r); });
+    }
+
+    beforeEach(() => {
+      const blockEmitter = new EventEmitter();
+
+      const options = {
+        stateEvent: 'blocksProcessed',
+        stateEmitter: blockEmitter,
+      };
+
+      const firstFetch = new Promise((resolve) => { releaseFetch = resolve; });
+
+      fetcher.callsFake(async () => {
+        await firstFetch;
+        return defaultNetworkState;
+      });
+
+      nsm = new NetworkStateManager(fetcher, options);
+    });
+
+    it('does not report a node absent while the fleet is still unknown', async () => {
+      const startPromise = nsm.start();
+
+      let answered = false;
+      let found = null;
+
+      async function askEarly() {
+        found = await nsm.includes(knownPubkey, 'pubkey');
+        answered = true;
+      }
+
+      const lookup = askEarly();
+
+      await flush();
+
+      expect(answered).to.equal(false);
+
+      releaseFetch();
+      await startPromise;
+      await lookup;
+
+      expect(found).to.equal(true);
+
+      await nsm.stop();
+    });
+
+    it('does not draw a null peer while the fleet is still unknown', async () => {
+      const startPromise = nsm.start();
+
+      let answered = false;
+      let address = null;
+
+      async function askEarly() {
+        address = await nsm.getRandomSocketAddress('203.0.113.1:16127');
+        answered = true;
+      }
+
+      const lookup = askEarly();
+
+      await flush();
+
+      expect(answered).to.equal(false);
+
+      releaseFetch();
+      await startPromise;
+      await lookup;
+
+      expect(address).to.be.a('string');
+
+      await nsm.stop();
+    });
+
+    it('answers absent once a fetch has come back empty', async () => {
+      fetcher.callsFake(async () => []);
+
+      // start() does not resolve here: the loop keeps asking until it gets a
+      // fleet. The lookup is what has to come back - an empty list is a
+      // truthful "absent", not a state that cannot answer.
+      const startPromise = nsm.start();
+
+      const response = await nsm.search(knownPubkey, 'pubkey');
+
+      expect(response).to.equal(null);
+
+      await nsm.stop();
+
+      try {
+        await startPromise;
+      } catch (error) {
+        // stopping interrupts the retry sleep, which is how the loop ends here
+      }
+    });
+
+    it('releases a waiting lookup when the manager is stopped', async () => {
+      const startPromise = nsm.start();
+
+      const lookup = nsm.search(knownPubkey, 'pubkey');
+
+      await flush();
+
+      // The fleet never arrives here. A stop is the other way a lookup becomes
+      // answerable: no population is coming, so a waiter still holding out for
+      // one would never return.
+      await nsm.stop();
+
+      const response = await lookup;
+
+      expect(response).to.equal(null);
+
+      releaseFetch();
+      await startPromise;
+    });
+  });
+
   it('should set the indexesReady property to false if indexes are being built', async () => {
     const dummyElement = {
       collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',

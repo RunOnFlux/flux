@@ -116,9 +116,11 @@ function networkState(options = {}) {
 /**
  * Whether the node list has been fetched and indexed.
  *
- * Every accessor on this service answers an unknown state and a genuinely empty
- * one with the same value - an empty list, a zero, a null. Callers that would
- * read those differently ask this first rather than guessing.
+ * The bulk accessors - networkState(), nodeCount() - answer an unknown state
+ * and a genuinely empty one with the same value, so a caller that would read
+ * those differently asks this first rather than guessing. The lookups that
+ * answer a question about one node do not: they wait for the list rather than
+ * report it absent from a state that has never held it.
  * @returns {boolean}
  */
 function isReady() {
