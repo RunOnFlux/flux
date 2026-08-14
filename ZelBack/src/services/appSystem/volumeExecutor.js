@@ -464,7 +464,28 @@ const PEER_IMAGE_MAX_BYTES = 128 * 1024 * 1024;
  * network state recognises, so without a ceiling a node can be asked to spend
  * its bandwidth by whoever asks most often.
  */
-const PEER_IMAGE_SERVE_LIMIT = 2;
+const PEER_IMAGE_SERVE_LIMIT = 4;
+
+/**
+ * How long a serve may go with the caller taking nothing.
+ *
+ * A slot came back only when the caller DISCONNECTED, and a caller that neither
+ * disconnects nor reads does neither: the export simply blocks on backpressure
+ * and the slot is held for as long as the socket is open. Two such connections
+ * took every slot on a node until FluxOS restarted, and nothing said so - the
+ * node's own operations kept working, so it looked healthy while quietly
+ * serving no peer at all. Cheap to do to every node in the fleet at once, which
+ * pushes all of them onto the registry: the load peer serving exists to avoid.
+ *
+ * Reachable by more than node operators, because an application's container
+ * egresses under its host node's address.
+ *
+ * Measured against bytes taken rather than total time, so a slow but honest
+ * caller still completes. The ingress side already reasons this way; this is the
+ * same rule pointed the other direction, and there was no two-hour backstop
+ * here as there is there.
+ */
+const PEER_IMAGE_SERVE_STALL_MS = 30000;
 
 let peerImageServes = 0;
 
@@ -767,14 +788,33 @@ async function serveImageToPeer(req, res) {
       return;
     }
 
+    // HEAD reaches this handler too - express answers it from the GET route when
+    // no HEAD route exists - and node discards the body of a HEAD response
+    // without ever applying backpressure. So a HEAD cost this node a full
+    // export, read off the disk and packed by docker, while costing the caller
+    // one packet and no bandwidth at all. Nothing here has a body worth
+    // describing, so there is nothing to answer.
+    if (req.method === 'HEAD') {
+      res.status(405).end();
+      return;
+    }
+
     // The ceiling before the fleet lookup, because it is a comparison and the
     // lookup is a set membership that may have to rebuild the set: a node with
     // no capacity should not pay to find out who is asking.
+    //
+    // Taken in the SAME TICK it is tested, before any await. Testing it, then
+    // awaiting, then taking it - which is what this did - lets every request
+    // that arrives together read the same count and all pass, so the ceiling
+    // bounded nothing at exactly the moment it was needed.
     if (peerImageServes >= PEER_IMAGE_SERVE_LIMIT) {
+      log.info(`volumeExecutor - refused ${remote} the file operation image: already serving ${peerImageServes}`);
       res.set('Retry-After', '30');
       res.status(503).end();
       return;
     }
+    serving = true;
+    peerImageServes += 1;
 
     if (!fleetHolds(remote)) {
       res.status(403).end();
@@ -789,9 +829,6 @@ async function serveImageToPeer(req, res) {
       res.status(404).end();
       return;
     }
-
-    serving = true;
-    peerImageServes += 1;
 
     // Subscribed BEFORE the export, because the caller can hang up while docker
     // is still packing the archive. `close` fires once, so a listener attached
@@ -821,8 +858,33 @@ async function serveImageToPeer(req, res) {
 
     res.set('Content-Type', 'application/x-tar');
     archive.on('error', function exportFailed() { res.destroy(); });
-    archive.pipe(res);
-    await disconnected;
+
+    // Bytes LEAVING the export, which is what a caller taking nothing stops:
+    // pipe holds the archive against backpressure, so no data event fires while
+    // the socket is not being drained. Counting them is therefore counting the
+    // caller's progress, without needing anything from the socket.
+    let sent = 0;
+    let sentAtLastLook = null;
+    archive.on('data', function count(chunk) { sent += chunk.length; });
+
+    const watchdog = setInterval(function noticeIdleCaller() {
+      if (sentAtLastLook === sent) {
+        log.warn(`volumeExecutor - stopped serving the file operation image to ${remote}: took nothing for ${PEER_IMAGE_SERVE_STALL_MS}ms`);
+        archive.destroy();
+        res.destroy();
+        noteCallerGone();
+        return;
+      }
+      sentAtLastLook = sent;
+    }, PEER_IMAGE_SERVE_STALL_MS);
+    if (watchdog.unref) watchdog.unref();
+
+    try {
+      archive.pipe(res);
+      await disconnected;
+    } finally {
+      clearInterval(watchdog);
+    }
   } catch (error) {
     log.error(`volumeExecutor - could not hand over the file operation image: ${error.message}`);
     if (!res.headersSent) res.status(500).end();

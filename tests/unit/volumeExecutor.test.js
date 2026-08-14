@@ -24,6 +24,9 @@ describe('volumeExecutor tests', () => {
   // arrives, and a stream that ends immediately would not exercise that.
   const peerArchive = () => Readable.from([Buffer.from('a docker image archive')]);
 
+  // Two windows: the first records the mark, the second finds it unmoved.
+  const PEER_SERVE_STALL_WINDOWS = 2;
+
   const IMAGE_ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
   // What a containerd-backed daemon reports instead: the digest of the INDEX
   // covering both architectures, rather than of this architecture's own config.
@@ -937,29 +940,106 @@ describe('volumeExecutor tests', () => {
       expect(third.statusCode).to.not.equal(503);
     });
 
-    it('still refuses a third caller while two are genuinely being served', async () => {
-      // The limit itself, which the fix must not have loosened: two streams in
-      // flight and the next caller is told to come back.
+    it('refuses the caller past the ceiling while the rest are genuinely served', async () => {
+      // The limit itself, which the fixes must not have loosened. Derived by
+      // filling it rather than written down, so it stays true if the number
+      // moves - which it has.
       willServe();
       dockerServiceStub.exportImage = sinon.stub().callsFake(async () => archiveStub());
 
-      const first = responseFor();
-      const second = responseFor();
-      const inFlight = [
-        volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), first),
-        volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), second),
-      ];
+      const open = [];
+      const inFlight = [];
+      let refused = null;
+      for (let i = 0; i < 20 && !refused; i += 1) {
+        const res = responseFor();
+        const call = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res);
+        // eslint-disable-next-line no-await-in-loop
+        await settle();
+        if (res.statusCode === 503) refused = res;
+        else { open.push(res); inFlight.push(call); }
+      }
+
+      expect(refused, 'the ceiling never refused anyone').to.not.equal(null);
+      expect(refused.headers['Retry-After']).to.equal('30');
+      expect(open.length, 'nothing was being served when the ceiling was reached').to.be.greaterThan(0);
+
+      open.forEach((res) => res.emit('close'));
+      await Promise.all(inFlight);
+    });
+
+    it('holds the ceiling against callers that arrive together', async () => {
+      // The count was read, then an await ran, then the slot was taken - so
+      // every request arriving in the same tick read the same count and all
+      // passed. The ceiling bounded nothing at the one moment it was for.
+      willServe();
+      dockerServiceStub.exportImage = sinon.stub().callsFake(async () => archiveStub());
+
+      const responses = Array.from({ length: 12 }, () => responseFor());
+      const calls = responses.map((res) => volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res));
+      await settle();
       await settle();
 
-      const third = responseFor();
-      await volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), third);
+      const served = responses.filter((res) => res.statusCode !== 503);
+      const turnedAway = responses.filter((res) => res.statusCode === 503);
+      expect(turnedAway.length, 'every simultaneous caller got through the ceiling').to.be.greaterThan(0);
+      expect(
+        dockerServiceStub.exportImage.callCount,
+        `${dockerServiceStub.exportImage.callCount} exports started at once`,
+      ).to.equal(served.length);
 
-      expect(third.statusCode).to.equal(503);
-      expect(third.headers['Retry-After']).to.equal('30');
+      responses.forEach((res) => res.emit('close'));
+      await Promise.all(calls);
+    });
 
-      first.emit('close');
-      second.emit('close');
-      await Promise.all(inFlight);
+    it('answers HEAD without packing an archive for it', async () => {
+      // Express answers HEAD from the GET route, and node throws away the body
+      // of a HEAD response without applying backpressure - so a HEAD bought a
+      // full export off the disk for one packet and no bandwidth.
+      willServe();
+      dockerServiceStub.exportImage = sinon.stub().callsFake(async () => archiveStub());
+
+      const res = responseFor();
+      const req = requestFrom('198.18.0.5', IMAGE_ID);
+      req.method = 'HEAD';
+      await volumeExecutor.serveImageToPeer(req, res);
+
+      expect(res.statusCode).to.equal(405);
+      expect(dockerServiceStub.exportImage.called, 'a HEAD packed an archive').to.equal(false);
+    });
+
+    it('stops serving a caller that takes nothing, and gives the slot back', async () => {
+      // A slot came back only on disconnect, and a caller that neither
+      // disconnects nor reads does neither - the export just blocks on
+      // backpressure. Two of those took every slot until FluxOS restarted, and
+      // nothing said so.
+      willServe();
+      const archive = archiveStub();
+      dockerServiceStub.exportImage = sinon.stub().resolves(archive);
+
+      const clock = sinon.useFakeTimers({ shouldAdvanceTime: true, advanceTimeDelta: 20 });
+      try {
+        const res = responseFor();
+        const call = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), res);
+        await settle();
+        expect(archive.pipe.called, 'the export never started').to.equal(true);
+
+        // The caller takes nothing: no data ever flows.
+        await clock.tickAsync(PEER_SERVE_STALL_WINDOWS * 30000);
+        await call;
+
+        expect(archive.destroy.called, 'the export was left running').to.equal(true);
+        expect(res.destroy.called, 'the socket was left open').to.equal(true);
+      } finally {
+        clock.restore();
+      }
+
+      // And the slot is back: the next caller is served rather than refused.
+      const next = responseFor();
+      const following = volumeExecutor.serveImageToPeer(requestFrom('198.18.0.5', IMAGE_ID), next);
+      await settle();
+      expect(next.statusCode, 'the slot was never given back').to.not.equal(503);
+      next.emit('close');
+      await following;
     });
   });
 
