@@ -878,6 +878,32 @@ async function acquisitionCycle(expected, sources) {
 }
 
 /**
+ * Arm the next acquisition, replacing any already armed.
+ *
+ * The ONLY place this timer is set, as stopImagePrefetch is the only place it
+ * is cleared. Two paths schedule one - the boot prefetch's wait before it asks
+ * the registry, and the retry backoff - and nothing about either says they
+ * cannot both be live.
+ *
+ * Today they cannot: startImagePrefetch returns early when a timer is already
+ * armed, and acquireImage dedupes, so an operation arriving mid-prefetch joins
+ * that round rather than racing it and cannot arm before the prefetch does. A
+ * timer left referenced by nothing would survive stopImagePrefetch and fire on
+ * a node that asked not to fetch, so this does not rest on either of those
+ * holding: there is one way to arm, and it clears what is already armed.
+ *
+ * @param {string} expected
+ * @param {number} wait
+ * @returns {void}
+ */
+function armAcquire(expected, wait) {
+  if (acquireTimer) clearTimeout(acquireTimer);
+  // eslint-disable-next-line no-use-before-define
+  acquireTimer = setTimeout(() => { acquireImage(expected, { registry: true, thenRetry: true }); }, wait);
+  if (acquireTimer.unref) acquireTimer.unref();
+}
+
+/**
  * Try again later, doubling the wait to a ceiling and jittered so nodes that
  * failed together do not return together.
  *
@@ -891,10 +917,7 @@ function scheduleAcquisition(expected) {
   const wait = Math.round(backoffMs * (0.8 + (crypto.randomInt(0, 400) / 1000)));
   backoffUntil = monotonicMs() + wait;
 
-  if (acquireTimer) clearTimeout(acquireTimer);
-  // eslint-disable-next-line no-use-before-define
-  acquireTimer = setTimeout(() => { acquireImage(expected, { registry: true, thenRetry: true }); }, wait);
-  if (acquireTimer.unref) acquireTimer.unref();
+  armAcquire(expected, wait);
 }
 
 /**
@@ -973,8 +996,7 @@ async function prefetchImage() {
 
   const wait = prefetchDelayMs();
   log.info(`volumeExecutor - no peer had the file operation image; the registry will be asked in ${Math.round(wait / 60000)} minute(s)`);
-  acquireTimer = setTimeout(() => { acquireImage(expected, { registry: true, thenRetry: true }); }, wait);
-  if (acquireTimer.unref) acquireTimer.unref();
+  armAcquire(expected, wait);
 }
 
 /**
