@@ -262,8 +262,15 @@ describe('app volume file operations - safety and recovery', function () {
 
       // And it SAYS so. Before the output was captured, this failure and a
       // corrupt archive and one too big for the volume were the same number.
+      //
+      // Matched on "ordinary" rather than on "link". The guard was widened and
+      // renamed from --no-links to --ordinary-only, because it refuses anything
+      // that is not a regular file or a directory - tar recreates FIFOs too, and
+      // a flag named for links told the next reader something untrue. The
+      // message moved with it, so matching "link" held the image to wording this
+      // release deliberately changed, while the refusal itself was correct.
       const said = JSON.stringify(job.error);
-      expect(said, `no reason given: ${said}`).to.match(/link/i);
+      expect(said, `no reason given: ${said}`).to.match(/ordinary/i);
     });
 
     it('gives a different reason for a corrupt archive than for a refused one', async function () {
