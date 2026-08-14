@@ -63,43 +63,6 @@ async function listMountedFilesystems() {
 }
 
 /**
- * The single mounted filesystem that HOSTS `target` - its containing
- * mountpoint - with byte-level free space.
- *
- * Use this rather than scanning listMountedFilesystems when the question is
- * "how much room is there for a write at this path": it resolves the one
- * filesystem directly instead of matching paths, so a nested mount cannot be
- * mistaken for its parent.
- *
- * `target` must be an existing path - a non-existent leaf resolves to no mount
- * on modern findmnt. Throws on failure or an unresolvable path so a caller
- * never silently measures the wrong disk.
- *
- * @param {string} target an existing path
- * @returns {Promise<{source: string, target: string, fstype: string,
- *   availableBytes: number}>}
- */
-async function mountForTarget(target) {
-  const res = await serviceHelper.runCommand('findmnt', {
-    logError: false,
-    params: ['--target', target, '--bytes', '--json', '--output', 'SOURCE,TARGET,FSTYPE,AVAIL'],
-  });
-  if (res.error) {
-    throw new Error(`findmnt --target ${target} failed: ${res.error.message || res.error}`);
-  }
-  const [mount] = JSON.parse(res.stdout || '{}').filesystems || [];
-  if (!mount) {
-    throw new Error(`findmnt --target ${target} resolved no mounted filesystem`);
-  }
-  return {
-    source: mount.source,
-    target: mount.target,
-    fstype: mount.fstype,
-    availableBytes: Number(mount.avail),
-  };
-}
-
-/**
  * Determines if mount target has a filesystem quota
  * @param {string} target The mount target
  * @returns {Promise<Boolean>} If the device has a quota
@@ -143,5 +106,4 @@ if (require.main === module) {
 module.exports = {
   hasQuotaOptionForMountTarget,
   listMountedFilesystems,
-  mountForTarget,
 };
