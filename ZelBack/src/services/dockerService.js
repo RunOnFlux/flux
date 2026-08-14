@@ -1487,6 +1487,21 @@ async function loadImage(stream) {
 }
 
 /**
+ * What a manifest can legitimately weigh.
+ *
+ * The archive holds ONE image - a peer packs a single id - and docker refuses
+ * to build deeper than 125 layers, each listed as a path of about 80 bytes.
+ * That is ~10KB of Layers, plus a config path and any tags; a real one measures
+ * 1.2KB. 64KB is several times the format's own ceiling.
+ *
+ * It needs a ceiling at all because this entry is read into memory while the
+ * archive around it is a file, bounded at PEER_IMAGE_MAX_BYTES. Nothing stops a
+ * peer making the manifest the whole of that, and the reason the archive goes
+ * to disk in the first place is not holding it in heap.
+ */
+const MANIFEST_MAX_BYTES = 64 * 1024;
+
+/**
  * The names a docker image archive declares for what it carries.
  *
  * `docker load` applies these: an archive naming `some/app:v1` MOVES that name
@@ -1507,7 +1522,9 @@ async function loadImage(stream) {
  */
 async function archiveNames(archivePath) {
   let manifest = '';
+  let taken = 0;
   let found = false;
+  let oversize = false;
 
   await tar.t({
     file: archivePath,
@@ -1517,7 +1534,17 @@ async function archiveNames(archivePath) {
         return;
       }
       found = true;
-      entry.on('data', (chunk) => { manifest += chunk.toString(); });
+      entry.on('data', (chunk) => {
+        taken += chunk.length;
+        // Past the ceiling the bytes are drained and dropped rather than kept:
+        // the entry still has to be walked to finish the scan, but nothing more
+        // of it is held.
+        if (taken > MANIFEST_MAX_BYTES) {
+          oversize = true;
+          return;
+        }
+        manifest += chunk.toString();
+      });
       entry.resume();
     },
   });
@@ -1526,6 +1553,10 @@ async function archiveNames(archivePath) {
   // is better than letting the daemon report it as an empty load, which reads
   // as "the peer did not have it" and sends the caller to another peer.
   if (!found) throw new Error('the archive carries no manifest');
+
+  if (oversize) {
+    throw new Error(`the archive's manifest is over ${MANIFEST_MAX_BYTES} bytes, so it is not describing one image`);
+  }
 
   const entries = JSON.parse(manifest);
   return entries.flatMap((entry) => (entry && entry.RepoTags) || []);

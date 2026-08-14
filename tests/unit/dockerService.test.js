@@ -1460,6 +1460,20 @@ describe('dockerService tests', () => {
 
       await expect(dockerService.archiveNames(file)).to.be.rejectedWith(/no manifest/);
     });
+
+    it('refuses a manifest too big to be describing one image', async () => {
+      // The archive around it is a file and bounded; this entry is read into
+      // memory, so it needs a ceiling of its own. A real manifest measures
+      // ~1.2KB, and the format's own limit puts a single image at ~10KB of
+      // layer paths, so nothing legitimate comes near this.
+      const file = await archiveOf([{
+        Config: 'a.json',
+        RepoTags: [`ghcr.io/x/${'y'.repeat(64 * 1024)}:v1`],
+        Layers: ['layer.tar'],
+      }]);
+
+      await expect(dockerService.archiveNames(file)).to.be.rejectedWith(/not describing one image/);
+    });
   });
 
   describe('tagImage tests', () => {
