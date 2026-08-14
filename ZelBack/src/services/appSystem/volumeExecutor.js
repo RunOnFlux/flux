@@ -1762,60 +1762,36 @@ async function reapOrphanedContainers() {
 }
 
 /**
- * Reclaim - and where necessary restore - what an interrupted operation left on
- * a volume.
+ * Reclaim what an interrupted operation left on a volume.
  *
- * flux-op leaves exactly three kinds of entry, and the rules follow from what
- * each one means:
+ * One kind of entry, and one rule. flux-op works in `.flux-op-<id>` and
+ * publishes by exchanging it with the destination in a single atomic step, so a
+ * crash lands on one side of that step or the other:
  *
- *   .flux-op-<id>                     the work never completed. Nothing was
- *                                     published, nobody is waiting for it -
- *                                     delete.
+ *   before   the destination is the caller's data, untouched, and the staging
+ *            entry holds a result that was never published
+ *   after    the destination is the result, and the staging entry holds the
+ *            caller's superseded data
  *
- *   .flux-old-<id> + .dest marker,    a crash landed between the two renames of
- *   destination MISSING               a publish. This is the caller's previous
- *                                     data and its own path is empty - rename
- *                                     it back. Deleting here would destroy the
- *                                     only copy.
+ * In both, the destination is complete and the staging entry is disposable - so
+ * this deletes staging entries and decides nothing else. It used to have to
+ * decide: the publish was two renames, and between them the caller's only copy
+ * sat under a second name with a marker beside it saying where it belonged.
+ * Working out whether the second rename had happened meant comparing an inode
+ * number and a timestamp, neither of which is unique, and the cost of being
+ * wrong was deleting that copy.
  *
- *   .flux-old-<id> + .dest marker,    the publish completed and only the
- *   destination PRESENT               cleanup was interrupted - delete.
+ * Matched against a real identifier shape rather than by prefix, because this
+ * DELETES what it matches in a directory the app owner also writes to, and
+ * `.flux-op-backups` is a name somebody may legitimately have chosen.
  *
- * Restoring is possible only because flux-op writes the marker BEFORE moving
- * the old entry aside; the name alone says nothing about where the data came
- * from.
+ * On the host rather than in a container: the name came from readdir, so it is
+ * one component with nothing to traverse, and `rm -rf` unlinks a symlink rather
+ * than following it. That also means a node which cannot fetch the executor
+ * image still reclaims its debris.
  *
- * A .flux-old-<id> with no marker cannot be placed, and can only arise from a
- * crash between writing the marker and the rename that uses it - in which case
- * the destination was never touched and the entry is a duplicate. Deleted.
- *
- * A marker whose contents do not name a path inside this volume is left exactly
- * where it is, loudly. It cannot be placed, and it is the one case where the
- * entry beside it might still be somebody's only copy - so the safe direction
- * is to keep it and say so, not to tidy it away.
- *
- * A destination holding a DANGLING symlink is the same kind of answer: a
- * completed publish can legitimately have placed a broken link there, and an
- * app can equally have made one at a path nothing was ever published to. The
- * two are indistinguishable from here, and one of them means the entry beside
- * it is the only copy - so this is refused rather than guessed.
- *
- * Everything here runs on names this function matched itself, in a directory
- * the app owner can also write to, so both the names and the marker contents
- * are treated as input rather than as state this module left behind. That is
- * also why the restore runs in the executor rather than as a root `mv` here:
- * the destination's own parent directories are the app owner's to replace with
- * symlinks, and no check made in this process can be made to hold across the
- * rename that follows it. In the container there is nowhere for one to lead.
- *
- * The filesystem is NOT injectable, deliberately. What this decides is where a
- * path leads, and a stub has no symlinks to lead anywhere - so a test written
- * against one asserts the stub's answer to the only question that matters here.
- * The cases below are exercised against real directories on a real disk.
- *
- * @param {VolumeSession} session - the volume, and the only source of paths the
- *   executor will accept
- * @returns {Promise<{removed: string[], restored: string[]}>}
+ * @param {VolumeSession} session
+ * @returns {Promise<{removed: Array<string>}>}
  */
 async function sweepStagingDirectories(session) {
   const { mount } = session;

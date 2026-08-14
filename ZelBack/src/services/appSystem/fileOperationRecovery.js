@@ -10,18 +10,16 @@ const { sessionForMountedVolume } = require('./volumeSession');
  * An operation's container is detached from the process that started it, so a
  * restart leaves it running with nobody waiting for its exit code, and its
  * staging directory sitting on the volume. Neither is visible at a destination
- * path - publishing is the last thing flux-op does - so nothing the user can
- * see is inconsistent; this is about not accumulating debris, and about the one
- * case that IS user-visible: a publish interrupted between its two renames,
- * where the destination is empty and the previous data is parked under
- * .flux-old-*.
+ * path: a publish is one atomic exchange, so a destination always holds
+ * something complete and nothing the user can see is left inconsistent. This is
+ * about not accumulating debris.
  *
  * Runs once at startup, after app volumes are mounted. There is no in-flight
  * operation to race at that point: the executor's slots live in memory and are
  * empty on a fresh process, and any container from the previous one is removed
  * here before anything else can start.
  *
- * @returns {Promise<{containers: number, removed: number, restored: number}>}
+ * @returns {Promise<{containers: number, removed: number}>}
  */
 async function recoverInterruptedFileOperations() {
   const containers = await executor.reapOrphanedContainers();
