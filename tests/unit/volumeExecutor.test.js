@@ -1519,27 +1519,6 @@ describe('volumeExecutor tests', () => {
       return `${stats.ino} ${stats.mtimeNs}`;
     };
 
-    // The identity flux-op records wherever the kernel supplies a creation
-    // time, which is every filesystem a Flux node puts an app volume on.
-    const identityOf = async (name) => {
-      const stats = await realFs.lstat(at(name), { bigint: true });
-      return `${stats.ino} ${stats.birthtimeNs} btime`;
-    };
-
-    // Whether this filesystem really keeps a creation time. Node reports ctime
-    // as birthtime when it has nothing better, and at creation the two are
-    // identical - so the question is whether it MOVES when the object is
-    // written to, not whether it is there at all.
-    const keepsCreationTime = async () => {
-      const probe = at('.birthtime-probe');
-      await realFs.mkdir(probe);
-      const before = (await realFs.lstat(probe, { bigint: true })).birthtimeNs;
-      await realFs.writeFile(nodePath.join(probe, 'x'), 'x');
-      const after = (await realFs.lstat(probe, { bigint: true })).birthtimeNs;
-      await realFs.rm(probe, { recursive: true });
-      return before === after;
-    };
-
     /**
      * The parked entry and the marker placing it. The identity defaults to one
      * nothing on disk carries, because most of these are about a destination
@@ -1638,6 +1617,58 @@ describe('volumeExecutor tests', () => {
       expect(await exists(at(OLD))).to.equal(true);
     });
 
+    // The legacy shape, and the whole of what the sweep now decides about it.
+    //
+    // A publish is one atomic exchange, so nothing is ever parked under a swap
+    // name any more and no marker is ever written. What these cover is what a
+    // node does with entries an image before v1.2.0 left on a volume.
+    it('places a legacy entry when its destination is empty', async () => {
+      await park('photos');
+
+      const { restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(restored).to.deep.equal([at('photos')]);
+    });
+
+    it('keeps both when a legacy destination already holds something', async () => {
+      // Which thing it holds cannot be told apart soundly. It is either what the
+      // publish placed, in which case the parked entry is superseded, or
+      // something the app owner made at that path while it stood empty, in
+      // which case the parked entry is their only copy.
+      //
+      // What used to decide was an inode number and a creation time, and
+      // neither is unique - filesystems reuse inode numbers at once and inode
+      // timestamps come from a coarse clock, so a later object can carry the
+      // identity of the published one. On ext4 that collides in more than half
+      // of back-to-back creations, which is why the test asserting otherwise
+      // failed on Linux and passed on macOS.
+      //
+      // So it is not decided: both are kept. Space on a fixed volume, which can
+      // be reclaimed by hand, against deleting somebody's only copy on a
+      // coincidence, which cannot be undone.
+      await write('photos', 'something is here');
+      await park('photos');
+
+      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([]);
+      expect(restored).to.deep.equal([]);
+      expect(await exists(at(OLD))).to.equal(true);
+      expect(await realFs.readFile(at('photos'), 'utf8')).to.equal('something is here');
+    });
+
+    it('places a legacy entry whose marker carries no identity', async () => {
+      // The first release of the image wrote the path alone. Nothing compares
+      // an identity now, so requiring one would refuse a marker that is
+      // perfectly readable and strand the entry beside it for ever.
+      await write(OLD, 'THE ONLY COPY\n');
+      await write(`${OLD}.dest`, 'photos\n');
+
+      const { restored } = await sweeper.sweepStagingDirectories(session);
+
+      expect(restored).to.deep.equal([at('photos')]);
+    });
+
     it('refuses a marker naming a path outside the volume, and keeps the data', async () => {
       await park('/etc/cron.d/pwn');
 
@@ -1706,37 +1737,7 @@ describe('volumeExecutor tests', () => {
       expect(await exists(at(OLD))).to.equal(true);
     });
 
-    it('deletes displaced data when the publish completed', async () => {
-      await write('photos', 'the published copy');
-      await park('photos', { identity: await identityOf('photos') });
 
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(restored).to.deep.equal([]);
-      expect(removed).to.include(OLD);
-      expect(publishes()).to.deep.equal([]);
-    });
-
-    it('deletes displaced data after the app has written into what was published', async function writtenInto() {
-      // The regression this covers. The identity used to be the modification
-      // time, which an app moves simply by using its own volume - so the sweep
-      // stopped recognising its own work and kept the displaced copy for ever.
-      // With the reserved names in this same release that copy is hidden from
-      // the file browser and refused at the delete path, so the owner could
-      // neither see it nor remove it, on a volume with a fixed size.
-      if (!await keepsCreationTime()) this.skip();
-
-      await realFs.mkdir(at('photos'));
-      await park('photos', { identity: await identityOf('photos') });
-
-      // Exactly what a running app does to its own volume.
-      await realFs.writeFile(at('photos', 'written-by-the-app'), 'x');
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(restored).to.deep.equal([]);
-      expect(removed).to.include(OLD);
-    });
 
     it('cannot do the same for a marker written before the image recorded a creation time', async () => {
       // The control for the test above - without it that assertion could pass
@@ -1766,53 +1767,8 @@ describe('volumeExecutor tests', () => {
       expect(restored).to.deep.equal([at('photos')]);
     });
 
-    it('keeps both when the creation time says the destination is not what was published', async function notOurs() {
-      // The safety the comparison exists for, unchanged: the app owner created
-      // something at the destination while it stood empty. A reused inode
-      // number cannot make this match, because a new object has a new creation
-      // time.
-      if (!await keepsCreationTime()) this.skip();
 
-      await realFs.mkdir(at('photos'));
-      const theirs = await identityOf('photos');
-      await realFs.rm(at('photos'), { recursive: true });
-      await realFs.mkdir(at('photos'));
-      await park('photos', { identity: theirs });
 
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(removed).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(await exists(at(OLD))).to.equal(true);
-    });
-
-    it('deletes displaced data when a link was what the publish placed', async () => {
-      // A move publishes a link as a link, so one resolving to something real
-      // at the destination is an ordinary completed publish.
-      await write('target', 'real');
-      await realFs.symlink(at('target'), at('photos'));
-      await park('photos', { identity: await identityOf('photos') });
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(restored).to.deep.equal([]);
-      expect(removed).to.include(OLD);
-    });
-
-    it('cleans up a published link without asking where it leads', async () => {
-      // A link published as a link is an ordinary completed publish whether or
-      // not it resolves. Where it leads is a question about the host, and an
-      // absolute link written inside a container never named a host path - so
-      // the identity settles it and nothing follows anything.
-      await realFs.symlink(nodePath.join(tmpRoot, 'no-such-target'), at('photos'));
-      await park('photos', { identity: await identityOf('photos') });
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(restored).to.deep.equal([]);
-      expect(removed).to.include(OLD);
-      expect(publishes()).to.deep.equal([]);
-    });
 
     it('keeps both when the destination holds something else entirely', async () => {
       // The app owner created something at the destination while it stood
@@ -1831,19 +1787,6 @@ describe('volumeExecutor tests', () => {
       expect(await realFs.readFile(at('photos'), 'utf8')).to.equal('the app owner put this here');
     });
 
-    it('refuses a marker that records no identity', async () => {
-      // Every marker flux-op writes carries one. Without it a completed publish
-      // cannot be told from the app owner's own entry, which is the whole
-      // decision - so the data stays parked rather than being guessed about.
-      await write(OLD, 'THE ONLY COPY\n');
-      await write(`${OLD}.dest`, 'photos\n');
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(removed).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(await exists(at(OLD))).to.equal(true);
-    });
 
     it('deletes a marker whose entry never arrived', async () => {
       // The crash landed between writing the marker and the rename that uses

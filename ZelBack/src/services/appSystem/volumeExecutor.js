@@ -37,18 +37,11 @@ const settings = () => config.fluxapps.volumeOperations;
 const MARKER_MAX_BYTES = 4096;
 
 /**
- * An inode number, a time in nanoseconds, and which clock that time came from,
- * as flux-op writes them.
+ * Where a marker left by an older image says its entry belongs.
  *
- * The clock is optional because the first release of the image did not name
- * one, and a marker it wrote can still be sitting on a volume. Those recorded a
- * modification time, so that is what an unnamed clock means.
- */
-const MARKER_IDENTITY = /^(\d+) (\d+)(?: (btime|mtime))?$/;
-
-/**
- * What flux-op recorded before it displaced anything: where the entry belongs,
- * and which object the publish was placing.
+ * LEGACY. A publish is one atomic exchange now, so nothing is ever parked under
+ * a swap name and no marker is ever written; what this reads was left by an
+ * image before v1.2.0, and it goes when no volume can still hold one.
  *
  * The marker is written from inside the container, so it never describes a host
  * path. Reading one as a host path is what turned a file the app owner can
@@ -62,78 +55,30 @@ const MARKER_IDENTITY = /^(\d+) (\d+)(?: (btime|mtime))?$/;
  * every endpoint makes for the same reason: a marker's contents are user input
  * arriving by a slower route.
  *
- * The identity is what tells a completed publish from an entry the app owner
- * created at the destination while it stood empty. It is compared, never
- * followed - a marker carrying no identity is one this cannot decide about, and
- * is refused so the displaced data stays where it is.
+ * Only the path is read. These markers also carried an identity - an inode
+ * number and a timestamp - which the sweep used to decide whether a publish had
+ * completed. That comparison is not sound, because neither field is unique, so
+ * nothing compares it any more and requiring it would only refuse markers that
+ * are otherwise perfectly readable.
  *
  * @param {VolumeSession} session
  * @param {string} contents - raw marker file contents
- * @returns {Promise<{destination: VolumePath,
- *   identity: {ino: string, when: string, clock: 'btime'|'mtime'}}>}
- * @throws {Error} if the contents name nothing, name something outside, or
- *   record no identity
+ * @returns {Promise<{destination: VolumePath}>}
+ * @throws {Error} if the contents name nothing, or name something outside
  */
 async function resolveMarkerRecord(session, contents) {
   if (typeof contents !== 'string') throw new Error('marker holds no text');
 
-  const [namedPath = '', namedIdentity = ''] = contents.split('\n');
+  const [namedPath = ''] = contents.split('\n');
   const recorded = namedPath.trim();
   if (!recorded) throw new Error('marker is empty');
-
-  const recordedIdentity = MARKER_IDENTITY.exec(namedIdentity.trim());
-  if (!recordedIdentity) {
-    throw new Error('marker records no identity for what was being published');
-  }
-  const [, ino, when, clock = 'mtime'] = recordedIdentity;
 
   const relative = path.posix.normalize(recorded);
   if (!relative || relative.startsWith('..') || path.posix.isAbsolute(relative)) {
     throw new Error(`marker names ${recorded}, which is outside the volume`);
   }
 
-  return { destination: await session.resolve(relative), identity: { ino, when, clock } };
-}
-
-/**
- * Whether an entry on disk is the object a marker recorded.
- *
- * A publish is a rename, which carries the inode and the timestamps with it, so
- * an entry matching the record IS the object flux-op placed. The inode alone
- * will not do, because filesystems reuse inode numbers: one the app owner
- * creates at the destination afterwards can carry the number recorded here.
- *
- * The time is normally the object's CREATION time, which is the field that
- * answers which object this is rather than what has been done to it. A
- * modification time cannot answer it: an app writing into a directory that was
- * just published to it moves that directory's mtime, so the sweep would stop
- * recognising its own work and keep the displaced copy for ever - hidden from
- * the file browser by the reserved names and refused by the delete path, on a
- * volume whose size is fixed.
- *
- * Verified on a Flux node (chud, kernel 6.17) that a creation time survives
- * both the publishing rename and the app writing into what was published, and
- * that a later object receives a different one:
- *
- *   ext4 (FLUXFSVOL)   yes      the filesystem a file operation actually runs on
- *   xfs (/dat)         yes      the filesystem holding the volume images
- *   overlayfs          yes
- *   tmpfs              yes
- *
- * Which clock the record used is flux-op's decision, not a guess made here: it
- * reads the statx mask and knows whether the kernel really supplied a creation
- * time. This side cannot tell, because Node reports ctime as birthtime when it
- * has nothing better - which looks correct until the first write. So the record
- * names its clock and this compares the field it names.
- *
- * @param {import('node:fs').BigIntStats} stats - from lstat, so a link answers
- *   for itself rather than for whatever it leads to
- * @param {{ino: string, when: string, clock: 'btime'|'mtime'}} identity
- * @returns {boolean}
- */
-function isRecordedObject(stats, identity) {
-  const when = identity.clock === 'btime' ? stats.birthtimeNs : stats.mtimeNs;
-  return String(stats.ino) === identity.ino && String(when) === identity.when;
+  return { destination: await session.resolve(relative) };
 }
 
 /**
@@ -2001,22 +1946,32 @@ async function sweepStagingDirectories(session) {
         // eslint-disable-next-line no-await-in-loop
         const placed = await fs.lstat(destination.hostPath, { bigint: true }).catch(() => null);
 
-        if (placed && !isRecordedObject(placed, record.identity)) {
-          // Something the app owner put at the destination while it stood
-          // empty. Restoring would overwrite what they have; deleting would
-          // lose the copy held for them. Neither is this function's to choose.
-          log.warn(`volumeExecutor - ${destination.relative} in ${mount} is not what was being published when ${entry} was displaced; leaving both in place`);
+        if (placed) {
+          // Something is at the destination, and which thing cannot be told
+          // apart soundly. It is either what the publish placed - in which case
+          // this entry is superseded - or something the app owner created at
+          // that path while it stood empty, in which case this entry is their
+          // only copy. What used to decide between them was an inode number and
+          // a creation time, and neither is unique: filesystems reuse inode
+          // numbers at once, and inode timestamps come from a coarse clock, so
+          // a later object can carry the identity of the published one.
+          // Measured on ext4: the inode is reused every time and the creation
+          // time collides in more than half of back-to-back creations.
+          //
+          // So it is not decided. Both are kept, which costs space on a volume
+          // whose size is fixed and can be reclaimed by hand - against deleting
+          // somebody's only copy on a coincidence, which cannot be undone.
+          //
+          // This is the LEGACY shape and it stops arriving: a publish is one
+          // atomic exchange now, so there is no state where an entry is parked
+          // under a swap name at all. What is here was left by an image before
+          // v1.2.0, and this branch goes when no volume can still hold one.
+          log.warn(`volumeExecutor - ${destination.relative} in ${mount} already holds something, so ${entry} cannot be placed without deciding what that is; leaving both`);
           // eslint-disable-next-line no-continue
           continue;
         }
 
-        if (placed) {
-          // The publish completed and only its cleanup was interrupted.
-          // eslint-disable-next-line no-await-in-loop
-          await remove(entry);
-          // eslint-disable-next-line no-await-in-loop
-          await remove(marker);
-        } else {
+        {
           // A move IS a publish whose source is already the result, which is
           // what the executor's `source` form expresses. It runs in the
           // container because the destination's parent directories are the app

@@ -31,19 +31,18 @@ const OPERATION_UUID = '11111111-2222-4333-8444-555555555555';
 const STAGING_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 
 /**
- * A marker as flux-op writes one: where the entry belongs, then the identity of
- * the object the publish was placing.
+ * A marker as an image before v1.2.0 wrote one: where the entry belongs, then
+ * the identity of the object the publish was placing.
  *
- * Built here rather than written inline, because the sweep refuses a marker
- * that records no identity BEFORE it decides anything about the path. A
- * one-line fixture therefore makes a containment test pass at the wrong check -
- * green against a build with the containment removed - and it makes the one
- * test that needs the marker FOLLOWED fail. Both happened: this file was
- * written before the identity line existed and was not updated with it.
+ * LEGACY by construction. A publish is one atomic exchange now, so nothing is
+ * parked under a swap name and no marker is written - what these tests plant is
+ * what a node may still find on a volume an older image touched, and what the
+ * sweep has to keep doing about it.
  *
- * The default identity names an object nothing on disk carries, which is what
- * these tests want: they are about where a marker may point, not about whether
- * a publish completed.
+ * The identity line is kept because that is the shape on disk, not because
+ * anything reads it: the sweep compared it to decide whether a publish had
+ * completed, and that comparison was not sound - neither an inode number nor an
+ * inode timestamp is unique - so it is gone and only the path is read.
  *
  * Fed to `printf '%b'` so the escape becomes a real newline in the file.
  */
