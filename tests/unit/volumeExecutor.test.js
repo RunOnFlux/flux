@@ -48,6 +48,7 @@ describe('volumeExecutor tests', () => {
   let configStub;
   let nodeFsStub;
   let fluxEventBusStub;
+  let fluxNetworkHelperStub;
   let networkStateStub;
 
   // Rebuilt per test: a test that raises a limit to exercise something must not
@@ -167,6 +168,9 @@ describe('volumeExecutor tests', () => {
     // a shared emitter would carry it between tests.
     fluxEventBusStub = { publish: sinon.stub() };
 
+    // This node's own address, so a peer draw cannot come back as itself.
+    fluxNetworkHelperStub = { getLocalSocketAddress: sinon.stub().resolves('198.18.0.1:16127') };
+
     nodeFsStub = {
       createWriteStream: sinon.stub().callsFake(() => new Writable({
         write(chunk, encoding, done) { done(); },
@@ -194,6 +198,7 @@ describe('volumeExecutor tests', () => {
       },
       '../utils/appConstants': appConstantsStub,
       '../utils/fluxEventBus': fluxEventBusStub,
+      '../fluxNetworkHelper': fluxNetworkHelperStub,
       './volumeSession': volumeSession,
     });
   });
@@ -745,6 +750,23 @@ describe('volumeExecutor tests', () => {
         dockerServiceStub.pullImage.called,
         'the caller was refused without the registry being asked',
       ).to.equal(true);
+    });
+
+    it('does not ask itself for the image', async () => {
+      // Every other caller of getRandomSocketAddress passes its own address so
+      // the draw can skip it; this passed null, which never matches, so a node
+      // could spend one of only four attempts asking itself for an image it had
+      // just established it does not hold. One draw in three on a fleet of
+      // three.
+      pulled = false;
+      networkStateStub.getRandomSocketAddress.resolves(null);
+
+      await volumeExecutor.startImagePrefetch();
+
+      expect(
+        networkStateStub.getRandomSocketAddress.firstCall.args[0],
+        'the draw was not told which node it is running on',
+      ).to.equal('198.18.0.1:16127');
     });
 
     it('reports peers asked and registry attempts as different things', async () => {

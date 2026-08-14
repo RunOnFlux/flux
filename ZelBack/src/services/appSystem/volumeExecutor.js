@@ -7,6 +7,7 @@ const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const networkStateService = require('../networkStateService');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
 const jobRegistry = require('../utils/jobRegistry');
 const fluxEventBus = require('../utils/fluxEventBus');
 const log = require('../../lib/log');
@@ -650,6 +651,7 @@ async function discardUnwantedImages(loaded, accepted, socketAddress) {
  */
 async function fetchImageFromPeer(expected) {
   const asked = new Set();
+  const localAddress = await fluxNetworkHelper.getLocalSocketAddress().catch(() => null);
 
   // Bounded by peers CONTACTED, not by draws. The draw is random, so counting
   // draws lets a repeat stand in for a peer: on a small fleet that is the
@@ -657,7 +659,16 @@ async function fetchImageFromPeer(expected) {
   // it. The draw ceiling is what stops a fleet of one from looping.
   for (let draw = 0; asked.size < PEER_IMAGE_ATTEMPTS && draw < PEER_IMAGE_DRAWS; draw += 1) {
     // eslint-disable-next-line no-await-in-loop
-    const socketAddress = await networkStateService.getRandomSocketAddress(null);
+    // This node's own address, so a draw cannot come back as itself. Every other
+    // caller of this passes one; passing null never matched, so a node could
+    // spend one of only four attempts asking itself for an image it has already
+    // established it does not hold. Negligible across the fleet, one draw in
+    // three on a three-node one.
+    //
+    // Not fatal if it cannot be determined - a draw that might waste an attempt
+    // is better than no peer search at all.
+    // eslint-disable-next-line no-await-in-loop
+    const socketAddress = await networkStateService.getRandomSocketAddress(localAddress);
     if (!socketAddress || asked.has(socketAddress)) {
       // eslint-disable-next-line no-continue
       continue;
