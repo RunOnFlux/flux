@@ -202,7 +202,11 @@ describe('app volume file operations - where the image comes from', function () 
     // this test could otherwise see. The node re-checks its own store after the
     // transfer, so it ends up holding the image whether the peer's archive was
     // read correctly or not - the node says which of those happened.
-    const acquired = await acquisition;
+    // .data because waitForEvent resolves the whole entry - {id, event, data} -
+    // and the payload is inside it, which is the idiom every other suite uses.
+    // Read without it, every field is undefined and the assertion below reports
+    // a working peer transfer as one the node did not recognise.
+    const acquired = (await acquisition).data;
     expect(acquired.source, 'the archive a peer sent was not read as holding the image').to.equal('peer');
 
     // And it stopped once a peer supplied it. Not `=== 1`: the peer is DRAWN at
