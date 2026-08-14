@@ -24,15 +24,8 @@
 /** What a staging directory is called while an operation runs. */
 const STAGING_PREFIX = '.flux-op-';
 
-/** What the entry an interrupted publish displaced is called. */
-const SWAP_PREFIX = '.flux-old-';
-
-/** Suffix of the file recording where a displaced entry belongs. */
-const MARKER_SUFFIX = '.dest';
-
 /**
- * The identifier flux-op derives both names from - the staging directory's, and
- * the swap directory's after it strips the staging prefix. A randomUUID, so the
+ * The identifier flux-op names a staging directory with. A randomUUID, so the
  * shape is exact.
  *
  * Names are matched against this rather than by prefix alone because the sweep
@@ -45,12 +38,6 @@ const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 const isStagingName = (name) => name.startsWith(STAGING_PREFIX)
   && OPERATION_ID.test(name.slice(STAGING_PREFIX.length));
-
-const isSwapName = (name) => name.startsWith(SWAP_PREFIX)
-  && OPERATION_ID.test(name.slice(SWAP_PREFIX.length));
-
-const isSwapMarkerName = (name) => name.endsWith(MARKER_SUFFIX)
-  && isSwapName(name.slice(0, -MARKER_SUFFIX.length));
 
 /**
  * Names something other than FluxOS puts in the volume root and depends on.
@@ -87,19 +74,13 @@ const FOREIGN_NAMES = new Set([SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, '
 function isReservedName(name) {
   if (typeof name !== 'string' || !name) return false;
   return FOREIGN_NAMES.has(name)
-    || isStagingName(name)
-    || isSwapName(name)
-    || isSwapMarkerName(name);
+    || isStagingName(name);
 }
 
 module.exports = {
   STAGING_PREFIX,
   SYNCTHING_FOLDER_MARKER,
   SYNCTHING_IGNORE_FILE,
-  SWAP_PREFIX,
-  MARKER_SUFFIX,
   isStagingName,
-  isSwapName,
-  isSwapMarkerName,
   isReservedName,
 };

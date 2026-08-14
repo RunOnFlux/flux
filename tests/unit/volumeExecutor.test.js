@@ -8,7 +8,6 @@ const realFs = require('node:fs/promises');
 const nodeCrypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const { Readable, Writable } = require('node:stream');
-const childProcess = require('node:child_process');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -1490,48 +1489,24 @@ describe('volumeExecutor tests', () => {
   });
 
   describe('sweepStagingDirectories', () => {
-    // On a real disk, deliberately. What this code decides is where a path
-    // LEADS, and a stubbed filesystem has no symlinks to lead anywhere - so the
-    // escape that reaches /etc/cron.d through a symlinked parent cannot be
-    // written against one at all. The rules about which names are swept could
-    // be, but splitting them across two filesystems is how a suite ends up
-    // asserting its own stub.
+    // On a real disk, deliberately. What this decides is which names on a volume
+    // are the node's own debris, and the volume is a directory the app owner
+    // also writes to - so the fixtures have to be real entries rather than a
+    // stub's idea of them.
     let tmpRoot;
     let mount;
     let session;
     let sweeper;
     let logStub;
 
-    // flux-op derives both names from the staging directory's randomUUID, so a
-    // fixture that is not one is not a fixture for anything this ever sees.
+    // flux-op names a staging directory with a randomUUID, so a fixture that is
+    // not one is not a fixture for anything this ever sees.
     const ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
     const OP = `.flux-op-${ID}`;
-    const OLD = `.flux-old-${ID}`;
 
     const at = (...parts) => nodePath.join(mount, ...parts);
     const exists = (p) => realFs.lstat(p).then(() => true).catch(() => false);
     const write = (name, contents) => realFs.writeFile(at(name), contents);
-
-    // The identity as the FIRST release of the image wrote it: two fields and
-    // no clock named, which is read as a modification time.
-    const legacyIdentityOf = async (name) => {
-      const stats = await realFs.lstat(at(name), { bigint: true });
-      return `${stats.ino} ${stats.mtimeNs}`;
-    };
-
-    /**
-     * The parked entry and the marker placing it. The identity defaults to one
-     * nothing on disk carries, because most of these are about a destination
-     * that is empty or a path that is refused.
-     */
-    const park = async (destination, { payload = 'THE ONLY COPY\n', identity = '1 1' } = {}) => {
-      await write(OLD, payload);
-      await write(`${OLD}${'.dest'}`, `${destination}\n${identity}\n`);
-    };
-
-    const publishes = () => dockerServiceStub.createContainer.getCalls()
-      .map((c) => c.args[0].Cmd)
-      .filter((cmd) => cmd && cmd[0] === 'flux-op');
 
     beforeEach(async () => {
       tmpRoot = await realFs.mkdtemp(nodePath.join(os.tmpdir(), 'fluxsweep-'));
@@ -1579,311 +1554,56 @@ describe('volumeExecutor tests', () => {
       if (tmpRoot) await realFs.rm(tmpRoot, { recursive: true, force: true });
     });
 
+    // The whole of what the sweep decides, now that a publish is one atomic
+    // exchange. Before, an interrupted publish could leave the caller's data
+    // parked under a second name with a marker beside it saying where it
+    // belonged, and the sweep had to work out whether the publish had finished.
+    // There is no such state any more: whichever side of the exchange a crash
+    // lands on, the destination holds something complete and the staging entry
+    // holds something disposable.
     it('deletes an incomplete operation - nothing was published and nobody waits', async () => {
       await realFs.mkdir(at(OP));
-      await write('realdata', 'keep me');
+      await write(nodePath.join(OP, 'partial'), 'half a copy');
 
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+      const { removed } = await sweeper.sweepStagingDirectories(session);
 
       expect(removed).to.deep.equal([OP]);
-      expect(restored).to.deep.equal([]);
-      expect(await exists(at('realdata'))).to.equal(true);
-    });
-
-    it('restores displaced data when the destination is missing', async () => {
-      // The crash-between-two-renames case. Deleting here would destroy the
-      // caller's only copy. The marker holds a path relative to the volume
-      // root, because flux-op writes it from inside a container that has only
-      // that root and no notion of where it sits on the host.
-      await park('photos');
-
-      const { restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(restored).to.deep.equal([at('photos')]);
-      // Published by the executor, with both operands expressed as the
-      // container sees them - never as host paths.
-      expect(publishes()).to.have.lengthOf(1);
-      expect(publishes()[0].slice(-3)).to.deep.equal([`/work/${OLD}`, '/work/photos', '--']);
-    });
-
-    it('refuses a relative marker that climbs out of the volume', async () => {
-      await park('../../etc/shadow');
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(publishes()).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(removed).to.deep.equal([]);
-      expect(await exists(at(OLD))).to.equal(true);
-    });
-
-    // The legacy shape, and the whole of what the sweep now decides about it.
-    //
-    // A publish is one atomic exchange, so nothing is ever parked under a swap
-    // name any more and no marker is ever written. What these cover is what a
-    // node does with entries an image before v1.2.0 left on a volume.
-    it('places a legacy entry when its destination is empty', async () => {
-      await park('photos');
-
-      const { restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(restored).to.deep.equal([at('photos')]);
-    });
-
-    it('keeps both when a legacy destination already holds something', async () => {
-      // Which thing it holds cannot be told apart soundly. It is either what the
-      // publish placed, in which case the parked entry is superseded, or
-      // something the app owner made at that path while it stood empty, in
-      // which case the parked entry is their only copy.
-      //
-      // What used to decide was an inode number and a creation time, and
-      // neither is unique - filesystems reuse inode numbers at once and inode
-      // timestamps come from a coarse clock, so a later object can carry the
-      // identity of the published one. On ext4 that collides in more than half
-      // of back-to-back creations, which is why the test asserting otherwise
-      // failed on Linux and passed on macOS.
-      //
-      // So it is not decided: both are kept. Space on a fixed volume, which can
-      // be reclaimed by hand, against deleting somebody's only copy on a
-      // coincidence, which cannot be undone.
-      await write('photos', 'something is here');
-      await park('photos');
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(removed).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(await exists(at(OLD))).to.equal(true);
-      expect(await realFs.readFile(at('photos'), 'utf8')).to.equal('something is here');
-    });
-
-    it('places a legacy entry whose marker carries no identity', async () => {
-      // The first release of the image wrote the path alone. Nothing compares
-      // an identity now, so requiring one would refuse a marker that is
-      // perfectly readable and strand the entry beside it for ever.
-      await write(OLD, 'THE ONLY COPY\n');
-      await write(`${OLD}.dest`, 'photos\n');
-
-      const { restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(restored).to.deep.equal([at('photos')]);
-    });
-
-    it('refuses a marker naming a path outside the volume, and keeps the data', async () => {
-      await park('/etc/cron.d/pwn');
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(publishes()).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(removed).to.deep.equal([]);
-      expect(await exists(at(OLD))).to.equal(true);
-    });
-
-    it('refuses a marker that climbs out of the work root', async () => {
-      await park('/work/../../../etc/shadow');
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(publishes()).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(removed).to.deep.equal([]);
-    });
-
-    it('refuses a marker whose parent directory is a symlink off the volume', async () => {
-      // The one the lexical rules cannot see. Every component of the recorded
-      // path is innocent as TEXT and the whole of it normalises to somewhere
-      // inside the volume - but `appdata/escape` is a link the app owner made
-      // from inside its own container, and rename(2) follows every component of
-      // a destination but the last.
-      const outside = nodePath.join(tmpRoot, 'etc-cron.d');
-      await realFs.mkdir(outside);
-      await realFs.mkdir(at('appdata'));
-      await realFs.symlink(outside, at('appdata', 'escape'));
-
-      await park('appdata/escape/pwn');
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(publishes()).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(removed).to.deep.equal([]);
-      // Nothing reached the directory the link named, and the parked data is
-      // still parked.
-      expect(await exists(nodePath.join(outside, 'pwn'))).to.equal(false);
-      expect(await exists(at(OLD))).to.equal(true);
-    });
-
-    it('does not wait for a writer when a marker is a named pipe', async () => {
-      // The whole of the rest of startup sits behind this sweep. Opening a FIFO
-      // for reading waits for somebody to open it for writing, and the app owns
-      // its own volume root - so a pipe planted where a marker belongs held the
-      // open for ever. The recovery is awaited at boot, so the app network
-      // reclaim, syncthing and the PGP identity never ran, on every boot, for
-      // as long as the pipe was there. What is asserted here is that this call
-      // RETURNS at all.
-      await realFs.mkdir(at(OLD));
-      await new Promise((resolve, reject) => {
-        childProcess.execFile('mkfifo', [at(`${OLD}.dest`)], (error) => (error ? reject(error) : resolve()));
-      });
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      // And that it decides nothing. What the marker holds could not be read,
-      // so where the parked entry belongs is unknown and it stays put - the one
-      // outcome that cannot lose somebody's only copy.
-      expect(removed).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(await exists(at(OLD))).to.equal(true);
-    });
-
-
-
-    it('cannot do the same for a marker written before the image recorded a creation time', async () => {
-      // The control for the test above - without it that assertion could pass
-      // for a reason that has nothing to do with the clock. It is also the
-      // honest limit of the fix: a marker left by the first release of the
-      // image carries only an mtime, so the sweep still gives up on it. Nothing
-      // is lost, and the entry stays visible to its owner.
-      await realFs.mkdir(at('photos'));
-      await park('photos', { identity: await legacyIdentityOf('photos') });
-      await realFs.writeFile(at('photos', 'written-by-the-app'), 'x');
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(removed).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(await exists(at(OLD))).to.equal(true);
-    });
-
-    it('still places data for a marker written before the image recorded a creation time', async () => {
-      // Two fields and no clock is what is already sitting on volumes, and it
-      // has to keep working: this is the case where the destination is empty
-      // and the parked entry is the only copy.
-      await park('photos', { identity: '1 1' });
-
-      const { restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(restored).to.deep.equal([at('photos')]);
-    });
-
-
-
-
-    it('keeps both when the destination holds something else entirely', async () => {
-      // The app owner created something at the destination while it stood
-      // empty. Restoring would overwrite what they have and deleting would lose
-      // the copy held for them, so neither is decided here.
-      await write('photos', 'the app owner put this here');
-      await park('photos');
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(removed).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(publishes()).to.deep.equal([]);
-      expect(await exists(at(OLD))).to.equal(true);
-      expect(await exists(at(`${OLD}.dest`))).to.equal(true);
-      expect(await realFs.readFile(at('photos'), 'utf8')).to.equal('the app owner put this here');
-    });
-
-
-    it('deletes a marker whose entry never arrived', async () => {
-      // The crash landed between writing the marker and the rename that uses
-      // it, so nothing was displaced. Without this it stays in the volume root
-      // forever, one per interruption, visible in the file browser.
-      await write(`${OLD}.dest`, 'photos\n1 1\n');
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(removed).to.deep.equal([`${OLD}.dest`]);
-      expect(restored).to.deep.equal([]);
-    });
-
-    it('refuses a marker that is a link, rather than reading through it as root', async () => {
-      // The volume root is the app owner's to write, and this process is root:
-      // a marker replaced with a link names a file the owner cannot read and
-      // this can. Following it both discloses the file and puts it in a log.
-      const hostOnly = nodePath.join(tmpRoot, 'host-only');
-      await realFs.writeFile(hostOnly, '/etc/SUPERSECRET-TOKEN-9f3\n');
-      await write(OLD, 'mine');
-      await realFs.symlink(hostOnly, at(`${OLD}.dest`));
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(removed).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(await exists(at(OLD))).to.equal(true);
-      const logged = [...logStub.error.getCalls(), ...logStub.warn.getCalls()]
-        .map((call) => call.args[0]).join('\n');
-      expect(logged).to.not.contain('SUPERSECRET-TOKEN-9f3');
-    });
-
-    it('refuses a marker longer than any path it could name', async () => {
-      await write(OLD, 'mine');
-      await write(`${OLD}.dest`, 'A'.repeat(64 * 1024));
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(removed).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(await exists(at(OLD))).to.equal(true);
-      const logged = [...logStub.error.getCalls(), ...logStub.warn.getCalls()]
-        .map((call) => call.args[0]).join('\n');
-      expect(logged.length).to.be.below(1000);
-    });
-
-    it('keeps displaced data when its marker cannot be read', async () => {
-      // A directory where the marker should be: readFile fails with EISDIR,
-      // which is not ENOENT, so it is not "no marker was ever written".
-      // Deleting on the strength of a read that failed once is the outcome the
-      // whole function exists to prevent.
-      await write(OLD, 'mine');
-      await realFs.mkdir(at(`${OLD}.dest`));
-
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
-
-      expect(removed).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(await exists(at(OLD))).to.equal(true);
+      expect(await exists(at(OP))).to.equal(false);
     });
 
     it('leaves a user folder that merely starts with a reserved prefix', async () => {
-      // Nothing reserves these prefixes at creation time, and the sweep DELETES
-      // what it matches - so the name has to be the exact shape flux-op
-      // produces, not just something that begins like it.
+      // The prefix alone is not the rule: the sweep DELETES what it matches, in
+      // a directory the app owner can also write to, so `.flux-op-backups` is a
+      // name somebody may legitimately have chosen.
       await realFs.mkdir(at('.flux-op-backups'));
-      await realFs.mkdir(at('.flux-old-notes'));
-      await realFs.mkdir(at('.flux-op-'));
-      await realFs.mkdir(at(`${OP}x`));
 
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+      const { removed } = await sweeper.sweepStagingDirectories(session);
 
       expect(removed).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(serviceHelperStub.runCommand.called).to.equal(false);
+      expect(await exists(at('.flux-op-backups'))).to.equal(true);
     });
 
     it('leaves everything else on the volume alone', async () => {
-      await realFs.mkdir(at('uploads'));
-      await write('wp-config.php', '<?php');
-      await write('.htaccess', 'deny');
+      await realFs.mkdir(at('photos'));
+      await write('notes.txt', 'mine');
+      await write('.stignore', 'backup');
 
-      const { removed, restored } = await sweeper.sweepStagingDirectories(session);
+      const { removed } = await sweeper.sweepStagingDirectories(session);
 
       expect(removed).to.deep.equal([]);
-      expect(restored).to.deep.equal([]);
-      expect(serviceHelperStub.runCommand.called).to.equal(false);
+      expect(await exists(at('photos'))).to.equal(true);
+      expect(await exists(at('notes.txt'))).to.equal(true);
+      expect(await exists(at('.stignore'))).to.equal(true);
     });
 
     it('reports nothing when the volume cannot be read', async () => {
       await realFs.rm(mount, { recursive: true, force: true });
 
-      const result = await sweeper.sweepStagingDirectories(session);
-
-      expect(result).to.deep.equal({ removed: [], restored: [] });
+      expect(await sweeper.sweepStagingDirectories(session)).to.deep.equal({ removed: [] });
+      expect(logStub.warn.called).to.equal(true);
     });
   });
+
   describe('run - byte progress', () => {
     // The container has to outlive at least one tick (progressIntervalMs is 50
     // in this config) for the ticker to read anything.

@@ -85,7 +85,7 @@ describe('fileQueryService tests', () => {
       sinon.stub(fs, 'readdir').resolves([
         'appdata', 'backup', '.flux-op-backups',
         '.stfolder', '.stignore', 'lost+found',
-        `.flux-op-${id}`, `.flux-old-${id}`, `.flux-old-${id}.dest`,
+        `.flux-op-${id}`,
       ]);
       sinon.stub(fs, 'lstat').resolves({
         isDirectory: () => false,

@@ -31,7 +31,7 @@ async function recoverInterruptedFileOperations() {
     mounts = await deviceHelper.listMountedFilesystems();
   } catch (error) {
     log.error(`fileOperationRecovery - could not read the mount table: ${error.message}`);
-    return { containers, removed: 0, restored: 0 };
+    return { containers, removed: 0 };
   }
 
   // Only mounted app volumes. A staging directory can only exist on one, and
@@ -40,26 +40,22 @@ async function recoverInterruptedFileOperations() {
   const volumes = mounts.filter((mount) => mount.target.startsWith(appsFolder));
 
   let removed = 0;
-  let restored = 0;
   // eslint-disable-next-line no-restricted-syntax
   for (const volume of volumes) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const result = await executor.sweepStagingDirectories(sessionForMountedVolume(volume));
       removed += result.removed.length;
-      restored += result.restored.length;
     } catch (error) {
-      // One unreadable volume must not strand the debris on every other app,
-      // and must not skip the destination another app is waiting to have
-      // restored.
+      // One unreadable volume must not strand the debris on every other app.
       log.error(`fileOperationRecovery - could not sweep ${volume.target}: ${error.message}`);
     }
   }
 
-  if (containers || removed || restored) {
-    log.info(`fileOperationRecovery - reaped ${containers} container(s), removed ${removed} artefact(s), restored ${restored} destination(s)`);
+  if (containers || removed) {
+    log.info(`fileOperationRecovery - reaped ${containers} container(s), removed ${removed} artefact(s)`);
   }
-  return { containers, removed, restored };
+  return { containers, removed };
 }
 
 module.exports = { recoverInterruptedFileOperations };

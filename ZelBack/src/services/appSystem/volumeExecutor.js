@@ -21,65 +21,12 @@ const {
   VolumePath, VolumeSession, WORK_ROOT,
 } = require('./volumeSession');
 const {
-  MARKER_SUFFIX, isStagingName, isSwapName, isSwapMarkerName,
+  isStagingName,
 } = require('./volumeReservedNames');
 
 const settings = () => config.fluxapps.volumeOperations;
 
 
-
-/**
- * The longest a marker can be and still hold what it holds. It sits in a
- * directory the app owner writes to, so its size is theirs to choose: read
- * unbounded, a marker is an unbounded allocation on a boot path, and its
- * contents reach a log line that is written to disk.
- */
-const MARKER_MAX_BYTES = 4096;
-
-/**
- * Where a marker left by an older image says its entry belongs.
- *
- * LEGACY. A publish is one atomic exchange now, so nothing is ever parked under
- * a swap name and no marker is ever written; what this reads was left by an
- * image before v1.2.0, and it goes when no volume can still hold one.
- *
- * The marker is written from inside the container, so it never describes a host
- * path. Reading one as a host path is what turned a file the app owner can
- * write into an argument to a root `mv`, so an absolute path is refused here
- * rather than translated.
- *
- * Normalising the text is necessary and not sufficient. A relative path with no
- * `..` in it still leaves the volume when a directory INSIDE the mount is a
- * symlink the app owner made, so `appdata/x/pwn` reads as contained and lands
- * wherever `appdata/x` leads. session.resolve settles that, and it is the call
- * every endpoint makes for the same reason: a marker's contents are user input
- * arriving by a slower route.
- *
- * Only the path is read. These markers also carried an identity - an inode
- * number and a timestamp - which the sweep used to decide whether a publish had
- * completed. That comparison is not sound, because neither field is unique, so
- * nothing compares it any more and requiring it would only refuse markers that
- * are otherwise perfectly readable.
- *
- * @param {VolumeSession} session
- * @param {string} contents - raw marker file contents
- * @returns {Promise<{destination: VolumePath}>}
- * @throws {Error} if the contents name nothing, or name something outside
- */
-async function resolveMarkerRecord(session, contents) {
-  if (typeof contents !== 'string') throw new Error('marker holds no text');
-
-  const [namedPath = ''] = contents.split('\n');
-  const recorded = namedPath.trim();
-  if (!recorded) throw new Error('marker is empty');
-
-  const relative = path.posix.normalize(recorded);
-  if (!relative || relative.startsWith('..') || path.posix.isAbsolute(relative)) {
-    throw new Error(`marker names ${recorded}, which is outside the volume`);
-  }
-
-  return { destination: await session.resolve(relative) };
-}
 
 /**
  * Labels every executor container carries.
@@ -1876,120 +1823,24 @@ async function sweepStagingDirectories(session) {
     log.warn(`volumeExecutor - could not read ${mount} to sweep: ${error.message}`);
     return null;
   });
-  if (!entries) return { removed: [], restored: [] };
+  if (!entries) return { removed: [] };
 
   const removed = [];
-  const restored = [];
 
-  // Stays on the host, where the restore does not. `name` came from readdir, so
-  // it is one component with nothing to traverse, and `rm -rf` removes a symlink
-  // rather than following it - neither is true of the destination a marker
-  // names. Keeping it here also means a node that cannot fetch the executor
-  // image still reclaims its debris, and only the restore waits for one.
+  // On the host, and safe there: `name` came from readdir, so it is one
+  // component with nothing to traverse, and `rm -rf` removes a symlink rather
+  // than following it. It needs no container, so a node that cannot fetch the
+  // executor image still reclaims its debris.
   const remove = async (name) => {
     const result = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', path.join(mount, name)] });
     if (result.error) throw result.error;
     removed.push(name);
   };
 
-  const present = new Set(entries);
-
   // eslint-disable-next-line no-restricted-syntax
   for (const entry of entries) {
     try {
       if (isStagingName(entry)) {
-        // eslint-disable-next-line no-await-in-loop
-        await remove(entry);
-      } else if (isSwapName(entry)) {
-        const marker = `${entry}${MARKER_SUFFIX}`;
-        // Only an absent marker means the crash landed before it was written.
-        // Any other read failure is rethrown to the handler below, which leaves
-        // the entry alone: deleting somebody's displaced data because a file
-        // could not be read this once is the outcome this whole function exists
-        // to prevent.
-        // Through the session, so the read is subject to the same rules as
-        // every other touch of a path the app owner controls.
-        // eslint-disable-next-line no-await-in-loop
-        const markerPath = await session.resolve(marker, { allowReserved: true });
-        // eslint-disable-next-line no-await-in-loop
-        const contents = await session.readSmallFile(markerPath, MARKER_MAX_BYTES)
-          .catch((error) => {
-            if (error.code === 'ENOENT') return null;
-            throw error;
-          });
-
-        if (contents === null) {
-          // No marker: the destination was never touched, so this entry is a
-          // duplicate of data the caller still has.
-          // eslint-disable-next-line no-await-in-loop
-          await remove(entry);
-          // eslint-disable-next-line no-continue
-          continue;
-        }
-
-        let record = null;
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          record = await resolveMarkerRecord(session, contents);
-        } catch (error) {
-          log.error(`volumeExecutor - ${marker} in ${mount} does not place ${entry} (${error.message}); leaving it alone`);
-          // eslint-disable-next-line no-continue
-          continue;
-        }
-        const { destination } = record;
-
-        // lstat, so a link at the destination answers for ITSELF: a move
-        // publishes a link as a link, so one sitting there can be exactly what
-        // the interrupted publish put there - and what it leads to is a
-        // question about the host, which an absolute link written inside a
-        // container was never about.
-        // eslint-disable-next-line no-await-in-loop
-        const placed = await fs.lstat(destination.hostPath, { bigint: true }).catch(() => null);
-
-        if (placed) {
-          // Something is at the destination, and which thing cannot be told
-          // apart soundly. It is either what the publish placed - in which case
-          // this entry is superseded - or something the app owner created at
-          // that path while it stood empty, in which case this entry is their
-          // only copy. What used to decide between them was an inode number and
-          // a creation time, and neither is unique: filesystems reuse inode
-          // numbers at once, and inode timestamps come from a coarse clock, so
-          // a later object can carry the identity of the published one.
-          // Measured on ext4: the inode is reused every time and the creation
-          // time collides in more than half of back-to-back creations.
-          //
-          // So it is not decided. Both are kept, which costs space on a volume
-          // whose size is fixed and can be reclaimed by hand - against deleting
-          // somebody's only copy on a coincidence, which cannot be undone.
-          //
-          // This is the LEGACY shape and it stops arriving: a publish is one
-          // atomic exchange now, so there is no state where an entry is parked
-          // under a swap name at all. What is here was left by an image before
-          // v1.2.0, and this branch goes when no volume can still hold one.
-          log.warn(`volumeExecutor - ${destination.relative} in ${mount} already holds something, so ${entry} cannot be placed without deciding what that is; leaving both`);
-          // eslint-disable-next-line no-continue
-          continue;
-        }
-
-        {
-          // A move IS a publish whose source is already the result, which is
-          // what the executor's `source` form expresses. It runs in the
-          // container because the destination's parent directories are the app
-          // owner's to replace with links at any moment, and in there a link
-          // has nowhere off the volume to lead.
-          // eslint-disable-next-line no-await-in-loop
-          const source = await session.resolve(entry, { allowReserved: true });
-          // eslint-disable-next-line no-await-in-loop
-          await run(session, [], { publish: { source, destination } });
-          restored.push(destination.hostPath);
-          // eslint-disable-next-line no-await-in-loop
-          await remove(marker);
-        }
-      } else if (isSwapMarkerName(entry) && !present.has(entry.slice(0, -MARKER_SUFFIX.length))) {
-        // A marker whose entry never arrived - the crash landed between writing
-        // it and the rename that uses it. Nothing was displaced, so there is
-        // nothing to place, and without this it stays in the volume root
-        // forever, one per interruption, visible in the file browser.
         // eslint-disable-next-line no-await-in-loop
         await remove(entry);
       }
@@ -1998,13 +1849,10 @@ async function sweepStagingDirectories(session) {
     }
   }
 
-  if (restored.length) {
-    log.info(`volumeExecutor - restored ${restored.length} destination(s) interrupted mid-publish in ${mount}`);
-  }
   if (removed.length) {
     log.info(`volumeExecutor - swept ${removed.length} interrupted operation artefact(s) from ${mount}`);
   }
-  return { removed, restored };
+  return { removed };
 }
 
 module.exports = {

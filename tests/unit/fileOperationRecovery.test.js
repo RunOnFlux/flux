@@ -21,7 +21,7 @@ describe('fileOperationRecovery tests', () => {
   beforeEach(() => {
     executorStub = {
       reapOrphanedContainers: sinon.stub().resolves(0),
-      sweepStagingDirectories: sinon.stub().resolves({ removed: [], restored: [] }),
+      sweepStagingDirectories: sinon.stub().resolves({ removed: [] }),
     };
     deviceHelperStub = { listMountedFilesystems: sinon.stub().resolves([]) };
     logStub = {
@@ -96,21 +96,21 @@ describe('fileOperationRecovery tests', () => {
     const result = await recovery.recoverInterruptedFileOperations();
 
     expect(executorStub.sweepStagingDirectories.called).to.equal(false);
-    expect(result).to.deep.equal({ containers: 0, removed: 0, restored: 0 });
+    expect(result).to.deep.equal({ containers: 0, removed: 0 });
   });
 
-  it('totals what was reclaimed and what was put back', async () => {
+  it('totals what was reclaimed', async () => {
     deviceHelperStub.listMountedFilesystems.resolves([
       mount(`${APPS_FOLDER}fluxcomp_one`),
       mount(`${APPS_FOLDER}fluxcomp_two`),
     ]);
     executorStub.sweepStagingDirectories
-      .onFirstCall().resolves({ removed: ['.flux-op-a', '.flux-op-b'], restored: [] })
-      .onSecondCall().resolves({ removed: ['.flux-old-c.dest'], restored: [`${APPS_FOLDER}fluxcomp_two/photos`] });
+      .onFirstCall().resolves({ removed: ['.flux-op-a', '.flux-op-b'] })
+      .onSecondCall().resolves({ removed: ['.flux-op-c'] });
 
     const result = await recovery.recoverInterruptedFileOperations();
 
-    expect(result).to.deep.equal({ containers: 0, removed: 3, restored: 1 });
+    expect(result).to.deep.equal({ containers: 0, removed: 3 });
   });
 
   it('still reports the containers it reaped when the mount table cannot be read', async () => {
@@ -121,7 +121,7 @@ describe('fileOperationRecovery tests', () => {
 
     const result = await recovery.recoverInterruptedFileOperations();
 
-    expect(result).to.deep.equal({ containers: 1, removed: 0, restored: 0 });
+    expect(result).to.deep.equal({ containers: 1, removed: 0 });
     expect(logStub.error.called).to.equal(true);
   });
 
@@ -133,7 +133,7 @@ describe('fileOperationRecovery tests', () => {
     ]);
     executorStub.sweepStagingDirectories
       .onFirstCall().rejects(new Error('EACCES'))
-      .onSecondCall().resolves({ removed: ['.flux-op-b'], restored: [] });
+      .onSecondCall().resolves({ removed: ['.flux-op-b'] });
 
     const result = await recovery.recoverInterruptedFileOperations();
 

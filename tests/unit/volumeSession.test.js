@@ -182,8 +182,6 @@ describe('volumeSession tests', () => {
       await expect(vol.resolve('.stignore')).to.be.rejectedWith('not an application');
       await expect(vol.resolve('lost+found')).to.be.rejectedWith('not an application');
       await expect(vol.resolve(`.flux-op-${id}`)).to.be.rejectedWith('not an application');
-      await expect(vol.resolve(`.flux-old-${id}`)).to.be.rejectedWith('not an application');
-      await expect(vol.resolve(`.flux-old-${id}.dest`)).to.be.rejectedWith('not an application');
     });
 
     it('reserves those names in the root and nowhere else', async () => {
@@ -206,8 +204,8 @@ describe('volumeSession tests', () => {
     it('lets the sweep name what it is there to clean up', async () => {
       const vol = await volumeSession.openVolume(reqFor());
       const id = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
-      const artefact = await vol.resolve(`.flux-old-${id}`, { allowReserved: true });
-      expect(artefact.relative).to.equal(`.flux-old-${id}`);
+      const artefact = await vol.resolve(`.flux-op-${id}`, { allowReserved: true });
+      expect(artefact.relative).to.equal(`.flux-op-${id}`);
     });
 
     it('expresses the operand as a container path, never a host path', async () => {
@@ -485,7 +483,7 @@ describe('volumeSession tests', () => {
 
       await expect(vol.resolve('here/.stignore')).to.be.rejectedWith('not an application');
       await expect(vol.resolve('here/.stfolder')).to.be.rejectedWith('not an application');
-      await expect(vol.resolve(`here/.flux-old-${ID}.dest`)).to.be.rejectedWith('not an application');
+      await expect(vol.resolve(`here/.flux-op-${ID}`)).to.be.rejectedWith('not an application');
     });
 
     it('refuses one reached through a chain of them', async () => {
@@ -505,7 +503,7 @@ describe('volumeSession tests', () => {
       // the unresolved mount would stop refusing here and every other test in
       // this block would still pass.
       await expect(vol.resolve('.stignore')).to.be.rejectedWith('not an application');
-      await expect(vol.resolve(`.flux-old-${ID}`)).to.be.rejectedWith('not an application');
+      await expect(vol.resolve(`.flux-op-${ID}`)).to.be.rejectedWith('not an application');
     });
 
     it('still allows those names in a directory that is really a directory', async () => {

@@ -30,24 +30,6 @@ const OPERATION_UUID = '11111111-2222-4333-8444-555555555555';
 // entry it must not touch.
 const STAGING_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 
-/**
- * A marker as an image before v1.2.0 wrote one: where the entry belongs, then
- * the identity of the object the publish was placing.
- *
- * LEGACY by construction. A publish is one atomic exchange now, so nothing is
- * parked under a swap name and no marker is written - what these tests plant is
- * what a node may still find on a volume an older image touched, and what the
- * sweep has to keep doing about it.
- *
- * The identity line is kept because that is the shape on disk, not because
- * anything reads it: the sweep compared it to decide whether a publish had
- * completed, and that comparison was not sound - neither an inode number nor an
- * inode timestamp is unique - so it is gone and only the path is read.
- *
- * Fed to `printf '%b'` so the escape becomes a real newline in the file.
- */
-const marker = (destination, identity = '1 1 btime') => `${destination}\\n${identity}\\n`;
-
 describe('app volume file operations - safety and recovery', function () {
   let env;
   let node;
@@ -330,47 +312,14 @@ describe('app volume file operations - safety and recovery', function () {
   });
 
   describe('boot recovery', () => {
-    it('does not follow a marker naming a path outside the volume', async function () {
-      this.timeout(300000);
-      // The D1 regression. The marker is written by flux-op from inside the
-      // container, so it never describes a host path - but it lives where the
-      // app owner can write, so its contents are input. Reading it as a host
-      // path turned it into the destination of a root `mv` on the next restart.
-      await inNode(
-        `mkdir -p ${root}/.flux-old-${OPERATION_UUID}`
-        + ` && echo displaced > ${root}/.flux-old-${OPERATION_UUID}/payload`
-        + ` && printf '%b' "${marker('/etc/cron.d/pwn')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`,
-      );
-      const planted = await inNode(`cat ${root}/.flux-old-${OPERATION_UUID}.dest`);
-      expect(planted.stdout.split('\n')[0], 'FIXTURE: the marker was not planted').to.equal('/etc/cron.d/pwn');
-      await inNode('rm -f /etc/cron.d/pwn');
-
-      await restartFluxos(node.container);
-
-      expect(await exists(node.container, '/etc/cron.d/pwn'), 'the boot sweep followed the marker').to.equal(false);
-      // A marker that resolves to nothing is left in place rather than deleted:
-      // it cannot be placed, and the entry beside it may be somebody's only copy.
-      expect(await exists(node.container, `${root}/.flux-old-${OPERATION_UUID}/payload`)).to.equal(true);
-    });
-
-    it('restores a displaced entry to the path its marker records', async function () {
-      this.timeout(300000);
-      await inNode(
-        `mkdir -p ${root}/.flux-old-${OPERATION_UUID}`
-        + ` && echo mine > ${root}/.flux-old-${OPERATION_UUID}/only-copy.txt`
-        + ` && printf '%b' "${marker('photos')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`,
-      );
-      expect(await exists(node.container, `${root}/photos`), 'FIXTURE: the destination already exists').to.equal(false);
-
-      await restartFluxos(node.container);
-
-      await waitFor(async () => exists(node.container, `${root}/photos/only-copy.txt`), {
-        timeout: 60000, interval: 2000, label: 'displaced data restored to its recorded destination',
-      });
-      expect(await exists(node.container, `${root}/.flux-old-${OPERATION_UUID}`)).to.equal(false);
-      expect(await exists(node.container, `${root}/.flux-old-${OPERATION_UUID}.dest`)).to.equal(false);
-    });
-
+    // What a restart has to put right, and how little that now is.
+    //
+    // A publish is one atomic exchange, so there is no state where the caller's
+    // data is parked under a second name waiting to be placed back - which is
+    // what the marker, the recorded identity and most of this block used to be
+    // about. Whichever side of the exchange a crash lands on, the destination
+    // holds something complete and the staging entry holds something
+    // disposable, so the whole of recovery is: delete the staging entry.
     it('reclaims an abandoned staging directory', async function () {
       this.timeout(300000);
       await inNode(`mkdir -p ${root}/.flux-op-${OPERATION_UUID} && echo scratch > ${root}/.flux-op-${OPERATION_UUID}/partial`);
@@ -389,98 +338,33 @@ describe('app volume file operations - safety and recovery', function () {
       // matches. Matching by prefix alone made that folder vanish on every
       // restart.
       await seedVolumeTree(node.container, appName, { '.flux-op-backups/keep.txt': 'mine' });
-      await inNode(`mkdir -p ${root}/.flux-old-notauuid && echo mine > ${root}/.flux-old-notauuid/keep.txt`);
 
       await restartFluxos(node.container);
 
       expect(await exists(node.container, `${root}/.flux-op-backups/keep.txt`)).to.equal(true);
-      expect(await exists(node.container, `${root}/.flux-old-notauuid/keep.txt`)).to.equal(true);
     });
 
-    it('sweeps a marker whose partner never arrived', async function () {
+    it("leaves the application's own data alone across a restart", async function () {
       this.timeout(300000);
-      // An orphaned .dest was visited by nothing - the loop skipped it as a
-      // marker and there was no directory to reach it from - so it accumulated
-      // in the volume root, one per interruption, visible in the file browser.
-      await inNode(`printf '%b' "${marker('photos')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`);
+      // The sweep runs over the volume root on every boot, deleting what it
+      // recognises. What it must not recognise is anything the app owner put
+      // there - including entries named like the artefacts an older image left,
+      // which nothing places or reads any more.
+      await seedVolumeTree(node.container, appName, {
+        'photos/holiday.jpg': 'irreplaceable',
+        'notes.txt': 'mine',
+      });
+      await inNode(`mkdir -p ${root}/.flux-old-${OPERATION_UUID} && echo mine > ${root}/.flux-old-${OPERATION_UUID}/keep.txt`);
 
       await restartFluxos(node.container);
-
-      await waitFor(async () => !await exists(node.container, `${root}/.flux-old-${OPERATION_UUID}.dest`), {
-        timeout: 60000, interval: 2000, label: 'orphaned marker swept',
+      await waitFor(async () => exists(node.container, `${root}/notes.txt`), {
+        timeout: 60000, interval: 2000, label: 'node back up with the volume mounted',
       });
-    });
 
-    // Restart, then wait for the sweep to have run before asking what it did.
-    // restartFluxos returns when FluxOS answers HTTP, and the boot sweep is
-    // still going then, so an assertion made at that point reads a sweep which
-    // has not reached this entry and reports whatever it hoped for. A staging
-    // directory is swept unconditionally, so its removal is the signal that the
-    // sweep ran.
-    const restartAndLetTheSweepFinish = async () => {
-      await inNode(`mkdir -p ${root}/.flux-op-${STAGING_UUID}`);
-      await restartFluxos(node.container);
-      await waitFor(async () => !await exists(node.container, `${root}/.flux-op-${STAGING_UUID}`), {
-        timeout: 60000, interval: 2000, label: 'boot sweep completed',
-      });
-    };
-
-    // The same escape with the parked entry as a file and as a directory. flux-op
-    // displaces whatever was at the destination, so both shapes occur, and `mv`
-    // reaches the symlinked parent either way.
-    [
-      { shape: 'file', plant: `echo pwned > ${root}/.flux-old-${OPERATION_UUID}`, survivor: `${root}/.flux-old-${OPERATION_UUID}` },
-      { shape: 'directory', plant: `mkdir -p ${root}/.flux-old-${OPERATION_UUID} && echo pwned > ${root}/.flux-old-${OPERATION_UUID}/payload`, survivor: `${root}/.flux-old-${OPERATION_UUID}/payload` },
-    ].forEach(({ shape, plant, survivor }) => {
-      it(`does not follow a marker whose parent directory is a link off the volume (${shape})`, async function () {
-        this.timeout(300000);
-        // Hostile in its RESOLUTION rather than its text: `appdata/escape/pwn`
-        // normalises to a path inside the volume and passes every string rule.
-        // `appdata/escape` is a link, which the app owner can make because
-        // appdata is what its own container is bound at - and rename(2) follows
-        // every component of a destination but the last.
-        await inNode(`mkdir -p ${root}/appdata && rm -rf /etc/cron.d/pwn`);
-        // seedSymlink asserts itself - it throws unless the link exists and
-        // reads back as the target it was given.
-        await seedSymlink(node.container, appName, 'appdata/escape', '/etc/cron.d');
-
-        await inNode(`${plant} && printf '%b' "${marker('appdata/escape/pwn')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`);
-        const planted = await inNode(`cat ${root}/.flux-old-${OPERATION_UUID}.dest`);
-        expect(planted.stdout.split('\n')[0], 'FIXTURE: the marker was not planted').to.equal('appdata/escape/pwn');
-
-        await restartAndLetTheSweepFinish();
-
-        expect(
-          await exists(node.container, '/etc/cron.d/pwn'),
-          'the boot sweep wrote through a link the app owner made',
-        ).to.equal(false);
-        // Refused, so the entry stays where it is: it may be somebody's only copy.
-        expect(await exists(node.container, survivor)).to.equal(true);
-      });
-    });
-
-    it('keeps displaced data when the destination is a link resolving to nothing', async function () {
-      this.timeout(300000);
-      // lstat succeeds on a broken link, so one at the destination is not
-      // evidence the publish completed. It is equally what an app leaves at a
-      // path nothing was ever published to, and one of those means the entry
-      // beside it is the only copy.
-      await seedSymlink(node.container, appName, 'photos', `${root}/no-such-target`);
+      expect(await exists(node.container, `${root}/photos/holiday.jpg`)).to.equal(true);
       expect(
-        await exists(node.container, `${root}/no-such-target`),
-        'FIXTURE: the link resolves, so this is not the dangling case',
-      ).to.equal(false);
-
-      await inNode(
-        `mkdir -p ${root}/.flux-old-${OPERATION_UUID}`
-        + ` && echo mine > ${root}/.flux-old-${OPERATION_UUID}/only-copy.txt`
-        + ` && printf '%b' "${marker('photos')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`,
-      );
-      await restartAndLetTheSweepFinish();
-
-      expect(
-        await exists(node.container, `${root}/.flux-old-${OPERATION_UUID}/only-copy.txt`),
-        'the only copy of the data was deleted on the strength of a broken link',
+        await exists(node.container, `${root}/.flux-old-${OPERATION_UUID}/keep.txt`),
+        'the sweep still acts on an artefact nothing writes any more',
       ).to.equal(true);
     });
   });
