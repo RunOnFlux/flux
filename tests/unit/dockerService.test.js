@@ -1413,6 +1413,55 @@ describe('dockerService tests', () => {
     });
   });
 
+  describe('archiveNames tests', () => {
+    // Real archives on a real disk: what this reads is a tar's own bytes, and a
+    // stubbed reader would only prove the stub parses JSON.
+    const tar = require('tar');
+    const realFs = require('fs');
+    const nodeOs = require('os');
+    let dir;
+
+    const archiveOf = async (manifest) => {
+      if (manifest !== null) {
+        realFs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
+      }
+      realFs.writeFileSync(path.join(dir, 'layer.tar'), 'not really a layer');
+      const entries = manifest === null ? ['layer.tar'] : ['manifest.json', 'layer.tar'];
+      const file = path.join(dir, 'image.tar');
+      await tar.c({ file, cwd: dir }, entries);
+      return file;
+    };
+
+    beforeEach(() => { dir = realFs.mkdtempSync(path.join(nodeOs.tmpdir(), 'fluxarch-')); });
+    afterEach(() => { realFs.rmSync(dir, { recursive: true, force: true }); });
+
+    it('reports every name an archive declares', async () => {
+      const file = await archiveOf([
+        { Config: 'a.json', RepoTags: ['ghcr.io/x/y:v1'], Layers: ['layer.tar'] },
+        { Config: 'b.json', RepoTags: ['ghcr.io/x/z:v2', 'ghcr.io/x/z:latest'], Layers: ['layer.tar'] },
+      ]);
+
+      expect(await dockerService.archiveNames(file))
+        .to.deep.equal(['ghcr.io/x/y:v1', 'ghcr.io/x/z:v2', 'ghcr.io/x/z:latest']);
+    });
+
+    it('reports nothing for an archive addressed by id, which is what this node serves', async () => {
+      // docker save <id> writes RepoTags: null - that is the shape an honest
+      // peer sends, and the only shape the fetch accepts.
+      const file = await archiveOf([{ Config: 'a.json', RepoTags: null, Layers: ['layer.tar'] }]);
+
+      expect(await dockerService.archiveNames(file)).to.deep.equal([]);
+    });
+
+    it('refuses an archive with no manifest rather than calling it empty', async () => {
+      // Reported as a bad archive, not as "the peer did not have it": the
+      // second reads as an ordinary miss and sends the caller to another peer.
+      const file = await archiveOf(null);
+
+      await expect(dockerService.archiveNames(file)).to.be.rejectedWith(/no manifest/);
+    });
+  });
+
   describe('tagImage tests', () => {
     const ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
     let getImageStub;

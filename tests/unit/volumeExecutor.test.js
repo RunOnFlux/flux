@@ -7,6 +7,7 @@ const nodePath = require('node:path');
 const realFs = require('node:fs/promises');
 const nodeCrypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
+const { Readable } = require('node:stream');
 const childProcess = require('node:child_process');
 
 chai.use(chaiAsPromised);
@@ -18,6 +19,11 @@ describe('volumeExecutor tests', () => {
   const IMAGE = 'ghcr.io/runonflux/flux-volume-tools:v1.0.0';
   // What the tag has to resolve to. The id is what a container is created from,
   // so it is what the assertions below look for.
+  // A peer's response is a stream and is consumed once, so every ask needs its
+  // own. Bytes rather than an empty stream: the transfer is bounded by what
+  // arrives, and a stream that ends immediately would not exercise that.
+  const peerArchive = () => Readable.from([Buffer.from('a docker image archive')]);
+
   const IMAGE_ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
   // What a containerd-backed daemon reports instead: the digest of the INDEX
   // covering both architectures, rather than of this architecture's own config.
@@ -106,6 +112,9 @@ describe('volumeExecutor tests', () => {
       imageExists: sinon.stub().callsFake(async () => pulled),
       pullImage: sinon.stub().callsFake(async () => { pulled = true; }),
       tagImage: sinon.stub().resolves(),
+      // What this node's own serve path produces: an archive addressed by id,
+      // which declares no names at all.
+      archiveNames: sinon.stub().resolves([]),
     };
 
     serviceHelperStub = {
@@ -136,6 +145,10 @@ describe('volumeExecutor tests', () => {
       lstat: sinon.stub().rejects(new Error('ENOENT')),
       readdir: sinon.stub().resolves([]),
       statfs: sinon.stub().resolves({ bsize: 4096, blocks: 1000, bfree: 1000 }),
+      // Delegated rather than faked: the peer fetch writes a real archive to a
+      // real temp file now, and a stubbed unlink would leave every run's copies
+      // behind.
+      unlink: sinon.stub().callsFake((target) => realFs.unlink(target)),
     };
 
     volumeSession = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
@@ -366,7 +379,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
       dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [IMAGE_ID], tags: [] }; });
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
-      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
       await volumeExecutor.run(vol, ['true']);
@@ -388,7 +401,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
       dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [IMAGE_ID], tags: [] }; });
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
-      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
       await volumeExecutor.run(vol, ['true']);
@@ -409,7 +422,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.imageExists = sinon.stub().callsFake(async (id) => pulled && id === INDEX_ID);
       dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [INDEX_ID], tags: [] }; });
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
-      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
       await volumeExecutor.run(vol, ['true']);
@@ -424,12 +437,91 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [wrong], tags: [] });
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
-      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
       await expect(volumeExecutor.run(vol, ['true'])).to.be.rejected;
 
       expect(dockerServiceStub.tagImage.called, 'it named an image it had refused').to.equal(false);
+    });
+
+    it('refuses an archive that declares names, rather than repairing afterwards', async () => {
+      // `docker load` APPLIES the names an archive declares, which takes them
+      // off whatever this node had under them. A peer packing in the name of one
+      // of this node's own app images renames it, and removing the stolen name
+      // afterwards does not give it back - it leaves the real image nameless,
+      // which is to say dangling, which is to say the next prune deletes it.
+      //
+      // This node's own serve path exports by id and so declares nothing. An
+      // archive that declares anything is doing something we never do.
+      dockerServiceStub.imageExists = sinon.stub().resolves(false);
+      dockerServiceStub.pullImage.rejects(new Error('offline'));
+      dockerServiceStub.archiveNames = sinon.stub().resolves(['ghcr.io/someone/theirapp:v1']);
+      dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [IMAGE_ID], tags: [] });
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+
+      const vol = await openSession();
+      await expect(volumeExecutor.run(vol, ['true'])).to.be.rejected;
+
+      expect(dockerServiceStub.loadImage.called, 'the daemon was given an archive that names things').to.equal(false);
+    });
+
+    it('stops taking from a peer that sends more than the ceiling', async () => {
+      // Nothing is known about the bytes until they have all arrived, so the
+      // ceiling is the only thing between a peer and this node's disk - the one
+      // the tenants' applications are on. A check afterwards runs too late.
+      dockerServiceStub.imageExists = sinon.stub().resolves(false);
+      dockerServiceStub.pullImage.rejects(new Error('offline'));
+      dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [], tags: [] });
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+
+      let sent = 0;
+      const firehose = new Readable({
+        read() {
+          sent += 1024 * 1024;
+          this.push(Buffer.alloc(1024 * 1024));
+        },
+      });
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: firehose }));
+
+      const vol = await openSession();
+      await expect(volumeExecutor.run(vol, ['true'])).to.be.rejected;
+
+      expect(dockerServiceStub.loadImage.called, 'an unbounded archive reached the daemon').to.equal(false);
+      expect(sent, `took ${sent} bytes`).to.be.lessThan(512 * 1024 * 1024);
+      expect(firehose.destroyed, 'the peer kept its socket after being refused').to.equal(true);
+    });
+
+    it('gives up on a peer that answers and then goes silent', async () => {
+      // The one that froze a node until FluxOS restarted. axios settles a stream
+      // request when the HEADERS arrive, so its timeout is spent by then and the
+      // BODY had no bound at all: docker load waited on a body that never ended,
+      // the shared acquisition promise never settled, no retry was scheduled,
+      // the registry was never reached, and every file operation was refused for
+      // as long as the process lived. No attacker needed - a NAT dropping the
+      // connection mid-archive does it.
+      dockerServiceStub.imageExists = sinon.stub().resolves(false);
+      dockerServiceStub.pullImage.rejects(new Error('offline'));
+      dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [], tags: [] });
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+
+      // Answers, sends one chunk, then nothing - ever.
+      const silent = new Readable({ read() {} });
+      silent.push(Buffer.from('the first chunk'));
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: silent }));
+
+      const clock = sinon.useFakeTimers({ shouldAdvanceTime: true, advanceTimeDelta: 20 });
+      try {
+        const vol = await openSession();
+        const running = expect(volumeExecutor.run(vol, ['true'])).to.be.rejected;
+        await clock.tickAsync(90000);
+        await running;
+      } finally {
+        clock.restore();
+      }
+
+      expect(silent.destroyed, 'the silent peer kept its socket').to.equal(true);
+      expect(dockerServiceStub.loadImage.called, 'a body that never ended reached the daemon').to.equal(false);
     });
 
     it('removes what a peer sent when it is not the image that was asked for', async () => {
@@ -442,7 +534,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [wrong], tags: [] });
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
-      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
       await expect(volumeExecutor.run(vol, ['true'])).to.be.rejected;
@@ -464,7 +556,7 @@ describe('volumeExecutor tests', () => {
       });
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
-      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
       await volumeExecutor.run(vol, ['true']);
@@ -488,7 +580,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.getImageId = sinon.stub().resolves('sha256:5555555555555555555555555555555555555555555555555555555555555555');
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
-      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
       await volumeExecutor.run(vol, ['true']);
@@ -509,7 +601,7 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.getImageId = sinon.stub().resolves(IMAGE_ID);
       dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
-      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
       await volumeExecutor.run(vol, ['true']);
@@ -528,7 +620,7 @@ describe('volumeExecutor tests', () => {
         '198.18.0.5:16127', '198.18.0.7:16127', '198.18.0.8:16127'];
       let next = 0;
       networkStateStub.getRandomSocketAddress.callsFake(async () => drawn[next++] ?? null);
-      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
       await volumeExecutor.run(vol, ['true']).catch(() => {});

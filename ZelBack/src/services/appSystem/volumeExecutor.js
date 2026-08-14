@@ -10,7 +10,8 @@ const networkStateService = require('../networkStateService');
 const jobRegistry = require('../utils/jobRegistry');
 const fluxEventBus = require('../utils/fluxEventBus');
 const log = require('../../lib/log');
-const { Writable } = require('node:stream');
+const { Writable, pipeline } = require('node:stream');
+const { createWriteStream, createReadStream } = require('node:fs');
 const { AsyncLock } = require('../utils/asyncLock');
 const { measureTree } = require('../utils/treeSize');
 const { appsFolder } = require('../utils/appConstants');
@@ -426,8 +427,35 @@ const BUSY_RETRY_AFTER_CEILING_MS = 5 * 60 * 1000;
 /** How many draws that costs at most, since the same peer can come up twice. */
 const PEER_IMAGE_DRAWS = 20;
 
-/** How long a peer has to hand over the whole archive. */
+/** How long a peer has to answer at all. */
 const PEER_IMAGE_TIMEOUT_MS = 120000;
+
+/**
+ * How long the transfer may go with no bytes arriving.
+ *
+ * PEER_IMAGE_TIMEOUT_MS does NOT cover this and cannot be made to: axios settles
+ * a stream request when the response HEADERS arrive, and its timer is spent by
+ * then. A peer that answers and then goes quiet - a hostile one, or an ordinary
+ * NAT dropping the connection mid-archive - therefore left `docker load` waiting
+ * on a body that never ended, so the shared acquisition promise never settled,
+ * no retry was ever scheduled, the registry was never reached, and every file
+ * operation on the node was refused until FluxOS restarted.
+ *
+ * Measured against arrival rather than total time, so a genuinely slow link
+ * still finishes: the same reasoning as the upload rate floor, in the other
+ * direction.
+ */
+const PEER_IMAGE_STALL_MS = 30000;
+
+/**
+ * The most this node will take from a peer before it has verified anything.
+ *
+ * The archive is around fourteen megabytes. Nothing is known about the bytes
+ * until they have all arrived, so the ceiling is what stops a peer writing an
+ * unbounded amount into this node's docker store and filling the disk the
+ * tenants' applications are on - a check that ran afterwards ran too late.
+ */
+const PEER_IMAGE_MAX_BYTES = 128 * 1024 * 1024;
 
 /**
  * How many peers this node hands the image to at once.
@@ -439,6 +467,60 @@ const PEER_IMAGE_TIMEOUT_MS = 120000;
 const PEER_IMAGE_SERVE_LIMIT = 2;
 
 let peerImageServes = 0;
+
+/**
+ * Take a peer's archive onto the disk, bounded, before anything reads it.
+ *
+ * To a file and not to memory: the ceiling has to be generous enough that an
+ * honest archive is never refused, and holding that much heap on a node whose
+ * memory is the constraint would trade one denial of service for another.
+ *
+ * Three things end the transfer: the ceiling, the stall window, and the caller
+ * giving up. Each destroys the response, so a peer cannot hold the socket after
+ * this returns, and the partial file is removed by the caller's finally.
+ *
+ * @param {NodeJS.ReadableStream} body - the peer's response
+ * @param {string} destination - where to put it
+ * @returns {Promise<number>} bytes taken
+ */
+async function receivePeerArchive(body, destination) {
+  let taken = 0;
+  let stalled = null;
+  let failure = null;
+
+  const sink = createWriteStream(destination);
+
+  const stopWith = (error) => {
+    failure = failure || error;
+    body.destroy(error);
+  };
+
+  const watchdog = setInterval(function noticeSilence() {
+    if (stalled === taken) {
+      stopWith(new Error(`sent nothing for ${PEER_IMAGE_STALL_MS}ms`));
+      return;
+    }
+    stalled = taken;
+  }, PEER_IMAGE_STALL_MS);
+  if (watchdog.unref) watchdog.unref();
+
+  body.on('data', function count(chunk) {
+    taken += chunk.length;
+    if (taken > PEER_IMAGE_MAX_BYTES) {
+      stopWith(new Error(`sent more than ${PEER_IMAGE_MAX_BYTES} bytes`));
+    }
+  });
+
+  try {
+    await new Promise((resolve, reject) => {
+      pipeline(body, sink, (error) => (error || failure ? reject(failure || error) : resolve()));
+    });
+  } finally {
+    clearInterval(watchdog);
+  }
+
+  return taken;
+}
 
 /**
  * Remove everything an archive brought that was not the image being fetched.
@@ -517,14 +599,36 @@ async function fetchImageFromPeer(expected) {
     asked.add(socketAddress);
 
     const [ip, port = '16127'] = socketAddress.split(':');
+    let archivePath = null;
     try {
       // eslint-disable-next-line no-await-in-loop
       const response = await serviceHelper.axiosGet(
         `http://${ip}:${port}/apps/fileoperationimage/${expected}`,
         { responseType: 'stream', timeout: PEER_IMAGE_TIMEOUT_MS },
       );
+      // Onto the disk first, bounded and with a stall window, so an archive
+      // this node knows nothing about cannot be unbounded in size or in time.
       // eslint-disable-next-line no-await-in-loop
-      const loaded = await dockerService.loadImage(response.data);
+      archivePath = path.join(os.tmpdir(), `flux-op-image-${crypto.randomUUID()}.tar`);
+      // eslint-disable-next-line no-await-in-loop
+      await receivePeerArchive(response.data, archivePath);
+
+      // And looked at before the daemon is allowed near it. `docker load`
+      // APPLIES the names an archive declares, which moves them off whatever
+      // this node had under them - so a peer could rename this node's own app
+      // images by packing their names in, and the cleanup afterwards removes
+      // the stolen name rather than giving it back. This node's own serve path
+      // exports by id and so declares no names at all; an archive that declares
+      // any is doing something we never do, and is refused rather than
+      // repaired.
+      // eslint-disable-next-line no-await-in-loop
+      const declared = await dockerService.archiveNames(archivePath);
+      if (declared.length) {
+        throw new Error(`archive names ${declared.join(', ')}, which this node does not accept from a peer`);
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      const loaded = await dockerService.loadImage(createReadStream(archivePath));
       // Whatever else came in the archive goes, whether or not the wanted image
       // was in it. Returning on success first - which is what this did - left a
       // peer able to put images of its choosing on this node permanently, since
@@ -563,6 +667,14 @@ async function fetchImageFromPeer(expected) {
       log.warn(`volumeExecutor - ${socketAddress} sent ${loaded.ids.length} image(s), none of them ${expected}`);
     } catch (error) {
       log.warn(`volumeExecutor - ${socketAddress} could not provide the file operation image: ${error.message}`);
+    } finally {
+      // Whatever ended the transfer, the partial file goes: a peer that dies
+      // mid-archive must not leave this node accumulating debris nothing will
+      // ever look at again.
+      if (archivePath) {
+        // eslint-disable-next-line no-await-in-loop
+        await fs.unlink(archivePath).catch(() => {});
+      }
     }
   }
 

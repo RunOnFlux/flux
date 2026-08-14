@@ -1,5 +1,6 @@
 const config = require('config');
 const stream = require('stream');
+const tar = require('tar');
 const Docker = require('dockerode');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
@@ -1486,6 +1487,51 @@ async function loadImage(stream) {
 }
 
 /**
+ * The names a docker image archive declares for what it carries.
+ *
+ * `docker load` applies these: an archive naming `some/app:v1` MOVES that name
+ * onto whatever the archive holds, taking it off whatever the node had under it.
+ * From a source this node does not control that is not a detail - it is the
+ * sender choosing what this node's own images are called - so a caller has to be
+ * able to look before loading rather than repair afterwards. Repairing is too
+ * late: removing the stolen name does not give it back to the image that had it,
+ * and that image is then nameless, which is to say dangling, which is to say the
+ * next prune deletes it.
+ *
+ * Read from the archive rather than from the sender's word about it. Only
+ * manifest.json is parsed; the layers are not touched, so this costs a scan of
+ * the tar's headers.
+ *
+ * @param {string} archivePath - a docker image archive on disk
+ * @returns {Promise<Array<string>>} every name the archive declares
+ */
+async function archiveNames(archivePath) {
+  let manifest = '';
+  let found = false;
+
+  await tar.t({
+    file: archivePath,
+    onReadEntry(entry) {
+      if (entry.path !== 'manifest.json') {
+        entry.resume();
+        return;
+      }
+      found = true;
+      entry.on('data', (chunk) => { manifest += chunk.toString(); });
+      entry.resume();
+    },
+  });
+
+  // An archive with no manifest is not a docker image archive. Saying so here
+  // is better than letting the daemon report it as an empty load, which reads
+  // as "the peer did not have it" and sends the caller to another peer.
+  if (!found) throw new Error('the archive carries no manifest');
+
+  const entries = JSON.parse(manifest);
+  return entries.flatMap((entry) => (entry && entry.RepoTags) || []);
+}
+
+/**
  * Give a loaded image the name it is pinned under.
  *
  * An archive addressed by id carries no names - the daemon writes RepoTags only
@@ -2174,6 +2220,7 @@ module.exports = {
   pullImage,
   exportImage,
   loadImage,
+  archiveNames,
   tagImage,
   appDockerKill,
   appDockerPause,
