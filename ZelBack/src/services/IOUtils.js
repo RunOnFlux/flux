@@ -145,22 +145,21 @@ function convertFileSize(sizes, targetUnit = 'auto', decimal = 2, returnNumber =
  * container exists - a copy's capacity check, and the file browser, which
  * measures every directory it lists.
  *
+ * Approximate upwards of nothing: an entry that cannot be stat'ed is skipped
+ * and a directory that cannot be opened is walked no further, so a tree only
+ * partly readable reports less than it holds. That is what a size in a listing
+ * means, and what `du` does with the same problem. Anything deciding whether
+ * something FITS needs a bound applied to what actually lands, not this.
+ *
  * @param {string} folderPath - The path to the folder.
- * @returns {Promise<number|boolean>} - Total bytes, or false if the folder
- *   could not be read at all. Callers MUST treat false as a refusal rather than
- *   as zero: a size that could not be established is not a size of nothing.
+ * @returns {Promise<number>} - Total bytes.
  */
 async function getFolderSize(folderPath) {
-  try {
-    // What the files say, which is what a listing means by the size of a
-    // folder and what every file browser shows. Anything comparing a figure
-    // against free space wants measureTree's `occupied` instead, because that
-    // is a count of blocks and this is not.
-    return await measureTree(folderPath, fs);
-  } catch (err) {
-    log.error(`Error getting folder size: ${err}`);
-    return false;
-  }
+  // What the files say, which is what a listing means by the size of a folder
+  // and what every file browser shows. Anything comparing a figure against
+  // free space wants measureTree's `occupied` instead, because that is a count
+  // of blocks and this is not.
+  return measureTree(folderPath, fs);
 }
 
 /**

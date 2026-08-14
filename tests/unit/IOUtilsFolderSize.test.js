@@ -37,6 +37,28 @@ describe('IOUtils.getFolderSize tests', () => {
     expect(await IOUtils.getFolderSize(ROOT)).to.equal(200);
   });
 
+  it('answers a number for a tree it can only partly read', async () => {
+    // It used to answer `false`, and the file browser put that straight into a
+    // listing's `size` - a boolean where every sibling has a number, and NaN
+    // for anything that then did arithmetic on it. A size is a number: a
+    // directory that cannot be opened contributes what is known about it, and
+    // the total is low rather than absent.
+    const entries = { [ROOT]: dir(), [`${ROOT}/private`]: dir() };
+    const IOUtils = load({
+      lstat: async (p) => entries[p] ?? file(100),
+      stat: async (p) => entries[p] ?? file(100),
+      readdir: async (p) => {
+        if (p === ROOT) return ['a', 'private'];
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      },
+    });
+
+    const size = await IOUtils.getFolderSize(ROOT);
+
+    expect(size).to.be.a('number');
+    expect(size).to.equal(100);
+  });
+
   it('counts a symlink to a directory as nothing, and does not follow it', async () => {
     // `stat` resolves the link to the directory behind it, which is what the
     // previous walk saw and descended into - so a link pointing outside the
