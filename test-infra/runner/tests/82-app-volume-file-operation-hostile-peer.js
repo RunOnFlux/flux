@@ -299,15 +299,27 @@ describe('app volume file operations - a peer that does not play fair', function
    * response for you - and not reading it is the whole point. This is what an
    * application container anywhere on the fleet can do, since its traffic
    * leaves under its host node's address.
+   *
+   * Resolves once the request is on the wire, not when connect() returns. A
+   * caller that has not sent anything yet is holding no slot, so a probe made
+   * between opening one and it arriving finds the ceiling unreached - the loop
+   * below outran twelve of these and then watched them all get refused after it
+   * had given up.
    */
   function connectAndIgnore({ hostname, port, path }) {
-    const socket = connect(port, hostname);
-    socket.on('error', () => {});
-    socket.on('connect', () => {
-      socket.write(`GET ${path} HTTP/1.1\r\nHost: ${hostname}\r\nConnection: keep-alive\r\n\r\n`);
-      socket.pause();
+    return new Promise((resolve, reject) => {
+      const socket = connect(port, hostname);
+
+      socket.on('error', reject);
+      socket.on('connect', () => {
+        socket.write(`GET ${path} HTTP/1.1\r\nHost: ${hostname}\r\nConnection: keep-alive\r\n\r\n`, () => {
+          socket.pause();
+          socket.removeListener('error', reject);
+          socket.on('error', () => {});
+          resolve(socket);
+        });
+      });
     });
-    return socket;
   }
 
   function statusOf({ hostname, port, path }, method = 'GET') {
@@ -354,7 +366,9 @@ describe('app volume file operations - a peer that does not play fair', function
     const idle = [];
     let refused = null;
     // Fill it, then find the caller past the ceiling. Derived rather than
-    // written down, so this stays true if the number moves.
+    // written down, so this stays true if the number moves - and each holder is
+    // awaited onto the wire before the next probe, or the probes outrun them
+    // and nothing is holding a slot when the ceiling is asked about.
     for (let i = 0; i < 12 && !refused; i += 1) {
       // eslint-disable-next-line no-await-in-loop
       const status = await Promise.race([
@@ -362,9 +376,10 @@ describe('app volume file operations - a peer that does not play fair', function
         new Promise((resolve) => { setTimeout(() => resolve('serving'), 3000); }),
       ]);
       if (status === 503) refused = true;
-      else idle.push(connectAndIgnore(endpoint));
+      // eslint-disable-next-line no-await-in-loop
+      else idle.push(await connectAndIgnore(endpoint));
     }
-    expect(refused, 'the ceiling never refused anyone').to.equal(true);
+    expect(refused, `the ceiling never refused anyone after ${idle.length} callers took a slot and held it`).to.equal(true);
 
     try {
       // The slots are held by callers taking nothing. Once the stall window has
