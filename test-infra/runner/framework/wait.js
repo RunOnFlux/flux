@@ -45,6 +45,27 @@ export async function waitForBlockProcessed(node, predicate = () => true, timeou
   return node.waitForEvent('block:processed', predicate, timeout, opts);
 }
 
+// --- network state (networkStateService) ---
+
+// The node's OWN view of the fleet, which is a cache refreshed on a timer -
+// not the daemon's list. A suite that changes the node list therefore has no
+// way to know when THIS node has read the change: the endpoints that report a
+// list ask the daemon, and sleeping long enough instead is what turns into a
+// flaky suite.
+//
+// Pass { afterId } from getLastEventId() taken BEFORE the change is made. The
+// buffer holds every refresh since boot, so without an anchor a wait for a
+// given size can match a refresh that happened before the change and pass
+// having observed nothing.
+export async function waitForNetworkState(node, predicate = () => true, timeout = 60000, opts) {
+  return node.waitForEvent('networkstate:updated', predicate, timeout, opts);
+}
+
+// The common case: wait until the node's own view holds this many nodes.
+export async function waitForNetworkStateSize(node, nodes, timeout = 60000, opts) {
+  return waitForNetworkState(node, (d) => d.nodes === nodes, timeout, opts);
+}
+
 export async function waitForDosChanged(node, predicate = () => true, timeout = 30000, opts) {
   return node.waitForEvent('dos:changed', predicate, timeout, opts);
 }

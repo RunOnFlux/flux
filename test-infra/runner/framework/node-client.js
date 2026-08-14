@@ -174,6 +174,7 @@ export function nodeClient(nodeNum) {
         'dos:changed',
         'explorer:ready',
         'messageCapability:changed',
+        'networkstate:updated',
         'orchestrator:started',
         'orchestrator:stateChanged',
         'app:installed',
