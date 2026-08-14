@@ -186,6 +186,21 @@ describe('fileSystemManager tests', () => {
       expect(argv()).to.deep.equal([]);
       expect(runOptions().publish.destination.containerPath).to.equal('/work/b.txt');
     });
+
+    it('never overwrites, whatever the caller asks for', async () => {
+      // Publishing over the destination exchanges the entries and removes what
+      // was displaced. That removal is unbounded, and this endpoint answers
+      // inline, so there is no flag that turns it on here - moveAppsObject is
+      // the general form and runs as a job.
+      req.params.oldpath = 'a.txt';
+      req.params.newname = 'b.txt';
+      req.query.overwrite = 'true';
+      req.body = { overwrite: true };
+      await fileSystemManager.renameAppsObject(req, res);
+
+      const options = sessionStub.pair.firstCall.args[2];
+      expect(options === undefined || options.overwrite !== true).to.equal(true);
+    });
   });
 
   describe('removeAppsObject', () => {

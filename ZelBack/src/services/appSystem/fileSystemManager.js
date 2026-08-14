@@ -141,7 +141,15 @@ async function renameAppsObject(req, res) {
     // The new name lands beside the old one, so the destination is built from
     // the SOURCE's directory rather than from anything else the caller sent.
     const destination = path.posix.join(path.posix.dirname(oldpath), newname);
-    const { source, destination: target } = await volume.pair(oldpath, destination, { overwrite: true });
+
+    // Never overwrites, and takes no flag to say otherwise. Publishing over the
+    // destination exchanges the two entries and removes what was displaced, and
+    // that removal is unbounded - which is why moveAppsObject answers 202 and
+    // runs as a job. This endpoint answers inline, so allowing an overwrite
+    // would put an unbounded delete inside a held request. A caller that means
+    // to replace something uses moveAppsObject, which is the general form and
+    // handles this case too.
+    const { source, destination: target } = await volume.pair(oldpath, destination);
 
     // No command, and `source` rather than `staging`: a rename publishes the
     // caller's own entry where it stands, so there is nothing to run and
