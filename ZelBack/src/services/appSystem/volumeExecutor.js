@@ -7,6 +7,7 @@ const dockerService = require('../dockerService');
 const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const networkStateService = require('../networkStateService');
+const { bareIp, extractPort } = require('../utils/socketAddressUtils');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const jobRegistry = require('../utils/jobRegistry');
 const fluxEventBus = require('../utils/fluxEventBus');
@@ -529,7 +530,7 @@ let fleetAddressesAt = 0;
  */
 function fleetHolds(remote) {
   if (!fleetAddresses || monotonicMs() - fleetAddressesAt >= FLEET_ADDRESS_WINDOW_MS) {
-    fleetAddresses = new Set(networkStateService.networkState().map((node) => node.ip.split(':')[0]));
+    fleetAddresses = new Set(networkStateService.networkState().map((node) => bareIp(node.ip)));
     fleetAddressesAt = monotonicMs();
   }
   return fleetAddresses.has(remote);
@@ -675,12 +676,22 @@ async function fetchImageFromPeer(expected) {
     }
     asked.add(socketAddress);
 
-    const [ip, port = '16127'] = socketAddress.split(':');
+    // Through the shared parser rather than split on a colon. An address may be
+    // ip, ip:port, an IPv4-mapped ::ffff:1.2.3.4 - which the serve side strips
+    // for exactly this reason, so the shape occurs - or an IPv6 literal, and
+    // splitting on the first colon reads the mapped form as an EMPTY host and
+    // an IPv6 literal as its first group. The serve side takes care over this
+    // and the fetch side did not; two halves of one feature disagreeing about
+    // what an address is, is the trap.
+    const ip = bareIp(socketAddress);
+    const port = extractPort(socketAddress);
+    // A literal has to be bracketed to sit in a URL at all.
+    const host = ip && ip.includes(':') ? `[${ip}]` : ip;
     let archivePath = null;
     try {
       // eslint-disable-next-line no-await-in-loop
       const response = await serviceHelper.axiosGet(
-        `http://${ip}:${port}/apps/fileoperationimage/${expected}`,
+        `http://${host}:${port}/apps/fileoperationimage/${expected}`,
         { responseType: 'stream', timeout: PEER_IMAGE_TIMEOUT_MS },
       );
       // Onto the disk first, bounded and with a stall window, so an archive

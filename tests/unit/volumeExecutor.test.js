@@ -419,6 +419,35 @@ describe('volumeExecutor tests', () => {
       sinon.assert.calledOnce(dockerServiceStub.loadImage);
     });
 
+    // The serve side goes to trouble over an IPv4-mapped address and an IPv6
+    // literal; the fetch side split on the first colon, which reads
+    // ::ffff:1.2.3.4 as an EMPTY host and 2001:db8::1 as "2001" port "db8". Two
+    // halves of one feature disagreeing about what an address is, is the trap -
+    // and the mapped form is one the serve side strips precisely because it
+    // occurs.
+    //
+    // One test per shape rather than a loop inside one: a node that has just
+    // failed to acquire refuses the next caller without searching, so a second
+    // pass in the same test asks nothing and would assert on the first.
+    [
+      ['198.18.0.5:16127', 'http://198.18.0.5:16127'],
+      ['198.18.0.5', 'http://198.18.0.5:16127'],
+      ['::ffff:198.18.0.5', 'http://198.18.0.5:16127'],
+      ['2001:db8::1', 'http://[2001:db8::1]:16127'],
+    ].forEach(([address, base]) => {
+      it(`asks a peer known as ${address} at ${base}`, async () => {
+        pulled = false;
+        dockerServiceStub.pullImage.rejects(new Error('offline'));
+        networkStateStub.getRandomSocketAddress.resolves(address);
+
+        const vol = await openSession();
+        await volumeExecutor.run(vol, ['true']).catch(() => {});
+
+        expect(serviceHelperStub.axiosGet.firstCall.args[0])
+          .to.equal(`${base}/apps/fileoperationimage/${IMAGE_ID}`);
+      });
+    });
+
     it('names the image it took from a peer, so a prune does not take it back', async () => {
       // A peer serves the archive by id, and the daemon writes no names for a
       // reference that has none - so what arrives is nameless, and a nameless
