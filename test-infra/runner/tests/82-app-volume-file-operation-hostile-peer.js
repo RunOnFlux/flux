@@ -48,6 +48,7 @@ describe('app volume file operations - a peer that does not play fair', function
   let rogue;
   let rogueUrl;
   let behaviour = null;
+  const openResponses = new Set();
   dumpLogsOnFailure(() => env);
 
   const subnet = getSubnetConfig();
@@ -142,6 +143,12 @@ describe('app volume file operations - a peer that does not play fair', function
     // Answers the image endpoint however the test in hand tells it to. Bound on
     // every interface so the containers reach it through the bridge gateway.
     rogue = createServer((req, res) => {
+      // Held so they can be taken down at the end: several of these tests
+      // deliberately leave a response open, and server.close() waits for every
+      // connection to end - so without this the suite's own teardown hangs on
+      // the sockets it was written to leave hanging.
+      openResponses.add(res);
+      res.on('close', () => openResponses.delete(res));
       if (!behaviour) {
         res.statusCode = 404;
         res.end();
@@ -219,13 +226,20 @@ describe('app volume file operations - a peer that does not play fair', function
   after(async function () {
     this.timeout(30000);
     behaviour = null;
-    if (rogue) await new Promise((resolve) => rogue.close(resolve));
+    openResponses.forEach((res) => res.destroy());
+    openResponses.clear();
+    if (rogue) {
+      rogue.closeAllConnections();
+      await new Promise((resolve) => rogue.close(resolve));
+    }
     await env?.teardown();
   });
 
   beforeEach(async function () {
     this.timeout(120000);
     behaviour = null;
+    openResponses.forEach((res) => res.destroy());
+    openResponses.clear();
     await restoreRegistry(0);
     await forgetImageOn(0);
     await resetVolume(env.clients[0].container, appName);
@@ -237,13 +251,39 @@ describe('app volume file operations - a peer that does not play fair', function
    * are about the node still working afterwards, and the operation is the way
    * to ask.
    */
-  async function copyObject(timeout = 240000) {
+  async function copyObjectOnce(timeout = 240000) {
     const accepted = await post(env.clients[0], '/apps/copyobject', {
       appname: appName, component: appName, source: 'photos', destination: `copied-${Date.now()}`,
     });
     if (accepted.status !== 202) return { accepted, job: null };
     const job = await waitForOperation(env.clients[0], accepted.data.data.jobId, auth.zelidauth, { timeout });
     return { accepted, job };
+  }
+
+  /** Whether an answer is the node saying "not yet, come back". */
+  const comeBackLater = ({ accepted, job }) => accepted.status === 503
+    || (job && job.status === 'Failed' && /is being fetched/.test(JSON.stringify(job.error)));
+
+  /**
+   * Ask, and come back when the node says to.
+   *
+   * A test before this one will have made an acquisition genuinely fail, and a
+   * node that has just failed refuses every caller for a silence window rather
+   * than repeating the whole search per click. That is deliberate, so a single
+   * request afterwards is not a fair question - and taking its refusal for a
+   * result made five tests here fail for the product working correctly.
+   *
+   * Bounded, because "eventually" is not an assertion: if the node never comes
+   * back this returns the last refusal and the caller asserts on it.
+   */
+  async function copyObject(timeout = 240000) {
+    const deadline = Date.now() + 180000;
+    let answer = await copyObjectOnce(timeout);
+    while (comeBackLater(answer) && Date.now() < deadline) {
+      await new Promise((resolve) => { setTimeout(resolve, 10000); });
+      answer = await copyObjectOnce(timeout);
+    }
+    return answer;
   }
 
   /** Where this node answers the image endpoint. */
@@ -280,45 +320,6 @@ describe('app volume file operations - a peer that does not play fair', function
       req.end();
     });
   }
-
-  it('keeps a parked entry when no source can supply the image', async function () {
-    this.timeout(420000);
-    // The boot sweep restores an interrupted publish by RUNNING a container, so
-    // a node that cannot get the image cannot do it. What matters is which way
-    // it fails: the parked entry is the owner's only copy of what was displaced,
-    // and giving up must leave it exactly where it is rather than tidy it away.
-    const uuid = '11111111-2222-4333-8444-999999999999';
-    behaviour = (req, res) => {
-      res.setHeader('Content-Type', 'application/x-tar');
-      res.write(Buffer.from('the first chunk')); // and never another
-    };
-    await cutOffRegistry(0);
-
-    // A publish interrupted between its two renames: the caller's previous data
-    // is parked, and its own path is empty.
-    await inNode(0, `mkdir -p ${root}/.flux-old-${uuid}`
-      + ` && echo mine > ${root}/.flux-old-${uuid}/only-copy.txt`
-      + ` && printf '%b' "photos-restored\n1 1 btime\n" > ${root}/.flux-old-${uuid}.dest`);
-
-    await restartFluxos(env.clients[0].container);
-    await waitFor(async () => (await env.clients[0].request('GET', '/flux/version')).status === 200, {
-      timeout: 120000, interval: 2000, label: 'node back up',
-    });
-
-    // Long enough for the sweep to have tried every entry and given up. There
-    // is no signal for "the sweep finished having done nothing", which is the
-    // case under test, so this waits rather than watches.
-    await new Promise((resolve) => { setTimeout(resolve, 30000); });
-
-    expect(
-      await exists(env.clients[0].container, `${root}/.flux-old-${uuid}/only-copy.txt`),
-      'the only copy of the displaced data was removed by a sweep that could not place it',
-    ).to.equal(true);
-    expect(
-      await exists(env.clients[0].container, `${root}/.flux-old-${uuid}.dest`),
-      'the marker went, so nothing will ever place the entry beside it',
-    ).to.equal(true);
-  });
 
   it('answers HEAD without packing an archive', async function () {
     this.timeout(420000);
@@ -480,5 +481,48 @@ describe('app volume file operations - a peer that does not play fair', function
 
     expect(job.status, JSON.stringify(job && job.error)).to.equal('Succeeded');
     expect(await imageHeldOn(0), 'the caller never reached the registry').to.equal(true);
+  });
+
+  // LAST, deliberately. It cuts this node off from every source and restarts
+  // FluxOS, so anything after it would be asking a node that has just been
+  // taught it cannot get the image - which is a different question from the one
+  // it meant to ask.
+  it('keeps a parked entry when no source can supply the image', async function () {
+    this.timeout(420000);
+    // The boot sweep restores an interrupted publish by RUNNING a container, so
+    // a node that cannot get the image cannot do it. What matters is which way
+    // it fails: the parked entry is the owner's only copy of what was displaced,
+    // and giving up must leave it exactly where it is rather than tidy it away.
+    const uuid = '11111111-2222-4333-8444-999999999999';
+    behaviour = (req, res) => {
+      res.setHeader('Content-Type', 'application/x-tar');
+      res.write(Buffer.from('the first chunk')); // and never another
+    };
+    await cutOffRegistry(0);
+
+    // A publish interrupted between its two renames: the caller's previous data
+    // is parked, and its own path is empty.
+    await inNode(0, `mkdir -p ${root}/.flux-old-${uuid}`
+      + ` && echo mine > ${root}/.flux-old-${uuid}/only-copy.txt`
+      + ` && printf '%b' "photos-restored\n1 1 btime\n" > ${root}/.flux-old-${uuid}.dest`);
+
+    await restartFluxos(env.clients[0].container);
+    await waitFor(async () => (await env.clients[0].request('GET', '/flux/version')).status === 200, {
+      timeout: 120000, interval: 2000, label: 'node back up',
+    });
+
+    // Long enough for the sweep to have tried every entry and given up. There
+    // is no signal for "the sweep finished having done nothing", which is the
+    // case under test, so this waits rather than watches.
+    await new Promise((resolve) => { setTimeout(resolve, 30000); });
+
+    expect(
+      await exists(env.clients[0].container, `${root}/.flux-old-${uuid}/only-copy.txt`),
+      'the only copy of the displaced data was removed by a sweep that could not place it',
+    ).to.equal(true);
+    expect(
+      await exists(env.clients[0].container, `${root}/.flux-old-${uuid}.dest`),
+      'the marker went, so nothing will ever place the entry beside it',
+    ).to.equal(true);
   });
 });
