@@ -101,6 +101,7 @@ describe('volumeExecutor tests', () => {
       // the CALL rather than at load, and the failure lands inside a try.
       imageExists: sinon.stub().callsFake(async () => pulled),
       pullImage: sinon.stub().callsFake(async () => { pulled = true; }),
+      tagImage: sinon.stub().resolves(),
     };
 
     serviceHelperStub = {
@@ -337,6 +338,44 @@ describe('volumeExecutor tests', () => {
       sinon.assert.calledOnce(dockerServiceStub.loadImage);
     });
 
+    it('names the image it took from a peer, so a prune does not take it back', async () => {
+      // A peer serves the archive by id, and the daemon writes no names for a
+      // reference that has none - so what arrives is nameless, and a nameless
+      // image is a DANGLING one. performDockerCleanup prunes dangling images
+      // before every app install, so without a name the node loses the image
+      // it just fetched and asks a peer again after every install: the nodes
+      // on the peer path are the ones that cannot reach the registry, so they
+      // are exactly the ones that would pay it forever.
+      pulled = false;
+      dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
+      dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [IMAGE_ID], tags: [] }; });
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      sinon.assert.calledOnceWithExactly(dockerServiceStub.tagImage, IMAGE_ID, IMAGE);
+      // After the discard, never before: the name is this node's word for what
+      // it verified, so it must not be applied to bytes still under suspicion.
+      expect(dockerServiceStub.tagImage.calledAfter(dockerServiceStub.loadImage)).to.equal(true);
+    });
+
+    it('does not name an image a peer sent that is not the pinned one', async () => {
+      const wrong = 'sha256:3333333333333333333333333333333333333333333333333333333333333333';
+      dockerServiceStub.imageExists = sinon.stub().resolves(false);
+      dockerServiceStub.pullImage.rejects(new Error('offline'));
+      dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [wrong], tags: [] });
+      dockerServiceStub.appDockerImageRemove = sinon.stub().resolves();
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+
+      const vol = await openSession();
+      await expect(volumeExecutor.run(vol, ['true'])).to.be.rejected;
+
+      expect(dockerServiceStub.tagImage.called, 'it named an image it had refused').to.equal(false);
+    });
+
     it('removes what a peer sent when it is not the image that was asked for', async () => {
       // The archive names itself, so a peer saying "this is the image" proves
       // nothing. What arrived is checked, and anything else does not stay on
@@ -507,6 +546,32 @@ describe('volumeExecutor tests', () => {
       } finally {
         clock.restore();
       }
+    });
+
+    it('does not let a peers-only round answer for the registry', async () => {
+      // The prefetch asks peers and nothing else, deliberately - the registry
+      // fetch is the one that herds, so it waits for this node's slot. A round
+      // that only asked peers has therefore learned nothing about the registry
+      // and must not be able to answer for it.
+      //
+      // This is the cold-fleet case, which is the case the peer path exists
+      // for: a new pin, where no peer holds it yet either. Every operation on
+      // the node was refused for a minute while the one source that would have
+      // worked went untried, and the prefetch's own registry attempt was hours
+      // away.
+      pulled = false;
+      networkStateStub.getRandomSocketAddress.resolves(null);
+
+      await volumeExecutor.startImagePrefetch();
+      expect(dockerServiceStub.pullImage.called, 'the prefetch went to the registry').to.equal(false);
+
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      expect(
+        dockerServiceStub.pullImage.called,
+        'the caller was refused without the registry being asked',
+      ).to.equal(true);
     });
 
     it('puts a different address at a different point', async () => {

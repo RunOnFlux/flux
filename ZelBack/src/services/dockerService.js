@@ -1486,6 +1486,35 @@ async function loadImage(stream) {
 }
 
 /**
+ * Give a loaded image the name it is pinned under.
+ *
+ * An archive addressed by id carries no names - the daemon writes RepoTags only
+ * for a reference that has one - so an image taken from a peer arrives nameless.
+ * A nameless image is a DANGLING image, and the prune that runs before every app
+ * install takes dangling images. Naming it is what leaves the peer path in the
+ * same state a registry pull leaves, so the image survives to be used.
+ *
+ * Named after the id has been checked, never before: the name is this node's
+ * word for what it verified, not the sender's word for what it sent.
+ *
+ * @param {string} id - the image id, already verified
+ * @param {string} reference - the repo:tag to name it with
+ * @returns {Promise<void>}
+ */
+async function tagImage(id, reference) {
+  // The tag is what follows the last colon, and only when no slash follows it:
+  // a registry host names its port with a colon too, so cutting at the first
+  // one turns `fluxregistry:5000/x` into the repository `fluxregistry`.
+  const cut = reference.lastIndexOf(':');
+  const tagged = cut > 0 && !reference.slice(cut).includes('/');
+
+  await docker.getImage(id).tag({
+    repo: tagged ? reference.slice(0, cut) : reference,
+    tag: tagged ? reference.slice(cut + 1) : 'latest',
+  });
+}
+
+/**
  * Removes app's docker image.
  *
  * @param {string} idOrName
@@ -2145,6 +2174,7 @@ module.exports = {
   pullImage,
   exportImage,
   loadImage,
+  tagImage,
   appDockerKill,
   appDockerPause,
   appDockerRemove,

@@ -1412,4 +1412,43 @@ describe('dockerService tests', () => {
       expect(loaded).to.deep.equal({ ids: [], tags: [] });
     });
   });
+
+  describe('tagImage tests', () => {
+    const ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
+    let getImageStub;
+
+    afterEach(() => {
+      if (getImageStub) getImageStub.restore();
+      getImageStub = null;
+    });
+
+    it('names an image, splitting the reference the way the daemon wants it', async () => {
+      // The daemon takes the repository and the tag as separate fields, so the
+      // reference has to be taken apart. A registry host carries a colon of its
+      // own when it names a port, which is why the tag is cut from the LAST one
+      // and only when no slash follows it.
+      const tag = sinon.stub().resolves();
+      getImageStub = sinon.stub(Dockerode.prototype, 'getImage').returns({ tag });
+
+      await dockerService.tagImage(ID, 'fluxregistry:5000/runonflux/flux-volume-tools:v1.1.0');
+
+      expect(getImageStub.calledOnceWith(ID)).to.equal(true);
+      expect(tag.calledOnceWith({
+        repo: 'fluxregistry:5000/runonflux/flux-volume-tools',
+        tag: 'v1.1.0',
+      })).to.equal(true);
+    });
+
+    it('defaults the tag when the reference carries none', async () => {
+      const tag = sinon.stub().resolves();
+      getImageStub = sinon.stub(Dockerode.prototype, 'getImage').returns({ tag });
+
+      await dockerService.tagImage(ID, 'fluxregistry:5000/runonflux/flux-volume-tools');
+
+      expect(tag.calledOnceWith({
+        repo: 'fluxregistry:5000/runonflux/flux-volume-tools',
+        tag: 'latest',
+      })).to.equal(true);
+    });
+  });
 });

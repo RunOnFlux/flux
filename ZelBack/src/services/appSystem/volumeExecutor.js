@@ -490,6 +490,23 @@ async function fetchImageFromPeer(expected) {
       await discardUnwantedImages(loaded, expected, socketAddress);
 
       if (loaded.ids.includes(expected)) {
+        // Named only now that the id has been checked, and after the discard
+        // above, so the name goes on bytes this node has verified rather than
+        // on the sender's claim about them. A peer serves the archive by id and
+        // the daemon writes no names for a reference that carries none, so what
+        // arrives is nameless - and a nameless image is a dangling one, which
+        // the prune before every app install takes. Without this the node loses
+        // the image it just fetched at the next install and asks a peer again,
+        // forever, on exactly the nodes that took the peer path because they
+        // cannot reach the registry.
+        //
+        // A failure here is not a failure of the fetch: the image is present
+        // and usable, it is only unprotected from the prune, which is where
+        // this path stood before.
+        // eslint-disable-next-line no-await-in-loop
+        await dockerService.tagImage(expected, settings().image).catch((error) => {
+          log.warn(`volumeExecutor - the file operation image could not be named, so a prune will take it: ${error.message}`);
+        });
         log.info(`volumeExecutor - took the file operation image from ${socketAddress}`);
         return { peer: socketAddress, asked: asked.size };
       }
@@ -692,6 +709,14 @@ function scheduleAcquisition(expected) {
 function acquireImage(expected, options) {
   if (acquiring) return acquiring;
 
+  // Only a round that was allowed every source can say the search failed. The
+  // prefetch's first round asks peers alone, so it has learned nothing about
+  // the registry - and recording it as a failure would make it answer for one,
+  // silencing callers for a minute over a source that was never tried. On a
+  // cold fleet, where no peer holds the image either, that is every operation
+  // on the node while the prefetch's own registry attempt is still hours away.
+  const searched = (at) => { if (options.registry) failedAt = at; };
+
   acquiring = acquisitionCycle(expected, options)
     .then((held) => {
       if (held) {
@@ -701,12 +726,12 @@ function acquireImage(expected, options) {
         log.info('volumeExecutor - the file operation image is on this node');
         return true;
       }
-      failedAt = monotonicMs();
+      searched(monotonicMs());
       if (options.thenRetry) scheduleAcquisition(expected);
       return false;
     })
     .catch((error) => {
-      failedAt = monotonicMs();
+      searched(monotonicMs());
       log.error(`volumeExecutor - could not fetch the file operation image: ${error.message}`);
       if (options.thenRetry) scheduleAcquisition(expected);
       return false;
@@ -782,7 +807,10 @@ function stopImagePrefetch() {
  *
  * `performDockerCleanup` is NOT one of the things that removes it, despite
  * running before every app install: `pruneImages` filters on dangling, and a
- * tagged image is not dangling.
+ * tagged image is not dangling. That holds for BOTH routes only because the
+ * peer route names what it took - an archive addressed by id carries no names,
+ * so an untagged arrival would be dangling and this would be false for exactly
+ * the nodes that cannot reach the registry.
  *
  * A caller waits a short while and is then told to come back. It does not wait
  * for the fetch's own patience - a peer has two minutes to hand over thirteen
