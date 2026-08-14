@@ -388,6 +388,16 @@ describe('app volume file operations - a peer that does not play fair', function
       res.setHeader('Content-Type', 'application/x-tar');
       const endless = new Readable({
         read() {
+          // Stop at the hangup, not at the close event. While the node is
+          // reading, pipe() throttles this to what it takes; once the node
+          // cuts the connection, writes to a dead socket are discarded rather
+          // than pushing back, so without this the generator runs free until
+          // 'close' is dispatched and `sent` counts bytes nobody received -
+          // more of them the busier the box is.
+          if (res.destroyed || res.writableEnded) {
+            this.push(null);
+            return;
+          }
           sent += 1024 * 1024;
           this.push(Buffer.alloc(1024 * 1024));
         },
