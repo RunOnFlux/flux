@@ -38,8 +38,8 @@ function rejectBackslashes(inputPath) {
  * Control characters are the interesting one. They are legal in a Linux
  * filename, but a newline in particular corrupts anything line-oriented that
  * later handles the name - /proc/self/mountinfo escapes them for exactly this
- * reason, and the marker file that records where displaced data belongs during
- * a publish is one line of text. Rejecting them keeps a filename from being
+ * reason, and a name reaches a log line, a mount table and a container's own
+ * output before anyone reads it. Rejecting them keeps a filename from being
  * able to forge a record about itself.
  */
 // eslint-disable-next-line no-control-regex

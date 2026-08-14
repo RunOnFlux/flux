@@ -397,18 +397,13 @@ async function startFluxFunctions() {
     });
     // A file operation's container is detached from the process that started
     // it, so a FluxOS restart leaves one running with nobody waiting for its
-    // result, and its staging directory on the volume. Reclaim both - and
-    // restore any destination whose publish was interrupted between its two
-    // renames. Runs after the volumes above are mounted, since the sweep reads
-    // them.
-    // Started BEFORE the recovery below, because the recovery needs it. A
-    // publish interrupted between its two renames is put back by running a
-    // container, so a node that boots without the image cannot do it - and the
-    // failure is per-entry and logged, with nothing that looks again until the
-    // next restart. That leaves the owner's data parked under a reserved name
-    // their file browser hides and their delete refuses, for as long as the
-    // node stays up. Starting the fetch first costs nothing and closes most of
-    // that window.
+    // result, and its staging directory on the volume. The recovery below
+    // reclaims both, after the volumes above are mounted, since it reads them.
+    //
+    // The fetch starts early so the image is in hand before the first file
+    // operation arrives, rather than being pulled while an owner waits on a
+    // request. The recovery does not depend on it: that is a host rm over names
+    // readdir returned, and runs on a node that can reach nothing.
     //
     // Not awaited: the node takes the image at its own place in a window, so
     // the fleet ends up holding it without every node fetching at the same

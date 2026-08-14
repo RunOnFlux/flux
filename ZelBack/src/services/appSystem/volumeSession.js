@@ -5,7 +5,7 @@ const deviceHelper = require('../deviceHelper');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const {
-  sanitizePath, verifyRealPath, verifyRealPathOfExistingPath, openNoFollow,
+  sanitizePath, verifyRealPath, verifyRealPathOfExistingPath,
 } = require('../utils/pathSecurity');
 const { appsFolder, APP_NAME_REGEX, APP_NAME_REGEX_LEGACY } = require('../utils/appConstants');
 const { STAGING_PREFIX, isReservedName } = require('./volumeReservedNames');
@@ -354,45 +354,6 @@ class VolumeSession {
       throw error;
     });
     return stats.isDirectory();
-  }
-
-  /**
-   * Read a small file the application owns, as bytes rather than as a path to
-   * follow.
-   *
-   * Reading is the one thing an operand could do without the container, and it
-   * is the one place a link still leads somewhere: resolve() lets a link
-   * through deliberately, because moving or removing one acts on the link
-   * itself. A read acts THROUGH it, so it is refused here instead - opened
-   * O_NOFOLLOW, and sized from the open handle so the size cannot change
-   * between asking and reading.
-   *
-   * The bound is the caller's because only the caller knows what the file is
-   * for. A path fits in a few kilobytes; a file the application chose the size
-   * of does not have to.
-   *
-   * @param {VolumePath} volumePath
-   * @param {number} maxBytes - refuse anything larger
-   * @returns {Promise<string>} The file's contents.
-   */
-  // eslint-disable-next-line class-methods-use-this
-  async readSmallFile(volumePath, maxBytes) {
-    if (!(volumePath instanceof VolumePath)) {
-      throw new Error('readSmallFile requires a VolumePath');
-    }
-    if (!Number.isInteger(maxBytes) || maxBytes < 1) {
-      throw new Error('readSmallFile requires a positive byte ceiling');
-    }
-    const { handle, stats } = await openNoFollow(volumePath.hostPath);
-    try {
-      const { size } = stats;
-      if (size > maxBytes) {
-        throw new Error(`${volumePath.relative} is ${size} bytes, over the ${maxBytes} byte ceiling`);
-      }
-      return await handle.readFile('utf8');
-    } finally {
-      await handle.close();
-    }
   }
 
   /**

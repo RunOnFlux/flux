@@ -166,8 +166,9 @@ module.exports = {
       //
       // It also means rotating the image needs a FluxOS release, which is
       // deliberate rather than a limitation to work around. What the image does
-      // is coupled to the code that drives it - the marker it writes is parsed
-      // here, so a change to one is a change to both - and the alternative,
+      // is coupled to the code that drives it - the staging names it creates are the
+      // ones swept here, so a change to one is a change to both - and the
+      // alternative,
       // publishing the pin where the fleet reads policy, would let a merge
       // choose the program every node runs as root over an app's volume, with
       // no staged rollout. The urgency that would buy is small: the container
@@ -176,8 +177,8 @@ module.exports = {
       // the way one in a network-facing service is.
       //
       // What the image DOES is proven in its own repository, not here: the
-      // ceiling, the link refusal, discarding staging, the marker written
-      // before anything moves, and the signal handling all have tests there
+      // ceiling, the link refusal, discarding staging, the atomic exchange the
+      // publish is made of, and the signal handling all have tests there
       // that run in a container configured exactly as this one configures it,
       // on both architectures. Nothing in this repository can exercise them,
       // and a reviewer looking only here should not conclude they are
