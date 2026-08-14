@@ -7,7 +7,7 @@ const nodePath = require('node:path');
 const realFs = require('node:fs/promises');
 const nodeCrypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
-const { Readable } = require('node:stream');
+const { Readable, Writable } = require('node:stream');
 const childProcess = require('node:child_process');
 
 chai.use(chaiAsPromised);
@@ -40,6 +40,7 @@ describe('volumeExecutor tests', () => {
   let volumeExecutor;
 
   let configStub;
+  let nodeFsStub;
   let networkStateStub;
 
   // Rebuilt per test: a test that raises a limit to exercise something must not
@@ -145,10 +146,21 @@ describe('volumeExecutor tests', () => {
       lstat: sinon.stub().rejects(new Error('ENOENT')),
       readdir: sinon.stub().resolves([]),
       statfs: sinon.stub().resolves({ bsize: 4096, blocks: 1000, bfree: 1000 }),
-      // Delegated rather than faked: the peer fetch writes a real archive to a
-      // real temp file now, and a stubbed unlink would leave every run's copies
-      // behind.
-      unlink: sinon.stub().callsFake((target) => realFs.unlink(target)),
+      unlink: sinon.stub().resolves(),
+    };
+
+    // The peer fetch takes the archive to a file before anything reads it. That
+    // file is incidental to every assertion here - what is being checked is that
+    // the transfer is bounded by size and by silence and inspected before the
+    // daemon sees it - so nothing touches a real disk: a full one, or a
+    // permission, would fail these for a reason that is not the code. Where a
+    // real archive IS the thing under test, it is dockerService.archiveNames
+    // that tests it, against real tars.
+    nodeFsStub = {
+      createWriteStream: sinon.stub().callsFake(() => new Writable({
+        write(chunk, encoding, done) { done(); },
+      })),
+      createReadStream: sinon.stub().callsFake(() => Readable.from([])),
     };
 
     volumeSession = proxyquire('../../ZelBack/src/services/appSystem/volumeSession', {
@@ -161,6 +173,7 @@ describe('volumeExecutor tests', () => {
     volumeExecutor = proxyquire('../../ZelBack/src/services/appSystem/volumeExecutor', {
       config: configStub,
       'node:fs/promises': fsStub,
+      'node:fs': nodeFsStub,
       '../dockerService': dockerServiceStub,
       '../deviceHelper': deviceHelperStub,
       '../serviceHelper': serviceHelperStub,
@@ -769,6 +782,28 @@ describe('volumeExecutor tests', () => {
       networkStateStub.networkState.returns([{ ip: '198.18.0.5:16127' }]);
       dockerServiceStub.imageExists = sinon.stub().resolves(true);
     };
+
+    it('does not walk the fleet list once per caller', async () => {
+      // The endpoint is unauthenticated and the id it wants is public config, so
+      // this ran before the caller had been shown to be anyone: a copy of the
+      // whole ~13,000-entry network state and a split per entry, measured at
+      // ~2.4ms of the event loop each. Roughly 400 a second saturates the one
+      // core FluxOS has and stalls everything else on it.
+      willServe();
+      dockerServiceStub.exportImage = sinon.stub().resolves(archiveStub());
+
+      for (let i = 0; i < 25; i += 1) {
+        const res = responseFor();
+        // eslint-disable-next-line no-await-in-loop
+        await volumeExecutor.serveImageToPeer(requestFrom('198.18.9.9', IMAGE_ID), res);
+        expect(res.statusCode, 'a stranger was not refused').to.equal(403);
+      }
+
+      expect(
+        networkStateStub.networkState.callCount,
+        `walked the fleet list ${networkStateStub.networkState.callCount} times for 25 callers`,
+      ).to.equal(1);
+    });
 
     it('serves only the id this node is pinned to', async () => {
       networkStateStub.networkState.returns([{ ip: '198.18.0.5:16127' }]);

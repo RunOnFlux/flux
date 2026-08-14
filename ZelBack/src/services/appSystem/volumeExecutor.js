@@ -469,6 +469,50 @@ const PEER_IMAGE_SERVE_LIMIT = 2;
 let peerImageServes = 0;
 
 /**
+ * How long the set of fleet addresses is reused for.
+ *
+ * Deciding whether a caller is a node meant copying the whole network state -
+ * around 13,000 entries - and splitting a string per entry, BEFORE the caller
+ * had been shown to be anyone. Measured at ~2.4ms of the event loop per
+ * request, so roughly 400 requests a second saturate the one core FluxOS has
+ * and stall everything else on it: app installs, operation polling, peer
+ * messaging. The route is unauthenticated and the image id it needs is public
+ * config, so that was reachable by anyone.
+ *
+ * A set is built once per window instead, however many callers arrive, which is
+ * the same answer at a constant cost. Held only while the endpoint is being
+ * used: nothing builds it on a node no peer ever asks.
+ *
+ * The convention this follows is already in the tree - the one other
+ * unauthenticated route that walks the fleet list is wrapped in
+ * `cache('30 seconds')`. A window is fine here for the same reason it is there:
+ * a node that joined seconds ago can wait, and one that left is refused a
+ * little late.
+ */
+const FLEET_ADDRESS_WINDOW_MS = 30000;
+
+let fleetAddresses = null;
+let fleetAddressesAt = 0;
+
+/**
+ * Whether an address belongs to a node in the fleet.
+ *
+ * By address rather than by socketAddress: a node's API port cannot be read off
+ * an inbound connection, whose source port is ephemeral, and the fleet does not
+ * all run on the default one.
+ *
+ * @param {string} remote
+ * @returns {boolean}
+ */
+function fleetHolds(remote) {
+  if (!fleetAddresses || monotonicMs() - fleetAddressesAt >= FLEET_ADDRESS_WINDOW_MS) {
+    fleetAddresses = new Set(networkStateService.networkState().map((node) => node.ip.split(':')[0]));
+    fleetAddressesAt = monotonicMs();
+  }
+  return fleetAddresses.has(remote);
+}
+
+/**
  * Take a peer's archive onto the disk, bounded, before anything reads it.
  *
  * To a file and not to memory: the ceiling has to be generous enough that an
@@ -723,17 +767,17 @@ async function serveImageToPeer(req, res) {
       return;
     }
 
-    // By address rather than by socketAddress: a node's API port cannot be read
-    // off an inbound connection, whose source port is ephemeral, and the fleet
-    // does not all run on the default one.
-    if (!networkStateService.networkState().some((node) => node.ip.split(':')[0] === remote)) {
-      res.status(403).end();
-      return;
-    }
-
+    // The ceiling before the fleet lookup, because it is a comparison and the
+    // lookup is a set membership that may have to rebuild the set: a node with
+    // no capacity should not pay to find out who is asking.
     if (peerImageServes >= PEER_IMAGE_SERVE_LIMIT) {
       res.set('Retry-After', '30');
       res.status(503).end();
+      return;
+    }
+
+    if (!fleetHolds(remote)) {
+      res.status(403).end();
       return;
     }
 
