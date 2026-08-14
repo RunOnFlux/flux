@@ -532,7 +532,13 @@ async function fetchImageFromPeer(expected) {
       // eslint-disable-next-line no-await-in-loop
       await discardUnwantedImages(loaded, expectedImageIds(), socketAddress);
 
-      if (loaded.ids.some((id) => expectedImageIds().includes(id))) {
+      // The identifier the archive actually delivered, which is the only one
+      // this daemon can act on: a containerd store files the image under the
+      // index digest and knows nothing about the config digest, so naming it by
+      // the first pinned id 404s and leaves the image nameless - which is the
+      // very state the naming exists to prevent.
+      const matched = loaded.ids.find((id) => expectedImageIds().includes(id));
+      if (matched) {
         // Named only now that the id has been checked, and after the discard
         // above, so the name goes on bytes this node has verified rather than
         // on the sender's claim about them. A peer serves the archive by id and
@@ -547,7 +553,7 @@ async function fetchImageFromPeer(expected) {
         // and usable, it is only unprotected from the prune, which is where
         // this path stood before.
         // eslint-disable-next-line no-await-in-loop
-        await dockerService.tagImage(expected, settings().image).catch((error) => {
+        await dockerService.tagImage(matched, settings().image).catch((error) => {
           log.warn(`volumeExecutor - the file operation image could not be named, so a prune will take it: ${error.message}`);
         });
         log.info(`volumeExecutor - took the file operation image from ${socketAddress}`);

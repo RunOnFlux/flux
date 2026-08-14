@@ -399,6 +399,24 @@ describe('volumeExecutor tests', () => {
       expect(dockerServiceStub.tagImage.calledAfter(dockerServiceStub.loadImage)).to.equal(true);
     });
 
+    it('names the image under the identifier the archive actually delivered', async () => {
+      // A containerd-backed daemon files the image under the index digest and
+      // knows nothing about the config digest, so naming it by whichever id is
+      // pinned first answers 404 and leaves the image nameless - the exact state
+      // the naming exists to prevent, and one a prune then acts on.
+      pulled = false;
+      dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
+      dockerServiceStub.imageExists = sinon.stub().callsFake(async (id) => pulled && id === INDEX_ID);
+      dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [INDEX_ID], tags: [] }; });
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      serviceHelperStub.axiosGet.resolves({ data: 'a tar stream' });
+
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      sinon.assert.calledOnceWithExactly(dockerServiceStub.tagImage, INDEX_ID, IMAGE);
+    });
+
     it('does not name an image a peer sent that is not the pinned one', async () => {
       const wrong = 'sha256:3333333333333333333333333333333333333333333333333333333333333333';
       dockerServiceStub.imageExists = sinon.stub().resolves(false);
