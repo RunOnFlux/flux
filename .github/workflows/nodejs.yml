@@ -61,16 +61,21 @@ jobs:
 
             # Refuse to publish a file that will not load. The list is served by requiring it, so a
             # malformed edit would take the endpoint down rather than merely publishing something odd.
-            node -e "
-              const hashes = require('./src/hashes/hashes').getHashes();
+            #
+            # Single-quoted, with the hash read from the environment: inside a double-quoted shell
+            # string the backticks below are command substitution and ${...} is the shell's, not
+            # node's.
+            node -e '
+              const expected = process.env.NEW_HASH;
+              const hashes = require("./src/hashes/hashes").getHashes();
               if (!Array.isArray(hashes) || !hashes.every((h) => /^[0-9a-f]{32}$/.test(h))) {
-                throw new Error('hashes.js did not parse as a list of md5s');
+                throw new Error("hashes.js did not parse as a list of md5s");
               }
-              if (!hashes.includes('${NEW_HASH}')) {
-                throw new Error('the new hash is not in the patched file');
+              if (!hashes.includes(expected)) {
+                throw new Error("the new hash is not in the patched file");
               }
               console.log(`hashes.js holds ${hashes.length} entries`);
-            "
+            '
 
             git add src/hashes/hashes.js
             git commit --quiet -m "Update from https://github.com/RunOnFlux/flux/commit/${GITHUB_SHA}"
