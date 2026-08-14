@@ -575,12 +575,18 @@ async function compressAppsObject(req, res) {
     const operand = sourceIsDirectory ? '.' : path.basename(source.relative);
 
     const staging = volume.staging();
+    // `--` before the operand, because a name is not an option. A file may
+    // legitimately begin with a dash - the component rule rejects only the
+    // separators and the control characters - and both archivers would read one
+    // as a flag and refuse the request. Ending option parsing is what makes the
+    // operand a filename whatever it starts with, and unlike a `./` prefix it
+    // leaves the name stored in the archive alone.
     const argv = format === 'zip'
       // -r recurses, -q keeps the per-file listing out of the container's
       // output, -y stores a symlink as a symlink instead of the file it points
       // at, which is what tar and cp -a already do.
-      ? ['zip', '-r', '-q', '-y', staging, operand]
-      : ['tar', '-czf', staging, operand];
+      ? ['zip', '-r', '-q', '-y', staging, '--', operand]
+      : ['tar', '-czf', staging, '--', operand];
 
     // Bytes written to the archive, with no total: how far a source of a known
     // size compresses is not knowable until it has.

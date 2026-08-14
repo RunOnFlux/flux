@@ -338,6 +338,25 @@ describe('app volume file operations - the contract', function () {
       });
     }
 
+    it('archives a file whose name begins with a dash', async function () {
+      this.timeout(300000);
+      // A name the component rule permits - it rejects only the separators and
+      // the control characters - and one both archivers read as an option when
+      // it reaches them bare, refusing the request with a usage error the owner
+      // cannot act on. Round-tripped rather than merely accepted, so the name
+      // is shown to survive into the archive and back out of it.
+      await seedVolumeTree(node.container, appName, { '-dashfile.txt': 'dashed' });
+
+      await succeed('/apps/compressobject', {
+        appname: appName, component: appName, source: '-dashfile.txt', destination: 'dashed.tar.gz',
+      });
+
+      await succeed('/apps/extractobject', {
+        appname: appName, component: appName, source: 'dashed.tar.gz', destination: 'dashed-out',
+      });
+      expect(await contentOf(node.container, `${root}/dashed-out/-dashfile.txt`)).to.equal('dashed');
+    });
+
     it('refuses an extension it cannot produce, before doing any work', async function () {
       this.timeout(60000);
       const res = await post('/apps/compressobject', {

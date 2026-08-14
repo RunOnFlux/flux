@@ -335,14 +335,14 @@ describe('fileSystemManager tests', () => {
       req.body.destination = 'backup.zip';
       await fileSystemManager.compressAppsObject(req, res);
 
-      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc', '.']);
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc', '--', '.']);
     });
 
     it('writes a tarball when the destination says .tar.gz', async () => {
       req.body.destination = 'backup.tar.gz';
       await fileSystemManager.compressAppsObject(req, res);
 
-      expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', '.']);
+      expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', '--', '.']);
     });
 
     it('archives a directory from inside itself, so its CONTENTS are at the top', async () => {
@@ -366,7 +366,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(runOptions().workingDir.containerPath).to.equal('/work/uploads');
-      expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', 'notes.txt']);
+      expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', '--', 'notes.txt']);
     });
 
     it('archives a single file at the volume root from the root', async () => {
@@ -376,7 +376,22 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(runOptions().workingDir.containerPath).to.equal('/work');
-      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc', 'notes.txt']);
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc', '--', 'notes.txt']);
+    });
+
+    it('hands a name beginning with a dash over as a name, not an option', async () => {
+      // The component rule rejects only the separators and the control
+      // characters, so a leading dash is a name someone may legitimately have.
+      // Both archivers read one as a flag and refuse the request, so the
+      // operand goes after `--`.
+      sessionStub.isDirectory.resolves(false);
+      req.body.source = '-dashfile.txt';
+      req.body.destination = 'backup.tar.gz';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      const args = argv();
+      expect(args).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', '--', '-dashfile.txt']);
+      expect(args.indexOf('--')).to.equal(args.indexOf('-dashfile.txt') - 1);
     });
 
     it('stores a symlink as a symlink rather than the file it points at', async () => {
