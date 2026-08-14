@@ -523,12 +523,14 @@ describe('app volume file operations - a peer that does not play fair', function
   // FluxOS, so anything after it would be asking a node that has just been
   // taught it cannot get the image - which is a different question from the one
   // it meant to ask.
-  it('keeps a parked entry when no source can supply the image', async function () {
+  it('reclaims staging debris with no source for the image', async function () {
     this.timeout(420000);
-    // The boot sweep restores an interrupted publish by RUNNING a container, so
-    // a node that cannot get the image cannot do it. What matters is which way
-    // it fails: the parked entry is the owner's only copy of what was displaced,
-    // and giving up must leave it exactly where it is rather than tidy it away.
+    // The sweep is a host rm over names readdir returned, so it needs no
+    // container and therefore no image. That is what the atomic publish bought:
+    // a staging entry is disposable by construction - the destination holds
+    // something complete whether or not the exchange happened - so reclaiming
+    // it never needs to consult anything. A node cut off from every source
+    // still gets its space back.
     const uuid = '11111111-2222-4333-8444-999999999999';
     behaviour = (req, res) => {
       res.setHeader('Content-Type', 'application/x-tar');
@@ -536,29 +538,17 @@ describe('app volume file operations - a peer that does not play fair', function
     };
     await cutOffRegistry(0);
 
-    // A publish interrupted between its two renames: the caller's previous data
-    // is parked, and its own path is empty.
-    await inNode(0, `mkdir -p ${root}/.flux-old-${uuid}`
-      + ` && echo mine > ${root}/.flux-old-${uuid}/only-copy.txt`
-      + ` && printf '%b' "photos-restored\n1 1 btime\n" > ${root}/.flux-old-${uuid}.dest`);
+    await inNode(0, `mkdir -p ${root}/.flux-op-${uuid}`
+      + ` && echo scratch > ${root}/.flux-op-${uuid}/half-written.txt`);
 
     await restartFluxos(env.clients[0].container);
     await waitFor(async () => (await env.clients[0].request('GET', '/flux/version')).status === 200, {
       timeout: 120000, interval: 2000, label: 'node back up',
     });
 
-    // Long enough for the sweep to have tried every entry and given up. There
-    // is no signal for "the sweep finished having done nothing", which is the
-    // case under test, so this waits rather than watches.
-    await new Promise((resolve) => { setTimeout(resolve, 30000); });
-
-    expect(
-      await exists(env.clients[0].container, `${root}/.flux-old-${uuid}/only-copy.txt`),
-      'the only copy of the displaced data was removed by a sweep that could not place it',
-    ).to.equal(true);
-    expect(
-      await exists(env.clients[0].container, `${root}/.flux-old-${uuid}.dest`),
-      'the marker went, so nothing will ever place the entry beside it',
-    ).to.equal(true);
+    await waitFor(
+      async () => !await exists(env.clients[0].container, `${root}/.flux-op-${uuid}`),
+      { timeout: 120000, interval: 5000, label: 'the staging entry reclaimed' },
+    );
   });
 });
