@@ -399,14 +399,14 @@ describe('app volume file operations - a peer that does not play fair', function
     // until the disk the tenants' applications are on was full. The ceiling is
     // the only thing between a peer and that disk.
     // Bounded here so this process cannot balloon, and generously enough that
-    // the node still never reaches the end of it: the node refuses at 128MiB,
-    // so from where it stands the archive is as endless as an uncapped one.
+    // the node still never reaches the end of it: the node refuses at 32MiB, so
+    // from where it stands the archive is as endless as an uncapped one.
     // Without a cap the generator keeps producing after the node has hung up -
     // writes to a socket the node destroyed stop pushing back, and the stub
     // does not learn it is over until 'close' is dispatched - which reached
     // 871MiB of this process's heap in a parallel gate, competing for memory
     // with every other suite's fleet on the same box.
-    const offerBytes = 192 * 1024 * 1024;
+    const offerBytes = 48 * 1024 * 1024;
 
     behaviour = (req, res) => {
       res.setHeader('Content-Type', 'application/x-tar');

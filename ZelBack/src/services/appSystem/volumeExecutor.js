@@ -345,12 +345,25 @@ const PEER_IMAGE_STALL_MS = 30000;
 /**
  * The most this node will take from a peer before it has verified anything.
  *
- * The archive is around fourteen megabytes. Nothing is known about the bytes
- * until they have all arrived, so the ceiling is what stops a peer writing an
- * unbounded amount into this node's docker store and filling the disk the
- * tenants' applications are on - a check that ran afterwards ran too late.
+ * Nothing is known about the bytes until they have all arrived, so this is what
+ * stops a peer writing an unbounded amount into a node - a check that ran
+ * afterwards ran too late.
+ *
+ * The pinned image saves to 5.9 MiB, so 32 MiB is over five times what an
+ * honest archive weighs. It can be that tight because the image is pinned in
+ * THIS repository: it cannot grow past the ceiling without a release that can
+ * raise the ceiling with it, which would not be true of an image a node merely
+ * pulled. And the failure is benign - a refused archive falls through to the
+ * registry, so the operation is slower rather than lost.
+ *
+ * Read it as a RAM ceiling rather than a disk one. The archive goes to
+ * os.tmpdir(), which is tmpfs on ArcaneOS and on any node whose systemd puts
+ * /tmp there, and tmpfs pages are reclaimable only to swap. A CUMULUS has 8GB
+ * for the node and every application on it, so what a peer can make it hold
+ * matters more than the free space suggests. TMPDIR moves this onto disk and
+ * needs no change here - os.tmpdir() reads it.
  */
-const PEER_IMAGE_MAX_BYTES = 128 * 1024 * 1024;
+const PEER_IMAGE_MAX_BYTES = 32 * 1024 * 1024;
 
 /**
  * How many peers this node hands the image to at once.
@@ -579,6 +592,7 @@ async function fetchImageFromPeer(expected) {
     const port = extractPort(socketAddress);
     // A literal has to be bracketed to sit in a URL at all.
     const host = ip && ip.includes(':') ? `[${ip}]` : ip;
+    let archiveDir = null;
     let archivePath = null;
     try {
       // eslint-disable-next-line no-await-in-loop
@@ -586,10 +600,23 @@ async function fetchImageFromPeer(expected) {
         `http://${host}:${port}/apps/fileoperationimage/${expected}`,
         { responseType: 'stream', timeout: PEER_IMAGE_TIMEOUT_MS },
       );
-      // Onto the disk first, bounded and with a stall window, so an archive
+      // Out of memory first, bounded and with a stall window, so an archive
       // this node knows nothing about cannot be unbounded in size or in time.
+      //
+      // Into a directory of its own rather than loose in a shared one:
+      // os.tmpdir() is world-writable and holds everything else on the box, and
+      // this is an untrusted peer's bytes. mkdtemp creates it 0700 and creates
+      // it atomically, so nothing else can be sitting at the name first.
+      //
+      // The base is created if it is missing, which is what lets a deployment
+      // point TMPDIR at a path of its own - on ArcaneOS, at a directory on /dat
+      // rather than the tmpfs /tmp is - without having to create it in the same
+      // change, or at all.
       // eslint-disable-next-line no-await-in-loop
-      archivePath = path.join(os.tmpdir(), `flux-op-image-${crypto.randomUUID()}.tar`);
+      await fs.mkdir(os.tmpdir(), { recursive: true }).catch(() => {});
+      // eslint-disable-next-line no-await-in-loop
+      archiveDir = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-op-image-'));
+      archivePath = path.join(archiveDir, 'image.tar');
       // eslint-disable-next-line no-await-in-loop
       await receivePeerArchive(response.data, archivePath);
 
@@ -648,12 +675,13 @@ async function fetchImageFromPeer(expected) {
     } catch (error) {
       log.warn(`volumeExecutor - ${socketAddress} could not provide the file operation image: ${error.message}`);
     } finally {
-      // Whatever ended the transfer, the partial file goes: a peer that dies
-      // mid-archive must not leave this node accumulating debris nothing will
-      // ever look at again.
-      if (archivePath) {
+      // Whatever ended the transfer, the directory and the partial file in it
+      // go: a peer that dies mid-archive must not leave this node accumulating
+      // debris nothing will ever look at again. The directory rather than the
+      // file, so nothing is left behind if the name inside it ever changes.
+      if (archiveDir) {
         // eslint-disable-next-line no-await-in-loop
-        await fs.unlink(archivePath).catch(() => {});
+        await fs.rm(archiveDir, { recursive: true, force: true }).catch(() => {});
       }
     }
   }

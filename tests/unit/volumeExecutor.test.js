@@ -154,6 +154,12 @@ describe('volumeExecutor tests', () => {
       readdir: sinon.stub().resolves([]),
       statfs: sinon.stub().resolves({ bsize: 4096, blocks: 1000, bfree: 1000 }),
       unlink: sinon.stub().resolves(),
+      mkdir: sinon.stub().resolves(),
+      // A peer's archive lands in a directory of its own, 0700, and the whole
+      // directory goes afterwards. Answering a path keeps that shape without a
+      // real disk, and rm is what the cleanup reaches for now.
+      mkdtemp: sinon.stub().callsFake(async (prefix) => `${prefix}test`),
+      rm: sinon.stub().resolves(),
     };
 
     // The peer fetch takes the archive to a file before anything reads it. That
@@ -416,6 +422,29 @@ describe('volumeExecutor tests', () => {
       expect(serviceHelperStub.axiosGet.firstCall.args[0])
         .to.equal(`http://198.18.0.5:16127/apps/fileoperationimage/${IMAGE_ID}`);
       sinon.assert.calledOnce(dockerServiceStub.loadImage);
+    });
+
+    it('takes a peer archive into a directory of its own, and removes it', async () => {
+      // A shared temp directory is world-writable and holds everything else on
+      // the box; this is an untrusted peer's bytes. mkdtemp gives it a 0700
+      // directory created atomically, and the whole directory goes afterwards -
+      // the directory rather than the file, so nothing is left if the name
+      // inside it ever changes.
+      pulled = false;
+      dockerServiceStub.pullImage.rejects(new Error('getaddrinfo ENOTFOUND ghcr.io'));
+      dockerServiceStub.loadImage = sinon.stub().callsFake(async () => { pulled = true; return { ids: [IMAGE_ID], tags: [] }; });
+      networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
+
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      sinon.assert.calledOnce(fsStub.mkdtemp);
+      const created = await fsStub.mkdtemp.firstCall.returnValue;
+      sinon.assert.calledWith(fsStub.rm, created, sinon.match({ recursive: true }));
+      // The base is created if missing, so pointing TMPDIR somewhere new is
+      // enough on its own - the directory does not have to exist first.
+      sinon.assert.calledWith(fsStub.mkdir, sinon.match.string, sinon.match({ recursive: true }));
     });
 
     // The serve side goes to trouble over an IPv4-mapped address and an IPv6
