@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
 import {
-  pushImage, mirrorExecutorImage, executorImageReference, executorImageIds,
+  pushImage, mirrorExecutorImage, executorImageReference, executorAcceptedIds,
 } from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { waitFor, waitForOperation } from '../framework/wait.js';
@@ -40,20 +40,32 @@ describe('app volume file operations - where the image comes from', function () 
 
   const inNode = (index, command) => execInContainer(env.clients[index].container, command);
 
-  // The pinned id for the architecture the node actually runs, asked of the
-  // node rather than assumed from the host: the pin carries one id per
-  // architecture and picking the wrong one would make every probe below answer
-  // "not held" no matter what the node did.
+  // Which identifier THIS node's daemon files the image under, asked of the
+  // node rather than assumed from the host. The pin carries one config digest
+  // per architecture and one index digest, and a daemon resolves whichever its
+  // image store uses - the classic one the config digest, the containerd one
+  // the index digest. Probing for the wrong one answers "not held" about an
+  // image the node is holding perfectly well, which is how this suite reported
+  // that a working peer transfer had never arrived.
   const executorIds = new Map();
   async function executorIdFor(index) {
     if (!executorIds.has(index)) {
-      const r = await inNode(index, 'docker version --format "{{.Server.Arch}}"');
-      const arch = r.stdout.trim();
-      const id = executorImageIds()[arch];
-      expect(id, `FIXTURE: the pin names no image for ${arch}`).to.be.a('string');
-      executorIds.set(index, id);
+      const arch = (await inNode(index, 'docker version --format "{{.Server.Arch}}"')).stdout.trim();
+      const accepted = executorAcceptedIds(arch);
+      expect(accepted, `FIXTURE: the pin names no image for ${arch}`).to.not.be.empty;
+      executorIds.set(index, accepted);
     }
     return executorIds.get(index);
+  }
+
+  // The one it actually holds, or the first as the thing to remove/report.
+  async function heldIdOn(index) {
+    const accepted = await executorIdFor(index);
+    for (const id of accepted) {
+      const r = await inNode(index, `docker image inspect ${id} >/dev/null 2>&1; echo $?`);
+      if (r.stdout.trim() === '0') return id;
+    }
+    return null;
   }
 
   // By ID, which is the predicate the node itself decides on. Asking by TAG
@@ -61,12 +73,9 @@ describe('app volume file operations - where the image comes from', function () 
   // the daemon writes no names for a reference that carries none, so an image
   // that crossed the wire perfectly is held under no name at all. This probe
   // used to report that as "the image never arrived" - the peer test failing on
-  // the one path it exists to prove - and the removal below then could not take
-  // an untagged copy, so every later test began with the node already holding
-  // the image it was meant to be missing.
+  // the one path it exists to prove.
   async function imageHeldOn(index) {
-    const r = await inNode(index, `docker image inspect ${await executorIdFor(index)} >/dev/null 2>&1; echo $?`);
-    return r.stdout.trim() === '0';
+    return await heldIdOn(index) !== null;
   }
 
   // Every image the node holds, so what an archive BROUGHT can be told apart
@@ -78,13 +87,16 @@ describe('app volume file operations - where the image comes from', function () 
     return new Set(r.stdout.trim().split('\n').filter(Boolean));
   }
 
-  // Removed by ID for the same reason it is probed by one: a copy that came
-  // from a peer carries no name, so removing the tag leaves the image itself
-  // sitting there and the next test starts with the node already holding what
-  // it was supposed to be missing.
+  // Removed by ID for the same reason it is probed by one, and under every
+  // identifier: a copy that came from a peer carries no name, so removing the
+  // tag leaves the image itself sitting there and the next test starts with the
+  // node already holding what it was supposed to be missing.
   async function forgetImageEverywhere() {
     await Promise.all(env.clients.map(async (_, index) => {
-      await inNode(index, `docker rmi -f ${await executorIdFor(index)} >/dev/null 2>&1 || true`);
+      const accepted = await executorIdFor(index);
+      for (const id of accepted) {
+        await inNode(index, `docker rmi -f ${id} >/dev/null 2>&1 || true`);
+      }
     }));
   }
 

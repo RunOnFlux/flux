@@ -281,24 +281,66 @@ async function assertMountIsLive(session) {
 }
 
 /**
- * The image id this node must run.
+ * The identifiers that name the image this node must run - any one of which is
+ * proof, because every one of them is derived from the bytes.
  *
  * A tag says which image to fetch; it does not say what is in it. One at a
- * registry can be moved, and one inside an image a peer hands over is whatever
- * that peer wrote into the archive - so the tag is the name and this is the
- * proof. It is the digest of the image's own config, which docker reports as
- * the image id, and it is per architecture.
+ * registry can be moved, and one inside an archive a peer hands over is
+ * whatever that peer wrote there - so the tag is the name and these are the
+ * proof.
  *
- * @returns {string}
+ * There are two of them because docker files an image under different content
+ * digests depending on how it stores images, and a published image is not one
+ * blob: it is an INDEX naming one image per architecture.
+ *
+ *   classic store       this architecture's own config digest
+ *   containerd store    the digest of the index covering every architecture
+ *
+ * The containerd store is the default from Docker 29, which on 2026-08-14 was
+ * 5,587 of the fleet's 6,066 nodes. Pinning only the config digest left every
+ * one of them pulling the image successfully and then refusing it - not as a
+ * transient failure but for good, since no retry makes two different numbers
+ * agree - and taking the whole file browser down with it, `createfolder`,
+ * `renameobject` and `removeobject` included.
+ *
+ * Accepting either weakens nothing. Both are content digests over the same
+ * bytes: the index covers the per-architecture manifests, which cover their
+ * configs and layers, so neither can be forged without breaking the other.
+ *
+ * ONCE PRE-29 DOCKER IS OFF THE NETWORK this collapses to the index digest
+ * alone - one identifier, no architecture in it. `fluxos-docker-versions` is
+ * the survey that says when. Until then the config digest is what the 479
+ * remaining older daemons answer with.
+ *
+ * @returns {Array<string>} most specific first; a held image matching any is
+ *   the pinned image
  */
-function expectedImageId() {
-  const { image, imageIds } = settings();
+function expectedImageIds() {
+  const { image, imageIds, indexId } = settings();
   const architecture = os.arch() === 'x64' ? 'amd64' : os.arch();
-  const expected = imageIds && imageIds[architecture];
-  if (!expected) {
+  const forArchitecture = imageIds && imageIds[architecture];
+  if (!forArchitecture && !indexId) {
     throw new Error(`No file operation image is pinned for ${architecture}, so ${image} cannot be verified`);
   }
-  return expected;
+  return [forArchitecture, indexId].filter(Boolean);
+}
+
+/**
+ * Which of them this node actually holds, or null.
+ *
+ * The answer is the id to RUN as well as the answer to "is it here": a
+ * container has to be created from the identifier the local daemon resolves,
+ * which is the one that just answered.
+ *
+ * @returns {Promise<string|null>}
+ */
+async function heldImageId() {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const candidate of expectedImageIds()) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await dockerService.imageExists(candidate)) return candidate;
+  }
+  return null;
 }
 
 /**
@@ -419,14 +461,15 @@ let peerImageServes = 0;
  * @param {string} socketAddress - the peer, for the log
  * @returns {Promise<void>}
  */
-async function discardUnwantedImages(loaded, expected, socketAddress) {
-  const unwanted = loaded.ids.filter((id) => id !== expected);
+async function discardUnwantedImages(loaded, accepted, socketAddress) {
+  const wanted = new Set(accepted);
+  const unwanted = loaded.ids.filter((id) => !wanted.has(id));
 
   // eslint-disable-next-line no-restricted-syntax
   for (const tag of loaded.tags) {
     // eslint-disable-next-line no-await-in-loop
     const id = await dockerService.getImageId(tag).catch(() => null);
-    if (id && id !== expected) unwanted.push(tag);
+    if (id && !wanted.has(id)) unwanted.push(tag);
   }
 
   if (!unwanted.length) return;
@@ -487,9 +530,9 @@ async function fetchImageFromPeer(expected) {
       // peer able to put images of its choosing on this node permanently, since
       // nothing else ever looks at them.
       // eslint-disable-next-line no-await-in-loop
-      await discardUnwantedImages(loaded, expected, socketAddress);
+      await discardUnwantedImages(loaded, expectedImageIds(), socketAddress);
 
-      if (loaded.ids.includes(expected)) {
+      if (loaded.ids.some((id) => expectedImageIds().includes(id))) {
         // Named only now that the id has been checked, and after the discard
         // above, so the name goes on bytes this node has verified rather than
         // on the sender's claim about them. A peer serves the archive by id and
@@ -553,8 +596,11 @@ async function serveImageToPeer(req, res) {
     }
 
     const asked = req.params.imageid;
-    const expected = expectedImageId();
-    if (asked !== expected) {
+    // Either identifier is a fair way to ask, because a caller names the image
+    // by whatever ITS daemon files this image under, and that need not be what
+    // ours does. Still only this image: the id is compared, never used to look
+    // one up, so there is no "send me image X" here and there cannot become one.
+    if (!expectedImageIds().includes(asked)) {
       res.status(404).end();
       return;
     }
@@ -573,7 +619,11 @@ async function serveImageToPeer(req, res) {
       return;
     }
 
-    if (!await dockerService.imageExists(expected)) {
+    // What THIS node holds it as, which is what it can export. A caller asking
+    // under the other identifier still gets the same bytes, and checks them
+    // against its own.
+    const held = await heldImageId();
+    if (!held) {
       res.status(404).end();
       return;
     }
@@ -599,7 +649,7 @@ async function serveImageToPeer(req, res) {
       noteCallerGone();
     });
 
-    archive = await dockerService.exportImage(expected);
+    archive = await dockerService.exportImage(held);
     if (callerGone) {
       // Nobody to send it to, and the export is this node's to close. Returning
       // here still gives the slot back, because that happens in the finally.
@@ -639,7 +689,7 @@ async function acquisitionCycle(expected, sources) {
     return null;
   });
 
-  if (await dockerService.imageExists(expected)) {
+  if (await heldImageId()) {
     // Where it came from, not just that it is here. The store is asked either
     // way, so "the node holds it" cannot tell a transfer that was read
     // correctly from one that was not - a peer whose archive was misread still
@@ -662,7 +712,7 @@ async function acquisitionCycle(expected, sources) {
       // A pull can end on an error event and still call back without one, so
       // the store is asked rather than the pull taken at its word.
       // eslint-disable-next-line no-await-in-loop
-      if (await dockerService.imageExists(expected)) {
+      if (await heldImageId()) {
         fluxEventBus.publish('fileoperation:imageAcquired', { source: 'registry', asked: attempt + 1 });
         return true;
       }
@@ -753,11 +803,11 @@ function acquireImage(expected, options) {
  * @returns {Promise<void>}
  */
 async function prefetchImage() {
-  const expected = expectedImageId();
-  if (await dockerService.imageExists(expected)) return;
+  const [expected] = expectedImageIds();
+  if (await heldImageId()) return;
 
   await acquireImage(expected, { registry: false, thenRetry: false });
-  if (await dockerService.imageExists(expected)) return;
+  if (await heldImageId()) return;
 
   const wait = prefetchDelayMs();
   log.info(`volumeExecutor - no peer had the file operation image; the registry will be asked in ${Math.round(wait / 60000)} minute(s)`);
@@ -823,21 +873,25 @@ function stopImagePrefetch() {
  * @returns {Promise<string>} the id of the image to run
  */
 async function ensureImage(onProgress = null) {
-  const expected = expectedImageId();
-
-  // However it got here. An image carrying this id is the image, whether it came
-  // from the registry, from a peer, or was already on the node.
-  if (await dockerService.imageExists(expected)) return expected;
+  // However it got here, and whichever identifier this daemon files it under.
+  // An image carrying one of them is the image, whether it came from the
+  // registry, from a peer, or was already on the node - and the one that
+  // answered is the one the container is created from, because it is the only
+  // one this daemon can resolve.
+  const held = await heldImageId();
+  if (held) return held;
 
   if (failedAt && monotonicMs() - failedAt < IMAGE_FAILURE_SILENCE_MS) {
     throw imageComing(backoffUntil - monotonicMs());
   }
 
   if (onProgress) onProgress('Fetching the file operation image...');
+  const [expected] = expectedImageIds();
   const cycle = acquireImage(expected, { registry: true, thenRetry: true });
   await Promise.race([cycle, serviceHelper.delay(IMAGE_WAIT_MS)]);
 
-  if (await dockerService.imageExists(expected)) return expected;
+  const arrived = await heldImageId();
+  if (arrived) return arrived;
   throw imageComing(backoffUntil - monotonicMs());
 }
 

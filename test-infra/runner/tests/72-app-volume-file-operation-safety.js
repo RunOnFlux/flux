@@ -336,7 +336,7 @@ describe('app volume file operations - safety and recovery', function () {
         + ` && printf '%b' "${marker('/etc/cron.d/pwn')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`,
       );
       const planted = await inNode(`cat ${root}/.flux-old-${OPERATION_UUID}.dest`);
-      expect(planted.stdout.trim(), 'FIXTURE: the marker was not planted').to.equal('/etc/cron.d/pwn');
+      expect(planted.stdout.split('\n')[0], 'FIXTURE: the marker was not planted').to.equal('/etc/cron.d/pwn');
       await inNode('rm -f /etc/cron.d/pwn');
 
       await restartFluxos(node.container);
@@ -440,7 +440,7 @@ describe('app volume file operations - safety and recovery', function () {
 
         await inNode(`${plant} && printf '%b' "${marker('appdata/escape/pwn')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`);
         const planted = await inNode(`cat ${root}/.flux-old-${OPERATION_UUID}.dest`);
-        expect(planted.stdout.trim(), 'FIXTURE: the marker was not planted').to.equal('appdata/escape/pwn');
+        expect(planted.stdout.split('\n')[0], 'FIXTURE: the marker was not planted').to.equal('appdata/escape/pwn');
 
         await restartAndLetTheSweepFinish();
 

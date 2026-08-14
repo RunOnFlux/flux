@@ -19,6 +19,9 @@ describe('volumeExecutor tests', () => {
   // What the tag has to resolve to. The id is what a container is created from,
   // so it is what the assertions below look for.
   const IMAGE_ID = 'sha256:1111111111111111111111111111111111111111111111111111111111111111';
+  // What a containerd-backed daemon reports instead: the digest of the INDEX
+  // covering both architectures, rather than of this architecture's own config.
+  const INDEX_ID = 'sha256:9999999999999999999999999999999999999999999999999999999999999999';
 
   let dockerServiceStub;
   let deviceHelperStub;
@@ -40,6 +43,7 @@ describe('volumeExecutor tests', () => {
       volumeOperations: {
         image: IMAGE,
         imageIds: { amd64: IMAGE_ID, arm64: IMAGE_ID },
+        indexId: INDEX_ID,
         prefetchWindowMs: 6 * 60 * 60 * 1000,
         maxConcurrentPerApp: 1,
         maxConcurrentPerNode: 2,
@@ -321,6 +325,40 @@ describe('volumeExecutor tests', () => {
       // broken, and the background loop keeps trying.
       const error = await volumeExecutor.run(vol, ['true']).catch((thrown) => thrown);
       expect(error.kind).to.equal('busy');
+    });
+
+    it('accepts the image a containerd-backed daemon reports, which is the index', async () => {
+      // Docker files an image under one of two content digests depending on how
+      // it stores images. The classic store answers with THIS architecture's own
+      // config digest; the containerd store - the default from Docker 29, and
+      // 92% of the fleet - answers with the digest of the INDEX covering every
+      // architecture. Pinning only the first left those nodes pulling the image
+      // successfully and then refusing it, for good, because no retry can make
+      // two different numbers agree. Every file operation on such a node failed,
+      // including the three that used to be a local mkdir, mv and rm.
+      pulled = false;
+      dockerServiceStub.imageExists = sinon.stub().callsFake(async (id) => pulled && id === INDEX_ID);
+      dockerServiceStub.pullImage.callsFake(async () => { pulled = true; });
+
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      // And the container is created from the id this daemon actually resolves,
+      // not from whichever one happens to be written down first.
+      expect(dockerServiceStub.createContainer.firstCall.args[0].Image).to.equal(INDEX_ID);
+    });
+
+    it('refuses an image matching neither identifier it is pinned to', async () => {
+      const stranger = 'sha256:4444444444444444444444444444444444444444444444444444444444444444';
+      pulled = false;
+      dockerServiceStub.imageExists = sinon.stub().callsFake(async (id) => pulled && id === stranger);
+      dockerServiceStub.pullImage.callsFake(async () => { pulled = true; });
+
+      const vol = await openSession();
+      const error = await volumeExecutor.run(vol, ['true']).catch((thrown) => thrown);
+
+      expect(error.kind).to.equal('busy');
+      expect(dockerServiceStub.createContainer.called).to.equal(false);
     });
 
     it('takes the image from a peer when the registry cannot be reached', async () => {

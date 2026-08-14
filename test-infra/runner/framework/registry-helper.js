@@ -470,6 +470,23 @@ export function executorImageIds() {
 }
 
 /**
+ * Every identifier the app will accept the image under.
+ *
+ * Docker files an image under this architecture's config digest on the classic
+ * store and under the index digest on the containerd one, so which of them a
+ * node answers to is a property of its daemon rather than of the image. A test
+ * that probes for only one of them asks a question the node may be unable to
+ * answer about an image it is holding perfectly well.
+ *
+ * @param {string} architecture - as docker reports it, e.g. amd64
+ * @returns {Array<string>}
+ */
+export function executorAcceptedIds(architecture) {
+  const { imageIds, indexId } = publishedExecutorPin();
+  return [imageIds && imageIds[architecture], indexId].filter(Boolean);
+}
+
+/**
  * Copy the executor image the app pins into the harness registry.
  *
  * The digest is read out of the app's own config rather than repeated here, so
