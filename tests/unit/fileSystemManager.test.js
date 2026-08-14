@@ -324,6 +324,16 @@ describe('fileSystemManager tests', () => {
       expect(executorStub.run.called).to.equal(false);
       expect(res.json.firstCall.args[0].data.message).to.match(/Not enough free space/);
     });
+
+    it('carries a ceiling as well, because the measurement can read low', async () => {
+      // measure() runs in the FluxOS process, which is an ordinary user off
+      // ArcaneOS, and measureTree walks nothing under a directory it cannot
+      // open. So the up-front check is an early refusal, not the guarantee -
+      // the ceiling is applied by the container, which can read all of it.
+      await fileSystemManager.copyAppsObject(req, res);
+
+      expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
+    });
   });
 
   describe('compressAppsObject', () => {
@@ -377,6 +387,13 @@ describe('fileSystemManager tests', () => {
 
       expect(runOptions().workingDir.containerPath).to.equal('/work');
       expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc', '--', 'notes.txt']);
+    });
+
+    it('carries a ceiling as well, because the measurement can read low', async () => {
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(runOptions().maxBytes).to.be.closeTo(1e9 / 1.05, 1);
     });
 
     it('hands a name beginning with a dash over as a name, not an option', async () => {

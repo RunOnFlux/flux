@@ -412,11 +412,17 @@ class VolumeSession {
       ? await measureTree(volumePath.hostPath, fs, { occupied: true })
       : stats.blocks * BLOCK_UNIT;
 
-    // Fails closed by throwing rather than by reporting a figure: a source that
-    // cannot be read is a refusal, because an operation that runs out of space
-    // partway leaves a partial tree the user has to identify and clean up. That
-    // is measureTree's behaviour and the lstat's above, so there is no
-    // unmeasurable answer left to check for here.
+    // An ESTIMATE, and low rather than high when it is wrong. The lstat above
+    // throws on a source that cannot be reached at all, but measureTree skips
+    // an entry it cannot stat and walks nothing under a directory it cannot
+    // open - and this runs in the FluxOS process, root on ArcaneOS and an
+    // ordinary user elsewhere, so a directory the app made private to its own
+    // uid is exactly that case.
+    //
+    // Which is what it is for: refusing an operation early and in a sentence,
+    // before anything starts. What makes the operation SAFE is the byte ceiling
+    // its executor run carries - applied to what actually lands, by a container
+    // that can read every part of the volume.
     return size;
   }
 
