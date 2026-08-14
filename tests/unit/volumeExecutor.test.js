@@ -24,6 +24,9 @@ describe('volumeExecutor tests', () => {
   // arrives, and a stream that ends immediately would not exercise that.
   const peerArchive = () => Readable.from([Buffer.from('a docker image archive')]);
 
+  /** Let whatever is in flight reach its next await. */
+  const settleTick = () => new Promise((resolve) => { setImmediate(resolve); });
+
   // Two windows: the first records the mark, the second finds it unmoved.
   const PEER_SERVE_STALL_WINDOWS = 2;
 
@@ -44,6 +47,7 @@ describe('volumeExecutor tests', () => {
 
   let configStub;
   let nodeFsStub;
+  let fluxEventBusStub;
   let networkStateStub;
 
   // Rebuilt per test: a test that raises a limit to exercise something must not
@@ -159,6 +163,10 @@ describe('volumeExecutor tests', () => {
     // permission, would fail these for a reason that is not the code. Where a
     // real archive IS the thing under test, it is dockerService.archiveNames
     // that tests it, against real tars.
+    // Not the real bus: what these assert is what the module SAYS happened, and
+    // a shared emitter would carry it between tests.
+    fluxEventBusStub = { publish: sinon.stub() };
+
     nodeFsStub = {
       createWriteStream: sinon.stub().callsFake(() => new Writable({
         write(chunk, encoding, done) { done(); },
@@ -185,6 +193,7 @@ describe('volumeExecutor tests', () => {
         info: sinon.stub(), warn: sinon.stub(), error: sinon.stub(), debug: sinon.stub(),
       },
       '../utils/appConstants': appConstantsStub,
+      '../utils/fluxEventBus': fluxEventBusStub,
       './volumeSession': volumeSession,
     });
   });
@@ -736,6 +745,57 @@ describe('volumeExecutor tests', () => {
         dockerServiceStub.pullImage.called,
         'the caller was refused without the registry being asked',
       ).to.equal(true);
+    });
+
+    it('reports peers asked and registry attempts as different things', async () => {
+      // One key on one event meant two things: peers contacted on one branch,
+      // registry attempts on the other. Anything summing it was adding
+      // different denominators, and the peers asked first were invisible
+      // whenever the registry won - which is most of the time.
+      pulled = false;
+      networkStateStub.getRandomSocketAddress.onCall(0).resolves('198.18.0.5:16127');
+      networkStateStub.getRandomSocketAddress.onCall(1).resolves('198.18.0.6:16127');
+      networkStateStub.getRandomSocketAddress.resolves(null);
+      serviceHelperStub.axiosGet.rejects(new Error('404'));
+
+      const published = [];
+      fluxEventBusStub.publish.callsFake((name, payload) => published.push({ name, payload }));
+
+      // One cycle: two peers asked and refused, then the registry answers.
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      const acquired = published.filter((e) => e.name === 'fileoperation:imageAcquired').pop();
+      expect(acquired.payload.source).to.equal('registry');
+      expect(acquired.payload.attempts, 'registry attempts were not reported').to.equal(1);
+      expect(acquired.payload.asked, 'the peers asked first were invisible').to.equal(2);
+    });
+
+    it('does not let a caller inherit a refusal from sources it was allowed', async () => {
+      // A caller allowed the registry, arriving while the prefetch's peers-only
+      // round is still in flight, used to be handed that round's promise. It
+      // therefore inherited a refusal from sources it had never asked - and the
+      // round was thenRetry:false, so nothing was scheduled afterwards either.
+      // The window is not short: four peers that blackhole take minutes.
+      pulled = false;
+      let releasePeers = null;
+      const peersAnswering = new Promise((resolve) => { releasePeers = resolve; });
+      networkStateStub.getRandomSocketAddress.callsFake(async () => {
+        await peersAnswering;
+        return null;
+      });
+
+      const prefetching = volumeExecutor.startImagePrefetch();
+      await settleTick();
+      expect(dockerServiceStub.pullImage.called, 'the prefetch went to the registry').to.equal(false);
+
+      const vol = await openSession();
+      const caller = volumeExecutor.run(vol, ['true']);
+      releasePeers();
+      await prefetching;
+      await caller;
+
+      expect(dockerServiceStub.pullImage.called, 'the caller inherited a peers-only refusal').to.equal(true);
     });
 
     it('puts a different address at a different point', async () => {

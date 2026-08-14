@@ -375,6 +375,7 @@ const ACQUIRE_BACKOFF_MS = 30000;
 const ACQUIRE_BACKOFF_CEILING_MS = 60 * 60 * 1000;
 
 let acquiring = null;
+let acquiringUsedRegistry = false;
 let failedAt = 0;
 let backoffMs = 0;
 let backoffUntil = 0;
@@ -743,7 +744,7 @@ async function fetchImageFromPeer(expected) {
     }
   }
 
-  throw new Error(`asked ${asked.size} peer(s), none provided it`);
+  return { peer: null, asked: asked.size };
 }
 
 /**
@@ -909,9 +910,12 @@ async function serveImageToPeer(req, res) {
  */
 async function acquisitionCycle(expected, sources) {
   const fromPeer = await fetchImageFromPeer(expected).catch((error) => {
-    log.info(`volumeExecutor - no peer provided the file operation image: ${error.message}`);
-    return null;
+    log.error(`volumeExecutor - the peer search failed: ${error.message}`);
+    return { peer: null, asked: 0 };
   });
+  if (!fromPeer.peer) {
+    log.info(`volumeExecutor - no peer provided the file operation image: asked ${fromPeer.asked}`);
+  }
 
   if (await heldImageId()) {
     // Where it came from, not just that it is here. The store is asked either
@@ -920,9 +924,9 @@ async function acquisitionCycle(expected, sources) {
     // leaves the image on the disk, and the node goes on asking other peers for
     // something it already has. `unrecognised` is that case, and is the only
     // way it is visible from outside.
-    fluxEventBus.publish('fileoperation:imageAcquired', fromPeer
+    fluxEventBus.publish('fileoperation:imageAcquired', fromPeer.peer
       ? { source: 'peer', peer: fromPeer.peer, asked: fromPeer.asked }
-      : { source: 'unrecognised' });
+      : { source: 'unrecognised', asked: fromPeer.asked });
     return true;
   }
 
@@ -937,7 +941,14 @@ async function acquisitionCycle(expected, sources) {
       // the store is asked rather than the pull taken at its word.
       // eslint-disable-next-line no-await-in-loop
       if (await heldImageId()) {
-        fluxEventBus.publish('fileoperation:imageAcquired', { source: 'registry', asked: attempt + 1 });
+        // `asked` is peers asked, on every branch. It used to be re-used here for
+        // registry attempts, so one key on one event meant two different things
+        // and anything adding them up was adding different denominators - and
+        // the peers this node asked first were invisible whenever the registry
+        // won, which is most of the time.
+        fluxEventBus.publish('fileoperation:imageAcquired', {
+          source: 'registry', asked: fromPeer.asked, attempts: attempt + 1,
+        });
         return true;
       }
       log.warn(`volumeExecutor - ${image} resolved to an image this node is not pinned to`);
@@ -981,7 +992,20 @@ function scheduleAcquisition(expected) {
  * @returns {Promise<boolean>}
  */
 function acquireImage(expected, options) {
-  if (acquiring) return acquiring;
+  // Sharing a round is right when it is looking where this caller needs it to.
+  // It is not when the round in flight is the prefetch's peers-only one and the
+  // caller was allowed the registry: joining it inherited a refusal from
+  // sources that were never tried, and since the round was also `thenRetry:
+  // false`, nothing was scheduled afterwards either. The caller was simply told
+  // no while the source that would have answered went unasked - and the window
+  // is not short, since four peers that blackhole take minutes.
+  if (acquiring && (acquiringUsedRegistry || !options.registry)) return acquiring;
+
+  if (acquiring) {
+    return acquiring.then((held) => (held ? true : acquireImage(expected, options)));
+  }
+
+  acquiringUsedRegistry = options.registry;
 
   // Only a round that was allowed every source can say the search failed. The
   // prefetch's first round asks peers alone, so it has learned nothing about
@@ -1105,8 +1129,16 @@ async function ensureImage(onProgress = null) {
   const held = await heldImageId();
   if (held) return held;
 
+  // How long this node will ACTUALLY refuse for, which is the longer of the two
+  // things that make it refuse: the silence window it is inside, and whatever
+  // the backoff has climbed to. Reporting only the backoff told a caller to come
+  // back in the five-second floor while the node went on refusing for a minute,
+  // so a client that honours the header retried about twelve times for nothing.
+  const silenceLeft = () => (failedAt ? IMAGE_FAILURE_SILENCE_MS - (monotonicMs() - failedAt) : 0);
+  const comeBackIn = () => Math.max(silenceLeft(), backoffUntil - monotonicMs());
+
   if (failedAt && monotonicMs() - failedAt < IMAGE_FAILURE_SILENCE_MS) {
-    throw imageComing(backoffUntil - monotonicMs());
+    throw imageComing(comeBackIn());
   }
 
   if (onProgress) onProgress('Fetching the file operation image...');
@@ -1116,7 +1148,7 @@ async function ensureImage(onProgress = null) {
 
   const arrived = await heldImageId();
   if (arrived) return arrived;
-  throw imageComing(backoffUntil - monotonicMs());
+  throw imageComing(comeBackIn());
 }
 
 /**
