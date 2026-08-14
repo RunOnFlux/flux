@@ -30,6 +30,25 @@ const OPERATION_UUID = '11111111-2222-4333-8444-555555555555';
 // entry it must not touch.
 const STAGING_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 
+/**
+ * A marker as flux-op writes one: where the entry belongs, then the identity of
+ * the object the publish was placing.
+ *
+ * Built here rather than written inline, because the sweep refuses a marker
+ * that records no identity BEFORE it decides anything about the path. A
+ * one-line fixture therefore makes a containment test pass at the wrong check -
+ * green against a build with the containment removed - and it makes the one
+ * test that needs the marker FOLLOWED fail. Both happened: this file was
+ * written before the identity line existed and was not updated with it.
+ *
+ * The default identity names an object nothing on disk carries, which is what
+ * these tests want: they are about where a marker may point, not about whether
+ * a publish completed.
+ *
+ * Fed to `printf '%b'` so the escape becomes a real newline in the file.
+ */
+const marker = (destination, identity = '1 1 btime') => `${destination}\\n${identity}\\n`;
+
 describe('app volume file operations - safety and recovery', function () {
   let env;
   let node;
@@ -314,7 +333,7 @@ describe('app volume file operations - safety and recovery', function () {
       await inNode(
         `mkdir -p ${root}/.flux-old-${OPERATION_UUID}`
         + ` && echo displaced > ${root}/.flux-old-${OPERATION_UUID}/payload`
-        + ` && printf '%s' /etc/cron.d/pwn > ${root}/.flux-old-${OPERATION_UUID}.dest`,
+        + ` && printf '%b' "${marker('/etc/cron.d/pwn')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`,
       );
       const planted = await inNode(`cat ${root}/.flux-old-${OPERATION_UUID}.dest`);
       expect(planted.stdout.trim(), 'FIXTURE: the marker was not planted').to.equal('/etc/cron.d/pwn');
@@ -333,7 +352,7 @@ describe('app volume file operations - safety and recovery', function () {
       await inNode(
         `mkdir -p ${root}/.flux-old-${OPERATION_UUID}`
         + ` && echo mine > ${root}/.flux-old-${OPERATION_UUID}/only-copy.txt`
-        + ` && printf '%s' photos > ${root}/.flux-old-${OPERATION_UUID}.dest`,
+        + ` && printf '%b' "${marker('photos')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`,
       );
       expect(await exists(node.container, `${root}/photos`), 'FIXTURE: the destination already exists').to.equal(false);
 
@@ -377,7 +396,7 @@ describe('app volume file operations - safety and recovery', function () {
       // An orphaned .dest was visited by nothing - the loop skipped it as a
       // marker and there was no directory to reach it from - so it accumulated
       // in the volume root, one per interruption, visible in the file browser.
-      await inNode(`printf '%s' photos > ${root}/.flux-old-${OPERATION_UUID}.dest`);
+      await inNode(`printf '%b' "${marker('photos')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`);
 
       await restartFluxos(node.container);
 
@@ -419,7 +438,7 @@ describe('app volume file operations - safety and recovery', function () {
         // reads back as the target it was given.
         await seedSymlink(node.container, appName, 'appdata/escape', '/etc/cron.d');
 
-        await inNode(`${plant} && printf '%s' appdata/escape/pwn > ${root}/.flux-old-${OPERATION_UUID}.dest`);
+        await inNode(`${plant} && printf '%b' "${marker('appdata/escape/pwn')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`);
         const planted = await inNode(`cat ${root}/.flux-old-${OPERATION_UUID}.dest`);
         expect(planted.stdout.trim(), 'FIXTURE: the marker was not planted').to.equal('appdata/escape/pwn');
 
@@ -449,7 +468,7 @@ describe('app volume file operations - safety and recovery', function () {
       await inNode(
         `mkdir -p ${root}/.flux-old-${OPERATION_UUID}`
         + ` && echo mine > ${root}/.flux-old-${OPERATION_UUID}/only-copy.txt`
-        + ` && printf '%s' photos > ${root}/.flux-old-${OPERATION_UUID}.dest`,
+        + ` && printf '%b' "${marker('photos')}" > ${root}/.flux-old-${OPERATION_UUID}.dest`,
       );
       await restartAndLetTheSweepFinish();
 

@@ -2,7 +2,9 @@ import { describe, it, before, beforeEach, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { execInContainer } from '../framework/container.js';
-import { pushImage, mirrorExecutorImage, executorImageReference } from '../framework/registry-helper.js';
+import {
+  pushImage, mirrorExecutorImage, executorImageReference, executorImageIds,
+} from '../framework/registry-helper.js';
 import { buildSeedableApp } from '../framework/seed-helper.js';
 import { waitFor, waitForOperation } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes } from '../framework/reconciler-suite.js';
@@ -38,8 +40,32 @@ describe('app volume file operations - where the image comes from', function () 
 
   const inNode = (index, command) => execInContainer(env.clients[index].container, command);
 
+  // The pinned id for the architecture the node actually runs, asked of the
+  // node rather than assumed from the host: the pin carries one id per
+  // architecture and picking the wrong one would make every probe below answer
+  // "not held" no matter what the node did.
+  const executorIds = new Map();
+  async function executorIdFor(index) {
+    if (!executorIds.has(index)) {
+      const r = await inNode(index, 'docker version --format "{{.Server.Arch}}"');
+      const arch = r.stdout.trim();
+      const id = executorImageIds()[arch];
+      expect(id, `FIXTURE: the pin names no image for ${arch}`).to.be.a('string');
+      executorIds.set(index, id);
+    }
+    return executorIds.get(index);
+  }
+
+  // By ID, which is the predicate the node itself decides on. Asking by TAG
+  // asks a different question: a peer serves the archive addressed by id, and
+  // the daemon writes no names for a reference that carries none, so an image
+  // that crossed the wire perfectly is held under no name at all. This probe
+  // used to report that as "the image never arrived" - the peer test failing on
+  // the one path it exists to prove - and the removal below then could not take
+  // an untagged copy, so every later test began with the node already holding
+  // the image it was meant to be missing.
   async function imageHeldOn(index) {
-    const r = await inNode(index, `docker image inspect ${executorImage} >/dev/null 2>&1; echo $?`);
+    const r = await inNode(index, `docker image inspect ${await executorIdFor(index)} >/dev/null 2>&1; echo $?`);
     return r.stdout.trim() === '0';
   }
 
@@ -52,8 +78,14 @@ describe('app volume file operations - where the image comes from', function () 
     return new Set(r.stdout.trim().split('\n').filter(Boolean));
   }
 
+  // Removed by ID for the same reason it is probed by one: a copy that came
+  // from a peer carries no name, so removing the tag leaves the image itself
+  // sitting there and the next test starts with the node already holding what
+  // it was supposed to be missing.
   async function forgetImageEverywhere() {
-    await Promise.all(env.clients.map((_, index) => inNode(index, `docker rmi -f ${executorImage} >/dev/null 2>&1 || true`)));
+    await Promise.all(env.clients.map(async (_, index) => {
+      await inNode(index, `docker rmi -f ${await executorIdFor(index)} >/dev/null 2>&1 || true`);
+    }));
   }
 
   async function giveImageTo(index) {
@@ -161,9 +193,17 @@ describe('app volume file operations - where the image comes from', function () 
     const acquired = await acquisition;
     expect(acquired.source, 'the archive a peer sent was not read as holding the image').to.equal('peer');
 
-    // And one peer was enough. A misread archive left the node asking further
-    // peers for the same thirteen megabytes it was already holding.
-    expect(acquired.asked, `asked ${acquired.asked} peers for an image the first one sent`).to.equal(1);
+    // And it stopped once a peer supplied it. Not `=== 1`: the peer is DRAWN at
+    // random from the network state - which includes this node, since the draw
+    // is made without excluding it - so on a three-node fleet the node holding
+    // the image is the first draw only about a third of the time. Pinning the
+    // count to one made this fail two runs in three for a reason that is not
+    // the product. What the count can honestly say is that the search ended
+    // rather than running on past the answer, which is the misread-archive
+    // symptom: a node that did not recognise what it was sent goes on asking
+    // for something it is already holding, to the attempt ceiling.
+    expect(acquired.asked, `asked ${acquired.asked} peers on a fleet of ${env.clients.length}`)
+      .to.be.within(1, env.clients.length);
 
     // Nothing came with it. An archive can carry more than one image, and one
     // carrying a name the sender chose is worse than one that does not.
