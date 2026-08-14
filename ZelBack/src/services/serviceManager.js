@@ -401,15 +401,25 @@ async function startFluxFunctions() {
     // restore any destination whose publish was interrupted between its two
     // renames. Runs after the volumes above are mounted, since the sweep reads
     // them.
+    // Started BEFORE the recovery below, because the recovery needs it. A
+    // publish interrupted between its two renames is put back by running a
+    // container, so a node that boots without the image cannot do it - and the
+    // failure is per-entry and logged, with nothing that looks again until the
+    // next restart. That leaves the owner's data parked under a reserved name
+    // their file browser hides and their delete refuses, for as long as the
+    // node stays up. Starting the fetch first costs nothing and closes most of
+    // that window.
+    //
+    // Not awaited: the node takes the image at its own place in a window, so
+    // the fleet ends up holding it without every node fetching at the same
+    // moment. A node that cannot reach the registry takes it from one that did,
+    // which only works if they have it.
+    volumeExecutor.startImagePrefetch();
+
     log.info('Reclaiming interrupted file operations...');
     await fileOperationRecovery.recoverInterruptedFileOperations().catch((error) => {
       log.error(`File operation recovery error: ${error.message}`);
     });
-    // Not awaited, and not now: the node takes the file operation image at its
-    // own place in a window, so the fleet ends up holding it without every node
-    // fetching at the same moment. A node that cannot reach the registry takes
-    // it from one that did, which only works if they have it.
-    volumeExecutor.startImagePrefetch();
 
     // At boot, before anything installs: an app network is created per app and
     // removed only by the uninstaller, so an uninstall interrupted between the
