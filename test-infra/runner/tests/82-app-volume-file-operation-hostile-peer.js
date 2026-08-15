@@ -398,6 +398,11 @@ describe('app volume file operations - a peer that does not play fair', function
     // used to arrive straight into the docker store - so a peer could write
     // until the disk the tenants' applications are on was full. The ceiling is
     // the only thing between a peer and that disk.
+    //
+    // The node's own ceiling, named here because the offer has to clear it and
+    // the refusal below quotes it.
+    const ceilingBytes = 32 * 1024 * 1024;
+
     // Bounded here so this process cannot balloon, and generously enough that
     // the node still never reaches the end of it: the node refuses at 32MiB, so
     // from where it stands the archive is as endless as an uncapped one.
@@ -445,6 +450,19 @@ describe('app volume file operations - a peer that does not play fair', function
     const after = await inNode(0, 'df -k / | tail -1 | awk \'{print $4}\'');
     const lostKb = parseInt(before.stdout.trim(), 10) - parseInt(after.stdout.trim(), 10);
     expect(lostKb, `the node lost ${lostKb}KiB of disk to a peer`).to.be.lessThan(512 * 1024);
+
+    // And the ceiling is what did it, read on the node rather than inferred
+    // from the three above - none of which can tell a ceiling that fired from
+    // one that never existed. The offer is capped at 48MiB to keep this
+    // process's heap in hand, which is under the disk bound, and the registry
+    // fallback catches every way a peer can fail: a node with no ceiling at all
+    // would take the whole 48MiB, load nothing out of it, recover through the
+    // registry, and satisfy every assertion above. The refusal quotes the byte
+    // figure it refused at, which no other failure of this transfer produces.
+    await waitFor(
+      () => env.nodeHasLog(0, new RegExp(`could not provide the file operation image: sent more than ${ceilingBytes} bytes`)),
+      { timeout: 30000, interval: 1000, label: `node 0 refusing the archive at ${ceilingBytes} bytes` },
+    );
   });
 
   it('does not let a peer name this node\'s own images', async function () {
