@@ -395,6 +395,19 @@ class NetworkStateManager extends EventEmitter {
     this.#pubkeyIndex = new Map();
     this.#socketAddressIndex = new Map();
     this.#state = [];
+    // Back to un-started, which is the whole point of this method: the indexes
+    // above are empty again, so the manager must not go on saying it can answer
+    // from them. stop() releases anyone already waiting before it gets here, so
+    // rewinding cannot strand them - it only means the next start() has to
+    // fetch before anyone is answered, exactly as a freshly built one does.
+    this.#answerable = false;
+    this.#answerableWait = new Promise((resolve) => {
+      this.#onAnswerable = () => {
+        resolve();
+        this.#onAnswerable = () => {};
+      };
+    });
+    this.#started = false;
   }
 
   /**
@@ -542,6 +555,14 @@ class NetworkStateManager extends EventEmitter {
   async start() {
     await this.fetchNetworkState();
     await this.waitStarted;
+
+    // Only a manager that got its list runs a loop to keep it fresh. A stop
+    // landing during that first fetch breaks the loop without populating and
+    // then releases everything waiting - this included - so without this the
+    // updater is armed on a manager that has just been torn down. The abort
+    // flag cannot be read for it: abort() installs a fresh AbortController on
+    // its way out, so by here it may already say it was never aborted.
+    if (!this.#started) return;
 
     const updater = this.#stateEmitter && this.stateEvent
       ? this.#startEventEmitter
