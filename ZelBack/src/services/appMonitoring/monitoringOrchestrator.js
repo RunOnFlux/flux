@@ -55,33 +55,6 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
 }
 
 /**
- * Stop monitoring multiple applications
- * @param {Array} appSpecsToMonitor - Array of app specifications to stop monitoring, or null for every installed app
- * @param {boolean} deleteData - Whether to delete monitoring data
- * @returns {Promise<void>}
- */
-async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
-  const apps = await resolveAppSpecs(appSpecsToMonitor);
-
-  // eslint-disable-next-line no-restricted-syntax
-  for (const app of apps) {
-    try {
-      if (app.version <= 3) {
-        appInspector.stopAppMonitoring(app.name, deleteData);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of app.compose) {
-          const monitoredName = `${component.name}_${app.name}`;
-          appInspector.stopAppMonitoring(monitoredName, deleteData);
-        }
-      }
-    } catch (error) {
-      log.error(`stopMonitoringOfApps - could not stop monitoring ${app.name}: ${error.message}`);
-    }
-  }
-}
-
-/**
  * Start monitoring API endpoint
  * @param {object} req Request.
  * @param {object} res Response.
@@ -105,7 +78,6 @@ async function stopAppMonitoringAPI(req, res) {
 
 module.exports = {
   startMonitoringOfApps,
-  stopMonitoringOfApps,
   startAppMonitoringAPI,
   stopAppMonitoringAPI,
 };
