@@ -155,12 +155,12 @@ describe('fileOperationRecovery tests', () => {
   it('announces the pass with what it did', async () => {
     deviceHelperStub.listMountedFilesystems.resolves([mount(`${APPS_FOLDER}fluxcomp_one`)]);
     executorStub.reapOrphanedContainers.resolves(2);
-    executorStub.sweepStagingDirectories.resolves({ removed: ['a'], restored: ['b'] });
+    executorStub.sweepStagingDirectories.resolves({ removed: ['a'] });
 
     await recovery.recoverInterruptedFileOperations();
 
     expect(fluxEventBusStub.publish.calledOnceWithExactly('fileops:recovered', {
-      containers: 2, removed: 1, restored: 1,
+      containers: 2, removed: 1,
     })).to.equal(true);
   });
 
@@ -175,7 +175,7 @@ describe('fileOperationRecovery tests', () => {
 
     expect(logStub.info.called).to.equal(false);
     expect(fluxEventBusStub.publish.calledOnceWithExactly('fileops:recovered', {
-      containers: 0, removed: 0, restored: 0,
+      containers: 0, removed: 0,
     })).to.equal(true);
   });
 
