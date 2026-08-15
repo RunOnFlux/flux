@@ -69,6 +69,87 @@ describe('fluxCommunication tests', () => {
     localWsServer.close(done);
   });
 
+  describe('initializeDiscovery tests', () => {
+    // Being confirmed is not the same as being ready to peer. Every message an
+    // inbound peer sends is checked against the node list, so a peer admitted
+    // before the list arrives is refused however legitimate it is. Measured at
+    // 1391ms on a live node holding 6091 nodes - short, but it is the whole of
+    // the window the node was turning real peers away in.
+    let onConfirmationChange;
+    let onReady;
+    let allowConnections;
+    let disconnectAll;
+
+    beforeEach(() => {
+      onConfirmationChange = sinon.stub(nodeConfirmationService, 'onConfirmationChange');
+      onReady = sinon.stub(networkStateService, 'onReady');
+      allowConnections = sinon.stub(peerManager, 'allowConnections');
+      disconnectAll = sinon.stub(peerManager, 'disconnectAll');
+      sinon.stub(log, 'info');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    // Runs initializeDiscovery and hands back the confirmation callback it
+    // registered, which is the only way into this code.
+    function confirmationHandler() {
+      fluxCommunication.initializeDiscovery();
+
+      expect(onConfirmationChange.calledOnce).to.equal(true);
+
+      return onConfirmationChange.firstCall.args[0];
+    }
+
+    it('does not accept peers on confirmation alone', () => {
+      const confirmed = confirmationHandler();
+
+      confirmed(true);
+
+      expect(onReady.calledOnce).to.equal(true);
+      expect(allowConnections.called).to.equal(false);
+    });
+
+    it('accepts peers once the node list has arrived', () => {
+      sinon.stub(nodeConfirmationService, 'isConfirmed').returns(true);
+
+      const confirmed = confirmationHandler();
+
+      confirmed(true);
+      onReady.firstCall.args[0]();
+
+      expect(allowConnections.calledOnce).to.equal(true);
+    });
+
+    it('does not re-open after confirmation is lost while waiting for the list', () => {
+      // onReady fires whenever the list lands, which can be after a
+      // disconnectAll. Without the re-check this hands the door straight back.
+      const isConfirmed = sinon.stub(nodeConfirmationService, 'isConfirmed');
+      const confirmed = confirmationHandler();
+
+      confirmed(true);
+
+      isConfirmed.returns(false);
+      confirmed(false);
+
+      onReady.firstCall.args[0]();
+
+      expect(disconnectAll.calledOnce).to.equal(true);
+      expect(allowConnections.called).to.equal(false);
+    });
+
+    it('disconnects every peer when confirmation is lost, without consulting the list', () => {
+      const confirmed = confirmationHandler();
+
+      confirmed(false);
+
+      expect(disconnectAll.calledOnce).to.equal(true);
+      expect(onReady.called).to.equal(false);
+      expect(allowConnections.called).to.equal(false);
+    });
+  });
+
   describe('handleAppMessages tests', () => {
     const privateKey = 'KxA2iy4aVuVKXsK8pBnJGM9vNm4z6PLNRTzsPuSFBw6vWL5StbqD';
     const ownerAddress = '13ienDRfUwFEgfZxm5dk4drTQsmj5hDGwL';
