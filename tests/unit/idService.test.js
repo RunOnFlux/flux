@@ -635,7 +635,7 @@ describe('idService tests', () => {
 
     it('should return error if the message is empty', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '',
       };
@@ -659,7 +659,7 @@ describe('idService tests', () => {
 
     it('should return error if message is undefined', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
       };
       const mockStream = new PassThrough();
@@ -682,7 +682,7 @@ describe('idService tests', () => {
 
     it('should return error if message is less than 40 chars', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '1234',
       };
@@ -706,7 +706,7 @@ describe('idService tests', () => {
 
     it('should return error if message first 13 chars timestamp is too low', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '111111111111111111111111111111111111111111111',
       };
@@ -730,7 +730,7 @@ describe('idService tests', () => {
 
     it('should return error if message first 13 chars timestamp is too high', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '999999999999911111111111111111111111111111111',
       };
@@ -758,7 +758,7 @@ describe('idService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: `${timestamp - 300000}11111111111111111111111111111`,
       };
@@ -789,7 +789,7 @@ describe('idService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: `${timestamp - 300000}11111111111111111111111111111`,
       };
@@ -821,7 +821,7 @@ describe('idService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: `${timestamp - 300000}11111111111111111111111111111`,
       };
@@ -854,7 +854,7 @@ describe('idService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: `${timestamp - 300000}11111111111111111111111111111`,
       };
@@ -866,7 +866,7 @@ describe('idService tests', () => {
         status: 'success',
         data: {
           message: 'Successfully logged in',
-          zelid: '1Z1234341Z1234341Z1234341Z1234341',
+          zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
           loginPhrase: sinon.match.string,
           signature: '1234356asdf',
           privilage: 'user',
@@ -992,7 +992,7 @@ describe('idService tests', () => {
 
     it('should return error if the message is empty', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '',
       };
@@ -1016,7 +1016,7 @@ describe('idService tests', () => {
 
     it('should return error if message is undefined', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
       };
       const mockStream = new PassThrough();
@@ -1039,7 +1039,7 @@ describe('idService tests', () => {
 
     it('should return error if message is less than 40 chars', async () => {
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: '1234',
       };
@@ -1071,7 +1071,7 @@ describe('idService tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
+        zelid: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg',
         signature: '1234356asdf',
         message: `${timestamp - 300000}11111111111111111111111111111`,
       };
@@ -1082,7 +1082,7 @@ describe('idService tests', () => {
       const expectedError = {
         status: 'success',
         data: {
-          identifier: '1Z1234341Z1234341Z1234341Z12343411111111111111',
+          identifier: '1Jwh4djGdRPvgLwXNGsGCoPE7uu4vihbEg1111111111111',
           signature: '1234356asdf',
         },
       };
