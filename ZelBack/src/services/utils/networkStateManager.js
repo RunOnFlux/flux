@@ -47,7 +47,7 @@ class NetworkStateManager extends EventEmitter {
   #lastFetchTime = BigInt(0);
 
   /**
-   * @type {() => Promise | null}
+   * @type {(() => Promise) | null}
    */
   #onStartComplete = null;
 
@@ -74,7 +74,7 @@ class NetworkStateManager extends EventEmitter {
   #answerable = false;
 
   /**
-   * @type {() => void | null}
+   * @type {(() => void) | null}
    */
   #onAnswerable = null;
 
