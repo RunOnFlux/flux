@@ -13,7 +13,7 @@ import { authenticate } from '../auth.js';
 import { fluxTeamKey } from './keys.js';
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed, waitForAppInstalled, waitFor,
-  waitForReconcileActuated,
+  waitForReconcileActuated, waitForBootSettled,
 } from './wait.js';
 import { throwIfInfraDead, sleepUnlessInfraDead } from './infra-death.js';
 import { REGISTRY_REPO_HOST, getSubnetConfig } from './subnet-config.js';
@@ -59,6 +59,12 @@ export async function installOnNodes(env, app, indices, { timeout = 120000 } = {
   const teamKey = fluxTeamKey();
   await Promise.all(indices.map(async (i) => {
     const client = env.clients[i];
+    // The install endpoint refuses with a 503 until boot reconciliation has
+    // decided which apps this node is keeping. Waiting for the node to say it
+    // has settled, rather than for its API to answer: the API is up long before
+    // that decision, and an app installed in between has no location record for
+    // reconciliation to keep it by, so it is removed as one that moved away.
+    await waitForBootSettled(client);
     const auth = await authenticate(client.url, teamKey);
     // installapplocally streams progress then a final status; surface a failure
     // in that body instead of silently waiting out the app:installed timeout.
