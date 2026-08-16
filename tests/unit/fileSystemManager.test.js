@@ -484,7 +484,7 @@ describe('fileSystemManager tests', () => {
       req.body.source = 'backup.zip';
       await fileSystemManager.extractAppsObject(req, res);
 
-      expect(runOptions().ordinaryOnly).to.equal(true);
+      expect(runOptions().dataOnly).to.equal(true);
     });
 
     it('creates the staging directory, which tar -C and unzip -d both need', async () => {

@@ -1460,9 +1460,9 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
  * @param {number} [options.maxBytes] - ceiling on what the command may leave in
  *   staging. Enforced on the RESULT rather than on what the input claims about
  *   itself, because an archive's declared sizes are written by whoever built it.
- * @param {boolean} [options.ordinaryOnly] - refuse a result holding anything
- *   that is not ordinary data: symlinks and hard links, which reach outside the
- *   result, and FIFOs, sockets and device nodes, which are not data at all.
+ * @param {boolean} [options.dataOnly] - refuse a result holding a FIFO, a socket
+ *   or a device node. None of them is data, and whatever opens a FIFO without
+ *   O_NONBLOCK waits for a writer that never comes. Links are content and pass.
  * @param {boolean} [options.noReplace] - publish only onto a free name, and fail
  *   with EEXIST rather than replacing what is there. The refusal is the rename's
  *   own, so it answers for the instant nothing was written rather than for a
@@ -1487,7 +1487,7 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
 async function run(session, argv, options = {}) {
   const {
     onProgress = null, isCanceled = null, status = 'Working...',
-    publish = null, mkdirStaging = false, maxBytes = 0, ordinaryOnly = false,
+    publish = null, mkdirStaging = false, maxBytes = 0, dataOnly = false,
     noReplace = false, onBytes = null, workingDir = null, input = null,
     slotHeld = false,
   } = options;
@@ -1543,7 +1543,7 @@ async function run(session, argv, options = {}) {
       ...(publish.staging ? ['--discard-staging'] : []),
       ...(mkdirStaging ? ['--mkdir'] : []),
       ...(maxBytes > 0 ? ['--max-bytes', String(Math.floor(maxBytes))] : []),
-      ...(ordinaryOnly ? ['--ordinary-only'] : []),
+      ...(dataOnly ? ['--data-only'] : []),
       ...(noReplace ? ['--no-replace'] : []),
       ...(input ? ['--from-stdin'] : []),
       toParam(target),

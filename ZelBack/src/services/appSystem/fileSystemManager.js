@@ -692,15 +692,16 @@ async function extractAppsObject(req, res) {
       // to what actually lands instead, and it is the free space on the volume,
       // so an extraction can fill what is available and no more.
       maxBytes: volume.availableBytes / SPACE_HEADROOM,
-      // An archive that carries a link and then writes through it reaches
-      // wherever the link points. Inside the container that is nowhere useful,
-      // but the result is published onto a volume that the download endpoints
-      // still read from the host and that syncthing replicates to other nodes.
+      // A FIFO, socket or device node in the result is refused: none of them is
+      // data, and whatever opens a FIFO without O_NONBLOCK waits for a writer
+      // that is never coming, so one published here is a reader that hangs. tar
+      // both carries and recreates a FIFO, so an archive is all it takes.
       //
-      // A FIFO is refused by the same flag and for a different reason: tar
-      // carries and recreates one, and it holds no data at all - whatever opens
-      // it without O_NONBLOCK waits for a writer that is never coming.
-      ordinaryOnly: true,
+      // Links pass. What bounds an archive this node cannot vouch for is the
+      // container it is unpacked in - one volume mounted, a read-only rootfs -
+      // and what bounds a link left in the result is the reader: every walk of a
+      // volume here lstats, and the downloads open with O_NOFOLLOW.
+      dataOnly: true,
     }));
   } catch (error) {
     respondError(res, error);
