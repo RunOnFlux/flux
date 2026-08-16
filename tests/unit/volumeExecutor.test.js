@@ -1200,6 +1200,19 @@ describe('volumeExecutor tests', () => {
       await expect(volumeExecutor.run(vol, ['false'])).to.be.rejectedWith('exit code 2');
     });
 
+    it('keeps the code on a refusal the image names, so a caller can act on it', async () => {
+      // The dashboard tells an app owner a folder is already there rather than
+      // that their request failed, and a status is the only part of a failure
+      // that means the same thing whichever tool inside the image produced it.
+      // Flattened into one sentence, that distinction is gone.
+      containerStub.wait.resolves({ StatusCode: 5 });
+      const vol = await openSession();
+
+      const failure = await volumeExecutor.run(vol, ['true']).catch((error) => error);
+      expect(failure.code).to.equal('EEXIST');
+      expect(failure.message).to.equal('Destination already exists');
+    });
+
     it('stops the container when a cancel is requested, rather than killing it', async () => {
       // Cancellation is cooperative: requestCancel raises a flag and the worker
       // stops at its next checkpoint. Something has to look, and the progress

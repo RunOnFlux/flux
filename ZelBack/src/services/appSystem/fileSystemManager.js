@@ -109,10 +109,20 @@ async function createAppsFolder(req, res) {
     const folder = requiredParam(req, 'folder');
     const target = await volume.resolve(folder);
 
-    // No -p. mkdir must FAIL when the folder already exists: the dashboard
-    // branches on that error to tell the user so, and -p would report a folder
-    // it did not create as created.
-    await executor.run(volume, ['mkdir', target]);
+    // No command: the folder is created as staging and published under the name
+    // the caller asked for, which is the publish every other operation here
+    // already uses. `mkdir` ran directly before, and the difference is what a
+    // failure can say - a command reports one by exiting non-zero, so "that name
+    // is taken" arrived as a status of 1 and a sentence worded by whichever
+    // build of mkdir the image carries. The dashboard shows an owner a different
+    // message for a name in use than for a folder that could not be made, and
+    // noReplace is what lets it tell the two apart.
+    const staging = volume.staging();
+    await executor.run(volume, [], {
+      publish: { staging, destination: target },
+      mkdirStaging: true,
+      noReplace: true,
+    });
     respondSuccess(res, 'Folder Created');
   } catch (error) {
     respondError(res, error);
@@ -142,6 +152,12 @@ async function renameAppsObject(req, res) {
     // the SOURCE's directory rather than from anything else the caller sent.
     const destination = path.posix.join(path.posix.dirname(oldpath), newname);
 
+    const { source, destination: target } = await volume.pair(oldpath, destination);
+
+    // No command, and `source` rather than `staging`: a rename publishes the
+    // caller's own entry where it stands, so there is nothing to run and
+    // nothing a failure may throw away.
+    //
     // Never overwrites, and takes no flag to say otherwise. Publishing over the
     // destination exchanges the two entries and removes what was displaced, and
     // that removal is unbounded - which is why moveAppsObject answers 202 and
@@ -149,12 +165,7 @@ async function renameAppsObject(req, res) {
     // would put an unbounded delete inside a held request. A caller that means
     // to replace something uses moveAppsObject, which is the general form and
     // handles this case too.
-    const { source, destination: target } = await volume.pair(oldpath, destination);
-
-    // No command, and `source` rather than `staging`: a rename publishes the
-    // caller's own entry where it stands, so there is nothing to run and
-    // nothing a failure may throw away.
-    await executor.run(volume, [], { publish: { source, destination: target } });
+    await executor.run(volume, [], { publish: { source, destination: target }, noReplace: true });
     respondSuccess(res, 'Rename successful');
   } catch (error) {
     respondError(res, error);
@@ -347,7 +358,13 @@ async function resolveOperands(req, volume) {
   // value must not be read as consent to destroy something.
   const raw = serviceHelper.ensureObject(req.body)?.overwrite ?? req.query.overwrite;
   const overwrite = raw === true || raw === 'true';
-  return volume.pair(source, destination, { overwrite });
+  const pair = await volume.pair(source, destination);
+
+  // Carried to the publish rather than settled here. What "the destination is
+  // taken" means is decided by the rename that acts on it, in one step, on the
+  // volume of an application that is writing to it the whole time - a look taken
+  // now answers for a moment that has passed by the time the container runs.
+  return { ...pair, noReplace: !overwrite };
 }
 
 /**
@@ -494,13 +511,13 @@ function archiveFormat(name) {
 async function moveAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
-    const { source, destination } = await resolveOperands(req, volume);
+    const { source, destination, noReplace } = await resolveOperands(req, volume);
 
     // No command: the source IS the result, so publishing it is the whole
     // operation. Going through publish rather than a bare `mv` is what handles
     // an existing destination - rename(2) refuses a non-empty directory target
     // and cannot replace a file with a directory at all.
-    return startOperation(res, volume, { kind: 'fileoperation.move', status: 'Moving...', owner: volume.owner }, (progress) => executor.run(volume, [], { ...progress, publish: { source, destination } }));
+    return startOperation(res, volume, { kind: 'fileoperation.move', status: 'Moving...', owner: volume.owner }, (progress) => executor.run(volume, [], { ...progress, publish: { source, destination }, noReplace }));
   } catch (error) {
     respondError(res, error);
   }
@@ -515,7 +532,7 @@ async function moveAppsObject(req, res) {
 async function copyAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
-    const { source, destination } = await resolveOperands(req, volume);
+    const { source, destination, noReplace } = await resolveOperands(req, volume);
 
     // The same measurement serves both the capacity check and the progress
     // denominator - a copy writes as many bytes as it reads, so the figure the
@@ -531,6 +548,7 @@ async function copyAppsObject(req, res) {
     }, (progress) => executor.run(volume, ['cp', '-a', '-T', source, staging], {
       ...progress,
       publish: { staging, destination },
+      noReplace,
       // The measurement above is what refuses this early and with a sentence.
       // It is not what makes it safe: it is taken by the FluxOS process, which
       // is root on ArcaneOS but an ordinary user elsewhere, and a directory the
@@ -558,7 +576,7 @@ async function copyAppsObject(req, res) {
 async function compressAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
-    const { source, destination } = await resolveOperands(req, volume);
+    const { source, destination, noReplace } = await resolveOperands(req, volume);
 
     const format = archiveFormat(destination.relative);
     if (!format) {
@@ -607,6 +625,7 @@ async function compressAppsObject(req, res) {
       ...progress,
       workingDir,
       publish: { staging, destination },
+      noReplace,
       // As for copy: the measurement above refuses this early, the ceiling is
       // what makes it safe. A source measured by a process that cannot open
       // every directory in it reads low, and an archive is written by one that
@@ -641,7 +660,7 @@ async function compressAppsObject(req, res) {
 async function extractAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
-    const { source, destination } = await resolveOperands(req, volume);
+    const { source, destination, noReplace } = await resolveOperands(req, volume);
 
     // Refused by extension rather than by sniffing the content: a caller who
     // has to name what they uploaded cannot have it interpreted as something
@@ -664,6 +683,7 @@ async function extractAppsObject(req, res) {
     }, (progress) => executor.run(volume, argv, {
       ...progress,
       publish: { staging, destination },
+      noReplace,
       // tar -C and unzip -d both need the directory to exist already.
       mkdirStaging: true,
       // The capacity check the other operations make up front cannot be made

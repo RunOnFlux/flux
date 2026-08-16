@@ -1126,6 +1126,43 @@ async function ensureImage(onProgress = null) {
 const OUTPUT_TAIL_BYTES = 2000;
 
 /**
+ * The exit statuses flux-op uses to name a refusal, and what each means here.
+ *
+ * A status is the one part of a failure that does not depend on wording. The
+ * commands that run inside the image are busybox's, and busybox words the same
+ * condition differently from coreutils - so a caller reading the reason out of
+ * the output would be matching on which build of a tool the image happens to
+ * carry. Anything not listed is the command's own status, which says no more
+ * than that it failed.
+ */
+const REFUSAL_BY_STATUS = new Map([
+  [5, { code: 'EEXIST', message: 'Destination already exists' }],
+]);
+
+/**
+ * The error a non-zero exit becomes.
+ *
+ * A named refusal keeps its code, because a caller acts on it: the dashboard
+ * tells an app owner a folder is already there rather than that their request
+ * failed. Everything else keeps the output, which is all there is to say.
+ *
+ * @param {number} status
+ * @param {string} said - the tail of what the container wrote
+ * @returns {Error}
+ */
+function failureFor(status, said) {
+  const refusal = REFUSAL_BY_STATUS.get(status);
+  if (refusal) {
+    const error = new Error(refusal.message);
+    error.code = refusal.code;
+    return error;
+  }
+  return new Error(said
+    ? `File operation failed (exit ${status}): ${said}`
+    : `File operation failed with exit code ${status}`);
+}
+
+/**
  * Collect what the command writes, so a failure can say what went wrong.
  *
  * Without this, `AutoRemove` takes the container and its logs the moment it
@@ -1426,6 +1463,10 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
  * @param {boolean} [options.ordinaryOnly] - refuse a result holding anything
  *   that is not ordinary data: symlinks and hard links, which reach outside the
  *   result, and FIFOs, sockets and device nodes, which are not data at all.
+ * @param {boolean} [options.noReplace] - publish only onto a free name, and fail
+ *   with EEXIST rather than replacing what is there. The refusal is the rename's
+ *   own, so it answers for the instant nothing was written rather than for a
+ *   look taken beforehand - the app is writing to this volume throughout.
  * @param {VolumePath} [options.workingDir] - the directory the command runs in,
  *   defaulting to the volume root. An archiver decides its stored layout from
  *   where it is run and what it is handed, and zip has no equivalent of tar's
@@ -1447,7 +1488,8 @@ async function run(session, argv, options = {}) {
   const {
     onProgress = null, isCanceled = null, status = 'Working...',
     publish = null, mkdirStaging = false, maxBytes = 0, ordinaryOnly = false,
-    onBytes = null, workingDir = null, input = null, slotHeld = false,
+    noReplace = false, onBytes = null, workingDir = null, input = null,
+    slotHeld = false,
   } = options;
 
   if (!(session instanceof VolumeSession)) {
@@ -1502,6 +1544,7 @@ async function run(session, argv, options = {}) {
       ...(mkdirStaging ? ['--mkdir'] : []),
       ...(maxBytes > 0 ? ['--max-bytes', String(Math.floor(maxBytes))] : []),
       ...(ordinaryOnly ? ['--ordinary-only'] : []),
+      ...(noReplace ? ['--no-replace'] : []),
       ...(input ? ['--from-stdin'] : []),
       toParam(target),
       toParam(publish.destination),
@@ -1712,10 +1755,7 @@ async function run(session, argv, options = {}) {
       throw new Error(`The upload did not complete: ${transfer.reason}`);
     }
     if (result.StatusCode !== 0) {
-      const said = output.text.trim();
-      throw new Error(said
-        ? `File operation failed (exit ${result.StatusCode}): ${said}`
-        : `File operation failed with exit code ${result.StatusCode}`);
+      throw failureFor(result.StatusCode, output.text.trim());
     }
 
     // The operation succeeded, so everything it was going to publish IS

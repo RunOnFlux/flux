@@ -83,7 +83,9 @@ describe('fileSystemManager tests', () => {
 
     messageHelperStub = {
       createSuccessMessage: sinon.stub().callsFake((message) => ({ status: 'success', data: { message } })),
-      createErrorMessage: sinon.stub().callsFake((message) => ({ status: 'error', data: { message } })),
+      // Carries name and code as the real one does. A stub that keeps only the
+      // message hides every contract a caller branches on - EEXIST among them.
+      createErrorMessage: sinon.stub().callsFake((message, name, code) => ({ status: 'error', data: { code, name, message } })),
       errUnauthorizedMessage: sinon.stub().returns({ status: 'error', data: { message: 'Unauthorized' } }),
     };
 
@@ -132,21 +134,26 @@ describe('fileSystemManager tests', () => {
   const runOptions = () => executorStub.run.firstCall.args[2];
 
   describe('createAppsFolder', () => {
-    it('creates the folder inside the volume', async () => {
+    it('publishes a new directory under the name the caller asked for', async () => {
       req.params.folder = 'uploads/2026';
       await fileSystemManager.createAppsFolder(req, res);
 
-      expect(argv()).to.deep.equal(['mkdir', '/work/uploads/2026']);
+      // No command at all: the folder is staging, and publishing it is the whole
+      // operation.
+      expect(argv()).to.deep.equal([]);
+      expect(runOptions().mkdirStaging).to.equal(true);
+      expect(runOptions().publish.destination.containerPath).to.equal('/work/uploads/2026');
       expect(res.json.firstCall.args[0].data.message).to.equal('Folder Created');
     });
 
-    it('does not pass -p, so an existing folder is still an error', async () => {
-      // The dashboard shows "folder already exists" off the back of that error;
-      // with -p it would be told the folder was created.
+    it('refuses an occupied name rather than replacing what is there', async () => {
+      // The whole reason this is a publish rather than a mkdir. Without it the
+      // rename would exchange the caller's folder for an empty one, and with a
+      // look taken beforehand it would answer for a moment that has passed.
       req.params.folder = 'uploads';
       await fileSystemManager.createAppsFolder(req, res);
 
-      expect(argv()).to.not.include('-p');
+      expect(runOptions().noReplace).to.equal(true);
     });
 
     it('refuses without a folder', async () => {
@@ -198,8 +205,7 @@ describe('fileSystemManager tests', () => {
       req.body = { overwrite: true };
       await fileSystemManager.renameAppsObject(req, res);
 
-      const options = sessionStub.pair.firstCall.args[2];
-      expect(options === undefined || options.overwrite !== true).to.equal(true);
+      expect(runOptions().noReplace).to.equal(true);
     });
   });
 
@@ -286,14 +292,18 @@ describe('fileSystemManager tests', () => {
       expect(sessionStub.requireSpace.called).to.equal(false);
     });
 
-    it('passes overwrite through only when explicitly asked', async () => {
+    it('lets the publish replace only when overwrite was explicitly asked for', async () => {
+      // The verdict travels to the rename rather than being reached here. What
+      // is at the destination is the application's to change while this request
+      // is in flight, so the only truthful answer comes from the step that acts.
       await fileSystemManager.moveAppsObject(req, res);
-      expect(sessionStub.pair.firstCall.args[2]).to.deep.equal({ overwrite: false });
+      expect(runOptions().noReplace).to.equal(true);
 
       // A real JSON boolean, not the string a path segment could only ever be.
+      executorStub.run.resetHistory();
       req.body.overwrite = true;
       await fileSystemManager.moveAppsObject(req, res);
-      expect(sessionStub.pair.lastCall.args[2]).to.deep.equal({ overwrite: true });
+      expect(runOptions().noReplace).to.equal(false);
     });
   });
 
@@ -562,14 +572,14 @@ describe('fileSystemManager tests', () => {
       req.body = { source: 'a', destination: 'b', overwrite: 'yes please' };
       await fileSystemManager.copyAppsObject(req, res);
 
-      expect(sessionStub.pair.firstCall.args[2]).to.deep.equal({ overwrite: false });
+      expect(runOptions().noReplace).to.equal(true);
     });
 
     it('accepts the string a form-encoded caller sends', async () => {
       req.body = { source: 'a', destination: 'b', overwrite: 'true' };
       await fileSystemManager.copyAppsObject(req, res);
 
-      expect(sessionStub.pair.firstCall.args[2]).to.deep.equal({ overwrite: true });
+      expect(runOptions().noReplace).to.equal(false);
     });
   });
 

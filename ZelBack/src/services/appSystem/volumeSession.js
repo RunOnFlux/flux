@@ -267,14 +267,17 @@ class VolumeSession {
    * parent directory - which is what keeps -T semantics identical between copy
    * and move and removes the paste-into versus paste-as ambiguity.
    *
+   * Whether an occupied destination is refused is NOT decided here. It is the
+   * publish's `noReplace`, which refuses as part of the rename rather than from
+   * a look taken beforehand - the application whose volume this is writes to it
+   * throughout, so a verdict reached here is about a moment that has passed by
+   * the time the container runs.
+   *
    * @param {string} source
    * @param {string} destination
-   * @param {{overwrite?: boolean}} [options]
    * @returns {Promise<{source: VolumePath, destination: VolumePath}>}
    */
-  async pair(source, destination, options = {}) {
-    const { overwrite = false } = options;
-
+  async pair(source, destination) {
     const from = await this.resolve(source, { mustExist: true });
     const to = await this.resolve(destination);
 
@@ -309,11 +312,6 @@ class VolumeSession {
     // because that invariant is not one it should hold on trust from a caller.
     if (holds(to, from)) {
       throw new Error('Destination contains the source');
-    }
-
-    if (!overwrite) {
-      const exists = await fs.lstat(to.hostPath).then(() => true).catch(() => false);
-      if (exists) throw new Error('Destination already exists');
     }
 
     return { source: from, destination: to };

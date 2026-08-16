@@ -274,14 +274,15 @@ describe('volumeSession tests', () => {
       expect(destination.containerPath).to.equal('/work/photos-2024');
     });
 
-    it('refuses an existing destination without overwrite, and proceeds with it', async () => {
+    it('does not decide whether an occupied destination is allowed', async () => {
+      // That is the publish's `noReplace`, answered by the rename as it acts.
+      // Deciding it here would be a verdict about the volume as it was before
+      // the container started, on a volume the application writes to throughout.
       existsAsFile(`${MOUNT}/a.txt`);
       existsAsFile(`${MOUNT}/b.txt`);
       const vol = await volumeSession.openVolume(reqFor());
 
-      await expect(vol.pair('a.txt', 'b.txt')).to.be.rejectedWith('Destination already exists');
-
-      const { destination } = await vol.pair('a.txt', 'b.txt', { overwrite: true });
+      const { destination } = await vol.pair('a.txt', 'b.txt');
       expect(destination.containerPath).to.equal('/work/b.txt');
     });
 
