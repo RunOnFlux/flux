@@ -146,18 +146,21 @@ describe('app volume file operations - the contract', function () {
 
     it('answers a poll with 200 whatever the job did, so completion is read from the body', async function () {
       this.timeout(120000);
-      // A destination that already exists is refused before the container runs,
-      // so this is the failure path with no work done. The poll is still a 200.
+      // A destination that is already taken is refused at the publish, inside
+      // the container, rather than pre-checked here - the check and the move
+      // are one operation, so nothing can occupy the name in between. That
+      // makes the refusal the JOB's outcome and not the POST's: the call is
+      // accepted like any other, and the failure arrives in the body of a 200.
+      // A client that read completion from the status would call this a success.
+      await succeed('/apps/copyobject', {
+        appname: appName, component: appName, source: 'photos', destination: 'copied',
+      });
+
       const { job } = await startAndSettle('/apps/copyobject', {
         appname: appName, component: appName, source: 'photos', destination: 'copied',
       });
-      expect(job.status).to.equal('Succeeded');
-
-      const again = await post('/apps/copyobject', {
-        appname: appName, component: appName, source: 'photos', destination: 'copied',
-      });
-      expect(again.status).to.not.equal(202);
-      expect(JSON.stringify(again.data)).to.match(/already exists/i);
+      expect(job.status).to.equal('Failed');
+      expect(JSON.stringify(job.error)).to.match(/already exists/i);
     });
 
     it('answers 404 for a job nobody here started', async function () {
