@@ -1166,9 +1166,9 @@ function failureFor(status, said) {
  *
  * Without this, `AutoRemove` takes the container and its logs the moment it
  * exits and the caller is handed an exit code. "The archive is corrupt", "it
- * expands past the volume" and "it contains a symlink" are three different
- * problems with three different answers, and they arrived as the same number -
- * to the user, and to whoever they then asked for help.
+ * expands past the volume" and "it holds something that is not data" are three
+ * different problems with three different answers, and they arrived as the same
+ * number - to the user, and to whoever they then asked for help.
  *
  * Attached BEFORE start, for the same reason the exit subscription is: a fast
  * command can finish and be reaped before a later attach lands, and its output

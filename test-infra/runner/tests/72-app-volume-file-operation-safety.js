@@ -219,7 +219,7 @@ describe('app volume file operations - safety and recovery', function () {
       expect(alive.status).to.equal(200);
     });
 
-    it('refuses to extract an archive that carries a link', async function () {
+    it('extracts an archive that carries a link, and the link lands as a link', async function () {
       this.timeout(300000);
       await seedVolumeTree(node.container, appName, { 'payload/ordinary.txt': 'plain' });
       await seedSymlink(node.container, appName, 'payload/escape', '/etc/passwd');
@@ -238,20 +238,56 @@ describe('app volume file operations - safety and recovery', function () {
         appname: appName, component: appName, source: 'linky.tar.gz', destination: 'unpacked',
       });
 
+      expect(job.status, JSON.stringify(job.error)).to.equal('Succeeded');
+
+      // A link among an app's own files is data its owner put there, and what
+      // bounds a hostile one is the container the extraction runs in. What
+      // answers the link left behind is the reader: the walks here lstat and
+      // the downloads open with O_NOFOLLOW, so the name is never followed. Had
+      // the extraction followed it instead, the volume would now hold the
+      // host's file as an ordinary file of its own.
+      expect(await isSymlink(node.container, `${root}/unpacked/escape`)).to.equal(true);
+      const target = await inNode(`readlink ${root}/unpacked/escape`);
+      expect(target.stdout.trim()).to.equal('/etc/passwd');
+      expect(await treeOf(node.container, `${root}/unpacked`))
+        .to.deep.equal(['./escape', './ordinary.txt']);
+    });
+
+    it('refuses to extract an archive carrying an entry that is not data', async function () {
+      this.timeout(300000);
+      // Where the line is drawn instead. A FIFO is not data: whatever opens one
+      // without O_NONBLOCK waits for a writer that never comes, so one
+      // published onto a volume is a reader that hangs. tar both carries and
+      // recreates them, so an archive is all it takes.
+      //
+      // Built outside the volume so the archive is all that arrives on it, and
+      // on the NODE - the executor's rootfs is read-only, so an archive built
+      // there is never created and every "refused" is a missing source file.
+      const built = await inNode(
+        'rm -rf /tmp/nondata && mkdir -p /tmp/nondata && mkfifo /tmp/nondata/pipe'
+        + ' && echo plain > /tmp/nondata/ordinary.txt'
+        + ` && (cd /tmp/nondata && tar -czf ${root}/piped.tar.gz .) && rm -rf /tmp/nondata`,
+      );
+      expect(built.exitCode, built.output).to.equal(0);
+
+      // FIXTURE: without the FIFO this is an archive of one plain file, and the
+      // refusal below would be about something else entirely.
+      const listing = await inNode(`tar -tvzf ${root}/piped.tar.gz`);
+      expect(listing.stdout, 'FIXTURE: the archive does not actually carry a FIFO')
+        .to.match(/^p.*pipe$/m);
+
+      const { job } = await settle('/apps/extractobject', {
+        appname: appName, component: appName, source: 'piped.tar.gz', destination: 'unpacked',
+      });
+
       expect(job.status).to.equal('Failed');
       expect(await exists(node.container, `${root}/unpacked`)).to.equal(false);
 
-      // And it SAYS so. Before the output was captured, this failure and a
-      // corrupt archive and one too big for the volume were the same number.
-      //
-      // Matched on "ordinary" rather than on "link". The guard was widened and
-      // renamed from --no-links to --ordinary-only, because it refuses anything
-      // that is not a regular file or a directory - tar recreates FIFOs too, and
-      // a flag named for links told the next reader something untrue. The
-      // message moved with it, so matching "link" held the image to wording this
-      // release deliberately changed, while the refusal itself was correct.
+      // And it names the entry, which is what an owner acts on: which of their
+      // files did this. Matched on the entry rather than on the reason - the
+      // wording belongs to the image, and the image is free to rewrite it.
       const said = JSON.stringify(job.error);
-      expect(said, `no reason given: ${said}`).to.match(/ordinary/i);
+      expect(said, `the refusal does not name the entry: ${said}`).to.match(/pipe/);
     });
 
     it('gives a different reason for a corrupt archive than for a refused one', async function () {
