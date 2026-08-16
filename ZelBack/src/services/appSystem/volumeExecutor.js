@@ -45,6 +45,16 @@ const EXECUTOR_LABELS = { 'runonflux.role': 'fileop' };
 const nodeLock = new AsyncLock(Number.MAX_SAFE_INTEGER);
 const appLocks = new Map();
 
+// Container ids and staging paths of the operations THIS process has in flight.
+// Boot recovery removes file-operation containers and staging directories left by
+// a PREVIOUS process; consulting these keeps it from reaping one that belongs to an
+// operation running right now. Populated by run() for the life of each operation and
+// cleared in its finally, so "orphaned" means exactly "owned by no live operation"
+// rather than "carries our label" - the API answers requests before recovery runs,
+// so an operation can be in flight when it does.
+const liveContainerIds = new Set();
+const liveStagingPaths = new Set();
+
 function lockForApp(identifier) {
   if (!appLocks.has(identifier)) appLocks.set(identifier, new AsyncLock(Number.MAX_SAFE_INTEGER));
   return appLocks.get(identifier);
@@ -1580,6 +1590,13 @@ async function run(session, argv, options = {}) {
 
   const release = slotHeld ? () => {} : acquireSlot(session.identifier);
   let container = null;
+  let registeredContainerId = null;
+  // Marked live so a restart mid-operation does not reap this container or sweep
+  // this staging directory out from under it. A move or a rename publishes the
+  // caller's own source rather than a staging directory, so there is nothing to
+  // guard for those - only the operations that write into staging.
+  const registeredStaging = publish && publish.staging ? publish.staging.hostPath : null;
+  if (registeredStaging) liveStagingPaths.add(registeredStaging);
   let ticker = null;
   // Hoisted so the `finally` can reach them: everything this function opens is
   // closed there, and a handle declared inside the `try` is out of scope.
@@ -1642,6 +1659,8 @@ async function run(session, argv, options = {}) {
         Boolean(input),
       ),
     );
+    registeredContainerId = container.id;
+    liveContainerIds.add(registeredContainerId);
 
     // Opened BEFORE start, and on next-exit rather than the default. The
     // default condition is "not-running", which a created container already
@@ -1821,6 +1840,8 @@ async function run(session, argv, options = {}) {
     // while the slot released below lets another operation start on the same
     // app. A container that has already exited reaps itself.
     if (container && !settled) stopContainer();
+    if (registeredContainerId) liveContainerIds.delete(registeredContainerId);
+    if (registeredStaging) liveStagingPaths.delete(registeredStaging);
     release();
   }
 }
@@ -1833,9 +1854,11 @@ async function run(session, argv, options = {}) {
  * reclaimed separately by sweepStagingDirectories; nothing it wrote is visible
  * at a destination path, because publishing is the last thing flux-op does.
  *
- * Selection is by LABEL. This is the ownership-scoped removal that replaced the
- * blanket container prune: it removes what FluxOS knows it started, rather than
- * everything docker currently considers unused.
+ * Selection is by LABEL, less what a live operation owns. This is the
+ * ownership-scoped removal that replaced the blanket container prune: it removes
+ * what FluxOS knows it started and is NOT still running, rather than everything
+ * docker currently considers unused. The API answers before this runs, so a
+ * container this process created moments ago is skipped by its id.
  *
  * @returns {Promise<number>} how many were removed
  */
@@ -1849,7 +1872,9 @@ async function reapOrphanedContainers() {
   }
 
   const orphans = (containers || []).filter(
-    (container) => container.Labels && container.Labels['runonflux.role'] === 'fileop',
+    (container) => container.Labels
+      && container.Labels['runonflux.role'] === 'fileop'
+      && !liveContainerIds.has(container.Id),
   );
 
   let removed = 0;
@@ -1887,9 +1912,11 @@ async function reapOrphanedContainers() {
  * number and a timestamp, neither of which is unique, and the cost of being
  * wrong was deleting that copy.
  *
- * Matched against a real identifier shape rather than by prefix, because this
- * DELETES what it matches in a directory the app owner also writes to, and
- * `.flux-op-backups` is a name somebody may legitimately have chosen.
+ * Matched against a real identifier shape rather than by prefix, and skipping any
+ * a live operation is still writing into, because this DELETES what it matches in a
+ * directory the app owner also writes to: `.flux-op-backups` is a name somebody may
+ * legitimately have chosen, and a `.flux-op-<uuid>` an operation of this process
+ * minted is one it still needs.
  *
  * On the host rather than in a container: the name came from readdir, so it is
  * one component with nothing to traverse, and `rm -rf` unlinks a symlink rather
@@ -1922,7 +1949,7 @@ async function sweepStagingDirectories(session) {
   // eslint-disable-next-line no-restricted-syntax
   for (const entry of entries) {
     try {
-      if (isStagingName(entry)) {
+      if (isStagingName(entry) && !liveStagingPaths.has(path.join(mount, entry))) {
         // eslint-disable-next-line no-await-in-loop
         await remove(entry);
       }

@@ -767,7 +767,7 @@ module.exports = (app) => {
     advancedWorkflows.appendRestoreTask(req, res);
   });
 
-  app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', (req, res) => {
+  app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', requireBootSettled, (req, res) => {
     fileSystemManager.uploadAppsFiles(req, res);
   });
 
@@ -1578,13 +1578,13 @@ module.exports = (app) => {
   app.get('/apps/getfolderinfo/:appname?/:component?/:folder?', (req, res) => {
     fileQueryService.getAppsFolder(req, res);
   });
-  app.get('/apps/createfolder/:appname?/:component?/:folder?', (req, res) => {
+  app.get('/apps/createfolder/:appname?/:component?/:folder?', requireBootSettled, (req, res) => {
     fileSystemManager.createAppsFolder(req, res);
   });
-  app.get('/apps/renameobject/:appname?/:component?/:oldpath?/:newname?', (req, res) => {
+  app.get('/apps/renameobject/:appname?/:component?/:oldpath?/:newname?', requireBootSettled, (req, res) => {
     fileSystemManager.renameAppsObject(req, res);
   });
-  app.get('/apps/removeobject/:appname?/:component?/:object?', (req, res) => {
+  app.get('/apps/removeobject/:appname?/:component?/:object?', requireBootSettled, (req, res) => {
     fileSystemManager.removeAppsObject(req, res);
   });
   // Every endpoint that answers 202 points here: one status resource, one
@@ -1618,16 +1618,16 @@ module.exports = (app) => {
   // included, even though its visible part is a rename: paste is one gesture in
   // a file browser, and cut-paste returning a result while copy-paste returns a
   // job would put two response shapes inside one user action.
-  app.post('/apps/moveobject', (req, res) => {
+  app.post('/apps/moveobject', requireBootSettled, (req, res) => {
     fileSystemManager.moveAppsObject(req, res);
   });
-  app.post('/apps/copyobject', (req, res) => {
+  app.post('/apps/copyobject', requireBootSettled, (req, res) => {
     fileSystemManager.copyAppsObject(req, res);
   });
-  app.post('/apps/compressobject', (req, res) => {
+  app.post('/apps/compressobject', requireBootSettled, (req, res) => {
     fileSystemManager.compressAppsObject(req, res);
   });
-  app.post('/apps/extractobject', (req, res) => {
+  app.post('/apps/extractobject', requireBootSettled, (req, res) => {
     fileSystemManager.extractAppsObject(req, res);
   });
   app.get('/apps/downloadfile/:appname?/:component?/:file?', (req, res) => {

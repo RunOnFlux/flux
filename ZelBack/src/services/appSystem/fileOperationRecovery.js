@@ -14,10 +14,13 @@ const { sessionForMountedVolume } = require('./volumeSession');
  * something complete and nothing the user can see is left inconsistent. This is
  * about not accumulating debris.
  *
- * Runs once at startup, after app volumes are mounted. There is no in-flight
- * operation to race at that point: the executor's slots live in memory and are
- * empty on a fresh process, and any container from the previous one is removed
- * here before anything else can start.
+ * Runs at startup, after app volumes are mounted - but the API is already
+ * answering by then, so an operation of THIS process can be in flight when it
+ * runs. It removes only what no live operation owns: the executor records each
+ * running operation's container and staging directory, and reap and sweep skip
+ * those, so anything they reclaim belonged to a PREVIOUS process. Safe to run
+ * more than once for the same reason, which matters because a startup that throws
+ * is retried.
  *
  * @returns {Promise<{containers: number, removed: number}>}
  */

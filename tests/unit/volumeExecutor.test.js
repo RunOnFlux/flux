@@ -1566,6 +1566,32 @@ describe('volumeExecutor tests', () => {
       expect(removed).to.equal(1);
       expect(dockerServiceStub.appDockerForceRemove.calledOnceWith('fileop-1', false)).to.equal(true);
     });
+
+    it('leaves a container whose operation is still running', async () => {
+      // container-1 is registered live for the length of an in-flight run, so
+      // only the orphan a previous process left behind is reaped. The API
+      // answers before recovery runs, so this is a reachable state, not a
+      // hypothetical one.
+      let finish;
+      containerStub.wait.returns(new Promise((resolve) => { finish = resolve; }));
+      const vol = await openSession();
+      const running = volumeExecutor.run(vol, ['true']);
+      await new Promise((resolve) => { setTimeout(resolve, 30); });
+
+      dockerServiceStub.dockerListContainers.resolves([
+        { Id: 'container-1', Labels: { 'runonflux.role': 'fileop' } },
+        { Id: 'orphan-1', Labels: { 'runonflux.role': 'fileop' } },
+      ]);
+
+      const removed = await volumeExecutor.reapOrphanedContainers();
+
+      expect(removed).to.equal(1);
+      expect(dockerServiceStub.appDockerForceRemove.calledWith('orphan-1', false)).to.equal(true);
+      expect(dockerServiceStub.appDockerForceRemove.calledWith('container-1', false)).to.equal(false);
+
+      finish({ StatusCode: 0 });
+      await running.catch(() => {});
+    });
   });
 
   describe('sweepStagingDirectories', () => {
@@ -1649,6 +1675,30 @@ describe('volumeExecutor tests', () => {
 
       expect(removed).to.deep.equal([OP]);
       expect(await exists(at(OP))).to.equal(false);
+    });
+
+    it('leaves a staging directory an operation is still writing into', async () => {
+      // A live operation's staging survives a sweep, while an orphan from a
+      // previous process is reclaimed. Reachable because the API answers before
+      // recovery runs, so an operation can be mid-write when the sweep fires.
+      const live = session.staging();
+      await realFs.mkdir(live.hostPath);
+      await realFs.mkdir(at(OP));
+
+      let finish;
+      containerStub.wait.returns(new Promise((resolve) => { finish = resolve; }));
+      const destination = await session.resolve('out');
+      const running = sweeper.run(session, ['true'], { publish: { staging: live, destination } });
+      await new Promise((resolve) => { setTimeout(resolve, 20); });
+
+      const { removed } = await sweeper.sweepStagingDirectories(session);
+
+      expect(removed).to.deep.equal([OP]);
+      expect(await exists(live.hostPath)).to.equal(true);
+      expect(await exists(at(OP))).to.equal(false);
+
+      finish({ StatusCode: 0 });
+      await running.catch(() => {});
     });
 
     it('leaves a user folder that merely starts with a reserved prefix', async () => {

@@ -14,7 +14,7 @@
 const { expect } = require('chai');
 
 const registerRoutes = require('../../ZelBack/src/routes');
-const { rejectQueryParameters } = require('../../ZelBack/src/services/utils/routeGuards');
+const { rejectQueryParameters, requireBootSettled } = require('../../ZelBack/src/services/utils/routeGuards');
 
 /**
  * The route table routes.js builds, as a list of {method, path, chain}.
@@ -73,6 +73,42 @@ describe('route wiring', () => {
         // A route with no cache has nothing to order against, and the guard
         // still has to be there - asserted above.
         if (cacheAt !== -1) expect(guardAt).to.be.lessThan(cacheAt);
+      });
+    });
+  });
+
+  describe('endpoints held until boot settles', () => {
+    // The boot gate is worth exactly what it is wired to, and the file-operation
+    // endpoints were the half it missed: ten legacy commands carried
+    // requireBootSettled while eight endpoints that also create a container - the
+    // four object operations, the upload, and create/rename/remove - ran
+    // unguarded, which is what left boot recovery able to race a live operation.
+    const bootGated = [
+      { method: 'get', path: '/apps/appstart/:appname?/:global?' },
+      { method: 'get', path: '/apps/appstop/:appname?/:global?' },
+      { method: 'get', path: '/apps/apprestart/:appname?/:global?' },
+      { method: 'get', path: '/apps/apppause/:appname?/:global?' },
+      { method: 'get', path: '/apps/appunpause/:appname?/:global?' },
+      { method: 'get', path: '/apps/appremove/:appname?/:force?/:global?' },
+      { method: 'get', path: '/apps/installapplocally/:appname?' },
+      { method: 'get', path: '/apps/testappinstall/:appname?' },
+      { method: 'get', path: '/apps/redeploy/:appname?/:force?/:global?' },
+      { method: 'get', path: '/apps/redeploycomponent/:appname?/:component?/:force?' },
+      { method: 'post', path: '/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?' },
+      { method: 'get', path: '/apps/createfolder/:appname?/:component?/:folder?' },
+      { method: 'get', path: '/apps/renameobject/:appname?/:component?/:oldpath?/:newname?' },
+      { method: 'get', path: '/apps/removeobject/:appname?/:component?/:object?' },
+      { method: 'post', path: '/apps/moveobject' },
+      { method: 'post', path: '/apps/copyobject' },
+      { method: 'post', path: '/apps/compressobject' },
+      { method: 'post', path: '/apps/extractobject' },
+    ];
+
+    bootGated.forEach(({ method, path }) => {
+      it(`${method.toUpperCase()} ${path} is held until boot settles`, () => {
+        const route = table.find((entry) => entry.path === path && entry.method === method);
+        expect(route, `${path} is not registered as a ${method.toUpperCase()}`).to.not.equal(undefined);
+        expect(route.chain).to.include(requireBootSettled);
       });
     });
   });
