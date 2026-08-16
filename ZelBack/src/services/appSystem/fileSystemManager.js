@@ -682,6 +682,12 @@ async function extractAppsObject(req, res) {
       throw new Error('Source must be a .zip, .tar.gz or .tgz archive');
     }
 
+    // How much this will write cannot be measured up front, so the ceiling below
+    // is the only bound - and on a full volume that ceiling is zero, which is
+    // how "no ceiling" is spelled. Refused here rather than expressed as a limit
+    // nothing enforces.
+    volume.requireCapacity();
+
     const staging = volume.staging();
     const argv = format === 'zip'
       ? ['unzip', '-q', source, '-d', staging]
@@ -787,6 +793,11 @@ async function uploadAppsFiles(req, res) {
     // Resolved once, before anything is received, so a folder that resolves
     // outside the volume is refused while the caller can still be told.
     const target = await volume.resolve(folder, { allowRoot: true });
+
+    // Before a byte is read. What arrives is bounded only by the ceiling below,
+    // and on a full volume that ceiling is zero - which is how "no ceiling" is
+    // spelled, so the upload would run unbounded until a write failed.
+    volume.requireCapacity();
 
     // One slot for the request. Taken before the first byte is read, so a
     // caller with no slot is refused with a 503 and a Retry-After rather than

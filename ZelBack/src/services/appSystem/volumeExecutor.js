@@ -1460,6 +1460,11 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
  * @param {number} [options.maxBytes] - ceiling on what the command may leave in
  *   staging. Enforced on the RESULT rather than on what the input claims about
  *   itself, because an archive's declared sizes are written by whoever built it.
+ *   ZERO MEANS NO CEILING, here and in the image alike. An operation whose
+ *   ceiling IS the volume's free space therefore has to establish that there is
+ *   some before it asks - on a full volume the figure is zero, and the only
+ *   bound it has would read as none. requireSpace and requireCapacity are how a
+ *   caller does that.
  * @param {boolean} [options.dataOnly] - refuse a result holding a FIFO, a socket
  *   or a device node. None of them is data, and whatever opens a FIFO without
  *   O_NONBLOCK waits for a writer that never comes. Links are content and pass.

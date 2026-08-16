@@ -44,6 +44,10 @@ describe('fileSystemManager tests', () => {
       staging: sinon.stub().returns(volumePath('.flux-op-abc')),
       measure: sinon.stub().resolves(1000),
       requireSpace: sinon.stub(),
+      // Defaults to a volume with room, which is what every other test needs.
+      // Left off, extract and upload would refuse before doing anything and the
+      // assertions below would be made against the error branch.
+      requireCapacity: sinon.stub(),
       // Defaults to a directory because that is the common case; the
       // single-file tests below flip it. A stub's default is a coverage
       // decision - left off entirely, compress would throw inside its try and
@@ -457,6 +461,19 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.extractAppsObject(req, res);
 
       expect(argv()).to.deep.equal(['unzip', '-q', '/work/backup.zip', '-d', '/work/.flux-op-abc']);
+    });
+
+    it('refuses on a full volume rather than running with a ceiling of nothing', async () => {
+      // How much an extraction writes cannot be known in advance, so the ceiling
+      // is the only bound it has - and the ceiling IS the free space. At zero it
+      // is indistinguishable from asking for no ceiling at all, which is what
+      // both the executor and the image take it for.
+      sessionStub.requireCapacity.throws(new Error('No free space on the application volume'));
+      req.body.source = 'backup.zip';
+      await fileSystemManager.extractAppsObject(req, res);
+
+      expect(executorStub.run.called).to.equal(false);
+      expect(res.json.firstCall.args[0].status).to.equal('error');
     });
 
     it('ignores the uids and modes a tarball claims', async () => {
