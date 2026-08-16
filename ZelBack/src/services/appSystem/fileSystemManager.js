@@ -12,6 +12,18 @@
 // re-checking a name that may since have come to mean something else. A write
 // commits the moment it opens, which is why an upload cannot be made safe that
 // way and runs in the container like everything else.
+//
+// A LINK ON A VOLUME IS ORDINARY CONTENT, AND NOTHING HERE FOLLOWS ONE. An
+// application has its own volume mounted and can create a link in it at any
+// moment, pointing anywhere on the node - no endpoint is involved in that, so
+// refusing links at an endpoint secures nothing. What holds is the reading side,
+// and anything added later has to hold it too: the downloads open with
+// O_NOFOLLOW (see utils/fileTransfer), every walk of a volume lstats and does
+// not descend into a linked directory (see utils/treeSize, appQuery's listing,
+// IOUtils.getPathFileList), and the folder download stores a link rather than
+// what it points at. An extraction does not classify the links an archive
+// carries either: what bounds an archive this node cannot vouch for is the
+// container it is unpacked in, which mounts that one volume and nothing else.
 const archiver = require('archiver');
 const { PassThrough } = require('stream');
 const path = require('path');

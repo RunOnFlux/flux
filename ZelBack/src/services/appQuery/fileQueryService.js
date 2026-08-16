@@ -54,6 +54,12 @@ async function getAppsFolder(req, res) {
       const filesWithDetails = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const file of files) {
+        // lstat, so an entry describes ITSELF. An application can put a link in
+        // its own volume pointing anywhere on the node, and stat would answer
+        // with the size and type of whatever it names. It also decides whether
+        // this descends: a linked directory is not a directory here, so the size
+        // walk below is never sent through one. See the rule at the top of
+        // appSystem/fileSystemManager.
         // eslint-disable-next-line no-await-in-loop
         const fileStats = await fs.lstat(`${filepath}/${file}`);
         const isDirectory = fileStats.isDirectory();
