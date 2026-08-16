@@ -1,8 +1,8 @@
 {
-  "image": "ghcr.io/runonflux/flux-volume-tools:v1.2.0",
-  "indexId": "sha256:d101b9db69256bca50879ba83cb2471c56f7d0eab3a6a51b83c2af23f3a84a3b",
+  "image": "ghcr.io/runonflux/flux-volume-tools:v1.3.0",
+  "indexId": "sha256:97c49729557b64ee90370557c987ec438f83aae62ba3365f33239524225583e0",
   "imageIds": {
-    "amd64": "sha256:89e523b98d7409a9ec7e37319f4c4da66235826f7744b18ddebb723db1eda1eb",
-    "arm64": "sha256:98623e5c4a60d0f7135458b25d1f706202723e3bd3b57379161cb5aa274601b3"
+    "amd64": "sha256:4faf0cbd058860227bc231e1577b06bff08f263256376c61606bb1f6d40d0fb0",
+    "arm64": "sha256:7deb4fb98b7ee2c40c54adc89c11d8fe95e9a17862a7a1e6aabd0f1aa54f8d13"
   }
 }
