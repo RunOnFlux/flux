@@ -11,7 +11,8 @@ const express = require('express');
 const request = require('supertest');
 const apicache = require('apicache');
 
-const { rejectQueryParameters } = require('../../ZelBack/src/services/utils/routeGuards');
+const { rejectQueryParameters, requireBootSettled } = require('../../ZelBack/src/services/utils/routeGuards');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
 
 describe('routeGuards', () => {
   describe('rejectQueryParameters', () => {
@@ -104,6 +105,68 @@ describe('routeGuards', () => {
       // whole contents would make this test hostage to anything else cached
       const mine = apicache.getIndex().all.filter((key) => key.includes('/answer'));
       expect(mine).to.have.lengthOf(1);
+    });
+  });
+
+  describe('requireBootSettled', () => {
+    let app;
+    let server;
+    let handlerCalls;
+
+    // The gate is process-global, and a node that has settled never unsettles,
+    // so a test that opened it would leave every later one running against an
+    // open gate. Restored either way.
+    let settledBefore;
+
+    beforeEach(() => {
+      settledBefore = globalState.bootContainerStateSettled;
+      globalState.bootContainerStateSettled = false;
+      handlerCalls = 0;
+      app = express();
+      app.get('/apps/appstart/:appname', requireBootSettled, (req, res) => {
+        handlerCalls += 1;
+        res.json({ status: 'success', data: 'started' });
+      });
+    });
+
+    afterEach(() => {
+      globalState.bootContainerStateSettled = settledBefore;
+      if (server) { server.close(); server = null; }
+    });
+
+    const get = (path) => {
+      if (!server) server = app.listen(0);
+      return request(server).get(path);
+    };
+
+    it('refuses while boot reconciliation has not decided which apps this node keeps', async () => {
+      const res = await get('/apps/appstart/myapp');
+      expect(res.status).to.equal(503);
+      expect(res.body.status).to.equal('error');
+      expect(res.body.data.message).to.equal('Node is still reconciling its applications after boot');
+    });
+
+    // A 503 with no Retry-After tells a caller to come back without saying when,
+    // and a dashboard's answer to that is to poll as fast as it can.
+    it('says when to come back', async () => {
+      const res = await get('/apps/appstart/myapp');
+      expect(res.headers['retry-after']).to.equal('15');
+    });
+
+    // The defect this exists for: an app created before the boot decision has no
+    // location record to be kept by, so reconciliation removes it as one that
+    // moved. A refusal the handler runs behind is not a refusal.
+    it('never lets a refused call reach the handler', async () => {
+      await get('/apps/appstart/myapp');
+      await get('/apps/appstart/other');
+      expect(handlerCalls).to.equal(0);
+    });
+
+    it('answers once the node has settled', async () => {
+      globalState.bootContainerStateSettled = true;
+      const res = await get('/apps/appstart/myapp');
+      expect(res.status).to.equal(200);
+      expect(handlerCalls).to.equal(1);
     });
   });
 });
