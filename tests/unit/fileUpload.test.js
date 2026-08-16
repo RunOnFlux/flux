@@ -69,6 +69,10 @@ describe('fileSystemManager upload tests', () => {
       resolve: sinon.stub().callsFake(async (p) => volumePath(p)),
       staging: sinon.stub().callsFake(() => volumePath('.flux-op-abc')),
       isDirectory: sinon.stub().resolves(true),
+      // Defaults to a volume with room. Left off, every upload here would be
+      // refused before a byte was read and the assertions would be made against
+      // the error branch; the test below flips it to assert the refusal itself.
+      requireCapacity: sinon.stub(),
     };
 
     release = sinon.stub();
@@ -187,6 +191,23 @@ describe('fileSystemManager upload tests', () => {
     await done;
 
     expect(release.called, 'the slot was leaked after a refused upload').to.equal(true);
+  });
+
+  it('refuses a full volume before reading a byte', async () => {
+    // What an upload writes is bounded only by the ceiling, and the ceiling IS
+    // the volume's free space - which at zero is how "no ceiling" is spelled. So
+    // it is refused up front rather than expressed as a limit nothing enforces,
+    // and the slot goes back.
+    sessionStub.requireCapacity.throws(new Error('No free space on the application volume'));
+
+    const done = concluded();
+    await fileSystemManager.uploadAppsFiles(multipartRequest({ 'a.txt': 'x' }), res);
+    await done;
+
+    expect(executorStub.run.called, 'a container was started for an upload with nowhere to go').to.equal(false);
+    // Before the slot as well as before the body: an upload that cannot land
+    // should not make the next one queue behind it.
+    expect(executorStub.acquireSlot.called, 'a slot was taken by an upload that was refused').to.equal(false);
   });
 
   it('releases the slot when the client goes away part way through', async () => {

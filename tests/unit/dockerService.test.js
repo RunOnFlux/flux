@@ -1453,6 +1453,22 @@ describe('dockerService tests', () => {
       expect(await dockerService.archiveNames(file)).to.deep.equal([]);
     });
 
+    it('refuses a compressed archive without reading it', async () => {
+      // node-tar inflates gzip transparently, so the ceiling a peer's archive is
+      // taken under would be counting the compressed bytes: 32MB of zeros at
+      // level 9 becomes about 34GB, which is a minute of inflate before anything
+      // is rejected. This node's serve path writes a plain tar, so an archive
+      // that arrives compressed is doing something we never do.
+      const plain = await archiveOf([{ Config: 'a.json', RepoTags: ['ghcr.io/x/y:v1'], Layers: ['layer.tar'] }]);
+      const compressed = path.join(dir, 'image.tar.gz');
+      realFs.writeFileSync(compressed, require('zlib').gzipSync(realFs.readFileSync(plain)));
+
+      // The same archive, so what is refused is the format rather than anything
+      // about its content.
+      expect(await dockerService.archiveNames(plain)).to.deep.equal(['ghcr.io/x/y:v1']);
+      await expect(dockerService.archiveNames(compressed)).to.be.rejectedWith(/compressed/);
+    });
+
     it('refuses an archive with no manifest rather than calling it empty', async () => {
       // Reported as a bad archive, not as "the peer did not have it": the
       // second reads as an ordinary miss and sends the caller to another peer.

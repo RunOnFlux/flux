@@ -1,4 +1,5 @@
 const config = require('config');
+const fs = require('fs').promises;
 const stream = require('stream');
 const tar = require('tar');
 const Docker = require('dockerode');
@@ -1501,6 +1502,39 @@ async function loadImage(stream) {
  */
 const MANIFEST_MAX_BYTES = 64 * 1024;
 
+/** What a gzip stream starts with, and the only two bytes needed to know. */
+const GZIP_MAGIC = Buffer.from([0x1f, 0x8b]);
+
+/**
+ * Refuse an archive that arrives compressed.
+ *
+ * The ceiling a peer's archive is taken under counts the bytes on the wire, and
+ * the reader below is node-tar, which inflates gzip transparently - so a
+ * compressed archive is bounded at what it weighs rather than at what it
+ * becomes. Measured at level 9 on zeros, that is 1029:1: the 32MB a peer may
+ * send expands to about 34GB, which is a minute of inflate on a laptop and
+ * longer on a node, on a threadpool thread the filesystem also wants.
+ *
+ * Refused by FORMAT rather than bounded by size, because this node never sends
+ * one: the serve path exports with `docker save`, which writes a plain tar. An
+ * archive that arrives compressed is doing something we do not do, so there is
+ * nothing to weigh and no limit to choose - and the next peer is asked instead.
+ *
+ * @param {string} archivePath
+ */
+async function refuseCompressedArchive(archivePath) {
+  const handle = await fs.open(archivePath, 'r');
+  try {
+    const head = Buffer.alloc(GZIP_MAGIC.length);
+    const { bytesRead } = await handle.read(head, 0, head.length, 0);
+    if (bytesRead === head.length && head.equals(GZIP_MAGIC)) {
+      throw new Error('the archive is compressed, which this node does not accept from a peer');
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
 /**
  * The names a docker image archive declares for what it carries.
  *
@@ -1521,6 +1555,8 @@ const MANIFEST_MAX_BYTES = 64 * 1024;
  * @returns {Promise<Array<string>>} every name the archive declares
  */
 async function archiveNames(archivePath) {
+  await refuseCompressedArchive(archivePath);
+
   let manifest = '';
   let taken = 0;
   let found = false;
