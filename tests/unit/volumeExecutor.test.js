@@ -1213,6 +1213,17 @@ describe('volumeExecutor tests', () => {
       expect(failure.message).to.equal('Destination already exists');
     });
 
+    it('gives a refusal that would delete unnamed data its own EDESTRUCTIVE code', async () => {
+      // A collision the image could only resolve by deleting data the request
+      // never named exits 6, distinct from a name simply being taken (5) and from
+      // a command that just failed, so a caller answers it specifically.
+      containerStub.wait.resolves({ StatusCode: 6 });
+      const vol = await openSession();
+
+      const failure = await volumeExecutor.run(vol, ['true']).catch((error) => error);
+      expect(failure.code).to.equal('EDESTRUCTIVE');
+    });
+
     it('stops the container when a cancel is requested, rather than killing it', async () => {
       // Cancellation is cooperative: requestCancel raises a flag and the worker
       // stops at its next checkpoint. Something has to look, and the progress
@@ -1294,6 +1305,33 @@ describe('volumeExecutor tests', () => {
         'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging', '--mkdir',
         '--max-bytes', '1234', '--data-only', '/work/.flux-op-x', '/work/out',
       ]);
+    });
+
+    it('passes --merge so a directory result overlays rather than replaces', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op-m');
+      const destination = await vol.resolve('out');
+
+      await volumeExecutor.run(vol, ['tar', '-xzf', '/work/a.tgz'], {
+        publish: { staging, destination }, mkdirStaging: true, merge: true,
+      });
+
+      const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
+      expect(flags(Cmd)).to.deep.equal([
+        'flux-op', '--id', '<uuid>', '--root', '/work', '--discard-staging', '--mkdir',
+        '--merge', '/work/.flux-op-m', '/work/out',
+      ]);
+    });
+
+    it('omits --merge by default, so an occupied directory is never replaced wholesale', async () => {
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op-n');
+      const destination = await vol.resolve('out');
+
+      await volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } });
+
+      const { Cmd } = dockerServiceStub.createContainer.firstCall.args[0];
+      expect(Cmd).to.not.include('--merge');
     });
 
     it('publishes a source in place, with no command and nothing to discard', async () => {

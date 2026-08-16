@@ -1136,6 +1136,11 @@ const OUTPUT_TAIL_BYTES = 2000;
  */
 const REFUSAL_BY_STATUS = new Map([
   [5, { code: 'EEXIST', message: 'Destination already exists' }],
+  // flux-op refused because the only way to carry the request out was to delete
+  // data it never named - a file put where a directory is, an entry moved onto
+  // itself under another name. A distinct code so a caller answers it specifically
+  // rather than as a generic failure.
+  [6, { code: 'EDESTRUCTIVE', message: 'The destination could only be replaced by deleting data that was not part of this request' }],
 ]);
 
 /**
@@ -1471,6 +1476,12 @@ async function feedContainer(stdin, input, transferred, exited, stopContainer, r
  *   with EEXIST rather than replacing what is there. The refusal is the rename's
  *   own, so it answers for the instant nothing was written rather than for a
  *   look taken beforehand - the app is writing to this volume throughout.
+ * @param {boolean} [options.merge] - overlay a directory result onto an existing
+ *   directory at the destination rather than replacing it wholesale. Only acts
+ *   when both are directories: a file over a file is still replaced, and a file
+ *   over a directory (or the reverse) is refused either way. Without it a
+ *   directory is never replaced wholesale, since that deletes every entry the
+ *   caller did not name but that sat beside one they did.
  * @param {VolumePath} [options.workingDir] - the directory the command runs in,
  *   defaulting to the volume root. An archiver decides its stored layout from
  *   where it is run and what it is handed, and zip has no equivalent of tar's
@@ -1492,7 +1503,7 @@ async function run(session, argv, options = {}) {
   const {
     onProgress = null, isCanceled = null, status = 'Working...',
     publish = null, mkdirStaging = false, maxBytes = 0, dataOnly = false,
-    noReplace = false, onBytes = null, workingDir = null, input = null,
+    noReplace = false, merge = false, onBytes = null, workingDir = null, input = null,
     slotHeld = false,
   } = options;
 
@@ -1549,6 +1560,7 @@ async function run(session, argv, options = {}) {
       ...(maxBytes > 0 ? ['--max-bytes', String(Math.floor(maxBytes))] : []),
       ...(dataOnly ? ['--data-only'] : []),
       ...(noReplace ? ['--no-replace'] : []),
+      ...(merge ? ['--merge'] : []),
       ...(input ? ['--from-stdin'] : []),
       toParam(target),
       toParam(publish.destination),

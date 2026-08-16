@@ -24,6 +24,32 @@
 // what it points at. An extraction does not classify the links an archive
 // carries either: what bounds an archive this node cannot vouch for is the
 // container it is unpacked in, which mounts that one volume and nothing else.
+//
+// HOW A NAME COLLISION AT THE DESTINATION RESOLVES. `overwrite` is opt-in: a
+// caller that does not pass it has a taken name refused ("Destination already
+// exists") and confirms before retrying. What `overwrite` then allows depends on
+// what the two entries ARE, and is identical on every endpoint because they share
+// one publish (see volumeExecutor, and flux-op's publish for where it is decided):
+//
+//   a file over a file            replaced, atomically.
+//   a directory over a directory  MERGED - the source is overlaid onto the
+//                                 destination, a name in both is overwritten, and
+//                                 everything the source does not name is kept.
+//                                 copy, move and extract do this; it is what cp -T,
+//                                 tar and unzip do. A directory is never replaced
+//                                 wholesale, which would delete what the caller
+//                                 never named but that sat beside what they did.
+//   a file over a directory, or   refused. A file cannot stand in for a tree, and
+//   a directory over a file       seating it there would delete the tree.
+//   the same entry under two      refused. A symlink in the volume can make two
+//   names (via a symlink)         paths name one file; an exchange would then move
+//                                 nothing and the cleanup would delete the file.
+//
+// Upload carries no overwrite flag - it has always meant replace-a-file - so it
+// replaces a file, refuses a directory by the rule above, and creates when the
+// name is free. Compress writes a single file, so its overwrite is a file-over-
+// file replace. A merge is not atomic (it is a sequence of renames), which is the
+// trade for overlaying rather than replacing an occupied directory.
 const archiver = require('archiver');
 const { PassThrough } = require('stream');
 const path = require('path');
@@ -529,7 +555,7 @@ async function moveAppsObject(req, res) {
     // operation. Going through publish rather than a bare `mv` is what handles
     // an existing destination - rename(2) refuses a non-empty directory target
     // and cannot replace a file with a directory at all.
-    return startOperation(res, volume, { kind: 'fileoperation.move', status: 'Moving...', owner: volume.owner }, (progress) => executor.run(volume, [], { ...progress, publish: { source, destination }, noReplace }));
+    return startOperation(res, volume, { kind: 'fileoperation.move', status: 'Moving...', owner: volume.owner }, (progress) => executor.run(volume, [], { ...progress, publish: { source, destination }, noReplace, merge: true }));
   } catch (error) {
     respondError(res, error);
   }
@@ -561,6 +587,10 @@ async function copyAppsObject(req, res) {
       ...progress,
       publish: { staging, destination },
       noReplace,
+      // A directory copied onto an existing directory overlays it rather than
+      // replacing it wholesale; cp -T merges the same way. A file over a file is
+      // still replaced, and a file over a directory is refused.
+      merge: true,
       // The measurement above is what refuses this early and with a sentence.
       // It is not what makes it safe: it is taken by the FluxOS process, which
       // is root on ArcaneOS but an ordinary user elsewhere, and a directory the
@@ -702,6 +732,10 @@ async function extractAppsObject(req, res) {
       ...progress,
       publish: { staging, destination },
       noReplace,
+      // Extracting over an existing folder overlays it rather than replacing it
+      // wholesale, which is what every archiver and untarFile already do - a
+      // three-file patch over mods/ keeps the rest of mods/.
+      merge: true,
       // tar -C and unzip -d both need the directory to exist already.
       mkdirStaging: true,
       // The capacity check the other operations make up front cannot be made
