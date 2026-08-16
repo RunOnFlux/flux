@@ -77,7 +77,17 @@ function scheduleExpiry(job) {
  */
 function toProblem(failure, jobId) {
   const problem = failure instanceof Error
-    ? { title: failure.name || 'Error', detail: failure.message, status: 500 }
+    ? {
+      title: failure.name || 'Error',
+      detail: failure.message,
+      status: 500,
+      // An errno-style code a caller acts on - EEXIST for a taken name,
+      // EDESTRUCTIVE for a change refused to avoid deleting unnamed data -
+      // rides on the Error itself. Without carrying it here the spread below
+      // can never fire for an Error, and every code an operation attaches is
+      // dropped on the way to the client.
+      ...(failure.code ? { code: failure.code } : {}),
+    }
     : { title: 'Error', status: 500, ...failure };
 
   return {

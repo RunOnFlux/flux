@@ -121,6 +121,20 @@ describe('jobRegistry tests', () => {
       expect(error.status).to.equal(429);
     });
 
+    it('carries a code off an Error too, not only a plain problem object', () => {
+      // failureFor attaches an errno-style code to an Error - EEXIST, EDESTRUCTIVE -
+      // and a file operation reports only through the job path. The Error branch of
+      // toProblem used to drop it, so every code an operation raised vanished before
+      // the client while a plain problem object kept its own.
+      const handle = jobRegistry.start({ kind: 'test' });
+      const failure = new Error('would delete data that was not part of this request');
+      failure.code = 'EDESTRUCTIVE';
+      jobRegistry.fail(handle.jobId, failure);
+
+      const { error } = jobRegistry.get(handle.jobId);
+      expect(error.code).to.equal('EDESTRUCTIVE');
+    });
+
     it('scrubs credentials out of a failure detail', () => {
       // A registry auth failure can carry the credentials in its message, and
       // this string is served in a response body.
