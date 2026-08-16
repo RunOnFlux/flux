@@ -8,11 +8,11 @@
  * shows them - so every one of these was listable, downloadable, renameable and
  * deletable by whoever owns the app.
  *
- * That is the root of two problems rather than one. Removing `.stfolder` stops
- * syncthing replicating the folder at all; replacing `.stignore` changes what
- * leaves the node. And the operation artefacts are read by the boot sweep,
- * which decides from them whether to restore data or delete it - so being able
- * to write one is being able to hand that sweep its input.
+ * Removing `.stfolder` stops syncthing replicating the folder at all, and
+ * replacing `.stignore` changes what leaves the node. An operation's staging
+ * directory is reserved for a different reason: the boot sweep deletes whatever
+ * carries that name, so a folder an owner created and called one would be
+ * deleted out from under them.
  *
  * ROOT ONLY, deliberately. `.stignore` means something to syncthing at the
  * folder root and nowhere else, and the sweep reads only the root - so

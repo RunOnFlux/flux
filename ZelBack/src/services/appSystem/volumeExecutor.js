@@ -51,23 +51,12 @@ function lockForApp(identifier) {
 }
 
 /**
- * Take a slot for this app, or throw.
- *
- * The read of activeCount and the register() that follows are not separated by
- * an await, so nothing can interleave between them. It reads like a
- * check-then-act race and is not one - do not "fix" it by adding a lock.
- *
- * @param {string} identifier
- * @returns {function(): void} release
- */
-/**
  * How long to tell a refused caller to wait.
  *
  * Derived from the operation in the way only it is measured: a copy that has
  * moved a known fraction of a known total in a known time says when it will be
- * done. Anything else gets the default, because this PR's own rule about
- * progress applies here too - a denominator is only offered where one is real,
- * and an invented wait is worse than an honest shrug.
+ * done. Anything else gets the default: a denominator is only offered where one
+ * is real, and an invented wait is worse than an honest shrug.
  *
  * Capped, because an estimate of hours belongs in the job a caller can watch
  * rather than in a header telling it to sleep.
@@ -86,6 +75,16 @@ function retryAfterFor(operation) {
   return Math.min(Math.max(Math.round(remaining), BUSY_RETRY_AFTER_MS), BUSY_RETRY_AFTER_CEILING_MS);
 }
 
+/**
+ * Take a slot for this app, or throw.
+ *
+ * The read of activeCount and the register() that follows are not separated by
+ * an await, so nothing can interleave between them. It reads like a
+ * check-then-act race and is not one - do not "fix" it by adding a lock.
+ *
+ * @param {string} identifier
+ * @returns {function(): void} release
+ */
 function acquireSlot(identifier) {
   const { maxConcurrentPerApp, maxConcurrentPerNode } = settings();
   const appLock = lockForApp(identifier);

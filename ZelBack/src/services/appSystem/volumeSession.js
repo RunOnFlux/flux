@@ -24,8 +24,6 @@ const WORK_ROOT = '/work';
  */
 const SPACE_HEADROOM = 1.05;
 
-/** Prefix of the staging directories a boot sweep reclaims. */
-
 /**
  * A path inside one app's volume that has passed every containment check.
  *
@@ -534,11 +532,10 @@ async function openVolume(req, options = {}) {
  * A session on a volume named by the mount table rather than by a request.
  *
  * The boot sweep has no user to authorise and no app name to look up - it walks
- * the mount table and acts on whatever app volumes are mounted. It still needs
- * a session, because every path the executor accepts comes from resolve() on
- * one of these, and the paths the sweep acts on are read out of files the app
- * owner can write. A caller with no user is exactly the caller that must not be
- * given a way to skip the containment checks.
+ * the mount table and acts on whatever app volumes are mounted. It still needs a
+ * session, because every path the executor accepts comes from resolve() on one
+ * of these: a caller with no user is exactly the caller that must not be given a
+ * way around the containment checks.
  *
  * @param {{target: string, availableBytes: number}} mountRow - a row from
  *   deviceHelper.listMountedFilesystems
