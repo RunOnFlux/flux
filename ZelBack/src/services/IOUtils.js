@@ -276,8 +276,12 @@ async function getPathFileList(targetpath, multiplier, decimal, filterKeywords =
     // eslint-disable-next-line no-restricted-syntax
     for (const file of files) {
       const filePath = `${targetpath}/${file}`;
+      // lstat, so every entry describes ITSELF. This lists a directory on an
+      // application's own volume, where the application can put a link pointing
+      // anywhere on the node - and following one would answer with the size and
+      // creation time of whatever it names.
       // eslint-disable-next-line no-await-in-loop
-      const stats = await fs.stat(filePath);
+      const stats = await fs.lstat(filePath);
       // eslint-disable-next-line no-await-in-loop
       const passesFilter = filterKeywords.length === 0 || filterKeywords.some((keyword) => {
         const includes = file.includes(keyword);
