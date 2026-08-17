@@ -1,14 +1,19 @@
-// ensureIndex is the boot sequence's index builder. It runs in the awaited
-// stretch of startFluxFunctions before manageAppsOnBoot launches, where a
-// throw aborts boot into a 15s retry loop with the boot gate shut — so its
-// contract is that it never rejects: an options conflict is resolved by
-// drop-and-recreate, and any other failure (a unique index over rows that
-// already violate it being the persistent case) is logged and skipped.
+// ensureIndex is the boot sequence's self-healing index builder. It runs in the
+// awaited stretch of startFluxFunctions, before any service or interval starts,
+// so a throw re-runs boot safely: the recoverable failures (an options conflict,
+// or a unique build blocked by duplicate rows) are healed here, and anything
+// else rethrows - a transient blip heals on the next boot pass, a genuinely
+// broken DB wedges loudly. dedupeByKey is the recovery strategy a unique build
+// passes when its key is the row's identity.
 
-const { expect } = require('chai');
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
 const sinon = require('sinon');
 
-const { ensureIndex } = require('../../ZelBack/src/services/serviceManager');
+chai.use(chaiAsPromised);
+const { expect } = chai;
+
+const { ensureIndex, dedupeByKey } = require('../../ZelBack/src/services/serviceManager');
 const log = require('../../ZelBack/src/lib/log');
 
 describe('serviceManager ensureIndex', () => {
@@ -30,6 +35,13 @@ describe('serviceManager ensureIndex', () => {
       dropIndex: sinon.stub().resolves(),
     };
   }
+
+  const duplicateError = () => {
+    const err = new Error('E11000 duplicate key error collection');
+    err.code = 11000;
+    err.codeName = 'DuplicateKey';
+    return err;
+  };
 
   it('builds the index and touches nothing else on success', async () => {
     const createIndex = sinon.stub().resolves('spec_1');
@@ -63,41 +75,106 @@ describe('serviceManager ensureIndex', () => {
     sinon.assert.notCalled(logErrorSpy);
   });
 
-  it('resolves when the build fails outright, logging what was skipped', async () => {
-    // duplicate rows already in the collection: building the unique index
-    // fails identically on every boot, so this must not reject
-    const duplicate = new Error('E11000 duplicate key error collection');
-    duplicate.code = 11000;
-    duplicate.codeName = 'DuplicateKey';
-    const createIndex = sinon.stub().rejects(duplicate);
+  it('runs the recovery strategy and rebuilds when duplicate rows block a unique index', async () => {
+    // The node ends up WITH the index, not running degraded without it.
+    const createIndex = sinon.stub();
+    createIndex.onFirstCall().rejects(duplicateError());
+    createIndex.onSecondCall().resolves('hash_1');
     const collection = stubCollection(createIndex);
+    const recover = sinon.stub().resolves(3);
 
-    await ensureIndex(collection, { hash: 1 }, { unique: true });
+    await ensureIndex(collection, { hash: 1 }, { unique: true }, recover);
 
-    sinon.assert.calledOnce(createIndex);
-    sinon.assert.notCalled(collection.dropIndex);
-    sinon.assert.calledOnce(logErrorSpy);
-    expect(logErrorSpy.firstCall.firstArg).to.include('somecollection');
-    expect(logErrorSpy.firstCall.firstArg).to.include('E11000');
+    sinon.assert.calledOnceWithExactly(recover, collection, { hash: 1 }, { unique: true });
+    sinon.assert.calledTwice(createIndex);
+    // recover ran before the rebuild
+    sinon.assert.callOrder(createIndex, recover, createIndex);
   });
 
-  it('resolves when the recreate after a conflict fails too', async () => {
-    const conflict = new Error('index exists with different options');
-    conflict.codeName = 'IndexKeySpecsConflict';
-    const duplicate = new Error('E11000 duplicate key error collection');
-    duplicate.codeName = 'DuplicateKey';
-    const createIndex = sinon.stub();
-    createIndex.onFirstCall().rejects(conflict);
-    createIndex.onSecondCall().rejects(duplicate);
+  it('rethrows a duplicate-key failure with no recovery strategy, rather than skipping', async () => {
+    // A unique build with no strategy is not silently swallowed - it must be
+    // seen, not hidden until the next reboot.
+    const createIndex = sinon.stub().rejects(duplicateError());
     const collection = stubCollection(createIndex);
-    collection.listIndexes.returns({
-      toArray: async () => [{ key: { spec: 1 }, name: 'oldname' }],
-    });
 
-    await ensureIndex(collection, { spec: 1 }, { unique: true });
+    await expect(ensureIndex(collection, { hash: 1 }, { unique: true })).to.be.rejectedWith('E11000');
+    sinon.assert.calledOnce(createIndex);
+  });
 
-    sinon.assert.calledOnceWithExactly(collection.dropIndex, 'oldname');
+  it('rethrows a transient failure so the boot retry can heal it', async () => {
+    // Not swallowed: index setup runs before services start, so the retry loop
+    // re-runs safely and a transient blip heals rather than being skipped.
+    const transient = new Error('connection 5 to mongo timed out');
+    transient.codeName = 'NetworkTimeout';
+    const createIndex = sinon.stub().rejects(transient);
+    const collection = stubCollection(createIndex);
+    const recover = sinon.stub().resolves(0);
+
+    await expect(ensureIndex(collection, { spec: 1 }, {}, recover)).to.be.rejectedWith('timed out');
+    // recovery is only for the duplicate-key case, not for a transient error
+    sinon.assert.notCalled(recover);
+  });
+
+  it('rethrows if the rebuild after recovery still fails', async () => {
+    const createIndex = sinon.stub().rejects(duplicateError());
+    const collection = stubCollection(createIndex);
+    const recover = sinon.stub().resolves(1);
+
+    await expect(ensureIndex(collection, { hash: 1 }, { unique: true }, recover)).to.be.rejectedWith('E11000');
+    sinon.assert.calledOnce(recover);
     sinon.assert.calledTwice(createIndex);
-    sinon.assert.calledOnce(logErrorSpy);
+  });
+});
+
+describe('serviceManager dedupeByKey', () => {
+  function stubCollection(groups) {
+    return {
+      collectionName: 'somecollection',
+      aggregate: sinon.stub().returns({ toArray: async () => groups }),
+      deleteMany: sinon.stub().resolves({ deletedCount: 0 }),
+    };
+  }
+
+  it('removes all but the newest per key group and reports the count', async () => {
+    // ids come newest-first from the pipeline's _id sort, so slice(1) keeps the
+    // newest and removes the rest.
+    const collection = stubCollection([
+      { _id: { k0: 'a' }, ids: ['new1', 'old1', 'old2'] },
+      { _id: { k0: 'b' }, ids: ['new3', 'old3'] },
+    ]);
+
+    const removed = await dedupeByKey(collection, { hash: 1 }, { unique: true });
+
+    expect(removed).to.equal(3);
+    sinon.assert.calledOnceWithExactly(collection.deleteMany, { _id: { $in: ['old1', 'old2', 'old3'] } });
+  });
+
+  it('builds the group key from every field of the index spec', async () => {
+    const collection = stubCollection([]);
+
+    await dedupeByKey(collection, { 'data.name': 1, 'data.ip': 1 }, {});
+
+    const [pipeline] = collection.aggregate.firstCall.args;
+    const group = pipeline.find((stage) => stage.$group);
+    expect(group.$group._id).to.deep.equal({ k0: '$data.name', k1: '$data.ip' });
+  });
+
+  it('honours the index partial filter so it only touches covered rows', async () => {
+    const collection = stubCollection([]);
+    const partial = { incidentKey: { $exists: true } };
+
+    await dedupeByKey(collection, { appName: 1, eventType: 1, incidentKey: 1 }, { partialFilterExpression: partial });
+
+    const [pipeline] = collection.aggregate.firstCall.args;
+    expect(pipeline[0]).to.deep.equal({ $match: partial });
+  });
+
+  it('deletes nothing when there are no duplicates', async () => {
+    const collection = stubCollection([]);
+
+    const removed = await dedupeByKey(collection, { hash: 1 }, {});
+
+    expect(removed).to.equal(0);
+    sinon.assert.notCalled(collection.deleteMany);
   });
 });

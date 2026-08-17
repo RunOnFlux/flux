@@ -461,11 +461,77 @@ async function checkNodeReboot() {
   }
 }
 
+/**
+ * Merge duplicate incident rollups, then assert the unique index they need.
+ *
+ * The rollup keys on (appName, eventType, incidentKey) and each doc carries a
+ * `count` recordEvent increments. A node upgrading from before the unique index
+ * - or two recorders racing on a fresh key before it existed - can hold two
+ * rollups for one incident, and the unique build then fails on that dirty data.
+ * Dropping one would UNDERCOUNT the incident, so this sums the counts and keeps
+ * the widest firstSeen/lastSeen window rather than deduping blindly - which is
+ * why it lives here, with the collection, instead of as a generic ensureIndex
+ * recovery. Built before the boot sweeps record their own incidents, so the
+ * unique index the upsert relies on is already in place.
+ *
+ * Low-stakes local telemetry on a 30-day TTL, so a failure logs and is left for
+ * the next boot rather than wedging startup - the disposition its owner chooses,
+ * the same one appsRuntimeState.prepareCollection takes.
+ */
+async function prepareIncidentRollup() {
+  try {
+    const db = dbHelper.databaseConnection();
+    if (!db) {
+      log.warn('appTamperingDetection - DB not available, skipping incident rollup preparation');
+      return;
+    }
+    const database = db.db(config.database.local.database);
+    const rollups = await dbHelper.findInDatabase(database, tamperingEventsCollection, { incidentKey: { $exists: true } });
+
+    const byKey = new Map();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const doc of rollups) {
+      const key = `${doc.appName} ${doc.eventType} ${doc.incidentKey}`;
+      const group = byKey.get(key) || [];
+      group.push(doc);
+      byKey.set(key, group);
+    }
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const [, group] of byKey) {
+      if (group.length <= 1) continue;
+      const query = { appName: group[0].appName, eventType: group[0].eventType, incidentKey: group[0].incidentKey };
+      const newest = group.slice().sort((a, b) => new Date(b.lastSeen || 0).getTime() - new Date(a.lastSeen || 0).getTime())[0];
+      const earliest = group.reduce((min, d) => (new Date(d.firstSeen || 0) < new Date(min) ? d.firstSeen : min), newest.firstSeen);
+      const merged = {
+        ...newest,
+        count: group.reduce((sum, d) => sum + (d.count || 0), 0),
+        firstSeen: earliest,
+        lastSeen: newest.lastSeen,
+      };
+      delete merged._id;
+      log.warn(`appTamperingDetection - merged ${group.length} duplicate incident rollups for ${query.appName}/${query.eventType} (count=${merged.count})`);
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.removeDocumentsFromCollection(database, tamperingEventsCollection, query);
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.updateOneInDatabase(database, tamperingEventsCollection, query, { $set: merged }, { upsert: true });
+    }
+
+    await database.collection(tamperingEventsCollection).createIndex(
+      { appName: 1, eventType: 1, incidentKey: 1 },
+      { unique: true, partialFilterExpression: { incidentKey: { $exists: true } }, name: 'incident_upsert' },
+    );
+  } catch (error) {
+    log.error(`appTamperingDetection - failed to prepare incident rollup: ${error.message}`);
+  }
+}
+
 module.exports = {
   recordEvent,
   getEvents,
   isNetworkMissingError,
   checkNodeReboot,
+  prepareIncidentRollup,
   startIdentityBackfill,
   deriveMainAppName,
   EVENT_SEVERITY,
