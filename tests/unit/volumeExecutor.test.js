@@ -1264,6 +1264,38 @@ describe('volumeExecutor tests', () => {
       await running;
     });
 
+    it('reclaims the staging path when the operation fails', async () => {
+      // flux-op removes its own staging on every exit it is allowed to see;
+      // SIGKILL is not one of those - the memory cgroup OOM-killing PID 1, a
+      // cancel whose grace expired, a dockerd restart - and the space then
+      // stayed spent until the next FluxOS restart, invisible to the owner
+      // (filtered from the listing) and undeletable (the name is refused).
+      // FluxOS minted the path, so FluxOS reclaims it once the container is
+      // gone.
+      containerStub.wait.resolves({ StatusCode: 2 });
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op-y');
+      const destination = await vol.resolve('out');
+
+      await expect(volumeExecutor.run(vol, ['cp'], { publish: { staging, destination } })).to.be.rejected;
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+      const rm = serviceHelperStub.runCommand.getCalls().find((call) => call.args[0] === 'rm');
+      expect(rm, 'nothing reclaimed the staging path').to.not.equal(undefined);
+      expect(rm.args[1].runAsRoot).to.equal(true);
+      expect(rm.args[1].params).to.deep.equal(['-rf', staging.hostPath]);
+    });
+
+    it('spawns no reclaim for an operation that staged nothing', async () => {
+      // A move or a rename publishes the caller's own entry - there is no
+      // staging to reclaim, and an rm here would be pointed at nothing.
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+      expect(serviceHelperStub.runCommand.getCalls().some((call) => call.args[0] === 'rm')).to.equal(false);
+    });
+
     it('reports progress to the caller rather than to a response', async () => {
       // No res: the work outlives the request that started it, so progress goes
       // somewhere a poll can read it.

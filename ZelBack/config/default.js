@@ -233,9 +233,9 @@ module.exports = {
       // How long a cancelled operation is given to stop of its own accord. The
       // container is sent SIGTERM, which flux-op traps to stop the command and
       // reclaim its staging directory; only after this does docker escalate to
-      // SIGKILL, which reaches neither, leaving the space spent until the next
-      // boot sweep. Long enough to remove a large staging tree, short enough
-      // that a cancel still feels like one.
+      // SIGKILL, which reaches neither - the executor's own deferred reclaim
+      // then removes what was staged. Long enough to remove a large staging
+      // tree, short enough that a cancel still feels like one.
       cancelGraceSeconds: 15,
       // How often a running operation is looked at: one tick reports that it is
       // alive, notices a cancellation, and reads how far it has got. Nothing is

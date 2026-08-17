@@ -1618,8 +1618,8 @@ async function run(session, argv, options = {}) {
   let settled = false;
   // stop, not kill: this sends SIGTERM first and only escalates to SIGKILL
   // after the grace period. flux-op traps the TERM, stops the command and
-  // reclaims its staging directory - a SIGKILL reaches neither, and the space
-  // stays spent until the next boot sweep.
+  // reclaims its staging directory - a SIGKILL reaches neither, which is what
+  // reclaimStaging in the finally is for.
   const stopContainer = () => {
     if (!container) return;
     container.stop({ t: settings().cancelGraceSeconds }).catch(() => {});
@@ -1852,8 +1852,67 @@ async function run(session, argv, options = {}) {
     // app. A container that has already exited reaps itself.
     if (container && !settled) stopContainer();
     if (registeredContainerId) liveContainerIds.delete(registeredContainerId);
-    if (registeredStaging) liveStagingPaths.delete(registeredStaging);
+    // Deregistered by the reclaim once it has run, not here: a sweep running
+    // while the reclaim waits out the container must still skip this path.
+    if (registeredStaging) reclaimStaging(registeredStaging, exited);
     release();
+  }
+}
+
+/**
+ * Remove one staging entry, on the host.
+ *
+ * Host-side rather than in a container, for the same reasons the sweep is: the
+ * path is the mount plus one minted component with nothing to traverse, `rm
+ * -rf` removes a symlink rather than following it, and a node that cannot
+ * fetch the executor image still reclaims its debris. Root, because the
+ * container wrote into it as root and the FluxOS process is not root
+ * everywhere.
+ *
+ * @param {string} hostPath absolute path of the staging entry
+ */
+async function removeStagingPath(hostPath) {
+  const result = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', hostPath] });
+  if (result.error) throw result.error;
+}
+
+/**
+ * Reclaim an operation's staging path once its container is gone.
+ *
+ * flux-op removes its own staging on every exit it is allowed to see - but
+ * SIGKILL is not one of those: the memory cgroup OOM-killing PID 1, a cancel
+ * whose grace expired mid-removal, a dockerd restart. The path then holds
+ * whatever was staged - up to the volume's whole free space - under a name the
+ * owner can neither see (filtered from the listing) nor delete (refused), and
+ * it used to stay that way until the next FluxOS restart. FluxOS minted the
+ * name, so FluxOS ends it: once the container's exit has been observed
+ * (bounded by the cancel grace plus a margin, for a wait whose connection died
+ * with dockerd), whatever is left at the path is removed. Ordinarily nothing
+ * is - the publish renamed it away or flux-op removed it - and the rm is a
+ * no-op.
+ *
+ * Deliberately not awaited by run(): the slot is released the moment the
+ * operation ends, and this finishes on its own clock. The path stays in
+ * liveStagingPaths until it is done, so a sweep running meanwhile still skips
+ * it.
+ *
+ * @param {string} hostPath the operation's registered staging path
+ * @param {Promise<object>|null} exited the container's exit subscription, if one was opened
+ */
+async function reclaimStaging(hostPath, exited) {
+  try {
+    if (exited) {
+      const graceMs = (settings().cancelGraceSeconds * 1000) + 10000;
+      let deadline;
+      const deadlinePassed = new Promise((resolve) => { deadline = setTimeout(resolve, graceMs); });
+      await Promise.race([exited.catch(() => {}), deadlinePassed]);
+      clearTimeout(deadline);
+    }
+    await removeStagingPath(hostPath);
+  } catch (error) {
+    log.warn(`volumeExecutor - could not reclaim ${hostPath}: ${error.message}`);
+  } finally {
+    liveStagingPaths.delete(hostPath);
   }
 }
 
@@ -1947,13 +2006,8 @@ async function sweepStagingDirectories(session) {
 
   const removed = [];
 
-  // On the host, and safe there: `name` came from readdir, so it is one
-  // component with nothing to traverse, and `rm -rf` removes a symlink rather
-  // than following it. It needs no container, so a node that cannot fetch the
-  // executor image still reclaims its debris.
   const remove = async (name) => {
-    const result = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', path.join(mount, name)] });
-    if (result.error) throw result.error;
+    await removeStagingPath(path.join(mount, name));
     removed.push(name);
   };
 
