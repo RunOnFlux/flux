@@ -826,10 +826,10 @@ describe('syncthingMonitor tests', () => {
   describe('ignore-policy convergence', () => {
     const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
 
-    it('converges the ignore file of every folder it replicates, each pass', async () => {
-      // Existing apps carry the creation-era .stignore; the monitor pass is the
-      // one place every replicated folder is already visited with its mount
-      // verified, so it is where the policy reaches them.
+    it('converges the ignores of every folder it replicates, by folder id, each pass', async () => {
+      // syncthing owns .stignore; the converge sets the patterns through its API
+      // by folder id. The monitor pass is the one place every replicated folder
+      // is visited with its mount verified and its config known.
       syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
       syncthingMonitorHelpersMock.requiresSyncing.returns(true);
       syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
@@ -841,9 +841,25 @@ describe('syncthingMonitor tests', () => {
       monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
       await clock.tickAsync(100);
 
-      sinon.assert.called(syncthingMonitorHelpersMock.ensureStignoreCovers);
-      const markerFolder = syncthingMonitorHelpersMock.ensureStfolderExists.firstCall.args[0];
-      sinon.assert.calledWithExactly(syncthingMonitorHelpersMock.ensureStignoreCovers, markerFolder);
+      sinon.assert.calledWithExactly(syncthingMonitorHelpersMock.ensureStignoreCovers, 'testapp');
+    });
+
+    it('does not converge a folder syncthing does not yet know, so the API is never asked for an unknown folder', async () => {
+      // A fresh install whose folder is not yet configured: the creation-time
+      // write already seeded its .stignore, so skipping is correct. Converging
+      // via the API would only draw an error.
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [] });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.notCalled(syncthingMonitorHelpersMock.ensureStignoreCovers);
     });
 
     it('does not touch the ignore file of a folder whose volume is not mounted', async () => {

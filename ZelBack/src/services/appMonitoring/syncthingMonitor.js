@@ -257,10 +257,18 @@ async function processContainerData(params) {
     return;
   }
 
-  // After the mount check for the same reason the marker is: on the bare
-  // directory this would write to the host filesystem. Converges folders
-  // created before a policy line existed; a converged folder costs one read.
-  await ensureStignoreCovers(folder);
+  const syncFolder = allFoldersResp.data.find((x) => x.id === id);
+
+  // Converge the FluxOS ignore policy through syncthing's own API, which owns
+  // and atomically writes .stignore. Only once syncthing knows the folder: a
+  // brand-new folder had its .stignore seeded at volume creation, and an
+  // existing one was configured in a prior pass and persists across restarts -
+  // so this reaches every folder whose ignores predate a policy line, and skips
+  // the one pass where a fresh install is not yet configured. A converged
+  // folder posts nothing and triggers no rescan.
+  if (syncFolder) {
+    await ensureStignoreCovers(id);
+  }
 
   // Get and process app locations
   let locations = await appLocation(installedAppName);
@@ -279,7 +287,6 @@ async function processContainerData(params) {
 
   // Create base folder configuration
   const syncthingFolder = createSyncthingFolderConfig(id, label, folder, devices);
-  const syncFolder = allFoldersResp.data.find((x) => x.id === id);
 
   // Handle receive-only or global sync flags
   if (primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g')) {

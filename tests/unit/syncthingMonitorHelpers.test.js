@@ -7,6 +7,7 @@ const axios = require('axios');
 const fsp = require('node:fs/promises');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const log = require('../../ZelBack/src/lib/log');
 const helpers = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
 
@@ -382,101 +383,72 @@ describe('syncthingMonitorHelpers tests', () => {
   });
 
   describe('ensureStignoreCovers', () => {
-    const FOLDER = '/apps/fluxcomp_app';
-    const IGNORE = '/apps/fluxcomp_app/.stignore';
-    const isTempIn = (p) => typeof p === 'string' && p.startsWith(`${IGNORE}.tmp.`);
+    const ID = 'fluxcomp_app';
+    const ok = (data) => ({ status: 'success', data });
+    const err = (message) => ({ status: 'error', data: { message } });
 
-    // The converged content is written to a temp beside the target, then moved
-    // over it as root - atomic, and it lands even on a legacy root-owned file.
-    function assertPlaced(writeFile, runCommand, content) {
-      sinon.assert.calledOnce(writeFile);
-      const [tmpPath, written] = writeFile.firstCall.args;
-      expect(isTempIn(tmpPath), `wrote to ${tmpPath}, not a temp beside the target`).to.equal(true);
-      expect(written).to.equal(content);
-      sinon.assert.calledWithMatch(runCommand, 'mv', { runAsRoot: true, params: [tmpPath, IGNORE] });
-    }
+    it('posts the current ignores plus the missing policy lines', async () => {
+      // syncthing owns .stignore and writes it atomically; FluxOS sets the
+      // patterns through it rather than touching the file. POST replaces the
+      // whole set, so the current lines are kept and the missing ones appended.
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup'] }));
+      const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
-    it('appends the staging pattern to a file from before it existed', async () => {
-      // Every existing g:/r:/s: app carries the creation-era content. Without
-      // the staging line, every byte an operation stages replicates to every
-      // peer and a peer's boot sweep can delete a live operation's staging.
-      sandbox.stub(fsp, 'readFile').resolves('/backup\n');
-      const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
-      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
+      await helpers.ensureStignoreCovers(ID);
 
-      await helpers.ensureStignoreCovers(FOLDER);
-
-      assertPlaced(writeFile, runCommand, '/backup\n/.flux-op-*\n');
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op-*']);
     });
 
-    it('rewrites nothing when every policy line is present', async () => {
-      sandbox.stub(fsp, 'readFile').resolves('/backup\n/.flux-op-*\n');
-      const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
-      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
+    it('seeds both lines when the folder has no ignores yet', async () => {
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: null }));
+      const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
-      await helpers.ensureStignoreCovers(FOLDER);
+      await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.notCalled(writeFile);
-      sinon.assert.notCalled(runCommand);
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', '/.flux-op-*']);
     });
 
-    it('creates the file whole when it is missing', async () => {
-      sandbox.stub(fsp, 'readFile').rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-      const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
-      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
+    it('posts nothing when every policy line is already present', async () => {
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', '/.flux-op-*'] }));
+      const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
-      await helpers.ensureStignoreCovers(FOLDER);
+      await helpers.ensureStignoreCovers(ID);
 
-      assertPlaced(writeFile, runCommand, '/backup\n/.flux-op-*\n');
+      sinon.assert.notCalled(set);
     });
 
-    it('keeps lines it did not write', async () => {
-      // The file is FluxOS-owned policy, but asserting OUR lines does not
-      // require destroying anything an app added from inside its container.
-      sandbox.stub(fsp, 'readFile').resolves('/backup\ncache/**\n');
-      const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
-      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
+    it('keeps ignores it did not write', async () => {
+      // An app can add its own patterns in-container; asserting OUR lines does
+      // not mean destroying theirs.
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: ['/backup', 'cache/**'] }));
+      const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
 
-      await helpers.ensureStignoreCovers(FOLDER);
+      await helpers.ensureStignoreCovers(ID);
 
-      assertPlaced(writeFile, runCommand, '/backup\ncache/**\n/.flux-op-*\n');
+      sinon.assert.calledOnceWithExactly(set, ID, ['/backup', 'cache/**', '/.flux-op-*']);
     });
 
-    it('places the file as root, so a legacy root-owned .stignore is not left uncovered', async () => {
-      // The whole point: an in-place write fails EACCES on a root-owned file
-      // from an older FluxOS-as-root build, silently losing the protection. The
-      // move runs as root.
-      sandbox.stub(fsp, 'readFile').resolves('/backup\n');
-      sandbox.stub(fsp, 'writeFile').resolves();
-      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
-
-      await helpers.ensureStignoreCovers(FOLDER);
-
-      expect(runCommand.firstCall.args[1].runAsRoot).to.equal(true);
-    });
-
-    it('cleans up the temp and logs when the move fails, rather than failing the pass', async () => {
-      sandbox.stub(fsp, 'readFile').resolves('/backup\n');
-      sandbox.stub(fsp, 'writeFile').resolves();
-      sandbox.stub(serviceHelper, 'runCommand').resolves({ error: new Error('EPERM') });
-      const unlink = sandbox.stub(fsp, 'unlink').resolves();
+    it('logs and posts nothing when the read fails, rather than failing the pass', async () => {
+      // Every syncthing call returns its outcome in-band and never throws, so a
+      // missed status check would silently skip the converge - it is checked.
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(err('syncthing restarting'));
+      const set = sandbox.stub(syncthingService, 'setFolderIgnores').resolves(ok({}));
       const logError = sandbox.stub(log, 'error');
 
-      await helpers.ensureStignoreCovers(FOLDER);
+      await helpers.ensureStignoreCovers(ID);
 
-      expect(isTempIn(unlink.firstCall.args[0])).to.equal(true);
+      sinon.assert.notCalled(set);
       sinon.assert.calledOnce(logError);
     });
 
-    it('logs a failure rather than failing the pass', async () => {
-      sandbox.stub(fsp, 'readFile').rejects(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
-      const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
-      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
+    it('logs when the write fails, rather than failing the pass', async () => {
+      sandbox.stub(syncthingService, 'getFolderIgnores').resolves(ok({ ignore: [] }));
+      sandbox.stub(syncthingService, 'setFolderIgnores').resolves(err('folder paused'));
+      const logError = sandbox.stub(log, 'error');
 
-      await helpers.ensureStignoreCovers(FOLDER);
+      await helpers.ensureStignoreCovers(ID);
 
-      sinon.assert.notCalled(writeFile);
-      sinon.assert.notCalled(runCommand);
+      sinon.assert.calledOnce(logError);
     });
   });
 

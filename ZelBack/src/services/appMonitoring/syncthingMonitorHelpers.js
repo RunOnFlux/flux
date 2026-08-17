@@ -5,7 +5,8 @@ const path = require('node:path');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const volumeService = require('../utils/volumeService');
-const { SYNCTHING_IGNORE_FILE, SYNCTHING_IGNORE_LINES } = require('../appSystem/volumeReservedNames');
+const { SYNCTHING_IGNORE_LINES } = require('../appSystem/volumeReservedNames');
+const syncthingService = require('../syncthingService');
 const {
   DEVICE_ID_REQUEST_TIMEOUT_MS,
   SYNCTHING_RESCAN_INTERVAL_SECONDS,
@@ -297,49 +298,43 @@ function folderNeedsUpdate(existingFolder, newFolder) {
 }
 
 /**
- * Ensure the folder's .stignore carries every FluxOS policy line.
+ * Ensure a folder's syncthing ignores carry every FluxOS policy line.
  *
- * Volume creation writes the file once, so a folder created before a policy
- * line existed never hears about it - every existing g:/r:/s: app carries the
- * creation-era content until something converges it, and the monitor pass is
- * the one place every replicated folder is already visited with its mount
- * verified. Missing lines are appended; anything else in the file is kept,
- * because asserting our lines does not require destroying lines we did not
- * write. Almost every pass reads, compares, and does nothing.
+ * .stignore is syncthing's own control file - it writes it atomically, runs as
+ * root so it lands on any legacy root-owned file, and never replicates it or
+ * its temp. So FluxOS sets the patterns through syncthing's API rather than
+ * writing the file: there is no temp, no ownership dance, and nothing on the
+ * volume to orphan on a powercut. Volume creation still seeds the file directly
+ * for a brand-new folder syncthing does not yet know; this converges every
+ * EXISTING folder whose ignores predate a policy line.
  *
- * Call only after the mount check has passed: on the bare directory this
- * would write to the host filesystem, exactly the leak ensureStfolderExists
- * refuses.
+ * Additive: syncthing's POST replaces the whole set, so the current patterns
+ * are read and the missing lines appended before posting - anything an app
+ * added in-container is kept. Nothing is posted when every line is already
+ * present, so a converged folder is neither rewritten nor rescanned. Every
+ * syncthing call returns its outcome in-band and never throws, so status is
+ * checked rather than caught.
  *
- * @param {string} folder - Folder path
+ * Call only for a folder syncthing already knows (the caller checks); on an
+ * unknown folder the API would answer with an error and nothing would converge.
+ *
+ * @param {string} folderId - the syncthing folder id (the app identifier)
  */
-async function ensureStignoreCovers(folder) {
-  const ignorePath = path.join(folder, SYNCTHING_IGNORE_FILE);
-  const tmpPath = path.join(folder, `${SYNCTHING_IGNORE_FILE}.tmp.${process.pid}`);
-  try {
-    const current = await fs.readFile(ignorePath, 'utf8').catch((error) => {
-      if (error.code !== 'ENOENT') throw error;
-      return '';
-    });
-    const lines = current.split('\n');
-    const missing = SYNCTHING_IGNORE_LINES.filter((line) => !lines.includes(line));
-    if (!missing.length) return;
-    const kept = current === '' || current.endsWith('\n') ? current : `${current}\n`;
-    // Written to a temp beside the target and moved over it as root. The move
-    // is an atomic replace on the same filesystem, so a crash never leaves a
-    // half-written .stignore; and as root it lands even when the existing file
-    // is root-owned from an older FluxOS-as-root build, where an in-place write
-    // would fail EACCES and the staging-ignore protection would silently never
-    // arrive. ensureStfolderExists does its own work as root for the same
-    // reason.
-    await fs.writeFile(tmpPath, `${kept}${missing.join('\n')}\n`);
-    const moved = await serviceHelper.runCommand('mv', { runAsRoot: true, params: [tmpPath, ignorePath] });
-    if (moved.error) throw moved.error;
-    log.info(`ensureStignoreCovers - added ${missing.join(', ')} to ${ignorePath}`);
-  } catch (error) {
-    await fs.unlink(tmpPath).catch(() => {});
-    log.error(`ensureStignoreCovers - could not converge ${ignorePath}: ${error.message}`);
+async function ensureStignoreCovers(folderId) {
+  const read = await syncthingService.getFolderIgnores(folderId);
+  if (read.status !== 'success') {
+    log.error(`ensureStignoreCovers - could not read ignores for ${folderId}: ${read.data?.message ?? 'unknown error'}`);
+    return;
   }
+  const current = Array.isArray(read.data?.ignore) ? read.data.ignore : [];
+  const missing = SYNCTHING_IGNORE_LINES.filter((line) => !current.includes(line));
+  if (!missing.length) return;
+  const written = await syncthingService.setFolderIgnores(folderId, [...current, ...missing]);
+  if (written.status !== 'success') {
+    log.error(`ensureStignoreCovers - could not set ignores for ${folderId}: ${written.data?.message ?? 'unknown error'}`);
+    return;
+  }
+  log.info(`ensureStignoreCovers - added ${missing.join(', ')} to ${folderId} ignores`);
 }
 
 module.exports = {
