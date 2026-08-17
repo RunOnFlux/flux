@@ -453,7 +453,6 @@ describe('app volume file operations - a peer that does not play fair', function
       res.on('close', () => endless.destroy());
     };
 
-    const before = await inNode(0, 'df -k / | tail -1 | awk \'{print $4}\'');
     const { job } = await copyObject();
 
     // The registry is reachable, so the node recovers by falling through to it:
@@ -461,24 +460,17 @@ describe('app volume file operations - a peer that does not play fair', function
     expect(job.status, JSON.stringify(job && job.error)).to.equal('Succeeded');
     expect(await imageHeldOn(0), 'the node did not end up with the image').to.equal(true);
 
-    // What the peer generated is not what the node took: the two are separated
-    // by the peer's own write buffer, which keeps filling after the node has
-    // hung up and empties at a rate that depends on how loaded the box is.
-    // Asserting on it failed a node that had cut the transfer off at its
-    // ceiling on the nose. The disk below is the quantity this is about - the
-    // ceiling exists to keep a peer off the disk the tenants' apps are on.
-    const after = await inNode(0, 'df -k / | tail -1 | awk \'{print $4}\'');
-    const lostKb = parseInt(before.stdout.trim(), 10) - parseInt(after.stdout.trim(), 10);
-    expect(lostKb, `the node lost ${lostKb}KiB of disk to a peer`).to.be.lessThan(512 * 1024);
-
-    // And the ceiling is what did it, read on the node rather than inferred
-    // from the three above - none of which can tell a ceiling that fired from
-    // one that never existed. The offer is capped at 48MiB to keep this
-    // process's heap in hand, which is under the disk bound, and the registry
-    // fallback catches every way a peer can fail: a node with no ceiling at all
-    // would take the whole 48MiB, load nothing out of it, recover through the
-    // registry, and satisfy every assertion above. The refusal quotes the byte
-    // figure it refused at, which no other failure of this transfer produces.
+    // The ceiling fired, read from the node itself. NOT from a disk delta: the
+    // only cost-to-the-disk figure available on the box is `df /`, which is the
+    // whole shared filesystem every parallel fleet writes to at once, so its
+    // before/after delta charges the neighbours' writes to this peer (1.2GiB of
+    // it, in a full gate). The refusal below is the direct, per-node evidence
+    // and cannot be polluted: the node names the exact byte figure it stopped
+    // at, which bounds what it wrote and is produced by no other failure of this
+    // transfer. A node with no ceiling at all would take the whole 48MiB offer,
+    // load nothing out of it, recover through the registry, and satisfy every
+    // assertion above - only this line tells a ceiling that fired from one that
+    // never existed.
     await waitFor(
       () => env.nodeHasLog(0, new RegExp(`could not provide the file operation image: sent more than ${ceilingBytes} bytes`)),
       { timeout: 30000, interval: 1000, label: `node 0 refusing the archive at ${ceilingBytes} bytes` },
