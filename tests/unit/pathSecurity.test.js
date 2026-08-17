@@ -370,6 +370,32 @@ describe('pathSecurity', () => {
         }
       }
     });
+
+    it('refuses a parent symlink that dangles on the host but resolves in the container', async () => {
+      // The real vector is `ln -s /work appdata/root`: /work does not exist on
+      // the host so the link is dangling, but in the container /work IS the
+      // volume and it resolves to the root, reaching a reserved name the guard
+      // decides from the host resolution. lstat succeeds on the dangling link
+      // and realpath then fails - which used to pass through as "cannot resolve,
+      // therefore safe". A target guaranteed absent on any host stands in for
+      // /work here.
+      const symlinkPath = path.join(tempDir, 'container-namespace-link');
+      try {
+        await fs.symlink('/flux-nonexistent-target-a1b2c3', symlinkPath);
+        await expect(verifyRealPathOfExistingPath(path.join(symlinkPath, '.stfolder'), tempDir))
+          .to.be.rejectedWith('does not resolve on the host');
+      } catch (err) {
+        if (err.code !== 'EPERM' && err.code !== 'EACCES') {
+          throw err;
+        }
+      } finally {
+        try {
+          await fs.unlink(symlinkPath);
+        } catch (e) {
+          // ignore cleanup failures
+        }
+      }
+    });
   });
 
   describe('verifyRealPathSync', () => {

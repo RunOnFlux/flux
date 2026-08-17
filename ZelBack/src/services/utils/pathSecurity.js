@@ -305,6 +305,7 @@ async function verifyRealPath(targetPath, basePath) {
 async function verifyRealPathOfExistingPath(targetPath, basePath) {
   const normalizedBase = path.resolve(basePath);
   let currentPath = path.resolve(targetPath);
+  let ancestorStats = null;
 
   // Walk up until we find an existing ancestor (or reach the base). Bounded by
   // the walk itself: every iteration either breaks or moves one level towards
@@ -317,7 +318,7 @@ async function verifyRealPathOfExistingPath(targetPath, basePath) {
     }
 
     try {
-      await fs.promises.lstat(currentPath);
+      ancestorStats = await fs.promises.lstat(currentPath);
       break;
     } catch (error) {
       if (error.code !== 'ENOENT') {
@@ -333,6 +334,21 @@ async function verifyRealPathOfExistingPath(targetPath, basePath) {
         break;
       }
       currentPath = parentPath;
+    }
+  }
+
+  // A symlink in the path whose target does not resolve on the host is
+  // unverifiable, and unverifiable is not safe. The checks run in the host
+  // namespace, but the operation runs in the container where /work IS this
+  // volume - so a link the host sees as dangling (ln -s /work ..., or a
+  // relative climb to it) can resolve to the volume root in the container and
+  // reach a reserved name the guard would otherwise refuse. lstat succeeds on a
+  // dangling link and realpath then fails with ENOENT, which the ENOENT branch
+  // below would pass through as "cannot resolve, therefore safe". Refuse it.
+  if (ancestorStats && ancestorStats.isSymbolicLink()) {
+    const resolvedTarget = await fs.promises.realpath(currentPath).catch(() => null);
+    if (resolvedTarget === null) {
+      throw new Error('Invalid path: a symlink in the path does not resolve on the host');
     }
   }
 
