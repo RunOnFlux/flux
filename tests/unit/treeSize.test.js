@@ -156,4 +156,22 @@ describe('treeSize tests', () => {
       expect(await measureTree(ROOT, fs, { occupied: true })).to.equal(4096);
     });
   });
+
+  it('survives one directory holding two hundred thousand entries', async () => {
+    // One directory's fan-out, not the tree total: an app filling a mail spool
+    // or a cache creates this from inside its own container, and the crash it
+    // must not cause takes the folder listing dark and refuses copy and
+    // compress for that app permanently. V8's argument limit sits between
+    // 100k and 200k, so a spread of one readdir's names into push() is a
+    // crash dressed as a size.
+    const WIDTH = 200000;
+    const names = [];
+    for (let i = 0; i < WIDTH; i += 1) names.push(`f${i}`);
+    const fs = {
+      lstat: async (p) => (p === ROOT ? dir() : file(1)),
+      readdir: async (p) => (p === ROOT ? names : []),
+    };
+
+    expect(await measureTree(ROOT, fs)).to.equal(WIDTH);
+  });
 });

@@ -89,7 +89,10 @@ async function measureTree(root, fsPromises, options = {}) {
         (d) => fsPromises.readdir(d).then((names) => [d, names]).catch(() => [d, []]),
       ));
       for (const [directory, names] of listings) {
-        pending.push(...names.map((name) => path.join(directory, name)));
+        // One push per name: spreading a readdir's names as arguments is
+        // bounded by V8's argument limit, and one wide directory - a mail
+        // spool, a cache - is enough to reach it.
+        for (const name of names) pending.push(path.join(directory, name));
       }
     }
   }
