@@ -342,16 +342,27 @@ class VolumeSession {
    * entry are one reclaim. The executor creates the directory and reclaims it
    * whole.
    *
-   * The entry is always called `result`: its name is implementation - the
-   * publish renames it to the caller's destination - and taking a name here
-   * would make this a second place that turns caller strings into trusted
-   * paths, which is resolve()'s job alone.
+   * The entry is named after the destination it will become, because the tool
+   * writes THAT name and flux-op inspects it by name afterwards: zip appends
+   * .zip to a name carrying no extension, so an entry called `result` is
+   * written as `result.zip` and the inspection then lstats a path that does not
+   * exist. Using the destination's own basename - which archiveFormat has
+   * already required to be a valid archive extension - means the tool is given
+   * the exact name it writes, and nothing is mutated.
    *
+   * Takes the destination as a VolumePath, not a string: the name comes from a
+   * path resolve() already produced, so this is not a second place a caller
+   * string becomes a trusted path, and a basename cannot traverse.
+   *
+   * @param {VolumePath} destination the resolved path this result becomes
    * @returns {{directory: VolumePath, entry: VolumePath}}
    */
-  stagingDir() {
+  stagingDir(destination) {
+    if (!(destination instanceof VolumePath)) {
+      throw new Error('stagingDir must be given the destination VolumePath to name its result after');
+    }
     const name = `${STAGING_PREFIX}${crypto.randomUUID()}`;
-    const relative = path.posix.join(name, 'result');
+    const relative = path.posix.join(name, path.posix.basename(destination.relative));
     return {
       directory: new VolumePath(path.join(this.#mount, name), name, VolumePath),
       entry: new VolumePath(path.join(this.#mount, relative), relative, VolumePath),

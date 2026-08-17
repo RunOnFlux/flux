@@ -651,7 +651,7 @@ async function compressAppsObject(req, res) {
     // that temp sat outside the shape the sweep may delete. In here, the temp,
     // a partial archive and the entry are one reclaim. The executor creates
     // the directory and reclaims it whole.
-    const { entry: staging } = volume.stagingDir();
+    const { entry: staging } = volume.stagingDir(destination);
     // `--` before the operand, because a name is not an option. A file may
     // legitimately begin with a dash - the component rule rejects only the
     // separators and the control characters - and both archivers would read one
