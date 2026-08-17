@@ -560,10 +560,15 @@ describe('volumeExecutor tests', () => {
       dockerServiceStub.archiveNames = sinon.stub().resolves(['ghcr.io/someone/theirapp:v1']);
       dockerServiceStub.loadImage = sinon.stub().resolves({ ids: [IMAGE_ID], tags: [] });
       networkStateStub.getRandomSocketAddress.resolves('198.18.0.5:16127');
+      // The fetch must SUCCEED for this to test anything: with the shared
+      // default (axiosGet rejects), the transfer fails before archiveNames is
+      // consulted and the assertion below holds with the guard deleted.
+      serviceHelperStub.axiosGet.callsFake(async () => ({ data: peerArchive() }));
 
       const vol = await openSession();
       await expect(volumeExecutor.run(vol, ['true'])).to.be.rejected;
 
+      expect(dockerServiceStub.archiveNames.called, 'the archive was never inspected').to.equal(true);
       expect(dockerServiceStub.loadImage.called, 'the daemon was given an archive that names things').to.equal(false);
     });
 
@@ -963,6 +968,9 @@ describe('volumeExecutor tests', () => {
 
     it('serves only the id this node is pinned to', async () => {
       networkStateStub.networkState.returns([{ ip: '198.18.0.5:16127' }]);
+      // A real stub, so "the export never ran" is an observation rather than
+      // the shared stub object simply lacking the key.
+      dockerServiceStub.exportImage = sinon.stub().resolves(archiveStub());
       const res = responseFor();
 
       await volumeExecutor.serveImageToPeer(
@@ -971,7 +979,7 @@ describe('volumeExecutor tests', () => {
       );
 
       expect(res.statusCode).to.equal(404);
-      expect(dockerServiceStub.exportImage).to.equal(undefined);
+      sinon.assert.notCalled(dockerServiceStub.exportImage);
     });
 
     it('reads an IPv4-mapped address as the IPv4 address it is', async () => {
@@ -1949,19 +1957,17 @@ describe('volumeExecutor tests', () => {
       expect(seen).to.deep.equal([]);
     });
 
-    it('reports nothing to a caller that did not ask', async () => {
-      // A move publishes its source where it stands, so the volume gains
-      // nothing and a figure would report zero throughout. The caller opts in.
-      // The volume is still READ - that is how a stalled operation is noticed -
-      // but nothing is handed back.
+    it('still reads the volume for liveness when no caller asked for figures', async () => {
+      // A move publishes its source where it stands, so no caller opts into
+      // byte figures - but the volume read is ALSO how a stalled operation is
+      // noticed, and it must not disappear with the reporting.
       const vol = await openSession();
       const publish = await operands(vol);
       containerStub.wait = runsFor(180);
-      const onBytes = sinon.stub();
 
       await volumeExecutor.run(vol, [], { publish });
 
-      expect(onBytes.called).to.equal(false);
+      expect(fsStub.statfs.called, 'nothing watched the volume for liveness').to.equal(true);
     });
   });
 

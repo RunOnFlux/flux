@@ -140,6 +140,20 @@ describe('volumeSession tests', () => {
       await volumeSession.openVolume(reqFor('myapp', 'comp'));
       expect(verificationHelperStub.verifyPrivilege.calledWith('appownerabove', sinon.match.any, 'myapp')).to.equal(true);
     });
+
+    it('carries the authenticated identity as the session owner', async () => {
+      // The one link in the chain nothing else pins. The session's owner is
+      // what the job registry scopes reads and cancels by, and a null owner
+      // makes every file-operation job readable and cancellable by ANY
+      // authenticated caller - jobRegistry.get short-circuits its owner check
+      // on null. Production is safe only because this assignment holds.
+      const req = reqFor();
+      req.headers = { zelidauth: { zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC' } };
+
+      const vol = await volumeSession.openVolume(req);
+
+      expect(vol.owner).to.equal('1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC');
+    });
   });
 
   describe('resolve', () => {

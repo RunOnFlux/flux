@@ -125,6 +125,9 @@ describe('fileSystemManager upload tests', () => {
 
     expect(executorStub.run.callCount).to.equal(1);
     const [, argv, options] = executorStub.run.firstCall.args;
+    // The ceiling is the volume's own free space less the headroom - pinned,
+    // because an unpinned ceiling and no ceiling are indistinguishable here.
+    expect(options.maxBytes).to.equal(Math.floor(1e9 / 1.05));
     expect(argv).to.deep.equal([]);
     expect(options.input, 'nothing was streamed in').to.not.equal(undefined);
     expect(options.publish.destination.relative).to.equal('photos/notes.txt');
@@ -174,23 +177,30 @@ describe('fileSystemManager upload tests', () => {
   // holding has to come back, which is the part that went wrong: the parser
   // reports a body ending, and a request refused part way through does not
   // always get that far.
-  it('releases the slot when a filename is refused', async () => {
+  it('releases the slot when a filename is refused, and the caller hears a refusal', async () => {
     const done = concluded();
     await fileSystemManager.uploadAppsFiles(multipartRequest({ '../../escaped.txt': 'x' }), res);
-    await done;
+    const outcome = await done;
 
     expect(executorStub.run.called, 'a refused name reached the executor').to.equal(false);
     expect(release.called, 'the slot was leaked, and this app can run nothing else').to.equal(true);
+    // The refusal must reach the caller AS a refusal - a refused upload
+    // answered as a clean end reads as success in every client.
+    expect(outcome).to.equal('answered');
+    expect(res.json.firstCall.args[0].status).to.equal('error');
   });
 
-  it('releases the slot when an operation fails', async () => {
+  it('releases the slot when an operation fails, and reports the failure', async () => {
     executorStub.run.rejects(new Error('File operation failed (exit 3): over the limit'));
 
     const done = concluded();
     await fileSystemManager.uploadAppsFiles(multipartRequest({ 'toobig.bin': 'x' }), res);
-    await done;
+    const outcome = await done;
 
     expect(release.called, 'the slot was leaked after a refused upload').to.equal(true);
+    expect(outcome).to.equal('answered');
+    expect(res.json.firstCall.args[0].status).to.equal('error');
+    expect(res.json.firstCall.args[0].data.message).to.include('over the limit');
   });
 
   it('refuses a full volume before reading a byte', async () => {
