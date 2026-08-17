@@ -50,6 +50,7 @@
 // name is free. Compress writes a single file, so its overwrite is a file-over-
 // file replace. A merge is not atomic (it is a sequence of renames), which is the
 // trade for overlaying rather than replacing an occupied directory.
+const config = require('config');
 const archiver = require('archiver');
 const { PassThrough } = require('stream');
 const path = require('path');
@@ -65,6 +66,45 @@ const { sendFile } = require('../utils/fileTransfer');
 const executor = require('./volumeExecutor');
 const jobRegistry = require('../utils/jobRegistry');
 const operationsController = require('../appManagement/operationsController');
+
+/**
+ * Reclaim an upload's operation slot if the request stops sending bytes at the
+ * floor rate.
+ *
+ * The executor's rate floor governs a file part's BODY, reached only once a part
+ * begins streaming. The slot, though, is taken the instant the request arrives -
+ * so a request that sends no file part (or dribbles the multipart preamble) held
+ * the slot until server.requestTimeout (2h) with the body floor never engaging,
+ * and maxConcurrentPerNode such requests 503 every file operation for every app
+ * on the node. This applies the SAME floor to the whole request: each window,
+ * the parser must have received at least the floor's worth of bytes, or the slot
+ * is released. The window is the interval's own cadence, so nothing here depends
+ * on a clock the tests would have to fake.
+ *
+ * @param {object} params
+ * @param {number} params.minBitsPerSecond - the floor, in bits per second
+ * @param {number} params.windowMs - how often the floor is checked
+ * @param {() => number} params.getBytes - cumulative bytes the parser has received
+ * @param {() => void} params.onStall - called once, when a window falls short
+ * @returns {() => void} stop the watchdog
+ */
+function startSlotFloor({
+  minBitsPerSecond, windowMs, getBytes, onStall,
+}) {
+  if (!(minBitsPerSecond > 0) || !(windowMs > 0)) return () => {};
+  const floorBytesPerWindow = (minBitsPerSecond / 8) * (windowMs / 1000);
+  let windowBytes = getBytes();
+  const timer = setInterval(() => {
+    const seen = getBytes();
+    if (seen - windowBytes < floorBytesPerWindow) {
+      onStall();
+      return;
+    }
+    windowBytes = seen;
+  }, windowMs);
+  if (timer.unref) timer.unref();
+  return () => clearInterval(timer);
+}
 
 /**
  * Report a failure.
@@ -939,9 +979,14 @@ async function uploadAppsFiles(req, res) {
   // first. Missing one of them leaks the app's operation slot for as long as
   // FluxOS runs, which takes that app's whole file browser with it.
   let settled = false;
+  // Cumulative bytes the parser has received, and the floor watching them. A
+  // held slot must always see bytes at the floor rate - see startSlotFloor.
+  let bytesReceivedTotal = 0;
+  let stopSlotFloor = () => {};
   const finish = () => {
     if (settled) return;
     settled = true;
+    stopSlotFloor();
     // After the queue, not before: the last container is still running long
     // after the parser has finished with the request.
     queue
@@ -970,6 +1015,7 @@ async function uploadAppsFiles(req, res) {
       uploadNames.set(file, requestedFilename || name);
     })
     .on('progress', (bytesReceived, bytesExpected) => {
+      bytesReceivedTotal = bytesReceived;
       try {
         res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
         if (res.flush) res.flush();
@@ -981,6 +1027,17 @@ async function uploadAppsFiles(req, res) {
     .on('end', finish);
 
   req.on('aborted', () => abandon(new Error('The upload did not complete')));
+
+  // The floor covers the whole request, not just a part body: the executor's
+  // floor never sees a request that sends no file part, and that request held
+  // the slot until the 2h request timeout.
+  const { minUploadBitsPerSecond, stallTimeoutMs } = config.fluxapps.volumeOperations;
+  stopSlotFloor = startSlotFloor({
+    minBitsPerSecond: minUploadBitsPerSecond,
+    windowMs: stallTimeoutMs,
+    getBytes: () => bytesReceivedTotal,
+    onStall: () => abandon(new Error(`The upload held a slot without sending the ${minUploadBitsPerSecond} bit/s a transfer has to keep`)),
+  });
 
   form.parse(req);
 }
@@ -996,4 +1053,5 @@ module.exports = {
   extractAppsObject,
   downloadAppsFolder,
   downloadAppsFile,
+  startSlotFloor,
 };

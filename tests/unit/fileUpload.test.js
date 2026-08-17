@@ -94,6 +94,7 @@ describe('fileSystemManager upload tests', () => {
     };
 
     fileSystemManager = proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
+      config: { fluxapps: { volumeOperations: { minUploadBitsPerSecond: 64 * 1000, stallTimeoutMs: 10 * 60 * 1000 } } },
       '../messageHelper': {
         createSuccessMessage: sinon.stub().callsFake((message) => ({ status: 'success', data: { message } })),
         createErrorMessage: sinon.stub().callsFake((message) => ({ status: 'error', data: { message } })),
@@ -245,6 +246,7 @@ describe('fileSystemManager upload tests', () => {
 
   it('refuses before taking a slot when the caller is not the owner', async () => {
     fileSystemManager = proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
+      config: { fluxapps: { volumeOperations: { minUploadBitsPerSecond: 64 * 1000, stallTimeoutMs: 10 * 60 * 1000 } } },
       '../messageHelper': {
         createErrorMessage: sinon.stub().callsFake((message, name, code) => ({ status: 'error', data: { message, name, code } })),
         createSuccessMessage: sinon.stub(),
@@ -270,5 +272,94 @@ describe('fileSystemManager upload tests', () => {
 
     expect(executorStub.acquireSlot.called, 'a refused caller took a slot').to.equal(false);
     expect(res.json.firstCall.args[0].data.code).to.equal(401);
+  });
+
+  // The slot floor: the executor's rate floor only governs a file part's body,
+  // so a request that sends no file part held its slot until the 2h request
+  // timeout. startSlotFloor applies the same floor to the whole request.
+  describe('startSlotFloor', () => {
+    let clock;
+
+    beforeEach(() => { clock = sinon.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }); });
+    afterEach(() => { clock.restore(); });
+
+    const floor = (getBytes, onStall) => fileSystemManager.startSlotFloor({
+      minBitsPerSecond: 64 * 1000, windowMs: 1000, getBytes, onStall,
+    });
+    // 64 kbit/s over a 1s window is 8000 bytes.
+
+    it('reclaims a slot that received nothing in a window', () => {
+      const onStall = sinon.stub();
+      floor(() => 0, onStall);
+      clock.tick(1000);
+      sinon.assert.calledOnce(onStall);
+    });
+
+    it('reclaims a slot dribbling just under the floor', () => {
+      let bytes = 0;
+      const onStall = sinon.stub();
+      floor(() => bytes, onStall);
+      bytes = 7999;
+      clock.tick(1000);
+      sinon.assert.calledOnce(onStall);
+    });
+
+    it('leaves a slot sending at or above the floor', () => {
+      let bytes = 0;
+      const onStall = sinon.stub();
+      floor(() => bytes, onStall);
+      for (let i = 0; i < 5; i += 1) { bytes += 8000; clock.tick(1000); }
+      sinon.assert.notCalled(onStall);
+    });
+
+    it('is a no-op when the floor is disabled', () => {
+      const onStall = sinon.stub();
+      fileSystemManager.startSlotFloor({
+        minBitsPerSecond: 0, windowMs: 1000, getBytes: () => 0, onStall,
+      });
+      clock.tick(10000);
+      sinon.assert.notCalled(onStall);
+    });
+
+    it('stops watching once stopped', () => {
+      const onStall = sinon.stub();
+      const stop = floor(() => 0, onStall);
+      stop();
+      clock.tick(5000);
+      sinon.assert.notCalled(onStall);
+    });
+  });
+
+  it('reclaims the slot of an upload that holds it without sending at the floor', async () => {
+    // The DoS: a valid request that sends only the multipart preamble - no file
+    // part - kept the executor's body floor from ever engaging, so the slot was
+    // held until the 2h request timeout. The request-level floor releases it.
+    const clock = sinon.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const req = new PassThrough();
+      req.headers = {
+        'content-type': 'multipart/form-data; boundary=----fluxuploadtest',
+        'content-length': '99999999',
+      };
+      req.params = { appname: 'myapp', component: 'comp', folder: 'photos' };
+      req.query = {};
+      req.body = {};
+
+      const done = concluded();
+      const handling = fileSystemManager.uploadAppsFiles(req, res);
+      // Only the preamble, far below the floor, and then silence.
+      req.write('------fluxuploadtest\r\nContent-Disposition: form-data; name="x"; filename="x"\r\n\r\n');
+      await new Promise((resolve) => { setImmediate(resolve); });
+      // One floor window elapses (stallTimeoutMs from the real config).
+      clock.tick(10 * 60 * 1000);
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      await handling;
+      await done;
+
+      expect(release.called, 'a stalled upload kept its slot').to.equal(true);
+    } finally {
+      clock.restore();
+    }
   });
 });
