@@ -38,7 +38,13 @@ jobs:
       #
       # Each attempt re-syncs to origin/master before deciding, so it is idempotent and safe when
       # two builds publish at once: the loser of a push race re-reads, finds the list already moved
-      # on, and either adds its hash to the new tip or exits because someone else added it.
+      # on, and either adds its hash to the new tip or exits because nothing is left to change.
+      #
+      # Alongside the hash it records a provenance row -- date, commit, branch, tag -- in the same
+      # commit. The list itself is opaque md5s, and the commit that produced an entry can stop
+      # existing (a force-push, a branch deleted after merge), so the row is what makes an entry
+      # attributable later. A tag push finds its hash already listed and fills in the tag on the
+      # existing row.
       - name: Publish the tree hash to fluxhashes
         env:
           API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
@@ -52,19 +58,41 @@ jobs:
             git fetch --quiet origin master
             git reset --quiet --hard origin/master
 
-            if grep -q "'${NEW_HASH}'" src/hashes/hashes.js; then
-              echo "already published: ${NEW_HASH}"
-              exit 0
+            if ! grep -q "'${NEW_HASH}'" src/hashes/hashes.js; then
+              sed -i "s/  ];/    '${NEW_HASH}',\n  ];/" src/hashes/hashes.js
             fi
 
-            sed -i "s/  ];/    '${NEW_HASH}',\n  ];/" src/hashes/hashes.js
-
-            # Refuse to publish a file that will not load. The list is served by requiring it, so a
-            # malformed edit would take the endpoint down rather than merely publishing something odd.
+            # Everything read from the environment inside a single-quoted script: in a double-quoted
+            # shell string the backticks and ${...} below would be the shell's, not node's.
             #
-            # Single-quoted, with the hash read from the environment: inside a double-quoted shell
-            # string the backticks below are command substitution and ${...} is the shell's, not
-            # node's.
+            # A row is only created, never rewritten -- a hash republished from another branch keeps
+            # its original attribution. The one later edit is a tag push filling in an empty tag.
+            node -e '
+              const fs = require("fs");
+              const FILE = "src/hashes/provenance.json";
+              const hash = process.env.NEW_HASH;
+              const isTag = process.env.GITHUB_REF_TYPE === "tag";
+              const record = fs.existsSync(FILE)
+                ? JSON.parse(fs.readFileSync(FILE, "utf8"))
+                : { hashes: {} };
+              if (!record.hashes) record.hashes = {};
+              const row = record.hashes[hash];
+              if (!row) {
+                record.hashes[hash] = {
+                  published: new Date().toISOString().slice(0, 10),
+                  commit: process.env.GITHUB_SHA,
+                  branch: isTag ? null : process.env.GITHUB_REF_NAME,
+                  tag: isTag ? process.env.GITHUB_REF_NAME : null,
+                };
+              } else if (isTag && !row.tag) {
+                row.tag = process.env.GITHUB_REF_NAME;
+              }
+              fs.writeFileSync(FILE, `${JSON.stringify(record, null, 2)}\n`);
+            '
+
+            # Refuse to publish files that will not load. The list is served by requiring it, so a
+            # malformed edit would take the endpoint down rather than merely publishing something
+            # odd; a malformed provenance record would take the signing run down.
             node -e '
               const expected = process.env.NEW_HASH;
               const hashes = require("./src/hashes/hashes").getHashes();
@@ -74,11 +102,20 @@ jobs:
               if (!hashes.includes(expected)) {
                 throw new Error("the new hash is not in the patched file");
               }
+              const record = JSON.parse(require("fs").readFileSync("src/hashes/provenance.json", "utf8"));
+              if (!record.hashes[expected]) {
+                throw new Error("the new hash has no provenance row");
+              }
               console.log(`hashes.js holds ${hashes.length} entries`);
             '
 
-            git add src/hashes/hashes.js
-            git commit --quiet -m "Update from https://github.com/RunOnFlux/flux/commit/${GITHUB_SHA}"
+            git add src/hashes/hashes.js src/hashes/provenance.json
+            if git diff --cached --quiet -- src/hashes/hashes.js src/hashes/provenance.json; then
+              echo "already published: ${NEW_HASH}"
+              exit 0
+            fi
+
+            git commit --quiet -m "Update from https://github.com/RunOnFlux/flux/commit/${GITHUB_SHA}" -- src/hashes/hashes.js src/hashes/provenance.json
 
             if git push --quiet; then
               echo "published ${NEW_HASH}"
