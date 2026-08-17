@@ -44,7 +44,7 @@ function nodeState(ip) {
   if (!state) {
     const deviceID = deviceIdForIp(ip);
     state = {
-      deviceID, folders: new Map(), devices: new Map(), restartRequired: false,
+      deviceID, folders: new Map(), devices: new Map(), ignores: new Map(), restartRequired: false,
     };
     // every node knows itself as a configured device
     state.devices.set(deviceID, {
@@ -460,13 +460,25 @@ app.get('/rest/db/file', (req, res) => {
   res.json({ availability: [], global: {}, local: {} });
 });
 
+// Ignores are stateful so a GET reflects a prior POST, as real syncthing does:
+// real syncthing serves GET + POST here (lib/api/api.go), and FluxOS sets a
+// folder's ignores by POSTing the full pattern set. PUT is kept as an alias for
+// any legacy caller.
 app.get('/rest/db/ignores', (req, res) => {
-  res.json({ ignore: [], expanded: [] });
+  const state = reqState(req);
+  const ignore = state.ignores.get(req.query.folder) || [];
+  res.json({ ignore, expanded: ignore });
 });
 
-app.put('/rest/db/ignores', (req, res) => {
-  res.json({});
-});
+function setIgnores(req, res) {
+  const state = reqState(req);
+  const ignore = Array.isArray(req.body && req.body.ignore) ? req.body.ignore : [];
+  state.ignores.set(req.query.folder, ignore);
+  res.json({ ignore, expanded: ignore });
+}
+
+app.post('/rest/db/ignores', setIgnores);
+app.put('/rest/db/ignores', setIgnores);
 
 app.get('/rest/db/localchanged', (req, res) => {
   res.json({ files: [], folders: [], symlinks: [], deletes: [], total: 0 });
