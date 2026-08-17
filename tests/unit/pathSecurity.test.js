@@ -16,6 +16,7 @@ const {
   verifyRealPathSync,
   sanitizeAndVerifyPath,
   rejectBackslashes,
+  openNoFollow,
 } = require('../../ZelBack/src/services/utils/pathSecurity');
 
 describe('pathSecurity', () => {
@@ -446,6 +447,50 @@ describe('pathSecurity', () => {
 
     it('should throw for null bytes before symlink check', async () => {
       await expect(sanitizeAndVerifyPath('file\0name', tempDir)).to.be.rejectedWith('null bytes');
+    });
+  });
+
+  describe('openNoFollow', () => {
+    let tempDir;
+
+    before(async () => {
+      tempDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-open-test-')));
+      await fs.writeFile(path.join(tempDir, 'real.txt'), 'hello');
+    });
+
+    after(async () => {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('opens a regular file and reports its size', async () => {
+      const { handle, stats } = await openNoFollow(path.join(tempDir, 'real.txt'));
+      try {
+        expect(stats.size).to.equal(5);
+      } finally {
+        await handle.close();
+      }
+    });
+
+    it('refuses a symlink with an actionable message, not an opaque errno', async () => {
+      // O_NOFOLLOW fails ELOOP on a symlink at the final component; the download
+      // reads on the host, so following it could serve a file outside the
+      // volume. The owner is told how to get the data instead of just "ELOOP".
+      const linkPath = path.join(tempDir, 'latest.txt');
+      try {
+        await fs.symlink(path.join(tempDir, 'real.txt'), linkPath);
+        await expect(openNoFollow(linkPath))
+          .to.be.rejectedWith(/symbolic link cannot be downloaded directly.*compress the folder/);
+      } catch (err) {
+        if (err.code !== 'EPERM' && err.code !== 'EACCES') {
+          throw err;
+        }
+      } finally {
+        try {
+          await fs.unlink(linkPath);
+        } catch (e) {
+          // ignore cleanup failures
+        }
+      }
     });
   });
 });

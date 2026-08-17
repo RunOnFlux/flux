@@ -490,10 +490,25 @@ async function sanitizeAndVerifyPath(userPath, basePath, options = {}) {
  * @throws {Error} if the path is not a regular file
  */
 async function openNoFollow(filePath) {
-  const handle = await fs.promises.open(
-    filePath,
-    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
-  );
+  let handle;
+  try {
+    handle = await fs.promises.open(
+      filePath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
+    );
+  } catch (error) {
+    // A symlink at the final component fails with ELOOP because O_NOFOLLOW
+    // refuses to follow it - the download reads on the host, not in the
+    // container, so following a link could hand back a file outside the volume.
+    // Answer the app owner with what to do instead of an opaque errno: a link
+    // an app legitimately keeps (latest.log -> dated.log) is served by naming
+    // its target, or by compressing the folder - which stores the link AND the
+    // real file - and downloading that archive.
+    if (error.code === 'ELOOP') {
+      throw new Error('A symbolic link cannot be downloaded directly; download the file it points to, or compress the folder and download the archive');
+    }
+    throw error;
+  }
 
   try {
     const stats = await handle.stat();
