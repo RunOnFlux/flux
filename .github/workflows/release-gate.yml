@@ -1,0 +1,105 @@
+name: release-gate
+
+# Required status check on release PRs (development -> master). Verifies, before a release can
+# merge, that what master will become is already approved: the version moves forward, the tree's
+# hash is in the signed document central serves, and the old-fluxbench fallback list carries it.
+#
+# This check is the gate the human sees; release-tag.yml re-verifies the merged tree before
+# cutting the tag and GitHub Release. Enforcement comes from branch protection listing this check
+# as required -- the workflow itself has no power to block a merge.
+#
+# Deliberately strict: central not serving a validly signed document is a red run, not a skip. A
+# gate that passes when its source is missing is not a gate.
+#
+# Read-only: no secrets, no pushes.
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-22.04
+    steps:
+      # The default pull_request checkout is the merge preview -- the tree master will actually
+      # hold after the merge -- which is the thing worth judging, not the PR head alone.
+      - uses: actions/checkout@v3
+
+      - name: Version moves forward
+        run: |
+          git fetch --quiet --depth 1 origin master
+          BASE=$(git show origin/master:package.json | jq -r .version)
+          CANDIDATE=$(jq -r .version package.json)
+          echo "master: ${BASE}  candidate: ${CANDIDATE}"
+          # Strictly newer, compared numerically per part. String inequality would call 8.17.10
+          # older than 8.17.9.
+          node -e '
+            const [base, head] = process.argv.slice(1).map((v) => v.split(".").map(Number));
+            const delta = head[0] - base[0] || head[1] - base[1] || head[2] - base[2];
+            if (!(delta > 0)) {
+              throw new Error("the candidate version does not move past master -- bump package.json in the release PR");
+            }
+          ' "$BASE" "$CANDIDATE"
+
+      - name: Tree hash is in the signed document central serves
+        run: |
+          NEW_HASH=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
+          echo "tree hash: ${NEW_HASH}"
+          # exported for the node script below; GITHUB_ENV only reaches subsequent steps
+          export NEW_HASH
+          echo "NEW_HASH=${NEW_HASH}" >> "$GITHUB_ENV"
+
+          curl -sS -m 30 -o hashlist-signed.json https://hashes.runonflux.io/hashlist
+
+          # Verify the signature the way a consumer does, against the published public keys
+          # (RunOnFlux/fluxhashes SIGNING.md), so a stale deploy answering every path with the
+          # unsigned array -- or anything else that is not the signed document -- is a red run.
+          #
+          # Single-quoted, with the hash read from the environment: inside a double-quoted shell
+          # string the ${...} below would be the shell's, not node's.
+          node -e '
+            const crypto = require("crypto");
+            const fs = require("fs");
+            const PINNED_PUBLIC_KEYS = [
+              "3023cb5e01dc22257ac5c31c4d12106cd0d58fa2005f867b3fdc5d303f6446ec",
+              "fee7b0ccf2323954af68a249eaa61f957239eb222329e08a5b6a50ced649bae8",
+            ];
+            const SPKI_ED25519_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+            const document = JSON.parse(fs.readFileSync("hashlist-signed.json", "utf8"));
+            const payload = Buffer.from(document.payload_b64, "base64");
+            const signature = Buffer.from(document.sig_b64, "base64");
+            const verified = PINNED_PUBLIC_KEYS.some((hex) => crypto.verify(
+              null,
+              payload,
+              crypto.createPublicKey({
+                key: Buffer.concat([SPKI_ED25519_PREFIX, Buffer.from(hex, "hex")]),
+                format: "der",
+                type: "spki",
+              }),
+              signature,
+            ));
+            if (!verified) {
+              throw new Error("central is not serving a validly signed hash list");
+            }
+            const { seq, hashes } = JSON.parse(payload.toString("utf8"));
+            if (!hashes.includes(process.env.NEW_HASH)) {
+              throw new Error(`the tree hash is not in the signed document (seq ${seq}) -- wait for the signing run to cover the release candidate`);
+            }
+            console.log(`signed document seq ${seq} carries the tree hash`);
+          '
+
+      # Old fluxbench falls back to helpers/hashes.json via GitHub raw when central is unreachable.
+      # The entry rides the release PR instead of a commit straight to master. This step retires
+      # with old fluxbench.
+      - name: Fallback list carries the hash
+        run: |
+          jq -e --arg h "$NEW_HASH" 'index($h) != null' helpers/hashes.json > /dev/null \
+            || { echo "helpers/hashes.json does not contain ${NEW_HASH} -- add it in the release PR"; exit 1; }
+          echo "helpers/hashes.json carries the tree hash"

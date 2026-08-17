@@ -1,0 +1,199 @@
+name: release-tag
+
+# Runs when a release lands on master: re-verifies the merged tree against the signed document,
+# takes an advisory look at live-node distribution, then cuts the tag and the GitHub Release and
+# records the tag on the provenance row in fluxhashes.
+#
+# The pre-merge gate (release-gate.yml) judged the merge preview; this judges what master actually
+# holds, which is the authoritative check -- it covers the only divergence branch protection
+# cannot. The tag and Release are outputs of a verified release: nothing in the fleet follows
+# them, the fleet follows master.
+#
+# A red run here means the release is stuck loudly with no tag -- the fleet is already on the
+# verified merge tree, so nothing is half-made.
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 2
+
+      # A push that does not change the version is not a release. HEAD^1 is master's previous tip
+      # whether the push was a merge or a plain commit.
+      - name: Did the version change?
+        id: version
+        run: |
+          CURRENT=$(jq -r .version package.json)
+          PREVIOUS=$(git show 'HEAD^1:package.json' 2>/dev/null | jq -r .version || echo "")
+          echo "previous: ${PREVIOUS:-none}  current: ${CURRENT}"
+          if [ "$CURRENT" = "$PREVIOUS" ]; then
+            echo "version unchanged, not a release"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "version=${CURRENT}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Idempotent: a re-run after the tag exists has nothing left to do.
+      - name: Tag already cut?
+        id: existing
+        if: steps.version.outputs.release == 'true'
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v${{ steps.version.outputs.version }}" > /dev/null; then
+            echo "tag v${{ steps.version.outputs.version }} already exists"
+            echo "done=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The merge tree normally equals the PR head tree the gate already saw signed, so this
+      # passes on the first poll. The loop covers the divergent case: the on-push publish and the
+      # signing run pick the new tree up within minutes, and this waits for them rather than
+      # failing a release over a race.
+      - name: Merged tree is in the signed document central serves
+        if: steps.version.outputs.release == 'true' && steps.existing.outputs.done == 'false'
+        run: |
+          NEW_HASH=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
+          echo "merged tree hash: ${NEW_HASH}"
+          # exported for the node script below; GITHUB_ENV only reaches subsequent steps
+          export NEW_HASH
+          echo "NEW_HASH=${NEW_HASH}" >> "$GITHUB_ENV"
+
+          for attempt in $(seq 1 30); do
+            curl -sS -m 30 -o hashlist-signed.json https://hashes.runonflux.io/hashlist || true
+            if node -e '
+              const crypto = require("crypto");
+              const fs = require("fs");
+              const PINNED_PUBLIC_KEYS = [
+                "3023cb5e01dc22257ac5c31c4d12106cd0d58fa2005f867b3fdc5d303f6446ec",
+                "fee7b0ccf2323954af68a249eaa61f957239eb222329e08a5b6a50ced649bae8",
+              ];
+              const SPKI_ED25519_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+              const document = JSON.parse(fs.readFileSync("hashlist-signed.json", "utf8"));
+              const payload = Buffer.from(document.payload_b64, "base64");
+              const signature = Buffer.from(document.sig_b64, "base64");
+              const verified = PINNED_PUBLIC_KEYS.some((hex) => crypto.verify(
+                null,
+                payload,
+                crypto.createPublicKey({
+                  key: Buffer.concat([SPKI_ED25519_PREFIX, Buffer.from(hex, "hex")]),
+                  format: "der",
+                  type: "spki",
+                }),
+                signature,
+              ));
+              if (!verified) throw new Error("not a validly signed document");
+              const { seq, hashes } = JSON.parse(payload.toString("utf8"));
+              if (!hashes.includes(process.env.NEW_HASH)) throw new Error(`not in seq ${seq}`);
+              console.log(`signed document seq ${seq} carries the merged tree hash`);
+            ' 2> poll-error.txt; then
+              exit 0
+            fi
+            echo "attempt ${attempt}: $(cat poll-error.txt) -- retrying in 30s"
+            sleep 30
+          done
+
+          echo "the signed document never covered the merged tree; no tag is cut"
+          exit 1
+
+      # Advisory until the fleet serves /flux/hashlist: results are logged, never fatal. Once the
+      # FluxOS side is deployed, enforcement is turning the failure at the end into exit 1.
+      - name: Live-node sample (advisory)
+        if: steps.version.outputs.release == 'true' && steps.existing.outputs.done == 'false'
+        run: |
+          curl -sS -m 60 -o nodelist.json https://api.runonflux.io/daemon/viewdeterministiczelnodelist || { echo "ADVISORY: node list unavailable"; exit 0; }
+          jq -r '.data[].ip | select(. != null and . != "")' nodelist.json | shuf -n 10 > sample.txt || true
+          SERVING=0
+          while read -r ADDR; do
+            HOST=${ADDR%:*}; PORT=${ADDR##*:}; [ "$HOST" = "$PORT" ] && PORT=16127
+            BODY=$(curl -sS -m 5 "http://${HOST}:${PORT}/flux/hashlist" 2>/dev/null || true)
+            PAYLOAD=$(printf '%s' "$BODY" | jq -r 'try (.payload_b64 // .data.payload_b64) // empty' 2>/dev/null || true)
+            if [ -n "$PAYLOAD" ] && printf '%s' "$PAYLOAD" | base64 -d 2>/dev/null | grep -q "$NEW_HASH"; then
+              SERVING=$((SERVING + 1))
+            fi
+          done < sample.txt
+          echo "ADVISORY: $(wc -l < sample.txt | tr -d ' ') nodes sampled, ${SERVING} serving a document with the merged tree hash"
+
+      - name: Cut the tag and the GitHub Release
+        if: steps.version.outputs.release == 'true' && steps.existing.outputs.done == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          git config user.email runonfluxbot@gmail.com
+          git config user.name runonfluxbot
+          git tag -a "v${VERSION}" -m "FluxOS v${VERSION}"
+          git push --quiet origin "refs/tags/v${VERSION}"
+          gh release create "v${VERSION}" --title "FluxOS v${VERSION}" --generate-notes --verify-tag
+          echo "released v${VERSION}"
+
+      # nodejs.yml annotates provenance rows when a tag push triggers it -- but pushes made with
+      # GITHUB_TOKEN do not trigger workflows, and the tag above is one. So the annotation happens
+      # here, same record, same rule: rows are only ever created or given their missing tag.
+      - name: Record the tag on the provenance row
+        if: steps.version.outputs.release == 'true' && steps.existing.outputs.done == 'false'
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+          TAG_NAME: v${{ steps.version.outputs.version }}
+        run: |
+          git clone --quiet "https://x-access-token:${API_TOKEN_GITHUB}@github.com/RunOnFlux/fluxhashes.git" fluxhashes
+          cd fluxhashes
+          git config user.email runonfluxbot@gmail.com
+          git config user.name runonfluxbot
+
+          for attempt in 1 2 3; do
+            git fetch --quiet origin master
+            git reset --quiet --hard origin/master
+
+            node -e '
+              const fs = require("fs");
+              const FILE = "src/hashes/provenance.json";
+              const hash = process.env.NEW_HASH;
+              const record = fs.existsSync(FILE)
+                ? JSON.parse(fs.readFileSync(FILE, "utf8"))
+                : { hashes: {} };
+              if (!record.hashes) record.hashes = {};
+              const row = record.hashes[hash];
+              if (!row) {
+                record.hashes[hash] = {
+                  published: new Date().toISOString().slice(0, 10),
+                  commit: process.env.GITHUB_SHA,
+                  branch: null,
+                  tag: process.env.TAG_NAME,
+                };
+              } else if (!row.tag) {
+                row.tag = process.env.TAG_NAME;
+              }
+              fs.writeFileSync(FILE, `${JSON.stringify(record, null, 2)}\n`);
+            '
+
+            git add src/hashes/provenance.json
+            if git diff --cached --quiet -- src/hashes/provenance.json; then
+              echo "provenance already carries the tag"
+              exit 0
+            fi
+
+            git commit --quiet -m "Tag ${TAG_NAME} on ${NEW_HASH}" -- src/hashes/provenance.json
+
+            if git push --quiet; then
+              echo "provenance row tagged ${TAG_NAME}"
+              exit 0
+            fi
+            echo "push raced with another publish, retrying"
+          done
+
+          echo "could not record the tag after 3 attempts"
+          exit 1
