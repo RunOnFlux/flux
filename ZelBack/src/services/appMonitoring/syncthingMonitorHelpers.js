@@ -315,6 +315,7 @@ function folderNeedsUpdate(existingFolder, newFolder) {
  */
 async function ensureStignoreCovers(folder) {
   const ignorePath = path.join(folder, SYNCTHING_IGNORE_FILE);
+  const tmpPath = path.join(folder, `${SYNCTHING_IGNORE_FILE}.tmp.${process.pid}`);
   try {
     const current = await fs.readFile(ignorePath, 'utf8').catch((error) => {
       if (error.code !== 'ENOENT') throw error;
@@ -324,9 +325,19 @@ async function ensureStignoreCovers(folder) {
     const missing = SYNCTHING_IGNORE_LINES.filter((line) => !lines.includes(line));
     if (!missing.length) return;
     const kept = current === '' || current.endsWith('\n') ? current : `${current}\n`;
-    await fs.writeFile(ignorePath, `${kept}${missing.join('\n')}\n`);
+    // Written to a temp beside the target and moved over it as root. The move
+    // is an atomic replace on the same filesystem, so a crash never leaves a
+    // half-written .stignore; and as root it lands even when the existing file
+    // is root-owned from an older FluxOS-as-root build, where an in-place write
+    // would fail EACCES and the staging-ignore protection would silently never
+    // arrive. ensureStfolderExists does its own work as root for the same
+    // reason.
+    await fs.writeFile(tmpPath, `${kept}${missing.join('\n')}\n`);
+    const moved = await serviceHelper.runCommand('mv', { runAsRoot: true, params: [tmpPath, ignorePath] });
+    if (moved.error) throw moved.error;
     log.info(`ensureStignoreCovers - added ${missing.join(', ')} to ${ignorePath}`);
   } catch (error) {
+    await fs.unlink(tmpPath).catch(() => {});
     log.error(`ensureStignoreCovers - could not converge ${ignorePath}: ${error.message}`);
   }
 }

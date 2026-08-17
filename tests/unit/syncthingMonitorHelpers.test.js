@@ -7,6 +7,7 @@ const axios = require('axios');
 const fsp = require('node:fs/promises');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const volumeService = require('../../ZelBack/src/services/utils/volumeService');
+const log = require('../../ZelBack/src/lib/log');
 const helpers = require('../../ZelBack/src/services/appMonitoring/syncthingMonitorHelpers');
 
 describe('syncthingMonitorHelpers tests', () => {
@@ -383,6 +384,17 @@ describe('syncthingMonitorHelpers tests', () => {
   describe('ensureStignoreCovers', () => {
     const FOLDER = '/apps/fluxcomp_app';
     const IGNORE = '/apps/fluxcomp_app/.stignore';
+    const isTempIn = (p) => typeof p === 'string' && p.startsWith(`${IGNORE}.tmp.`);
+
+    // The converged content is written to a temp beside the target, then moved
+    // over it as root - atomic, and it lands even on a legacy root-owned file.
+    function assertPlaced(writeFile, runCommand, content) {
+      sinon.assert.calledOnce(writeFile);
+      const [tmpPath, written] = writeFile.firstCall.args;
+      expect(isTempIn(tmpPath), `wrote to ${tmpPath}, not a temp beside the target`).to.equal(true);
+      expect(written).to.equal(content);
+      sinon.assert.calledWithMatch(runCommand, 'mv', { runAsRoot: true, params: [tmpPath, IGNORE] });
+    }
 
     it('appends the staging pattern to a file from before it existed', async () => {
       // Every existing g:/r:/s: app carries the creation-era content. Without
@@ -390,28 +402,32 @@ describe('syncthingMonitorHelpers tests', () => {
       // peer and a peer's boot sweep can delete a live operation's staging.
       sandbox.stub(fsp, 'readFile').resolves('/backup\n');
       const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
+      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
 
       await helpers.ensureStignoreCovers(FOLDER);
 
-      sinon.assert.calledOnceWithExactly(writeFile, IGNORE, '/backup\n/.flux-op-*\n');
+      assertPlaced(writeFile, runCommand, '/backup\n/.flux-op-*\n');
     });
 
     it('rewrites nothing when every policy line is present', async () => {
       sandbox.stub(fsp, 'readFile').resolves('/backup\n/.flux-op-*\n');
       const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
+      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
 
       await helpers.ensureStignoreCovers(FOLDER);
 
       sinon.assert.notCalled(writeFile);
+      sinon.assert.notCalled(runCommand);
     });
 
     it('creates the file whole when it is missing', async () => {
       sandbox.stub(fsp, 'readFile').rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
       const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
+      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
 
       await helpers.ensureStignoreCovers(FOLDER);
 
-      sinon.assert.calledOnceWithExactly(writeFile, IGNORE, '/backup\n/.flux-op-*\n');
+      assertPlaced(writeFile, runCommand, '/backup\n/.flux-op-*\n');
     });
 
     it('keeps lines it did not write', async () => {
@@ -419,19 +435,48 @@ describe('syncthingMonitorHelpers tests', () => {
       // require destroying anything an app added from inside its container.
       sandbox.stub(fsp, 'readFile').resolves('/backup\ncache/**\n');
       const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
+      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
 
       await helpers.ensureStignoreCovers(FOLDER);
 
-      sinon.assert.calledOnceWithExactly(writeFile, IGNORE, '/backup\ncache/**\n/.flux-op-*\n');
+      assertPlaced(writeFile, runCommand, '/backup\ncache/**\n/.flux-op-*\n');
+    });
+
+    it('places the file as root, so a legacy root-owned .stignore is not left uncovered', async () => {
+      // The whole point: an in-place write fails EACCES on a root-owned file
+      // from an older FluxOS-as-root build, silently losing the protection. The
+      // move runs as root.
+      sandbox.stub(fsp, 'readFile').resolves('/backup\n');
+      sandbox.stub(fsp, 'writeFile').resolves();
+      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
+
+      await helpers.ensureStignoreCovers(FOLDER);
+
+      expect(runCommand.firstCall.args[1].runAsRoot).to.equal(true);
+    });
+
+    it('cleans up the temp and logs when the move fails, rather than failing the pass', async () => {
+      sandbox.stub(fsp, 'readFile').resolves('/backup\n');
+      sandbox.stub(fsp, 'writeFile').resolves();
+      sandbox.stub(serviceHelper, 'runCommand').resolves({ error: new Error('EPERM') });
+      const unlink = sandbox.stub(fsp, 'unlink').resolves();
+      const logError = sandbox.stub(log, 'error');
+
+      await helpers.ensureStignoreCovers(FOLDER);
+
+      expect(isTempIn(unlink.firstCall.args[0])).to.equal(true);
+      sinon.assert.calledOnce(logError);
     });
 
     it('logs a failure rather than failing the pass', async () => {
       sandbox.stub(fsp, 'readFile').rejects(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
       const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
+      const runCommand = sandbox.stub(serviceHelper, 'runCommand').resolves({ error: null });
 
       await helpers.ensureStignoreCovers(FOLDER);
 
       sinon.assert.notCalled(writeFile);
+      sinon.assert.notCalled(runCommand);
     });
   });
 
