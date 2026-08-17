@@ -730,4 +730,54 @@ describe('appController tests', () => {
       sinon.assert.calledOnce(axiosStub);
     });
   });
+
+  describe('deliverGlobalCommand tests', () => {
+    // eslint-disable-next-line global-require
+    const axios = require('axios');
+    // eslint-disable-next-line global-require
+    const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+    // eslint-disable-next-line global-require
+    const log = require('../../ZelBack/src/lib/log');
+
+    afterEach(() => sinon.restore());
+
+    const boot503 = () => ({ response: { status: 503, headers: { 'retry-after': '15' } } });
+
+    it('retries a node that answers 503 while booting, so the command lands', async () => {
+      // Without the retry a global command aimed at a node mid-restart is
+      // dropped on the first refusal and the app is never actually removed.
+      const axiosStub = sinon.stub(axios, 'get');
+      axiosStub.onFirstCall().rejects(boot503());
+      axiosStub.onSecondCall().resolves({ status: 200 });
+      const delayStub = sinon.stub(serviceHelper, 'delay').resolves();
+
+      await appController.deliverGlobalCommand('http://node/apps/appremove/x', {});
+
+      sinon.assert.calledTwice(axiosStub); // refused, then landed
+      sinon.assert.calledOnce(delayStub); // waited between the two
+    });
+
+    it('gives up after the retry bound and warns rather than dropping silently', async () => {
+      sinon.stub(axios, 'get').rejects(boot503());
+      sinon.stub(serviceHelper, 'delay').resolves();
+      const warnStub = sinon.stub(log, 'warn');
+
+      await appController.deliverGlobalCommand('http://node/apps/appremove/x', {});
+
+      sinon.assert.calledOnce(warnStub);
+      expect(warnStub.firstCall.args[0]).to.include('not delivered');
+    });
+
+    it('does not retry a failure that is not a boot-gate 503', async () => {
+      // A 500, a refused command, a real error - that is the node's answer, not
+      // a self-resolving "come back later", so it is taken as final.
+      const axiosStub = sinon.stub(axios, 'get').rejects({ response: { status: 500 } });
+      const delayStub = sinon.stub(serviceHelper, 'delay').resolves();
+
+      await appController.deliverGlobalCommand('http://node/apps/appremove/x', {});
+
+      sinon.assert.calledOnce(axiosStub);
+      sinon.assert.notCalled(delayStub);
+    });
+  });
 });

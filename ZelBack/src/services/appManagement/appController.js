@@ -13,6 +13,61 @@ const { extractIp, extractPort } = require('../utils/socketAddressUtils');
 const log = require('../../lib/log');
 
 const { globalCmdDelayMs } = config.fluxapps;
+// Guaranteed a finite non-negative integer, so a missing or malformed config
+// value can never spin the retry loop below forever.
+const globalCmdBootRetries = (Number.isInteger(config.fluxapps.globalCmdBootRetries)
+  && config.fluxapps.globalCmdBootRetries >= 0)
+  ? config.fluxapps.globalCmdBootRetries
+  : 8;
+
+// A node still reconciling its apps after boot refuses these routes with 15s.
+const BOOT_RETRY_AFTER_FALLBACK_S = 15;
+// Caps a node's Retry-After so a hostile or absurd value cannot stall delivery.
+const BOOT_RETRY_MAX_WAIT_MS = 60 * 1000;
+
+/**
+ * Send one global command to one instance, retrying only a boot-gate refusal.
+ *
+ * A node that has not finished reconciling its apps after boot answers these
+ * routes with 503 + Retry-After (see requireBootSettled), which is
+ * self-resolving - it settles within its boot window. Retrying that a bounded
+ * number of times keeps a global command from being dropped on the first
+ * refusal: without it a global appremove aimed at a node mid-restart never
+ * lands, the app stays installed and running, and the owner was already told
+ * the removal was queried. ONLY a 503 is retried; any other status is the
+ * node's real answer and is final, and a node still refusing after the bound is
+ * warned about rather than hammered forever.
+ *
+ * Errors are handled internally, so this never rejects - callers fire it and
+ * move on.
+ *
+ * @param {string} url
+ * @param {object} axiosConfig
+ */
+async function deliverGlobalCommand(url, axiosConfig) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const response = await axios.get(url, axiosConfig);
+      log.info(`Successfully sent command to ${url}: ${response.status}`);
+      return;
+    } catch (error) {
+      const status = error.response && error.response.status;
+      if (status !== 503) {
+        log.error(`Axios request failed for ${url}`, error);
+        return;
+      }
+      if (attempt >= globalCmdBootRetries) {
+        log.warn(`Node at ${url} still reconciling apps after boot; command not delivered after ${globalCmdBootRetries} retries`);
+        return;
+      }
+      const headerRetryAfter = Number(error.response.headers && error.response.headers['retry-after']);
+      const retryAfterS = headerRetryAfter > 0 ? headerRetryAfter : BOOT_RETRY_AFTER_FALLBACK_S;
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(Math.min(retryAfterS * 1000, BOOT_RETRY_MAX_WAIT_MS));
+    }
+  }
+}
 
 /**
  * Get application locations from the global database
@@ -83,13 +138,9 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
       if (paramA) {
         url += `/${paramA}`;
       }
-      axios.get(url, axiosConfig)
-        .then((response) => {
-          log.info(`Successfully sent command to ${url}: ${response.status}`);
-        })
-        .catch((error) => {
-          log.error(`Axios request failed for ${url}`, error);
-        });
+      // Fire-and-forget: each node's delivery, with its own bounded retry of a
+      // boot-gate 503, runs on its own while the loop paces the sends.
+      deliverGlobalCommand(url, axiosConfig);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(globalCmdDelayMs);
     }
@@ -779,6 +830,7 @@ async function stopAllNonFluxRunningApps() {
 
 module.exports = {
   executeAppGlobalCommand,
+  deliverGlobalCommand,
   appStart,
   appStop,
   appRestart,
