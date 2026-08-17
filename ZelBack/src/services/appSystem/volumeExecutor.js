@@ -1599,14 +1599,19 @@ async function run(session, argv, options = {}) {
   // whole block for minutes and reads as a container doing nothing.
   const received = { bytes: 0 };
 
-  const release = slotHeld ? () => {} : acquireSlot(session.identifier);
-  let container = null;
-  let registeredContainerId = null;
   // Marked live so a restart mid-operation does not reap this container or sweep
   // this staging directory out from under it. A move or a rename publishes the
   // caller's own source rather than a staging directory, so there is nothing to
-  // guard for those - only the operations that write into staging.
-  const registeredStaging = publish && publish.staging ? publish.staging.hostPath : null;
+  // guard for those - only the operations that write into staging. What is
+  // registered - and later reclaimed - is the minted ROOT: for an entry nested
+  // in a staging directory that is the directory, so the scratch a tool wrote
+  // beside its output goes with it.
+  const registeredStaging = publish && publish.staging
+    ? stagingRootOf(publish.staging.hostPath, session.mount)
+    : null;
+  const release = slotHeld ? () => {} : acquireSlot(session.identifier);
+  let container = null;
+  let registeredContainerId = null;
   if (registeredStaging) liveStagingPaths.add(registeredStaging);
   let ticker = null;
   // Hoisted so the `finally` can reach them: everything this function opens is
@@ -1660,6 +1665,15 @@ async function run(session, argv, options = {}) {
     // local name that anything with docker access can move.
     const image = await ensureImage(onProgress);
     await assertMountIsLive(session);
+
+    // A nested staging entry's directory has to exist before the command does:
+    // zip cannot create its output's parent. Host-side for the same reasons
+    // the sweep is, and after the mount check for the same reason everything
+    // else here is.
+    if (registeredStaging && registeredStaging !== publish.staging.hostPath) {
+      const made = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: ['-p', registeredStaging] });
+      if (made.error) throw made.error;
+    }
 
     container = await dockerService.createContainer(
       containerOptions(
@@ -1874,6 +1888,29 @@ async function run(session, argv, options = {}) {
 async function removeStagingPath(hostPath) {
   const result = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', hostPath] });
   if (result.error) throw result.error;
+}
+
+/**
+ * The minted root an operation's staging entry lives under.
+ *
+ * What the live registry holds and the reclaim removes: for a plain staging
+ * entry that is the entry itself, and for one nested in a staging DIRECTORY
+ * (a compress archive, with the tool's scratch beside it) it is the
+ * directory, so the scratch goes with the entry. The root must carry the
+ * minted shape, because deriving a DIFFERENT path than the caller handed over
+ * and then rm -rf'ing it deserves proof it is ours.
+ *
+ * @param {string} hostPath the staging entry's host path
+ * @param {string} mount the volume root
+ * @returns {string} the root-level path to register and reclaim
+ */
+function stagingRootOf(hostPath, mount) {
+  const [top, ...rest] = path.relative(mount, hostPath).split(path.sep);
+  if (!rest.length) return hostPath;
+  if (!isStagingName(top)) {
+    throw new Error('A nested staging entry must live under a minted staging directory');
+  }
+  return path.join(mount, top);
 }
 
 /**

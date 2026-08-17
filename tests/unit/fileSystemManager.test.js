@@ -42,6 +42,10 @@ describe('fileSystemManager tests', () => {
         destination: volumePath(destination),
       })),
       staging: sinon.stub().returns(volumePath('.flux-op-abc')),
+      stagingDir: sinon.stub().returns({
+        directory: volumePath('.flux-op-abc'),
+        entry: volumePath('.flux-op-abc/result'),
+      }),
       measure: sinon.stub().resolves(1000),
       requireSpace: sinon.stub(),
       // Defaults to a volume with room, which is what every other test needs.
@@ -359,14 +363,26 @@ describe('fileSystemManager tests', () => {
       req.body.destination = 'backup.zip';
       await fileSystemManager.compressAppsObject(req, res);
 
-      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc', '--', '.']);
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc/result', '--', '.']);
     });
 
     it('writes a tarball when the destination says .tar.gz', async () => {
       req.body.destination = 'backup.tar.gz';
       await fileSystemManager.compressAppsObject(req, res);
 
-      expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', '--', '.']);
+      expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc/result', '--', '.']);
+    });
+
+    it('stages the archive inside a minted directory, so scratch lands there too', async () => {
+      // Info-ZIP builds the archive in a temp file in the OUTPUT's directory.
+      // At the volume root that temp - ziXXXXXX, outside the shape the sweep
+      // may delete - survived a SIGKILL forever, replicated mid-write, and sat
+      // in the owner's listing. Inside the minted directory, the temp, a
+      // partial archive and the entry are one reclaim.
+      req.body.destination = 'backup.zip';
+      await fileSystemManager.compressAppsObject(req, res);
+
+      expect(runOptions().publish.staging.containerPath).to.equal('/work/.flux-op-abc/result');
     });
 
     it('archives a directory from inside itself, so its CONTENTS are at the top', async () => {
@@ -390,7 +406,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(runOptions().workingDir.containerPath).to.equal('/work/uploads');
-      expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', '--', 'notes.txt']);
+      expect(argv()).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc/result', '--', 'notes.txt']);
     });
 
     it('archives a single file at the volume root from the root', async () => {
@@ -400,7 +416,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.compressAppsObject(req, res);
 
       expect(runOptions().workingDir.containerPath).to.equal('/work');
-      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc', '--', 'notes.txt']);
+      expect(argv()).to.deep.equal(['zip', '-r', '-q', '-y', '/work/.flux-op-abc/result', '--', 'notes.txt']);
     });
 
     it('carries a ceiling as well, because the measurement can read low', async () => {
@@ -421,7 +437,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.compressAppsObject(req, res);
 
       const args = argv();
-      expect(args).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc', '--', '-dashfile.txt']);
+      expect(args).to.deep.equal(['tar', '-czf', '/work/.flux-op-abc/result', '--', '-dashfile.txt']);
       expect(args.indexOf('--')).to.equal(args.indexOf('-dashfile.txt') - 1);
     });
 

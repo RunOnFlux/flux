@@ -332,6 +332,33 @@ class VolumeSession {
   }
 
   /**
+   * A staging DIRECTORY with the operation's result entry inside it.
+   *
+   * For an operation whose tool writes scratch beside its output: Info-ZIP
+   * builds an archive in a temp file in the output's directory, and at the
+   * volume root that temp - ziXXXXXX, outside the shape the sweep may delete -
+   * survived a SIGKILL forever, replicated mid-write, and sat in the owner's
+   * listing. Inside the minted directory, the temp, a partial result and the
+   * entry are one reclaim. The executor creates the directory and reclaims it
+   * whole.
+   *
+   * The entry is always called `result`: its name is implementation - the
+   * publish renames it to the caller's destination - and taking a name here
+   * would make this a second place that turns caller strings into trusted
+   * paths, which is resolve()'s job alone.
+   *
+   * @returns {{directory: VolumePath, entry: VolumePath}}
+   */
+  stagingDir() {
+    const name = `${STAGING_PREFIX}${crypto.randomUUID()}`;
+    const relative = path.posix.join(name, 'result');
+    return {
+      directory: new VolumePath(path.join(this.#mount, name), name, VolumePath),
+      entry: new VolumePath(path.join(this.#mount, relative), relative, VolumePath),
+    };
+  }
+
+  /**
    * Whether this path is a directory, following nothing.
    *
    * A symlink answers false however it resolves, which is what the callers

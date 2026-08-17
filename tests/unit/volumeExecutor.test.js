@@ -1286,6 +1286,38 @@ describe('volumeExecutor tests', () => {
       expect(rm.args[1].params).to.deep.equal(['-rf', staging.hostPath]);
     });
 
+    it('creates the directory of a nested staging entry before the container runs', async () => {
+      // zip cannot create its output's parent; the minted directory has to be
+      // there before the command is.
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op-123e4567-e89b-12d3-a456-426614174000/backup.zip');
+      const destination = await vol.resolve('backup.zip');
+
+      await volumeExecutor.run(vol, ['zip'], { publish: { staging, destination } });
+
+      const mkdir = serviceHelperStub.runCommand.getCalls().find((call) => call.args[0] === 'mkdir');
+      expect(mkdir, 'nothing created the staging directory').to.not.equal(undefined);
+      expect(mkdir.args[1].runAsRoot).to.equal(true);
+      expect(mkdir.args[1].params).to.deep.equal(['-p', `${MOUNT}/.flux-op-123e4567-e89b-12d3-a456-426614174000`]);
+      expect(dockerServiceStub.createContainer.calledAfter(serviceHelperStub.runCommand)).to.equal(true);
+    });
+
+    it('reclaims the whole minted directory of a nested staging entry', async () => {
+      // The scratch the tool wrote beside the entry - zip's temp file above
+      // all - goes with the entry, in one rm of the directory FluxOS minted.
+      containerStub.wait.resolves({ StatusCode: 2 });
+      const vol = await openSession();
+      const staging = await vol.resolve('.flux-op-123e4567-e89b-12d3-a456-426614174000/backup.zip');
+      const destination = await vol.resolve('backup.zip');
+
+      await expect(volumeExecutor.run(vol, ['zip'], { publish: { staging, destination } })).to.be.rejected;
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+      const rm = serviceHelperStub.runCommand.getCalls().find((call) => call.args[0] === 'rm');
+      expect(rm, 'nothing reclaimed the staging directory').to.not.equal(undefined);
+      expect(rm.args[1].params).to.deep.equal(['-rf', `${MOUNT}/.flux-op-123e4567-e89b-12d3-a456-426614174000`]);
+    });
+
     it('spawns no reclaim for an operation that staged nothing', async () => {
       // A move or a rename publishes the caller's own entry - there is no
       // staging to reclaim, and an rm here would be pointed at nothing.
