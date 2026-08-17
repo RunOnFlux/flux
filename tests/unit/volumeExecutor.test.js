@@ -65,6 +65,7 @@ describe('volumeExecutor tests', () => {
         minUploadBitsPerSecond: 64 * 1000,
         memoryBytes: 512 * 1024 * 1024,
         pidsLimit: 256,
+        cpuCores: 1,
         cancelGraceSeconds: 15,
         progressIntervalMs: 50,
       },
@@ -242,6 +243,19 @@ describe('volumeExecutor tests', () => {
       expect(HostConfig.NetworkMode).to.equal('none');
       expect(HostConfig.SecurityOpt).to.deep.equal(['no-new-privileges']);
       expect(HostConfig.AutoRemove).to.equal(true);
+    });
+
+    it('bounds the processor and grants no swap, so four operations cannot starve the node', async () => {
+      // The applications on the node are CPU-capped by their specs; an executor
+      // with no bound outranks all of them. And Memory without MemorySwap is a
+      // budget docker doubles in swap.
+      const vol = await openSession();
+      await volumeExecutor.run(vol, ['true']);
+
+      const { HostConfig } = dockerServiceStub.createContainer.firstCall.args[0];
+      expect(HostConfig.NanoCPUs).to.equal(1e9);
+      expect(HostConfig.CpuShares).to.equal(256);
+      expect(HostConfig.MemorySwap).to.equal(HostConfig.Memory);
     });
 
     it('never disables seccomp', async () => {

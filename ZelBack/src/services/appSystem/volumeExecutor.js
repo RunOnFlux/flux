@@ -1271,7 +1271,7 @@ async function volumeUsedBytes(mount, fsPromises) {
  * stays dropped, including MKNOD, so an archive cannot create device nodes.
  */
 function containerOptions(session, argv, image, workingDir = WORK_ROOT, withInput = false) {
-  const { memoryBytes, pidsLimit } = settings();
+  const { memoryBytes, pidsLimit, cpuCores } = settings();
 
   return {
     Image: image,
@@ -1293,7 +1293,18 @@ function containerOptions(session, argv, image, workingDir = WORK_ROOT, withInpu
       CapAdd: ['CHOWN', 'FOWNER', 'DAC_OVERRIDE'],
       SecurityOpt: ['no-new-privileges'],
       Memory: memoryBytes,
+      // Equal to Memory: this field is memory plus swap in one figure, so equal
+      // means no swap. Left unset, docker grants the same amount again in swap,
+      // and memoryBytes was chosen as the bound on a runaway archive, not half
+      // of one.
+      MemorySwap: memoryBytes,
       PidsLimit: pidsLimit,
+      NanoCPUs: Math.round(cpuCores * 1e9),
+      // A quarter of the default weight: under contention the applications win,
+      // because they are what the node is for and their own CPU quotas were
+      // priced. On an idle core this costs a file operation nothing - shares
+      // only decide who yields when someone has to.
+      CpuShares: 256,
       // Docker's default seccomp and apparmor profiles apply because nothing
       // here disables them. Never pass seccomp=unconfined - it is the change
       // that gets made to "fix" a mystery permissions error and it removes the

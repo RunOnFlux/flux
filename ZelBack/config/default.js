@@ -221,6 +221,15 @@ module.exports = {
       // the size of the volume itself.
       memoryBytes: 512 * 1024 * 1024,
       pidsLimit: 256,
+      // One core per operation. tar and zip are single-threaded, so this mostly
+      // writes down what they already use - what it bounds is the tool that is
+      // not: anything in the image that spawns workers has pidsLimit's worth of
+      // processes to do it with, and without a quota one operation takes every
+      // core the node has. The worst case across the pool is
+      // maxConcurrentPerNode cores, and contention inside it is settled by
+      // CpuShares in the executor's HostConfig: file operations yield to the
+      // applications, which are the tenants the node is for.
+      cpuCores: 1,
       // How long a cancelled operation is given to stop of its own accord. The
       // container is sent SIGTERM, which flux-op traps to stop the command and
       // reclaim its staging directory; only after this does docker escalate to
