@@ -273,7 +273,13 @@ async function removeAppsObject(req, res) {
   try {
     const volume = await openVolume(req);
     const object = requiredParam(req, 'object');
-    const target = await volume.resolve(object, { mustExist: true });
+    // No mustExist: a delete is idempotent. rm -rf exits 0 on a path that is
+    // already gone, so removing something twice - a client retrying after a
+    // timeout, above all - answers success rather than "does not exist", which
+    // is how this behaved before it became a job. Containment and the
+    // reserved-name guard hold either way; only the existence requirement,
+    // which a delete does not need, is dropped.
+    const target = await volume.resolve(object);
 
     return startOperation(
       res,

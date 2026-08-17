@@ -228,11 +228,23 @@ describe('fileSystemManager tests', () => {
       expect(argv()).to.deep.equal(['rm', '-rf', '/work/uploads/old.txt']);
     });
 
-    it('requires the object to exist, so a typo is not reported as success', async () => {
-      req.params.object = 'uploads/old.txt';
+    it('removes an object that is already gone as a success, idempotently', async () => {
+      // rm -rf exits 0 on a missing path, so a delete of something already gone
+      // - a client retrying after a timeout above all - answers success rather
+      // than "does not exist". Existence is NOT required: resolve here is asked
+      // WITHOUT mustExist, so a stub that would refuse a missing path never
+      // fires, and the idempotent rm runs.
+      req.params.object = 'uploads/gone.txt';
+      sessionStub.resolve = sinon.stub().callsFake(async (p, opts) => {
+        if (opts && opts.mustExist) throw new Error('Source does not exist');
+        return volumePath(p);
+      });
+
       await fileSystemManager.removeAppsObject(req, res);
 
-      expect(sessionStub.resolve.firstCall.args[1]).to.deep.equal({ mustExist: true });
+      expect(executorStub.run.called, 'the delete was refused instead of running idempotently').to.equal(true);
+      expect(argv()).to.deep.equal(['rm', '-rf', '/work/uploads/gone.txt']);
+      expect(res.json.firstCall.args[0].status).to.equal('success');
     });
 
     it('answers a quick remove inline, as it did before it was a job', async () => {

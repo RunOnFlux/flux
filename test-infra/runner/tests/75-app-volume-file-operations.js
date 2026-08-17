@@ -464,6 +464,15 @@ describe('app volume file operations - the contract', function () {
       expect(JSON.stringify(res.data)).to.match(/error/i);
     });
 
+    it('removeobject deletes an already-gone path as a success, idempotently', async function () {
+      this.timeout(120000);
+      // A delete is idempotent: rm -rf exits 0 on a path that is not there, so a
+      // client retrying a delete after a timeout is told success, not "does not
+      // exist" - the behaviour before this endpoint became a job.
+      const res = await get(`/apps/removeobject/${appName}/${appName}/never-existed.txt`);
+      expect(res.data.status, JSON.stringify(res.data)).to.equal('success');
+    });
+
     it('refuses a caller who is not the app owner', async function () {
       this.timeout(60000);
       // openVolume authorises at the OBJECT level and throws an error carrying
