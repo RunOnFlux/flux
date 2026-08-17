@@ -97,26 +97,34 @@ const portsNotWorking = new Set();
 const appsStorageViolations = [];
 
 /**
- * createIndex that tolerates a pre-existing index with conflicting options
- * (IndexOptionsConflict / IndexKeySpecsConflict) by finding the conflicting
- * index via listIndexes, dropping it by its actual name, and recreating.
- * Every other error bubbles up.
+ * createIndex that never rejects. A pre-existing index with conflicting
+ * options (IndexOptionsConflict / IndexKeySpecsConflict) is found via
+ * listIndexes, dropped by its actual name, and recreated. Any other failure
+ * is logged and the index skipped — a unique index over rows that already
+ * violate it fails identically on every attempt, and a throw here aborts
+ * boot into a 15s retry loop with the boot gate shut, 503ing the operator
+ * commands (appremove) that could unwedge the node. Serving without the
+ * index until a later boot rebuilds it is the lesser harm.
  */
 async function ensureIndex(collection, spec, options = {}) {
   try {
-    await collection.createIndex(spec, options);
-  } catch (err) {
-    const conflict = err && (err.codeName === 'IndexOptionsConflict' || err.codeName === 'IndexKeySpecsConflict');
-    if (!conflict) throw err;
-    const specKeys = JSON.stringify(spec);
-    const indexes = await collection.listIndexes().toArray();
-    const match = indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
-    const dropName = match?.name;
-    if (dropName) {
-      log.warn(`ensureIndex - conflicting index '${dropName}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
-      await collection.dropIndex(dropName);
+    try {
+      await collection.createIndex(spec, options);
+    } catch (err) {
+      const conflict = err && (err.codeName === 'IndexOptionsConflict' || err.codeName === 'IndexKeySpecsConflict');
+      if (!conflict) throw err;
+      const specKeys = JSON.stringify(spec);
+      const indexes = await collection.listIndexes().toArray();
+      const match = indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
+      const dropName = match?.name;
+      if (dropName) {
+        log.warn(`ensureIndex - conflicting index '${dropName}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
+        await collection.dropIndex(dropName);
+      }
+      await collection.createIndex(spec, options);
     }
-    await collection.createIndex(spec, options);
+  } catch (err) {
+    log.error(`ensureIndex - failed to build index on ${collection.collectionName} (key: ${JSON.stringify(spec)}): ${err.message}; continuing boot without it`);
   }
 }
 
@@ -616,4 +624,5 @@ async function startFluxFunctions() {
 
 module.exports = {
   startFluxFunctions,
+  ensureIndex,
 };
