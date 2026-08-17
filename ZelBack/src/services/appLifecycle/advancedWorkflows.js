@@ -3,7 +3,7 @@ const util = require('util');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE,
+  SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, SYNCTHING_IGNORE_LINES,
 } = require('../appSystem/volumeReservedNames');
 const nodecmd = require('node-cmd');
 const axios = require('axios');
@@ -770,9 +770,10 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         if (res.flush) res.flush();
       }
 
-      // Create .stignore file to exclude backup directory (in parent
-      // directory; the app dir is 777 by now so no elevation is needed)
-      await fs.promises.writeFile(path.join(appDir, SYNCTHING_IGNORE_FILE), '/backup\n');
+      // Create .stignore with the FluxOS policy lines - what keeps backup and
+      // an operation's staging off the network (in parent directory; the app
+      // dir is 777 by now so no elevation is needed)
+      await fs.promises.writeFile(path.join(appDir, SYNCTHING_IGNORE_FILE), `${SYNCTHING_IGNORE_LINES.join('\n')}\n`);
       const stiFileCreation = {
         status: '.stignore created',
       };

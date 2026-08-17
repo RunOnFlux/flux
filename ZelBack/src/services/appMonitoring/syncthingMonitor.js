@@ -28,6 +28,7 @@ const {
   buildDeviceConfiguration,
   createSyncthingFolderConfig,
   ensureStfolderExists,
+  ensureStignoreCovers,
   getContainerDataFlags,
   requiresSyncing,
   folderNeedsUpdate,
@@ -255,6 +256,11 @@ async function processContainerData(params) {
     log.warn(`processContainerData - ${appId} volume not mounted; skipping syncthing configuration this cycle`);
     return;
   }
+
+  // After the mount check for the same reason the marker is: on the bare
+  // directory this would write to the host filesystem. Converges folders
+  // created before a policy line existed; a converged folder costs one read.
+  await ensureStignoreCovers(folder);
 
   // Get and process app locations
   let locations = await appLocation(installedAppName);

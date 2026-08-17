@@ -64,6 +64,20 @@ const isStagingName = (name) => name.startsWith(STAGING_PREFIX)
 const SYNCTHING_FOLDER_MARKER = '.stfolder';
 const SYNCTHING_IGNORE_FILE = '.stignore';
 
+/**
+ * The .stignore lines FluxOS asserts on every folder it replicates.
+ *
+ * `/backup` keeps the owner's local archives off the network. The staging
+ * pattern keeps an operation's scratch off it: every byte a copy, extract or
+ * upload stages would otherwise replicate to every peer only to be deleted
+ * again on publish, and a peer's boot sweep could delete a replicated staging
+ * directory a live operation on another node still needs. Both are anchored to
+ * the folder root, so neither takes a name from the owner deeper in their own
+ * tree. Derived from STAGING_PREFIX so the pattern cannot drift from the names
+ * the sweep owns.
+ */
+const SYNCTHING_IGNORE_LINES = ['/backup', `/${STAGING_PREFIX}*`];
+
 const FOREIGN_NAMES = new Set([SYNCTHING_FOLDER_MARKER, SYNCTHING_IGNORE_FILE, 'lost+found']);
 
 /**
@@ -81,6 +95,7 @@ module.exports = {
   STAGING_PREFIX,
   SYNCTHING_FOLDER_MARKER,
   SYNCTHING_IGNORE_FILE,
+  SYNCTHING_IGNORE_LINES,
   isStagingName,
   isReservedName,
 };

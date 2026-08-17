@@ -380,6 +380,61 @@ describe('syncthingMonitorHelpers tests', () => {
     });
   });
 
+  describe('ensureStignoreCovers', () => {
+    const FOLDER = '/apps/fluxcomp_app';
+    const IGNORE = '/apps/fluxcomp_app/.stignore';
+
+    it('appends the staging pattern to a file from before it existed', async () => {
+      // Every existing g:/r:/s: app carries the creation-era content. Without
+      // the staging line, every byte an operation stages replicates to every
+      // peer and a peer's boot sweep can delete a live operation's staging.
+      sandbox.stub(fsp, 'readFile').resolves('/backup\n');
+      const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
+
+      await helpers.ensureStignoreCovers(FOLDER);
+
+      sinon.assert.calledOnceWithExactly(writeFile, IGNORE, '/backup\n/.flux-op-*\n');
+    });
+
+    it('rewrites nothing when every policy line is present', async () => {
+      sandbox.stub(fsp, 'readFile').resolves('/backup\n/.flux-op-*\n');
+      const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
+
+      await helpers.ensureStignoreCovers(FOLDER);
+
+      sinon.assert.notCalled(writeFile);
+    });
+
+    it('creates the file whole when it is missing', async () => {
+      sandbox.stub(fsp, 'readFile').rejects(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+      const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
+
+      await helpers.ensureStignoreCovers(FOLDER);
+
+      sinon.assert.calledOnceWithExactly(writeFile, IGNORE, '/backup\n/.flux-op-*\n');
+    });
+
+    it('keeps lines it did not write', async () => {
+      // The file is FluxOS-owned policy, but asserting OUR lines does not
+      // require destroying anything an app added from inside its container.
+      sandbox.stub(fsp, 'readFile').resolves('/backup\ncache/**\n');
+      const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
+
+      await helpers.ensureStignoreCovers(FOLDER);
+
+      sinon.assert.calledOnceWithExactly(writeFile, IGNORE, '/backup\ncache/**\n/.flux-op-*\n');
+    });
+
+    it('logs a failure rather than failing the pass', async () => {
+      sandbox.stub(fsp, 'readFile').rejects(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
+      const writeFile = sandbox.stub(fsp, 'writeFile').resolves();
+
+      await helpers.ensureStignoreCovers(FOLDER);
+
+      sinon.assert.notCalled(writeFile);
+    });
+  });
+
   describe('ensureStfolderExists', () => {
     it('refuses to create the marker on an unmounted dir (the rootfs-leak regression)', async () => {
       // a .stfolder created on the bare mountpoint re-arms syncthing onto the

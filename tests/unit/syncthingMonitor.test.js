@@ -67,6 +67,7 @@ const syncthingMonitorHelpersMock = {
     type: type || 'sendreceive',
   })),
   ensureStfolderExists: sinon.stub().resolves(true),
+  ensureStignoreCovers: sinon.stub().resolves(),
   getContainerFolderPath: sinon.stub().returns(''),
   getContainerDataFlags: sinon.stub().returns(''),
   requiresSyncing: sinon.stub().returns(false),
@@ -191,6 +192,8 @@ describe('syncthingMonitor tests', () => {
     syncthingMonitorHelpersMock.getContainerDataFlags.returns('');
     syncthingMonitorHelpersMock.ensureStfolderExists.reset();
     syncthingMonitorHelpersMock.ensureStfolderExists.resolves(true);
+    syncthingMonitorHelpersMock.ensureStignoreCovers.reset();
+    syncthingMonitorHelpersMock.ensureStignoreCovers.resolves();
 
     appQueryServiceMock.decryptEnterpriseApps.reset();
     appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ readable: apps, unreadable: [], inPlace: apps }));
@@ -817,6 +820,48 @@ describe('syncthingMonitor tests', () => {
       await clock.tickAsync(100);
 
       expect(peerFolderLivenessMock.createPeerFolderLiveness.callCount).to.be.greaterThan(afterFirst);
+    });
+  });
+
+  describe('ignore-policy convergence', () => {
+    const syncingApp = { name: 'testapp', version: 3, containerData: 'g:/appdata' };
+
+    it('converges the ignore file of every folder it replicates, each pass', async () => {
+      // Existing apps carry the creation-era .stignore; the monitor pass is the
+      // one place every replicated folder is already visited with its mount
+      // verified, so it is where the policy reaches them.
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.called(syncthingMonitorHelpersMock.ensureStignoreCovers);
+      const markerFolder = syncthingMonitorHelpersMock.ensureStfolderExists.firstCall.args[0];
+      sinon.assert.calledWithExactly(syncthingMonitorHelpersMock.ensureStignoreCovers, markerFolder);
+    });
+
+    it('does not touch the ignore file of a folder whose volume is not mounted', async () => {
+      // The same mount-safety rule as the marker: a write on the bare
+      // directory lands on the host filesystem, not in the volume.
+      syncthingMonitorHelpersMock.getContainerDataFlags.returns('g');
+      syncthingMonitorHelpersMock.requiresSyncing.returns(true);
+      syncthingMonitorHelpersMock.ensureStfolderExists.resolves(false);
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      mockInstalledAppsFn.resolves({ status: 'success', data: [syncingApp] });
+      syncthingServiceMock.getConfigFolders.resolves({ status: 'success', data: [{ id: 'testapp', type: 'sendreceive' }] });
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      monitorControl = syncthingMonitor.syncthingApps(mockState, mockInstalledAppsFn, mockGetGlobalStateFn);
+      await clock.tickAsync(100);
+
+      sinon.assert.notCalled(syncthingMonitorHelpersMock.ensureStignoreCovers);
     });
   });
 
