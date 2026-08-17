@@ -2,6 +2,7 @@ import { describe, it, before, beforeEach, after } from 'mocha';
 import { expect } from 'chai';
 import { createServer, request as httpRequest } from 'node:http';
 import { connect } from 'node:net';
+import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -129,12 +130,31 @@ describe('app volume file operations - a peer that does not play fair', function
     return Buffer.concat(blocks);
   }
 
-  /** A docker image archive whose manifest declares the given names. */
-  const archiveDeclaring = (names) => tarOf({
-    'manifest.json': JSON.stringify([{ Config: 'config.json', RepoTags: names, Layers: ['layer.tar'] }]),
-    'config.json': '{}',
-    'layer.tar': 'not really a layer',
-  });
+  /**
+   * A VALID docker image archive whose manifest declares the given names.
+   *
+   * Valid is the whole point. An archive with a placeholder config
+   * (`config.json: '{}'`) is refused by `docker load` with "invalid image JSON,
+   * no RootFS key" BEFORE any name is applied, so the theft can never be
+   * committed and deleting the name guard leaves the test green - it is docker,
+   * not the guard, turning the peer away. A real config with a rootfs whose
+   * diff_id matches the layer's bytes loads and APPLIES the declared names
+   * (verified: docker prints "renaming the old one ... to empty string" and
+   * moves the victim tag onto the peer's id). With the guard present the name
+   * is refused before the load; with it gone the tag moves. That difference is
+   * what this suite exists to see.
+   */
+  const archiveDeclaring = (names) => {
+    const layer = tarOf({ 'hello.txt': 'from a peer\n' });
+    const diffId = `sha256:${createHash('sha256').update(layer).digest('hex')}`;
+    return tarOf({
+      'manifest.json': JSON.stringify([{ Config: 'config.json', RepoTags: names, Layers: ['layer.tar'] }]),
+      'config.json': JSON.stringify({
+        architecture: 'amd64', os: 'linux', rootfs: { type: 'layers', diff_ids: [diffId] },
+      }),
+      'layer.tar': layer,
+    });
+  };
 
   before(async function () {
     this.timeout(600000);

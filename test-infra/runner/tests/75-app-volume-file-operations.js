@@ -288,6 +288,83 @@ describe('app volume file operations - the contract', function () {
     });
   });
 
+  // The destructive direction. Findings 1, 2 and 4 all live on the overwrite
+  // path, and until now it was covered nowhere end to end - only the refusal
+  // was. This is where the v1.4.2 collision contract is proven over HTTP: a
+  // file replaces a file, a directory MERGES rather than replacing wholesale,
+  // a cross-kind collision is refused as EDESTRUCTIVE with nothing touched, and
+  // the copy a replace displaced is reclaimed.
+  describe('overwrite', () => {
+    it('replaces a file with consent, and reclaims what it displaced', async function () {
+      this.timeout(180000);
+      await seedVolumeTree(node.container, appName, { 'newer.txt': 'new', 'older.txt': 'old' });
+
+      await succeed('/apps/copyobject', {
+        appname: appName, component: appName, source: 'newer.txt', destination: 'older.txt', overwrite: true,
+      });
+
+      expect(await contentOf(node.container, `${root}/older.txt`)).to.equal('new');
+      const leftovers = await treeOf(node.container, root);
+      expect(leftovers.filter((p) => p.includes('.flux-op-')), 'the displaced copy was not reclaimed').to.deep.equal([]);
+    });
+
+    it('merges a directory rather than replacing it, keeping what the source did not name', async function () {
+      this.timeout(180000);
+      // The property that separates a merge from a wholesale replace: an entry
+      // only the destination holds survives. A replace would delete it.
+      await seedVolumeTree(node.container, appName, {
+        'target/keep.txt': 'destination only',
+        'target/shared.txt': 'destination copy',
+        'incoming/shared.txt': 'source copy',
+        'incoming/added.txt': 'source only',
+      });
+
+      await succeed('/apps/copyobject', {
+        appname: appName, component: appName, source: 'incoming', destination: 'target', overwrite: true,
+      });
+
+      // kept, overwritten, added - the three outcomes a merge produces
+      expect(await contentOf(node.container, `${root}/target/keep.txt`), 'a merge deleted what the source did not name').to.equal('destination only');
+      expect(await contentOf(node.container, `${root}/target/shared.txt`)).to.equal('source copy');
+      expect(await contentOf(node.container, `${root}/target/added.txt`)).to.equal('source only');
+    });
+
+    it('refuses a file over a directory even with consent, and touches neither', async function () {
+      this.timeout(180000);
+      // A file cannot stand in for a tree, and seating it there would delete the
+      // tree. Refused as EDESTRUCTIVE - distinct from a name simply being taken -
+      // with the destination intact and nothing staged left behind.
+      await seedVolumeTree(node.container, appName, {
+        'afile': 'i am a file',
+        'adir/inside.txt': 'a whole tree',
+      });
+
+      const { job } = await startAndSettle('/apps/copyobject', {
+        appname: appName, component: appName, source: 'afile', destination: 'adir', overwrite: true,
+      });
+
+      expect(job.status, JSON.stringify(job.error)).to.equal('Failed');
+      expect(job.error.code).to.equal('EDESTRUCTIVE');
+      expect(await contentOf(node.container, `${root}/adir/inside.txt`), 'the tree under the destination was disturbed').to.equal('a whole tree');
+      expect(await exists(node.container, `${root}/afile`)).to.equal(true);
+      const leftovers = await treeOf(node.container, root);
+      expect(leftovers.filter((p) => p.includes('.flux-op-'))).to.deep.equal([]);
+    });
+
+    it('refuses a taken name without consent, as a name simply being taken', async function () {
+      this.timeout(180000);
+      await seedVolumeTree(node.container, appName, { 'wanted.txt': 'incoming', 'taken.txt': 'existing' });
+
+      const { job } = await startAndSettle('/apps/copyobject', {
+        appname: appName, component: appName, source: 'wanted.txt', destination: 'taken.txt',
+      });
+
+      expect(job.status, JSON.stringify(job.error)).to.equal('Failed');
+      expect(job.error.code).to.equal('EEXIST');
+      expect(await contentOf(node.container, `${root}/taken.txt`), 'a refused copy still overwrote').to.equal('existing');
+    });
+  });
+
   describe('rename', () => {
     // Migrated onto the executor on this branch and inherited the same
     // empty-command shape, so it failed on every call too. Still a GET, still

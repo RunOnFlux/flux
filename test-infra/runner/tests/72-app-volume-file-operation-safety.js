@@ -341,9 +341,16 @@ describe('app volume file operations - safety and recovery', function () {
       const leftovers = await treeOf(node.container, root);
       expect(leftovers.filter((p) => p.includes('.flux-op-')), 'staging was not reclaimed').to.deep.equal([]);
 
-      // The user is told it was too big, not handed a number.
+      // The user is handed a reason, not a bare exit code: filling the volume,
+      // a corrupt archive and one holding non-data are three problems with
+      // three answers. A word like "bytes" is not asserted here because tar's
+      // own out-of-space message carries it whether or not anything meaningful
+      // did - the ceiling itself, refusing BEFORE the volume fills, is proven
+      // precisely in flux-op's container suite, where max-bytes is set
+      // independent of the disk; here the oversized payload meets the disk
+      // first, and what this proves is the refusal and the cleanup.
       const said = JSON.stringify(job.error);
-      expect(said, `no reason given: ${said}`).to.match(/limit|bytes/i);
+      expect(said, `only a bare exit code: ${said}`).to.not.match(/"detail":"File operation failed with exit code \d+"/);
     });
   });
 
@@ -373,11 +380,20 @@ describe('app volume file operations - safety and recovery', function () {
       // is a name a user can legitimately choose - and the sweep DELETES what it
       // matches. Matching by prefix alone made that folder vanish on every
       // restart.
+      //
+      // A negative control needs proof the sweep RAN: "still there" otherwise
+      // only means "the sweep has not run yet". So a real staging directory is
+      // planted beside the lookalike and waited on - once THAT is reclaimed the
+      // sweep has demonstrably run, and the lookalike is asked about then.
       await seedVolumeTree(node.container, appName, { '.flux-op-backups/keep.txt': 'mine' });
+      await inNode(`mkdir -p ${root}/.flux-op-${STAGING_UUID} && echo scratch > ${root}/.flux-op-${STAGING_UUID}/partial`);
 
       await restartFluxos(node.container);
 
-      expect(await exists(node.container, `${root}/.flux-op-backups/keep.txt`)).to.equal(true);
+      await waitFor(async () => !await exists(node.container, `${root}/.flux-op-${STAGING_UUID}`), {
+        timeout: 60000, interval: 2000, label: 'the sweep has run (its own staging reclaimed)',
+      });
+      expect(await exists(node.container, `${root}/.flux-op-backups/keep.txt`), 'a lookalike folder was swept').to.equal(true);
     });
 
     it("leaves the application's own data alone across a restart", async function () {
@@ -391,16 +407,21 @@ describe('app volume file operations - safety and recovery', function () {
         'notes.txt': 'mine',
       });
       await inNode(`mkdir -p ${root}/.flux-old-${OPERATION_UUID} && echo mine > ${root}/.flux-old-${OPERATION_UUID}/keep.txt`);
+      // A real staging directory beside them, so the survival assertions below
+      // are made AFTER the sweep has provably run rather than merely after the
+      // node is back up - a node that mounts the volume before the sweep fires
+      // would pass a premature check trivially.
+      await inNode(`mkdir -p ${root}/.flux-op-${STAGING_UUID} && echo scratch > ${root}/.flux-op-${STAGING_UUID}/partial`);
 
       await restartFluxos(node.container);
-      await waitFor(async () => exists(node.container, `${root}/notes.txt`), {
-        timeout: 60000, interval: 2000, label: 'node back up with the volume mounted',
+      await waitFor(async () => !await exists(node.container, `${root}/.flux-op-${STAGING_UUID}`), {
+        timeout: 60000, interval: 2000, label: 'the sweep has run (its own staging reclaimed)',
       });
 
       expect(await exists(node.container, `${root}/photos/holiday.jpg`)).to.equal(true);
       expect(
         await exists(node.container, `${root}/.flux-old-${OPERATION_UUID}/keep.txt`),
-        'the sweep still acts on an artefact nothing writes any more',
+        'the sweep acted on an artefact nothing writes any more',
       ).to.equal(true);
     });
   });
