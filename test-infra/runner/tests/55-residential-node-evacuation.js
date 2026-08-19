@@ -106,8 +106,13 @@ async function seedApp(env, appName, { instances = 3, containerData = '/tmp', po
  * tip, and only on every fourth block, so whether the pass ever runs comes down
  * to which parity the race settles on. Driving the chain removes that instead of
  * hoping the phases stay favourable.
+ *
+ * maxBlocks is wall-clock cover, not a block count that matters in itself. The
+ * queue ticket a node waits out is measured in wall-clock while driving races
+ * through the chain in milliseconds, so the budget has to outlast the longest
+ * ticket in play - about 41s here - at roughly half a second a block.
  */
-async function driveUntil(env, nodeIndex, condition, maxBlocks = 40) {
+async function driveUntil(env, nodeIndex, condition, maxBlocks = 200) {
   const node = env.clients[nodeIndex - 1];
   for (let i = 0; i < maxBlocks; i += 1) {
     // eslint-disable-next-line no-await-in-loop
@@ -246,17 +251,23 @@ describe('Residential node evacuation', function () {
           residentialSettleMs: 600000,
           residentialEvacuationIntervalMs: 4000,
           residentialQueueBaseMs: 1000,
-          // The step has to exceed the interval between give-up passes, or the
-          // ordering it exists to create is compressed out of existence.
+          // Position in the instance order sets a wait of base + position*step,
+          // and the step is what stops two holders of the same app leaving
+          // together: the second's turn has to arrive AFTER the first's
+          // departure is visible to it.
           //
-          // Position in the instance order sets a wait of base + position*step.
-          // In production that is 30min + position*15min against a pass that
-          // runs every 44 blocks (~22min), so the second holder's turn arrives
-          // on a LATER pass than the first's - by which time the first has gone,
-          // the app is short, and the second refuses. That is what serialises
-          // the drain. At a 500ms step against a 20s pass, both holders are
-          // eligible in the same pass and both leave together.
-          residentialQueueStepMs: 30000,
+          // So the step only needs to outlast one give-up pass plus the
+          // propagation of a removal - here a pass is four driven blocks, two
+          // to four seconds, and the fluxappremoved broadcast is sub-second.
+          // Ten seconds carries ample margin while capping the worst wait (last
+          // of five instances) at 41s. Production's 15 MINUTES is sized against
+          // a pass that runs every 44 blocks; copying that number rather than
+          // the reasoning would add two minutes per test for nothing.
+          //
+          // Do not shorten it below a pass. At 500ms both holders became
+          // eligible within the same pass and both left - the mechanism intact,
+          // the property compressed out of existence.
+          residentialQueueStepMs: 10000,
           removeFluxAppsPeriod: 1,
         },
       },
@@ -388,7 +399,7 @@ describe('Residential node evacuation', function () {
     await driveUntil(env, TARGET, async () => {
       const current = await env.clients[TARGET - 1].get('/apps/installedapps');
       return !current.data.map((a) => a.name).includes('residentapp');
-    });
+    }, 200);
 
     // The node's own view, not app:removed - that event is published part-way
     // through the uninstall, after the runtime state is dropped and before the
@@ -493,13 +504,19 @@ describe('Residential node evacuation', function () {
       { timeout: 120000, label: 'the settling window starts again' });
     await elapseSettleWindow(TARGET);
 
-    // Drive the chain so the pass is reached deterministically.
+    // Drive the chain so the pass is reached deterministically, and keep
+    // driving until the verdict lands: the queue ticket is WALL-CLOCK, so
+    // driving a fixed few blocks races through the chain in seconds and stops
+    // long before this node's turn comes round.
     await stopTicker();
+    let safetyVerdict = null;
     const considered = waitForGiveUpConsidered(env.clients[TARGET - 1], 'worldapp',
       (d) => d.giveUp === true && d.reason === 'EVACUATION', 300000);
+    considered.catch(() => {});
     const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'worldapp',
-      (d) => d.safe === false, 300000);
-    await driveUntil(env, TARGET, async () => false, 12).catch(() => {});
+      (d) => d.safe === false, 300000).then((v) => { safetyVerdict = v; return v; });
+    refused.catch(() => {});
+    await driveUntil(env, TARGET, async () => safetyVerdict !== null, 200);
     await startTicker();
 
     // The pass reports on every app it holds, every pass, so this proves the
@@ -529,7 +546,7 @@ describe('Residential node evacuation', function () {
     await driveUntil(env, TARGET, async () => {
       const current = await env.clients[TARGET - 1].get('/apps/installedapps');
       return !current.data.map((a) => a.name).includes('worldapp');
-    });
+    }, 200);
     await startTicker();
 
     await whenGone(env, TARGET, 'worldapp', 120000);
@@ -605,7 +622,7 @@ describe('Residential node evacuation', function () {
     // the moment one node leaves means the other never gets a pass in which to
     // refuse, and the wait times out on a suite that stopped the clock itself.
     await stopTicker();
-    await driveUntil(env, TARGET, async () => refusal !== null, 80);
+    await driveUntil(env, TARGET, async () => refusal !== null, 200);
     await startTicker();
 
     const verdict = await refusedForBeingShort;
@@ -646,7 +663,7 @@ describe('Residential node evacuation', function () {
     refused.catch(() => {});
 
     await stopTicker();
-    await driveUntil(env, TARGET, async () => primaryRefusal !== null, 80);
+    await driveUntil(env, TARGET, async () => primaryRefusal !== null, 200);
     await startTicker();
 
     const verdict = await refused;
