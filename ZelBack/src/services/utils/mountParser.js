@@ -17,6 +17,7 @@
  */
 
 const log = require('../../lib/log');
+const { isReservedName } = require('../appSystem/volumeReservedNames');
 
 /**
  * Mount type enumeration
@@ -103,6 +104,17 @@ function validateSubdirOrFilename(name) {
   const reserved = ['appdata', 'backup', '.', '..'];
   if (reserved.includes(name)) {
     throw new Error(`Subdirectory/filename cannot be a reserved name: ${reserved.join(', ')}`);
+  }
+
+  // The volume root also holds entries that are not the owner's, and a mount is
+  // the one way an app reaches them: `.stignore` decides what leaves the node,
+  // `.stfolder` is how syncthing knows the folder is mounted at all, and an
+  // operation's staging is deleted underneath whoever holds it by the boot
+  // sweep. Refused through the same predicate the file browser refuses them by,
+  // so the two doors into that root cannot drift apart - which also means a name
+  // that merely resembles a staging directory stays the owner's to use.
+  if (isReservedName(name)) {
+    throw new Error(`Subdirectory/filename cannot be a reserved name: ${name}`);
   }
 
   // Check for special characters that might cause issues
