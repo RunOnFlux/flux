@@ -121,7 +121,7 @@ async function seedApp(env, appName, { instances = 3, containerData = '/tmp', po
  * @param {number} [opts.blockIntervalMs] Minimum wall-clock between blocks.
  * @returns {Promise<number>} Blocks driven.
  */
-async function driveUntil(env, nodeIndex, condition, { timeoutMs = 120000, blockIntervalMs = 200 } = {}) {
+async function driveUntil(env, nodeIndex, condition, { timeoutMs = 240000, blockIntervalMs = 200 } = {}) {
   const node = env.clients[nodeIndex - 1];
   const deadline = Date.now() + timeoutMs;
   let blocks = 0;
@@ -260,6 +260,23 @@ describe('Residential node evacuation', function () {
           // So: shorten the poll here so the suite can see the path at all.
           daemonInfoIntervalMs: 1000,
           residentialCheckIntervalMs: 3000,
+          // The give-up pass runs every removeFluxAppsPeriod * 4 blocks, and a
+          // block costs one explorerPollIntervalMs. There is a three-way
+          // relationship here and all three have to hold, or the serialisation
+          // this suite checks cannot happen:
+          //
+          //   propagation  <  pass interval  <  queue step
+          //
+          // A departure has to be VISIBLE to the other holder by its next pass
+          // (propagation < pass), and the two holders' turns have to fall on
+          // different passes (pass < step). Measured: with the pass at 4 blocks
+          // (~1s) the other node evaluated twice more before the
+          // network:appremoved reached it - propagation lost the race, both
+          // holders saw the app at full strength, and both left.
+          //
+          // 4 here puts the pass at 16 blocks, about 4s, comfortably longer than
+          // propagation while still far shorter than production's 44 blocks.
+          removeFluxAppsPeriod: 4,
           // Left LONG on purpose, and opened by the test when it is ready. A
           // short window would let evacuation start while the hold is still
           // being asserted, and the ordering - hold first, deletes nothing, and
@@ -272,13 +289,10 @@ describe('Residential node evacuation', function () {
           // together: the second's turn has to arrive AFTER the first's
           // departure is visible to it.
           //
-          // So the step only has to outlast one give-up pass plus the
-          // propagation of a removal. A pass is four blocks, and a block costs
-          // one explorerPollIntervalMs - 250ms in the harness - because a block
-          // is not looked at until the next poll. So a pass is about a second
-          // here and the fluxappremoved broadcast is sub-second. 5s is several
-          // times the margin needed and caps the worst wait - last of five
-          // instances - at 21s.
+          // The step has to outlast a pass, so two holders' turns land on
+          // different passes. With the pass at ~4s (see removeFluxAppsPeriod
+          // above), 15s carries margin and caps the worst wait - last of five
+          // instances - at 61s.
           //
           // Measured before explorerPollIntervalMs existed: 4.8s a block, a 20s
           // pass, and a 5s step that both holders cleared within one pass.
@@ -289,11 +303,8 @@ describe('Residential node evacuation', function () {
           //
           // Do not shorten it below a pass. At 500ms both holders became
           // eligible within the same pass and both left - the mechanism intact,
-          // the property compressed out of existence. And do not change it
-          // without looking at driveUntil's blockIntervalMs, which is what fixes
-          // how long a pass takes.
-          residentialQueueStepMs: 5000,
-          removeFluxAppsPeriod: 1,
+          // the property compressed out of existence.
+          residentialQueueStepMs: 15000,
         },
       },
     });
