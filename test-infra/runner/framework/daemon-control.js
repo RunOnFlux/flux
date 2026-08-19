@@ -157,6 +157,20 @@ export async function setNodeTier(ip, tier) {
   return post(`/node-tier/${ip}`, { tier });
 }
 
+// -- ArcaneOS attestation --
+
+/**
+ * Set whether a node's benchmark reports it as attested (ArcaneOS). Nodes are
+ * attested by default, so only a suite that cares has to say anything.
+ */
+export async function setSystemSecure(ip, secure) {
+  return post(`/system-secure/${ip}`, { secure });
+}
+
+export async function clearSystemSecure() {
+  return del('/system-secure');
+}
+
 // -- RPC failure --
 
 export async function enableRpcFailure(ip) {
