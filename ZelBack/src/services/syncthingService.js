@@ -1675,7 +1675,13 @@ async function postDbIgnores(req, res) {
       if (folder) {
         apiPath += `?folder=${folder}`;
       }
-      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+      // fluxteam, not adminandfluxteam like its siblings. .stignore decides what
+      // LEAVES this node for an app the node operator does not own, and a pattern
+      // dropped here replicates that app's backup and operation staging to every
+      // other node running it - so the blast radius of this one call is the fleet,
+      // not the box. Reading the volume is the operator's already; choosing what
+      // the network carries is not.
+      const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
