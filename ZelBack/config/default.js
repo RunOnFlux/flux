@@ -461,6 +461,13 @@ module.exports = {
     connectionBackoffMs: [120000, 300000, 600000, 900000],
     nodeMonitorIntervalMs: 1200000,
     nodeMonitorRemovalDelayMs: 60000,
+    // Residential-node staging. The placement hold is immediate and is not
+    // tunable; these pace only the part that moves customer data.
+    residentialCheckIntervalMs: 6 * 60 * 60 * 1000, // re-evaluate the verdict
+    residentialSettleMs: 24 * 60 * 60 * 1000, // verdict must hold before any app moves
+    residentialEvacuationIntervalMs: 6 * 60 * 60 * 1000, // minimum gap between departures
+    residentialQueueBaseMs: 30 * 60 * 1000, // every node waits at least this
+    residentialQueueStepMs: 15 * 60 * 1000, // per position in the instance order
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
@@ -621,13 +628,6 @@ module.exports = {
     // Where a replacement server signing key is fetched from when the installed one
     // has expired. The version is appended: /server-<major.minor>.asc
     signingKeyBaseUrl: 'https://pgp.mongodb.com',
-  },
-  residentialDos: {
-    // A node on a residential connection is only fit to serve the network when it
-    // runs ArcaneOS; without it, the host is unattested and the connection has no
-    // datacenter uptime behind it. Such a node is put into DOS until it migrates.
-    // Set false to disable enforcement fleet-wide from a config change alone.
-    enabled: true,
   },
   analytics: {
     url: 'https://cloudaudit.runonflux.io', // analytics server URL (e.g. 'https://analytics.runonflux.io'). Empty = disabled.

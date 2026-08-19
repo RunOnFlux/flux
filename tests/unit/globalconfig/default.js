@@ -335,6 +335,11 @@ module.exports = {
     wsHandshakeTimeoutMs: 10000,
     discoveryConnectionDelayMs: 500,
     nodeMonitorRemovalDelayMs: 60000,
+    residentialCheckIntervalMs: 21600000,
+    residentialSettleMs: 86400000,
+    residentialEvacuationIntervalMs: 21600000,
+    residentialQueueBaseMs: 1800000,
+    residentialQueueStepMs: 900000,
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
@@ -421,8 +426,5 @@ module.exports = {
   },
   mongodb: {
     signingKeyBaseUrl: 'https://pgp.mongodb.com',
-  },
-  residentialDos: {
-    enabled: true,
   },
 };

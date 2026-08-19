@@ -3052,4 +3052,53 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithExactly(errorLogSpy, 'IPTABLES: Error allowing traffic on Flux interface docker0. Error');
     });
   });
+
+  describe('placement hold tests', () => {
+    afterEach(() => {
+      fluxNetworkHelper.clearPlacementHold();
+      fluxNetworkHelper.clearStickyDosMessage();
+    });
+
+    it('is not held by default', () => {
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+      expect(fluxNetworkHelper.getPlacementHold()).to.equal(null);
+    });
+
+    it('holds with the reason it was given', () => {
+      fluxNetworkHelper.setPlacementHold('residential node not running ArcaneOS');
+
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
+      expect(fluxNetworkHelper.getPlacementHold()).to.equal('residential node not running ArcaneOS');
+    });
+
+    it('releases', () => {
+      fluxNetworkHelper.setPlacementHold('some reason');
+
+      fluxNetworkHelper.clearPlacementHold();
+
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+    });
+
+    it('does NOT put the node into DOS', () => {
+      // The whole point of the hold: DOS >= 100 makes nodeStatusMonitor and
+      // appStartupManager rm -rf every app on the box. A node that should stop
+      // growing but keep its volumes must not cross that line.
+      fluxNetworkHelper.setPlacementHold('residential node not running ArcaneOS');
+
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+    });
+
+    it('is independent of the sticky DOS slot in both directions', () => {
+      fluxNetworkHelper.setStickyDosMessage('someone else holds this');
+      fluxNetworkHelper.setStickyDosStateValue(100);
+
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(false);
+
+      fluxNetworkHelper.clearStickyDosMessage();
+      fluxNetworkHelper.setPlacementHold('held');
+
+      expect(fluxNetworkHelper.isNodeDos()).to.equal(false);
+      expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
+    });
+  });
 });
