@@ -389,6 +389,19 @@ function expandSample(sample) {
  */
 const statsFreshnessMs = 5 * 1000;
 
+// Readings in flight, keyed by app name. The freshness window above only helps a
+// caller who arrives AFTER one has landed; callers who arrive together all find
+// nothing fresh and all go and take their own. That is not a spare API call - a
+// reading walks the app's whole volume with du to size it, so ten viewers opening
+// the same server at once meant ten simultaneous walks of one disk, in precisely
+// the situation where a server is popular enough for several people to be looking.
+//
+// Same shape as the enterprise-spec decryption single-flight in appQueryService:
+// the first caller records its promise, everyone arriving mid-flight awaits that
+// one, and the entry is dropped once it settles - including on failure, so a
+// rejected reading is never handed to the next caller.
+const statsInFlight = new Map();
+
 /**
  * The most recent reading for an app, taking one only if what is held has aged out.
  *
@@ -411,16 +424,28 @@ async function latestStats(appname) {
     return expandSample(held);
   }
 
-  const stats = await dockerService.dockerContainerStats(appname);
-  stats.disk_stats = await getContainerStorage(appname);
-  const inspect = await dockerService.dockerContainerInspect(appname);
-  stats.nanoCpus = inspect.HostConfig.NanoCpus;
+  const inFlight = statsInFlight.get(appname);
+  if (inFlight) return expandSample(await inFlight);
 
-  const sample = { timestamp: Date.now(), elapsed: monotonicMs(), ...extractSample(stats) };
-  if (monitored) {
-    monitored.latest = sample;
+  const reading = (async () => {
+    const stats = await dockerService.dockerContainerStats(appname);
+    stats.disk_stats = await getContainerStorage(appname);
+    const inspect = await dockerService.dockerContainerInspect(appname);
+    stats.nanoCpus = inspect.HostConfig.NanoCpus;
+
+    const sample = { timestamp: Date.now(), elapsed: monotonicMs(), ...extractSample(stats) };
+    if (monitored) {
+      monitored.latest = sample;
+    }
+    return sample;
+  })();
+
+  statsInFlight.set(appname, reading);
+  try {
+    return expandSample(await reading);
+  } finally {
+    statsInFlight.delete(appname);
   }
-  return expandSample(sample);
 }
 
 /**

@@ -841,13 +841,81 @@ describe('appInspector tests', () => {
       });
 
       it('should take one reading however many callers ask at once', async () => {
+        // Started together and awaited together. Awaiting each in turn tests the
+        // case that already worked - the first caller leaves a fresh reading and
+        // the rest read it - and says nothing about callers that arrive while one
+        // is still in flight, which is the case that costs a du walk apiece.
         globalStateStub.appsMonitored = { myapp: { statsStore: [] } };
+        let release;
+        dockerServiceStub.dockerContainerStats.returns(new Promise((resolve) => {
+          release = () => resolve({
+            cpu_stats: { cpu_usage: { total_usage: 1 }, system_cpu_usage: 2, online_cpus: 1 },
+            precpu_stats: { cpu_usage: { total_usage: 0 }, system_cpu_usage: 0 },
+            memory_stats: { usage: 1, limit: 2 },
+          });
+        }));
 
-        await appInspector.appStats(req, res);
-        await appInspector.appStats(req, { json: sinon.stub() });
-        await appInspector.appStats(req, { json: sinon.stub() });
+        const calls = [
+          appInspector.appStats(req, res),
+          appInspector.appStats(req, { json: sinon.stub() }),
+          appInspector.appStats(req, { json: sinon.stub() }),
+        ];
+        // All three are past the freshness check and inside the reading before any
+        // of them can finish - the window this exists to close.
+        await new Promise((resolve) => { setImmediate(resolve); });
+        release();
+        await Promise.all(calls);
 
         expect(dockerServiceStub.dockerContainerStats.calledOnce).to.be.true;
+      });
+
+      it('gives every concurrent caller the same reading', async () => {
+        // Sharing the work is only right if it shares the ANSWER. Each call is made
+        // to return different numbers, so three separate readings cannot look like
+        // one: with a stub that answers identically every time this passes whether
+        // the work is shared or not, and proves nothing.
+        globalStateStub.appsMonitored = { myapp: { statsStore: [] } };
+        const reading = (total) => ({
+          cpu_stats: { cpu_usage: { total_usage: total }, system_cpu_usage: 2, online_cpus: 1 },
+          precpu_stats: { cpu_usage: { total_usage: 0 }, system_cpu_usage: 0 },
+          memory_stats: { usage: 1, limit: 2 },
+        });
+        dockerServiceStub.dockerContainerStats.onCall(0).resolves(reading(100));
+        dockerServiceStub.dockerContainerStats.onCall(1).resolves(reading(200));
+        dockerServiceStub.dockerContainerStats.onCall(2).resolves(reading(300));
+        const second = { json: sinon.stub() };
+        const third = { json: sinon.stub() };
+
+        await Promise.all([
+          appInspector.appStats(req, res),
+          appInspector.appStats(req, second),
+          appInspector.appStats(req, third),
+        ]);
+
+        const totals = [res, second, third]
+          .map((r) => r.json.firstCall.args[0].cpu_stats.cpu_usage.total_usage);
+        expect(totals).to.deep.equal([100, 100, 100]);
+      });
+
+      it('does not hand a failed reading to the next caller', async () => {
+        // The entry has to be dropped when the promise rejects too, or one docker
+        // hiccup is replayed to everyone who asks until something else clears it.
+        globalStateStub.appsMonitored = { myapp: { statsStore: [] } };
+        dockerServiceStub.dockerContainerStats.rejects(new Error('docker is busy'));
+        messageHelperStub.createErrorMessage.returns({ status: 'error' });
+
+        await appInspector.appStats(req, res);
+
+        dockerServiceStub.dockerContainerStats.resolves({
+          cpu_stats: { cpu_usage: { total_usage: 9 }, system_cpu_usage: 2, online_cpus: 1 },
+          precpu_stats: { cpu_usage: { total_usage: 0 }, system_cpu_usage: 0 },
+          memory_stats: { usage: 1, limit: 2 },
+        });
+        const after = { json: sinon.stub() };
+        await appInspector.appStats(req, after);
+
+        expect(dockerServiceStub.dockerContainerStats.calledTwice).to.be.true;
+        expect(after.json.firstCall.args[0].cpu_stats.cpu_usage.total_usage).to.equal(9);
       });
 
       // Without this a permanently stuck reading passes the test above perfectly.
