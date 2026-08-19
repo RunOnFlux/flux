@@ -146,6 +146,35 @@ describe('mountParser tests', () => {
       }).to.throw('reserved name');
     });
 
+    it('should reject a mount named after syncthing\'s ignore file', () => {
+      expect(() => {
+        mountParser.parseContainerData('/data|f:.stignore:/etc/ignores');
+      }).to.throw('reserved name');
+    });
+
+    it('should reject a mount named after syncthing\'s folder marker', () => {
+      expect(() => {
+        mountParser.parseContainerData('/data|m:.stfolder:/marker');
+      }).to.throw('reserved name');
+    });
+
+    it('should reject a mount that takes an operation staging name', () => {
+      expect(() => {
+        mountParser.parseContainerData('/data|m:.flux-op-0f3a1c2b-1111-2222-3333-444455556666:/staging');
+      }).to.throw('reserved name');
+    });
+
+    it('should reject a mount named lost+found', () => {
+      expect(() => {
+        mountParser.parseContainerData('/data|m:lost+found:/orphans');
+      }).to.throw('reserved name');
+    });
+
+    it('should allow a name that only resembles an operation staging name', () => {
+      const parsed = mountParser.parseContainerData('/data|m:.flux-op-backups:/archive');
+      expect(parsed.allMounts.map((m) => m.subdir)).to.include('.flux-op-backups');
+    });
+
     it('should reject non-absolute container path', () => {
       expect(() => {
         mountParser.parseContainerData('data');

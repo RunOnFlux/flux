@@ -384,3 +384,8 @@ test-infra/test-app/test-app
 
 # per-node logs written by the integration harness on test failure
 test-infra/runner/test-logs/
+
+# published image blobs mirrored into the harness registry (registry-helper
+# mirrorImage). Content-addressed and re-fetchable, so only the first suite of
+# a gate pays for the download.
+test-infra/runner/.image-cache/

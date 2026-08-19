@@ -1,5 +1,6 @@
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const networkStateManager = require('./utils/networkStateManager');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 /**
  * @typedef {import('./utils/networkStateManager').Fluxnode} Fluxnode
@@ -80,6 +81,16 @@ async function start(options = {}) {
       clearTimeout(timeout);
       resolveStarted();
       resolve();
+    });
+
+    // Every refresh, with what the node now believes the fleet to be. Nothing in
+    // production consumes it - the bus is test-only - and it exists because a
+    // test that changes the node list otherwise has no way to know when this
+    // node has read the change: the list is polled on a timer, and the only
+    // endpoints that report one ask the daemon rather than this cache. Sleeping
+    // long enough instead is the thing that turns into a flaky suite.
+    stateManager.on('updated', () => {
+      fluxEventBus.publish('networkstate:updated', { nodes: stateManager.nodeCount });
     });
 
     setImmediate(() => stateManager.start());

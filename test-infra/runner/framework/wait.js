@@ -45,6 +45,27 @@ export async function waitForBlockProcessed(node, predicate = () => true, timeou
   return node.waitForEvent('block:processed', predicate, timeout, opts);
 }
 
+// --- network state (networkStateService) ---
+
+// The node's OWN view of the fleet, which is a cache refreshed on a timer -
+// not the daemon's list. A suite that changes the node list therefore has no
+// way to know when THIS node has read the change: the endpoints that report a
+// list ask the daemon, and sleeping long enough instead is what turns into a
+// flaky suite.
+//
+// Pass { afterId } from getLastEventId() taken BEFORE the change is made. The
+// buffer holds every refresh since boot, so without an anchor a wait for a
+// given size can match a refresh that happened before the change and pass
+// having observed nothing.
+export async function waitForNetworkState(node, predicate = () => true, timeout = 60000, opts) {
+  return node.waitForEvent('networkstate:updated', predicate, timeout, opts);
+}
+
+// The common case: wait until the node's own view holds this many nodes.
+export async function waitForNetworkStateSize(node, nodes, timeout = 60000, opts) {
+  return waitForNetworkState(node, (d) => d.nodes === nodes, timeout, opts);
+}
+
 export async function waitForDosChanged(node, predicate = () => true, timeout = 30000, opts) {
   return node.waitForEvent('dos:changed', predicate, timeout, opts);
 }
@@ -190,6 +211,36 @@ export async function waitForReconcileSwept(node, reason, timeout = 60000, opts)
     timeout,
     opts,
   );
+}
+
+// A file operation answers 202 and reports its outcome through a status
+// resource. A poll is ALWAYS 200 whatever the job did - a failed operation is
+// still a successful poll - so the terminal condition is read from the body's
+// status field and never from the HTTP code.
+const TERMINAL_JOB_STATUSES = ['Succeeded', 'Failed', 'Canceled', 'Evicted'];
+
+/**
+ * Poll an operation until it settles, and hand back the whole job.
+ *
+ * Deliberately returns a failed job rather than throwing on one: a suite
+ * asserting that a hostile archive is refused wants the Failed job and its
+ * error, and an operation that never settles at all is this helper's only
+ * failure. Every poll goes through waitFor, so a dead infra container ends the
+ * wait as infra death rather than as this operation's timeout.
+ *
+ * @returns {Promise<object>} The terminal job document.
+ */
+export async function waitForOperation(node, jobId, zelidauth, { timeout = 180000, interval = 1000 } = {}) {
+  let job = null;
+  await waitFor(async () => {
+    const res = await node.request('GET', `/apps/operations/${jobId}`, { headers: { zelidauth } });
+    if (res.status !== 200) {
+      throw new Error(`poll of ${jobId} answered ${res.status}, expected 200: ${JSON.stringify(res.data)}`);
+    }
+    job = res.data?.data;
+    return TERMINAL_JOB_STATUSES.includes(job?.status);
+  }, { timeout, interval, label: `operation ${jobId} to reach a terminal status` });
+  return job;
 }
 
 /**

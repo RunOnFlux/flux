@@ -61,6 +61,16 @@ describe('appQueryService tests', () => {
 
     dockerServiceStub = {
       dockerListContainers: sinon.stub(),
+      // Mirrors the real predicate rather than returning a constant: these
+      // tests assert which containers survive the filter, so a stub that
+      // waved everything through would stop testing anything. The real one
+      // is pinned by its own cases in dockerService.test.js.
+      isAppContainer: (container) => {
+        const role = container.Labels && container.Labels['runonflux.role'];
+        if (role) return role === 'app';
+        const name = (container.Names && container.Names[0]) || '';
+        return name.slice(1, 4) === 'zel' || name.slice(1, 5) === 'flux';
+      },
     };
 
     registryManagerStub = {

@@ -18,7 +18,7 @@ const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
 const messageHelper = require('./services/messageHelper');
-const { rejectQueryParameters } = require('./services/utils/routeGuards');
+const { rejectQueryParameters, requireBootSettled } = require('./services/utils/routeGuards');
 
 // App modular services
 const appQueryService = require('./services/appQuery/appQueryService');
@@ -26,6 +26,8 @@ const resourceQueryService = require('./services/appQuery/resourceQueryService')
 const deploymentInfoService = require('./services/appQuery/deploymentInfoService');
 const fileQueryService = require('./services/appQuery/fileQueryService');
 const fileSystemManager = require('./services/appSystem/fileSystemManager');
+const volumeExecutor = require('./services/appSystem/volumeExecutor');
+const operationsController = require('./services/appManagement/operationsController');
 const cryptographicKeys = require('./services/appMessaging/cryptographicKeys');
 const registryManager = require('./services/appDatabase/registryManager');
 const appValidator = require('./services/appRequirements/appValidator');
@@ -50,7 +52,6 @@ const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
-const IOUtils = require('./services/IOUtils');
 const arcaneAuthService = require('./services/arcaneAuthService');
 const appTamperingDetectionService = require('./services/appTamperingDetectionService');
 const fluxEventBus = require('./services/utils/fluxEventBus');
@@ -766,8 +767,8 @@ module.exports = (app) => {
     advancedWorkflows.appendRestoreTask(req, res);
   });
 
-  app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', (req, res) => {
-    IOUtils.fileUpload(req, res);
+  app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', requireBootSettled, (req, res) => {
+    fileSystemManager.uploadAppsFiles(req, res);
   });
 
   // GET PROTECTED API - Fluxnode Owner
@@ -1225,19 +1226,19 @@ module.exports = (app) => {
   app.get('/apps/requestmessage/:hash', (req, res) => {
     messageVerifier.requestAppMessageAPI(req, res);
   });
-  app.get('/apps/appstart/:appname?/:global?', (req, res) => {
+  app.get('/apps/appstart/:appname?/:global?', requireBootSettled, (req, res) => {
     appController.appStart(req, res);
   });
-  app.get('/apps/appstop/:appname?/:global?', (req, res) => {
+  app.get('/apps/appstop/:appname?/:global?', requireBootSettled, (req, res) => {
     appController.appStop(req, res);
   });
-  app.get('/apps/apprestart/:appname?/:global?', (req, res) => {
+  app.get('/apps/apprestart/:appname?/:global?', requireBootSettled, (req, res) => {
     appController.appRestart(req, res);
   });
-  app.get('/apps/apppause/:appname?/:global?', (req, res) => {
+  app.get('/apps/apppause/:appname?/:global?', requireBootSettled, (req, res) => {
     appController.appPause(req, res);
   });
-  app.get('/apps/appunpause/:appname?/:global?', (req, res) => {
+  app.get('/apps/appunpause/:appname?/:global?', requireBootSettled, (req, res) => {
     appController.appUnpause(req, res);
   });
   app.get('/apps/apptop/:appname?', (req, res) => {
@@ -1267,13 +1268,13 @@ module.exports = (app) => {
   app.post('/apps/appexec', (req, res) => {
     appInspector.appExec(req, res);
   });
-  app.get('/apps/appremove/:appname?/:force?/:global?', (req, res) => {
+  app.get('/apps/appremove/:appname?/:force?/:global?', requireBootSettled, (req, res) => {
     appUninstaller.removeAppLocallyApi(req, res);
   });
-  app.get('/apps/installapplocally/:appname?', (req, res) => {
+  app.get('/apps/installapplocally/:appname?', requireBootSettled, (req, res) => {
     appInstaller.installAppLocally(req, res);
   });
-  app.get('/apps/testappinstall/:appname?', (req, res) => {
+  app.get('/apps/testappinstall/:appname?', requireBootSettled, (req, res) => {
     appInstaller.testAppInstall(req, res);
   });
   app.get('/apps/createfluxnetwork', (req, res) => {
@@ -1288,10 +1289,10 @@ module.exports = (app) => {
   app.get('/apps/reindexglobalappslocation', (req, res) => {
     registryManager.reindexGlobalAppsLocationAPI(req, res);
   });
-  app.get('/apps/redeploy/:appname?/:force?/:global?', (req, res) => {
+  app.get('/apps/redeploy/:appname?/:force?/:global?', requireBootSettled, (req, res) => {
     advancedWorkflows.redeployAPI(req, res);
   });
-  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', (req, res) => {
+  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', requireBootSettled, (req, res) => {
     advancedWorkflows.redeployComponentAPI(req, res);
   });
   app.get('/apps/reconstructhashes', (req, res) => {
@@ -1567,18 +1568,67 @@ module.exports = (app) => {
   app.get('/apps/fluxshare/downloadfolder/:folder?', (req, res) => {
     fluxshareService.fluxShareDownloadFolder(req, res);
   });
+  // Handing the file operation image to a node that cannot reach the registry.
+  // Open to other Flux nodes rather than to an owner: it carries no app data,
+  // and a node needing it has nobody to authenticate as.
+  app.get('/apps/fileoperationimage/:imageid', (req, res) => {
+    volumeExecutor.serveImageToPeer(req, res);
+  });
   // Volume Browser
   app.get('/apps/getfolderinfo/:appname?/:component?/:folder?', (req, res) => {
     fileQueryService.getAppsFolder(req, res);
   });
-  app.get('/apps/createfolder/:appname?/:component?/:folder?', (req, res) => {
+  app.get('/apps/createfolder/:appname?/:component?/:folder?', requireBootSettled, (req, res) => {
     fileSystemManager.createAppsFolder(req, res);
   });
-  app.get('/apps/renameobject/:appname?/:component?/:oldpath?/:newname?', (req, res) => {
+  app.get('/apps/renameobject/:appname?/:component?/:oldpath?/:newname?', requireBootSettled, (req, res) => {
     fileSystemManager.renameAppsObject(req, res);
   });
-  app.get('/apps/removeobject/:appname?/:component?/:object?', (req, res) => {
+  app.get('/apps/removeobject/:appname?/:component?/:object?', requireBootSettled, (req, res) => {
     fileSystemManager.removeAppsObject(req, res);
+  });
+  // Every endpoint that answers 202 points here: one status resource, one
+  // status enum, one error shape, so a client polls the same way whatever it
+  // started.
+  app.get('/apps/operations/:jobId', (req, res) => {
+    operationsController.getOperation(req, res);
+  });
+  app.delete('/apps/operations/:jobId', (req, res) => {
+    operationsController.cancelOperation(req, res);
+  });
+  // POST, with the operands in a JSON body:
+  //   { appname, component, source, destination, overwrite? }
+  //
+  // Not GET. These create, overwrite and destroy, and a GET may be replayed by
+  // a proxy, a retry or a refresh - `overwrite: true` sitting in a URL is a
+  // destructive operation waiting to be repeated. Thirty of the /apps/ GET
+  // routes in this file are served through apicache, which makes a cached
+  // destructive GET one config line away rather than impossible. A path also
+  // puts every filename into the access log and the URL length limit.
+  //
+  // It matches the endpoints that already answer 202 here - imagepreflight,
+  // playground and imagecache are all POST - rather than the older file API
+  // whose GET shape these otherwise sit beside.
+  //
+  // `destination` is the full target path INCLUDING the new name, not the
+  // parent directory, so copy and move share -T semantics and there is no
+  // paste-into versus paste-as ambiguity.
+  //
+  // All four answer 202 with a jobId to poll at /apps/operations/:jobId. Move
+  // included, even though its visible part is a rename: paste is one gesture in
+  // a file browser, and cut-paste returning a result while copy-paste returns a
+  // job would put two response shapes inside one user action.
+  app.post('/apps/moveobject', requireBootSettled, (req, res) => {
+    fileSystemManager.moveAppsObject(req, res);
+  });
+  app.post('/apps/copyobject', requireBootSettled, (req, res) => {
+    fileSystemManager.copyAppsObject(req, res);
+  });
+  app.post('/apps/compressobject', requireBootSettled, (req, res) => {
+    fileSystemManager.compressAppsObject(req, res);
+  });
+  app.post('/apps/extractobject', requireBootSettled, (req, res) => {
+    fileSystemManager.extractAppsObject(req, res);
   });
   app.get('/apps/downloadfile/:appname?/:component?/:file?', (req, res) => {
     fileSystemManager.downloadAppsFile(req, res);

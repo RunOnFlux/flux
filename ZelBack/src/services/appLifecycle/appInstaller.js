@@ -47,69 +47,26 @@ const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Je
 const legacyPinnedOctets = appsThatMightBeUsingOldGatewayIpAssignment.map((name) => name.charCodeAt(name.length - 1));
 
 // Helper functions and constants for installApplicationHard
-const util = require('util');
 
-const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 
 const supportedArchitectures = ['amd64', 'arm64'];
 
 /**
- * Perform Docker cleanup (prune containers, networks, volumes, images)
+ * Reclaim disk before an install by removing unreferenced docker images.
+ *
+ * Only images. Containers, networks and volumes were pruned here too, keyed on
+ * docker's notion of "unused" - nothing attached right now - which is equally
+ * true of a healthy app whose container is momentarily down, of a container
+ * FluxOS is running for its own purposes, and of anything the node operator
+ * left stopped. The guard in front of this only ever knew about installed app
+ * components, so those other three were never covered. An image, by contrast,
+ * is unreferenced or it is not, and re-pulling one is a download rather than a
+ * loss.
+ *
  * @param {object} res - Response object for streaming
  * @returns {Promise<void>}
  */
 async function performDockerCleanup(res) {
-  const dockerContainers = {
-    status: 'Clearing up unused docker containers...',
-  };
-  log.info(dockerContainers);
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerContainers));
-    if (res.flush) res.flush();
-  }
-  await dockerService.pruneContainers();
-  const dockerContainers2 = {
-    status: 'Docker containers cleaned.',
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerContainers2));
-    if (res.flush) res.flush();
-  }
-
-  const dockerNetworks = {
-    status: 'Clearing up unused docker networks...',
-  };
-  log.info(dockerNetworks);
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerNetworks));
-    if (res.flush) res.flush();
-  }
-  await dockerService.pruneNetworks();
-  const dockerNetworks2 = {
-    status: 'Docker networks cleaned.',
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerNetworks2));
-    if (res.flush) res.flush();
-  }
-
-  const dockerVolumes = {
-    status: 'Clearing up unused docker volumes...',
-  };
-  log.info(dockerVolumes);
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerVolumes));
-    if (res.flush) res.flush();
-  }
-  await dockerService.pruneVolumes();
-  const dockerVolumes2 = {
-    status: 'Docker volumes cleaned.',
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(dockerVolumes2));
-    if (res.flush) res.flush();
-  }
-
   const dockerImages = {
     status: 'Clearing up unused docker images...',
   };
@@ -294,7 +251,7 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
   pullConfig.provider = imgVerifier.provider;
 
   // eslint-disable-next-line no-unused-vars
-  await dockerPullStreamPromise(pullConfig, res);
+  await dockerService.pullImage(pullConfig, res);
 
   const pullStatus = {
     status: isComponent ? `Pulling component ${appSpecifications.name} of Flux App ${appName}` : `Pulling global Flux App ${appName} was successful`,

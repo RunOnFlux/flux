@@ -27,6 +27,121 @@ export function nodeClient(nodeNum) {
     return res.json();
   }
 
+  // The whole response, for endpoints whose answer is not only its body.
+  //
+  // get/getAuthed/post return parsed JSON because that is what almost every
+  // suite wants, but a 202 puts its answer in Location/Operation-Id/Retry-After
+  // and a refusal puts its answer in the status code - both invisible through
+  // those. The body is parsed when it is JSON and handed back as text when it
+  // is not, so a suite asserting on a failure sees what actually came back
+  // rather than a parse error standing in for it.
+  async function request(method, path, { body = null, headers = {} } = {}) {
+    const init = { method, headers: { ...headers } };
+    if (body !== null) {
+      init.headers['Content-Type'] = headers['Content-Type'] ?? 'application/json';
+      init.body = JSON.stringify(body);
+    }
+    const res = await fetch(`${url}${path}`, init);
+    const text = await res.text();
+    let data = text;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // not JSON - keep the text
+    }
+    return { status: res.status, headers: Object.fromEntries(res.headers), data };
+  }
+
+  async function del(path, zelidauth) {
+    const res = await fetch(`${url}${path}`, {
+      method: 'DELETE',
+      headers: zelidauth ? { zelidauth } : {},
+    });
+    return res.json();
+  }
+
+  /**
+   * Upload files the way a browser does: ONE multipart request carrying all of
+   * them, each under its own name.
+   *
+   * The endpoint takes each file's destination name from its form field name,
+   * which is what a browser sends when it appends a File under its own name.
+   *
+   * The response is not JSON. It is a stream of progress figures with each
+   * file's name written into it as that file lands, and a failure envelope
+   * written into the same stream - the status line has long gone by the time
+   * anything can go wrong. So the body comes back as text and a suite reads
+   * what it needs out of it.
+   *
+   * @param {string} path
+   * @param {Record<string, string|Uint8Array>} files - name to contents
+   * @param {object} [headers]
+   * @returns {Promise<{status: number, body: string}>}
+   */
+  async function upload(path, files, headers = {}) {
+    const form = new FormData();
+    for (const [name, contents] of Object.entries(files)) {
+      // The third argument is the filename; the first is the field name. The
+      // endpoint reads the field name, and a browser makes them the same.
+      form.append(name, new Blob([contents]), name);
+    }
+    // Content-Type is deliberately not set: fetch fills it in with the
+    // multipart boundary it generated, and overriding it produces a body no
+    // parser can read.
+    const res = await fetch(`${url}${path}`, { method: 'POST', headers, body: form });
+    return { status: res.status, body: await res.text() };
+  }
+
+  /**
+   * Upload one file with the body arriving in pieces, slowly.
+   *
+   * The stall check stops an operation that has got nowhere, and it reads how
+   * much the volume has consumed - which for an upload only moves once enough
+   * bytes have arrived to fill a filesystem block. A client on a slow link
+   * sending a small file moves nothing measurable for the whole window, so this
+   * is what tells a trickle apart from a wedged container.
+   *
+   * The body is built by hand rather than by FormData: what is under test is
+   * bytes arriving over time, and FormData hands over a body that is already
+   * complete.
+   *
+   * @param {string} path
+   * @param {{name: string, contents: string}} file
+   * @param {object} headers
+   * @param {{pieces?: number, everyMs?: number}} pace
+   * @returns {Promise<{status: number, body: string}>}
+   */
+  async function uploadSlowly(path, file, headers = {}, pace = {}) {
+    const { pieces = 10, everyMs = 500 } = pace;
+    const boundary = `----fluxharness${Date.now()}`;
+    const head = `--${boundary}\r\nContent-Disposition: form-data; name="${file.name}"; filename="${file.name}"\r\n`
+      + 'Content-Type: application/octet-stream\r\n\r\n';
+    const tail = `\r\n--${boundary}--\r\n`;
+    const size = Math.max(1, Math.ceil(file.contents.length / pieces));
+
+    const body = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(encoder.encode(head));
+        for (let at = 0; at < file.contents.length; at += size) {
+          // eslint-disable-next-line no-await-in-loop, no-promise-executor-return
+          await new Promise((resolve) => { setTimeout(resolve, everyMs); });
+          controller.enqueue(encoder.encode(file.contents.slice(at, at + size)));
+        }
+        controller.enqueue(encoder.encode(tail));
+        controller.close();
+      },
+    });
+
+    const res = await fetch(`${url}${path}`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      body,
+      duplex: 'half',
+    });
+    return { status: res.status, body: await res.text() };
+  }
+
   let eventSource = null;
   const eventBuffer = [];
   const emitter = new EventEmitter();
@@ -59,12 +174,15 @@ export function nodeClient(nodeNum) {
         'dos:changed',
         'explorer:ready',
         'messageCapability:changed',
+        'networkstate:updated',
         'orchestrator:started',
         'orchestrator:stateChanged',
         'app:installed',
         'app:removed',
         'app:specStored',
         'app:running',
+        'fileoperation:imageAcquired',
+        'fileoperation:imageDiscarded',
         'imageUpdate:checked',
         'imageUpdate:redeployTriggered',
         'imageUpdate:redeployComplete',
@@ -177,6 +295,10 @@ export function nodeClient(nodeNum) {
     get,
     getAuthed,
     post,
+    del,
+    upload,
+    uploadSlowly,
+    request,
     connectEventStream,
     disconnectEventStream,
     waitForEvent,

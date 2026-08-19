@@ -30,6 +30,9 @@ const appSpawner = require('./appLifecycle/appSpawner');
 const { AppSyncOrchestrator } = require('./appMessaging/appSyncOrchestrator');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
+const fileOperationRecovery = require('./appSystem/fileOperationRecovery');
+const networkRecovery = require('./appSystem/networkRecovery');
+const volumeExecutor = require('./appSystem/volumeExecutor');
 const appStartupManager = require('./appLifecycle/appStartupManager');
 const hardwareValidationService = require('./appLifecycle/hardwareValidationService');
 const globalState = require('./utils/globalState');
@@ -94,26 +97,113 @@ const portsNotWorking = new Set();
 const appsStorageViolations = [];
 
 /**
- * createIndex that tolerates a pre-existing index with conflicting options
- * (IndexOptionsConflict / IndexKeySpecsConflict) by finding the conflicting
- * index via listIndexes, dropping it by its actual name, and recreating.
- * Every other error bubbles up.
+ * Remove rows that duplicate a would-be-unique key, keeping the newest of each.
+ *
+ * A recovery strategy for ensureIndex: when a unique build fails because the
+ * collection already holds rows that violate it, this makes the data conform to
+ * the invariant the index DECLARES - it deletes duplicates on the key the index
+ * says must be unique, which is enforcing a contract rather than losing data.
+ * Only safe where the key IS the row's identity, so it is passed in per build by
+ * the caller that knows the collection, never applied by default. A rollup whose
+ * duplicates must be summed rather than dropped (the tampering incident count)
+ * belongs to its owning service instead - see the note on ensureIndex.
+ *
+ * Keeps the newest per group (rows sort by _id, which is time-ordered), honours
+ * the index's partialFilterExpression so it only touches rows the index covers,
+ * and returns how many it removed.
+ *
+ * @param {object} collection - a mongo collection handle
+ * @param {object} spec - the index key, e.g. { hash: 1 }
+ * @param {object} options - the index options (read for partialFilterExpression)
+ * @returns {Promise<number>} rows removed
  */
-async function ensureIndex(collection, spec, options = {}) {
+async function dedupeByKey(collection, spec, options = {}) {
+  const groupId = {};
+  Object.keys(spec).forEach((key, i) => { groupId[`k${i}`] = `$${key}`; });
+  // Held in memory deliberately, and measured rather than assumed: run against a
+  // live node's collection unioned with itself until every key appeared 16 times
+  // - 1,030,208 rows, the duplicate state this exists to repair - it finished in
+  // under 2s without spilling. The $sort adds nothing on top while it stays an
+  // index walk on _id, which it is for a spec with no partialFilterExpression;
+  // the first partial index to use this wants re-measuring, because the $match
+  // ahead of the sort is what would make the sort blocking. allowDiskUse is not
+  // set: it would take a mongo below 6.0, where the cap errors instead of
+  // spilling, and the network floor is moving past that.
+  //
+  // ids[0] rather than $max: $group does not document that it carries a
+  // preceding sort into an accumulator, and that non-guarantee is about results
+  // merged from several sources - this is one standalone mongod. Checked against
+  // 64,388 real duplicate groups, ids[0] was the newest in all 64,388.
+  const pipeline = [
+    ...(options.partialFilterExpression ? [{ $match: options.partialFilterExpression }] : []),
+    { $sort: { _id: -1 } },
+    { $group: { _id: groupId, ids: { $push: '$_id' } } },
+    { $match: { 'ids.1': { $exists: true } } },
+  ];
+  const groups = await collection.aggregate(pipeline).toArray();
+  const toRemove = groups.flatMap((group) => group.ids.slice(1));
+  if (!toRemove.length) return 0;
+  await collection.deleteMany({ _id: { $in: toRemove } });
+  return toRemove.length;
+}
+
+/**
+ * Assert one index, healing the failures that are recoverable.
+ *
+ *   - a pre-existing index with conflicting OPTIONS (IndexOptionsConflict /
+ *     IndexKeySpecsConflict) is dropped by its real name and recreated;
+ *   - a unique build blocked by DUPLICATE ROWS runs the caller's `recover`
+ *     strategy (see dedupeByKey) and rebuilds, so the node ends up WITH the
+ *     index rather than running degraded without it;
+ *   - anything else rethrows.
+ *
+ * The rethrow is deliberate and is NOT the blanket swallow it replaced. Index
+ * setup runs before any service or interval starts, so the 15s startFluxFunctions
+ * retry re-runs it safely: a TRANSIENT failure (mongo mid-election, a slow-disk
+ * blip) heals on the next pass instead of being skipped until the next reboot,
+ * and a genuinely UNRECOVERABLE database wedges loudly - which is correct, since
+ * a node whose DB cannot hold its schema cannot serve apps and appremove would
+ * not rescue it. The realistic wedge that finding motivated - a unique index
+ * over rows that already violate it - is repaired above, not hidden.
+ *
+ * TRUE NORTH: eventually every collection owns its own schema-prepare - its
+ * index spec plus whatever dedupe or merge its data needs - the way
+ * appsRuntimeState.prepareCollection and appTamperingDetectionService already
+ * do, and boot just invokes those prepare functions. That turns this ~40-call
+ * imperative block into a set of owned, individually testable units. This
+ * function is the increment toward it, not the destination; a full move of the
+ * remaining builds is a separate refactor, out of scope for the PR that added it.
+ *
+ * @param {object} collection - a mongo collection handle
+ * @param {object} spec - the index key
+ * @param {object} [options] - the index options
+ * @param {(collection: object, spec: object, options: object) => Promise<number>} [recover]
+ *   run when a unique build is blocked by existing duplicate rows
+ */
+async function ensureIndex(collection, spec, options = {}, recover = null) {
   try {
     await collection.createIndex(spec, options);
   } catch (err) {
     const conflict = err && (err.codeName === 'IndexOptionsConflict' || err.codeName === 'IndexKeySpecsConflict');
-    if (!conflict) throw err;
-    const specKeys = JSON.stringify(spec);
-    const indexes = await collection.listIndexes().toArray();
-    const match = indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
-    const dropName = match?.name;
-    if (dropName) {
-      log.warn(`ensureIndex - conflicting index '${dropName}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
-      await collection.dropIndex(dropName);
+    if (conflict) {
+      const specKeys = JSON.stringify(spec);
+      const indexes = await collection.listIndexes().toArray();
+      const match = indexes.find((idx) => JSON.stringify(idx.key) === specKeys);
+      if (match?.name) {
+        log.warn(`ensureIndex - conflicting index '${match.name}' on ${collection.collectionName} (key: ${specKeys}), dropping and recreating`);
+        await collection.dropIndex(match.name);
+      }
+      await collection.createIndex(spec, options);
+      return;
     }
-    await collection.createIndex(spec, options);
+    const duplicate = err && (err.code === 11000 || err.codeName === 'DuplicateKey');
+    if (duplicate && recover) {
+      const removed = await recover(collection, spec, options);
+      log.warn(`ensureIndex - ${collection.collectionName} (key: ${JSON.stringify(spec)}) held ${removed} row(s) violating a unique index; removed and rebuilding`);
+      await collection.createIndex(spec, options);
+      return;
+    }
+    throw err;
   }
 }
 
@@ -205,19 +295,16 @@ async function startFluxFunctions() {
       { lastSeen: 1 },
       { expireAfterSeconds: 30 * 24 * 60 * 60, name: 'lastSeen_ttl' }, // 30 days
     );
-    // upsert key of the incident rollup; unique so concurrent recorders
-    // cannot double-insert an incident. Partial: legacy rows lack incidentKey
-    // and would otherwise collide on null.
-    await ensureIndex(
-      database.collection(config.database.local.collections.appTamperingEvents),
-      { appName: 1, eventType: 1, incidentKey: 1 },
-      { unique: true, partialFilterExpression: { incidentKey: { $exists: true } }, name: 'incident_upsert' },
-    );
     await ensureIndex(
       database.collection(config.database.local.collections.appTamperingEvents),
       { appName: 1, eventType: 1, lastSeen: -1 },
       { name: 'appName_eventType_lastSeen' },
     );
+    // The unique incident-rollup index lives with its owner: duplicate rollups
+    // must have their counts SUMMED, not one dropped, so the merge needs the
+    // collection's own knowledge rather than a generic dedupe. See
+    // prepareIncidentRollup.
+    await appTamperingDetectionService.prepareIncidentRollup();
     await appTamperingDetectionService.checkNodeReboot();
     // appsRuntimeState (localzelapps): merge any pre-unique-index duplicate docs,
     // then enforce one doc per component identifier
@@ -240,7 +327,7 @@ async function startFluxFunctions() {
 
     // we have to create this index again here, as we need it to repair the db. As we were deleting this on every reboot (and it was only created when scannedHeight was 0)
     // Creating an index that already exists is a no-op
-    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), { hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), { hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true }, dedupeByKey);
     await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), { 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
     await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsMessages), { 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
     // TTL is driven by expireAt (set per-document by store functions). Migrate from old broadcastedAt-based TTL.
@@ -250,14 +337,14 @@ async function startFluxFunctions() {
     await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsLocations), { ip: 1, name: 1 });
     log.info('Flux Apps locations prepared');
     await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), { expireAt: 1 }, { expireAfterSeconds: 0 });
-    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), { ip: 1, type: 1, dedupKey: 1 }, { unique: true });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), { ip: 1, type: 1, dedupKey: 1 }, { unique: true }, dedupeByKey);
     await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), { broadcastedAt: 1 });
     await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appStateEvents), { createdAt: 1 });
     log.info('App state events collection prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
     await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), { expireAt: 1 }, { expireAfterSeconds: 0 });
     await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), { broadcastedAt: 1 });
-    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), { 'data.name': 1, 'data.ip': 1 }, { unique: true });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingBroadcasts), { 'data.name': 1, 'data.ip': 1 }, { unique: true }, dedupeByKey);
     log.info('Signed appinstalling broadcasts collection prepared');
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).dropIndex('broadcastedAt_1').catch(() => {});
     await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations), { expireAt: 1 }, { expireAfterSeconds: 0 });
@@ -274,7 +361,7 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts).dropIndex('broadcastedAt_1').catch(() => {});
     await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), { expireAt: 1 }, { expireAfterSeconds: 0 });
     await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), { broadcastedAt: 1 });
-    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), { 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, { unique: true });
+    await ensureIndex(databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsBroadcasts), { 'data.name': 1, 'data.hash': 1, 'data.ip': 1 }, { unique: true }, dedupeByKey);
     log.info('Signed app installing errors broadcasts collection prepared');
 
     // This fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,
@@ -392,6 +479,37 @@ async function startFluxFunctions() {
     await containerMountRecovery.performContainerMountRecovery().catch((error) => {
       log.error(`Container mount recovery service error: ${error.message}`);
     });
+    // A file operation's container is detached from the process that started
+    // it, so a FluxOS restart leaves one running with nobody waiting for its
+    // result, and its staging directory on the volume. The recovery below
+    // reclaims both, after the volumes above are mounted, since it reads them.
+    //
+    // The fetch starts early so the image is in hand before the first file
+    // operation arrives, rather than being pulled while an owner waits on a
+    // request. The recovery does not depend on it: that is a host rm over names
+    // readdir returned, and runs on a node that can reach nothing.
+    //
+    // Not awaited: the node takes the image at its own place in a window, so
+    // the fleet ends up holding it without every node fetching at the same
+    // moment. A node that cannot reach the registry takes it from one that did,
+    // which only works if they have it.
+    volumeExecutor.startImagePrefetch();
+
+    log.info('Reclaiming interrupted file operations...');
+    await fileOperationRecovery.recoverInterruptedFileOperations().catch((error) => {
+      log.error(`File operation recovery error: ${error.message}`);
+    });
+
+    // At boot, before anything installs: an app network is created per app and
+    // removed only by the uninstaller, so an uninstall interrupted between the
+    // container going and the network going leaves one behind for ever. Each
+    // holds an octet that getFreeFluxAppNetworkOctet cannot hand out again, and
+    // when the last of 255 is gone nothing can be installed on the node.
+    //
+    // Here rather than on a schedule because a sweep must not meet an install
+    // in progress: at boot the expected names are simply what the database
+    // holds, with no window in which an app has a network and no record yet.
+    await networkRecovery.reclaimOrphanedAppNetworks();
     syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
     // Awaited: generating an identity rewrites config/userconfig.js, and that
@@ -582,4 +700,6 @@ async function startFluxFunctions() {
 
 module.exports = {
   startFluxFunctions,
+  ensureIndex,
+  dedupeByKey,
 };

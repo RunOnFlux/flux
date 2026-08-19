@@ -1,4 +1,5 @@
 const http = require('http');
+const net = require('net');
 const { WebSocketServer } = require('ws');
 const { signAsync } = require('@noble/secp256k1');
 const { sha256 } = require('@noble/hashes/sha2');
@@ -140,43 +141,106 @@ wss.on('connection', (ws) => {
   ws.on('error', () => {});
 });
 
-const wsServer = http.createServer((req, res) => {
-  if (req.url === '/flux/version') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'success', data: '8.0.0' }));
-    return;
-  }
-  if (req.url === '/syncthing/deviceid') {
-    // Every real node answers this, however old - the endpoint long predates
-    // /apps/promotedfolders, which is the only version distinction this stub
-    // models. Nodes cache the answer to name this peer in queries against
-    // their own syncthing, so a stub that 404s here starves that cache and
-    // silently disables every check built on it.
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'success', data: 'PEERSTUB-DEVICE-0000001' }));
-    return;
-  }
-  if (req.url === '/apps/promotedfolders') {
-    // Recorded before the status is applied: a peer that answers 404 was still
-    // asked, and a suite proving the asker kept asking needs to see that.
-    promotedFolderRequests.push(Date.now());
-    if (promotedFoldersRefuse) {
-      // Destroyed rather than answered, so the asker sees the transport fail
-      // exactly as it does against a node whose FluxOS is not listening.
-      req.socket.destroy();
+// Whether a TCP connection to the asker's port completes. A timeout answers for
+// a port that is filtered rather than refused - to the node asking, both mean
+// the same thing.
+function portAnswers(ip, port, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: ip, port });
+    const done = (reachable) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(reachable);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => done(true));
+    socket.once('timeout', () => done(false));
+    socket.once('error', () => done(false));
+  });
+}
+
+const wsServer = http.createServer(async (req, res) => {
+  // The handler awaits, so a request that fails while being read rejects rather
+  // than throwing, and an unhandled rejection takes the process with it. Every
+  // path answers.
+  try {
+    if (req.method === 'POST' && req.url === '/flux/checkappavailability') {
+      // Before installing, a node opens its ports and asks a RANDOM peer to
+      // confirm they answer from outside; it aborts the install if no peer
+      // confirms within its attempts. A stub that 404s here is a peer that can
+      // never confirm, so every node that draws one burns an attempt, and a fleet
+      // carrying several of them fails installs with nothing wrong.
+      //
+      // Really connected rather than answered blind: the asker opens those ports
+      // for this check alone, and a stub that always said yes would mask the exact
+      // failure the check exists to find.
+      const body = await readBody(req);
+      let asked;
+      try {
+        asked = JSON.parse(body);
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'error', data: { message: 'Unparseable request' } }));
+        return;
+      }
+      // Probed together rather than in turn: the asker gives this whole exchange
+      // one timeout, and a serial walk of several ports spends that budget before
+      // it can answer.
+      const ports = Array.isArray(asked.ports) ? asked.ports : [];
+      const reachable = await Promise.all(ports.map((port) => portAnswers(asked.ip, port)));
+      const failedAt = reachable.indexOf(false);
+      if (failedAt !== -1) {
+        // Named, because the asker reads the number back out of this message to
+        // decide which port to retest.
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'error', data: { message: `Failed port: ${ports[failedAt]}` } }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'success', data: { message: 'Ports are available' } }));
       return;
     }
-    if (promotedFoldersStatus !== 200) {
-      res.writeHead(promotedFoldersStatus);
-      res.end();
+    if (req.url === '/flux/version') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'success', data: '8.0.0' }));
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'success', data: promotedFolders }));
-    return;
+    if (req.url === '/syncthing/deviceid') {
+      // Every real node answers this, however old - the endpoint long predates
+      // /apps/promotedfolders, which is the only version distinction this stub
+      // models. Nodes cache the answer to name this peer in queries against
+      // their own syncthing, so a stub that 404s here starves that cache and
+      // silently disables every check built on it.
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'success', data: 'PEERSTUB-DEVICE-0000001' }));
+      return;
+    }
+    if (req.url === '/apps/promotedfolders') {
+      // Recorded before the status is applied: a peer that answers 404 was still
+      // asked, and a suite proving the asker kept asking needs to see that.
+      promotedFolderRequests.push(Date.now());
+      if (promotedFoldersRefuse) {
+        // Destroyed rather than answered, so the asker sees the transport fail
+        // exactly as it does against a node whose FluxOS is not listening.
+        req.socket.destroy();
+        return;
+      }
+      if (promotedFoldersStatus !== 200) {
+        res.writeHead(promotedFoldersStatus);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'success', data: promotedFolders }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  } catch (e) {
+    console.error(`peer stub: ${req.method} ${req.url} failed: ${e.message}`);
+    if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'application/json' });
+    if (!res.writableEnded) res.end(JSON.stringify({ status: 'error', data: { message: e.message } }));
   }
-  res.writeHead(404);
-  res.end();
 });
 
 wsServer.on('upgrade', (req, socket, head) => {

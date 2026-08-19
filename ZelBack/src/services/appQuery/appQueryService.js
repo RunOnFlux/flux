@@ -181,7 +181,7 @@ async function listRunningApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(false);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
+      apps = apps.filter((app) => dockerService.isAppContainer(app));
     }
 
     // Include apps that are in backup or restore as "running" even if container is stopped
@@ -193,7 +193,7 @@ async function listRunningApps(req, res) {
     if (appsInBackupRestore.length > 0) {
       // Get all containers including stopped ones
       const allContainers = await dockerService.dockerListContainers(true);
-      const fluxContainers = allContainers.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
+      const fluxContainers = allContainers.filter((app) => dockerService.isAppContainer(app));
 
       // Find stopped containers that are in backup/restore and add them to running list
       fluxContainers.forEach((container) => {
@@ -341,7 +341,7 @@ async function listAllApps(req, res) {
   try {
     let apps = await dockerService.dockerListContainers(true);
     if (apps.length > 0) {
-      apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
+      apps = apps.filter((app) => dockerService.isAppContainer(app));
     }
     const modifiedApps = [];
     apps.forEach((app) => {

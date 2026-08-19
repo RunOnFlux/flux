@@ -1524,6 +1524,31 @@ async function getDbIgnores(req, res) {
 }
 
 /**
+ * Read a folder's ignore patterns, for internal callers. Returns the standard
+ * message shape - { status, data: { ignore, expanded } } on success - and never
+ * throws, so the caller checks status rather than catching.
+ * @param {string} folderId syncthing folder id
+ * @returns {Promise<object>} message
+ */
+async function getFolderIgnores(folderId) {
+  return performRequest('get', `/rest/db/ignores?folder=${encodeURIComponent(folderId)}`);
+}
+
+/**
+ * Set a folder's ignore patterns, for internal callers. Syncthing owns and
+ * writes .stignore itself (atomically, and it never replicates it), so this is
+ * how FluxOS sets the ignores rather than writing the file. REPLACES the whole
+ * set - pass the complete desired list. Returns the standard message shape and
+ * never throws.
+ * @param {string} folderId syncthing folder id
+ * @param {Array<string>} lines the full ignore pattern list
+ * @returns {Promise<object>} message
+ */
+async function setFolderIgnores(folderId, lines) {
+  return performRequest('post', `/rest/db/ignores?folder=${encodeURIComponent(folderId)}`, { ignore: lines });
+}
+
+/**
  * Returns the list of files which were changed locally in a receive-only folder. Takes one mandatory parameter, {folder}
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1650,7 +1675,13 @@ async function postDbIgnores(req, res) {
       if (folder) {
         apiPath += `?folder=${folder}`;
       }
-      const authorized = res ? await verificationHelper.verifyPrivilege('adminandfluxteam', req) : true;
+      // fluxteam, not adminandfluxteam like its siblings. .stignore decides what
+      // LEAVES this node for an app the node operator does not own, and a pattern
+      // dropped here replicates that app's backup and operation staging to every
+      // other node running it - so the blast radius of this one call is the fleet,
+      // not the box. Reading the volume is the operator's already; choosing what
+      // the network carries is not.
+      const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
       let response = null;
       if (authorized === true) {
         response = await performRequest(method, apiPath, newConfig);
@@ -3414,6 +3445,8 @@ module.exports = {
   getDbCompletion,
   getDbFile,
   getDbIgnores,
+  getFolderIgnores,
+  setFolderIgnores,
   getDbLocalchanged,
   getDbNeed,
   getDbRemoteNeed,

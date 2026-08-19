@@ -40,7 +40,12 @@ describe('Boundary: peer thresholds', function () {
   });
 
   it('should NOT fire peers:belowThreshold at exactly degraded threshold (1 peer)', async function () {
-    this.timeout(60000);
+    // Covers the whole test, not just the READY wait below: the block wait and
+    // the ping-detection sleep account for 25s of it on their own. Reaching
+    // READY is setup here - the assertion is about the alarm - so the budget is
+    // deliberately clear of it, and a slow boot fails on the assertion rather
+    // than partway through the setup with the disconnect never run.
+    this.timeout(180000);
     await waitForExplorerReady(env.clients[0]);
     await waitForOrchestratorStarted(env.clients[0]);
     await advanceBlock();
