@@ -1,3 +1,26 @@
+// Which layer answers, and with what.
+//
+// A request that REACHED a handler is answered in the body, at HTTP 200, in the
+// shapes below - including when the answer is a failure. A refusal that happens
+// BEFORE a handler runs is answered with a wire status: the middlewares
+// (requireHttps 403, routeGuards 503/400), a request too large to accept
+// (paymentService 413), a resource that does not exist to be addressed
+// (fluxEventBus 404). Roughly 315 handlers answer in band against 27 that set a
+// status, and the 27 are all of the second kind; operationsController writes
+// `res.status(200).json(createErrorMessage(...))` explicitly rather than let the
+// two blur.
+//
+// The reason is the one dataOrThrow states below: the in-band shape exists so a
+// transport failure cannot impersonate a service answer. An error carried at a
+// non-200 status would put the two on the same channel again, which is what the
+// separation is for. `code` inside an error message is therefore a FluxOS code
+// and not a wire status - a deprecated endpoint answers 200 with code 410, and a
+// caller reading response.ok sees success and has to read the body, which is
+// exactly what every FluxOS client already does.
+//
+// Written down here because it was not written down anywhere, and counting the
+// call sites without reading what they were gives the wrong answer.
+
 /**
  * Creates a message object.
  *
