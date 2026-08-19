@@ -11,7 +11,7 @@ import {
 import {
   waitForDaemonReady, waitForNodeStatus, waitForBlockProcessed,
   waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
-  waitForPeerThreshold, waitForAppInstalled, waitForAppRemoved,
+  waitForPeerThreshold, waitForAppInstalled,
   waitForSpawnerBlocked, waitFor,
 } from '../framework/wait.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
@@ -307,10 +307,14 @@ describe('Residential node evacuation', function () {
     await elapseSettleWindow(TARGET);
     await advanceBlocks(5);
 
-    await waitForAppRemoved(env.clients[TARGET - 1], 'residentapp', 240000);
-
-    const installed = await env.clients[TARGET - 1].get('/apps/installedapps');
-    expect(installed.data.map((a) => a.name)).to.not.include('residentapp');
+    // Waited on the node's own view rather than on app:removed. That event is
+    // published part-way through the uninstall - after the runtime state is
+    // dropped, before the installed-apps record is - so a test that asserts on
+    // the record the instant the event lands still sees the app.
+    await waitFor(async () => {
+      const current = await env.clients[TARGET - 1].get('/apps/installedapps');
+      return !current.data.map((a) => a.name).includes('residentapp');
+    }, { timeout: 240000, label: 'node 1 hands residentapp back' });
   });
 
   it('the app survives the departure on every other host', async function () {
@@ -325,14 +329,18 @@ describe('Residential node evacuation', function () {
     // the app asks for five instances and all five nodes already ran it, so
     // there is no node left that is both short of it and not held. Refilling a
     // deficit is appSpawner's existing 120s loop, unchanged by this branch.
+    // Wait for what is actually being asserted - the departure reaching the
+    // rest of the fleet. Waiting on a COUNT was meaningless here: the app was
+    // already at five instances including the one leaving, so `>= 4` was
+    // satisfied before anything had happened.
+    const targetIp = subnet.nodeIp(TARGET);
     await waitFor(async () => {
-      const locations = await dbClient(2).getAppLocations('residentapp');
-      return locations.length >= 4;
-    }, { timeout: 240000, label: 'residentapp still held by the other four nodes' });
+      const current = await dbClient(2).getAppLocations('residentapp');
+      return !current.map((l) => l.ip.split(':')[0]).includes(targetIp);
+    }, { timeout: 240000, label: 'the departure reaches the other nodes' });
 
     const locations = await dbClient(2).getAppLocations('residentapp');
-    const targetIp = subnet.nodeIp(TARGET);
-    expect(locations.map((l) => l.ip.split(':')[0])).to.not.include(targetIp);
+    expect(locations.length).to.be.at.least(4);
   });
 
   it('goes into DOS only once it holds nothing', async function () {
