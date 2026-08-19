@@ -246,7 +246,17 @@ describe('Residential node evacuation', function () {
           residentialSettleMs: 600000,
           residentialEvacuationIntervalMs: 4000,
           residentialQueueBaseMs: 1000,
-          residentialQueueStepMs: 500,
+          // The step has to exceed the interval between give-up passes, or the
+          // ordering it exists to create is compressed out of existence.
+          //
+          // Position in the instance order sets a wait of base + position*step.
+          // In production that is 30min + position*15min against a pass that
+          // runs every 44 blocks (~22min), so the second holder's turn arrives
+          // on a LATER pass than the first's - by which time the first has gone,
+          // the app is short, and the second refuses. That is what serialises
+          // the drain. At a 500ms step against a 20s pass, both holders are
+          // eligible in the same pass and both leave together.
+          residentialQueueStepMs: 30000,
           removeFluxAppsPeriod: 1,
         },
       },
