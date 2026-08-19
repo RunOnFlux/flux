@@ -16,6 +16,11 @@ describe('appInspector tests', () => {
       database: {
         url: 'mongodb://localhost:27017',
       },
+      // The sampler's own cadence. Absent, config.fluxapps throws the moment the
+      // interval is armed, which is why nothing had ever entered the loop body.
+      fluxapps: {
+        statsSampleIntervalMs: 60000,
+      },
     };
 
     dockerServiceStub = {
@@ -81,6 +86,81 @@ describe('appInspector tests', () => {
 
   afterEach(() => {
     sinon.restore();
+  });
+
+  describe('startAppMonitoring - what one tick keeps', () => {
+    // The first coverage of the docker -> stored direction. Everything else about
+    // the sampler is asserted on samples handed to it already extracted, so what
+    // extractSample chooses to keep was pinned only by the endpoints downstream.
+    let clock;
+
+    const reading = (memStats) => ({
+      cpu_stats: {
+        cpu_usage: { total_usage: 500, percpu_usage: [1, 2, 3, 4] },
+        system_cpu_usage: 900,
+        online_cpus: 4,
+        throttling_data: { periods: 0 },
+      },
+      precpu_stats: { cpu_usage: { total_usage: 100 }, system_cpu_usage: 400 },
+      memory_stats: { usage: 2048, limit: 8192, max_usage: 4096, ...memStats },
+      blkio_stats: { io_service_bytes_recursive: [{ op: 'Read', value: 10 }, { op: 'Write', value: 20 }] },
+      networks: { eth0: { rx_bytes: 30, tx_bytes: 40, rx_packets: 9 } },
+    });
+
+    const tickOnce = async (memStats) => {
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'running' });
+      dockerServiceStub.dockerContainerStats = sinon.stub().resolves(reading(memStats));
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2e9 } });
+      clock = sinon.useFakeTimers();
+      appInspector.startAppMonitoring('myapp');
+      await clock.tickAsync(60000);
+      const [stored] = globalStateStub.appsMonitored.myapp.statsStore;
+      appInspector.stopAppMonitoring('myapp', false);
+      return stored;
+    };
+
+    afterEach(() => {
+      if (clock) clock.restore();
+      clock = null;
+    });
+
+    it('keeps the page cache figure, so a consumer can subtract it', async () => {
+      // Without this the memory a consumer reports is docker's raw usage, which
+      // counts file data the kernel is only holding because the container read it
+      // - a number that climbs with disk activity and never comes back down.
+      const stored = await tickOnce({ stats: { inactive_file: 512, active_file: 99 } });
+
+      expect(stored.memoryUsage).to.equal(2048);
+      expect(stored.memoryLimit).to.equal(8192);
+      expect(stored.memoryCache).to.equal(512);
+    });
+
+    it('takes the cgroup v1 name when the v2 one is absent', async () => {
+      const stored = await tickOnce({ stats: { cache: 300 } });
+
+      expect(stored.memoryCache).to.equal(300);
+    });
+
+    it('records no cache rather than a zero when the host reports neither', async () => {
+      // Zero would read as "nothing cached" and be silently subtracted; null says
+      // the figure is unavailable, and leaves the consumer where it was before.
+      const stored = await tickOnce({});
+
+      expect(stored.memoryCache).to.equal(null);
+    });
+
+    it('keeps only the values a consumer reads, not the whole reading', async () => {
+      // The extract is what makes a week of samples affordable, so a field added
+      // here should be one nothing can work without - this pins the set.
+      const stored = await tickOnce({ stats: { inactive_file: 512 } });
+
+      expect(Object.keys(stored).sort()).to.deep.equal([
+        'cpuSystem', 'cpuSystemBefore', 'cpuTotal', 'cpuTotalBefore', 'disk',
+        'elapsed', 'ioRead', 'ioWrite', 'memoryCache', 'memoryLimit',
+        'memoryUsage', 'nanoCpus', 'networkRx', 'networkTx', 'onlineCpus',
+        'timestamp',
+      ]);
+    });
   });
 
   describe('appInspect', () => {
@@ -725,6 +805,7 @@ describe('appInspector tests', () => {
           nanoCpus: 3e9,
           memoryUsage: 2048,
           memoryLimit: 8192,
+          memoryCache: 512,
           ioRead: 1,
           ioWrite: 2,
           networkRx: 3,
@@ -753,7 +834,9 @@ describe('appInspector tests', () => {
 
         expect(dockerServiceStub.dockerContainerStats.called).to.be.false;
         const reported = res.json.firstCall.args[0];
-        expect(reported.memory_stats).to.deep.equal({ usage: 2048, limit: 8192 });
+        expect(reported.memory_stats).to.deep.equal({
+          usage: 2048, limit: 8192, stats: { inactive_file: 512 },
+        });
         expect(reported.cpu_stats.online_cpus).to.equal(4);
       });
 
@@ -793,6 +876,7 @@ describe('appInspector tests', () => {
         nanoCpus: 2e9,
         memoryUsage: 1024,
         memoryLimit: 4096,
+        memoryCache: 256,
         ioRead: 10,
         ioWrite: 20,
         networkRx: 30,
@@ -825,7 +909,11 @@ describe('appInspector tests', () => {
       expect(data.precpu_stats.system_cpu_usage).to.equal(200);
       expect(data.cpu_stats.online_cpus).to.equal(2);
       expect(data.nanoCpus).to.equal(2e9);
-      expect(data.memory_stats).to.deep.equal({ usage: 1024, limit: 4096 });
+      // The cache figure is what a consumer subtracts to get the memory the app
+      // is actually using; usage alone climbs with every file the container reads.
+      expect(data.memory_stats).to.deep.equal({
+        usage: 1024, limit: 4096, stats: { inactive_file: 256 },
+      });
       expect(data.networks.eth0).to.deep.equal({ rx_bytes: 30, tx_bytes: 40 });
       expect(data.disk_stats.bind).to.equal(5);
     });

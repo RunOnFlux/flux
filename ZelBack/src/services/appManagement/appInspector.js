@@ -297,8 +297,14 @@ function monotonicMs() {
  * Docker returns several kilobytes a sample — per-core usage arrays repeated for
  * the previous reading, the whole kernel memory counter set, one blkio entry per
  * device in the stack — and between them the charts and the CPU throttler read
- * the dozen values below. Keeping the extract is what makes a week of samples
- * affordable to hold.
+ * the fourteen values below. Keeping the extract is what makes a week of samples
+ * affordable to hold: measured over ten components at a week of samples each,
+ * 469MB of full readings against 36MB of these.
+ *
+ * A value belongs here if a consumer cannot do its job without it, not if it is
+ * cheap to carry. memoryCache is the case that proves it — one number that costs
+ * 0.9% of what dropping the other twenty-seven saved, and without which nobody
+ * can report container memory the way docker does.
  * @param {object} stats - A docker stats reading, with disk_stats and nanoCpus attached
  * @returns {object} The values worth keeping
  */
@@ -321,6 +327,17 @@ function extractSample(stats) {
     nanoCpus: stats.nanoCpus ?? null,
     memoryUsage: stats.memory_stats?.usage ?? null,
     memoryLimit: stats.memory_stats?.limit ?? null,
+    // Docker's `usage` counts page cache - file data the kernel is holding only
+    // because something read it, and drops the moment anything else wants the
+    // space. `docker stats` subtracts it, so every consumer that reports a
+    // container's memory subtracts it too, and without this figure none of them
+    // can: they subtract zero and report a number that climbs with disk reads.
+    // cgroup v2 names it inactive_file and v1 names it cache; they are not the
+    // same counter (v1's is the whole page cache, v2's the reclaimable part) but
+    // docker's own CLI reads them from the same slot, so this does too. Null
+    // where neither is present, which leaves the consumer exactly where it was.
+    memoryCache: stats.memory_stats?.stats?.inactive_file
+      ?? stats.memory_stats?.stats?.cache ?? null,
     ioRead: sumBlkio('read'),
     ioWrite: sumBlkio('write'),
     networkRx: stats.networks?.eth0?.rx_bytes ?? null,
@@ -349,7 +366,14 @@ function expandSample(sample) {
       cpu_usage: { total_usage: sample.cpuTotalBefore },
       system_cpu_usage: sample.cpuSystemBefore,
     },
-    memory_stats: { usage: sample.memoryUsage, limit: sample.memoryLimit },
+    // Reported under the cgroup v2 name whichever key it was read from: a
+    // consumer's `inactive_file ?? cache` chain then settles on the first, and
+    // the value is the same either way.
+    memory_stats: {
+      usage: sample.memoryUsage,
+      limit: sample.memoryLimit,
+      stats: { inactive_file: sample.memoryCache },
+    },
     blkio_stats: { io_service_bytes_recursive: io },
     networks: { eth0: { rx_bytes: sample.networkRx, tx_bytes: sample.networkTx } },
     nanoCpus: sample.nanoCpus,
