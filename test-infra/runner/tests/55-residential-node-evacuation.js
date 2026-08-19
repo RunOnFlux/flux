@@ -626,13 +626,20 @@ describe('Residential node evacuation', function () {
 
     await setSystemSecure(subnet.nodeIp(TARGET), false);
     await setSystemSecure(subnet.nodeIp(SECOND_TARGET), false);
-    for (const node of [TARGET, SECOND_TARGET]) {
-      // eslint-disable-next-line no-await-in-loop
-      await waitFor(async () => (await dbClient(node).residentialMarker()) !== null,
-        { timeout: 120000, label: `node ${node} starts its settling window` });
-      // eslint-disable-next-line no-await-in-loop
-      await elapseSettleWindow(node);
-    }
+    await Promise.all([TARGET, SECOND_TARGET].map((node) => waitFor(
+      async () => (await dbClient(node).residentialMarker()) !== null,
+      { timeout: 120000, label: `node ${node} starts its settling window` },
+    )));
+
+    // Opened TOGETHER, not one after the other. The queue ticket is
+    // `observed >= base + position*step`, and `observed` starts when a node
+    // first sees the app whole - so it fixes a different DURATION per node, not
+    // a different deadline. Open the two windows a few seconds apart and the
+    // later start with the shorter wait lands on the same instant as the earlier
+    // start with the longer one, both nodes decide in the same pass, and the
+    // ordering the test exists to prove is gone. In production both holders
+    // start observing together, which is what makes position decide.
+    await Promise.all([TARGET, SECOND_TARGET].map((node) => elapseSettleWindow(node)));
 
     // Whichever goes first, the other must be refused while the app is short.
     let refusal = null;
