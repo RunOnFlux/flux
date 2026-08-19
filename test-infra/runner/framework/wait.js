@@ -212,6 +212,16 @@ export async function waitForGiveUpConsidered(node, appName, predicate, timeout 
   return node.waitForEvent('giveUp:considered', (d) => d.appName === appName && (!predicate || predicate(d)), timeout, opts);
 }
 
+/**
+ * A spawner pass that found candidates and placed none, with the count
+ * surviving each filter. `found` is what was short on the network; the rest name
+ * where they went. A suite waiting for an app that never arrives reads this to
+ * see WHICH filter took it rather than guessing.
+ */
+export async function waitForNoCandidates(node, predicate, timeout = 60000, opts) {
+  return node.waitForEvent('spawner:noCandidates', (d) => (!predicate || predicate(d)), timeout, opts);
+}
+
 /** The safety gate's verdict on an app the pass wanted to give up. */
 export async function waitForGiveUpSafety(node, appName, predicate, timeout = 120000, opts) {
   return node.waitForEvent('giveUp:safety', (d) => d.appName === appName && (!predicate || predicate(d)), timeout, opts);

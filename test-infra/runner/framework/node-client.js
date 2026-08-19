@@ -246,6 +246,7 @@ export function nodeClient(nodeNum) {
         'reconciler:swept',
         'giveUp:considered',
         'giveUp:safety',
+        'spawner:noCandidates',
       ]) {
         eventSource.addEventListener(name, (e) => {
           const entry = {
