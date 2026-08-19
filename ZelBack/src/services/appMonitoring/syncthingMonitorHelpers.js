@@ -308,12 +308,21 @@ function folderNeedsUpdate(existingFolder, newFolder) {
  * for a brand-new folder syncthing does not yet know; this converges every
  * EXISTING folder whose ignores predate a policy line.
  *
- * Additive: syncthing's POST replaces the whole set, so the current patterns
- * are read and the missing lines appended before posting - anything an app
- * added in-container is kept. Nothing is posted when every line is already
- * present, so a converged folder is neither rewritten nor rescanned. Every
- * syncthing call returns its outcome in-band and never throws, so status is
- * checked rather than caught.
+ * Asserted by POSITION, not by presence. syncthing takes the FIRST pattern that
+ * matches, so a policy line sitting below anything is a policy line something
+ * else can answer for - an `!/backup` above it un-ignores the very directory
+ * this exists to keep off the network, and a presence test would call that
+ * converged. The policy lines therefore lead, and everything else follows in the
+ * order it already had. That is the same rule the v9 spec-driven writer states,
+ * where the owner supplies patterns of their own: they extend the set, they
+ * never un-exclude what FluxOS put there.
+ *
+ * Nothing is lost. syncthing's POST replaces the whole set, so the desired list
+ * is built FROM the current one and only duplicate copies of our own lines drop
+ * out. Nothing is posted when the folder already reads that way, so a converged
+ * folder is neither rewritten nor rescanned - which is what makes this safe on
+ * every monitor pass. Every syncthing call returns its outcome in-band and never
+ * throws, so status is checked rather than caught.
  *
  * Call only for a folder syncthing already knows (the caller checks); on an
  * unknown folder the API would answer with an error and nothing would converge.
@@ -327,14 +336,17 @@ async function ensureStignoreCovers(folderId) {
     return;
   }
   const current = Array.isArray(read.data?.ignore) ? read.data.ignore : [];
-  const missing = SYNCTHING_IGNORE_LINES.filter((line) => !current.includes(line));
-  if (!missing.length) return;
-  const written = await syncthingService.setFolderIgnores(folderId, [...current, ...missing]);
+  const rest = current.filter((line) => !SYNCTHING_IGNORE_LINES.includes(line));
+  const desired = [...SYNCTHING_IGNORE_LINES, ...rest];
+  const converged = desired.length === current.length
+    && desired.every((line, index) => line === current[index]);
+  if (converged) return;
+  const written = await syncthingService.setFolderIgnores(folderId, desired);
   if (written.status !== 'success') {
     log.error(`ensureStignoreCovers - could not set ignores for ${folderId}: ${written.data?.message ?? 'unknown error'}`);
     return;
   }
-  log.info(`ensureStignoreCovers - added ${missing.join(', ')} to ${folderId} ignores`);
+  log.info(`ensureStignoreCovers - ${folderId} ignores now lead with ${SYNCTHING_IGNORE_LINES.join(', ')}`);
 }
 
 module.exports = {
