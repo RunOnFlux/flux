@@ -163,6 +163,141 @@ describe('appInspector tests', () => {
     });
   });
 
+  describe('startAppMonitoring - the guards around the sample', () => {
+    // The interval body decides, every minute, whether there is anything worth
+    // sampling. Each guard below is the difference between a store full of empty
+    // readings and one the CPU throttler can act on, and none of them was reachable
+    // by a test until the interval could be armed at all.
+    let clock;
+    const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+
+    const healthyReading = () => ({
+      cpu_stats: { cpu_usage: { total_usage: 500 }, system_cpu_usage: 900, online_cpus: 4 },
+      precpu_stats: { cpu_usage: { total_usage: 100 }, system_cpu_usage: 400 },
+      memory_stats: { usage: 2048, limit: 8192, stats: { inactive_file: 128 } },
+      blkio_stats: { io_service_bytes_recursive: [] },
+      networks: { eth0: { rx_bytes: 30, tx_bytes: 40 } },
+    });
+
+    const arm = ({ container = { State: 'running' } } = {}) => {
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves(container);
+      dockerServiceStub.dockerContainerStats = sinon.stub().resolves(healthyReading());
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2e9 } });
+      clock = sinon.useFakeTimers();
+      appInspector.startAppMonitoring('myapp');
+    };
+
+    const ticks = async (n) => {
+      for (let i = 0; i < n; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await clock.tickAsync(60000);
+      }
+    };
+
+    const stored = () => globalStateStub.appsMonitored.myapp?.statsStore ?? [];
+
+    afterEach(() => {
+      if (clock) clock.restore();
+      clock = null;
+    });
+
+    it('refuses to start without an app name', () => {
+      expect(() => appInspector.startAppMonitoring()).to.throw('No App specified');
+    });
+
+    it('samples nothing while the container is not running', async () => {
+      // A created, exited or dead container reports no usage. Sampling it fills the
+      // store with empty readings and leaves the throttler deciding on noise.
+      arm({ container: { State: 'exited' } });
+      await ticks(1);
+
+      expect(stored()).to.have.lengthOf(0);
+      expect(dockerServiceStub.dockerContainerStats.called, 'asked docker for stats on a stopped container').to.be.false;
+    });
+
+    it('stops monitoring, and drops the data, once the container is gone', async () => {
+      // The app was removed underneath us. Left armed, the interval asks about a
+      // container that will never exist again, once a minute, forever.
+      arm({ container: null });
+      await ticks(1);
+
+      expect(globalStateStub.appsMonitored).to.not.have.property('myapp');
+    });
+
+    it('survives the app being dropped from the monitored set mid-flight', async () => {
+      arm();
+      delete globalStateStub.appsMonitored.myapp;
+
+      await ticks(1);
+
+      expect(logStub.error.called).to.be.true;
+    });
+
+    it('re-reads the cpu allocation every third tick and carries it in between', async () => {
+      // The allocation only moves when the throttler moves it, so it is read on the
+      // same cadence as before the store was narrowed - and carried onto the samples
+      // in between rather than left null on two samples out of three.
+      arm();
+      await ticks(4);
+
+      expect(dockerServiceStub.dockerContainerInspect.callCount, 'inspected on ticks 1 and 4 only').to.equal(2);
+      expect(stored().map((sample) => sample.nanoCpus)).to.deep.equal([2e9, 2e9, 2e9, 2e9]);
+    });
+
+    it('drops samples older than seven days and keeps the rest', async () => {
+      // The filter runs on every tick but has never had anything to drop: with one
+      // sample in the store it is green on a coverage report and unproven in fact.
+      arm();
+      globalStateStub.appsMonitored.myapp.statsStore.push(
+        { timestamp: 1, elapsed: -SEVEN_DAYS - 60000, memoryUsage: 1 },
+        { timestamp: 2, elapsed: -1000, memoryUsage: 2 },
+      );
+
+      await ticks(1);
+
+      const kept = stored();
+      expect(kept.map((sample) => sample.timestamp)).to.not.include(1);
+      expect(kept.map((sample) => sample.timestamp)).to.include(2);
+      expect(kept).to.have.lengthOf(2); // the recent one, plus this tick's
+    });
+
+    it('replaces its own interval rather than running two', async () => {
+      // Monitoring is (re)started from several places - boot, the reconciler, an
+      // install. Arming a second interval over a live one doubles the sample rate
+      // for that app and leaves a timer nothing can ever clear.
+      arm();
+      appInspector.startAppMonitoring('myapp');
+
+      await ticks(1);
+
+      expect(stored(), 'two intervals would each store a sample').to.have.lengthOf(1);
+    });
+
+    it('records no allocation when the inspect comes back without one', async () => {
+      // A container inspect that resolves but carries no HostConfig leaves the
+      // allocation unknown. Null says so; a zero would read as "no cpu allotted"
+      // and the throttler divides by it.
+      arm();
+      dockerServiceStub.dockerContainerInspect.resolves({});
+
+      await ticks(1);
+
+      expect(stored()[0].nanoCpus).to.equal(null);
+    });
+
+    it('logs a failing reading instead of letting it escape the interval', async () => {
+      // An unhandled rejection out of a setInterval callback takes the process with
+      // it, so this app failing must not be the node failing.
+      arm();
+      dockerServiceStub.dockerContainerStats.rejects(new Error('docker is busy'));
+
+      await ticks(1);
+
+      expect(logStub.error.called).to.be.true;
+      expect(stored()).to.have.lengthOf(0);
+    });
+  });
+
   describe('appInspect', () => {
     it('should inspect app and return data', async () => {
       const req = {
