@@ -202,6 +202,21 @@ export async function waitForImageUpdateRedeployComplete(node, appName, timeout 
   return node.waitForEvent('imageUpdate:redeployComplete', (d) => d.appName === appName, timeout);
 }
 
+/**
+ * The give-up pass reporting what it decided about one app. Emitted once per
+ * app per pass, whichever way the decision went, so a suite can tell "the pass
+ * declined" from "the pass never ran" - which the logs cannot, since a pass
+ * with nothing to give up says nothing at all.
+ */
+export async function waitForGiveUpConsidered(node, appName, predicate, timeout = 120000, opts) {
+  return node.waitForEvent('giveUp:considered', (d) => d.appName === appName && (!predicate || predicate(d)), timeout, opts);
+}
+
+/** The safety gate's verdict on an app the pass wanted to give up. */
+export async function waitForGiveUpSafety(node, appName, predicate, timeout = 120000, opts) {
+  return node.waitForEvent('giveUp:safety', (d) => d.appName === appName && (!predicate || predicate(d)), timeout, opts);
+}
+
 export async function waitForSpawnerDeferred(node, appName, reason, timeout = 60000) {
   const entry = await node.waitForEvent('spawner:deferred', (d) => d.appName === appName && (!reason || d.reason === reason), timeout);
   return entry.data;

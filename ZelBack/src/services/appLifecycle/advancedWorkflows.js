@@ -3535,6 +3535,16 @@ async function checkAndRemoveApplicationInstance() {
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await registryManager.appLocation(installedApp.name);
       const decision = reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr);
+      // Every pass reports what it decided about every app it holds. Without
+      // this the pass is invisible: it logs nothing at all when it has nothing
+      // to give up, so "never ran" and "ran and declined" read identically, and
+      // a suite can only tell them apart by scraping logs.
+      fluxEventBus.publish('giveUp:considered', {
+        appName: installedApp.name,
+        giveUp: decision.giveUp,
+        reason: decision.reason,
+        detail: decision.detail,
+      });
       if (!decision.giveUp) {
         if (decision.reason === 'EVACUATION') {
           log.info(`${installedApp.name} not handed back yet: ${decision.detail}`);
@@ -3549,6 +3559,12 @@ async function checkAndRemoveApplicationInstance() {
         getApplicationGlobalSpecifications: registryManager.getApplicationGlobalSpecifications,
         findSyncedPeer,
         isElectedPrimary: (name) => isElectedPrimaryHere(name, localSocketAddr),
+      });
+      fluxEventBus.publish('giveUp:safety', {
+        appName: installedApp.name,
+        reason: decision.reason,
+        safe: safety.safe,
+        detail: safety.reason,
       });
       if (!safety.safe) {
         // The observation window restarts, so the queue wait is served against an
