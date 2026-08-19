@@ -26,6 +26,7 @@ import { pushImage } from './registry-helper.js';
 import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey, nodeKey } from './keys.js';
+import chainStart from './chain-start.cjs';
 
 function createLogCollector() {
   // Each entry is { t, line }: t is the capture wall-clock (ISO), line is the raw
@@ -83,7 +84,10 @@ const SYNCTHING_IP = subnet.syncthing;
 const REGISTRY_IP = subnet.registry;
 const EXTERNAL_STUB_IP = subnet.externalStub;
 const FDM_IP = subnet.fdm;
-const INITIAL_HEIGHT = 2100000;
+// Default only. A suite that needs to stand before a fork passes its own:
+// createTestEnv({ initialHeight }). See chain-start.cjs for why the default is
+// where it is.
+const { DEFAULT_INITIAL_HEIGHT } = chainStart;
 
 // Per-run-all label. run-all.sh exports E2E_RUN_LABEL (unique per invocation) and
 // scopes its between-suite cleanup to it, so concurrent run-all invocations only
@@ -461,7 +465,7 @@ function getBootId(nodeNum) {
   return `test-boot-id-node-${String(nodeNum).padStart(2, '0')}`;
 }
 
-async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCenter = true } = {}) {
+async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCenter = true, initialHeight = DEFAULT_INITIAL_HEIGHT } = {}) {
   const client = new MongoClient(`mongodb://${mongoIp}:27017`);
   try {
     await client.connect();
@@ -470,7 +474,7 @@ async function seedMongo(mongoIp, nodeCount, bootContext = 'running', { dataCent
       const explorerDb = client.db(`node${num}_zelcashdata`);
       await explorerDb.collection('scannedheight').updateOne(
         {},
-        { $set: { generalScannedHeight: INITIAL_HEIGHT } },
+        { $set: { generalScannedHeight: initialHeight } },
         { upsert: true },
       );
       const localDb = client.db(`node${num}_zelfluxlocal`);
@@ -547,7 +551,7 @@ export async function createTestEnv({
   hookCtx = null, nodes = 1, deferredNodes = 0, legacyNodes = [], stubPeers = [],
   configOverrides = null, nodeConfigOverrides = {}, nodeTiers = null, dataCenter = true,
   tickerAutostart = false, discoveryAutostart = false, nodeStatusOverrides = {},
-  rpcFailures = [], bootContext = 'running',
+  rpcFailures = [], bootContext = 'running', initialHeight = DEFAULT_INITIAL_HEIGHT,
 } = {}) {
   // The boot-lock queue wait must not count against the suite's hook budget.
   // Mocha enforces a hook's timeout twice: the watchdog timer (which would fire
@@ -585,7 +589,7 @@ export async function createTestEnv({
     // mongo starts, i.e. inside the fleet boot, where the waits at risk are the
     // boot's own.
     await startInfraDeathWatch(env);
-    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext);
+    await _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight);
     return env;
   } catch (err) {
     // Boot failed: the env owns everything started so far. The shared teardown
@@ -614,7 +618,7 @@ function mergeConfigs(base, override) {
   return result;
 }
 
-async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext) {
+async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, configOverrides, nodeConfigOverrides, nodeTiers, dataCenter, tickerAutostart, discoveryAutostart, nodeStatusOverrides, rpcFailures, bootContext, initialHeight) {
   // Everything built here registers onto the env shell as it comes up, so a
   // boot-phase throw leaves the partial state reachable (see makeEnvShell).
   const {
@@ -651,7 +655,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   containers.mongo = mongo;
   watchInfra(env, 'mongo', mongo);
 
-  await seedMongo(MONGO_IP, nodes, bootContext, { dataCenter });
+  await seedMongo(MONGO_IP, nodes, bootContext, { dataCenter, initialHeight });
 
   const daemonStub = await new StaticIpContainer(image('flux-e2e-daemon-stub'))
     .withStaticIp(networkName, DAEMON_IP)
@@ -662,6 +666,7 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       CONTROL_PORT: '18232',
       TICKER_AUTOSTART: tickerAutostart ? 'true' : 'false',
       NODE_COUNT: String(nodes),
+      INITIAL_HEIGHT: String(initialHeight),
     })
     .withBindMounts([{
       source: fixturesDir,
@@ -954,6 +959,12 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   // deferredBuilders/fluxNodes); identity, registries and teardown live on the
   // shell itself so they exist from boot start.
   Object.assign(env, {
+    // The height this run's chain started at. Suites wait on "a block ABOVE the
+    // start has been processed" to know the node has caught up with the block they
+    // just advanced to, and that only means anything against the height this env
+    // actually used - a literal goes stale the moment the default moves, and goes
+    // stale silently, because a predicate that is already true still passes.
+    initialHeight,
     daemonControl: `http://${DAEMON_IP}:18232`,
     stubControl: `http://${EXTERNAL_STUB_IP}:3001`,
     fdmControl: `http://${FDM_IP}:16131`,

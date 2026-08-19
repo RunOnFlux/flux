@@ -158,7 +158,7 @@ export async function bootAndPeer(env, { minOutbound, minInbound } = {}) {
   ));
   await advanceBlock();
   for (const client of nodes) {
-    await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
   }
   await env.startDiscovery();
   // Peering is a property of the fleet, not a literal. The ring's two halves are

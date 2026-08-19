@@ -17,7 +17,7 @@ async function bootAndPeer(env) {
   }
   await advanceBlock();
   for (const client of env.clients) {
-    if (client) await waitForBlockProcessed(client, (d) => d.height > 2100000, 50000);
+    if (client) await waitForBlockProcessed(client, (d) => d.height > env.initialHeight, 50000);
   }
   await env.startDiscovery();
   await env.clients[0].waitForEvent('peers:added', (d) => d.outbound >= 4, 120000);
@@ -62,7 +62,7 @@ describe('Hash sync: late-joining node', function () {
     await env.startNode(env.lastNodeIndex);
     await waitForDaemonReady(env.clients[env.lastNodeIndex]);
     await waitForNodeStatus(env.clients[env.lastNodeIndex], (d) => d.confirmed === true, 30000);
-    await waitForBlockProcessed(env.clients[env.lastNodeIndex], (d) => d.height > 2100000, 60000);
+    await waitForBlockProcessed(env.clients[env.lastNodeIndex], (d) => d.height > env.initialHeight, 60000);
     await env.startDiscovery();
   });
 

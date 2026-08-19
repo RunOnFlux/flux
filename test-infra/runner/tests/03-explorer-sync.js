@@ -14,7 +14,7 @@ describe('Boot: explorer sync', function () {
     env = await createTestEnv({ hookCtx: this, nodes: 2 });
     await waitForDaemonReady(env.clients[0]);
     await advanceBlock();
-    await waitForBlockProcessed(env.clients[0], (d) => d.height > 2100000, 50000);
+    await waitForBlockProcessed(env.clients[0], (d) => d.height > env.initialHeight, 50000);
   });
 
   after(async function () {
@@ -48,7 +48,7 @@ describe('Boot: explorer sync', function () {
       this.timeout(120000);
       await waitForDaemonReady(env.clients[1]);
       await advanceBlock();
-      await waitForBlockProcessed(env.clients[1], (d) => d.height > 2100000, 50000);
+      await waitForBlockProcessed(env.clients[1], (d) => d.height > env.initialHeight, 50000);
     });
 
     it('should have similar explorer height on node 1 and node 2', async function () {
