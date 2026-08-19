@@ -627,7 +627,20 @@ async function processBlock(blockHeight, isInsightExplorer) {
     const options = {
       upsert: true,
     };
-    // this should run only when node is synced
+    // True when this block was still the chain tip at the moment it was fetched,
+    // which is NOT the same as "the node is synced". The tip is read from a
+    // cache refreshed every daemonInfoIntervalMs, and the branch at the end of
+    // this function chains straight into the next block whenever it is behind -
+    // so a burst of blocks arriving between two refreshes is processed back to
+    // back and only the LAST of them qualifies. Everything gated below is
+    // skipped for the others, and skipped silently: expiring global app
+    // records, trimming surplus instances, reinstalling outdated apps.
+    //
+    // Post-PON that is a 30s block against a 30s refresh, and the refresh
+    // reschedules only after awaiting its RPC, so it drifts behind the chain and
+    // the bursts recur. v9 removes the race rather than tuning it - fluxd pushes
+    // hashblockheight to chainTipSource, which drives both the cached tip and
+    // this scan, so a block is processed while it is still the tip.
     isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
       blockEmitter.emit('blocksProcessed', scannedHeight);
