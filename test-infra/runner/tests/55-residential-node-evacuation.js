@@ -146,6 +146,33 @@ describe('Residential node evacuation', function () {
           // Compressed the same way every other suite compresses the interval it
           // is exercising. The production values are hours; the behaviour under
           // test is the ordering, not the wall-clock.
+          // A HARNESS WORKAROUND, and deliberately not a fix.
+          //
+          // The node learns the chain height from a cache refreshed on this
+          // interval, and processBlock then chains through every block that
+          // arrived since. Only the LAST of such a burst is still the tip, so
+          // only that one satisfies explorerService's `confirmations < 2` gate
+          // and runs the app maintenance hung off it - including the give-up
+          // pass this suite exercises.
+          //
+          // The harness default is 5000 against a 5000ms block, which is 1:1 -
+          // and so is production, 30s blocks against a 30s poll, post-PON. The
+          // race is real on a live node: blocks periodically arrive two to a
+          // window and the earlier one skips maintenance silently. What the
+          // harness adds is PERMANENCE - a steady two-block burst pins the
+          // surviving block to one parity, and `height % 4 === 0` then never
+          // lands for an entire run, so evacuation could never be observed.
+          //
+          // It is not fixed on this lineage because it cannot be fixed cheaply:
+          // the only chain height a node holds is that same cached value, so
+          // comparing against it is the identical race with an extra step, and
+          // knowing the true tip needs a fresh RPC per block on every node. v9
+          // solves it properly - fluxd's `hashblockheight` is pushed to
+          // chainTipSource, which drives both the cached tip and the explorer
+          // scan, leaving the 30s poll as a fallback only.
+          //
+          // So: shorten the poll here so the suite can see the path at all.
+          daemonInfoIntervalMs: 1000,
           residentialCheckIntervalMs: 3000,
           // Left LONG on purpose, and opened by the test when it is ready. A
           // short window would let evacuation start while the hold is still
