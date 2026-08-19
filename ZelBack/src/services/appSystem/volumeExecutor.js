@@ -521,7 +521,9 @@ async function receivePeerArchive(body, destination) {
  * acquisition that otherwise worked.
  *
  * @param {{ids: Array<string>, tags: Array<string>}} loaded
- * @param {string} expected - the id to keep
+ * @param {Array<string>} accepted - the ids that may be kept: the pin carries a
+ *   config id and an index id, and which one the daemon files the image under
+ *   depends on its image store, so either answers
  * @param {string} socketAddress - the peer, for the log
  * @returns {Promise<void>}
  */
