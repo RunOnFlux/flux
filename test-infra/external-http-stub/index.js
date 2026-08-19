@@ -411,8 +411,10 @@ function defaultGeoResponse(ip) {
     query: ip,
     org: 'Hetzner Online GmbH',
     isp: 'Hetzner Online GmbH',
+    as: 'AS24940 Hetzner Online GmbH',
     proxy: false,
     hosting: true,
+    mobile: false,
   };
 }
 

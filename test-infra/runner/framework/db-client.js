@@ -128,6 +128,23 @@ export function dbClient(nodeNum) {
       return cpDb.collection('chainmessages').find({}).toArray();
     },
 
+    // residentialNodeDosService's settling window. Persisted so that restarting
+    // FluxOS cannot restart the clock; a suite reads it to tell "held" from
+    // "evacuating", and writes it to put the window in the past.
+    async residentialMarker() {
+      const localDb = await db('local');
+      return localDb.collection('nodestartuptracker').findOne({ _id: 'residentialDos' });
+    },
+
+    async setResidentialSince(since) {
+      const localDb = await db('local');
+      await localDb.collection('nodestartuptracker').updateOne(
+        { _id: 'residentialDos' },
+        { $set: { residentialSince: since } },
+        { upsert: true },
+      );
+    },
+
     async geolocation() {
       const localDb = await db('local');
       return localDb.collection('geolocation').findOne({ _id: 'nodeGeolocation' });

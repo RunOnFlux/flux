@@ -40,6 +40,10 @@ let pendingBlocks = [];
 
 const nodeStatusOverrides = new Map();
 const rpcFailures = new Map();
+// ip -> false. Absent means ArcaneOS, which is what 85% of the real fleet runs
+// and what every suite that does not care about this should see: a node reading
+// systemsecure=true is never a residential-DOS target.
+const nonArcaneNodes = new Map();
 const requestJournal = [];
 const MAX_JOURNAL_SIZE = 10000;
 
@@ -400,6 +404,9 @@ const benchHandlers = {
       bench_version: BENCH_VERSION,
       flux_version: FLUX_VERSION,
       architecture: 'amd64',
+      // The ArcaneOS attestation residentialNodeDosService reads. A node absent
+      // from the override map is attested.
+      systemsecure: !nonArcaneNodes.has(node ? node.ip.split(':')[0] : ''),
       thunder: false,
       real_cores: s.cores,
       speed: 3000,
@@ -547,6 +554,7 @@ control.get('/state', (req, res) => {
     tickerRunning: tickerHandle !== null,
     statusOverrides: nodeStatusOverrides.size,
     rpcFailures: rpcFailures.size,
+    nonArcaneNodes: [...nonArcaneNodes.keys()],
   });
 });
 
@@ -768,6 +776,23 @@ control.post('/node-tier/:ip', (req, res) => {
   node.tier = tier;
   const amounts = { CUMULUS: 1000, NIMBUS: 12500, STRATUS: 40000 };
   return res.json({ ip, tier, collateral: amounts[tier] });
+});
+
+// -- ArcaneOS attestation control --
+
+control.post('/system-secure/:ip', (req, res) => {
+  const { secure } = req.body;
+  if (typeof secure !== 'boolean') {
+    return res.status(400).json({ error: 'secure must be a boolean' });
+  }
+  if (secure) nonArcaneNodes.delete(req.params.ip);
+  else nonArcaneNodes.set(req.params.ip, false);
+  return res.json({ ip: req.params.ip, systemsecure: secure });
+});
+
+control.delete('/system-secure', (req, res) => {
+  nonArcaneNodes.clear();
+  res.json({ cleared: true });
 });
 
 // -- RPC failure simulation --
