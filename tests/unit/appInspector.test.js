@@ -224,13 +224,18 @@ describe('appInspector tests', () => {
       expect(globalStateStub.appsMonitored).to.not.have.property('myapp');
     });
 
-    it('survives the app being dropped from the monitored set mid-flight', async () => {
+    it('asks docker nothing once the app has been dropped from the monitored set', async () => {
+      // Asserted on the call NOT being made, not on something having been logged:
+      // without the guard the body falls through to `appsMonitored[appName].run`
+      // on an undefined, throws, and the outer catch logs too - so a test that only
+      // checks log.error passes whether the guard is there or not.
       arm();
       delete globalStateStub.appsMonitored.myapp;
 
       await ticks(1);
 
-      expect(logStub.error.called).to.be.true;
+      expect(dockerServiceStub.getDockerContainerOnly.called, 'sampled an app that is no longer monitored').to.be.false;
+      expect(logStub.error.calledWithMatch(/already stopped/)).to.be.true;
     });
 
     it('re-reads the cpu allocation every third tick and carries it in between', async () => {
