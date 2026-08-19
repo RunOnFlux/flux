@@ -485,6 +485,7 @@ module.exports = {
     },
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,
+    explorerPollIntervalMs: 5000, // how often the explorer asks whether the chain moved - the floor on block-driven work
     explorerSyncRetryMs: 120000,
     explorerDeepRestoreBlocks: 100,
     syncTimeoutMs: 120000,

@@ -109,13 +109,13 @@ async function seedApp(env, appName, { instances = 3, containerData = '/tmp', po
  * which parity the race settles on.
  *
  * And the waits here are WALL-CLOCK. A node's queue ticket is real time, so a
- * budget counted in blocks means nothing: driving flat out races through the
- * chain in milliseconds and stops long before the node's turn comes round,
- * leaving no pass in which to act. The deadline is therefore in milliseconds and
- * the rate is explicit - `blockIntervalMs` sets how fast the chain moves, which
- * is what fixes how long a give-out pass takes in wall-clock, which is what the
- * queue step has to outlast. Changing one without the other is what quietly
- * deletes the ordering these tests exist to check.
+ * budget counted in blocks means nothing: the deadline is therefore in
+ * milliseconds. The chain's actual rate is not this function's to set - a block
+ * is not processed until the node's next explorer poll, so
+ * `explorerPollIntervalMs` is the floor, and that floor is what fixes how long a
+ * give-up pass takes in wall-clock, which is what the queue step has to outlast.
+ * Changing one without the other is what quietly deletes the ordering these
+ * tests exist to check.
  *
  * @param {number} [opts.timeoutMs] How long to keep driving before giving up.
  * @param {number} [opts.blockIntervalMs] Minimum wall-clock between blocks.
@@ -273,11 +273,15 @@ describe('Residential node evacuation', function () {
           // departure is visible to it.
           //
           // So the step only has to outlast one give-up pass plus the
-          // propagation of a removal. A pass is four blocks, and driveUntil
-          // paces the chain at 200ms a block, so a pass is under a second here;
-          // the fluxappremoved broadcast is sub-second too. 5s is several times
-          // the margin needed and caps the worst wait - last of five instances -
-          // at 21s.
+          // propagation of a removal. A pass is four blocks, and a block costs
+          // one explorerPollIntervalMs - 250ms in the harness - because a block
+          // is not looked at until the next poll. So a pass is about a second
+          // here and the fluxappremoved broadcast is sub-second. 5s is several
+          // times the margin needed and caps the worst wait - last of five
+          // instances - at 21s.
+          //
+          // Measured before explorerPollIntervalMs existed: 4.8s a block, a 20s
+          // pass, and a 5s step that both holders cleared within one pass.
           //
           // Production's 15 MINUTES is that same relationship against a pass
           // that runs every 44 blocks. The ratio transfers; the number does not,
