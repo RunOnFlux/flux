@@ -32,6 +32,19 @@ const RESIDENTIAL_GEO = {
   as: 'AS64500 Consumer Access Networks',
 };
 
+// Nothing either way: no hosting flags, no operator that sells hosting, and
+// 198.18.x.x has no reverse DNS. The node's own rule reaches UNKNOWN on this,
+// so whatever verdict it ends up with came from the published table.
+const NEUTRAL_GEO = {
+  hosting: false, proxy: false, mobile: false, org: 'Neutral Holdings', isp: 'Metro Fibre', as: 'AS64501 Metro Fibre',
+};
+
+// Hosting evidence the node can see about its OWN address, which is what lets
+// it decline a published residential verdict meant for its neighbours.
+const HOSTING_GEO = {
+  hosting: true, proxy: false, mobile: false, org: 'Reseller', isp: 'Hetzner Online GmbH', as: 'AS24940 Hetzner Online GmbH',
+};
+
 async function bootToReady(env) {
   await Promise.all(env.clients.map((c) => waitForDaemonReady(c)));
   await Promise.all(env.clients.map((c) => waitForNodeStatus(c, (d) => d.confirmed === true, 30000)));
@@ -100,6 +113,12 @@ describe('Residential node evacuation', function () {
   //
   // Every other node is attested and in a data centre.
   const TARGET = 1;
+  // .12 - same published organisation as the target, but with nothing of its own
+  // to go on, so the table is the only thing that can decide it.
+  const TABLE_DECIDED = 3;
+  // .14 - same published organisation again, but its own address carries hosting
+  // evidence, so it declines the verdict.
+  const VETOING = 5;
 
   before(async function () {
     this.timeout(600000);
@@ -110,7 +129,18 @@ describe('Residential node evacuation', function () {
       // Seeded through createTestEnv, not POSTed afterwards: a node looks its
       // address up once during boot, so an override applied after the fleet is
       // up is never read and the node classifies itself from the stub default.
-      geolocation: { [TARGET]: RESIDENTIAL_GEO },
+      geolocation: { [TARGET]: RESIDENTIAL_GEO, [TABLE_DECIDED]: NEUTRAL_GEO, [VETOING]: HOSTING_GEO },
+      // Two organisations across the fleet's /24, assigned round-robin by last
+      // octet, and the one holding .10/.12/.14 is published residential. This is
+      // the authority the fleet runs on in production - 2,303 of 2,513 hosts are
+      // decided by the table rather than by their own reading - so a suite that
+      // only ever exercised the fallback would be testing the path that decides
+      // almost nothing.
+      locationTable: {
+        domains: 2,
+        subnet: subnet.base,
+        classes: { 0: 'residential', 1: 'hosting' },
+      },
       configOverrides: {
         fluxapps: {
           // Compressed the same way every other suite compresses the interval it
@@ -162,6 +192,43 @@ describe('Residential node evacuation', function () {
     expect(geo.networkClassification.classification).to.equal('DATACENTER');
 
     const info = await env.clients[1].get('/flux/info');
+    expect(info.data.flux.dos.dosState).to.be.below(100);
+  });
+
+  it('takes the published verdict where the node has nothing of its own to go on', async function () {
+    this.timeout(120000);
+
+    await waitFor(async () => {
+      const geo = await dbClient(TABLE_DECIDED).geolocation();
+      return geo?.networkEvidence != null;
+    }, { timeout: 90000, label: 'node 3 gathers its evidence' });
+
+    const info = await env.clients[TABLE_DECIDED - 1].get('/flux/info');
+    expect(info.data.flux.dos.dosState).to.be.below(100);
+
+    // Its own reading is UNKNOWN - no signal for, none against - so a verdict of
+    // RESIDENTIAL can only have come from the table.
+    const geo = await dbClient(TABLE_DECIDED).geolocation();
+    expect(geo.networkEvidence.classification).to.equal('UNKNOWN');
+    expect(geo.networkEvidence.evidenceFor).to.be.empty;
+    expect(geo.networkEvidence.evidenceAgainst).to.be.empty;
+  });
+
+  it('declines a published verdict its own address contradicts', async function () {
+    this.timeout(120000);
+
+    await waitFor(async () => {
+      const geo = await dbClient(VETOING).geolocation();
+      return geo?.networkEvidence != null;
+    }, { timeout: 90000, label: 'node 5 gathers its evidence' });
+
+    // Published residential along with its neighbours, but it can see hosting
+    // evidence about itself - 213.44.137.57 on Bouygues is the live instance.
+    // The veto only ever removes a node from enforcement.
+    const geo = await dbClient(VETOING).geolocation();
+    expect(geo.networkEvidence.evidenceAgainst).to.not.be.empty;
+
+    const info = await env.clients[VETOING - 1].get('/flux/info');
     expect(info.data.flux.dos.dosState).to.be.below(100);
   });
 
