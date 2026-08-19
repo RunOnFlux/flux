@@ -323,6 +323,7 @@ module.exports = {
     },
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,
+    explorerPollIntervalMs: 5000,
     explorerSyncRetryMs: 120000,
     explorerDeepRestoreBlocks: 100,
     syncTimeoutMs: 120000,

@@ -1118,12 +1118,22 @@ async function checkAndHandleReorgs(database, scannedBlockHeight) {
   return height;
 }
 
+// How long the explorer waits before asking again whether the chain has moved.
+//
+// This is the floor on how fast a node can process blocks: a block is not looked
+// at until the next poll, so nothing downstream of block processing - expiring
+// app records, trimming surplus instances, the give-up pass - can run more often
+// than this however fast blocks are produced. Production wants 5s against a 30s
+// block; a harness driving its own chain wants it far shorter, and had no way to
+// say so.
+const POLL_INTERVAL_MS = config.fluxapps.explorerPollIntervalMs ?? 5000;
+
 async function pollForNewBlocks() {
   if (!blockProccessingCanContinue) return;
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
-      pollTimeout = setTimeout(pollForNewBlocks, 5000);
+      pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
       return;
     }
 
@@ -1145,10 +1155,10 @@ async function pollForNewBlocks() {
       return;
     }
 
-    pollTimeout = setTimeout(pollForNewBlocks, 5000);
+    pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
   } catch (error) {
     log.error(`Explorer poll error: ${error.message}`);
-    pollTimeout = setTimeout(pollForNewBlocks, 5000);
+    pollTimeout = setTimeout(pollForNewBlocks, POLL_INTERVAL_MS);
   }
 }
 

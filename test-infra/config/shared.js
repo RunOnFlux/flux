@@ -149,6 +149,12 @@ module.exports = {
     },
     spawnDelayMultiplier: 0.002,
     daemonInfoIntervalMs: 5000,
+    // The floor on how fast a driven chain can be processed: a block is not
+    // looked at until the next poll, so at production's 5000 a suite driving its
+    // own blocks still waits five seconds for each one, and everything hung off
+    // block processing - the give-up pass among them - inherits that. Measured
+    // at 4.8s a block before this was tunable.
+    explorerPollIntervalMs: 250,
     explorerSyncRetryMs: 5000,
     explorerDeepRestoreBlocks: 0,
     imageUpdateCheckIntervalMs: 5000,
