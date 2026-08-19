@@ -15,6 +15,7 @@ import {
   waitForSpawnerBlocked, waitFor, waitForGiveUpConsidered, waitForGiveUpSafety,
 } from '../framework/wait.js';
 import { setNoPeerData, setPeerHasData, setSynced } from '../framework/syncthing-control.js';
+import { electMaster } from '../framework/fdm-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const subnet = getSubnetConfig();
@@ -165,6 +166,10 @@ describe('Residential node evacuation', function () {
   // .14 - same published organisation again, but its own address carries hosting
   // evidence, so it declines the verdict.
   const VETOING = 5;
+  // A second residential node, so the serialisation claim has two holders to
+  // serialise. Published residential like node 1, and attested until a test
+  // withdraws it.
+  const SECOND_TARGET = 3;
 
   before(async function () {
     this.timeout(600000);
@@ -507,5 +512,107 @@ describe('Residential node evacuation', function () {
 
     const locations = await dbClient(2).getAppLocations('worldapp');
     expect(locations.map((l) => l.ip.split(':')[0])).to.not.include(subnet.nodeIp(TARGET));
+  });
+
+  it('keeps the settling clock across a restart, so restarting cannot postpone the drain', async function () {
+    this.timeout(600000);
+
+    // The clock is persisted and measured in wall-clock precisely so that
+    // bouncing FluxOS - on a cron, say - cannot keep a node permanently just
+    // short of the window. An in-memory counter of agreeing ticks would reset
+    // here, and this is the test that would have caught that.
+    await setSystemSecure(subnet.nodeIp(TARGET), true);
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) === null,
+      { timeout: 120000, label: 'node 1 is back in service' });
+
+    await setSystemSecure(subnet.nodeIp(TARGET), false);
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
+      { timeout: 120000, label: 'the settling window starts' });
+    const before = (await dbClient(TARGET).residentialMarker()).residentialSince;
+
+    await env.restartNode(TARGET - 1);
+    await waitForDaemonReady(env.clients[TARGET - 1]);
+
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
+      { timeout: 120000, label: 'the marker is still there after the restart' });
+    const after = (await dbClient(TARGET).residentialMarker()).residentialSince;
+    expect(after).to.eql(before);
+  });
+
+  it('only one residential node gives up an app at a time', async function () {
+    this.timeout(900000);
+
+    // The claim that makes the drain terminate: a departure takes the app below
+    // its instance count, and every OTHER evacuating holder sees that and waits.
+    // With one target node it is untestable by construction - it needs two.
+    // Node 3 is published residential like node 1, so withdrawing its
+    // attestation puts it in the same position.
+    await setSystemSecure(subnet.nodeIp(TARGET), true);
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) === null,
+      { timeout: 120000, label: 'node 1 is back in service' });
+
+    await seedApp(env, 'sharedapp', { instances: 5 });
+    await advanceBlocks(3);
+    await waitFor(async () => (await dbClient(2).getAppLocations('sharedapp')).length >= 5,
+      { timeout: 300000, label: 'sharedapp reaches its instance count across the fleet' });
+
+    await setSystemSecure(subnet.nodeIp(TARGET), false);
+    await setSystemSecure(subnet.nodeIp(SECOND_TARGET), false);
+    for (const node of [TARGET, SECOND_TARGET]) {
+      // eslint-disable-next-line no-await-in-loop
+      await waitFor(async () => (await dbClient(node).residentialMarker()) !== null,
+        { timeout: 120000, label: `node ${node} starts its settling window` });
+      // eslint-disable-next-line no-await-in-loop
+      await elapseSettleWindow(node);
+    }
+
+    // Whichever goes first, the other must be refused while the app is short.
+    const refusedForBeingShort = Promise.race([TARGET, SECOND_TARGET].map((node) => waitForGiveUpSafety(
+      env.clients[node - 1], 'sharedapp',
+      (d) => d.safe === false && /below its instance count/.test(d.detail), 600000,
+    )));
+
+    await stopTicker();
+    await driveUntil(env, TARGET, async () => {
+      const locations = await dbClient(2).getAppLocations('sharedapp');
+      return locations.length < 5;
+    }, 60);
+    const verdict = await refusedForBeingShort;
+    await startTicker();
+
+    expect(verdict.data.detail).to.contain('below its instance count');
+  });
+
+  it('will not hand back a g: app while this node is its elected primary', async function () {
+    this.timeout(900000);
+
+    // The elected primary is the node WRITING to the volume. Handing the app
+    // back from under it drops whatever it has written since the peer last
+    // reported the folder complete, so it stands down and lets masterSlaveApps
+    // elect a successor first.
+    await setSystemSecure(subnet.nodeIp(SECOND_TARGET), true);
+    await seedApp(env, 'primaryapp', { instances: 5, containerData: 'g:/appdata' });
+    await setSynced({ folder: 'fluxprimaryapp_primaryapp' });
+    await setPeerHasData({ folder: 'fluxprimaryapp_primaryapp' });
+    await advanceBlocks(3);
+    await waitFor(async () => (await dbClient(2).getAppLocations('primaryapp')).length >= 5,
+      { timeout: 300000, label: 'primaryapp reaches its instance count across the fleet' });
+
+    // FDM names node 1 the primary, which is what masterSlaveApps reads.
+    await electMaster('primaryapp', subnet.nodeIp(TARGET));
+
+    await setSystemSecure(subnet.nodeIp(TARGET), false);
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
+      { timeout: 120000, label: 'the settling window starts' });
+    await elapseSettleWindow(TARGET);
+
+    const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'primaryapp',
+      (d) => d.safe === false && /elected primary/.test(d.detail), 600000);
+    await stopTicker();
+    await driveUntil(env, TARGET, async () => false, 30).catch(() => {});
+    const verdict = await refused;
+    await startTicker();
+
+    expect(verdict.data.detail).to.contain('elected primary');
   });
 });
