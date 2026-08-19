@@ -561,19 +561,6 @@ describe('appController tests', () => {
       expect(res.json.firstCall.args[0].status).to.equal('error');
     });
 
-    it('should not touch the container either way', async () => {
-      const pause = sinon.stub(dockerService, 'appDockerPause').resolves('paused');
-      const unpause = sinon.stub(dockerService, 'appDockerUnpause').resolves('unpaused');
-      const req = { params: { appname: 'TestApp' }, query: {}, headers: {} };
-      const res = { json: sinon.fake(param => param) };
-
-      await appController.appPause(req, res);
-      await appController.appUnpause(req, res);
-
-      sinon.assert.notCalled(pause);
-      sinon.assert.notCalled(unpause);
-    });
-
     it('should still refuse an unauthorized caller before saying anything else', async () => {
       verificationHelperStub.resolves(false);
 

@@ -897,62 +897,6 @@ describe('dockerService tests', () => {
     });
   });
 
-  describe('appDockerPause tests', () => {
-    const appName = 'website';
-    let dockerStub;
-    let getContainerSpy;
-
-    beforeEach(() => {
-      dockerStub = sinon.stub(Dockerode.Container.prototype, 'pause').returns(Promise.resolve('paused'));
-      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
-    });
-
-    afterEach(() => {
-      dockerStub.restore();
-      getContainerSpy.restore();
-    });
-
-    it('should call a docker pause command', async () => {
-      const pauseResult = await dockerService.appDockerPause(appName);
-
-      sinon.assert.calledOnce(dockerStub);
-      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
-      expect(pauseResult).to.equal('Flux App website successfully paused.');
-    });
-
-    it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerPause('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
-    });
-  });
-
-  describe('appDockerUnpause tests', () => {
-    const appName = 'website';
-    let dockerStub;
-    let getContainerSpy;
-
-    beforeEach(() => {
-      dockerStub = sinon.stub(Dockerode.Container.prototype, 'unpause').returns(Promise.resolve('unpaused'));
-      getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
-    });
-
-    afterEach(() => {
-      dockerStub.restore();
-      getContainerSpy.restore();
-    });
-
-    it('should call a docker unpause command', async () => {
-      const unpauseResult = await dockerService.appDockerUnpause(appName);
-
-      sinon.assert.calledOnce(dockerStub);
-      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
-      expect(unpauseResult).to.equal('Flux App website successfully unpaused.');
-    });
-
-    it('should throw error if app name is not correct or app does not exist', async () => {
-      await expect(dockerService.appDockerUnpause('testing123')).to.eventually.be.rejectedWith('Cannot read properties of undefined (reading \'Id\')');
-    });
-  });
-
   describe('appDockerImageRemove tests', () => {
     const appName = 'website';
     let dockerStub;

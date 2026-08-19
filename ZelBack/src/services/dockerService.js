@@ -1688,34 +1688,6 @@ async function dockerNetworkState(networkName) {
 }
 
 /**
- * Pauses app's docker.
- *
- * @param {string} idOrName
- * @returns {string} message
- */
-async function appDockerPause(idOrName) {
-  // container ID or name
-  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-
-  await dockerContainer.pause();
-  return `Flux App ${idOrName} successfully paused.`;
-}
-
-/**
- * Unpauses app's docker.
- *
- * @param {string} idOrName
- * @returns {string} message
- */
-async function appDockerUnpause(idOrName) {
-  // container ID or name
-  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-
-  await dockerContainer.unpause();
-  return `Flux App ${idOrName} successfully unpaused.`;
-}
-
-/**
  * Returns app's docker's active processes.
  *
  * @param {string} idOrName
@@ -2253,14 +2225,12 @@ module.exports = {
   archiveNames,
   tagImage,
   appDockerKill,
-  appDockerPause,
   appDockerRemove,
   appDockerForceRemove,
   appDockerRestart,
   appDockerStart,
   appDockerStop,
   appDockerTop,
-  appDockerUnpause,
   createFluxAppDockerNetwork,
   createFluxDockerNetwork,
   dockerContainerChanges,
