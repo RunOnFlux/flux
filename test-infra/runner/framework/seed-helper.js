@@ -57,7 +57,7 @@ export async function buildSeedableApp({
       // pull over live internet (rate-limit flakes); the env registry is
       // seeded with this image at bootstrap (test-env.js)
       repotag: `${REGISTRY_REPO_HOST}/e2e-pause:v1`,
-      ports: [],
+      ports: [allocateAppPort()],
       domains: [''],
       environmentParameters: [],
       commands: [],
@@ -227,10 +227,36 @@ export async function buildSeedableLegacyApp({
  * Pass `sibling: true` to add a plain (non-synced) component so a test can prove
  * the decider only acts on the g:/r: component and leaves siblings running.
  */
+// App ports are ALLOCATED, never chosen.
+//
+// A node refuses to install a second app on a port it already serves - "port
+// already used with different application" - so two apps sharing a number can
+// never both be placed on one fleet. The second silently stalls at one instance
+// while the suite waits for it to spread, and the install failure surfaces only
+// as a log line on the nodes that refused it. Suite 68 hit this and hand-picked
+// 31111..31115 to escape it; suite 55 hit it again and lost a run to it.
+//
+// Every builder below defaults to a fresh allocation, so a suite has to go out
+// of its way to collide rather than having to remember not to.
+const FIRST_APP_PORT = 31111;
+let nextAppPort = FIRST_APP_PORT;
+
+/**
+ * The next unused app port for this runner process.
+ * @param {number} count How many CONSECUTIVE ports to reserve.
+ * @returns {number} The first port of the reserved block.
+ */
+export function allocateAppPort(count = 1) {
+  const first = nextAppPort;
+  nextAppPort += count;
+  return first;
+}
+
 export async function buildSeedableSyncthingApp({
   name,
   mode = 'g',
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
+  ports = [allocateAppPort()],
   containerPorts = [80],
   sibling = false,
   ...rest
@@ -280,7 +306,7 @@ export async function buildSeedableSyncthingApp({
  * registry-helper.pushTestApp(name).
  */
 export async function buildSeedableTestApp({
-  name, exitCode = 0, exitAfterS = null, ...rest
+  name, exitCode = 0, exitAfterS = null, port = allocateAppPort(), ...rest
 }) {
   const environmentParameters = [`EXIT_CODE=${exitCode}`];
   if (exitAfterS != null) environmentParameters.push(`EXIT_AFTER_S=${exitAfterS}`);
@@ -317,6 +343,7 @@ export async function buildSeedableMixedMountApp({
   plainPath = '/data',
   syncPath = '/db',
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
+  ports = [allocateAppPort()],
   containerPorts = [80],
   ...rest
 }) {
@@ -350,6 +377,7 @@ export async function buildSeedableMultiSyncthingApp({
   mode = 'g',
   components = 2,
   repotag = `${REGISTRY_REPO_HOST}/${name}:v1`,
+  basePort = allocateAppPort(components),
   containerPorts = [80],
   ...rest
 }) {
@@ -408,7 +436,7 @@ export async function buildSeedableIndexRefApp({
       ...base,
       name,
       description: 'invalid self-referencing component (index 0 -> 0)',
-      ports: [],
+      ports: [allocateAppPort()],
       containerData: `${mode}:/appdata|0:/selfref`,
     }]
     : [
@@ -416,7 +444,7 @@ export async function buildSeedableIndexRefApp({
         ...base,
         name: `${name}c0`,
         description: `${mode}: base component (index 0)`,
-        ports: [],
+        ports: [allocateAppPort()],
         containerData: `${mode}:/appdata`,
       },
       {
