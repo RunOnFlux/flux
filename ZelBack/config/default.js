@@ -478,6 +478,7 @@ module.exports = {
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
     masterSlaveIntervalMs: 30000, // masterSlave (g:) FDM election cycle
+    masterSlaveStaggerMs: 180000, // per-place wait before an instance may take an empty g: primary
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

@@ -4,6 +4,7 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 const { expect } = require('chai');
 const sinon = require('sinon');
 const axios = require('axios');
+const config = require('config');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
@@ -1279,6 +1280,135 @@ describe('advancedWorkflows tests', () => {
       await runPass();
       expect(linesMatching(logInfo, 'holding the scheduled start')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(0);
+    });
+
+    it('asks every peer when a booked turn comes due at index 0, instead of asking nobody', async () => {
+      // The stagger serialises candidates by index, so a due turn only checks the
+      // nodes AHEAD of this one. At index 0 there are none, and "nobody ahead" was
+      // read as "nobody" - a start issued without a single peer being asked.
+      //
+      // Reaching it takes three things at once, which is why it is rare rather than
+      // impossible: a remembered primary (so the index-0 branch, which probes every
+      // peer, is skipped), a booked turn (so the previous-primary branch, which
+      // requires none, is skipped), and index 0 by the time the turn is due. The
+      // turn is booked at index >= 2 and index is re-derived from the location list
+      // every pass, so the instances ahead ageing out is all it takes.
+      //
+      // What makes it harmful is FDM's registration lag: for ~110s after a node
+      // starts, FDM still reports no primary. A less-senior node can be live and
+      // invisible throughout, and starting beside it puts two writers on the volume.
+      const appName = 'duestagger0app';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      // Index 2: behind two peers, and far enough back to book a turn rather than
+      // start at once (at index 1 the wait computes to zero).
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:03:00.000Z' },
+      );
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+      // Pass 1: FDM names a primary, so this node remembers one. Nothing else happens
+      // - it is a standby with no container.
+      serviceHelperStub.resolves({ data: { status: 'success', data: { ips: ['192.168.1.90'] } } });
+      await runPass();
+
+      // Pass 2: the primary is gone from FDM. The previous-primary branch probes it,
+      // finds it free, and books this node's turn one place back.
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      await runPass();
+      expect(linesMatching(logInfo, 'will start docker app')).to.have.lengthOf(1);
+
+      // Both instances ahead of this one age out of the location list. This node is
+      // now index 0 and still holds the turn it booked at index 2.
+      registryManagerStub.resolves([
+        { name: appName, ip: '192.168.1.5:16127', runningSince: '2026-01-01T00:03:00.000Z' },
+        { name: appName, ip: '192.168.1.92:16127', runningSince: '2026-01-01T00:04:00.000Z' },
+      ]);
+
+      // The turn comes due, and a LESS senior node is running the component - the
+      // FDM-lag window. Only a probe can see it; FDM still says there is no primary.
+      clock.tick(config.fluxapps.masterSlaveStaggerMs);
+      logInfo.resetHistory();
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+      await runPass();
+
+      expect(linesMatching(logInfo, 'is held on peer node')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
+    it('leaves the staggered order alone when there IS a node ahead to ask', async () => {
+      // The escalation above must not turn every due turn into a fleet-wide probe:
+      // at index 1 the node ahead is the one the stagger exists to defer to, and
+      // asking it alone is the whole point of the lower-only scope.
+      const appName = 'duestagger1app';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { selfRunningSince: '2026-01-01T00:02:00.000Z' },
+      );
+      serviceHelperStub.resolves({ data: [] });
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      await runPass();
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
+
+      clock.tick(config.fluxapps.masterSlaveStaggerMs);
+      logInfo.resetHistory();
+      axiosGetStub.resetBehavior();
+      // Only the node ahead is asked, and it is free - so this node takes the primary.
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      await runPass();
+
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
+    });
+
+    it('takes the per-place stagger from config, not from a literal', async () => {
+      // Four call sites computed the wait from `index * 3 * 60 * 1000`, which is why
+      // no harness suite exercises a staggered start: reaching one costs minutes of
+      // wall clock, so the whole class went uncovered at rig level.
+      //
+      // Asserted to the millisecond against the CONFIGURED value, and the unit
+      // config deliberately differs from the code's fallback - otherwise a
+      // misspelled key would default to the same 3 minutes and read as wired.
+      const appName = 'staggerconfigapp';
+      const stagger = config.fluxapps.masterSlaveStaggerMs;
+      expect(stagger, 'unit config must differ from the fallback or this proves nothing').to.not.equal(3 * 60 * 1000);
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127'],
+        { selfRunningSince: '2026-01-01T00:02:00.000Z' },
+      );
+      serviceHelperStub.resolves({ data: [] });
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+      // Index 1, no history: one place of wait.
+      await runPass();
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
+
+      // One millisecond short: still not this node's turn.
+      clock.tick(stagger - 1);
+      logInfo.resetHistory();
+      await runPass();
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+
+      // And due on the millisecond the configured wait elapses.
+      clock.tick(1);
+      logInfo.resetHistory();
+      await runPass();
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
     });
 
     it('keeps the seed claim when a peer cannot be ruled out, rather than spending it on a non-answer', async () => {

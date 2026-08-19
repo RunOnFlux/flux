@@ -343,6 +343,11 @@ module.exports = {
     imageUpdateDelayAfterRedeployMs: 120000,
     imageUpdateDelayBetweenComponentsMs: 1000,
     masterSlaveIntervalMs: 30000,
+    // Deliberately NOT the production 180000. The code falls back to 3 minutes
+    // when the key is missing, so a config value equal to the fallback cannot
+    // tell "read from config" from "key misspelled and silently defaulted" -
+    // which is exactly how statsSampleIntervalMs came to read undefined.
+    masterSlaveStaggerMs: 30000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
