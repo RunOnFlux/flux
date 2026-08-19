@@ -24,6 +24,10 @@ const GEO_FILLER_ROWS = 1500000;
 const GEO_FILLER_START = 16 * 2 ** 24;
 const GEO_FILLER_END = GEO_FILLER_START + GEO_FILLER_ROWS - 1;
 const GEO_FILLER_ORGS = ['harness:filler-0', 'harness:filler-1'];
+// The class codes the artifact carries, and the only two a reader knows. Named
+// here so a suite says 'residential' and the wire value stays the publisher's
+// business - fluxos-network-policy's scripts/orgclasses.js is the definition.
+const NETWORK_CLASS_CODES = { residential: 1, hosting: 2 };
 
 // The artifact's country and region vocabularies, index-aligned: regions[k] is
 // a region OF countries[k]. The split gives organisation k country k, so the
@@ -134,12 +138,21 @@ function regionAssignment(domains, withRegions) {
  * it the rows stay four elements long and no row claims a region, so both
  * representations are byte-identical to what a caller that never asks for
  * regions has always been served.
+ *
+ * `networkClasses` says which of the organisations run access networks and
+ * which sell hosting - `{ 0: 'residential', 1: 'hosting' }` keyed by
+ * organisation INDEX, since that is what a caller controls. Omitted, the
+ * artifact carries no orgClasses section at all, which is what a real build
+ * carrying no verdicts publishes and what every suite that does not care about
+ * classification should see: an organisation with no verdict is one nothing
+ * enforces against.
  * @param {number} domains How many organisations to split across
  * @param {string} [subnet] Dotted /24 prefix to split, e.g. '198.18.5'
  * @param {boolean} [withRegions] Whether rows carry a region
+ * @param {object} [networkClasses] Organisation index -> 'residential'|'hosting'
  * @returns {object} artifact in format 1
  */
-function buildIpLocationArtifact(domains, subnet, withRegions = false) {
+function buildIpLocationArtifact(domains, subnet, withRegions = false, networkClasses = null) {
   const orgs = Array.from({ length: Math.max(domains, 1) }, (unused, i) => `harness:org-${i}`);
   const countries = GEO_COUNTRIES;
   const { assigned } = regionAssignment(domains, withRegions);
@@ -176,6 +189,16 @@ function buildIpLocationArtifact(domains, subnet, withRegions = false) {
     regionNames: Object.fromEntries(
       GEO_REGIONS.map((code, k) => [`${GEO_COUNTRIES[k]}|${GEO_REGION_NAMES[k]}`, code]),
     ),
+    // Keyed by organisation TOKEN, which is what the header carries and what a
+    // reader looks up - the caller names an index because that is what it
+    // controls, and the two are joined here rather than in the suite.
+    ...(networkClasses ? {
+      orgClasses: Object.fromEntries(
+        Object.entries(networkClasses)
+          .filter(([index]) => orgs[Number(index)])
+          .map(([index, klass]) => [orgs[Number(index)], NETWORK_CLASS_CODES[klass]]),
+      ),
+    } : {}),
     v4,
     v6: [],
   };
@@ -236,6 +259,11 @@ function encodeGeoTable(artifact, { pad = true } = {}) {
     // omitted when the artifact carries no regions, so a suite can publish the
     // pre-vocabulary artifact a node held before the section existed
     ...(regions.length ? { regionNames: artifact.regionNames ?? {} } : {}),
+    // omitted when nothing is classified, for the same reason: a build carrying
+    // no verdicts is a state the reader already handles, and it must stay
+    // distinguishable from one that carries them
+    ...(artifact.orgClasses && Object.keys(artifact.orgClasses).length
+      ? { orgClasses: artifact.orgClasses } : {}),
   }), 'utf8');
   const preamble = Buffer.alloc(GEO_MAGIC.length + 1 + 4);
   preamble.write(GEO_MAGIC, 0, 'ascii');
@@ -678,7 +706,14 @@ control.post('/iplocation', (req, res) => {
   } else {
     const domains = req.body.domains ?? 1;
     const withRegions = req.body.regions === true;
-    serveIpLocation(buildIpLocationArtifact(domains, req.body.subnet, withRegions), { pad });
+    // { classes: { 0: 'residential' } } publishes a verdict for organisation 0.
+    // Absent, the artifact carries no orgClasses section, so every node falls
+    // back to deciding its own address - which is what the reader does with a
+    // build that classified nothing.
+    serveIpLocation(
+      buildIpLocationArtifact(domains, req.body.subnet, withRegions, req.body.classes ?? null),
+      { pad },
+    );
     regions = regionAssignment(domains, withRegions);
   }
   res.json({
@@ -690,6 +725,7 @@ control.post('/iplocation', (req, res) => {
     padded: pad,
     bytes: state.ipLocationBinary?.length ?? 0,
     regions,
+    orgClasses: state.ipLocation?.orgClasses ?? null,
   });
 });
 
