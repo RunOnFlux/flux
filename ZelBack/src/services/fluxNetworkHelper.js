@@ -54,6 +54,13 @@ let dosMessage = null;
 let stickyDosState = 0;
 let stickyDosMessage = null;
 
+// Stops the node taking on NEW apps without declaring it unfit for the ones it
+// already runs. DOS conflates those: isNodeDos() makes appSpawner refuse
+// installs AND makes nodeStatusMonitor and appStartupManager delete every app on
+// the box. A node that must stop growing but keep its customer volumes needs
+// only the first, so this is a separate flag whose only consumer is the spawner.
+let placementHold = null;
+
 let storedFluxBenchAllowed = null;
 let ipChangeData = null;
 let dosTooManyIpChanges = false;
@@ -901,6 +908,39 @@ function getDosStateValue() {
 function isNodeDos() {
   const effectiveState = stickyDosMessage ? stickyDosState : dosState;
   return effectiveState >= 100;
+}
+
+/**
+ * Hold this node back from new placements. Idempotent.
+ * @param {string} reason Identifies the owner; logged and reported.
+ */
+function setPlacementHold(reason) {
+  if (placementHold === reason) return;
+  placementHold = reason;
+  log.info(`Placement hold set: ${reason}`);
+}
+
+/**
+ * Release the hold. The owner clears it when the condition that set it lifts.
+ */
+function clearPlacementHold() {
+  if (placementHold === null) return;
+  log.info(`Placement hold cleared (was: ${placementHold})`);
+  placementHold = null;
+}
+
+/**
+ * @returns {string|null} Why the node is held, or null when it is not.
+ */
+function getPlacementHold() {
+  return placementHold;
+}
+
+/**
+ * @returns {boolean} True when this node must not take on new apps.
+ */
+function isPlacementHeld() {
+  return placementHold !== null;
 }
 
 /**
@@ -2580,6 +2620,10 @@ module.exports = {
   setDosStateValue,
   getDosStateValue,
   isNodeDos,
+  setPlacementHold,
+  clearPlacementHold,
+  getPlacementHold,
+  isPlacementHeld,
   setStickyDosMessage,
   getStickyDosMessage,
   clearStickyDosMessage,

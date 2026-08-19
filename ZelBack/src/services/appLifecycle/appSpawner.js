@@ -109,6 +109,12 @@ async function trySpawningGlobalApplication() {
       return installDelay;
     }
 
+    if (fluxNetworkHelper.isPlacementHeld()) {
+      log.info(`Node held back from new placements (${fluxNetworkHelper.getPlacementHold()}). Global applications will not be installed`);
+      fluxEventBus.publish('spawner:blocked', { reason: 'placement_hold' });
+      return installDelay;
+    }
+
     let isNodeConfirmed = false;
     isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {

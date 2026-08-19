@@ -52,7 +52,10 @@ describe('appSpawner tests', () => {
     };
   }
 
+  let eventBusPublish;
+
   function buildModule(opts = {}) {
+    eventBusPublish = sinon.stub();
     configStub = createConfigStub(opts.configOverrides);
     globalStateStub = createGlobalStateStub();
     if (opts.globalStateOverrides) {
@@ -127,6 +130,8 @@ describe('appSpawner tests', () => {
         isPortOpen: sinon.stub().resolves(true),
         isPortUserBlocked: sinon.stub().returns(false),
         isNodeDos: sinon.stub().returns(false),
+        isPlacementHeld: sinon.stub().returns(Boolean(opts.placementHold)),
+        getPlacementHold: sinon.stub().returns(opts.placementHold ?? null),
       },
       '../daemonService/daemonServiceMiscRpcs': {
         isDaemonSynced: daemonSyncStub,
@@ -227,6 +232,9 @@ describe('appSpawner tests', () => {
       '../utils/cacheManager': {
         FluxCacheManager: { oneHour: 3600000 },
       },
+      '../utils/fluxEventBus': {
+        publish: eventBusPublish,
+      },
       '../appMessaging/messageStore': {
         storeAppInstallingMessage: opts.withdrawalStub ?? sinon.stub().resolves(true),
         storeAppInstallingErrorMessage: opts.installingErrorStub ?? sinon.stub().resolves(true),
@@ -268,6 +276,38 @@ describe('appSpawner tests', () => {
 
     it('should be exported as a function', () => {
       expect(appSpawner.trySpawningGlobalApplication).to.be.a('function');
+    });
+  });
+
+  describe('placement hold', () => {
+    function infoLoggedIncludes(substr) {
+      return logStub.info.getCalls().some((c) => typeof c.args[0] === 'string' && c.args[0].includes(substr));
+    }
+
+    it('refuses to install while the node is held back', async () => {
+      buildModule({ placementHold: 'residential node not running ArcaneOS' });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('held back from new placements')).to.equal(true);
+    });
+
+    it('publishes placement_hold so a suite can see which gate stopped it', async () => {
+      buildModule({ placementHold: 'residential node not running ArcaneOS' });
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      const published = eventBusPublish.getCalls()
+        .some((c) => c.args[0] === 'spawner:blocked' && c.args[1] && c.args[1].reason === 'placement_hold');
+      expect(published).to.equal(true);
+    });
+
+    it('installs as usual when the node is not held', async () => {
+      buildModule();
+
+      await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('held back from new placements')).to.equal(false);
     });
   });
 

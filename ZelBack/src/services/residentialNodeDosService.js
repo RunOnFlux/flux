@@ -1,23 +1,79 @@
+// A node on a residential connection is only fit to serve the network when it
+// runs ArcaneOS. This service moves such a node off the network in three stages:
+//
+//   HOLD   it stops accepting NEW apps. Immediate, and it deletes nothing.
+//   EVACUATE  it gives up one app at a time, and only ones another host
+//          demonstrably holds. Each departure leaves the app one short, the
+//          spawner replaces it on a node that is not held, and that is what
+//          releases the next holder. The removing is done by the single
+//          give-up-an-app pass in advancedWorkflows; this service owns only the
+//          policy and the pacing.
+//   DOS    once the node runs nothing, the sticky DOS goes on. By then
+//          removeAllAppsLocally has nothing to find.
+//
+// DOS >= 100 is not a mark: it makes nodeStatusMonitor and appStartupManager
+// `rm -rf` every app directory and volume on the box. Reaching that state only
+// on an empty node is the whole point of the staging.
+//
+// Nothing here enforces against a node that is not PROVABLY residential.
+// geolocationService's classification is four-state and only RESIDENTIAL acts:
+// CONFLICTED and UNKNOWN are left alone, as is a node whose bench cannot be read.
+
 const config = require('config');
 const log = require('../lib/log');
+const dbHelper = require('./dbHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
 const benchmarkService = require('./benchmarkService');
+const { CLASSIFICATION } = require('./utils/networkClassifier');
+const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
+const { compareInstanceSeniority } = require('./utils/instanceOrdering');
+const { socketAddressesMatch } = require('./utils/socketAddressUtils');
 
 const DOS_MESSAGE_PREFIX = 'Residential node not running ArcaneOS';
+const HOLD_REASON = 'residential node not running ArcaneOS';
 
-// A tick that could not read both inputs decides nothing, so it is retried on a
-// short delay instead of waiting out the full interval - geolocation is only
-// available once fluxbench has resolved this node's IP, which can be minutes
-// after boot.
-const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const CHECK_INTERVAL_MS = config.fluxapps.residentialCheckIntervalMs;
 const RETRY_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+// Before the first app is given up, the verdict must have held this long.
+// The placement hold deletes nothing and needs no window; this paces only the
+// part that moves customer data, so a momentary misread can correct itself.
+const SETTLE_MS = config.fluxapps.residentialSettleMs;
+// A node may act on an app only once it has seen that app at full strength for
+// base + position * step. Position in the shared instance order is a DELAY,
+// never a veto: a rule of "only the most junior may leave" deadlocks, because
+// the replacement is itself the most junior and does not want to leave.
+const QUEUE_BASE_MS = config.fluxapps.residentialQueueBaseMs;
+const QUEUE_STEP_MS = config.fluxapps.residentialQueueStepMs;
+// Minimum gap between this node's departures. The give-up-an-app pass runs every
+// 11 blocks (~22 min), which unpaced would empty the busiest node in the fleet in
+// about four hours; there is no deadline here and slower is strictly safer.
+const EVACUATION_INTERVAL_MS = config.fluxapps.residentialEvacuationIntervalMs;
+
+const startupCollection = config.database.local.collections.nodeStartupTracker;
+const SETTLE_MARKER_KEY = 'residentialDos';
 
 let timerHandle = null;
 let started = false;
 let stopping = false;
 let ourDosActive = false;
 let inconclusiveStreak = 0;
+// appName -> epoch ms at which we first saw the app at full strength. Process
+// lifetime only: losing it costs a queue wait, never a premature removal.
+const wholeSince = new Map();
+// Whether the settling window has elapsed and departures may begin.
+let evacuating = false;
+// Paces departures. Process lifetime: a restart costs at most one extra wait.
+let lastEvacuationAt = 0;
+
+// Whether this node yet knows what it is running. Starts false and is only
+// raised by the orchestrator's own signal - the same one appSpawner waits on.
+// globalState.spawnerPaused is NOT this signal: it initialises to false, so
+// reading it would report a freshly booted node as ready, and an app list read
+// then is not evidence of an empty node.
+let nodeReady = false;
+appSyncEvents.on(SYNC_EVENTS.SPAWNER_READY, () => { nodeReady = true; });
+appSyncEvents.on(SYNC_EVENTS.READINESS_LOST, () => { nodeReady = false; });
 
 /**
  * True when the current sticky DOS message was set by this service.
@@ -30,14 +86,14 @@ function isOurStickyDos() {
 
 /**
  * Three-state ArcaneOS check via fluxbenchd.
- *   true  — confirmed ArcaneOS, nothing to enforce
- *   false — confirmed NOT ArcaneOS
- *   null  — fluxbenchd unreachable or response malformed, decide nothing
+ *   true  - confirmed ArcaneOS, nothing to enforce
+ *   false - confirmed NOT ArcaneOS
+ *   null  - fluxbenchd unreachable or malformed, decide nothing
  *
  * Read from bench rather than `process.env.FLUXOS_PATH` because the env var is
  * set by whoever launches FluxOS, and this check is exactly what a residential
- * operator has an incentive to fake. The null case is deliberate: a momentarily
- * unreachable bench must never DOS a real ArcaneOS node.
+ * operator has an incentive to fake.
+ * @returns {Promise<boolean|null>}
  */
 async function isArcaneOs() {
   try {
@@ -55,22 +111,24 @@ async function isArcaneOs() {
 }
 
 /**
- * Three-state residential check.
- *   true  — geolocation resolved and says this IP is not a data center
- *   false — geolocation resolved and says this IP is a data center
- *   null  — no geolocation yet (in memory or in db), decide nothing
+ * Three-state residential check, read as one settled verdict.
+ *   true  - RESIDENTIAL: positive evidence with no contradiction
+ *   false - DATACENTER
+ *   null  - no verdict yet, or CONFLICTED/UNKNOWN: decide nothing
  *
- * isDataCenter() alone cannot answer this: it defaults to false before the
- * first successful lookup, so a node whose geolocation never resolved would
- * read as residential. The geolocation object is what says the lookup actually
- * happened, and getNodeGeolocation() is also what restores the flag from the db
- * after a restart - so it has to be awaited before the flag is read.
+ * Awaiting getNodeGeolocation() first is what restores a verdict from the db
+ * after a restart. The verdict and its evidence are published together, so this
+ * can never read a classification computed from a half-finished pass.
+ * @returns {Promise<boolean|null>}
  */
 async function isResidential() {
   try {
-    const geolocation = await geolocationService.getNodeGeolocation();
-    if (!geolocation) return null;
-    return geolocationService.isDataCenter() !== true;
+    await geolocationService.getNodeGeolocation();
+    const verdict = geolocationService.getNetworkClassification();
+    if (!verdict) return null;
+    if (verdict.classification === CLASSIFICATION.RESIDENTIAL) return true;
+    if (verdict.classification === CLASSIFICATION.DATACENTER) return false;
+    return null;
   } catch (error) {
     log.warn(`residentialNodeDos - geolocation check failed: ${error.message}`);
     return null;
@@ -78,10 +136,167 @@ async function isResidential() {
 }
 
 /**
+ * When this node first held the residential-and-not-ArcaneOS verdict.
+ *
+ * Persisted, and measured in wall-clock: a counter of consecutive evaluations
+ * held in memory is reset by restarting FluxOS, which would make restarting on a
+ * timer a way to postpone the drain indefinitely.
+ * @returns {Promise<number|null>} Epoch ms, or null when never recorded.
+ */
+async function getSettleStartedAt() {
+  try {
+    const db = dbHelper.databaseConnection();
+    if (!db) return null;
+    const database = db.db(config.database.local.database);
+    const marker = await dbHelper.findOneInDatabase(database, startupCollection, { _id: SETTLE_MARKER_KEY });
+    return marker && marker.residentialSince ? marker.residentialSince : null;
+  } catch (error) {
+    log.warn(`residentialNodeDos - could not read settle marker: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Record the start of the settling window, if it is not already running. Keyed
+ * on the VERDICT, not on the address: residential lines get dynamic addresses,
+ * so restarting the clock on an IP change would make power-cycling the router
+ * the way to postpone enforcement.
+ * @param {number} now Epoch ms.
+ * @returns {Promise<number|null>} The settle start in force after this call.
+ */
+async function markSettleStarted(now) {
+  const existing = await getSettleStartedAt();
+  if (existing) return existing;
+  try {
+    const db = dbHelper.databaseConnection();
+    if (!db) return null;
+    const database = db.db(config.database.local.database);
+    await dbHelper.findOneAndUpdateInDatabase(
+      database,
+      startupCollection,
+      { _id: SETTLE_MARKER_KEY },
+      { $set: { residentialSince: now, lastVerdict: CLASSIFICATION.RESIDENTIAL } },
+      { upsert: true },
+    );
+    log.info('residentialNodeDos - settling window started');
+    return now;
+  } catch (error) {
+    log.warn(`residentialNodeDos - could not write settle marker: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Clear the settling window. Only a verdict flip does this - the node is no
+ * longer residential, or is now ArcaneOS.
+ */
+async function clearSettleMarker() {
+  try {
+    const db = dbHelper.databaseConnection();
+    if (!db) return;
+    const database = db.db(config.database.local.database);
+    await dbHelper.findOneAndDeleteInDatabase(database, startupCollection, { _id: SETTLE_MARKER_KEY }, {});
+  } catch (error) {
+    log.warn(`residentialNodeDos - could not clear settle marker: ${error.message}`);
+  }
+}
+
+/**
+ * The apps installed on this node, or null when that cannot be established.
+ *
+ * The null is load-bearing. Setting the DOS on a node believed empty that is not
+ * makes nodeStatusMonitor delete every app it holds - the exact outcome this
+ * service exists to avoid - so "could not read" must never arrive here as an
+ * empty list.
+ * @param {Function} installedAppsFn Injected app lister.
+ * @returns {Promise<string[]|null>}
+ */
+async function listInstalledApps(installedAppsFn) {
+  try {
+    const response = await installedAppsFn();
+    if (!response || response.status !== 'success' || !Array.isArray(response.data)) return null;
+    return response.data.map((app) => app.name);
+  } catch (error) {
+    log.warn(`residentialNodeDos - could not list installed apps: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * How long this node must have seen an app whole before it may act on it.
+ * @param {object[]} locations Instance locations, any order.
+ * @param {string} localSocketAddr This node's socket address.
+ * @returns {number} Milliseconds.
+ */
+function queueDelayMs(locations, localSocketAddr) {
+  const ordered = [...locations].sort(compareInstanceSeniority);
+  const index = ordered.findIndex((entry) => socketAddressesMatch(entry.ip, localSocketAddr));
+  const position = index < 0 ? ordered.length : index;
+  return QUEUE_BASE_MS + (position * QUEUE_STEP_MS);
+}
+
+/**
+ * Whether this node is currently shedding the apps it holds.
+ *
+ * True only once the verdict has held for the settling window - the placement
+ * hold starts immediately, but nothing that moves customer data does.
+ * @returns {boolean}
+ */
+function isEvacuating() {
+  return evacuating;
+}
+
+/**
+ * May this node give up this particular app right now?
+ *
+ * This is the pacing half of the decision and says nothing about safety; the
+ * give-up-an-app pass asks appEvacuationSafety separately, and both must agree.
+ * @param {string} appName Global app name.
+ * @param {object[]} locations Instance locations for the app.
+ * @param {string} localSocketAddr This node's socket address.
+ * @param {number} [now] Epoch ms, injectable for tests.
+ * @returns {{ok: boolean, reason: string}}
+ */
+function mayEvacuateApp(appName, locations, localSocketAddr, now = Date.now()) {
+  if (!evacuating) return { ok: false, reason: 'node is not evacuating' };
+  if (now - lastEvacuationAt < EVACUATION_INTERVAL_MS) {
+    const wait = Math.round((EVACUATION_INTERVAL_MS - (now - lastEvacuationAt)) / 60000);
+    return { ok: false, reason: `next departure in ${wait}m` };
+  }
+  if (!wholeSince.has(appName)) wholeSince.set(appName, now);
+  const wait = queueDelayMs(locations, localSocketAddr);
+  const observed = now - wholeSince.get(appName);
+  if (observed < wait) {
+    return { ok: false, reason: `its turn is in ${Math.round((wait - observed) / 60000)}m` };
+  }
+  return { ok: true, reason: 'ready' };
+}
+
+/**
+ * Record that this app has gone, so the interval before the next one starts.
+ * @param {string} appName Global app name.
+ * @param {number} [now] Epoch ms, injectable for tests.
+ */
+function noteEvacuated(appName, now = Date.now()) {
+  lastEvacuationAt = now;
+  wholeSince.delete(appName);
+  log.info(`residentialNodeDos - ${appName} handed back; next departure no sooner than ${EVACUATION_INTERVAL_MS / 3600000}h`);
+}
+
+/**
+ * Forget an app's queue observation. Called when it stops being safe to give up,
+ * so the wait is served against an uninterrupted observation rather than
+ * accumulated across a gap.
+ * @param {string} appName Global app name.
+ */
+function forgetAppObservation(appName) {
+  wholeSince.delete(appName);
+}
+
+/**
  * Give up the DOS this service is holding. The slot is only cleared when the
  * message in it is still ours: another owner may have taken it since we wrote,
- * and clearing that would drop their DOS on the floor. Dropping our own claim
- * is all we are entitled to do in that case.
+ * and clearing that would drop their DOS on the floor.
  * @param {string} reason Logged context for the release.
  */
 function releaseOurDos(reason) {
@@ -98,19 +313,35 @@ function releaseOurDos(reason) {
 }
 
 /**
- * Core check: a node on a residential connection that is not running ArcaneOS
- * is DOSed. Otherwise, if we previously DOSed it, the DOS is cleared. This
- * service owns the DOS message it sets and only clears its own.
- *
- * @returns {Promise<boolean>} True when the tick reached a decision, false when
- * an input was unavailable and the tick decided nothing (caller retries sooner).
+ * Put the node fully out of service. Only ever reached once it holds no apps.
  */
-async function enforceResidentialPolicy() {
-  if (config.residentialDos && config.residentialDos.enabled === false) {
-    log.info('residentialNodeDos - enforcement disabled by config');
-    releaseOurDos('disabled by config');
-    return true;
+function applyDos() {
+  const sticky = fluxNetworkHelper.getStickyDosMessage();
+  if (sticky && !isOurStickyDos()) {
+    // Another owner's DOS already has this node out of service for its own
+    // reason, and taking the single slot would leave it unable to recognise or
+    // release its own state.
+    log.info('residentialNodeDos - another sticky DOS is active, not overwriting it');
+    return;
   }
+  if (isOurStickyDos()) return;
+  const message = `${DOS_MESSAGE_PREFIX}. Migrate this node to ArcaneOS or move it to a data center connection.`;
+  fluxNetworkHelper.setStickyDosMessage(message);
+  fluxNetworkHelper.setStickyDosStateValue(100);
+  ourDosActive = true;
+  log.error(message);
+}
+
+/**
+ * One evaluation of the policy.
+ *
+ * @param {object} deps Injected collaborators.
+ * @param {Function} deps.installedAppsFn Lists apps installed on this node.
+ * @returns {Promise<boolean>} True when the tick reached a decision, false when
+ *   an input was unavailable and the caller should retry sooner.
+ */
+async function enforceResidentialPolicy(deps) {
+  const { installedAppsFn } = deps;
 
   const [arcane, residential] = await Promise.all([isArcaneOs(), isResidential()]);
 
@@ -119,41 +350,66 @@ async function enforceResidentialPolicy() {
     return false;
   }
   if (residential === null) {
-    log.info('residentialNodeDos - geolocation not available yet, skipping this tick');
+    log.info('residentialNodeDos - no settled network classification yet, skipping this tick');
     return false;
   }
 
-  const shouldDos = residential && !arcane;
+  const shouldEnforce = residential && !arcane;
+  log.info(`residentialNodeDos - residential=${residential} arcaneOs=${arcane} enforce=${shouldEnforce}`);
 
-  log.info(`residentialNodeDos - residential=${residential} arcaneOs=${arcane} shouldDos=${shouldDos}`);
-
-  if (shouldDos) {
-    // The sticky slot holds one message. Another owner's DOS already has this
-    // node out of service for its own reason, and overwriting it would take
-    // that owner's state away from it - so leave it and re-check next tick.
-    const sticky = fluxNetworkHelper.getStickyDosMessage();
-    if (sticky && !isOurStickyDos()) {
-      log.info('residentialNodeDos - another sticky DOS is active, not overwriting it');
-      return true;
-    }
-    const message = `${DOS_MESSAGE_PREFIX}. Migrate this node to ArcaneOS or move it to a data center connection.`;
-    fluxNetworkHelper.setStickyDosMessage(message);
-    fluxNetworkHelper.setStickyDosStateValue(100);
-    ourDosActive = true;
-    log.error(message);
+  if (!shouldEnforce) {
+    fluxNetworkHelper.clearPlacementHold();
+    releaseOurDos(`residential=${residential}, arcaneOs=${arcane}`);
+    await clearSettleMarker();
+    evacuating = false;
+    wholeSince.clear();
     return true;
   }
 
-  releaseOurDos(`residential=${residential}, arcaneOs=${arcane}`);
+  // Costs the node nothing it already holds, so it needs no settling period.
+  fluxNetworkHelper.setPlacementHold(HOLD_REASON);
+
+  if (!nodeReady) {
+    log.info('residentialNodeDos - node not ready yet, holding placement only this tick');
+    return false;
+  }
+
+  const installed = await listInstalledApps(installedAppsFn);
+  if (installed === null) {
+    log.info('residentialNodeDos - installed app list unavailable, holding placement only this tick');
+    return false;
+  }
+
+  if (!installed.length) {
+    applyDos();
+    return true;
+  }
+
+  const now = Date.now();
+  const settleStartedAt = await markSettleStarted(now);
+  if (!settleStartedAt) {
+    evacuating = false;
+    log.info('residentialNodeDos - settle marker unavailable, evacuation stays off');
+    return false;
+  }
+  if (now - settleStartedAt < SETTLE_MS) {
+    evacuating = false;
+    const remaining = Math.round((SETTLE_MS - (now - settleStartedAt)) / (60 * 60 * 1000));
+    log.info(`residentialNodeDos - held, evacuation begins in about ${remaining}h (${installed.length} app(s) installed)`);
+    return true;
+  }
+
+  // The give-up-an-app pass reads this and does the removing; it asks
+  // mayEvacuateApp for the pacing and appEvacuationSafety for the safety.
+  if (!evacuating) log.warn(`residentialNodeDos - evacuation begins, ${installed.length} app(s) to hand back`);
+  evacuating = true;
   return true;
 }
 
 /**
  * Delay before the next tick. A decided tick waits out the full interval; an
  * inconclusive one comes back on the short retry, doubling each time it stays
- * inconclusive. The doubling matters for the node whose geolocation never
- * resolves at all: a flat 5-minute retry would have it deciding nothing and
- * logging that it decided nothing 288 times a day, forever.
+ * inconclusive, so a node that can never decide stops saying so 288 times a day.
  * @param {boolean} decided Whether the tick reached a decision.
  * @param {number} streak Consecutive inconclusive ticks, this one included.
  * @returns {number} Milliseconds until the next tick.
@@ -165,24 +421,26 @@ function nextDelay(decided, streak) {
 
 /**
  * Run one tick and schedule the next one.
+ * @param {object} deps Injected collaborators, as enforceResidentialPolicy.
  */
-async function tick() {
+async function tick(deps) {
   let decided = false;
   try {
-    decided = await enforceResidentialPolicy();
+    decided = await enforceResidentialPolicy(deps);
   } catch (error) {
     log.error(`residentialNodeDos - tick error: ${error.message}`);
   }
   inconclusiveStreak = decided ? 0 : inconclusiveStreak + 1;
   if (stopping) return;
-  timerHandle = setTimeout(tick, nextDelay(decided, inconclusiveStreak));
+  timerHandle = setTimeout(() => tick(deps), nextDelay(decided, inconclusiveStreak));
 }
 
 /**
  * Start the enforcer. Performs the first check immediately, then reschedules
- * itself. Safe to call multiple times (no-ops if already started).
+ * itself. Safe to call multiple times.
+ * @param {object} deps Injected collaborators, as enforceResidentialPolicy.
  */
-async function start() {
+async function start(deps) {
   // The guard is `started`, not `timerHandle`: the first tick is awaited before
   // any timer exists, so a second start() landing inside it would run a second
   // self-rescheduling chain.
@@ -191,12 +449,17 @@ async function start() {
   stopping = false;
   inconclusiveStreak = 0;
   log.info('residentialNodeDos - enforcer starting');
-  await tick();
+  await tick(deps);
 }
 
 function stop() {
   stopping = true;
   started = false;
+  // Cleared with the timer: a later start() must not inherit a claim from the
+  // previous run and skip the read-back that decides whether the slot is ours.
+  ourDosActive = false;
+  evacuating = false;
+  wholeSince.clear();
   if (timerHandle) {
     clearTimeout(timerHandle);
     timerHandle = null;
@@ -214,7 +477,20 @@ module.exports = {
   isArcaneOs,
   isResidential,
   isDosActive,
+  queueDelayMs,
+  listInstalledApps,
+  isEvacuating,
+  mayEvacuateApp,
+  noteEvacuated,
+  forgetAppObservation,
+  // Test seam for the readiness gate, which is otherwise only moved by events.
+  setNodeReadyForTests: (value) => { nodeReady = value; },
   DOS_MESSAGE_PREFIX,
+  HOLD_REASON,
   CHECK_INTERVAL_MS,
   RETRY_INTERVAL_MS,
+  SETTLE_MS,
+  QUEUE_BASE_MS,
+  QUEUE_STEP_MS,
+  EVACUATION_INTERVAL_MS,
 };
