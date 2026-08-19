@@ -3919,3 +3919,203 @@ describe('advancedWorkflows tests', () => {
   // integration testing is recommended for comprehensive coverage of the
   // master-slave coordination logic.
 });
+
+describe('giving up an app: one pass, two reasons, one safety gate', () => {
+  const generalService = require('../../ZelBack/src/services/generalService');
+  const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+  const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+  const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+  const evacuationSafety = require('../../ZelBack/src/services/appLifecycle/appEvacuationSafety');
+  const residentialNodeDosService = require('../../ZelBack/src/services/residentialNodeDosService');
+
+  const LOCAL = '1.2.3.4:16127';
+
+  function locations(...ips) {
+    return ips.map((ip, index) => ({ ip, runningSince: new Date(1700000000000 + index) }));
+  }
+
+  function installed(...names) {
+    return names.map((name) => ({ name, instances: 3 }));
+  }
+
+  beforeEach(() => {
+    sinon.stub(generalService, 'checkSynced').resolves(true);
+    sinon.stub(fluxNetworkHelper, 'getLocalSocketAddress').resolves(LOCAL);
+    sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+    sinon.stub(registryManager, 'appLocation');
+    sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves({ name: 'a', version: 8 });
+    sinon.stub(evacuationSafety, 'canSafelyRemoveApp').resolves({ safe: true, reason: 'peer holds it' });
+    sinon.stub(residentialNodeDosService, 'isEvacuating').returns(false);
+    sinon.stub(residentialNodeDosService, 'mayEvacuateApp').returns({ ok: true, reason: 'ready' });
+    sinon.stub(residentialNodeDosService, 'noteEvacuated');
+    sinon.stub(residentialNodeDosService, 'forgetAppObservation');
+
+    const db = { db: () => ({}) };
+    sinon.stub(dbHelper, 'databaseConnection').returns(db);
+    sinon.stub(dbHelper, 'findInDatabase').resolves(installed('appone'));
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
+  describe('reasonToGiveUpApp', () => {
+    it('names SURPLUS when this node holds the junior of too many instances', () => {
+      // Three running against an instance count of two, and this node started
+      // last, so it is the one that stands aside.
+      const decision = advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2 },
+        locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL),
+        LOCAL,
+      );
+
+      expect(decision.giveUp).to.equal(true);
+      expect(decision.reason).to.equal('SURPLUS');
+    });
+
+    it('does not name SURPLUS when this node holds a senior instance', () => {
+      const decision = advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2 },
+        locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'),
+        LOCAL,
+      );
+
+      expect(decision.giveUp).to.equal(false);
+    });
+
+    it('names nothing when the app is at its instance count and the node is not evacuating', () => {
+      const decision = advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2 },
+        locations(LOCAL, '5.6.7.8:16127'),
+        LOCAL,
+      );
+
+      expect(decision.giveUp).to.equal(false);
+      expect(decision.reason).to.equal('NONE');
+    });
+
+    it('names EVACUATION when the node is evacuating and this app\'s turn has come', () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+
+      const decision = advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2 },
+        locations(LOCAL, '5.6.7.8:16127'),
+        LOCAL,
+      );
+
+      expect(decision.giveUp).to.equal(true);
+      expect(decision.reason).to.equal('EVACUATION');
+    });
+
+    it('defers to the pacing when the app\'s turn has not come', () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      residentialNodeDosService.mayEvacuateApp.returns({ ok: false, reason: 'its turn is in 20m' });
+
+      const decision = advancedWorkflows.reasonToGiveUpApp(
+        { name: 'a', instances: 2 },
+        locations(LOCAL, '5.6.7.8:16127'),
+        LOCAL,
+      );
+
+      expect(decision.giveUp).to.equal(false);
+      expect(decision.detail).to.contain('20m');
+    });
+  });
+
+  describe('the safety gate applies to BOTH reasons', () => {
+    it('refuses a surplus removal that is not safe', async () => {
+      // Before this, surplus removal deleted on an instance count alone - one of
+      // the paths that has already destroyed customer volumes.
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL, '8.8.8.8:16127'));
+      evacuationSafety.canSafelyRemoveApp.resolves({ safe: false, reason: 'no connected peer holds it' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('performs a surplus removal that is safe', async () => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
+    });
+
+    it('asks the safety gate whether this node is the elected primary', async () => {
+      // The gate refuses to hand back a `g:` app from under its primary - the
+      // node writing to the volume - but it can only do that if the pass gives
+      // it a way to ask. Without this the check defaults off and the primary
+      // leaves mid-write.
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      const { isElectedPrimary } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
+      expect(isElectedPrimary).to.be.a('function');
+      expect(isElectedPrimary('appone')).to.equal(false);
+    });
+
+    it('refuses an evacuation removal that is not safe, and restarts its observation', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+      evacuationSafety.canSafelyRemoveApp.resolves({ safe: false, reason: 'no connected peer holds it' });
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      sinon.assert.calledWith(residentialNodeDosService.forgetAppObservation, 'appone');
+    });
+
+    it('performs an evacuation removal that is safe and records it', async () => {
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledWith(appUninstaller.removeAppLocally, 'appone');
+      sinon.assert.calledWith(residentialNodeDosService.noteEvacuated, 'appone');
+    });
+
+    it('does not record an evacuation when the removal was a surplus', async () => {
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(residentialNodeDosService.noteEvacuated);
+    });
+  });
+
+  describe('pacing', () => {
+    it('gives up at most one app per pass', async () => {
+      // Two removals in one pass would take two instances off the network before
+      // the spawner has replaced either.
+      dbHelper.findInDatabase.resolves(installed('appone', 'apptwo', 'appthree'));
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledOnce(appUninstaller.removeAppLocally);
+    });
+
+    it('does nothing at all when the node does not know its own address', async () => {
+      fluxNetworkHelper.getLocalSocketAddress.resolves(null);
+      residentialNodeDosService.isEvacuating.returns(true);
+      registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does nothing while the daemon is not synced', async () => {
+      generalService.checkSynced.resolves(false);
+      residentialNodeDosService.isEvacuating.returns(true);
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+  });
+});
