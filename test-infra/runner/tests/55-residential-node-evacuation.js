@@ -96,35 +96,51 @@ async function seedApp(env, appName, { instances = 3, containerData = '/tmp', po
 }
 
 /**
- * Advance the chain one block at a time, waiting for the node to PROCESS each
- * one before producing the next, until the condition holds.
+ * Drive the chain until a condition holds, at a stated RATE, up to a stated
+ * deadline.
  *
- * The free-running ticker produces blocks on the same period the explorer polls
- * on, so the node learns about them in bursts and processes a burst back to
- * back - and only the last block of a burst is still the chain tip. FluxOS runs
- * its app maintenance, the give-up pass included, only for a block that was the
- * tip, and only on every fourth block, so whether the pass ever runs comes down
- * to which parity the race settles on. Driving the chain removes that instead of
- * hoping the phases stay favourable.
+ * Two reasons this drives rather than letting the ticker free-run:
  *
- * maxBlocks is wall-clock cover, not a block count that matters in itself. The
- * queue ticket a node waits out is measured in wall-clock while driving races
- * through the chain in milliseconds, so the budget has to outlast the longest
- * ticket in play - about 41s here - at roughly half a second a block.
+ * The ticker produces blocks on the same period the explorer polls on, so the
+ * node learns about them in bursts and processes a burst back to back - and only
+ * the last block of a burst is still the chain tip. FluxOS runs its app
+ * maintenance, the give-up pass included, only for a block that was the tip and
+ * only on every fourth block, so whether the pass runs at all comes down to
+ * which parity the race settles on.
+ *
+ * And the waits here are WALL-CLOCK. A node's queue ticket is real time, so a
+ * budget counted in blocks means nothing: driving flat out races through the
+ * chain in milliseconds and stops long before the node's turn comes round,
+ * leaving no pass in which to act. The deadline is therefore in milliseconds and
+ * the rate is explicit - `blockIntervalMs` sets how fast the chain moves, which
+ * is what fixes how long a give-out pass takes in wall-clock, which is what the
+ * queue step has to outlast. Changing one without the other is what quietly
+ * deletes the ordering these tests exist to check.
+ *
+ * @param {number} [opts.timeoutMs] How long to keep driving before giving up.
+ * @param {number} [opts.blockIntervalMs] Minimum wall-clock between blocks.
+ * @returns {Promise<number>} Blocks driven.
  */
-async function driveUntil(env, nodeIndex, condition, maxBlocks = 200) {
+async function driveUntil(env, nodeIndex, condition, { timeoutMs = 120000, blockIntervalMs = 200 } = {}) {
   const node = env.clients[nodeIndex - 1];
-  for (let i = 0; i < maxBlocks; i += 1) {
+  const deadline = Date.now() + timeoutMs;
+  let blocks = 0;
+  while (Date.now() < deadline) {
     // eslint-disable-next-line no-await-in-loop
-    if (await condition()) return;
+    if (await condition()) return blocks;
+    const startedAt = Date.now();
     const afterId = node.getLastEventId();
     // eslint-disable-next-line no-await-in-loop
     await advanceBlock();
     // eslint-disable-next-line no-await-in-loop
     await node.waitForEvent('block:processed', () => true, 60000, { afterId });
+    blocks += 1;
+    const spent = Date.now() - startedAt;
+    // eslint-disable-next-line no-await-in-loop
+    if (spent < blockIntervalMs) await new Promise((resolve) => { setTimeout(resolve, blockIntervalMs - spent); });
   }
-  // eslint-disable-next-line no-await-in-loop
-  if (!await condition()) throw new Error(`condition not reached within ${maxBlocks} driven blocks`);
+  if (await condition()) return blocks;
+  throw new Error(`condition not reached in ${timeoutMs}ms (${blocks} blocks driven)`);
 }
 
 /**
@@ -256,18 +272,23 @@ describe('Residential node evacuation', function () {
           // together: the second's turn has to arrive AFTER the first's
           // departure is visible to it.
           //
-          // So the step only needs to outlast one give-up pass plus the
-          // propagation of a removal - here a pass is four driven blocks, two
-          // to four seconds, and the fluxappremoved broadcast is sub-second.
-          // Ten seconds carries ample margin while capping the worst wait (last
-          // of five instances) at 41s. Production's 15 MINUTES is sized against
-          // a pass that runs every 44 blocks; copying that number rather than
-          // the reasoning would add two minutes per test for nothing.
+          // So the step only has to outlast one give-up pass plus the
+          // propagation of a removal. A pass is four blocks, and driveUntil
+          // paces the chain at 200ms a block, so a pass is under a second here;
+          // the fluxappremoved broadcast is sub-second too. 5s is several times
+          // the margin needed and caps the worst wait - last of five instances -
+          // at 21s.
+          //
+          // Production's 15 MINUTES is that same relationship against a pass
+          // that runs every 44 blocks. The ratio transfers; the number does not,
+          // and copying it would add minutes per test for nothing.
           //
           // Do not shorten it below a pass. At 500ms both holders became
           // eligible within the same pass and both left - the mechanism intact,
-          // the property compressed out of existence.
-          residentialQueueStepMs: 10000,
+          // the property compressed out of existence. And do not change it
+          // without looking at driveUntil's blockIntervalMs, which is what fixes
+          // how long a pass takes.
+          residentialQueueStepMs: 5000,
           removeFluxAppsPeriod: 1,
         },
       },
@@ -399,7 +420,7 @@ describe('Residential node evacuation', function () {
     await driveUntil(env, TARGET, async () => {
       const current = await env.clients[TARGET - 1].get('/apps/installedapps');
       return !current.data.map((a) => a.name).includes('residentapp');
-    }, 200);
+    });
 
     // The node's own view, not app:removed - that event is published part-way
     // through the uninstall, after the runtime state is dropped and before the
@@ -516,7 +537,7 @@ describe('Residential node evacuation', function () {
     const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'worldapp',
       (d) => d.safe === false, 300000).then((v) => { safetyVerdict = v; return v; });
     refused.catch(() => {});
-    await driveUntil(env, TARGET, async () => safetyVerdict !== null, 200);
+    await driveUntil(env, TARGET, async () => safetyVerdict !== null);
     await startTicker();
 
     // The pass reports on every app it holds, every pass, so this proves the
@@ -546,7 +567,7 @@ describe('Residential node evacuation', function () {
     await driveUntil(env, TARGET, async () => {
       const current = await env.clients[TARGET - 1].get('/apps/installedapps');
       return !current.data.map((a) => a.name).includes('worldapp');
-    }, 200);
+    });
     await startTicker();
 
     await whenGone(env, TARGET, 'worldapp', 120000);
@@ -622,7 +643,7 @@ describe('Residential node evacuation', function () {
     // the moment one node leaves means the other never gets a pass in which to
     // refuse, and the wait times out on a suite that stopped the clock itself.
     await stopTicker();
-    await driveUntil(env, TARGET, async () => refusal !== null, 200);
+    await driveUntil(env, TARGET, async () => refusal !== null);
     await startTicker();
 
     const verdict = await refusedForBeingShort;
@@ -663,7 +684,7 @@ describe('Residential node evacuation', function () {
     refused.catch(() => {});
 
     await stopTicker();
-    await driveUntil(env, TARGET, async () => primaryRefusal !== null, 200);
+    await driveUntil(env, TARGET, async () => primaryRefusal !== null);
     await startTicker();
 
     const verdict = await refused;
