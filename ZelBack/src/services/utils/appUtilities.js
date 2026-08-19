@@ -1,6 +1,4 @@
-const util = require('util');
 const fs = require('fs/promises');
-const nodecmd = require('node-cmd');
 const config = require('config');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
@@ -14,7 +12,6 @@ const fluxCaching = require('./cacheManager');
 
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
-const cmdAsync = util.promisify(nodecmd.run);
 
 /**
  * Calculate app price per month
@@ -180,12 +177,34 @@ async function dedicatedVolumeUsage(source, sharedDevice) {
  * @returns {Promise<number>} Size in bytes
  */
 async function walkedUsage(source) {
-  const mountInfo = await cmdAsync(`sudo du -sb ${source}`);
-  if (!mountInfo) {
-    log.warn(`No mount info returned for source: ${source}`);
-    return 0;
+  // argv, never a shell string: the source is a path docker reports, and
+  // interpolating it into `sudo du -sb ${source}` makes any metacharacter in it
+  // part of the command.
+  const { error, stdout } = await serviceHelper.runCommand('du', {
+    runAsRoot: true,
+    logError: false,
+    params: ['-sb', source],
+  });
+
+  // du exits 1 at the first entry it cannot read - on a busy app that is an
+  // ordinary temp file vanishing mid-walk, not an exceptional state - and still
+  // prints the total for everything it did walk. Measured on Linux: over a
+  // directory with one unreadable child it prints the running total AND exits 1.
+  //
+  // So a non-zero exit is not the same as no answer, and runCommand keeps stdout
+  // on a failed exit precisely so the number survives. Treating the exit code
+  // alone as failure would throw away a figure we already have, once a minute,
+  // on exactly the apps that write the most.
+  const reported = stdout ? serviceHelper.ensureNumber(stdout.split('\t')[0]) : NaN;
+  if (Number.isNaN(reported)) {
+    // Nothing usable came back. This is the genuine failure, and the caller has
+    // to know the total it builds is short rather than serve it as complete.
+    throw error || new Error(`du reported no size for ${source}`);
   }
-  return serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
+  if (error) {
+    log.warn(`Partial size for ${source}: du could not read every entry (${error.message.split('\n')[0]})`);
+  }
+  return reported;
 }
 
 /**
@@ -202,6 +221,9 @@ async function getContainerStorage(appName) {
     const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
     let bindMountsSize = 0;
     let volumeMountsSize = 0;
+    // Mount sources that could not be measured at all. Empty is the ordinary case
+    // and the only one that may be called a success.
+    const unmeasured = [];
     const containerRootFsSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
     if (containerInfo?.Mounts?.length) {
       // Which filesystem the node shares is one fact about this call rather than
@@ -262,7 +284,14 @@ async function getContainerStorage(appName) {
             size = await walkedUsage(source);
           }
         } catch (error) {
+          // The mount contributes nothing, so the total below is SHORT. Recorded
+          // rather than swallowed: the reading is still worth serving - a disk bar
+          // showing most of the truth beats one showing none of it - but it must
+          // not go out labelled as a complete measurement, and it must not be
+          // cached, or one transient failure is served as fact for the whole
+          // window.
           log.warn(`Failed to get size for ${mountType} mount ${source}: ${error.message}`);
+          unmeasured.push(source);
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -279,9 +308,12 @@ async function getContainerStorage(appName) {
       volume: volumeMountsSize,
       rootfs: containerRootFsSize,
       used: usedSize,
-      status: 'success',
+      status: unmeasured.length ? 'partial' : 'success',
     };
-    cache.set(appName, storage);
+    if (unmeasured.length) storage.unmeasured = unmeasured;
+    // Only a complete reading is cached. A short one is recomputed next tick,
+    // which is where it gets the chance to come good.
+    if (!unmeasured.length) cache.set(appName, storage);
     return storage;
   } catch (error) {
     log.error(`Error fetching container storage: ${error.message}`);

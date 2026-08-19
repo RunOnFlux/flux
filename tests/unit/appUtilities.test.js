@@ -8,6 +8,7 @@ const appUtilities = require('../../ZelBack/src/services/utils/appUtilities');
 const geolocationService = require('../../ZelBack/src/services/geolocationService');
 const dockerService = require('../../ZelBack/src/services/dockerService');
 const log = require('../../ZelBack/src/lib/log');
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 describe('appUtilities tests', () => {
   afterEach(() => {
@@ -111,7 +112,11 @@ describe('appUtilities tests', () => {
     // whole-filesystem reading describes that app alone or the node it sits on.
     function build(deviceByPath) {
       cacheStore = new Map();
-      runStub = sinon.stub().callsFake((cmd, cb) => cb(null, `4096\t${cmd}`));
+      // The real seam: runCommand returns { error, stdout, stderr } and KEEPS stdout
+      // when the command exits non-zero, which is what lets a partial du reading
+      // through. Stubbed on the module so the call-time property lookup finds it.
+      runStub = sinon.stub(serviceHelper, 'runCommand')
+        .callsFake(async (_cmd, opts) => ({ error: null, stdout: `4096\t${opts.params[1]}`, stderr: '' }));
       statStub = sinon.stub().callsFake(async (target) => ({
         dev: deviceByPath[target] ?? APPS_FOLDER_DEV,
       }));
@@ -120,7 +125,6 @@ describe('appUtilities tests', () => {
 
       return proxyquire('../../ZelBack/src/services/utils/appUtilities', {
         'fs/promises': { stat: statStub, statfs: statfsStub },
-        'node-cmd': { run: runStub },
         '../dockerService': { dockerContainerInspect: inspectStub },
         './cacheManager': {
           default: {
@@ -200,6 +204,102 @@ describe('appUtilities tests', () => {
       expect(result.bind).to.equal(4096);
       sinon.assert.notCalled(statfsStub);
       sinon.assert.calledOnce(runStub);
+    });
+
+    it('keeps the total du printed even though it exited non-zero', async () => {
+      // du exits 1 at the first entry it cannot read - on a busy app that is a temp
+      // file vanishing mid-walk, not an exceptional state - and still prints the
+      // total for everything it did walk. Reading the exit code alone throws that
+      // number away once a minute, on exactly the apps that write the most.
+      const utils = build({ '/apps/myapp/appdata': APPS_FOLDER_DEV });
+      inspectStub.resolves({
+        SizeRootFs: 0,
+        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+      });
+      runStub.resolves({
+        error: new Error("du: cannot read directory '/apps/myapp/appdata/tmp': Permission denied"),
+        stdout: '4096\t/apps/myapp/appdata',
+        stderr: '',
+      });
+
+      const result = await utils.getContainerStorage('myapp');
+
+      expect(result.bind).to.equal(4096);
+      expect(result.status, 'a reading du actually produced is not a failed one').to.equal('success');
+    });
+
+    it('reports partial, and caches nothing, when a mount cannot be measured at all', async () => {
+      // Contributing zero and calling the total a success serves a customer a disk
+      // figure that is short by a whole mount, and the cache makes one transient
+      // failure stick for the whole window.
+      const utils = build({ '/apps/myapp/appdata': APPS_FOLDER_DEV });
+      inspectStub.resolves({
+        SizeRootFs: 512,
+        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+      });
+      runStub.resolves({ error: new Error('du: command not found'), stdout: '', stderr: '' });
+
+      const result = await utils.getContainerStorage('myapp');
+
+      expect(result.status).to.equal('partial');
+      expect(result.unmeasured).to.deep.equal(['/apps/myapp/appdata']);
+      expect(result.bind, 'the mount contributed nothing').to.equal(0);
+      expect(result.rootfs, 'what WAS measured is still reported').to.equal(512);
+      expect(cacheStore.size, 'a short reading must not be served again from cache').to.equal(0);
+    });
+
+    it('still measures the mounts it can when one of several fails', async () => {
+      const utils = build({
+        '/apps/myapp/appdata': APPS_FOLDER_DEV,
+        '/apps/myapp/other': APPS_FOLDER_DEV,
+      });
+      inspectStub.resolves({
+        SizeRootFs: 0,
+        Mounts: [
+          { Type: 'bind', Source: '/apps/myapp/appdata' },
+          { Type: 'bind', Source: '/apps/myapp/other' },
+        ],
+      });
+      runStub.callsFake(async (_cmd, opts) => (opts.params[1] === '/apps/myapp/other'
+        ? { error: new Error('gone'), stdout: '', stderr: '' }
+        : { error: null, stdout: '4096\t/apps/myapp/appdata', stderr: '' }));
+
+      const result = await utils.getContainerStorage('myapp');
+
+      expect(result.bind).to.equal(4096);
+      expect(result.status).to.equal('partial');
+      expect(result.unmeasured).to.deep.equal(['/apps/myapp/other']);
+    });
+
+    it('caches a complete reading and calls it a success', async () => {
+      const utils = build({ '/apps/myapp/appdata': APPS_FOLDER_DEV });
+      inspectStub.resolves({
+        SizeRootFs: 0,
+        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+      });
+
+      const result = await utils.getContainerStorage('myapp');
+
+      expect(result.status).to.equal('success');
+      expect(result).to.not.have.property('unmeasured');
+      expect(cacheStore.size).to.equal(1);
+    });
+
+    it('hands du its path as an argument, never inside a shell string', async () => {
+      // The source is a path docker reports. Interpolated into `sudo du -sb ${source}`
+      // any metacharacter in it becomes part of the command.
+      const utils = build({ '/apps/myapp/appdata': APPS_FOLDER_DEV });
+      inspectStub.resolves({
+        SizeRootFs: 0,
+        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+      });
+
+      await utils.getContainerStorage('myapp');
+
+      sinon.assert.calledWith(runStub, 'du', sinon.match({
+        runAsRoot: true,
+        params: ['-sb', '/apps/myapp/appdata'],
+      }));
     });
 
     it('refuses to size anything when the shared filesystem cannot be identified', async () => {
