@@ -241,35 +241,20 @@ describe('geolocationService tests', () => {
       expect(serviceHelperStub.axiosGet.secondCall.args[0]).to.include('stats.runonflux.io');
     });
 
-    it('should set staticIp to true when org contains known hosting provider', async () => {
-      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
-      serviceHelperStub.axiosGet.resolves({
-        data: {
-          status: 'success',
-          query: '185.199.108.1',
-          org: 'Hetzner Online GmbH',
-          proxy: false,
-          hosting: false,
-        },
-      });
-
-      await geolocationService.setNodeGeolocation();
-
-      expect(geolocationService.isStaticIP()).to.equal(true);
-    });
-
     it('should set dataCenter to true when hosting flag is true', async () => {
       await geolocationService.setNodeGeolocation();
 
       expect(geolocationService.isDataCenter()).to.equal(true);
     });
 
-    it('should set dataCenter to true when org contains known hosting provider', async () => {
+    it('should set dataCenter from the operator, not the registrant org', async () => {
       serviceHelperStub.axiosGet.resolves({
         data: {
           status: 'success',
           query: '185.199.108.1',
-          org: 'OVH SAS',
+          org: 'Some Reseller Ltd',
+          isp: 'OVH SAS',
+          as: 'AS16276 OVH SAS',
           proxy: false,
           hosting: false,
         },
@@ -294,57 +279,364 @@ describe('geolocationService tests', () => {
       sinon.assert.called(logStub.error);
     });
 
-    it('should set staticIp to true with public IP on interface and null lastIpChangeDate', async () => {
-      // This tests the case where lastIpChangeDate is null (considered stable for 10+ days)
+    it('should NOT claim a static IP from a null lastIpChangeDate', async () => {
+      // A null change date means nothing has been observed yet, which is not the
+      // same as having been observed stable.
       await geolocationService.setNodeGeolocation();
 
-      expect(geolocationService.isStaticIP()).to.equal(true);
+      expect(geolocationService.isStaticIP()).to.equal(false);
     });
   });
 
-  describe('Static IP org detection tests', () => {
-    const testOrgs = [
-      { org: 'Hetzner Online GmbH', expected: true },
-      { org: 'OVH SAS', expected: true },
-      { org: 'netcup GmbH', expected: true },
-      { org: 'Contabo GmbH', expected: true },
-      { org: 'Hostslim B.V.', expected: true },
-      { org: 'Zayo Bandwidth', expected: true },
-      { org: 'Cogent Communications', expected: true },
-      { org: 'Lumen Technologies', expected: true },
-      { org: 'Hostnodes LLC', expected: true },
-      { org: 'Comcast Cable', expected: false },
-      { org: 'AT&T Services', expected: false },
-      { org: 'Verizon Business', expected: false },
-    ];
-
-    testOrgs.forEach(({ org, expected }) => {
-      it(`should ${expected ? 'detect' : 'not detect'} "${org}" as static IP org`, async () => {
-        fluxNetworkHelperStub.getLocalSocketAddress.resolves('185.199.108.1:16127');
-        fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false); // No public IP on interface
-        serviceHelperStub.axiosGet.resolves({
-          data: {
-            status: 'success',
-            query: '185.199.108.1',
-            org,
-            proxy: false,
-            hosting: false,
-          },
-        });
-
-        // Reload module to reset state
-        geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
-          config: configStub,
-          '../lib/log': logStub,
-          './dbHelper': dbHelperStub,
-          './serviceHelper': serviceHelperStub,
-          './fluxNetworkHelper': fluxNetworkHelperStub,
-        });
-
-        await geolocationService.setNodeGeolocation();
-
-        expect(geolocationService.isStaticIP()).to.equal(expected);
+  describe('static IP is observed, never inferred from the operator', () => {
+    function reload() {
+      return proxyquire('../../ZelBack/src/services/geolocationService', {
+        config: configStub,
+        '../lib/log': logStub,
+        './dbHelper': dbHelperStub,
+        './serviceHelper': serviceHelperStub,
+        './fluxNetworkHelper': fluxNetworkHelperStub,
       });
+    }
+
+    function ipApiResponse(overrides = {}) {
+      return {
+        data: {
+          status: 'success',
+          query: '185.199.108.1',
+          org: 'Hetzner Online GmbH',
+          isp: 'Hetzner Online GmbH',
+          as: 'AS24940 Hetzner Online GmbH',
+          proxy: false,
+          hosting: false,
+          ...overrides,
+        },
+      };
+    }
+
+    beforeEach(() => {
+      fluxNetworkHelperStub.getLocalSocketAddress.resolves('185.199.108.1:16127');
+      dbHelperStub.findOneInDatabase.resolves(null);
+    });
+
+    it('an address just met is UNKNOWN, not static', async () => {
+      // The old code substituted `now - threshold - 1` when no IP change had
+      // ever been recorded, so a node up for five minutes claimed ten days of
+      // stability. An address becomes static by being held.
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('UNKNOWN');
+      expect(geolocationService.isStaticIP()).to.equal(false);
+    });
+
+    it('is STATIC once the address has been held for the stability window', async () => {
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      dbHelperStub.findOneInDatabase.resolves({
+        geolocation: { ip: '185.199.108.1' },
+        staticIp: false,
+        dataCenter: false,
+        lastIpChangeDate: null,
+        ipFirstSeenAt: Date.now() - (11 * 24 * 60 * 60 * 1000),
+        staticIpState: 'UNKNOWN',
+        networkClassification: null,
+      });
+      geolocationService = reload();
+      await geolocationService.getNodeGeolocation();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('STATIC');
+      expect(geolocationService.isStaticIP()).to.equal(true);
+    });
+
+    it('is DYNAMIC behind NAT no matter who the operator is', async () => {
+      // The old list applied on this branch too, so a box behind consumer NAT
+      // could claim a static address because its registrant string said "ovh".
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse({ org: 'OVH SAS', isp: 'OVH SAS' }));
+      dbHelperStub.findOneInDatabase.resolves({
+        geolocation: { ip: '185.199.108.1' },
+        staticIp: false,
+        dataCenter: false,
+        lastIpChangeDate: null,
+        ipFirstSeenAt: Date.now() - (400 * 24 * 60 * 60 * 1000),
+        staticIpState: 'STATIC',
+        networkClassification: null,
+      });
+      geolocationService = reload();
+      await geolocationService.getNodeGeolocation();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('DYNAMIC');
+      expect(geolocationService.isStaticIP()).to.equal(false);
+    });
+
+    it('a known hosting operator confers nothing on its own', async () => {
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse({ org: 'Contabo GmbH', isp: 'Contabo GmbH' }));
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.isStaticIP()).to.equal(false);
+    });
+
+    it('restarts the observation when the address changes', async () => {
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      dbHelperStub.findOneInDatabase.resolves({
+        geolocation: { ip: '185.199.108.1' },
+        staticIp: true,
+        dataCenter: false,
+        lastIpChangeDate: null,
+        ipFirstSeenAt: Date.now() - (400 * 24 * 60 * 60 * 1000),
+        staticIpState: 'STATIC',
+        networkClassification: null,
+      });
+      geolocationService = reload();
+      await geolocationService.getNodeGeolocation();
+      serviceHelperStub.axiosGet.resolves(ipApiResponse({ query: '185.199.109.9' }));
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('UNKNOWN');
+    });
+  });
+
+  describe('the published table decides, the node falls back', () => {
+    let ipLocationStoreStub;
+
+    function reload() {
+      return proxyquire('../../ZelBack/src/services/geolocationService', {
+        config: configStub,
+        '../lib/log': logStub,
+        './dbHelper': dbHelperStub,
+        './serviceHelper': serviceHelperStub,
+        './fluxNetworkHelper': fluxNetworkHelperStub,
+        './appPlacement/ipLocationStore': ipLocationStoreStub,
+      });
+    }
+
+    beforeEach(() => {
+      fluxNetworkHelperStub.getLocalSocketAddress.resolves('185.199.108.1:16127');
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      dbHelperStub.findOneInDatabase.resolves(null);
+      ipLocationStoreStub = { lookup: sinon.stub().resolves(null) };
+      // On its own evidence this address is a data centre: a hosting operator
+      // and nothing suggesting an access network.
+      serviceHelperStub.axiosGet.resolves({
+        data: {
+          status: 'success',
+          query: '185.199.108.1',
+          org: 'X',
+          isp: 'Hetzner Online GmbH',
+          as: 'AS24940 Hetzner Online GmbH',
+          proxy: false,
+          hosting: false,
+        },
+      });
+    });
+
+    it('takes the published verdict over what the node would have decided', async () => {
+      // Local evidence that does not CONTRADICT residential: the table's verdict
+      // stands even though the node itself would have said nothing.
+      serviceHelperStub.axiosGet.resolves({
+        data: {
+          status: 'success', query: '185.199.108.1', org: 'X', isp: 'Some Regional ISP',
+          as: 'AS64500 Some Regional ISP', proxy: false, hosting: false,
+        },
+      });
+      ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: 'RESIDENTIAL' });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      const verdict = geolocationService.getNetworkClassification();
+      expect(verdict.classification).to.equal('RESIDENTIAL');
+      expect(verdict.source).to.equal('published-table');
+    });
+
+    it('declines a published RESIDENTIAL when this address contradicts it', async () => {
+      // An organisation is published on a strong majority of its hosts, so a
+      // minority of its addresses may be the other kind. This is how one of them
+      // steps out of a verdict meant for its neighbours - 213.44.137.57 on
+      // Bouygues is the live instance.
+      ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: 'RESIDENTIAL' });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      const verdict = geolocationService.getNetworkClassification();
+      expect(verdict.classification).to.equal('CONFLICTED');
+      expect(verdict.source).to.equal('node-veto');
+    });
+
+    it('the veto only ever removes enforcement, never imposes it', async () => {
+      // Local evidence saying RESIDENTIAL cannot promote a published DATACENTER.
+      serviceHelperStub.axiosGet.resolves({
+        data: {
+          status: 'success', query: '185.199.108.1', org: 'X', isp: 'Consumer ISP',
+          as: 'AS64500 Consumer ISP', proxy: false, hosting: false, mobile: true,
+        },
+      });
+      ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: 'DATACENTER' });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getNetworkClassification().classification).to.equal('DATACENTER');
+    });
+
+    it('falls back to the node when the organisation carries no verdict', async () => {
+      ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: null });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      const verdict = geolocationService.getNetworkClassification();
+      expect(verdict.classification).to.equal('DATACENTER');
+      expect(verdict.source).to.equal('node');
+    });
+
+    it('falls back to the node when no row covers the address', async () => {
+      ipLocationStoreStub.lookup.resolves(null);
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getNetworkClassification().source).to.equal('node');
+    });
+
+    it('falls back to the node when the table cannot be read at all', async () => {
+      // A table that is unavailable is not evidence about the address, and must
+      // not stop a verdict being reached from what the node can see.
+      ipLocationStoreStub.lookup.rejects(new Error('no database connection'));
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getNetworkClassification().source).to.equal('node');
+      expect(geolocationService.getNetworkClassification().classification).to.equal('DATACENTER');
+    });
+
+    it('still records the node\'s own evidence when the table decided', async () => {
+      // The published verdict is the answer; the local evidence stays visible so
+      // a disagreement between the two is diagnosable rather than invisible.
+      ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: 'RESIDENTIAL' });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      const verdict = geolocationService.getNetworkClassification();
+      expect(verdict.evidenceAgainst.join(' ')).to.contain('Hetzner');
+    });
+
+    it('drives isDataCenter from the published verdict', async () => {
+      ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: 'DATACENTER' });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.isDataCenter()).to.equal(true);
+    });
+  });
+
+  describe('network classification', () => {
+    function reload() {
+      return proxyquire('../../ZelBack/src/services/geolocationService', {
+        config: configStub,
+        '../lib/log': logStub,
+        './dbHelper': dbHelperStub,
+        './serviceHelper': serviceHelperStub,
+        './fluxNetworkHelper': fluxNetworkHelperStub,
+      });
+    }
+
+    beforeEach(() => {
+      fluxNetworkHelperStub.getLocalSocketAddress.resolves('185.199.108.1:16127');
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      dbHelperStub.findOneInDatabase.resolves(null);
+    });
+
+    it('has no verdict before a lookup has run', () => {
+      geolocationService = reload();
+
+      expect(geolocationService.getNetworkClassification()).to.equal(null);
+    });
+
+    it('asks ip-api for the operator AS, not just the registrant org', async () => {
+      serviceHelperStub.axiosGet.resolves({
+        data: {
+          status: 'success', query: '185.199.108.1', org: 'X', isp: 'X', as: 'AS1 X', hosting: false, proxy: false,
+        },
+      });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(serviceHelperStub.axiosGet.firstCall.args[0]).to.include('as');
+      expect(serviceHelperStub.axiosGet.firstCall.args[0]).to.include('mobile');
+    });
+
+    it('publishes the verdict with the evidence behind it', async () => {
+      serviceHelperStub.axiosGet.resolves({
+        data: {
+          status: 'success',
+          query: '185.199.108.1',
+          org: 'Yorkshire Tech Limited',
+          isp: 'Contabo Asia Private Limited',
+          as: 'AS141995 Contabo Asia Private Limited',
+          proxy: false,
+          hosting: false,
+        },
+      });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      const verdict = geolocationService.getNetworkClassification();
+      expect(verdict.classification).to.equal('DATACENTER');
+      expect(verdict.evidenceAgainst.join(' ')).to.contain('Contabo');
+      expect(verdict.determinedAt).to.be.a('number');
+    });
+
+    it('drives isDataCenter from the verdict', async () => {
+      serviceHelperStub.axiosGet.resolves({
+        data: {
+          status: 'success', query: '185.199.108.1', org: 'X', isp: 'X', as: 'AS1 X', hosting: true, proxy: false,
+        },
+      });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.isDataCenter()).to.equal(true);
+    });
+
+    it('leaves isDataCenter false on a verdict of UNKNOWN', async () => {
+      // Absence of evidence is not evidence of a data centre - nor of anything.
+      serviceHelperStub.axiosGet.resolves({
+        data: {
+          status: 'success',
+          query: '185.199.108.1',
+          org: 'Some Regional ISP',
+          isp: 'Some Regional ISP',
+          as: 'AS64500 Some Regional ISP',
+          proxy: false,
+          hosting: false,
+        },
+      });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getNetworkClassification().classification).to.equal('UNKNOWN');
+      expect(geolocationService.isDataCenter()).to.equal(false);
     });
   });
 
