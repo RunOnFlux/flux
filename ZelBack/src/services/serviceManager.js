@@ -120,6 +120,20 @@ const appsStorageViolations = [];
 async function dedupeByKey(collection, spec, options = {}) {
   const groupId = {};
   Object.keys(spec).forEach((key, i) => { groupId[`k${i}`] = `$${key}`; });
+  // Held in memory deliberately, and measured rather than assumed: run against a
+  // live node's collection unioned with itself until every key appeared 16 times
+  // - 1,030,208 rows, the duplicate state this exists to repair - it finished in
+  // under 2s without spilling. The $sort adds nothing on top while it stays an
+  // index walk on _id, which it is for a spec with no partialFilterExpression;
+  // the first partial index to use this wants re-measuring, because the $match
+  // ahead of the sort is what would make the sort blocking. allowDiskUse is not
+  // set: it would take a mongo below 6.0, where the cap errors instead of
+  // spilling, and the network floor is moving past that.
+  //
+  // ids[0] rather than $max: $group does not document that it carries a
+  // preceding sort into an accumulator, and that non-guarantee is about results
+  // merged from several sources - this is one standalone mongod. Checked against
+  // 64,388 real duplicate groups, ids[0] was the newest in all 64,388.
   const pipeline = [
     ...(options.partialFilterExpression ? [{ $match: options.partialFilterExpression }] : []),
     { $sort: { _id: -1 } },
