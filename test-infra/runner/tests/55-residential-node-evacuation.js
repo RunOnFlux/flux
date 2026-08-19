@@ -14,6 +14,7 @@ import {
   waitForPeerThreshold, waitForAppInstalled,
   waitForSpawnerBlocked, waitFor,
 } from '../framework/wait.js';
+import { setNoPeerData, setPeerHasData } from '../framework/syncthing-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const subnet = getSubnetConfig();
@@ -86,6 +87,19 @@ async function seedApp(env, appName, { instances = 3, containerData = '/tmp' } =
     await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
   }
   return app;
+}
+
+/**
+ * When this node stopped holding an app, by its own account. Returns the epoch
+ * ms at which it was first observed gone, so a caller can measure the gap
+ * between two departures.
+ */
+async function whenGone(env, nodeIndex, appName, timeout) {
+  await waitFor(async () => {
+    const installed = await env.clients[nodeIndex - 1].get('/apps/installedapps');
+    return !installed.data.map((a) => a.name).includes(appName);
+  }, { timeout, label: `node ${nodeIndex} hands ${appName} back` });
+  return Date.now();
 }
 
 /** Put the settling window in the past, so evacuation may begin this run. */
@@ -179,7 +193,10 @@ describe('Residential node evacuation', function () {
           // being asserted, and the ordering - hold first, deletes nothing, and
           // only later gives an app up - is the property under test.
           residentialSettleMs: 600000,
-          residentialEvacuationIntervalMs: 4000,
+          // Long enough to MEASURE. The give-up pass runs every 4 blocks (~20s
+          // here), so a shorter gap than that would be indistinguishable from
+          // the block cadence and the pacing test would prove nothing.
+          residentialEvacuationIntervalMs: 20000,
           residentialQueueBaseMs: 1000,
           residentialQueueStepMs: 500,
           removeFluxAppsPeriod: 1,
@@ -376,5 +393,97 @@ describe('Residential node evacuation', function () {
       const marker = await dbClient(TARGET).residentialMarker();
       return marker === null;
     }, { timeout: 60000, label: 'the settling marker is torn down with the verdict' });
+  });
+
+  it('will not hand back a stateful app while no peer demonstrably holds its data', async function () {
+    this.timeout(600000);
+
+    // Two apps, and the pairing is the point. `plainapp` keeps no synced state,
+    // so it is safe to give up the moment its turn comes - it is the positive
+    // control that proves the give-up pass is running at all. `worldapp` mounts
+    // s:, so its volume IS the product, and no peer is reporting that it holds
+    // a copy. The ten Palworld and Minecraft worlds on the real fleet are this
+    // second shape, at exactly two instances.
+    await seedApp(env, 'plainapp', { instances: 5 });
+    await seedApp(env, 'worldapp', { instances: 5, containerData: 's:/appdata' });
+    await advanceBlocks(3);
+    await waitForAppInstalled(env.clients[TARGET - 1], 'plainapp', 300000);
+    await waitForAppInstalled(env.clients[TARGET - 1], 'worldapp', 300000);
+
+    // Nobody has the world. Declared before enforcement starts, so the node
+    // never sees a moment where the data looks safe.
+    await setNoPeerData({ folder: 'fluxworldapp_worldapp' });
+
+    await setSystemSecure(subnet.nodeIp(TARGET), false);
+    await waitForSpawnerBlocked(env.clients[TARGET - 1], 'placement_hold', 120000);
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
+      { timeout: 120000, label: 'the settling window starts again' });
+    await elapseSettleWindow(TARGET);
+
+    // The stateless one goes, which is what tells us the pass ran.
+    await whenGone(env, TARGET, 'plainapp', 300000);
+
+    // And the stateful one is still here, because refusing is what the gate is
+    // for. Every removal path before this decided on an instance count alone,
+    // and a count cannot tell a redundant copy from the last one holding data.
+    const installed = await env.clients[TARGET - 1].get('/apps/installedapps');
+    expect(installed.data.map((a) => a.name)).to.include('worldapp');
+  });
+
+  it('hands the stateful app back once a peer holds it in full', async function () {
+    this.timeout(600000);
+
+    await setPeerHasData({ folder: 'fluxworldapp_worldapp' });
+
+    await whenGone(env, TARGET, 'worldapp', 300000);
+
+    // It left because a peer could be shown to hold the data, not because the
+    // node ran out of patience.
+    const locations = await dbClient(2).getAppLocations('worldapp');
+    expect(locations.map((l) => l.ip.split(':')[0])).to.not.include(subnet.nodeIp(TARGET));
+  });
+
+  it('gives up one app per pass, spaced by the departure interval', async function () {
+    this.timeout(600000);
+
+    // Two apps eligible at the same instant. A node that emptied itself as fast
+    // as it could would take both in one pass; the whole point of the pacing is
+    // that a residential line sheds slowly enough for the spawner to refill
+    // behind it.
+    //
+    // Attested first, because a held node takes no new apps - there would be
+    // nothing on it to pace.
+    await setSystemSecure(subnet.nodeIp(TARGET), true);
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) === null,
+      { timeout: 120000, label: 'node 1 is back in service' });
+
+    await seedApp(env, 'pacedone', { instances: 5 });
+    await seedApp(env, 'pacedtwo', { instances: 5 });
+    await advanceBlocks(3);
+    await waitForAppInstalled(env.clients[TARGET - 1], 'pacedone', 300000);
+    await waitForAppInstalled(env.clients[TARGET - 1], 'pacedtwo', 300000);
+
+    await setSystemSecure(subnet.nodeIp(TARGET), false);
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
+      { timeout: 120000, label: 'the settling window starts' });
+    await elapseSettleWindow(TARGET);
+
+    const held = async () => {
+      const installed = await env.clients[TARGET - 1].get('/apps/installedapps');
+      const names = installed.data.map((a) => a.name);
+      return ['pacedone', 'pacedtwo'].filter((n) => names.includes(n));
+    };
+
+    await waitFor(async () => (await held()).length <= 1,
+      { timeout: 300000, label: 'node 1 gives up the first of the two' });
+    const first = Date.now();
+
+    await waitFor(async () => (await held()).length === 0,
+      { timeout: 300000, label: 'node 1 gives up the second' });
+    const second = Date.now();
+
+    // The interval is a floor on the gap, and the pass only runs every fourth
+    // block, so the observed gap is at least the interval and usually more.
+    expect(second - first).to.be.at.least(20000);
   });
 });
