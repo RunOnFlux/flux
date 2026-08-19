@@ -172,14 +172,17 @@ describe('Residential node evacuation', function () {
   it('classifies the node RESIDENTIAL from the operator, not the registrant org', async function () {
     this.timeout(120000);
 
+    // The node persists what it OBSERVED, not the verdict it drew from it - the
+    // verdict also needs the published table, which arrives later, so it is
+    // reached when asked rather than stored and left to go stale.
     await waitFor(async () => {
       const geo = await dbClient(TARGET).geolocation();
-      return geo?.networkClassification?.classification === 'RESIDENTIAL';
-    }, { timeout: 90000, label: 'node 1 reaches a RESIDENTIAL classification' });
+      return geo?.networkEvidence?.classification === 'RESIDENTIAL';
+    }, { timeout: 90000, label: 'node 1 observes itself on an access network' });
 
     const geo = await dbClient(TARGET).geolocation();
-    expect(geo.networkClassification.evidenceAgainst).to.be.empty;
-    expect(geo.networkClassification.evidenceFor).to.not.be.empty;
+    expect(geo.networkEvidence.evidenceAgainst).to.be.empty;
+    expect(geo.networkEvidence.evidenceFor).to.not.be.empty;
     // The org string names a reseller. Reading it, as the old classifier did,
     // would have decided this node on the wrong field entirely.
     expect(geo.geolocation.org).to.equal('Some Reseller Ltd');
@@ -189,7 +192,7 @@ describe('Residential node evacuation', function () {
     this.timeout(120000);
 
     const geo = await dbClient(2).geolocation();
-    expect(geo.networkClassification.classification).to.equal('DATACENTER');
+    expect(geo.networkEvidence.classification).to.equal('DATACENTER');
 
     const info = await env.clients[1].get('/flux/info');
     expect(info.data.flux.dos.dosState).to.be.below(100);
