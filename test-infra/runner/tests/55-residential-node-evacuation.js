@@ -135,6 +135,20 @@ async function whenGone(env, nodeIndex, appName, timeout) {
   return Date.now();
 }
 
+/**
+ * Put a node back in service: attested, hold cleared, settling marker torn down.
+ *
+ * Every test that seeds an app has to do this first, because a held node takes
+ * no new apps and an EMPTY node goes straight to DOS without ever starting a
+ * settling window. Both are correct, and both silently invalidate a test that
+ * assumes otherwise.
+ */
+async function returnToService(env, node) {
+  await setSystemSecure(subnet.nodeIp(node), true);
+  await waitFor(async () => (await dbClient(node).residentialMarker()) === null,
+    { timeout: 120000, label: `node ${node} is back in service` });
+}
+
 /** Put the settling window in the past, so evacuation may begin this run. */
 async function elapseSettleWindow(nodeIndex) {
   await dbClient(nodeIndex).setResidentialSince(Date.now() - (48 * 60 * 60 * 1000));
@@ -521,9 +535,13 @@ describe('Residential node evacuation', function () {
     // bouncing FluxOS - on a cron, say - cannot keep a node permanently just
     // short of the window. An in-memory counter of agreeing ticks would reset
     // here, and this is the test that would have caught that.
-    await setSystemSecure(subnet.nodeIp(TARGET), true);
-    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) === null,
-      { timeout: 120000, label: 'node 1 is back in service' });
+    await returnToService(env, TARGET);
+
+    // It has to be HOLDING something. An empty target goes straight to DOS -
+    // there is no data at stake - and never starts a settling window at all.
+    await seedApp(env, 'clockapp', { instances: 5 });
+    await advanceBlocks(3);
+    await waitForAppInstalled(env.clients[TARGET - 1], 'clockapp', 300000);
 
     await setSystemSecure(subnet.nodeIp(TARGET), false);
     await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
@@ -547,9 +565,7 @@ describe('Residential node evacuation', function () {
     // With one target node it is untestable by construction - it needs two.
     // Node 3 is published residential like node 1, so withdrawing its
     // attestation puts it in the same position.
-    await setSystemSecure(subnet.nodeIp(TARGET), true);
-    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) === null,
-      { timeout: 120000, label: 'node 1 is back in service' });
+    await returnToService(env, TARGET);
 
     await seedApp(env, 'sharedapp', { instances: 5 });
     await advanceBlocks(3);
@@ -567,19 +583,22 @@ describe('Residential node evacuation', function () {
     }
 
     // Whichever goes first, the other must be refused while the app is short.
+    let refusal = null;
     const refusedForBeingShort = Promise.race([TARGET, SECOND_TARGET].map((node) => waitForGiveUpSafety(
       env.clients[node - 1], 'sharedapp',
       (d) => d.safe === false && /below its instance count/.test(d.detail), 600000,
-    )));
+    ))).then((v) => { refusal = v; return v; });
+    refusedForBeingShort.catch(() => {});
 
+    // Keep driving UNTIL the refusal arrives, not just until the first
+    // departure. The give-up pass only runs on a block, so stopping the chain
+    // the moment one node leaves means the other never gets a pass in which to
+    // refuse, and the wait times out on a suite that stopped the clock itself.
     await stopTicker();
-    await driveUntil(env, TARGET, async () => {
-      const locations = await dbClient(2).getAppLocations('sharedapp');
-      return locations.length < 5;
-    }, 60);
-    const verdict = await refusedForBeingShort;
+    await driveUntil(env, TARGET, async () => refusal !== null, 80);
     await startTicker();
 
+    const verdict = await refusedForBeingShort;
     expect(verdict.data.detail).to.contain('below its instance count');
   });
 
@@ -590,7 +609,11 @@ describe('Residential node evacuation', function () {
     // back from under it drops whatever it has written since the peer last
     // reported the folder complete, so it stands down and lets masterSlaveApps
     // elect a successor first.
-    await setSystemSecure(subnet.nodeIp(SECOND_TARGET), true);
+    await returnToService(env, SECOND_TARGET);
+    // Node 1 too - it is still held from the previous test, and a held node
+    // takes no new apps, so the app would reach four instances and never five.
+    await returnToService(env, TARGET);
+
     await seedApp(env, 'primaryapp', { instances: 5, containerData: 'g:/appdata' });
     await setSynced({ folder: 'fluxprimaryapp_primaryapp' });
     await setPeerHasData({ folder: 'fluxprimaryapp_primaryapp' });
@@ -606,12 +629,17 @@ describe('Residential node evacuation', function () {
       { timeout: 120000, label: 'the settling window starts' });
     await elapseSettleWindow(TARGET);
 
+    let primaryRefusal = null;
     const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'primaryapp',
-      (d) => d.safe === false && /elected primary/.test(d.detail), 600000);
+      (d) => d.safe === false && /elected primary/.test(d.detail), 600000)
+      .then((v) => { primaryRefusal = v; return v; });
+    refused.catch(() => {});
+
     await stopTicker();
-    await driveUntil(env, TARGET, async () => false, 30).catch(() => {});
-    const verdict = await refused;
+    await driveUntil(env, TARGET, async () => primaryRefusal !== null, 80);
     await startTicker();
+
+    const verdict = await refused;
 
     expect(verdict.data.detail).to.contain('elected primary');
   });
