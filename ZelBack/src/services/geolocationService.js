@@ -15,10 +15,15 @@ let staticIp = false;
 let dataCenter = false;
 let lastIpChangeDate = null;
 let execution = 1;
-// Null means no verdict has been reached yet, which readers must distinguish
-// from a verdict of UNKNOWN: "not computed" against "computed, and the evidence
-// does not decide".
-let networkClassification = null;
+// What this node observed about its own address - never the verdict drawn from
+// it. Gathering costs an ip-api call and a PTR lookup, so it happens on the slow
+// pass; the verdict also needs the published table, which is cheap to consult
+// and arrives later, so it is reached on demand.
+//
+// Null means nothing has been gathered yet, which readers must distinguish from
+// a verdict of UNKNOWN: "not observed" against "observed, and the evidence does
+// not decide".
+let networkEvidence = null;
 
 /**
  * Whether this address stays put. Three-state, because "we have not observed it
@@ -62,7 +67,7 @@ async function storeGeolocationToDb(geolocation, isStaticIp, isDataCenter, ipCha
         // that reset it would hold every node at UNKNOWN for another ten days.
         ipFirstSeenAt: observations.ipFirstSeenAt ?? null,
         staticIpState: observations.staticIpState ?? null,
-        networkClassification: observations.networkClassification ?? null,
+        networkEvidence: observations.networkEvidence ?? null,
         updatedAt: Date.now(),
       },
     };
@@ -97,7 +102,7 @@ async function getGeolocationFromDb() {
         // `?? null`: a document written before these fields existed carries no
         // observation, and saying so lets the next pass start the window.
         staticIpState: result.staticIpState ?? null,
-        networkClassification: result.networkClassification ?? null,
+        networkEvidence: result.networkEvidence ?? null,
       };
     }
     return {
@@ -107,7 +112,7 @@ async function getGeolocationFromDb() {
       lastIpChangeDate: null,
       ipFirstSeenAt: null,
       staticIpState: null,
-      networkClassification: null,
+      networkEvidence: null,
     };
   } catch (error) {
     log.error(`Failed to retrieve geolocation from database: ${error.message}`);
@@ -118,7 +123,7 @@ async function getGeolocationFromDb() {
       lastIpChangeDate: null,
       ipFirstSeenAt: null,
       staticIpState: null,
-      networkClassification: null,
+      networkEvidence: null,
     };
   }
 }
@@ -141,30 +146,51 @@ async function resolvePtr(ip) {
 }
 
 /**
- * The published verdict for an address, from the location table.
+ * What the published location table says about an address.
  *
- * This is the authority. The table is built in the policy repo from evidence a
+ * The table is the authority. It is built in the policy repo from evidence a
  * node cannot gather for itself - chiefly the registries' own record of what a
  * block was assigned for, which six thousand nodes cannot each go and fetch -
  * and it is reviewed there with its reasons rather than derived here.
+ *
+ * TWO OUTCOMES, AND THEY MUST NOT BE CONFUSED:
+ *
+ *   consulted: false  the table could not be asked - none has been ingested
+ *                     yet, or the store could not be read. Nothing is known,
+ *                     and a node must reach no verdict at all.
+ *   consulted: true   the table answered. `classification` is its verdict, or
+ *                     null where it holds none for this address: no covering
+ *                     row, or an organisation the policy repo deliberately
+ *                     left unclassified. THAT null is an answer, and it is what
+ *                     hands the decision to the node's own evidence.
+ *
+ * Collapsing the two is the very mistake this whole classifier exists to
+ * avoid, one level up: "I have not asked" is not "there is no verdict". A node
+ * boots, fetches a 4.6 MB artifact, and ingests two million rows, while a
+ * single ip-api call answers in milliseconds - so the table is reliably absent
+ * at the moment a booting node would otherwise decide, and treating that as an
+ * abstention lets the node act on its own guess against a verdict the table
+ * was about to give it.
  * @param {string} ip The node's public address.
- * @returns {Promise<string|null>} The verdict, or null when the table has none
- *   for this address: no table yet, no covering row, or an organisation the
- *   policy repo deliberately left unclassified.
+ * @returns {Promise<{consulted: boolean, classification: string|null}>}
  */
 async function publishedClassification(ip) {
+  // Lazily required, like the benchmark service below: the location store
+  // pulls in the database layer, and geolocation is read on paths that must
+  // not depend on it being up.
+  // eslint-disable-next-line global-require
+  const ipLocationStore = require('./appPlacement/ipLocationStore');
+  if (!ipLocationStore.status().ready) {
+    return { consulted: false, classification: null };
+  }
   try {
-    // Lazily required, like the benchmark service below: the location store
-    // pulls in the database layer, and geolocation is read on paths that must
-    // not depend on it being up.
-    // eslint-disable-next-line global-require
-    const ipLocationStore = require('./appPlacement/ipLocationStore');
     const hit = await ipLocationStore.lookup(ip);
-    return hit?.networkClass ?? null;
+    return { consulted: true, classification: hit?.networkClass ?? null };
   } catch (error) {
-    // The table being unreadable is not evidence about the address.
+    // A table that cannot be read is a table that was not asked. Same as above:
+    // not evidence about the address, and not an abstention either.
     log.info(`Location table could not answer for ${ip}: ${error.message}`);
-    return null;
+    return { consulted: false, classification: null };
   }
 }
 
@@ -304,14 +330,14 @@ async function setNodeGeolocation() {
     // Whether the address is held (above) and what network it sits on (here) are
     // separate questions, answered from separate evidence.
     //
-    // The published table decides where it can. Where it cannot - a range no
-    // baseline covers, or an operator the policy repo left unclassified - the
-    // node falls back to what it can observe about itself. The fallback is not a
-    // weaker standard, only a narrower one: it still needs positive evidence
-    // with nothing contradicting it, so an address the table declined to call
-    // because its operator is mixed is one this will decline too.
-    const [published, ptr, linkSpeeds] = await Promise.all([
-      publishedClassification(currentIp),
+    // This pass gathers the EVIDENCE and stops there. Reaching a verdict also
+    // needs the published table, and the table is not this pass's to wait for:
+    // it arrives in a 4.6 MB artifact the node is still ingesting while this
+    // runs, and a pass that recorded its own conclusion here would be recording
+    // "the table said nothing" and standing by it until the next pass, three
+    // days later. getNetworkClassification() reaches the verdict when asked,
+    // which is what every other consumer of that table already does.
+    const [ptr, linkSpeeds] = await Promise.all([
       resolvePtr(currentIp),
       benchLinkSpeeds(),
     ]);
@@ -326,44 +352,26 @@ async function setNodeGeolocation() {
       downloadSpeed: linkSpeeds.downloadSpeed,
     });
 
-    // The table decides, but a node that can see hosting evidence about its OWN
-    // address exempts itself. An organisation is published on a strong majority
-    // of its hosts rather than on all of them, so a minority of its addresses
-    // may be the other kind - and this is how one of them declines a verdict
-    // meant for its neighbours. The veto only ever removes a node from
-    // enforcement; local evidence can never impose one the table did not give.
-    const vetoed = published === networkClassifier.CLASSIFICATION.RESIDENTIAL
-      && classified.evidenceAgainst.length > 0;
-    if (vetoed) {
-      log.info(`Published verdict RESIDENTIAL declined for this address: ${classified.evidenceAgainst.join(', ')}`);
-    }
-
     // One whole object, assigned once every input has settled: a reader must
-    // never see a verdict computed from a half-finished pass.
-    networkClassification = Object.freeze({
-      classification: vetoed
-        ? networkClassifier.CLASSIFICATION.CONFLICTED
-        : (published ?? classified.classification),
-      // Which authority decided, so a verdict can be traced to the table that
-      // carried it, to the node that worked it out, or to the node declining one.
-      // eslint-disable-next-line no-nested-ternary
-      source: vetoed ? 'node-veto' : (published ? 'published-table' : 'node'),
+    // never combine evidence from a half-finished pass.
+    networkEvidence = Object.freeze({
+      ip: currentIp,
+      classification: classified.classification,
       evidenceFor: Object.freeze([...classified.evidenceFor]),
       evidenceAgainst: Object.freeze([...classified.evidenceAgainst]),
       ptr: ptr || null,
-      determinedAt: now,
+      gatheredAt: now,
     });
     dataCenter = classified.classification === networkClassifier.CLASSIFICATION.DATACENTER;
-    log.info(`Network classification: ${networkClassification.classification}`
-      + ` via ${networkClassification.source}`
-      + ` (node evidence for: ${classified.evidenceFor.join(', ') || 'none'};`
+    log.info(`Network evidence for ${currentIp}: the node's own reading is ${classified.classification}`
+      + ` (for: ${classified.evidenceFor.join(', ') || 'none'};`
       + ` against: ${classified.evidenceAgainst.join(', ') || 'none'})`);
 
     // Store geolocation to database for persistence across restarts
     await storeGeolocationToDb(storedGeolocation, staticIp, dataCenter, lastIpChangeDate, {
       ipFirstSeenAt,
       staticIpState,
-      networkClassification,
+      networkEvidence,
     });
     execution += 1;
     setTimeout(() => { // executes again in 3 days
@@ -396,7 +404,7 @@ async function getNodeGeolocation() {
       dataCenter,
       lastIpChangeDate,
       ipFirstSeenAt,
-      networkClassification,
+      networkEvidence,
     } = dbData);
     staticIpState = dbData.staticIpState ?? STATIC_IP_STATE.UNKNOWN;
     log.info('Geolocation restored from database');
@@ -435,16 +443,57 @@ function isDataCenter() {
 }
 
 /**
- * The node's access-network verdict and the evidence behind it.
- * @returns {{classification: string, source: string, evidenceFor: string[],
- *   evidenceAgainst: string[], ptr: string|null, determinedAt: number}|null} Null
- *   when no verdict has been reached, which is not the same as a verdict of
- *   UNKNOWN. `source` names the authority: 'published-table', 'node' when the
- *   table had nothing for this address, or 'node-veto' when the node declined a
- *   published RESIDENTIAL on evidence about its own address.
+ * The node's access-network verdict, reached now from the evidence it gathered
+ * and the table it currently holds.
+ *
+ * Reached here rather than stored because its two halves arrive at different
+ * times and on different clocks. The evidence is expensive and refreshed every
+ * three days; the published table is a local read that a booting node does not
+ * have yet and will have shortly. Deciding once, at the moment only one half
+ * exists, is how a node ends up acting for three days on a verdict the table
+ * would have overruled.
+ *
+ * NO TABLE MEANS NO VERDICT. Not a fallback to the node's own reading - the
+ * fallback belongs to a table that WAS consulted and holds nothing for this
+ * address. Until one has been ingested, this node knows nothing about which
+ * kind of network it is on, and null is the only honest answer. Nothing
+ * enforces on null.
+ * @returns {Promise<{classification: string, source: string,
+ *   evidenceFor: string[], evidenceAgainst: string[], ptr: string|null,
+ *   gatheredAt: number}|null>} Null when nothing has been gathered yet, or when
+ *   no location table has been consulted. `source` names the authority:
+ *   'published-table', 'node' where the table holds no verdict for this
+ *   address, or 'node-veto' where the node declined a published RESIDENTIAL on
+ *   evidence about its own address.
  */
-function getNetworkClassification() {
-  return networkClassification;
+async function getNetworkClassification() {
+  if (!networkEvidence) return null;
+
+  const published = await publishedClassification(networkEvidence.ip);
+  if (!published.consulted) return null;
+
+  // The table decides, but a node that can see hosting evidence about its OWN
+  // address exempts itself. An organisation is published on a strong majority
+  // of its hosts rather than on all of them, so a minority of its addresses may
+  // be the other kind - and this is how one of them declines a verdict meant
+  // for its neighbours. The veto only ever removes a node from enforcement;
+  // local evidence can never impose one the table did not give.
+  const vetoed = published.classification === networkClassifier.CLASSIFICATION.RESIDENTIAL
+    && networkEvidence.evidenceAgainst.length > 0;
+
+  return Object.freeze({
+    classification: vetoed
+      ? networkClassifier.CLASSIFICATION.CONFLICTED
+      : (published.classification ?? networkEvidence.classification),
+    // Which authority decided, so a verdict can be traced to the table that
+    // carried it, to the node that worked it out, or to the node declining one.
+    // eslint-disable-next-line no-nested-ternary
+    source: vetoed ? 'node-veto' : (published.classification ? 'published-table' : 'node'),
+    evidenceFor: networkEvidence.evidenceFor,
+    evidenceAgainst: networkEvidence.evidenceAgainst,
+    ptr: networkEvidence.ptr,
+    gatheredAt: networkEvidence.gatheredAt,
+  });
 }
 
 /**

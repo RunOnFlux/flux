@@ -426,7 +426,13 @@ describe('geolocationService tests', () => {
       fluxNetworkHelperStub.getLocalSocketAddress.resolves('185.199.108.1:16127');
       fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
       dbHelperStub.findOneInDatabase.resolves(null);
-      ipLocationStoreStub = { lookup: sinon.stub().resolves(null) };
+      // `status().ready` is what separates "the table holds no verdict for this
+      // address" from "no table has been ingested". Only the first is an
+      // abstention the node may decide for itself.
+      ipLocationStoreStub = {
+        lookup: sinon.stub().resolves(null),
+        status: sinon.stub().returns({ ready: true, generated: 'x', rowCount: 2000000 }),
+      };
       // On its own evidence this address is a data centre: a hosting operator
       // and nothing suggesting an access network.
       serviceHelperStub.axiosGet.resolves({
@@ -456,7 +462,7 @@ describe('geolocationService tests', () => {
 
       await geolocationService.setNodeGeolocation();
 
-      const verdict = geolocationService.getNetworkClassification();
+      const verdict = await geolocationService.getNetworkClassification();
       expect(verdict.classification).to.equal('RESIDENTIAL');
       expect(verdict.source).to.equal('published-table');
     });
@@ -471,7 +477,7 @@ describe('geolocationService tests', () => {
 
       await geolocationService.setNodeGeolocation();
 
-      const verdict = geolocationService.getNetworkClassification();
+      const verdict = await geolocationService.getNetworkClassification();
       expect(verdict.classification).to.equal('CONFLICTED');
       expect(verdict.source).to.equal('node-veto');
     });
@@ -489,7 +495,7 @@ describe('geolocationService tests', () => {
 
       await geolocationService.setNodeGeolocation();
 
-      expect(geolocationService.getNetworkClassification().classification).to.equal('DATACENTER');
+      expect((await geolocationService.getNetworkClassification()).classification).to.equal('DATACENTER');
     });
 
     it('falls back to the node when the organisation carries no verdict', async () => {
@@ -498,7 +504,7 @@ describe('geolocationService tests', () => {
 
       await geolocationService.setNodeGeolocation();
 
-      const verdict = geolocationService.getNetworkClassification();
+      const verdict = await geolocationService.getNetworkClassification();
       expect(verdict.classification).to.equal('DATACENTER');
       expect(verdict.source).to.equal('node');
     });
@@ -509,19 +515,54 @@ describe('geolocationService tests', () => {
 
       await geolocationService.setNodeGeolocation();
 
-      expect(geolocationService.getNetworkClassification().source).to.equal('node');
+      expect((await geolocationService.getNetworkClassification()).source).to.equal('node');
     });
 
-    it('falls back to the node when the table cannot be read at all', async () => {
-      // A table that is unavailable is not evidence about the address, and must
-      // not stop a verdict being reached from what the node can see.
+    it('reaches NO verdict when the table cannot be read at all', async () => {
+      // A table that could not be read was not consulted, and a node that has
+      // not consulted it does not know what kind of network it is on. Falling
+      // back here would be treating "I could not ask" as "there is no answer" -
+      // the same mistake, one level up, that the classifier exists to avoid.
       ipLocationStoreStub.lookup.rejects(new Error('no database connection'));
       geolocationService = reload();
 
       await geolocationService.setNodeGeolocation();
 
-      expect(geolocationService.getNetworkClassification().source).to.equal('node');
-      expect(geolocationService.getNetworkClassification().classification).to.equal('DATACENTER');
+      expect(await geolocationService.getNetworkClassification()).to.equal(null);
+    });
+
+    it('reaches NO verdict until a baseline has been ingested', async () => {
+      // The state every node boots into: the artifact is 4.6 MB and two million
+      // rows, an ip-api call answers in milliseconds, so the table is reliably
+      // absent at the moment a booting node would otherwise decide. Nothing
+      // enforces on null, which is the point.
+      ipLocationStoreStub.status.returns({ ready: false, generated: null, rowCount: 0 });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(await geolocationService.getNetworkClassification()).to.equal(null);
+      sinon.assert.notCalled(ipLocationStoreStub.lookup);
+    });
+
+    it('reaches the verdict again once the baseline lands, without re-gathering', async () => {
+      // The evidence is gathered once and is expensive; the table arrives later
+      // and is cheap to consult. Asking again is what picks the table up - there
+      // is no second ip-api call and no stored verdict to go stale.
+      ipLocationStoreStub.status.returns({ ready: false, generated: null, rowCount: 0 });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+      expect(await geolocationService.getNetworkClassification()).to.equal(null);
+      const gatherCalls = serviceHelperStub.axiosGet.callCount;
+
+      ipLocationStoreStub.status.returns({ ready: true, generated: 'x', rowCount: 2000000 });
+      ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: 'DATACENTER' });
+
+      const verdict = await geolocationService.getNetworkClassification();
+      expect(verdict.classification).to.equal('DATACENTER');
+      expect(verdict.source).to.equal('published-table');
+      expect(serviceHelperStub.axiosGet.callCount).to.equal(gatherCalls);
     });
 
     it('still records the node\'s own evidence when the table decided', async () => {
@@ -532,11 +573,14 @@ describe('geolocationService tests', () => {
 
       await geolocationService.setNodeGeolocation();
 
-      const verdict = geolocationService.getNetworkClassification();
+      const verdict = await geolocationService.getNetworkClassification();
       expect(verdict.evidenceAgainst.join(' ')).to.contain('Hetzner');
     });
 
-    it('drives isDataCenter from the published verdict', async () => {
+    it('drives isDataCenter from the node\'s own reading, not the table', async () => {
+      // isDataCenter() is synchronous and predates all of this; it stays what
+      // this node observed about itself. The published verdict is reached
+      // through getNetworkClassification, which is the one enforcement reads.
       ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: 'DATACENTER' });
       geolocationService = reload();
 
@@ -547,6 +591,11 @@ describe('geolocationService tests', () => {
   });
 
   describe('network classification', () => {
+    // A table that HAS been ingested and simply holds no verdict for this
+    // address - the abstention that legitimately hands the decision back to the
+    // node, and the state these tests are about.
+    let silentTableStub;
+
     function reload() {
       return proxyquire('../../ZelBack/src/services/geolocationService', {
         config: configStub,
@@ -554,6 +603,7 @@ describe('geolocationService tests', () => {
         './dbHelper': dbHelperStub,
         './serviceHelper': serviceHelperStub,
         './fluxNetworkHelper': fluxNetworkHelperStub,
+        './appPlacement/ipLocationStore': silentTableStub,
       });
     }
 
@@ -561,12 +611,16 @@ describe('geolocationService tests', () => {
       fluxNetworkHelperStub.getLocalSocketAddress.resolves('185.199.108.1:16127');
       fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
       dbHelperStub.findOneInDatabase.resolves(null);
+      silentTableStub = {
+        lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass: null }),
+        status: sinon.stub().returns({ ready: true, generated: 'x', rowCount: 2000000 }),
+      };
     });
 
-    it('has no verdict before a lookup has run', () => {
+    it('has nothing to say before anything has been gathered', async () => {
       geolocationService = reload();
 
-      expect(geolocationService.getNetworkClassification()).to.equal(null);
+      expect(await geolocationService.getNetworkClassification()).to.equal(null);
     });
 
     it('asks ip-api for the operator AS, not just the registrant org', async () => {
@@ -599,10 +653,10 @@ describe('geolocationService tests', () => {
 
       await geolocationService.setNodeGeolocation();
 
-      const verdict = geolocationService.getNetworkClassification();
+      const verdict = await geolocationService.getNetworkClassification();
       expect(verdict.classification).to.equal('DATACENTER');
       expect(verdict.evidenceAgainst.join(' ')).to.contain('Contabo');
-      expect(verdict.determinedAt).to.be.a('number');
+      expect(verdict.gatheredAt).to.be.a('number');
     });
 
     it('drives isDataCenter from the verdict', async () => {
@@ -635,7 +689,7 @@ describe('geolocationService tests', () => {
 
       await geolocationService.setNodeGeolocation();
 
-      expect(geolocationService.getNetworkClassification().classification).to.equal('UNKNOWN');
+      expect((await geolocationService.getNetworkClassification()).classification).to.equal('UNKNOWN');
       expect(geolocationService.isDataCenter()).to.equal(false);
     });
   });

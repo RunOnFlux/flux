@@ -111,20 +111,23 @@ async function isArcaneOs() {
 }
 
 /**
- * Three-state residential check, read as one settled verdict.
+ * Three-state residential check.
  *   true  - RESIDENTIAL: positive evidence with no contradiction
  *   false - DATACENTER
- *   null  - no verdict yet, or CONFLICTED/UNKNOWN: decide nothing
+ *   null  - decide nothing. Either CONFLICTED/UNKNOWN, or there is no verdict
+ *           to be had: nothing observed yet, or no published location table has
+ *           been consulted. A node that has not read the table does not know
+ *           what kind of network it is on, and enforcing on its own reading
+ *           alone is what this whole staging exists to avoid.
  *
- * Awaiting getNodeGeolocation() first is what restores a verdict from the db
- * after a restart. The verdict and its evidence are published together, so this
- * can never read a classification computed from a half-finished pass.
+ * Awaiting getNodeGeolocation() first is what restores the observations from the
+ * db after a restart.
  * @returns {Promise<boolean|null>}
  */
 async function isResidential() {
   try {
     await geolocationService.getNodeGeolocation();
-    const verdict = geolocationService.getNetworkClassification();
+    const verdict = await geolocationService.getNetworkClassification();
     if (!verdict) return null;
     if (verdict.classification === CLASSIFICATION.RESIDENTIAL) return true;
     if (verdict.classification === CLASSIFICATION.DATACENTER) return false;
@@ -350,7 +353,7 @@ async function enforceResidentialPolicy(deps) {
     return false;
   }
   if (residential === null) {
-    log.info('residentialNodeDos - no settled network classification yet, skipping this tick');
+    log.info('residentialNodeDos - no network verdict to act on yet, skipping this tick');
     return false;
   }
 
