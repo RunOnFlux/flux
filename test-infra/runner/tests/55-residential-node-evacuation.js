@@ -405,6 +405,13 @@ describe('Residential node evacuation', function () {
     await advanceBlocks(3);
     await waitForAppInstalled(env.clients[TARGET - 1], 'worldapp', 300000);
 
+    // Let it reach full strength before enforcing. The pass refuses to act on an
+    // app that is already short - that is the serialisation gate, and it fires
+    // BEFORE the data check, so a test that starts too early proves nothing
+    // about the data check at all.
+    await waitFor(async () => (await dbClient(2).getAppLocations('worldapp')).length >= 5,
+      { timeout: 300000, label: 'worldapp reaches its instance count across the fleet' });
+
     // Declared before enforcement starts, so the node never sees a moment where
     // the data looks safe.
     await setNoPeerData({ folder: 'fluxworldapp_worldapp' });
