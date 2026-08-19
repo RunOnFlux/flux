@@ -14,7 +14,7 @@ import {
   waitForPeerThreshold, waitForAppInstalled,
   waitForSpawnerBlocked, waitFor, waitForGiveUpConsidered, waitForGiveUpSafety,
 } from '../framework/wait.js';
-import { setNoPeerData, setPeerHasData } from '../framework/syncthing-control.js';
+import { setNoPeerData, setPeerHasData, setSynced } from '../framework/syncthing-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const subnet = getSubnetConfig();
@@ -87,6 +87,33 @@ async function seedApp(env, appName, { instances = 3, containerData = '/tmp' } =
     await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
   }
   return app;
+}
+
+/**
+ * Advance the chain one block at a time, waiting for the node to PROCESS each
+ * one before producing the next, until the condition holds.
+ *
+ * The free-running ticker produces blocks on the same period the explorer polls
+ * on, so the node learns about them in bursts and processes a burst back to
+ * back - and only the last block of a burst is still the chain tip. FluxOS runs
+ * its app maintenance, the give-up pass included, only for a block that was the
+ * tip, and only on every fourth block, so whether the pass ever runs comes down
+ * to which parity the race settles on. Driving the chain removes that instead of
+ * hoping the phases stay favourable.
+ */
+async function driveUntil(env, nodeIndex, condition, maxBlocks = 40) {
+  const node = env.clients[nodeIndex - 1];
+  for (let i = 0; i < maxBlocks; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await condition()) return;
+    const afterId = node.getLastEventId();
+    // eslint-disable-next-line no-await-in-loop
+    await advanceBlock();
+    // eslint-disable-next-line no-await-in-loop
+    await node.waitForEvent('block:processed', () => true, 60000, { afterId });
+  }
+  // eslint-disable-next-line no-await-in-loop
+  if (!await condition()) throw new Error(`condition not reached within ${maxBlocks} driven blocks`);
 }
 
 /**
@@ -319,19 +346,22 @@ describe('Residential node evacuation', function () {
     expect(marker, 'the settling window should be running').to.not.be.null;
 
     await elapseSettleWindow(TARGET);
-    await advanceBlocks(5);
 
-    // Assert the pass reached this app before waiting on the outcome, so a
-    // failure here distinguishes "the pass declined" from "the pass never ran".
-    // Nothing else does: a pass with nothing to give up logs and emits nothing.
-    await waitForGiveUpConsidered(env.clients[TARGET - 1], 'residentapp',
-      (d) => d.giveUp === true && d.reason === 'EVACUATION', 300000);
+    // Drive the chain from here rather than letting the ticker free-run, so the
+    // give-up pass is reached on a block the node processed AS the tip. See
+    // driveUntil.
+    await stopTicker();
+    await driveUntil(env, TARGET, async () => {
+      const current = await env.clients[TARGET - 1].get('/apps/installedapps');
+      return !current.data.map((a) => a.name).includes('residentapp');
+    });
 
-    // Waited on the node's own view rather than on app:removed. That event is
-    // published part-way through the uninstall - after the runtime state is
-    // dropped, before the installed-apps record is - so a test that asserts on
-    // the record the instant the event lands still sees the app.
-    await whenGone(env, TARGET, 'residentapp', 300000);
+    // The node's own view, not app:removed - that event is published part-way
+    // through the uninstall, after the runtime state is dropped and before the
+    // installed-apps record is, so asserting on the record when it lands still
+    // finds the app.
+    await whenGone(env, TARGET, 'residentapp', 120000);
+    await startTicker();
   });
 
   it('the app survives the departure on every other host', async function () {
@@ -402,6 +432,14 @@ describe('Residential node evacuation', function () {
     // Palworld and Minecraft worlds on the real fleet, which sit at exactly two
     // instances. Nothing reports holding a copy of it.
     await seedApp(env, 'worldapp', { instances: 5, containerData: 's:/appdata' });
+
+    // A synced folder has to be DECLARED before the app can run. The stub's
+    // default for a folder nobody has spoken about is "no evidence", and a
+    // sync-mounted component does not start against that - so without this the
+    // app installs nowhere and never reaches an instance count at all.
+    await setSynced({ folder: 'fluxworldapp_worldapp' });
+    await setPeerHasData({ folder: 'fluxworldapp_worldapp' });
+
     await advanceBlocks(3);
     await waitForAppInstalled(env.clients[TARGET - 1], 'worldapp', 300000);
 
@@ -412,8 +450,8 @@ describe('Residential node evacuation', function () {
     await waitFor(async () => (await dbClient(2).getAppLocations('worldapp')).length >= 5,
       { timeout: 300000, label: 'worldapp reaches its instance count across the fleet' });
 
-    // Declared before enforcement starts, so the node never sees a moment where
-    // the data looks safe.
+    // Now take the evidence away: the data was there, and no peer can be shown
+    // to hold it any more. This is the state the gate exists for.
     await setNoPeerData({ folder: 'fluxworldapp_worldapp' });
 
     await setSystemSecure(subnet.nodeIp(TARGET), false);
@@ -421,16 +459,23 @@ describe('Residential node evacuation', function () {
       { timeout: 120000, label: 'the settling window starts again' });
     await elapseSettleWindow(TARGET);
 
+    // Drive the chain so the pass is reached deterministically.
+    await stopTicker();
+    const considered = waitForGiveUpConsidered(env.clients[TARGET - 1], 'worldapp',
+      (d) => d.giveUp === true && d.reason === 'EVACUATION', 300000);
+    const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'worldapp',
+      (d) => d.safe === false, 300000);
+    await driveUntil(env, TARGET, async () => false, 12).catch(() => {});
+    await startTicker();
+
     // The pass reports on every app it holds, every pass, so this proves the
     // pass RAN and wanted this app - not merely that nothing happened.
-    await waitForGiveUpConsidered(env.clients[TARGET - 1], 'worldapp',
-      (d) => d.giveUp === true && d.reason === 'EVACUATION', 300000);
+    await considered;
 
     // And the gate is what stopped it. Before this, every removal path decided
     // on an instance count alone, and a count cannot tell a redundant copy from
     // the last one holding the data.
-    const verdict = await waitForGiveUpSafety(env.clients[TARGET - 1], 'worldapp',
-      (d) => d.safe === false, 300000);
+    const verdict = await refused;
     expect(verdict.data.detail).to.contain('fluxworldapp_worldapp');
 
     const installed = await env.clients[TARGET - 1].get('/apps/installedapps');
@@ -446,7 +491,14 @@ describe('Residential node evacuation', function () {
     // node simply being slow.
     await setPeerHasData({ folder: 'fluxworldapp_worldapp' });
 
-    await whenGone(env, TARGET, 'worldapp', 300000);
+    await stopTicker();
+    await driveUntil(env, TARGET, async () => {
+      const current = await env.clients[TARGET - 1].get('/apps/installedapps');
+      return !current.data.map((a) => a.name).includes('worldapp');
+    });
+    await startTicker();
+
+    await whenGone(env, TARGET, 'worldapp', 120000);
 
     const locations = await dbClient(2).getAppLocations('worldapp');
     expect(locations.map((l) => l.ip.split(':')[0])).to.not.include(subnet.nodeIp(TARGET));
