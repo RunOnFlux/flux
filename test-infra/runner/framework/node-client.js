@@ -249,6 +249,8 @@ export function nodeClient(nodeNum) {
         'reconciler:desiredChanged',
         'app:operatorIntent',
         'reconciler:swept',
+        'giveUp:considered',
+        'giveUp:safety',
       ]) {
         eventSource.addEventListener(name, (e) => {
           const entry = {
