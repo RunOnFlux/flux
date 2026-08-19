@@ -918,6 +918,31 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
+    it('will not start against a peer whose held-components answer is an in-band error', async () => {
+      // FluxOS reports failures inside a 200, so a peer that HAS the endpoint and
+      // could not serve it looks, by shape alone, like a peer too old to have it -
+      // and the old-peer path falls back to the container list.
+      // That fallback cannot see the durable stop lock at all. So a peer whose lock
+      // store is unreadable would report an owner-stopped primary as free, and this
+      // node would elect itself onto the volume that owner is working on. The
+      // container list here says free, and the pass must still refuse.
+      const appName = 'peerunreadableapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake((url) => (url.includes('/apps/heldcomponents')
+        ? Promise.resolve({ data: { status: 'error', data: { name: 'Error', message: 'no primary available' } } })
+        : Promise.resolve({ data: { data: [] } })));
+
+      await runPass();
+
+      expect(linesMatching(logInfo, 'could not answer what it holds')).to.have.lengthOf(1);
+      expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
+    });
+
     it('claims the component before the ownership fix, and releases it once the attempt ends', async () => {
       // The claim has to be taken BEFORE the slow pre-start work, or it does not
       // cover the window it exists for. Releasing it at the end is safe: a start

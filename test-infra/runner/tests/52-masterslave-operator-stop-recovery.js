@@ -5,8 +5,9 @@ import { pushImage } from '../framework/registry-helper.js';
 import { authenticate } from '../auth.js';
 import { appOwnerKey } from '../framework/keys.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
-import { getAppContainerStatus } from '../framework/container.js';
-import { resetFdm } from '../framework/fdm-control.js';
+import { getAppContainerStatus, restartFluxos } from '../framework/container.js';
+import { resetFdm, clearMaster, electMaster } from '../framework/fdm-control.js';
+import { countPattern } from '../framework/log-reader.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
 import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
@@ -39,6 +40,17 @@ const subnet = getSubnetConfig();
 // The invariant asserted here is the one that matters to the customer: after the
 // instances are started again the app returns, and exactly one of them runs -
 // never both, because both writing the same syncthing-shared volume corrupts it.
+//
+// The third case is the other half of the same lock, and it arrived with the
+// retirement of apppause. An owner editing their master used to pause it: a paused
+// container stays in `docker ps`, so FDM's health check passed, the election saw a
+// running primary, and the role never moved. With pause gone the only lever left is
+// `appstop`, and what stopped a peer electing over the gap was controllerDesired -
+// in-memory, written only at the moment a node WINS an election and never
+// re-asserted while it goes on being the primary. So a FluxOS restart emptied it,
+// and whether the owner kept their master turned on whether their node's FluxOS had
+// happened to restart since it was elected. That is what this asserts is no longer
+// true: the durable lock answers the peer probe now, so the hold survives.
 
 async function isUp(client, appName) {
   const status = await getAppContainerStatus(client.container, appName);
@@ -149,5 +161,65 @@ describe('masterSlave recovery after an operator stop', function () {
     // and it must be one, not both - two writers on the shared volume is the
     // failure this whole path exists to prevent
     expect(await runningCount(), 'both holders running - split brain after recovery').to.equal(1);
+  });
+
+  it('keeps the primary with its owner across a FluxOS restart, instead of letting a peer elect over it', async function () {
+    this.timeout(300000);
+
+    const flags = await runningFlags();
+    const primary = holders[flags.indexOf(true)];
+    const standby = holders.find((i) => i !== primary);
+    const primaryClient = env.clients[primary];
+    const standbyClient = env.clients[standby];
+
+    // Name the primary on FDM and let the standby see it. This is not scene
+    // dressing: observing a primary is what clears any staggered start the standby
+    // is still carrying from the recovery above and records who the primary was, so
+    // that when FDM drops it the standby reaches the previous-primary branch - the
+    // one that probes - rather than a scheduled start that never asks anyone.
+    await electMaster(appName, subnet.nodeIp(primary + 1));
+    await new Promise((resolve) => { setTimeout(resolve, 15000); }); // ~5 election passes at the harness cadence
+
+    // Lines already in the standby's log. The assertion below is that a NEW one
+    // appears, not that one ever has.
+    const heldLinesBefore = await countPattern(standbyClient.container, 'is held on peer node');
+
+    // The owner stops their master to work on its files. This is the whole of what
+    // pause used to be for, and the only lever left now pause is retired.
+    const auth = await authenticate(primaryClient.url, appOwnerKey());
+    const stopRes = await primaryClient.getAuthed(`/apps/appstop/${appName}`, auth.zelidauth);
+    expect(stopRes.status).to.equal('success');
+    await waitFor(async () => !(await isUp(primaryClient, appName)), {
+      timeout: 60000, interval: 2000, label: 'the owner-stopped master goes down',
+    });
+
+    // The process only - dockerd and every other container survive. This is what
+    // empties controllerDesired, and it is routine in production: an update, a
+    // reboot, a crash.
+    await restartFluxos(primaryClient.container);
+
+    // FDM now has no primary to name, so the standby's election opens on its next
+    // pass rather than after the health-check grace. The takeover is brought
+    // forward so the suite asserts a decision and not a delay.
+    await clearMaster(appName);
+
+    // The durable lock is the only thing left that can answer, and it survived the
+    // restart. Polled rather than read once: the node has to reconnect to its own
+    // database first, and until it can it refuses to answer at all - which is also
+    // the safe answer, because a peer reads a refusal as "cannot be ruled out".
+    await waitFor(async () => {
+      const res = await primaryClient.get('/apps/heldcomponents').catch(() => null);
+      return Array.isArray(res?.data) && res.data.includes(`flux${identifier}`);
+    }, { timeout: 120000, interval: 2000, label: 'the restarted node still reports the stopped component as held' });
+
+    // And the standby acts on it. Asserted on the standby's own recorded decision
+    // rather than on time passing: a standby that is merely waiting out a stagger
+    // is indistinguishable from one correctly holding off, if all you check is that
+    // nothing started.
+    await waitFor(async () => (await countPattern(standbyClient.container, 'is held on peer node')) > heldLinesBefore, {
+      timeout: 120000, interval: 3000, label: 'the standby probes, is told the component is held, and refuses',
+    });
+
+    expect(await runningCount(), 'a peer elected itself over a master its owner had stopped').to.equal(0);
   });
 });

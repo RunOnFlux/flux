@@ -71,6 +71,10 @@ describe('appQueryService tests', () => {
         const name = (container.Names && container.Names[0]) || '';
         return name.slice(1, 4) === 'zel' || name.slice(1, 5) === 'flux';
       },
+      // Namespacing, for the same reason: heldComponents is compared against a
+      // docker name by the peer that reads it, so an identity stub would hide a
+      // missing prefix and pass on an answer no caller could match.
+      getAppIdentifier: (appName) => (appName.startsWith('zel') || appName.startsWith('flux') ? appName : `flux${appName}`),
     };
 
     registryManagerStub = {
@@ -459,6 +463,80 @@ describe('appQueryService tests', () => {
       await appQueryService.listRunningApps(undefined, res);
 
       expect(res.json.calledOnceWith({ status: 'success', data: expectedApps })).to.be.true;
+    });
+  });
+
+  describe('heldComponents', () => {
+    // What a peer mid-election is told this node owns. Answering short here is not
+    // a stale reading - it is a second container started on a volume this node is
+    // already writing, which corrupts it.
+    // eslint-disable-next-line global-require
+    const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
+    // eslint-disable-next-line global-require
+    const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+
+    // The three sources, each independently switchable, because the point of every
+    // case below is which one carried the answer.
+    const held = async ({ running = [], committed = [], stopped = [] } = {}) => {
+      dockerServiceStub.dockerListContainers.resolves(running.map((name) => ({ Names: [`/${name}`] })));
+      sinon.stub(appReconciler, 'committedIdentifiers').returns(committed);
+      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').resolves(stopped);
+      messageHelperStub.createDataMessage.returnsArg(0);
+      return appQueryService.heldComponents();
+    };
+
+    it('reports a component the operator stopped, with no container and nothing committed', async () => {
+      // The regression. `appstop` is durable and node-local: the election skips
+      // this node and the reconciler leaves the container down. Before this, none
+      // of that reached a peer - it saw no container, no commitment, and elected a
+      // new primary over an owner who had stopped theirs to work on it.
+      const result = await held({ stopped: ['www_App'] });
+
+      expect(result).to.deep.equal(['fluxwww_App']);
+    });
+
+    it('namespaces a stopped identifier the way the caller asks about it', async () => {
+      // The lock store is keyed on the bare identifier and the election compares
+      // against the docker name, so an unprefixed entry would never match and the
+      // hold would silently do nothing.
+      const result = await held({ stopped: ['www_App', 'zelKadena'] });
+
+      expect(result).to.deep.equal(['fluxwww_App', 'zelKadena']);
+    });
+
+    it('unions the three sources and reports each component once', async () => {
+      const result = await held({
+        running: ['fluxwww_App'],
+        committed: ['www_App'],
+        stopped: ['www_App'],
+      });
+
+      expect(result).to.deep.equal(['fluxwww_App']);
+    });
+
+    it('still reports a running container that carries no lock and no commitment', async () => {
+      const result = await held({ running: ['fluxapi_App'] });
+
+      expect(result).to.deep.equal(['fluxapi_App']);
+    });
+
+    it('holds nothing when the node holds nothing', async () => {
+      expect(await held()).to.deep.equal([]);
+    });
+
+    it('fails the request when the lock store cannot be read, rather than answering short', async () => {
+      // A peer reads a short answer as "free". Both failure directions have to land
+      // in the error path so the caller sees a node that could not answer, not a
+      // node that answered nothing.
+      dockerServiceStub.dockerListContainers.resolves([{ Names: ['/fluxwww_App'] }]);
+      sinon.stub(appReconciler, 'committedIdentifiers').returns([]);
+      sinon.stub(appsRuntimeState, 'operatorStoppedIdentifiers').rejects(new Error('no primary available'));
+      messageHelperStub.createErrorMessage.returns({ status: 'error' });
+
+      const result = await appQueryService.heldComponents();
+
+      expect(result).to.deep.equal({ status: 'error' });
+      expect(messageHelperStub.createDataMessage.called, 'answered with a list built from a failed read').to.be.false;
     });
   });
 

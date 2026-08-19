@@ -14,6 +14,8 @@ describe('appsRuntimeState tests', () => {
     const dbHelperStub = {
       databaseConnection: () => ({ db: () => ({}) }),
       findOneInDatabase: async (_db, _coll, query) => store.get(query.identifier) || null,
+      findInDatabase: async (_db, _coll, query = {}) => [...store.values()]
+        .filter((doc) => Object.entries(query).every(([field, value]) => doc[field] === value)),
       updateOneInDatabase: async (_db, _coll, query, update) => {
         const existing = store.get(query.identifier) || {};
         store.set(query.identifier, { ...existing, ...update.$set });
@@ -48,6 +50,53 @@ describe('appsRuntimeState tests', () => {
       await appsRuntimeState.setOperatorStopped('www_App', false);
       expect(await appsRuntimeState.isOperatorStopped('www_App')).to.be.false;
       expect(store.get('www_App').restartHistory).to.deep.equal([]);
+    });
+ 
+    // The set, not one component at a time. This is what a peer is told this node
+    // owns, so it is read on an unauthenticated route at election cadence.
+    describe('operatorStoppedIdentifiers', () => {
+      it('lists only the components carrying the lock', async () => {
+        await appsRuntimeState.setOperatorStopped('www_App', true);
+        await appsRuntimeState.setOperatorStopped('db_App', true);
+        await appsRuntimeState.recordRestart('api_App'); // a row, but no lock
+
+        const stopped = await appsRuntimeState.operatorStoppedIdentifiers();
+
+        expect(stopped.sort()).to.deep.equal(['db_App', 'www_App']);
+      });
+
+      it('is empty when nothing is stopped, and distinguishes that from unreadable', async () => {
+        expect(await appsRuntimeState.operatorStoppedIdentifiers()).to.deep.equal([]);
+      });
+
+      it('drops a component whose lock was lifted', async () => {
+        await appsRuntimeState.setOperatorStopped('www_App', true);
+        await appsRuntimeState.setOperatorStopped('www_App', false);
+
+        expect(await appsRuntimeState.operatorStoppedIdentifiers()).to.deep.equal([]);
+      });
+
+      it('THROWS when the store cannot be read, rather than reporting nothing stopped', async () => {
+        // getState swallows and answers "no lock" because its callers act on this
+        // node and get another pass. This answer leaves the node: an empty list
+        // tells a peer the component is free, and the peer starts a second writer
+        // on the shared volume. A read it could not perform must not look like a
+        // read that found nothing.
+        const failing = proxyquire('../../ZelBack/src/services/appManagement/appsRuntimeState', {
+          '../../lib/log': logStub,
+          '../dbHelper': {
+            databaseConnection: () => ({ db: () => ({}) }),
+            findInDatabase: async () => { throw new Error('no primary available'); },
+          },
+          '../dockerService': { getBaseAppName: (id) => id },
+        });
+
+        let threw = null;
+        await failing.operatorStoppedIdentifiers().catch((err) => { threw = err; });
+
+        expect(threw, 'an unreadable lock store answered as an empty one').to.be.an('error');
+        expect(threw.message).to.include('no primary available');
+      });
     });
   });
 

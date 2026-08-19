@@ -3863,6 +3863,21 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       return PeerComponent.NOT_RUNNING;
                     }
 
+                    // The peer HAS the endpoint and it failed. FluxOS answers
+                    // errors in band, so this arrives as a 200 carrying an error
+                    // object rather than a list - indistinguishable from a peer
+                    // too old for the route by shape alone, which is why it is
+                    // separated here.
+                    // Falling through would answer from the container list a
+                    // question the peer has just said it cannot answer, and that
+                    // list cannot see the durable stop lock at all: a primary its
+                    // owner stopped to work on reads as free, and this node
+                    // elects itself over them. Alive and unreadable is UNKNOWN.
+                    if (heldResponse?.data?.status === 'error') {
+                      log.info(`masterSlaveApps: peer node (${label}) at ${ipToCheck} could not answer what it holds for app:${installedApp.name} - alive, and cannot be ruled out, will not start`);
+                      return PeerComponent.UNKNOWN;
+                    }
+
                     const response = await axios.get(`http://${ipToCheck}:${portToCheck}/apps/listrunningapps`, { timeout: PEER_PROBE_TIMEOUT_MS, cancelToken: source.token });
                     const appsRunning = response.data?.data;
                     // A reply this node cannot read is not a clearance. The peer
