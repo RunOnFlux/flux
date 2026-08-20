@@ -9,6 +9,30 @@ same behaviour ten times sooner. Two knobs the code relates by an inequality mus
 carry the SAME factor, or the property between them is deleted or inverted - see
 `fluxModels/workstreams/test-harness/HARNESS_CONFIG_COMPRESSION.md`.
 
+## Pairs checked at fleet boot
+
+The rule above was written here and broken anyway, because the two halves of a
+pair need not live in the same layer: `explorerPollIntervalMs` is in `shared.js`
+and `residentialQueueStepMs` was a literal in one suite's overrides. Nothing
+related them, so moving the poll 250ms -> 833ms moved the pass 4s -> 16s and
+left the step at 15s - below the pass, where the property inverts. Two holders
+of one app matured on the same pass and both handed it back.
+
+`test-infra/runner/framework/coupled-knobs.js` now derives these and
+`test-env.js` asserts them on the EFFECTIVE config of every node of every fleet
+before boot. Over production's ratio passes - an uncompressed knob is slow, not
+wrong. Under throws.
+
+| property | harness pair | production ratio | how the harness gets it |
+|---|---|---:|---|
+| two holders of one app cannot mature on the same give-up pass | `residentialQueueStepMs` : `removeFluxAppsPeriod` x 4 x `explorerPollIntervalMs` | 1.82 | `derivedQueueStepMs(fluxapps)` - never a literal |
+
+A block costs more than its poll; `BLOCK_COST_OVERHEAD` carries the difference
+and is calibrated against a measurement, not chosen (model 15994ms against 15900ms
+observed over nine consecutive passes on cindy, 2026-08-20). Modelling a block as
+exactly one poll derives a step that is too SHORT, which is the direction that
+loses the property, so the factor is pinned by a unit test.
+
 ## Layer 2 - `shared.js`, applied to every suite
 
 | key | production | harness | factor |
