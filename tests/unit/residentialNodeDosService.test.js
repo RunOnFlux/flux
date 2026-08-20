@@ -1,6 +1,9 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+const { EventEmitter } = require('node:events');
 const proxyquire = require('proxyquire').noCallThru();
+
+const { EVENTS: SYNC_EVENTS } = require('../../ZelBack/src/services/utils/appSyncEvents');
 
 const { CLASSIFICATION } = require('../../ZelBack/src/services/utils/networkClassifier');
 
@@ -41,6 +44,17 @@ describe('residentialNodeDosService tests', () => {
       './geolocationService': geolocationServiceStub,
       './benchmarkService': benchmarkServiceStub,
       './utils/globalState': globalStateStub,
+      // A private emitter per load. The service registers its readiness
+      // listeners at module top level - deliberately, so the listener exists
+      // before SPAWNER_READY can fire, which appSpawner's registration inside
+      // initialize() cannot guarantee - and never removes them. That is right
+      // for a module required once, and wrong for a test that reloads it forty
+      // times onto the SHARED emitter: eighty listeners, a
+      // MaxListenersExceededWarning, and every one of them still live. It is
+      // not inert either, because appSpawner.test.js emits SPAWNER_READY on
+      // that same emitter and mocha runs both files in one process, so those
+      // dead instances take readiness from another file's test.
+      './utils/appSyncEvents': { appSyncEvents: new EventEmitter(), EVENTS: SYNC_EVENTS },
     });
   }
 

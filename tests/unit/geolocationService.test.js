@@ -9,6 +9,13 @@ describe('geolocationService tests', () => {
   let fluxNetworkHelperStub;
   let logStub;
   let configStub;
+  // node:dns was NOT stubbed, so every setNodeGeolocation() test made a real
+  // dns.reverse('185.199.108.1') - about thirty a run - and the answer fed the
+  // classifier whose verdict the test then asserted. Both fixture addresses
+  // return ENOTFOUND today, which is why it looked fine; a resolver answering
+  // with a wildcard carrying `client`, `server`, `cloud` or `pool` inverts the
+  // tests asserting UNKNOWN and DATACENTER. Tests that want a PTR set it here.
+  let dnsStub;
 
   const mockGeolocationData = {
     ip: '185.199.108.1',
@@ -33,6 +40,14 @@ describe('geolocationService tests', () => {
   };
 
   beforeEach(() => {
+    // ENOTFOUND, which is what both fixture addresses really answer today - so
+    // every assertion in this file that was silently resting on a live lookup
+    // keeps the value it was written against, and now does so deterministically.
+    dnsStub = {
+      promises: {
+        reverse: sinon.stub().rejects(Object.assign(new Error('getaddrinfo ENOTFOUND'), { code: 'ENOTFOUND' })),
+      },
+    };
     // The service reschedules itself with setTimeout on every path it takes,
     // including a ten-second retry when no IP is detected. A real timer there
     // outlives this file and re-enters the service against restored stubs, so
@@ -87,6 +102,7 @@ describe('geolocationService tests', () => {
 
     // Load module with stubs
     geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
+      'node:dns': dnsStub,
       config: configStub,
       '../lib/log': logStub,
       './dbHelper': dbHelperStub,
@@ -295,6 +311,7 @@ describe('geolocationService tests', () => {
   describe('static IP is observed, never inferred from the operator', () => {
     function reload() {
       return proxyquire('../../ZelBack/src/services/geolocationService', {
+        'node:dns': dnsStub,
         config: configStub,
         '../lib/log': logStub,
         './dbHelper': dbHelperStub,
@@ -394,6 +411,7 @@ describe('geolocationService tests', () => {
     // the address held for less than the stability window since.
     function reloadWithTable(networkClass) {
       return proxyquire('../../ZelBack/src/services/geolocationService', {
+        'node:dns': dnsStub,
         config: configStub,
         '../lib/log': logStub,
         './dbHelper': dbHelperStub,
@@ -500,6 +518,7 @@ describe('geolocationService tests', () => {
       fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
       serviceHelperStub.axiosGet.resolves(ipApiResponse());
       geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
+        'node:dns': dnsStub,
         config: configStub,
         '../lib/log': logStub,
         './dbHelper': dbHelperStub,
@@ -524,6 +543,7 @@ describe('geolocationService tests', () => {
       fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
       serviceHelperStub.axiosGet.resolves(ipApiResponse());
       geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
+        'node:dns': dnsStub,
         config: configStub,
         '../lib/log': logStub,
         './dbHelper': dbHelperStub,
@@ -635,6 +655,7 @@ describe('geolocationService tests', () => {
 
     function reload() {
       return proxyquire('../../ZelBack/src/services/geolocationService', {
+        'node:dns': dnsStub,
         config: configStub,
         '../lib/log': logStub,
         './dbHelper': dbHelperStub,
@@ -742,6 +763,24 @@ describe('geolocationService tests', () => {
       await geolocationService.setNodeGeolocation();
 
       expect(await geolocationService.getNetworkClassification()).to.equal(null);
+    });
+
+    it('reads the PTR this test chose, not whatever a resolver happens to answer', async () => {
+      // The reason node:dns is stubbed. A PTR carrying access-network
+      // vocabulary is a positive signal to the classifier, and every verdict
+      // assertion in this file rested on both fixture addresses happening to
+      // answer ENOTFOUND on the machine running the suite.
+      dnsStub.promises.reverse.resolves(['host.pool.example-isp.net']);
+      ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: 'RESIDENTIAL' });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      const verdict = await geolocationService.getNetworkClassification();
+      expect(verdict.evidenceFor.join(' ')).to.contain('ptr access-network');
+      // Hetzner in this describe's fixture contradicts it, so the node declines
+      // the table's RESIDENTIAL rather than taking it.
+      expect(verdict.source).to.equal('node-veto');
     });
 
     it('still gathers the node\'s own evidence, which is what the veto reads', async () => {
@@ -901,6 +940,7 @@ describe('geolocationService tests', () => {
 
     function reload() {
       return proxyquire('../../ZelBack/src/services/geolocationService', {
+        'node:dns': dnsStub,
         config: configStub,
         '../lib/log': logStub,
         './dbHelper': dbHelperStub,
