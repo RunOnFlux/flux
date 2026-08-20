@@ -498,24 +498,103 @@ describe('geolocationService tests', () => {
       expect((await geolocationService.getNetworkClassification()).classification).to.equal('DATACENTER');
     });
 
-    it('falls back to the node when the organisation carries no verdict', async () => {
+    it('reaches NO verdict when the organisation carries none', async () => {
+      // The table decides or nobody does. The node's own rule is the published
+      // rule with registration data removed - a node cannot query the RIRs -
+      // and its error rate has never been measured, so it does not get to
+      // decide the one thing that deletes customer data. Tuning this address
+      // means publishing a verdict for it, by hand if the vote cannot reach it:
+      // fluxos-network-policy data/orgclass-overrides.json.
       ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: null });
       geolocationService = reload();
 
       await geolocationService.setNodeGeolocation();
 
-      const verdict = await geolocationService.getNetworkClassification();
-      expect(verdict.classification).to.equal('DATACENTER');
-      expect(verdict.source).to.equal('node');
+      expect(await geolocationService.getNetworkClassification()).to.equal(null);
     });
 
-    it('falls back to the node when no row covers the address', async () => {
+    it('reaches NO verdict when no row covers the address', async () => {
       ipLocationStoreStub.lookup.resolves(null);
       geolocationService = reload();
 
       await geolocationService.setNodeGeolocation();
 
-      expect((await geolocationService.getNetworkClassification()).source).to.equal('node');
+      expect(await geolocationService.getNetworkClassification()).to.equal(null);
+    });
+
+    it('still gathers the node\'s own evidence, which is what the veto reads', async () => {
+      // Removing the fallback removes the node's verdict as an AUTHORITY, not
+      // its evidence: evidenceAgainst is what declines a published RESIDENTIAL
+      // for an address in the minority tail an 80% vote is designed to outvote.
+      ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: 'RESIDENTIAL' });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      const verdict = await geolocationService.getNetworkClassification();
+      expect(verdict.classification).to.equal('CONFLICTED');
+      expect(verdict.source).to.equal('node-veto');
+      expect(verdict.evidenceAgainst.join(' ')).to.contain('Hetzner');
+    });
+
+    it('reaches NO verdict when the geolocation source carried no network signals', async () => {
+      // The stats.runonflux.io fallback, taken when ip-api answers 200 with an
+      // unusable body. It carries location and org and none of
+      // hosting/proxy/mobile/isp/asn - fluxstats never asks ip-api for them and
+      // its /fluxlocation endpoint projects them away - so evidenceAgainst is
+      // empty because nobody looked.
+      //
+      // That empties the veto too: it fires on local evidence AGAINST, so a
+      // published RESIDENTIAL would stand unchallenged on precisely the
+      // addresses the veto exists for. The verdict is null either way, whatever
+      // the PTR resolves to, so this does not rest on a DNS answer.
+      serviceHelperStub.axiosGet.onFirstCall().resolves({ data: { status: 'fail' } });
+      serviceHelperStub.axiosGet.onSecondCall().resolves({
+        data: {
+          status: 'success',
+          data: {
+            ip: '185.199.108.1',
+            continent: 'Europe',
+            continentCode: 'EU',
+            country: 'France',
+            countryCode: 'FR',
+            region: 'IDF',
+            regionName: 'Ile-de-France',
+            lat: 48.8,
+            lon: 2.3,
+            org: 'Bouygues Telecom',
+          },
+        },
+      });
+      ipLocationStoreStub.lookup.resolves({ org: 'a1b2c3d4e5f6', networkClass: 'RESIDENTIAL' });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(await geolocationService.getNetworkClassification()).to.equal(null);
+    });
+
+    it('still records WHERE the node is on that path, which is what the fallback is for', async () => {
+      // The fix must not cost the fallback its actual job. Country and region
+      // feed placement and the region pins; refusing to store them would break
+      // location for every node whose ip-api call comes back unusable.
+      serviceHelperStub.axiosGet.onFirstCall().resolves({ data: { status: 'fail' } });
+      serviceHelperStub.axiosGet.onSecondCall().resolves({
+        data: {
+          status: 'success',
+          data: {
+            ip: '185.199.108.1', continent: 'Europe', continentCode: 'EU', country: 'France', countryCode: 'FR', region: 'IDF', regionName: 'Ile-de-France', lat: 48.8, lon: 2.3, org: 'Bouygues Telecom',
+          },
+        },
+      });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      const where = await geolocationService.getNodeGeolocation();
+      expect(where.country).to.equal('France');
+      expect(where.countryCode).to.equal('FR');
+      expect(where.regionName).to.equal('Ile-de-France');
     });
 
     it('reaches NO verdict when the table cannot be read at all', async () => {
@@ -591,10 +670,12 @@ describe('geolocationService tests', () => {
   });
 
   describe('network classification', () => {
-    // A table that HAS been ingested and simply holds no verdict for this
-    // address - the abstention that legitimately hands the decision back to the
-    // node, and the state these tests are about.
-    let silentTableStub;
+    // These are about the EVIDENCE the node gathers about itself and what rides
+    // on it - not about who decides. The table decides; a table holding no
+    // verdict means the node is simply not classified, so the default here is
+    // one that has decided DATACENTER and the tests that care about an
+    // abstention set it to null themselves.
+    let tableStub;
 
     function reload() {
       return proxyquire('../../ZelBack/src/services/geolocationService', {
@@ -603,7 +684,7 @@ describe('geolocationService tests', () => {
         './dbHelper': dbHelperStub,
         './serviceHelper': serviceHelperStub,
         './fluxNetworkHelper': fluxNetworkHelperStub,
-        './appPlacement/ipLocationStore': silentTableStub,
+        './appPlacement/ipLocationStore': tableStub,
       });
     }
 
@@ -611,8 +692,8 @@ describe('geolocationService tests', () => {
       fluxNetworkHelperStub.getLocalSocketAddress.resolves('185.199.108.1:16127');
       fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
       dbHelperStub.findOneInDatabase.resolves(null);
-      silentTableStub = {
-        lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass: null }),
+      tableStub = {
+        lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass: 'DATACENTER' }),
         status: sinon.stub().returns({ ready: true, generated: 'x', rowCount: 2000000 }),
       };
     });
@@ -689,7 +770,9 @@ describe('geolocationService tests', () => {
 
       await geolocationService.setNodeGeolocation();
 
-      expect((await geolocationService.getNetworkClassification()).classification).to.equal('UNKNOWN');
+      // isDataCenter reads the node's own classification directly and is not a
+      // verdict about enforcement, so it answers whether or not the table has
+      // decided - and absence of evidence leaves it false.
       expect(geolocationService.isDataCenter()).to.equal(false);
     });
   });

@@ -360,12 +360,18 @@ async function setNodeGeolocation() {
       evidenceFor: Object.freeze([...classified.evidenceFor]),
       evidenceAgainst: Object.freeze([...classified.evidenceAgainst]),
       ptr: ptr || null,
+      // Whether this pass had the signals that can contradict a residential
+      // reading. False on the stats.runonflux.io fallback, which carries none
+      // of them - and an empty evidenceAgainst from that path is nobody having
+      // looked, not nothing having been found.
+      contradictionSignalsGathered: classified.contradictionSignalsGathered,
       gatheredAt: now,
     });
     dataCenter = classified.classification === networkClassifier.CLASSIFICATION.DATACENTER;
     log.info(`Network evidence for ${currentIp}: the node's own reading is ${classified.classification}`
       + ` (for: ${classified.evidenceFor.join(', ') || 'none'};`
-      + ` against: ${classified.evidenceAgainst.join(', ') || 'none'})`);
+      + ` against: ${classified.evidenceAgainst.join(', ') || 'none'}`
+      + `${classified.contradictionSignalsGathered ? '' : '; hosting/proxy/operator signals were NOT gathered'})`);
 
     // Store geolocation to database for persistence across restarts
     await storeGeolocationToDb(storedGeolocation, staticIp, dataCenter, lastIpChangeDate, {
@@ -469,26 +475,51 @@ function isDataCenter() {
 async function getNetworkClassification() {
   if (!networkEvidence) return null;
 
+  // Nothing usable was gathered about what kind of network this is, so this
+  // node has no verdict - not even the table's. The veto below is the only
+  // thing that can decline a published RESIDENTIAL, and it fires on local
+  // evidence AGAINST; on a pass that never obtained any, it cannot fire, so a
+  // published verdict would go unchallenged precisely where challenging it
+  // matters. Returning null leaves the node unclassified, which enforces
+  // nothing and re-derives on the next pass that reaches ip-api.
+  if (!networkEvidence.contradictionSignalsGathered) return null;
+
   const published = await publishedClassification(networkEvidence.ip);
   if (!published.consulted) return null;
 
+  // THE TABLE DECIDES, OR NOBODY DOES. Where it carries no verdict this returns
+  // null and the node is simply not classified, which enforces nothing.
+  //
+  // It used to fall back to the node's own reading. That rule is the published
+  // rule with its strongest signal removed - six thousand nodes cannot each
+  // query the RIRs, so registration data belongs in the table - and its error
+  // rate has never been measured: 0.13% is reverse DNS alone and 0.00% is the
+  // combined rule WITH registration, and neither is what a node runs. It decided
+  // for the ~8% of hosts whose organisation carries no published verdict, on the
+  // one path that deletes customer data.
+  //
+  // Tuning belongs in fluxos-network-policy, where a verdict is evidence-backed,
+  // auditable by anyone, correctable by hand through
+  // data/orgclass-overrides.json, and fixable without a FluxOS release.
+  if (!published.classification) return null;
+
   // The table decides, but a node that can see hosting evidence about its OWN
-  // address exempts itself. An organisation is published on a strong majority
-  // of its hosts rather than on all of them, so a minority of its addresses may
-  // be the other kind - and this is how one of them declines a verdict meant
-  // for its neighbours. The veto only ever removes a node from enforcement;
-  // local evidence can never impose one the table did not give.
+  // address exempts itself. An organisation is decided by 80% of its hosts
+  // agreeing, so a minority tail of the other kind is guaranteed by
+  // construction - and this is how one of them declines a verdict meant for its
+  // neighbours, until someone adjudicates the range. The veto only ever removes
+  // a node from enforcement; local evidence can never impose one the table did
+  // not give.
   const vetoed = published.classification === networkClassifier.CLASSIFICATION.RESIDENTIAL
     && networkEvidence.evidenceAgainst.length > 0;
 
   return Object.freeze({
     classification: vetoed
       ? networkClassifier.CLASSIFICATION.CONFLICTED
-      : (published.classification ?? networkEvidence.classification),
+      : published.classification,
     // Which authority decided, so a verdict can be traced to the table that
-    // carried it, to the node that worked it out, or to the node declining one.
-    // eslint-disable-next-line no-nested-ternary
-    source: vetoed ? 'node-veto' : (published.classification ? 'published-table' : 'node'),
+    // carried it or to the node declining one.
+    source: vetoed ? 'node-veto' : 'published-table',
     evidenceFor: networkEvidence.evidenceFor,
     evidenceAgainst: networkEvidence.evidenceAgainst,
     ptr: networkEvidence.ptr,
