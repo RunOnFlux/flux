@@ -113,9 +113,35 @@ module.exports = {
     bootDelayMultiplier: 0.01,
     spawnDelayMs: 10000,
     removalSpacingMs: 1000,
-    locationTtlS: 300,
-    installingTtlS: 60,
-    installErrorTtlS: 300,
+    // Per-document expiry for the ephemeral app collections, in seconds. These
+    // three also serve as GOSSIP ACCEPTANCE WINDOWS - messageStore drops an
+    // incoming broadcast whose broadcastedAt is older than the window - so a
+    // value below what the fleet takes to produce and deliver a message does
+    // not make a suite faster, it makes peers refuse each other.
+    //
+    // They read as 300/60/300 from the day the harness was first stood up until
+    // 2026-08-20 and none of them ever took effect: the config keys were wired
+    // to collection-level TTL indexes that were dropped when expiry moved
+    // per-document, so every suite ran on the production durations while this
+    // file claimed otherwise. The numbers below are derived; the old ones were
+    // round guesses that nothing could contradict.
+    //
+    // A running-app location record is refreshed by the peerNotifyIntervalMs
+    // re-announce, so the ratio between them IS the property: how many
+    // announcements a node may miss before its apps look gone. Production is
+    // 7500s/3600s = 2.08, so this tracks the announce interval's 120x.
+    locationTtlS: 63, // 2.10 announces, against production's 2.08
+    // NOT compressed, and not compressible by a ratio. What this must outlive is
+    // an install, and the harness does not compress installs - they are real
+    // image pulls and real container starts. The suites' own budgets say so:
+    // waitForAppInstalled is given 120s routinely and 300s at the top end. At
+    // the old 60s the marker expired mid-install and peers rejected any
+    // installing claim older than a minute; suite 78 reads exactly that claim.
+    installingTtlS: 900,
+    // NOT compressed, for the same reason: the errors it accumulates come from
+    // real failed installs, and suite 27 waits for five of them to reach the
+    // network-wide threshold. No knob paces that, so there is no ratio to hold.
+    installErrorTtlS: 86400,
     tempMsgTtlS: 300,
     hashSyncIntervalMs: 30000,
     peerNotifyIntervalMs: 30000,

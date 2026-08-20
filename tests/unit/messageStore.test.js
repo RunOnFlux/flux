@@ -960,4 +960,73 @@ describe('messageStore tests', () => {
       expect(upserts.length).to.equal(1200);
     });
   });
+
+  describe('the expiry windows refuse gossip older than themselves', () => {
+    // Each of these constants does double duty: it stamps expireAt onto the
+    // stored record AND bounds how stale an incoming broadcast may be. A window
+    // shorter than the fleet takes to produce and deliver a message does not
+    // make anything faster, it makes peers silently refuse each other - which
+    // is why the harness cannot compress them freely. The apprunning half is
+    // covered above; these two paths had no coverage at all.
+    beforeEach(() => {
+      dbHelperStub.databaseConnection.returns({ db: sinon.stub().returns('database') });
+      dbHelperStub.updateOneInDatabase.resolves({});
+    });
+
+    function installingBroadcast(ageMs) {
+      return {
+        version: 1,
+        timestamp: Date.now(),
+        pubKey: 'pk',
+        signature: 'sig',
+        data: {
+          ip: '1.2.3.4:16127', name: 'someapp', hash: 'h', broadcastedAt: Date.now() - ageMs,
+        },
+      };
+    }
+
+    it('stores an installing claim broadcast inside the window', () => {
+      messageStore.storeSignedAppInstallingBroadcast(installingBroadcast(60 * 1000));
+
+      expect(dbHelperStub.updateOneInDatabase.calledOnce).to.equal(true);
+    });
+
+    it('refuses an installing claim broadcast older than the window', () => {
+      // INSTALLING_EXPIRY_MS is stubbed at 15 minutes above.
+      messageStore.storeSignedAppInstallingBroadcast(installingBroadcast(16 * 60 * 1000));
+
+      expect(dbHelperStub.updateOneInDatabase.called).to.equal(false);
+    });
+
+    it('stores an install-error broadcast inside the window', () => {
+      messageStore.storeSignedAppInstallingErrorBroadcast(installingBroadcast(60 * 60 * 1000));
+
+      expect(dbHelperStub.updateOneInDatabase.calledOnce).to.equal(true);
+    });
+
+    it('refuses an install-error broadcast older than the window', () => {
+      // INSTALLING_ERRORS_EXPIRY_MS is stubbed at 24 hours above.
+      messageStore.storeSignedAppInstallingErrorBroadcast(installingBroadcast(25 * 60 * 60 * 1000));
+
+      expect(dbHelperStub.updateOneInDatabase.called).to.equal(false);
+    });
+
+    it('expires the stored record at the sender\'s clock, not the receiver\'s', () => {
+      // The record must die a fixed time after it was BROADCAST, so a message
+      // that took a while to arrive does not get a fresh lease on delivery.
+      const broadcastedAt = Date.now() - (5 * 60 * 1000);
+      messageStore.storeSignedAppInstallingBroadcast({
+        version: 1,
+        timestamp: Date.now(),
+        pubKey: 'pk',
+        signature: 'sig',
+        data: {
+          ip: '1.2.3.4:16127', name: 'someapp', hash: 'h', broadcastedAt,
+        },
+      });
+
+      const { $set } = dbHelperStub.updateOneInDatabase.firstCall.args[3];
+      expect($set.expireAt.getTime()).to.equal(broadcastedAt + (15 * 60 * 1000));
+    });
+  });
 });

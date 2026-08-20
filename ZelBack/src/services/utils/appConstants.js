@@ -76,11 +76,23 @@ const defaultNodeSpecs = {
   ssdStorage: 0,
 };
 
-// Expiry / TTL constants (milliseconds)
+// Expiry / TTL constants (milliseconds).
+//
+// The three stamped onto records live in config as seconds, so the harness can
+// compress them the way it compresses every other cadence; the literal after
+// `??` is the production default and is what a node runs when the key is absent.
+// They lived here as bare literals from the day expiry moved per-document: the
+// config keys were wired to the collection-level TTL indexes that scheme
+// replaced, so when those indexes were dropped the keys were left reading
+// nothing, and a later unused-variable sweep removed the last binding to them.
+// Reading config here cannot reintroduce the cycle those literals were moved to
+// break - that was messageVerifier -> registryManager -> messageStore ->
+// messageVerifier, entirely between services, and `config` is a leaf this file
+// already requires for the collection names above.
 const GOSSIP_VALIDITY_MS = 5 * 60 * 1000;
-const RUNNING_EXPIRY_MS = 125 * 60 * 1000;
-const INSTALLING_EXPIRY_MS = 15 * 60 * 1000;
-const INSTALLING_ERRORS_EXPIRY_MS = 24 * 60 * 60 * 1000;
+const RUNNING_EXPIRY_MS = (config.fluxapps.locationTtlS ?? 7500) * 1000;
+const INSTALLING_EXPIRY_MS = (config.fluxapps.installingTtlS ?? 900) * 1000;
+const INSTALLING_ERRORS_EXPIRY_MS = (config.fluxapps.installErrorTtlS ?? 86400) * 1000;
 const SIGTERM_EXPIRY_MS = 420 * 1000;
 const EVICTED_EXPIRY_MS = RUNNING_EXPIRY_MS;
 

@@ -33,6 +33,9 @@ describe('appUninstaller tests', () => {
           database: 'globalapps',
         },
       },
+      // appConstants reads the record-expiry durations from here as well as the
+      // collection names; absent keys fall back to the production defaults.
+      fluxapps: {},
     };
 
     verificationHelperStub = {
