@@ -163,6 +163,28 @@ async function nodeFullGeolocation() {
  * @returns {Promise<{device: number, used: number}|null>} Usage, or null when not a dedicated volume
  */
 async function dedicatedVolumeUsage(source, sharedDevice) {
+  // The whole-filesystem shortcut is only sound when the filesystem belongs to
+  // THIS APP, and a differing device number does not establish that on its own.
+  // It holds for an app's FLUXFSVOL image, which is mounted under the apps
+  // folder and is the case this exists for. It does not hold for a mount docker
+  // manages: an image that declares VOLUME on a path the spec does not bind gets
+  // an anonymous volume under docker's data root, and where that root is a
+  // separate filesystem from the apps folder, this would charge the app the
+  // whole of it - every image and every other app's container included.
+  //
+  // Verified reachable: an image declaring two VOLUMEs with only one bound
+  // reports the other as Type: 'volume' with a Source under
+  // /var/lib/docker/volumes/<id>/_data. mongo declares /data/db AND
+  // /data/configdb, so a spec that maps the data dir and not the config dir is
+  // enough. On the node layouts checked (arcane with docker root on /dat,
+  // legacy with everything on one disk) the two share a device and this returns
+  // null anyway - but that is the layout being kind, not the test being right.
+  //
+  // So identify the app's own volume by WHERE IT IS, and leave everything else
+  // to be walked, which is what the base did for every mount and was correct on
+  // every layout.
+  if (!source.startsWith(appConstants.appsFolder)) return null;
+
   const sourceStat = await fs.stat(source);
 
   if (sourceStat.dev === sharedDevice) return null;

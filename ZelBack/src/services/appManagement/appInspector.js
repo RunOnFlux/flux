@@ -340,8 +340,18 @@ function extractSample(stats) {
       ?? stats.memory_stats?.stats?.cache ?? null,
     ioRead: sumBlkio('read'),
     ioWrite: sumBlkio('write'),
-    networkRx: stats.networks?.eth0?.rx_bytes ?? null,
-    networkTx: stats.networks?.eth0?.tx_bytes ?? null,
+    // EVERY interface, not just eth0. appNetworkLinker connects a container to
+    // additional networks when a spec declares networkWith, and reading eth0
+    // alone made that traffic vanish from a reading the base returned in full.
+    // Still a narrowing - the per-interface packet, error and dropped counters
+    // are dropped, as everywhere else here - and `networks.eth0` remains a key,
+    // so a consumer reading it is untouched.
+    networks: Object.fromEntries(
+      Object.entries(stats.networks ?? {}).map(([iface, counters]) => [iface, {
+        rx_bytes: counters?.rx_bytes ?? null,
+        tx_bytes: counters?.tx_bytes ?? null,
+      }]),
+    ),
     disk: stats.disk_stats ?? null,
   };
 }
@@ -375,7 +385,7 @@ function expandSample(sample) {
       stats: { inactive_file: sample.memoryCache },
     },
     blkio_stats: { io_service_bytes_recursive: io },
-    networks: { eth0: { rx_bytes: sample.networkRx, tx_bytes: sample.networkTx } },
+    networks: sample.networks ?? {},
     nanoCpus: sample.nanoCpus,
     disk_stats: sample.disk,
   };
@@ -615,7 +625,11 @@ function startAppMonitoring(appName) {
       const lastKnownDisk = appsMonitored[appName].statsStore.length
         ? appsMonitored[appName].statsStore[appsMonitored[appName].statsStore.length - 1].disk
         : null;
-      if (statsNow.disk_stats?.status === 'partial' && lastKnownDisk) {
+      // Any reading the sizing step did not stand behind, not just a partial one.
+      // Its catch returns { used: 0, status: 'error' } - a dockerd blip mid-tick
+      // is enough - and storing that charts a drop to the FLOOR, which is worse
+      // than the partial dip this guard was written for.
+      if (statsNow.disk_stats?.status && statsNow.disk_stats.status !== 'success' && lastKnownDisk) {
         statsNow.disk_stats = lastKnownDisk;
       }
 

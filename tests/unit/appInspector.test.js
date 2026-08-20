@@ -179,6 +179,33 @@ describe('appInspector tests', () => {
       ).to.equal(41943040);
     });
 
+    // Not just 'partial'. getContainerStorage's catch returns
+    // { used: 0, status: 'error' } - a dockerd blip inside the tick is enough -
+    // and storing that charts a drop to the FLOOR, which is worse than the
+    // partial dip the guard was written for.
+    it('does not chart a failed disk reading as a drop to zero either', async () => {
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'running' });
+      dockerServiceStub.dockerContainerStats = sinon.stub().resolves(reading({}));
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2e9 } });
+      appUtilitiesStub.getContainerStorage
+        .onFirstCall().resolves({ used: 41943040, status: 'success' })
+        .onSecondCall().resolves({
+          bind: 0, volume: 0, rootfs: 0, used: 0, status: 'error', message: 'docker is busy',
+        });
+      clock = sinon.useFakeTimers();
+
+      appInspector.startAppMonitoring('myapp');
+      await clock.tickAsync(60000);
+      await clock.tickAsync(60000);
+      const { statsStore } = globalStateStub.appsMonitored.myapp;
+      appInspector.stopAppMonitoring('myapp', false);
+
+      expect(
+        statsStore[1].disk.used,
+        'a failed reading charted as zero - the very drop the carry-forward exists to prevent',
+      ).to.equal(41943040);
+    });
+
     // Storing null would be WORSE than the dip: the dashboards read
     // `disk_stats.used || 0`, so an absent figure charts as zero - a drop to the
     // floor rather than a partial one.
@@ -231,7 +258,7 @@ describe('appInspector tests', () => {
       expect(Object.keys(stored).sort()).to.deep.equal([
         'cpuSystem', 'cpuSystemBefore', 'cpuTotal', 'cpuTotalBefore', 'disk',
         'elapsed', 'ioRead', 'ioWrite', 'memoryCache', 'memoryLimit',
-        'memoryUsage', 'nanoCpus', 'networkRx', 'networkTx', 'onlineCpus',
+        'memoryUsage', 'nanoCpus', 'networks', 'onlineCpus',
         'timestamp',
       ]);
     });
@@ -255,8 +282,34 @@ describe('appInspector tests', () => {
       expect(stored.memoryUsage).to.equal(2048);
       expect(stored.memoryLimit).to.equal(8192);
       expect(stored.memoryCache).to.equal(512);
-      expect(stored.networkRx).to.equal(30);
-      expect(stored.networkTx).to.equal(40);
+      expect(stored.networks.eth0.rx_bytes).to.equal(30);
+      expect(stored.networks.eth0.tx_bytes).to.equal(40);
+    });
+
+    // appNetworkLinker attaches a container to further networks when a spec
+    // declares networkWith. Reading eth0 alone made that traffic vanish from a
+    // reading the base returned in full, and no chart could ever show it again.
+    it('keeps every network interface, not only eth0', async () => {
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'running' });
+      const twoInterfaces = reading({ stats: { inactive_file: 512 } });
+      twoInterfaces.networks = {
+        eth0: { rx_bytes: 30, tx_bytes: 40, rx_packets: 9 },
+        eth1: { rx_bytes: 700, tx_bytes: 800, rx_packets: 11 },
+      };
+      dockerServiceStub.dockerContainerStats = sinon.stub().resolves(twoInterfaces);
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2e9 } });
+      clock = sinon.useFakeTimers();
+
+      appInspector.startAppMonitoring('myapp');
+      await clock.tickAsync(60000);
+      const [stored] = globalStateStub.appsMonitored.myapp.statsStore;
+      appInspector.stopAppMonitoring('myapp', false);
+
+      expect(Object.keys(stored.networks).sort()).to.deep.equal(['eth0', 'eth1']);
+      expect(stored.networks.eth1.rx_bytes, 'a secondary interface was dropped').to.equal(700);
+      expect(stored.networks.eth1.tx_bytes).to.equal(800);
+      // still a narrowing: the packet/error/dropped counters do not survive
+      expect(stored.networks.eth0).to.deep.equal({ rx_bytes: 30, tx_bytes: 40 });
     });
 
     // THE WIRE CONTRACT MOST LIKELY TO BREAK SILENTLY. Docker emits capitalised
@@ -1085,8 +1138,7 @@ describe('appInspector tests', () => {
           memoryCache: 512,
           ioRead: 1,
           ioWrite: 2,
-          networkRx: 3,
-          networkTx: 4,
+          networks: { eth0: { rx_bytes: 3, tx_bytes: 4 } },
           disk: { bind: 7 },
           ...overrides,
         };
@@ -1224,8 +1276,7 @@ describe('appInspector tests', () => {
         memoryCache: 256,
         ioRead: 10,
         ioWrite: 20,
-        networkRx: 30,
-        networkTx: 40,
+        networks: { eth0: { rx_bytes: 30, tx_bytes: 40 } },
         disk: {
           bind: 5, volume: 0, rootfs: 0, used: 5, status: 'ok',
         },

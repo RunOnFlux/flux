@@ -397,42 +397,42 @@ async function clearAppVolumeData(identifier) {
   const appId = dockerService.getAppIdentifier(identifier);
   const appDataPath = path.join(appsFolder, appId, 'appdata');
 
-  let entries;
-  try {
-    entries = await fs.readdir(appDataPath);
-  } catch (error) {
-    // Nothing to clear is not a failed clear. Any other read error is.
-    if (error.code === 'ENOENT') {
+  // Enumerated AND deleted as root, in one command.
+  //
+  // Listing the directory host-side runs as the FluxOS user while the rm runs
+  // under sudo, and that asymmetry is fatal for exactly the apps g: mode exists
+  // to serve: a hardening image chmods its data dir (postgres does `chmod 700
+  // $PGDATA`, and for a component mounting /var/lib/postgresql/data that dir IS
+  // this appdata), so readdir fails EACCES. The caller treats that as a failed
+  // wipe - correctly - and holds dataDesired at 'clear' with a paced retry, so
+  // the component would never start again. Refusing to wipe is the right answer
+  // to a wipe that failed; it is the wrong answer to one that could have
+  // succeeded as root.
+  //
+  // find, not a shell glob: `rm -rf <dir>/*` was the old shape and hits E2BIG on
+  // a large directory, misses dotfiles, and needs a shell. -mindepth 1 empties
+  // the directory without removing it - the mount structure has to stay - and
+  // -exec ... + batches, so this is one process rather than the concurrent,
+  // uncapped rm-per-entry it replaces.
+  const wipe = await serviceHelper.runCommand('find', {
+    runAsRoot: true,
+    params: [appDataPath, '-mindepth', '1', '-maxdepth', '1', '-exec', 'rm', '-rf', '{}', '+'],
+  });
+
+  if (wipe.error) {
+    // Nothing to clear is not a failed clear: an app whose volume was never
+    // populated must not hold the reconciler on a retry forever.
+    const missing = `${wipe.stderr || ''}`.includes('No such file or directory');
+    if (missing) {
       log.info(`No data to delete for app ${appId}`);
       return;
     }
-    throw error;
-  }
-
-  // runCommand NEVER rejects - it resolves { error, stdout, stderr } - so a
-  // failed rm is only visible by inspecting .error. Read as though it threw and
-  // every failure is silent: this logged "Deleted data for app X" when every
-  // single delete had failed.
-  //
-  // It has to REJECT, not just log, because the caller's safety depends on it.
-  // appReconciler awaits this inside a try whose catch holds dataDesired at
-  // 'clear' and arms a paced retry, so that a start can never proceed onto
-  // un-wiped data. Swallowing here makes that catch unreachable: the reconciler
-  // clears the flag, publishes 'dataCleared', and the next pass starts the
-  // container on data that is still there.
-  const results = await Promise.all(entries.map((entry) => serviceHelper.runCommand('rm', {
-    runAsRoot: true,
-    params: ['-rf', path.join(appDataPath, entry)],
-  })));
-
-  const failed = results.filter((result) => result.error);
-  if (failed.length) {
-    const reason = failed[0].error.message || failed[0].error;
-    throw new Error(`Failed to delete ${failed.length} of ${results.length} entries for app ${appId}: ${reason}`);
+    throw new Error(`Failed to delete data for app ${appId}: ${wipe.stderr || wipe.error.message || wipe.error}`);
   }
 
   log.info(`Deleted data for app ${appId}`);
 }
+
 
 module.exports = {
   verifyAppVolumeMount,

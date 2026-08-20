@@ -102,6 +102,14 @@ describe('appUtilities tests', () => {
     const VOLUME_DEV = 200;
     const OTHER_VOLUME_DEV = 300;
 
+    // Paths under the REAL apps folder. The whole-filesystem shortcut is only
+    // valid for an app's OWN volume, and that is identified by living here - a
+    // synthetic '/apps/...' prefix could never occur on a node, so it would not
+    // exercise the check at all.
+    // eslint-disable-next-line global-require
+    const APPS = require('../../ZelBack/src/services/utils/appConstants').appsFolder;
+    const src = (rel) => `${APPS}${rel}`;
+
     let cacheStore;
     let runStub;
     let statStub;
@@ -110,7 +118,13 @@ describe('appUtilities tests', () => {
 
     // Each app volume is its own mounted image, so a path's device tells us whether a
     // whole-filesystem reading describes that app alone or the node it sits on.
-    function build(deviceByPath) {
+    function build(shortPathDevices) {
+      // keys are given relative to the apps folder and anchored here
+      const deviceByPath = Object.fromEntries(
+        // absolute keys are left alone: a path outside the apps folder is the
+        // point of some of these cases
+        Object.entries(shortPathDevices).map(([rel, dev]) => [rel.startsWith('/') ? rel : src(rel), dev]),
+      );
       cacheStore = new Map();
       // The real seam: runCommand returns { error, stdout, stderr } and KEEPS stdout
       // when the command exits non-zero, which is what lets a partial du reading
@@ -138,10 +152,10 @@ describe('appUtilities tests', () => {
     }
 
     it('should read the volume filesystem rather than walking it', async () => {
-      const utils = build({ '/apps/myapp/appdata': VOLUME_DEV });
+      const utils = build({ 'myapp/appdata': VOLUME_DEV });
       inspectStub.resolves({
         SizeRootFs: 500,
-        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+        Mounts: [{ Type: 'bind', Source: src('myapp/appdata') }],
       });
 
       const result = await utils.getContainerStorage('myapp');
@@ -155,14 +169,14 @@ describe('appUtilities tests', () => {
 
     it('should count one volume once when an app mounts it twice', async () => {
       const utils = build({
-        '/apps/myapp/appdata': VOLUME_DEV,
-        '/apps/myapp/mods': VOLUME_DEV,
+        'myapp/appdata': VOLUME_DEV,
+        'myapp/mods': VOLUME_DEV,
       });
       inspectStub.resolves({
         SizeRootFs: 0,
         Mounts: [
-          { Type: 'bind', Source: '/apps/myapp/appdata' },
-          { Type: 'bind', Source: '/apps/myapp/mods' },
+          { Type: 'bind', Source: src('myapp/appdata') },
+          { Type: 'bind', Source: src('myapp/mods') },
         ],
       });
 
@@ -171,32 +185,61 @@ describe('appUtilities tests', () => {
       expect(result.bind).to.equal(2457600);
     });
 
-    it('should count separate volumes separately', async () => {
+    it('should count separate app volumes separately', async () => {
       const utils = build({
-        '/apps/myapp/appdata': VOLUME_DEV,
-        '/var/lib/docker/volumes/other/_data': OTHER_VOLUME_DEV,
+        'myapp/appdata': VOLUME_DEV,
+        'myapp/second': OTHER_VOLUME_DEV,
       });
       inspectStub.resolves({
         SizeRootFs: 0,
         Mounts: [
-          { Type: 'bind', Source: '/apps/myapp/appdata' },
-          { Type: 'volume', Source: '/var/lib/docker/volumes/other/_data' },
+          { Type: 'bind', Source: src('myapp/appdata') },
+          { Type: 'bind', Source: src('myapp/second') },
         ],
       });
 
       const result = await utils.getContainerStorage('myapp');
 
+      expect(result.bind).to.equal(2457600 * 2);
+    });
+
+    // A whole-filesystem reading is only sound when the filesystem is THIS APP'S.
+    // Docker creates an anonymous volume for any VOLUME an image declares that the
+    // spec does not bind (mongo declares /data/db AND /data/configdb, so mapping
+    // one is enough), and its source lives under docker's data root. Where that
+    // root is a separate filesystem, reading it whole charges the app every image
+    // and every other app's container on the disk.
+    it('walks a docker-managed volume instead of charging the app its whole filesystem', async () => {
+      const utils = build({
+        'myapp/appdata': VOLUME_DEV,
+        '/var/lib/docker/volumes/anon/_data': OTHER_VOLUME_DEV,
+      });
+      inspectStub.resolves({
+        SizeRootFs: 0,
+        Mounts: [
+          { Type: 'bind', Source: src('myapp/appdata') },
+          { Type: 'volume', Source: '/var/lib/docker/volumes/anon/_data' },
+        ],
+      });
+
+      const result = await utils.getContainerStorage('myapp');
+
+      // the app's own volume: read whole, because that filesystem is its own
       expect(result.bind).to.equal(2457600);
-      expect(result.volume).to.equal(2457600);
+      // docker's: walked, the du stub's 4096 - NOT the filesystem's 2457600
+      expect(
+        result.volume,
+        'charged the app the whole of the filesystem docker keeps its volumes on',
+      ).to.equal(4096);
     });
 
     it('should walk the tree when the path is not on its own volume', async () => {
       // Same device as the apps folder — the volume is not mounted, so a whole-filesystem
       // reading would report the node's usage as this app's.
-      const utils = build({ '/apps/myapp/appdata': APPS_FOLDER_DEV });
+      const utils = build({ 'myapp/appdata': APPS_FOLDER_DEV });
       inspectStub.resolves({
         SizeRootFs: 0,
-        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+        Mounts: [{ Type: 'bind', Source: src('myapp/appdata') }],
       });
 
       const result = await utils.getContainerStorage('myapp');
@@ -211,10 +254,10 @@ describe('appUtilities tests', () => {
       // file vanishing mid-walk, not an exceptional state - and still prints the
       // total for everything it did walk. Reading the exit code alone throws that
       // number away once a minute, on exactly the apps that write the most.
-      const utils = build({ '/apps/myapp/appdata': APPS_FOLDER_DEV });
+      const utils = build({ 'myapp/appdata': APPS_FOLDER_DEV });
       inspectStub.resolves({
         SizeRootFs: 0,
-        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+        Mounts: [{ Type: 'bind', Source: src('myapp/appdata') }],
       });
       runStub.resolves({
         error: new Error("du: cannot read directory '/apps/myapp/appdata/tmp': Permission denied"),
@@ -232,17 +275,17 @@ describe('appUtilities tests', () => {
       // Contributing zero and calling the total a success serves a customer a disk
       // figure that is short by a whole mount, and the cache makes one transient
       // failure stick for the whole window.
-      const utils = build({ '/apps/myapp/appdata': APPS_FOLDER_DEV });
+      const utils = build({ 'myapp/appdata': APPS_FOLDER_DEV });
       inspectStub.resolves({
         SizeRootFs: 512,
-        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+        Mounts: [{ Type: 'bind', Source: src('myapp/appdata') }],
       });
       runStub.resolves({ error: new Error('du: command not found'), stdout: '', stderr: '' });
 
       const result = await utils.getContainerStorage('myapp');
 
       expect(result.status).to.equal('partial');
-      expect(result.unmeasured).to.deep.equal(['/apps/myapp/appdata']);
+      expect(result.unmeasured).to.deep.equal([src('myapp/appdata')]);
       expect(result.bind, 'the mount contributed nothing').to.equal(0);
       expect(result.rootfs, 'what WAS measured is still reported').to.equal(512);
       expect(cacheStore.size, 'a short reading must not be served again from cache').to.equal(0);
@@ -250,17 +293,17 @@ describe('appUtilities tests', () => {
 
     it('still measures the mounts it can when one of several fails', async () => {
       const utils = build({
-        '/apps/myapp/appdata': APPS_FOLDER_DEV,
-        '/apps/myapp/other': APPS_FOLDER_DEV,
+        'myapp/appdata': APPS_FOLDER_DEV,
+        'myapp/other': APPS_FOLDER_DEV,
       });
       inspectStub.resolves({
         SizeRootFs: 0,
         Mounts: [
-          { Type: 'bind', Source: '/apps/myapp/appdata' },
-          { Type: 'bind', Source: '/apps/myapp/other' },
+          { Type: 'bind', Source: src('myapp/appdata') },
+          { Type: 'bind', Source: src('myapp/other') },
         ],
       });
-      runStub.callsFake(async (_cmd, opts) => (opts.params[1] === '/apps/myapp/other'
+      runStub.callsFake(async (_cmd, opts) => (opts.params[1] === src('myapp/other')
         ? { error: new Error('gone'), stdout: '', stderr: '' }
         : { error: null, stdout: '4096\t/apps/myapp/appdata', stderr: '' }));
 
@@ -268,14 +311,14 @@ describe('appUtilities tests', () => {
 
       expect(result.bind).to.equal(4096);
       expect(result.status).to.equal('partial');
-      expect(result.unmeasured).to.deep.equal(['/apps/myapp/other']);
+      expect(result.unmeasured).to.deep.equal([src('myapp/other')]);
     });
 
     it('caches a complete reading and calls it a success', async () => {
-      const utils = build({ '/apps/myapp/appdata': APPS_FOLDER_DEV });
+      const utils = build({ 'myapp/appdata': APPS_FOLDER_DEV });
       inspectStub.resolves({
         SizeRootFs: 0,
-        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+        Mounts: [{ Type: 'bind', Source: src('myapp/appdata') }],
       });
 
       const result = await utils.getContainerStorage('myapp');
@@ -288,33 +331,33 @@ describe('appUtilities tests', () => {
     it('hands du its path as an argument, never inside a shell string', async () => {
       // The source is a path docker reports. Interpolated into `sudo du -sb ${source}`
       // any metacharacter in it becomes part of the command.
-      const utils = build({ '/apps/myapp/appdata': APPS_FOLDER_DEV });
+      const utils = build({ 'myapp/appdata': APPS_FOLDER_DEV });
       inspectStub.resolves({
         SizeRootFs: 0,
-        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+        Mounts: [{ Type: 'bind', Source: src('myapp/appdata') }],
       });
 
       await utils.getContainerStorage('myapp');
 
       sinon.assert.calledWith(runStub, 'du', sinon.match({
         runAsRoot: true,
-        params: ['-sb', '/apps/myapp/appdata'],
+        params: ['-sb', src('myapp/appdata')],
       }));
     });
 
     it('refuses to size anything when the shared filesystem cannot be identified', async () => {
-      const utils = build({ '/apps/myapp/appdata': VOLUME_DEV });
+      const utils = build({ 'myapp/appdata': VOLUME_DEV });
       sinon.stub(log, 'error');
       inspectStub.resolves({
         SizeRootFs: 500,
-        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+        Mounts: [{ Type: 'bind', Source: src('myapp/appdata') }],
       });
       // Every mount is classified against the apps folder's device. Without it
       // nothing can be classified, and the honest answer is no answer: sizing
       // each mount at zero would report a working node as using almost no disk,
       // and the UI only blanks its values on an error.
       statStub.callsFake(async (target) => {
-        if (target === '/apps/myapp/appdata') return { dev: VOLUME_DEV };
+        if (target === src('myapp/appdata')) return { dev: VOLUME_DEV };
         throw new Error('ENOENT: apps folder is gone');
       });
 
@@ -326,10 +369,10 @@ describe('appUtilities tests', () => {
     });
 
     it('should serve repeat calls from cache without re-measuring', async () => {
-      const utils = build({ '/apps/myapp/appdata': VOLUME_DEV });
+      const utils = build({ 'myapp/appdata': VOLUME_DEV });
       inspectStub.resolves({
         SizeRootFs: 0,
-        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+        Mounts: [{ Type: 'bind', Source: src('myapp/appdata') }],
       });
 
       const first = await utils.getContainerStorage('myapp');
@@ -341,12 +384,12 @@ describe('appUtilities tests', () => {
     });
 
     it('should re-measure after a failure rather than serving the error for a minute', async () => {
-      const utils = build({ '/apps/myapp/appdata': VOLUME_DEV });
+      const utils = build({ 'myapp/appdata': VOLUME_DEV });
       sinon.stub(log, 'error');
       inspectStub.onFirstCall().rejects(new Error('Container not found'));
       inspectStub.onSecondCall().resolves({
         SizeRootFs: 0,
-        Mounts: [{ Type: 'bind', Source: '/apps/myapp/appdata' }],
+        Mounts: [{ Type: 'bind', Source: src('myapp/appdata') }],
       });
 
       const failed = await utils.getContainerStorage('myapp');

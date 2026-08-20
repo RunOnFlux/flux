@@ -561,67 +561,70 @@ describe('volumeService tests', () => {
   });
 
   describe('clearAppVolumeData tests', () => {
+    const FIND_ARGS = ['-mindepth', '1', '-maxdepth', '1', '-exec', 'rm', '-rf', '{}', '+'];
+
     beforeEach(() => {
       dockerServiceStub.getAppIdentifier.returns('fluxdb_MyApp');
-      fsStub.promises.readdir.resolves(['one', 'two']);
     });
 
-    it('deletes every entry under the app data directory', async () => {
+    it('empties the app data directory as root, in one command', async () => {
       await volumeService.clearAppVolumeData('db_MyApp');
 
-      expect(serviceHelperStub.runCommand.callCount).to.equal(2);
+      sinon.assert.calledOnce(serviceHelperStub.runCommand);
       const [cmd, opts] = serviceHelperStub.runCommand.firstCall.args;
-      expect(cmd).to.equal('rm');
+      // Root for the LISTING as well as the delete. Enumerating host-side runs as
+      // the FluxOS user, and an image that chmods its data dir 700 (postgres does)
+      // makes that fail - which the caller correctly reads as a failed wipe and
+      // then retries forever, so the component never starts again.
+      expect(opts.runAsRoot).to.equal(true);
+      expect(cmd).to.equal('find');
       // The path is load-bearing: the app ROOT holds the mount structure, and
       // wiping that instead of appdata destroys the volume rather than its
-      // contents.
-      expect(opts.params).to.deep.equal(['-rf', `${APPS_FOLDER}fluxdb_MyApp/appdata/one`]);
-      // Without root the rm silently does nothing on a real node - the data
-      // survives and the caller is told it is gone.
-      expect(opts.runAsRoot).to.equal(true);
+      // contents. -mindepth 1 empties the directory without removing it.
+      expect(opts.params).to.deep.equal([`${APPS_FOLDER}fluxdb_MyApp/appdata`, ...FIND_ARGS]);
     });
 
     // THE CONTRACT. serviceHelper.runCommand never rejects - it resolves
     // { error, stdout, stderr } - so a caller that reads it as though it threw
-    // ignores every failure. This logged "Deleted data for app X" when every
-    // delete had failed, and the reconciler's catch, which holds dataDesired at
-    // 'clear' so a start cannot proceed onto un-wiped data, was unreachable.
-    it('rejects when a delete failed, rather than reporting success', async () => {
-      serviceHelperStub.runCommand.resolves({ error: new Error('Device or resource busy'), stdout: '', stderr: '' });
+    // ignores every failure. This logged "Deleted data for app X" when the wipe
+    // had failed, and appReconciler's catch, which holds dataDesired at 'clear'
+    // so a start cannot proceed onto un-wiped data, was unreachable.
+    it('rejects when the wipe failed, rather than reporting success', async () => {
+      serviceHelperStub.runCommand.resolves({
+        error: new Error('exit 1'), stdout: '', stderr: "rm: cannot remove '/x': Device or resource busy",
+      });
 
-      await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith('Failed to delete');
+      await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith('Failed to delete data');
 
       expect(
         logStub.info.getCalls().some((call) => String(call.args[0]).includes('Deleted data')),
-        'reported the data deleted when every delete failed',
+        'reported the data deleted when the wipe failed',
       ).to.equal(false);
-    });
-
-    it('rejects when only some of the deletes failed', async () => {
-      serviceHelperStub.runCommand.onFirstCall().resolves({ error: null, stdout: '', stderr: '' });
-      serviceHelperStub.runCommand.onSecondCall().resolves({ error: new Error('busy'), stdout: '', stderr: '' });
-
-      await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith('Failed to delete 1 of 2');
     });
 
     // Nothing to clear is not a failed clear: an app whose volume was never
     // populated must not hold the reconciler on a retry forever.
     it('returns quietly when there is no app data directory', async () => {
-      const missing = new Error('ENOENT: no such file or directory');
-      missing.code = 'ENOENT';
-      fsStub.promises.readdir.rejects(missing);
+      serviceHelperStub.runCommand.resolves({
+        error: new Error('exit 1'),
+        stdout: '',
+        stderr: "find: '/test/apps/folder/fluxdb_MyApp/appdata': No such file or directory",
+      });
 
       await volumeService.clearAppVolumeData('db_MyApp');
 
-      expect(serviceHelperStub.runCommand.called).to.equal(false);
+      expect(
+        logStub.info.getCalls().some((call) => String(call.args[0]).includes('No data to delete')),
+      ).to.equal(true);
     });
 
-    it('rejects when the app data directory cannot be read for any other reason', async () => {
-      const denied = new Error('EACCES: permission denied');
-      denied.code = 'EACCES';
-      fsStub.promises.readdir.rejects(denied);
+    it('reports what the wipe actually said, so a failure can be diagnosed', async () => {
+      serviceHelperStub.runCommand.resolves({
+        error: new Error('exit 1'), stdout: '', stderr: 'rm: cannot remove: Read-only file system',
+      });
 
-      await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith('EACCES');
+      await expect(volumeService.clearAppVolumeData('db_MyApp'))
+        .to.be.rejectedWith(/Read-only file system/);
     });
   });
 });
