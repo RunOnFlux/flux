@@ -692,15 +692,22 @@ describe('advancedWorkflows tests', () => {
       const {
         selfRunningSince = '2026-01-01T00:00:00.000Z',
         receiveOnlyCache = new Map(),
+        // A v4+ spec elects on `<component>_<app>`, a v3 one on the bare app
+        // name. Both forms have to be reachable here: the election writes one
+        // and isElectedPrimaryHere matches the other back.
+        componentName = null,
       } = options;
+      const identifier = componentName ? `${componentName}_${appName}` : appName;
       // Mirror getAppIdentifier: a name that is neither zel- nor flux-prefixed gets
       // `flux`. The container names peers report are this exact string, and the
       // election compares whole names, so a stand-in value would not match.
-      const appId = `flux${appName}`;
+      const appId = `flux${identifier}`;
       dockerServiceStub.returns(appId);
       const installedApps = sinon.stub().resolves({
         status: 'success',
-        data: [{ name: appName, version: 3, containerData: 'g:/syncdata' }],
+        data: [componentName
+          ? { name: appName, version: 8, compose: [{ name: componentName, containerData: 'g:/syncdata' }] }
+          : { name: appName, version: 3, containerData: 'g:/syncdata' }],
       });
       const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
       // Entries land in the real globalState cache - the election reads it off
@@ -950,6 +957,96 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'cleared this node\'s own stale primary record')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
       expect(linesMatching(logInfo, 'conditions not met')).to.have.lengthOf(0);
+    });
+
+    describe('isElectedPrimaryHere answers in three states', () => {
+      // Finding 25 of the review: the true path had no coverage at all, and the
+      // false path could not be told apart from "the election never ran". Each
+      // test uses its own app name because the election tables are module state
+      // that outlives a sinon restore.
+      const runElection = async (appName, fdmResponse) => {
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(fdmResponse);
+        await runPass();
+      };
+      const namesThisNode = { data: { status: 'success', data: { ips: ['192.168.1.5'] } } };
+      const namesAnotherNode = { data: { status: 'success', data: { ips: ['192.168.1.90'] } } };
+      const namesNobody = { data: [] };
+
+      it('is true when the election named this node', async () => {
+        await runElection('electedhereapp', namesThisNode);
+
+        expect(advancedWorkflows.isElectedPrimaryHere('electedhereapp', '192.168.1.5:16127')).to.equal(true);
+      });
+
+      it('matches the <component>_<app> identifier that v4+ specs elect on', async () => {
+        // The election keys a composed app on `<component>_<app>`, and the
+        // lookup is asked for the bare app name. Nothing exercised the
+        // endsWith half of that match before.
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const runPass = electionFixture('composedapp', ['192.168.1.90:16127'], { componentName: 'server' });
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.resolves(namesThisNode);
+
+        await runPass();
+
+        expect(advancedWorkflows.isElectedPrimaryHere('composedapp', '192.168.1.5:16127')).to.equal(true);
+      });
+
+      it('is false when the election named a different node', async () => {
+        await runElection('electedelsewhereapp', namesAnotherNode);
+
+        expect(advancedWorkflows.isElectedPrimaryHere('electedelsewhereapp', '192.168.1.5:16127')).to.equal(false);
+      });
+
+      it('is null for an app the election has never reached', async () => {
+        expect(advancedWorkflows.isElectedPrimaryHere('neverelectedapp', '192.168.1.5:16127')).to.equal(null);
+      });
+
+      it('is null when FDM answered but named nobody', async () => {
+        // The ~110s registration lag: FDM reports no primary while an instance
+        // is live, so on a node running the component this is "cannot say",
+        // not "you are not it".
+        await runElection('noprimaryyetapp', namesNobody);
+
+        expect(advancedWorkflows.isElectedPrimaryHere('noprimaryyetapp', '192.168.1.5:16127')).to.equal(null);
+      });
+
+      it('goes null once the verdict is older than the election that refreshes it', async () => {
+        // The election re-runs every masterSlaveIntervalMs. A verdict older
+        // than a run of those cycles means it has stopped - which is what
+        // happens while syncthing is unhealthy - and a stopped election must
+        // not keep answering from its last known state.
+        await runElection('staleverdictapp', namesThisNode);
+        const aDayLater = Date.now() + (24 * 60 * 60 * 1000);
+
+        expect(advancedWorkflows.isElectedPrimaryHere('staleverdictapp', '192.168.1.5:16127')).to.equal(true);
+        expect(advancedWorkflows.isElectedPrimaryHere('staleverdictapp', '192.168.1.5:16127', aDayLater)).to.equal(null);
+      });
+
+      it('says so when no FDM region answered, instead of reading it as "no primary"', async () => {
+        // The `if (!fdmOk)` guard was unreachable: getMasterIpFromFdm returned
+        // fdmOk true on every path, so a total outage and an app with no
+        // primary produced the same verdict and this warning never appeared.
+        const logWarn = sinon.stub(log, 'warn');
+        sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+        const runPass = electionFixture('fdmdownapp', ['192.168.1.90:16127']);
+        axiosGetStub.resetBehavior();
+        axiosGetStub.callsFake(peerAnswers({ held: [] }));
+        serviceHelperStub.resetBehavior();
+        serviceHelperStub.rejects(new Error('getaddrinfo ENOTFOUND'));
+
+        await runPass();
+
+        expect(linesMatching(logWarn, 'All FDM services failed')).to.have.lengthOf(1);
+        expect(advancedWorkflows.isElectedPrimaryHere('fdmdownapp', '192.168.1.5:16127')).to.equal(null);
+      });
     });
 
     it('does not start at index 0 while a peer is already running the component', async () => {
@@ -4026,11 +4123,17 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
     it('refuses a surplus removal that is not safe', async () => {
       // Before this, surplus removal deleted on an instance count alone - one of
       // the paths that has already destroyed customer volumes.
-      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', LOCAL, '8.8.8.8:16127'));
+      //
+      // LOCAL is LAST, so it is the junior instance and SURPLUS actually fires.
+      // Third of four made this node the second-newest, reasonToGiveUpApp
+      // returned giveUp: false, and the pass never reached the safety gate at
+      // all - the test went green with the whole gate deleted.
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
       evacuationSafety.canSafelyRemoveApp.resolves({ safe: false, reason: 'no connected peer holds it' });
 
       await advancedWorkflows.checkAndRemoveApplicationInstance();
 
+      sinon.assert.calledWith(evacuationSafety.canSafelyRemoveApp, 'appone');
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
 
@@ -4053,7 +4156,45 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
 
       const { isElectedPrimary } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
       expect(isElectedPrimary).to.be.a('function');
-      expect(isElectedPrimary('appone')).to.equal(false);
+      // No election has run in this pass, so the honest answer is "cannot say".
+      // It must not be false: an election that has never run and an election
+      // that has named another node are the difference between keeping a
+      // volume and deleting it out from under its writer.
+      expect(isElectedPrimary('appone')).to.equal(null);
+    });
+
+    it('tells the safety gate which components are running on this node', async () => {
+      // The local half of the primary question. A node not running the g:
+      // component cannot be the one writing, and that needs no FDM - which is
+      // what stops a load-balancer outage stalling the trim fleet-wide.
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+      sinon.stub(appQueryService, 'listRunningApps').resolves({
+        status: 'success',
+        data: [{ Names: ['/fluxserver_appone'] }, { Names: ['/zelolderapp'] }],
+      });
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      const { isComponentRunningLocally } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
+      expect(await isComponentRunningLocally('server_appone')).to.equal(true);
+      // The pre-rename prefix is four characters, not five.
+      expect(await isComponentRunningLocally('olderapp')).to.equal(true);
+      expect(await isComponentRunningLocally('server_someotherapp')).to.equal(false);
+    });
+
+    it('treats an unreadable container list as "running here" rather than "not running"', async () => {
+      // Answering "not running" on a list this node could not read would route
+      // every app straight past the primary check - the exact shape of the
+      // defect being closed.
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+      sinon.stub(appQueryService, 'listRunningApps').resolves({ status: 'error', data: 'docker down' });
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      const { isComponentRunningLocally } = evacuationSafety.canSafelyRemoveApp.firstCall.args[1];
+      expect(await isComponentRunningLocally('anything_atall')).to.equal(true);
     });
 
     it('refuses an evacuation removal that is not safe, and restarts its observation', async () => {

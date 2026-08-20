@@ -54,6 +54,23 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 // Master/slave app tracking
 const mastersRunningGSyncthingApps = new Map();
+// When the election last reached a CONCLUSIVE verdict for an identifier: FDM
+// answered, and either named a primary or named none. An absent or stale entry
+// means the election is not running - it returns early before it reaches any
+// app while syncthing's first-run mount-safety is outstanding, while syncthing
+// is unhealthy, and per app whenever FDM cannot be reached - and "the election
+// is not running" must not be readable as "there is no primary here".
+//
+// Without this the presence of an entry in mastersRunningGSyncthingApps is the
+// only evidence there is, and its absence carries two opposite meanings at
+// once.
+const primaryElectionCheckedAt = new Map();
+// Ten election cycles. Derived from the election's own cadence rather than
+// written as its own number, so it stays in the same proportion to the pass
+// that refreshes it at every scale - the harness compresses masterSlaveApps by
+// 10x and this follows exactly, instead of being a constant that silently
+// becomes hundreds of cycles under compression.
+const PRIMARY_ELECTION_STALE_MS = (config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000) * 10;
 const timeTostartNewMasterApp = new Map();
 // Components already reported as operator-stopped, so the exclusion is announced
 // on entry (and again after a restart) instead of every 30s cycle. An operator
@@ -245,6 +262,11 @@ async function getMasterIpFromFdm(appName, axiosOptions) {
       const url = `${region.baseUrl}/appips/${appName}`;
       // eslint-disable-next-line no-await-in-loop
       const response = await serviceHelper.axiosGet(url, axiosOptions);
+      // axiosGet is bare axios.get and rejects on any non-2xx, so reaching here
+      // at all means the service replied. Whether the body names a primary is a
+      // separate question, answered below: an unparseable 2xx is FDM being
+      // reachable and telling us nothing, not FDM being down.
+      answered = true;
 
       if (response.data && response.data.status === 'success' && response.data.data) {
         answered = true;
@@ -265,6 +287,7 @@ async function getMasterIpFromFdm(appName, axiosOptions) {
         answered = true;
         log.debug(`getMasterIpFromFdm: App ${appName} not found in ${region.name} FDM`);
       } else if (error.response && error.response.status === 503) {
+        // Starting up - it is not answering yet, so it has told us nothing.
         log.debug(`getMasterIpFromFdm: ${region.name} FDM service starting up for app ${appName}`);
       } else {
         log.error(`getMasterIpFromFdm: Failed to reach ${region.name} FDM for app ${appName}: ${error.message}`);
@@ -3418,6 +3441,17 @@ async function updateAppGlobalyApi(req, res) {
 }
 
 /**
+ * The app/component identifier a docker container name carries, with the
+ * runtime prefix removed. Containers are named `/flux<identifier>`, and
+ * `/zel<identifier>` for anything installed before the rename.
+ * @param {string} containerName Docker's name, leading slash included.
+ * @returns {string} The identifier the election and the specs both use.
+ */
+function identifierFromContainerName(containerName) {
+  return containerName.startsWith('/zel') ? containerName.slice(4) : containerName.slice(5);
+}
+
+/**
  * Whether this node is the primary currently elected to run an app's `g:`
  * component.
  *
@@ -3428,17 +3462,42 @@ async function updateAppGlobalyApi(req, res) {
  *
  * The election keys one identifier per app - the app name below v4, and
  * `<component>_<app>` above it - so both forms are matched.
+ *
+ * Three states, because two cannot express what is known here. An empty
+ * election table means either "no node is primary" or "the election has not
+ * run", and the caller destroys a volume on the difference. Every other
+ * unavailable input in canSafelyRemoveApp refuses; so does this one.
+ *
+ * Only a fresh verdict that NAMES a primary answers false. "FDM named nobody"
+ * is null rather than false, because FDM registration lags a node actually
+ * starting the component by ~110s (see the note at the `all` peer check below),
+ * and throughout that window it reports no primary while an instance is live -
+ * so on a node running the component it is the likeliest single reading of "no
+ * primary" that this node is the one just promoted.
+ *
+ * Null is also returned when no verdict has been recorded for the app, or when
+ * the one on record has gone stale: the election refreshes every
+ * masterSlaveIntervalMs, so an entry older than PRIMARY_ELECTION_STALE_MS means
+ * it has stopped running rather than that nothing has changed.
  * @param {string} appName Global app name.
  * @param {string} localSocketAddr This node's socket address.
- * @returns {boolean}
+ * @param {number} [now] Epoch ms, injectable for tests.
+ * @returns {boolean|null} True if this node is the elected primary, false if
+ *   another node provably is, null if the election cannot say.
  */
-function isElectedPrimaryHere(appName, localSocketAddr) {
+function isElectedPrimaryHere(appName, localSocketAddr, now = Date.now()) {
+  let namesAPrimary = false;
   // eslint-disable-next-line no-restricted-syntax
-  for (const [identifier, masterIp] of mastersRunningGSyncthingApps) {
+  for (const [identifier, checkedAt] of primaryElectionCheckedAt) {
     const namesThisApp = identifier === appName || identifier.endsWith(`_${appName}`);
-    if (namesThisApp && ipsMatch(masterIp, localSocketAddr)) return true;
+    if (!namesThisApp) continue;
+    if (now - checkedAt > PRIMARY_ELECTION_STALE_MS) continue;
+    const masterIp = mastersRunningGSyncthingApps.get(identifier);
+    if (!masterIp) continue;
+    namesAPrimary = true;
+    if (ipsMatch(masterIp, localSocketAddr)) return true;
   }
-  return false;
+  return namesAPrimary ? false : null;
 }
 
 /**
@@ -3530,6 +3589,27 @@ async function checkAndRemoveApplicationInstance() {
       return;
     }
 
+    // Which components this node is actually running, read once for the pass
+    // rather than once per app. Only the g: ones matter downstream: a node not
+    // running the writer component cannot be the writer, which is what lets the
+    // safety gate answer without FDM on every node that is merely holding a
+    // synced copy.
+    // eslint-disable-next-line global-require
+    const appQueryService = require('../appQuery/appQueryService');
+    const runningRes = await appQueryService.listRunningApps();
+    const runningIdentifiers = runningRes && runningRes.status === 'success' && Array.isArray(runningRes.data)
+      ? new Set(runningRes.data.map((app) => identifierFromContainerName(app.Names[0])))
+      : null;
+    if (!runningIdentifiers) {
+      log.warn('Give-up-an-app pass: running container list unreadable; every g: component is treated as running here');
+    }
+    // Unreadable is not "not running". A container list this node cannot read
+    // says nothing about what is on its disk, and answering "not running" would
+    // route every app straight past the primary check.
+    const isComponentRunningLocally = async (identifier) => (
+      runningIdentifiers ? runningIdentifiers.has(identifier) : true
+    );
+
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
       // eslint-disable-next-line no-await-in-loop
@@ -3559,11 +3639,13 @@ async function checkAndRemoveApplicationInstance() {
         getApplicationGlobalSpecifications: registryManager.getApplicationGlobalSpecifications,
         findSyncedPeer,
         isElectedPrimary: (name) => isElectedPrimaryHere(name, localSocketAddr),
+        isComponentRunningLocally,
       });
       fluxEventBus.publish('giveUp:safety', {
         appName: installedApp.name,
         reason: decision.reason,
         safe: safety.safe,
+        code: safety.code,
         detail: safety.reason,
       });
       if (!safety.safe) {
@@ -3571,7 +3653,15 @@ async function checkAndRemoveApplicationInstance() {
         // uninterrupted period of the app being whole rather than accumulated
         // across a gap.
         residentialNodeDosService.forgetAppObservation(installedApp.name);
-        log.info(`${installedApp.name} would be given up (${decision.reason}) but it is not safe: ${safety.reason}`);
+        if (safety.code === 'ELECTION_UNKNOWN') {
+          // Louder than the rest: every other refusal here is the gate working,
+          // and this one means the node cannot establish something it needs. A
+          // node in this state indefinitely is not idle, it is stuck, and the
+          // two read identically at info level.
+          log.warn(`${installedApp.name} cannot be given up (${decision.reason}): ${safety.reason}`);
+        } else {
+          log.info(`${installedApp.name} would be given up (${decision.reason}) but it is not safe: ${safety.reason}`);
+        }
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -4257,12 +4347,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 
     // Decrypt enterprise apps (version 8 with encrypted content)
     ({ inPlace: appsInstalled.data } = await decryptEnterpriseApps(appsInstalled.data));
-    const runningAppsNames = runningApps.map((app) => {
-      if (app.Names[0].startsWith('/zel')) {
-        return app.Names[0].slice(4);
-      }
-      return app.Names[0].slice(5);
-    });
+    const runningAppsNames = runningApps.map((app) => identifierFromContainerName(app.Names[0]));
     const agent = new https.Agent({
       rejectUnauthorized: false,
     });
@@ -4302,6 +4387,15 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       if (!validIdentifiers.has(identifier)) {
         mastersRunningGSyncthingApps.delete(identifier);
         log.info(`masterSlaveApps: Cleaned up stale entry from mastersRunningGSyncthingApps: ${identifier}`);
+      }
+    }
+
+    // And the verdict record beside it. An identifier the node no longer holds
+    // must not keep answering for the app it names.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const identifier of primaryElectionCheckedAt.keys()) {
+      if (!validIdentifiers.has(identifier)) {
+        primaryElectionCheckedAt.delete(identifier);
       }
     }
 
@@ -4400,6 +4494,12 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
               // eslint-disable-next-line no-continue
               continue;
             }
+            // FDM answered and `ip` is either a primary's address or null for
+            // none. Both are verdicts, and it is the verdict rather than the
+            // table entry that isElectedPrimaryHere reads - a null ip writes
+            // nothing to mastersRunningGSyncthingApps, so without this line the
+            // two ways of having no entry stay indistinguishable.
+            primaryElectionCheckedAt.set(identifier, Date.now());
             if ((!ip)) {
               log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
               if (!runningAppsNames.includes(identifier)) {

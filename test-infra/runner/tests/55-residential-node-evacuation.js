@@ -15,7 +15,7 @@ import {
   waitForSpawnerBlocked, waitFor, waitForGiveUpConsidered, waitForGiveUpSafety,
 } from '../framework/wait.js';
 import { setNoPeerData, setPeerHasData, setSynced } from '../framework/syncthing-control.js';
-import { electMaster } from '../framework/fdm-control.js';
+import { electMaster, startFdmOutage, endFdmOutage } from '../framework/fdm-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
 const subnet = getSubnetConfig();
@@ -172,7 +172,7 @@ async function returnToService(env, node) {
 
 /** Put the settling window in the past, so evacuation may begin this run. */
 async function elapseSettleWindow(nodeIndex) {
-  await dbClient(nodeIndex).setResidentialSince(Date.now() - (48 * 60 * 60 * 1000));
+  await dbClient(nodeIndex).serveSettleWindow();
 }
 
 describe('Residential node evacuation', function () {
@@ -594,10 +594,14 @@ describe('Residential node evacuation', function () {
   it('keeps the settling clock across a restart, so restarting cannot postpone the drain', async function () {
     this.timeout(600000);
 
-    // The clock is persisted and measured in wall-clock precisely so that
-    // bouncing FluxOS - on a cron, say - cannot keep a node permanently just
-    // short of the window. An in-memory counter of agreeing ticks would reset
-    // here, and this is the test that would have caught that.
+    // The clock is persisted precisely so that bouncing FluxOS - on a cron, say
+    // - cannot keep a node permanently just short of the window. An in-memory
+    // counter of agreeing ticks would reset here, and this is the test that
+    // would have caught that.
+    //
+    // What the window counts is time the node OBSERVED the verdict, not time
+    // that elapsed, so the total observed is the half that has to survive: a
+    // first-seen timestamp surviving a restart proves nothing on its own now.
     await returnToService(env, TARGET);
 
     // It has to be HOLDING something. An empty target goes straight to DOS -
@@ -609,15 +613,20 @@ describe('Residential node evacuation', function () {
     await setSystemSecure(subnet.nodeIp(TARGET), false);
     await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
       { timeout: 120000, label: 'the settling window starts' });
-    const before = (await dbClient(TARGET).residentialMarker()).residentialSince;
+    // Let it confirm at least twice, so there is observed time to lose.
+    await waitFor(async () => ((await dbClient(TARGET).residentialMarker()).observedMs || 0) > 0,
+      { timeout: 120000, label: 'the node has accrued observed time' });
+    const before = await dbClient(TARGET).residentialMarker();
 
     await env.restartNode(TARGET - 1);
     await waitForDaemonReady(env.clients[TARGET - 1]);
 
     await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
       { timeout: 120000, label: 'the marker is still there after the restart' });
-    const after = (await dbClient(TARGET).residentialMarker()).residentialSince;
-    expect(after).to.eql(before);
+    const after = await dbClient(TARGET).residentialMarker();
+    expect(after.residentialSince).to.eql(before.residentialSince);
+    // The restart cost it nothing it had already watched.
+    expect(after.observedMs).to.be.at.least(before.observedMs);
   });
 
   it('only one residential node gives up an app at a time', async function () {
@@ -712,5 +721,61 @@ describe('Residential node evacuation', function () {
     const verdict = await refused;
 
     expect(verdict.data.detail).to.contain('elected primary');
+    expect(verdict.data.code).to.equal('ELECTED_PRIMARY');
+  });
+
+  it('will not hand back a g: app it is running while no FDM can name the primary', async function () {
+    this.timeout(900000);
+
+    // The other half of the same question, and the one that used to answer
+    // "safe". An election that has NOT RUN and an election that named another
+    // node were the same answer - false - and the gate deleted the volume on
+    // it. Every other unavailable input in that gate refuses.
+    //
+    // This runs on from the test above: node TARGET is the elected primary of
+    // primaryapp and is running its g: component. Taking FDM down means the
+    // election reaches no verdict for the app at all, so what the node knows
+    // has to go STALE rather than merely be absent - it was elected moments
+    // ago and remembers it. PRIMARY_ELECTION_STALE_MS is ten election cycles,
+    // derived from masterSlaveIntervalMs, so the wait below is derived from
+    // the same knob rather than picked: at the harness's 3s cycle the verdict
+    // expires 30s after the last pass that reached one.
+    //
+    // The stub closes its listening socket, not an empty ips array. An empty
+    // array is FDM ANSWERING that nobody is primary; this is nobody answering,
+    // and a refused connection is the signature a real FDM outage carries - the
+    // error reaches the node with no response on it at all. The gate is allowed
+    // to act on the first and must not act on the second.
+    const electionCycleMs = 3000; // config.fluxapps.masterSlaveIntervalMs, harness value
+    const staleAfterMs = electionCycleMs * 10; // PRIMARY_ELECTION_STALE_MS
+    await startFdmOutage('refuse');
+
+    try {
+      let unknownRefusal = null;
+      const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'primaryapp',
+        (d) => d.safe === false && d.code === 'ELECTION_UNKNOWN', 600000)
+        .then((v) => { unknownRefusal = v; return v; });
+      refused.catch(() => {});
+
+      // Let the last verdict age out before driving the pass that reads it.
+      // Driving sooner would prove nothing: the node would still be answering
+      // from what it learned while FDM was up.
+      await new Promise((resolve) => { setTimeout(resolve, staleAfterMs + electionCycleMs); });
+
+      await stopTicker();
+      await driveUntil(env, TARGET, async () => unknownRefusal !== null);
+      await startTicker();
+
+      const verdict = await refused;
+
+      expect(verdict.data.code).to.equal('ELECTION_UNKNOWN');
+      expect(verdict.data.detail).to.contain('cannot say who is primary');
+      // And the app is still here. A refusal that let the removal through
+      // anyway would satisfy the assertions above and lose the volume.
+      const stillInstalled = await env.clients[TARGET - 1].get('/apps/installedapps');
+      expect(stillInstalled.data.map((a) => a.name)).to.include('primaryapp');
+    } finally {
+      await endFdmOutage();
+    }
   });
 });
