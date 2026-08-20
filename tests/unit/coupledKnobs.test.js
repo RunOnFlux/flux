@@ -82,6 +82,39 @@ describe('coupled harness knobs track production', () => {
     expect(Math.abs(modelled - MEASURED_PASS_MS) / MEASURED_PASS_MS).to.be.below(0.05);
   });
 
+  it('holds the sigterm window below the running expiry, in production', () => {
+    const { fluxapps } = productionConfig();
+
+    expect(knobs.PRODUCTION.sigtermExpiryS).to.equal(fluxapps.sigtermExpiryS);
+    expect(knobs.PRODUCTION.locationTtlS).to.equal(fluxapps.locationTtlS);
+    // The ordering IS the property: appStartupManager expires on
+    // (cleanShutdown && downtime > sigterm) || downtime > running.
+    expect(fluxapps.sigtermExpiryS).to.be.below(fluxapps.locationTtlS);
+  });
+
+  it('rejects a fleet where the running expiry pre-empts the sigterm window', () => {
+    // What making locationTtlS live did: 420s against 63s, so the clean-shutdown
+    // grace became unreachable and a node down 300s deleted its apps.
+    expect(() => knobs.assertSigtermOrdering({ sigtermExpiryS: 420, locationTtlS: 63 }))
+      .to.throw(/not below locationTtlS/);
+  });
+
+  it('rejects a sigterm window no fixture could land inside', () => {
+    // Production's 120x would give 3.5s, and one node boot is 16s. A window
+    // smaller than the boot cannot be tested from the inside at all - which is
+    // the trap in compressing a knob measured across real work.
+    expect(() => knobs.assertSigtermOrdering({ sigtermExpiryS: 3.5, locationTtlS: 63 }))
+      .to.throw(/at or below one node boot/);
+  });
+
+  it('accepts the harness pair as shipped', () => {
+    const shared = knobs.loadSharedConfig().fluxapps;
+
+    expect(shared.sigtermExpiryS).to.be.above(knobs.BOOT_DRIFT_MS / 1000);
+    expect(shared.sigtermExpiryS).to.be.below(shared.locationTtlS);
+    expect(() => knobs.assertSigtermOrdering(shared)).to.not.throw();
+  });
+
   it('leaves a step longer than production needs alone', () => {
     // A suite that does not compress this at all is slow, not wrong, and the
     // check must not push anyone toward a tighter number than they wanted.
