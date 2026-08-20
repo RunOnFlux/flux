@@ -750,8 +750,16 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   }
 
   if (nodeTiers) {
-    for (const [index, tier] of Object.entries(nodeTiers)) {
-      const ip = subnet.nodeIp(Number(index) + 1);
+    // Keyed by NODE NUMBER, 1-based: `{ 1: … }` is node 1, the same as the
+    // geolocation map below and the same as the named constants suites declare
+    // (`const TARGET = 1`). It was 0-based-plus-one while the geolocation map
+    // fifty lines down was not, so the two idioms sat side by side meaning
+    // different things by their key - and a suite copying the nearer one
+    // classifies the wrong node, which here is the input to a DOS decision.
+    // Converted rather than commented because nothing in the repository passes
+    // nodeTiers, so there was no caller to break.
+    for (const [nodeNumber, tier] of Object.entries(nodeTiers)) {
+      const ip = subnet.nodeIp(Number(nodeNumber));
       await fetch(`http://${DAEMON_IP}:18232/node-tier/${ip}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -802,8 +810,9 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
   // after createTestEnv returns is already too late, and the node reads the
   // stub's default instead - which is a data centre, so the override silently
   // does nothing.
-  for (const [index, override] of Object.entries(geolocation ?? {})) {
-    await fetch(`http://${EXTERNAL_STUB_IP}:3001/geolocation/${subnet.nodeIp(Number(index))}`, {
+  // Keyed by NODE NUMBER, 1-based, as nodeTiers above now is.
+  for (const [nodeNumber, override] of Object.entries(geolocation ?? {})) {
+    await fetch(`http://${EXTERNAL_STUB_IP}:3001/geolocation/${subnet.nodeIp(Number(nodeNumber))}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(override),

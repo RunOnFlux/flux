@@ -219,6 +219,8 @@ export async function waitForGiveUpConsidered(node, appName, predicate, timeout 
  * see WHICH filter took it rather than guessing.
  */
 export async function waitForNoCandidates(node, predicate, timeout = 60000, opts) {
+  // The client does not subscribe to this event by default - see node-client.js
+  // for why. Add the name to its list before using this.
   return node.waitForEvent('spawner:noCandidates', (d) => (!predicate || predicate(d)), timeout, opts);
 }
 
