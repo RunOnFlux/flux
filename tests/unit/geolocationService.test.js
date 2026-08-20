@@ -389,6 +389,109 @@ describe('geolocationService tests', () => {
       expect(geolocationService.getStaticIpState()).to.equal('STATIC');
     });
 
+    // The table lookup is not stubbed by this describe's reload(), so these
+    // build their own. A recent change means: lastIpChangeDate on record AND
+    // the address held for less than the stability window since.
+    function reloadWithTable(networkClass) {
+      return proxyquire('../../ZelBack/src/services/geolocationService', {
+        config: configStub,
+        '../lib/log': logStub,
+        './dbHelper': dbHelperStub,
+        './serviceHelper': serviceHelperStub,
+        './fluxNetworkHelper': fluxNetworkHelperStub,
+        './appPlacement/ipLocationStore': {
+          lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass }),
+          status: sinon.stub().returns({ ready: true, generated: 'x', rowCount: 2000000 }),
+        },
+      });
+    }
+
+    function changedThreeDaysAgo() {
+      const threeDays = 3 * 24 * 60 * 60 * 1000;
+      dbHelperStub.findOneInDatabase.resolves({
+        geolocation: { ip: '185.199.108.1' },
+        staticIp: false,
+        dataCenter: false,
+        lastIpChangeDate: Date.now() - threeDays,
+        ipFirstSeenAt: Date.now() - threeDays,
+        staticIpState: 'UNKNOWN',
+        networkClassification: null,
+      });
+    }
+
+    it('lets a watched change override the table behind NAT', async () => {
+      // The correction. This node SAW this address move three days ago. That is
+      // the only evidence here about this exact address rather than about the
+      // range around it, so a hosting verdict for the range does not answer it -
+      // an address that moved is what an app requiring a fixed one cares about.
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      changedThreeDaysAgo();
+      geolocationService = reloadWithTable('DATACENTER');
+      await geolocationService.getNodeGeolocation();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('UNKNOWN');
+    });
+
+    it('lets a watched change override the table when the interface is unreadable', async () => {
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(null);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      changedThreeDaysAgo();
+      geolocationService = reloadWithTable('DATACENTER');
+      await geolocationService.getNodeGeolocation();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('UNKNOWN');
+    });
+
+    it('lets a watched change override a public address on the interface', async () => {
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      changedThreeDaysAgo();
+      geolocationService = reloadWithTable('DATACENTER');
+      await geolocationService.getNodeGeolocation();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('UNKNOWN');
+    });
+
+    it('is STATIC when the interface is unreadable but the table calls the range hosting', async () => {
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(null);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      geolocationService = reloadWithTable('DATACENTER');
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('STATIC');
+    });
+
+    it('is STATIC again once a watched change has been held out', async () => {
+      // The window is what the address earns it back with, and the only thing
+      // ipFirstSeenAt measures.
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      const elevenDays = 11 * 24 * 60 * 60 * 1000;
+      dbHelperStub.findOneInDatabase.resolves({
+        geolocation: { ip: '185.199.108.1' },
+        staticIp: false,
+        dataCenter: false,
+        lastIpChangeDate: Date.now() - elevenDays,
+        ipFirstSeenAt: Date.now() - elevenDays,
+        staticIpState: 'UNKNOWN',
+        networkClassification: null,
+      });
+      geolocationService = reloadWithTable(null);
+      await geolocationService.getNodeGeolocation();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('STATIC');
+    });
+
     it('is STATIC behind NAT when the published table calls the range hosting', async () => {
       // A 1:1-NAT cloud instance holds a genuinely static address that never
       // appears on a local interface, so the interface test alone can never see

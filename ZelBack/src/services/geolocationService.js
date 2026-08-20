@@ -318,33 +318,39 @@ async function setNodeGeolocation() {
     const heldForMs = now - ipFirstSeenAt;
     const heldDays = heldForMs / (24 * 60 * 60 * 1000);
 
-    // THE WHOLE DECISION, in one table. Read down the first two columns; the
-    // third is consulted only where the first two cannot settle it.
+    // THE WHOLE DECISION, in one table, in the order it is asked.
     //
-    //   public IP on   this node has     published     verdict
-    //   the interface  SEEN it change    table says
-    //   -------------  ---------------   -----------   -------------------
-    //   yes            no                (not asked)   STATIC
-    //   yes            yes, >10d ago     (not asked)   STATIC
-    //   yes            yes, <10d ago     hosting       STATIC
-    //   yes            yes, <10d ago     anything else UNKNOWN
-    //   no  (NAT)      -                 hosting       STATIC
-    //   no  (NAT)      -                 anything else DYNAMIC
-    //   unreadable     -                 hosting       STATIC
-    //   unreadable     -                 anything else UNKNOWN
+    //   this node WATCHED    public IP on    published      verdict
+    //   it change <10d ago   the interface   table says
+    //   ------------------   -------------   ------------   -------
+    //   yes                  -               -              UNKNOWN
+    //   no                   yes             (not asked)    STATIC
+    //   no                   no  (NAT)       hosting        STATIC
+    //   no                   no  (NAT)       anything else  DYNAMIC
+    //   no                   unreadable      hosting        STATIC
+    //   no                   unreadable      anything else  UNKNOWN
     //
     // Only STATIC satisfies an app's `staticip` requirement; UNKNOWN and
     // DYNAMIC both fail it, and are kept apart so a node that could not answer
     // does not read as one that answered "behind NAT".
     //
-    // Row 1 is the common case and the one that matters most: a node has SEEN
-    // no change because it started watching after the fact, which every node
-    // does exactly once. That is not evidence the address moves. Measured on
-    // the fleet an address changes on 0.29% of node-days, so treating
-    // not-yet-watched as suspect is wrong about ~97% of nodes for the ten days
-    // it lasts - and it lands on all of them together, because they upgrade
-    // together. An observed change is what withdraws the trust; rows 2-4 are
-    // the address earning it back.
+    // A watched change is asked FIRST and nothing overrides it. It is the only
+    // evidence here that is about this exact address rather than about the
+    // range it sits in, and it is a record of the address actually moving. A
+    // hosting range whose addresses do move is still a node whose address
+    // moved, which is the whole of what an app requiring a fixed address cares
+    // about. lastIpChangeDate comes from the geolocation fetch, so it is
+    // available whether or not the node can see the address on an interface -
+    // deciding rows 3 to 6 without consulting it threw away the best evidence
+    // held, in exactly the cases where the rest of it is weakest.
+    //
+    // Row 2 is the common case: a node has WATCHED no change because it started
+    // watching after the fact, which every node does exactly once. That is not
+    // evidence the address moves. Measured on the fleet an address changes on
+    // 0.29% of node-days, so treating not-yet-watched as suspect is wrong about
+    // ~97% of nodes for the whole ten days it lasts - and it lands on all of
+    // them together, because they upgrade together. An observed change is what
+    // withdraws the trust, and the window is how the address earns it back.
     //
     // Where the local test cannot answer, the published table can. A 1:1-NAT
     // cloud instance holds a genuinely static address that never appears on any
@@ -369,33 +375,25 @@ async function setNodeGeolocation() {
     const publishedHosting = (await publishedClassification(currentIp)).classification
       === networkClassifier.CLASSIFICATION.DATACENTER;
 
-    if (hasPublicIp === null) {
-      // The routing table could not be read. Not evidence of anything about the
-      // address, and in particular not evidence of NAT.
-      staticIpState = publishedHosting ? STATIC_IP_STATE.STATIC : STATIC_IP_STATE.UNKNOWN;
-    } else if (!hasPublicIp) {
-      // Behind NAT as far as this node can see.
-      staticIpState = publishedHosting ? STATIC_IP_STATE.STATIC : STATIC_IP_STATE.DYNAMIC;
-    } else if (!lastIpChangeDate) {
-      // A public address on the interface, and this node has never seen it
-      // change. Absence of an observed change is not evidence that the address
-      // moves - it is this node having started watching after the fact, which
-      // every node does exactly once. Measured on the fleet, an address changes
-      // on 0.29% of node-days, so treating "not yet watched" as suspect is
-      // wrong about roughly 97% of nodes for the whole ten days it lasts, and
-      // it lands on all of them at once because they upgrade together.
-      //
-      // Trusted until it is seen to move, and one observed change is what
-      // withdraws it - the branch below then makes the address earn it back.
-      staticIpState = STATIC_IP_STATE.STATIC;
-    } else if (heldForMs >= stabilityThreshold) {
+    const watchedItChange = Boolean(lastIpChangeDate) && heldForMs < stabilityThreshold;
+
+    if (watchedItChange) {
+      // Asked first, and nothing overrides it: this node saw this address move,
+      // and it has not been held long enough since to say it has settled.
+      staticIpState = STATIC_IP_STATE.UNKNOWN;
+    } else if (hasPublicIp === true) {
       staticIpState = STATIC_IP_STATE.STATIC;
     } else if (publishedHosting) {
-      // It has moved recently, but it is in a hosting range: an address that
-      // moves within a data centre is still handed back as a fixed one.
+      // The node cannot see the address on an interface, but the table places
+      // it in a hosting range - the 1:1-NAT case, where the address is fixed
+      // and simply never appears locally.
       staticIpState = STATIC_IP_STATE.STATIC;
+    } else if (hasPublicIp === false) {
+      // Behind NAT as far as this node can see, and nothing says otherwise.
+      staticIpState = STATIC_IP_STATE.DYNAMIC;
     } else {
-      // It has demonstrably moved and has not been held long enough since.
+      // The routing table could not be read. Not evidence of anything about the
+      // address, and in particular not evidence of NAT.
       staticIpState = STATIC_IP_STATE.UNKNOWN;
     }
     staticIp = staticIpState === STATIC_IP_STATE.STATIC;
