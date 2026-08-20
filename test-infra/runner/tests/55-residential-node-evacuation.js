@@ -399,14 +399,19 @@ describe('Residential node evacuation', function () {
 
     // The node now publishes what each tick concluded, so this waits for the
     // decision instead of waiting out thirty seconds and inferring it from
-    // nothing having happened. enforce === false is the veto having held: the
-    // table said RESIDENTIAL, this node's own evidence contradicted it, and the
-    // verdict came back CONFLICTED. Explicitly not `!enforce` - null is a tick
-    // that could not decide, which is the opposite claim.
+    // nothing having happened.
+    //
+    // Matched on the VERDICT, not on enforce. A veto lands the node in
+    // CONFLICTED, and isResidential collapses CONFLICTED to null the same as
+    // UNKNOWN and the same as no-table-consulted - so enforce alone cannot tell
+    // "this node declined a published verdict about its own address" from
+    // "this node has read nothing yet". source: node-veto is the assertion that
+    // the veto is what did it.
     const decision = await waitForResidentialDecision(
-      env.clients[VETOING - 1], (d) => d.enforce === false, 60000,
+      env.clients[VETOING - 1], (d) => d.source === 'node-veto', 60000,
     );
-    expect(decision.data.residential, 'the veto makes the verdict not-residential').to.equal(false);
+    expect(decision.data.classification, 'a vetoed verdict is CONFLICTED').to.equal('CONFLICTED');
+    expect(decision.data.enforce, 'and CONFLICTED enforces nothing').to.equal(null);
 
     expect(await dbClient(VETOING).residentialMarker(), 'a vetoing node must not start a settling window').to.equal(null);
     const after = await env.clients[VETOING - 1].get('/flux/info');
