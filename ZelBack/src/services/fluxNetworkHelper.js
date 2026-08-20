@@ -126,7 +126,9 @@ function getInterfaceIp(interfaceName) {
  * This is a strong indicator of a static IP (data center/VPS/dedicated server).
  * Uses the Linux routing table to find the default route interface, then checks
  * if that interface has a public IP assigned.
- * @returns {Promise<boolean>} True if a public IP is configured on the default route interface
+ * @returns {Promise<boolean|null>} True if a public IP is configured on the
+ *   default route interface, false if none is, null if the routing table could
+ *   not be read - which is not the same answer as "there is none".
  */
 async function hasPublicIpOnInterface() {
   try {
@@ -188,8 +190,13 @@ async function hasPublicIpOnInterface() {
 
     return false;
   } catch (error) {
+    // Null, not false. "There is no public address on any interface" is a fact
+    // about the node; "I could not read the routing table" is a fact about this
+    // process, and answering the second with the first asserts NAT on a node
+    // that may well hold a public address. The one caller that decides anything
+    // on this treats null as unknown.
     log.error(`Failed to check network interfaces via routing table: ${error.message}`);
-    return false;
+    return null;
   }
 }
 
