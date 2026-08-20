@@ -13,13 +13,27 @@
 //   CONFLICTED   both - the signals disagree, so we do not know
 //   UNKNOWN      neither - nothing to go on
 //
-// CONFLICTED is not a rounding error on the way to a binary. Measured against
-// every host in the fleet that ip-api positively asserts is hosting (1,569 hosts
-// across all 29 hosting ASNs the fleet uses), this rule calls 0 of them
-// residential - and 39 of them land in CONFLICTED. Those 39 trip a residential
-// signal AND a contradiction; collapsing that bucket either way is precisely how
-// the accuracy would be lost. See
-// fluxModels/investigations/PR1784_RESIDENTIAL_DOS_BLAST_RADIUS.md §4.
+// CONFLICTED is not a rounding error on the way to a binary. Run over the 1,569
+// fleet hosts ip-api positively asserts are hosting, across all 29 hosting ASNs
+// the fleet uses, this rule puts 1,567 in DATACENTER and 2 in CONFLICTED -
+// 213.44.137.57 in Bouygues' consumer space and 212.83.170.245 on Online/
+// Scaleway, each carrying an access-network PTR over a hosting flag. Collapsing
+// that bucket either way is what would lose them.
+//
+// It calls none of those 1,569 residential, and that is NOT a measured accuracy:
+// `hosting` is itself a contradiction, so on this population RESIDENTIAL is
+// unreachable by construction, whatever the other signals say. Quoting it as a
+// false-positive rate - as this header did - measures the arithmetic rather than
+// the rule.
+//
+// The rate that means anything is the one at the point of enforcement, and this
+// module is not the authority there. It supplies evidence;
+// geolocationService.getNetworkClassification lets the published table decide
+// and uses evidenceAgainst only to DECLINE a published RESIDENTIAL. Of those
+// same 1,569, exactly one carries a published residential verdict -
+// 213.44.137.57 - and the veto covers it, so none is enforced against. One
+// ledger-level error in 1,569, zero enforced. See
+// fluxModels/investigations/PR1784_RESIDENTIAL_DOS_BLAST_RADIUS.md §4 and §9.
 //
 // Signals are limited to what a node can determine about itself: the PTR record
 // for its own address, the ip-api response geolocationService already fetches,

@@ -509,7 +509,13 @@ module.exports = {
     },
     spawnDelayMultiplier: 1,
     daemonInfoIntervalMs: 30000,
-    explorerPollIntervalMs: 5000, // how often the explorer asks whether the chain moved - the floor on block-driven work
+    // NOT how often the chain is asked. pollForNewBlocks reads a height cached
+    // by daemonServiceMiscRpcs and refreshed on the daemonInfoIntervalMs timer
+    // above, so this is the rate at which the node works THROUGH blocks once it
+    // knows it is behind. Its share of that refresh window - 5000/30000, 16.7% -
+    // is what decides whether a block is still the tip when it is processed,
+    // and everything hung off block processing inherits that.
+    explorerPollIntervalMs: 5000,
     explorerSyncRetryMs: 120000,
     explorerDeepRestoreBlocks: 100,
     syncTimeoutMs: 120000,
