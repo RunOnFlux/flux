@@ -466,27 +466,48 @@ describe('Residential node evacuation', function () {
     // give-up pass is reached on a block the node processed AS the tip. See
     // driveUntil.
     await stopTicker();
+    // Read from the EVENT STREAM, not by polling two endpoints.
+    //
+    // What this has to establish is an ORDER: the app goes, and only then does
+    // DOS land. "goes into DOS only once it holds nothing" cannot see a
+    // violation on its own, because nodeStatusMonitor removes every local app
+    // at DOS >= 100 - so a premature DOS empties the node and satisfies that
+    // test's waits FASTER than the correct behaviour does.
+    //
+    // Polling cannot establish it. Two earlier forms of this check failed for
+    // two different reasons: asserting DOS unconditionally fails on the correct
+    // sequence, because DOS follows the departure by about two seconds and the
+    // next poll sees 100 with nothing held; and gating that assertion on
+    // /apps/installedapps fails because the installed-apps RECORD is dropped
+    // LAST, after the runtime state - measured at 20s behind "Application
+    // residentapp locally removed", which the whenGone wait below exists to
+    // absorb. The endpoint says held long after the node holds nothing, and
+    // `Checking 0 installed apps for image updates` in the same log says so.
+    //
+    // app:removed and dos:changed arrive on ONE stream with monotonic ids, so
+    // comparing their ids is a fact about what happened rather than a race
+    // between two reads of two different sources.
+    const removal = env.clients[TARGET - 1].waitForEvent(
+      'app:removed', (d) => d.name === 'residentapp', 300000,
+    );
     await driveUntil(env, TARGET, async () => {
-      // Sampled across the whole window in which the node still holds the app.
-      // "goes into DOS only once it holds nothing" cannot see this on its own:
-      // nodeStatusMonitor removes every local app at DOS >= 100, so a DOS
-      // applied while apps were still held would empty the node and satisfy
-      // both of that test's waits - faster than the correct behaviour. A
-      // throwing expect inside the condition propagates out of driveUntil.
-      //
-      // The app list is read FIRST and the DOS check is conditional on it.
-      // Asserting DOS unconditionally fails on the correct sequence: the node
-      // hands the app back and DOS follows about six seconds later, so the
-      // first poll after a successful departure sees dosState 100 with nothing
-      // held - which is the outcome this test is waiting for, not a violation.
-      const current = await env.clients[TARGET - 1].get('/apps/installedapps');
-      const stillHeld = current.data.map((a) => a.name).includes('residentapp');
-      if (!stillHeld) return true;
-      const info = await env.clients[TARGET - 1].get('/flux/info');
-      expect(info.data.flux.dos.dosState, 'DOS must not land while an app is still held')
-        .to.be.below(100);
-      return false;
+      const buffer = env.clients[TARGET - 1].getEventBuffer();
+      return buffer.some((e) => e.event === 'app:removed' && e.data?.name === 'residentapp');
     });
+    const removedEvent = await removal;
+
+    // Both halves, because either alone is satisfiable by an event that never
+    // fires. "nothing arrived early" is trivially true of a signal that is
+    // silent - which dos:changed WAS on this path until the sticky setters were
+    // made to emit it - so the presence check is what keeps this test honest.
+    const dosEvents = env.clients[TARGET - 1].getEventBuffer()
+      .filter((e) => e.event === 'dos:changed' && e.data?.dosState >= 100);
+    expect(dosEvents, 'the node must actually reach DOS, or the ordering below proves nothing')
+      .to.not.be.empty;
+
+    const earlyDos = dosEvents.find((e) => e.id < removedEvent.id);
+    expect(earlyDos, `DOS reached ${earlyDos?.data?.dosState} before the app was handed back`)
+      .to.equal(undefined);
 
     // The node's own view, not app:removed - that event is published part-way
     // through the uninstall, after the runtime state is dropped and before the

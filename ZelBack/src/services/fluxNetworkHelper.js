@@ -732,6 +732,7 @@ function getDosMessage() {
  */
 function setStickyDosMessage(message) {
   stickyDosMessage = message;
+  publishEffectiveDosState();
 }
 
 /**
@@ -748,6 +749,30 @@ function getStickyDosMessage() {
 function clearStickyDosMessage() {
   stickyDosMessage = null;
   stickyDosState = 0;
+  publishEffectiveDosState();
+}
+
+/**
+ * Publish the DOS state a reader would actually see.
+ *
+ * isNodeDos() answers on `stickyDosMessage ? stickyDosState : dosState`, so the
+ * effective value moves when EITHER half of the sticky pair moves, and neither
+ * setter emitted anything. A consumer therefore had to poll /flux/info, and a
+ * poll cannot order a DOS against anything else: the installed-apps record
+ * outlives the removal it follows by ~20s, so two polls of two sources disagree
+ * about what happened first. On one event stream the ids settle it.
+ *
+ * Inert in production - fluxEventBus.publish returns immediately unless
+ * config.testEventStream is set, which it is only under the harness. This is
+ * not the 21-site refactor noted below getDosStateValue; that one is about the
+ * product's own scattered dosState mutations.
+ */
+function publishEffectiveDosState() {
+  const effectiveDosState = stickyDosMessage ? stickyDosState : dosState;
+  fluxEventBus.publish('dos:changed', {
+    dosState: effectiveDosState,
+    dosMessage: stickyDosMessage || dosMessage,
+  });
 }
 
 /**
@@ -756,6 +781,7 @@ function clearStickyDosMessage() {
  */
 function setStickyDosStateValue(value) {
   stickyDosState = value;
+  publishEffectiveDosState();
 }
 
 /**
