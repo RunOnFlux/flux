@@ -919,6 +919,50 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(0);
     });
 
+    it('starts over an operator-stopped peer that is too old to say so - the rollout window, pinned deliberately', async () => {
+      // THIS IS THE LIMITATION, NOT THE BEHAVIOUR WE WANT. It is asserted so that
+      // it cannot be changed by accident, and so the next person to touch the
+      // fall-through has to decide about it rather than discover it.
+      //
+      // /apps/heldcomponents landed on development; the released line does not
+      // have it, and is 356 commits behind. A released node CAN hold the durable
+      // operator-stop lock and DOES honour it - it simply has no route with which
+      // to report it, so it answers 404.
+      //
+      // A 404 is a peer answering the old way, so the probe falls through to the
+      // container list. The owner's container is stopped, so it is not in that
+      // list, and this node reads the component as free and starts it: a second
+      // writer on the shared volume while its owner edits files on the first.
+      //
+      // There is nothing better to ask - a peer cannot answer a question its code
+      // does not contain, and reading the 404 as "holds nothing" would be the same
+      // start reached from the other direction. The hole closes only when the last
+      // node upgrades (~4h per release), and the harness cannot reproduce it:
+      // createTestEnv's legacyNodes toggles ArcaneOS vs legacy, i.e. the platform,
+      // not the FluxOS version.
+      //
+      // The test above covers the 404 fall-through only for a peer that IS running
+      // the component, where the container list happens to give the right answer.
+      // This is the case where it does not.
+      const appName = 'peeroldstoppedapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(appName, ['192.168.1.90:16127']);
+      serviceHelperStub.resolves({ data: [] });
+
+      axiosGetStub.resetBehavior();
+      // 404 to heldcomponents, and an empty container list - which is exactly what
+      // a released node whose owner has stopped this component looks like.
+      axiosGetStub.callsFake(peerAnswers({ held: null, running: [] }));
+
+      await runPass();
+
+      expect(
+        linesMatching(logInfo, 'starting docker component'),
+        'the rollout exposure changed - a released peer holding the lock is now being ruled out, or the fall-through moved',
+      ).to.have.lengthOf(1);
+    });
+
     it('will not start against a peer whose held-components answer is an in-band error', async () => {
       // FluxOS reports failures inside a 200, so a peer that HAS the endpoint and
       // could not serve it looks, by shape alone, like a peer too old to have it -
