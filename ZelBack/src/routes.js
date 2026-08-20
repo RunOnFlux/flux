@@ -1208,6 +1208,18 @@ module.exports = (app) => {
   app.get('/apps/requestmessage/:hash', (req, res) => {
     messageVerifier.requestAppMessageAPI(req, res);
   });
+  // alwaysRespond BEFORE requireBootSettled, on all eight app-control routes.
+  //
+  // Not for the reason it looks like. A 503 from the boot gate cannot collapse
+  // into a bodiless 304 whichever way round these go: express's req.fresh
+  // returns false unless the status is 2xx or 304, so a conditional request can
+  // never turn a 503 into one, whatever ETag it carries. Verified across
+  // bootSettled x order x six request shapes.
+  //
+  // The real reason is smaller: reversed, the 503 goes out with no Cache-Control
+  // header at all instead of no-store, because alwaysRespond never runs. Worth
+  // keeping, and worth writing down - two middlewares in an order with no stated
+  // reason is an invitation to swap them.
   app.get('/apps/appstart/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appStart(req, res);
   });

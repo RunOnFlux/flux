@@ -5,10 +5,18 @@
 // BEFORE a handler runs is answered with a wire status: the middlewares
 // (requireHttps 403, routeGuards 503/400), a request too large to accept
 // (paymentService 413), a resource that does not exist to be addressed
-// (fluxEventBus 404). Roughly 315 handlers answer in band against 27 that set a
-// status, and the 27 are all of the second kind; operationsController writes
-// `res.status(200).json(createErrorMessage(...))` explicitly rather than let the
-// two blur.
+// (fluxEventBus 404).
+//
+// This is the rule to write NEW code to, not a description of what is already
+// here. The codebase is not uniform: there are ~50 res.status( sites and a good
+// share of them are inside handlers that ran, so they answer a service failure
+// with a wire status. operationsController is both at once - it writes
+// `res.status(200).json(createErrorMessage(...))` explicitly, refusing to let
+// the two blur, and a few lines later answers 400/404/500 from inside a handler.
+//
+// The earlier version of this note put a count here - "roughly 315 in band
+// against 27 that set a status, and the 27 are all of the second kind" - which
+// was wrong, and wrong in the way its own last line warns about.
 //
 // The reason is the one dataOrThrow states below: the in-band shape exists so a
 // transport failure cannot impersonate a service answer. An error carried at a
