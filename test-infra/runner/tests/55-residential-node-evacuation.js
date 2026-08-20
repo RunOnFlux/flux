@@ -13,6 +13,7 @@ import {
   waitForExplorerReady, waitForOrchestratorStarted, waitForOrchestratorState,
   waitForPeerThreshold, waitForAppInstalled,
   waitForSpawnerBlocked, waitFor, waitForGiveUpConsidered, waitForGiveUpSafety,
+  waitForResidentialDecision,
 } from '../framework/wait.js';
 import { setNoPeerData, setPeerHasData, setSynced } from '../framework/syncthing-control.js';
 import { electMaster, startFdmOutage, endFdmOutage } from '../framework/fdm-control.js';
@@ -393,10 +394,16 @@ describe('Residential node evacuation', function () {
     // used by no later test, so it stays withdrawn.
     await setSystemSecure(subnet.nodeIp(VETOING), false);
 
-    // Ten residential check intervals at the compressed cadence. There is no
-    // event for "decided not to enforce" - the absence of the placement hold IS
-    // the outcome - so this waits out the decision rather than waiting for it.
-    await new Promise((resolve) => { setTimeout(resolve, 30000); });
+    // The node now publishes what each tick concluded, so this waits for the
+    // decision instead of waiting out thirty seconds and inferring it from
+    // nothing having happened. enforce === false is the veto having held: the
+    // table said RESIDENTIAL, this node's own evidence contradicted it, and the
+    // verdict came back CONFLICTED. Explicitly not `!enforce` - null is a tick
+    // that could not decide, which is the opposite claim.
+    const decision = await waitForResidentialDecision(
+      env.clients[VETOING - 1], (d) => d.enforce === false, 60000,
+    );
+    expect(decision.data.residential, 'the veto makes the verdict not-residential').to.equal(false);
 
     expect(await dbClient(VETOING).residentialMarker(), 'a vetoing node must not start a settling window').to.equal(null);
     const after = await env.clients[VETOING - 1].get('/flux/info');
@@ -458,11 +465,19 @@ describe('Residential node evacuation', function () {
       // applied while apps were still held would empty the node and satisfy
       // both of that test's waits - faster than the correct behaviour. A
       // throwing expect inside the condition propagates out of driveUntil.
+      //
+      // The app list is read FIRST and the DOS check is conditional on it.
+      // Asserting DOS unconditionally fails on the correct sequence: the node
+      // hands the app back and DOS follows about six seconds later, so the
+      // first poll after a successful departure sees dosState 100 with nothing
+      // held - which is the outcome this test is waiting for, not a violation.
+      const current = await env.clients[TARGET - 1].get('/apps/installedapps');
+      const stillHeld = current.data.map((a) => a.name).includes('residentapp');
+      if (!stillHeld) return true;
       const info = await env.clients[TARGET - 1].get('/flux/info');
       expect(info.data.flux.dos.dosState, 'DOS must not land while an app is still held')
         .to.be.below(100);
-      const current = await env.clients[TARGET - 1].get('/apps/installedapps');
-      return !current.data.map((a) => a.name).includes('residentapp');
+      return false;
     });
 
     // The node's own view, not app:removed - that event is published part-way
@@ -781,8 +796,6 @@ describe('Residential node evacuation', function () {
     // and a refused connection is the signature a real FDM outage carries - the
     // error reaches the node with no response on it at all. The gate is allowed
     // to act on the first and must not act on the second.
-    const electionCycleMs = 3000; // config.fluxapps.masterSlaveIntervalMs, harness value
-    const staleAfterMs = electionCycleMs * 10; // PRIMARY_ELECTION_STALE_MS
     await startFdmOutage('refuse');
 
     try {
@@ -792,11 +805,18 @@ describe('Residential node evacuation', function () {
         .then((v) => { unknownRefusal = v; return v; });
       refused.catch(() => {});
 
-      // Let the last verdict age out before driving the pass that reads it.
-      // Driving sooner would prove nothing: the node would still be answering
-      // from what it learned while FDM was up.
-      await new Promise((resolve) => { setTimeout(resolve, staleAfterMs + electionCycleMs); });
-
+      // Driven from the start rather than after a sleep. The verdict has to age
+      // past PRIMARY_ELECTION_STALE_MS before the gate reports ELECTION_UNKNOWN,
+      // and until it does the pass refuses with ELECTION_PRIMARY instead - so
+      // the passes in between are not wasted, they are the evidence that the
+      // node kept answering from what it knew while FDM was up. Waiting for the
+      // refusal to change rather than sleeping for the window means the test
+      // ends when the property holds, not when a timer says it should.
+      //
+      // That window is ten election cycles derived from masterSlaveIntervalMs,
+      // which the harness already compresses 10x to 3s - so this costs ~30s and
+      // shortening it means compressing masterSlaveIntervalMs further, which
+      // has its own couplings to check first.
       await stopTicker();
       await driveUntil(env, TARGET, async () => unknownRefusal !== null);
       await startTicker();
