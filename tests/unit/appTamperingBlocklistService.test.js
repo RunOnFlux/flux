@@ -362,6 +362,63 @@ describe('appTamperingBlocklistService tests', () => {
       sinon.assert.calledWith(fluxNetworkHelperStub.setStickyDosStateValue, 100);
     });
 
+    it('claims the slot as soon as the other owner releases it', async () => {
+      // Enforcement runs every 12 hours. The residential enforcer takes the
+      // single slot first at boot, and later RELEASES it when its own verdict
+      // flips - a residential address moving into a hosting range clears its
+      // sticky. Without the watch, a node this build has determined should be
+      // out of service sits at DOS 0 taking apps until the next 12-hourly tick.
+      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('Residential node not running ArcaneOS');
+      serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+      setTamperScore(15);
+
+      await service.enforceBlocklist();
+      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(service.isDosActive()).to.be.false;
+
+      // The other owner lets go.
+      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns(null);
+      service.claimSlotIfFree();
+
+      sinon.assert.calledOnce(fluxNetworkHelperStub.setStickyDosMessage);
+      expect(fluxNetworkHelperStub.setStickyDosMessage.firstCall.args[0]).to.contain('tamper score 15');
+      sinon.assert.calledWith(fluxNetworkHelperStub.setStickyDosStateValue, 100);
+      expect(service.isDosActive()).to.be.true;
+    });
+
+    it('leaves the slot alone while the other owner still holds it', async () => {
+      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('Residential node not running ArcaneOS');
+      serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+      setTamperScore(15);
+      await service.enforceBlocklist();
+
+      service.claimSlotIfFree();
+      service.claimSlotIfFree();
+
+      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(service.isDosActive()).to.be.false;
+    });
+
+    it('stops watching once this node should no longer be DOSed', async () => {
+      // The blocklist entry is withdrawn while another owner holds the slot.
+      // Claiming it afterwards would put the node out of service for a reason
+      // that no longer applies.
+      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('Residential node not running ArcaneOS');
+      serviceHelperStub.axiosGet.resolves({ data: [MOCK_TXHASH] });
+      setTamperScore(15);
+      await service.enforceBlocklist();
+
+      serviceHelperStub.axiosGet.resolves({ data: [] });
+      setTamperScore(0);
+      await service.enforceBlocklist();
+
+      fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns(null);
+      service.claimSlotIfFree();
+
+      expect(fluxNetworkHelperStub.setStickyDosMessage.called).to.be.false;
+      expect(service.isDosActive()).to.be.false;
+    });
+
     it('does NOT clear a sticky DOS set by a different module', async () => {
       // Some other module set sticky for an unrelated reason
       fluxNetworkHelperStub.getStickyDosMessage = sinon.stub().returns('some other module sticky reason');
