@@ -425,10 +425,18 @@ module.exports = {
     bootDelayMultiplier: 1,
     spawnDelayMs: 0,
     removalSpacingMs: 60000,
-    locationTtlS: 7500,
-    installingTtlS: 900,
-    installErrorTtlS: 3600,
-    tempMsgTtlS: 3600,
+    // Per-document expiry for the ephemeral app collections, in seconds, read by
+    // appConstants.js. Each record carries its own deadline and the collection
+    // index is expireAt/expireAfterSeconds:0, so changing one of these takes
+    // effect on records written after it, not on the ones already stored.
+    locationTtlS: 7500, // a running-app location record: 125 minutes
+    installingTtlS: 900, // an in-progress install: 15 minutes
+    // 24 hours. This was 3600 while a collection-level TTL index on `cachedAt`
+    // drove it; that index was dropped when expiry moved per-document, and the
+    // key kept the old mechanism's number for three months while nothing read
+    // it. The 24h the code has actually run since is the value.
+    installErrorTtlS: 86400,
+    tempMsgTtlS: 3600, // collection-level index, serviceManager.js
     hashSyncIntervalMs: 1800000,
     peerNotifyIntervalMs: 3600000,
     cpuCheckIntervalMs: 900000,
@@ -471,7 +479,19 @@ module.exports = {
     residentialSettleMs: 24 * 60 * 60 * 1000, // verdict must hold before any app moves
     residentialEvacuationIntervalMs: 6 * 60 * 60 * 1000, // minimum gap between departures
     residentialQueueBaseMs: 30 * 60 * 1000, // every node waits at least this
-    residentialQueueStepMs: 15 * 60 * 1000, // per position in the instance order
+    // Per position in the instance order, and it MUST stay longer than the pass
+    // that reads it. mayEvacuateApp is reached only from the give-up pass at
+    // explorerService.js:651, which runs every removeFluxAppsPeriod (11) x
+    // speedMultiplier (4 post-PON) = 44 blocks = 22 minutes at 30s blocks, and
+    // wholeSince is stamped inside that pass - so maturity is quantised to a
+    // 22-minute grid and a shorter step cannot separate two points on it.
+    // Adjacent positions would mature on the same pass, and the pass is keyed on
+    // block height so every node evaluates in the same instant. Both holders
+    // then read the app at full strength, because fluxappremoved is broadcast
+    // after the volume is already deleted. 40 minutes is 1.8x the pass, so the
+    // chain would have to slow to ~55s blocks before adjacent positions could
+    // meet. Asserted against production's own config in the unit tests.
+    residentialQueueStepMs: 40 * 60 * 1000,
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
