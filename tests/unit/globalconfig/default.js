@@ -284,7 +284,7 @@ module.exports = {
     removalSpacingMs: 60000,
     locationTtlS: 7500,
     installingTtlS: 900,
-    installErrorTtlS: 3600,
+    installErrorTtlS: 86400,
     tempMsgTtlS: 3600,
     hashSyncIntervalMs: 1800000,
     peerNotifyIntervalMs: 3600000,
@@ -340,7 +340,7 @@ module.exports = {
     residentialSettleMs: 86400000,
     residentialEvacuationIntervalMs: 21600000,
     residentialQueueBaseMs: 1800000,
-    residentialQueueStepMs: 900000,
+    residentialQueueStepMs: 2400000, // 40m - must exceed the 22m give-up pass, see ZelBack/config/default.js
     nodeMonitorDosRecoveryDelayMs: 600000,
     nodeMonitorConfirmationLossDelayMs: 1200000,
     nodeMonitorErrorRecoveryDelayMs: 120000,
