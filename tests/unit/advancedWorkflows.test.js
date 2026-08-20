@@ -4197,6 +4197,98 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
       expect(await isComponentRunningLocally('anything_atall')).to.equal(true);
     });
 
+    describe('a refusal that will not stop is a stuck node, and says so', () => {
+      // fluxEventBus is disabled on a real node (config.testEventStream is
+      // false), so the giveUp:safety event is a harness signal and nothing
+      // reads it in production. The log is the whole of what an operator sees,
+      // and a first refusal and a hundredth read identically at info.
+      // The refusal counter is module state keyed by app name, so each of these
+      // holds its own app: sharing one would make them depend on running order.
+      it('logs the first refusals at info, and escalates once they persist', async () => {
+        dbHelper.findInDatabase.resolves(installed('escalateapp'));
+        const logInfo = sinon.stub(log, 'info');
+        const logWarn = sinon.stub(log, 'warn');
+        registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds fluxappone in full',
+        });
+
+        for (let pass = 0; pass < 12; pass += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await advancedWorkflows.checkAndRemoveApplicationInstance();
+        }
+
+        const escalations = logWarn.getCalls()
+          .map((c) => String(c.args[0]))
+          .filter((m) => m.includes('passes running'));
+        expect(escalations).to.have.lengthOf(1);
+        expect(escalations[0]).to.contain('12 passes running');
+        expect(escalations[0]).to.contain('NO_SYNCED_PEER');
+        // and the quiet ones stayed quiet
+        expect(logInfo.getCalls().filter((c) => String(c.args[0]).includes('not safe'))).to.have.lengthOf(11);
+      });
+
+      it('never removes the app, however long it has been refused', async () => {
+        dbHelper.findInDatabase.resolves(installed('neverremoveapp'));
+        // Every reason the gate refuses is a reason removing would be wrong:
+        // the peers really are incomplete, so this copy is one of the few that
+        // is not, or this node cannot see them, which is not evidence about
+        // them. A surplus app is over-served, not down - nothing about it is
+        // urgent enough to delete on evidence we have just said we lack.
+        registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
+        });
+
+        for (let pass = 0; pass < 40; pass += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await advancedWorkflows.checkAndRemoveApplicationInstance();
+        }
+
+        sinon.assert.notCalled(appUninstaller.removeAppLocally);
+      });
+
+      it('starts counting again once the app can be given up', async () => {
+        dbHelper.findInDatabase.resolves(installed('resetapp'));
+        const logWarn = sinon.stub(log, 'warn');
+        registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
+        });
+        for (let pass = 0; pass < 11; pass += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await advancedWorkflows.checkAndRemoveApplicationInstance();
+        }
+
+        // One clean pass, then refusals resume: the run is broken, so the next
+        // escalation is a fresh twelve rather than the very next pass.
+        evacuationSafety.canSafelyRemoveApp.resolves({ safe: true, code: 'STATELESS', reason: 'peer holds it' });
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
+        });
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+        expect(logWarn.getCalls().map((c) => String(c.args[0])).filter((m) => m.includes('passes running')))
+          .to.have.lengthOf(0);
+      });
+
+      it('does not restart the evacuation window on a surplus refusal', async () => {
+        dbHelper.findInDatabase.resolves(installed('surplusonlyapp'));
+        // forgetAppObservation clears the mark mayEvacuateApp paces on, and
+        // only the evacuation path sets one. Calling it here cleared something
+        // nothing had written.
+        registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+        evacuationSafety.canSafelyRemoveApp.resolves({
+          safe: false, code: 'NO_SYNCED_PEER', reason: 'no connected peer holds it',
+        });
+
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+        sinon.assert.notCalled(residentialNodeDosService.forgetAppObservation);
+      });
+    });
+
     it('refuses an evacuation removal that is not safe, and restarts its observation', async () => {
       residentialNodeDosService.isEvacuating.returns(true);
       registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));

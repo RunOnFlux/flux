@@ -65,6 +65,21 @@ const mastersRunningGSyncthingApps = new Map();
 // only evidence there is, and its absence carries two opposite meanings at
 // once.
 const primaryElectionCheckedAt = new Map();
+// Consecutive passes on which the safety gate has refused to give up an app,
+// keyed by name. A first refusal is the gate working and says nothing; the
+// twentieth is a node that cannot establish something it needs and has not been
+// able to for hours. Those two are indistinguishable at info level, and the
+// giveUp:safety event does not close the gap - fluxEventBus is disabled on a
+// real node (config.testEventStream is false), so the event exists for the
+// harness and nothing reads it in production.
+//
+// Counted rather than timed because the pass is the unit: it is what re-asks
+// the question, and how long it has been stuck is only meaningful in passes.
+const giveUpRefusals = new Map();
+// About four hours of block passes at the production cadence - long enough that
+// a folder mid-resync, a peer rebooting or a load balancer blipping has been
+// and gone, short enough to still be the same day.
+const REFUSALS_BEFORE_ESCALATING = 12;
 // Ten election cycles. Derived from the election's own cadence rather than
 // written as its own number, so it stays in the same proportion to the pass
 // that refreshes it at every scale - the harness compresses masterSlaveApps by
@@ -3610,6 +3625,14 @@ async function checkAndRemoveApplicationInstance() {
       runningIdentifiers ? runningIdentifiers.has(identifier) : true
     );
 
+    // An app can leave by routes this pass never sees - an operator removal, a
+    // redeploy - and a counter for one this node no longer holds is a leak.
+    const heldNames = new Set(appsInstalled.map((app) => app.name));
+    // eslint-disable-next-line no-restricted-syntax
+    for (const name of giveUpRefusals.keys()) {
+      if (!heldNames.has(name)) giveUpRefusals.delete(name);
+    }
+
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
       // eslint-disable-next-line no-await-in-loop
@@ -3649,22 +3672,33 @@ async function checkAndRemoveApplicationInstance() {
         detail: safety.reason,
       });
       if (!safety.safe) {
-        // The observation window restarts, so the queue wait is served against an
-        // uninterrupted period of the app being whole rather than accumulated
-        // across a gap.
-        residentialNodeDosService.forgetAppObservation(installedApp.name);
-        if (safety.code === 'ELECTION_UNKNOWN') {
-          // Louder than the rest: every other refusal here is the gate working,
-          // and this one means the node cannot establish something it needs. A
-          // node in this state indefinitely is not idle, it is stuck, and the
-          // two read identically at info level.
-          log.warn(`${installedApp.name} cannot be given up (${decision.reason}): ${safety.reason}`);
-        } else {
+        if (decision.reason === 'EVACUATION') {
+          // The observation window restarts, so the queue wait is served against
+          // an uninterrupted period of the app being whole rather than
+          // accumulated across a gap. Only the evacuation path has a window;
+          // calling this on a surplus refusal cleared a mark nothing had set.
+          residentialNodeDosService.forgetAppObservation(installedApp.name);
+        }
+        const refusals = (giveUpRefusals.get(installedApp.name) ?? 0) + 1;
+        giveUpRefusals.set(installedApp.name, refusals);
+        // No removal follows from this, however long it lasts, and that is
+        // deliberate. Every reason the gate refuses is a reason removing would
+        // be wrong: the peers really are incomplete, so this copy is one of the
+        // few that is not; or this node cannot see them, which is not evidence
+        // about them. Deleting after a timeout does not fix a wedged folder, it
+        // just loses the data more slowly. What a node stuck here needs is to
+        // be VISIBLE - the app is over-served, not down, so nothing about it is
+        // urgent, and the node being unable to establish anything is the part
+        // worth acting on.
+        if (refusals % REFUSALS_BEFORE_ESCALATING !== 0) {
           log.info(`${installedApp.name} would be given up (${decision.reason}) but it is not safe: ${safety.reason}`);
+        } else {
+          log.warn(`${installedApp.name} has been refused ${refusals} passes running (${decision.reason}, ${safety.code}): ${safety.reason}`);
         }
         // eslint-disable-next-line no-continue
         continue;
       }
+      giveUpRefusals.delete(installedApp.name);
 
       log.warn(`REMOVAL REASON: ${decision.reason} - ${installedApp.name} ${decision.detail}. Safe: ${safety.reason}`);
       // eslint-disable-next-line no-await-in-loop
