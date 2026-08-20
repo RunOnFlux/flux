@@ -93,7 +93,23 @@ describe('Sync response: eviction, pruning and forged events', function () {
   const EVICTED_NODE = 9;
   const PRUNE_NODE = 8;
   const FORGERY_NODE = 7;
-  const stamp = Date.now();
+  // Stamped when the events are INJECTED, not when mocha loads this file.
+  //
+  // These are broadcasts, and a broadcast has an acceptance window:
+  // messageStore computes validTill = broadcastedAt + RUNNING_EXPIRY_MS
+  // (config.fluxapps.locationTtlS) and writes the location row with that same
+  // expireAt. At describe-body scope this was evaluated before the hook ran,
+  // before a twelve-node fleet booted, and under the parallel gate before the
+  // run had even claimed its subnet - minutes of it. Every event then arrived
+  // stamped in the past and its row was born expired, which reads as an empty
+  // location list rather than as a rejected message.
+  //
+  // It passed for as long as it did because locationTtlS was wired to nothing:
+  // the window was the production 125 minutes, wide enough to swallow any boot.
+  // Live at 63s it is 2.1 announce intervals, matching production's 2.08, and a
+  // broadcast stamped before the fleet existed is one production would refuse
+  // too.
+  let stamp;
 
   before(async function () {
     this.timeout(600000);
@@ -101,6 +117,7 @@ describe('Sync response: eviction, pruning and forged events', function () {
       hookCtx: this, nodes: 12, deferredNodes: 2, tickerAutostart: false,
     });
     await bootAndPeer(env, Array.from({ length: 10 }, (_, i) => i));
+    stamp = Date.now();
 
     const events = [];
 
