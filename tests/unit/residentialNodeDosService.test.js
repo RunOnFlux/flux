@@ -16,6 +16,20 @@ describe('residentialNodeDosService tests', () => {
 
   const LOCAL = '1.2.3.4:16127';
 
+  // A node that has WATCHED the verdict hold for the whole window. The gate
+  // counts observed time, not elapsed time, so seeding a start timestamp alone
+  // no longer serves the window - which is the defect these tests used to
+  // encode: two evaluations 24h apart, with a day of silence between them,
+  // satisfied a check meant to prove the verdict held throughout.
+  function windowServed(now = Date.now()) {
+    return {
+      _id: 'residentialDos',
+      residentialSince: now - service.SETTLE_MS - 1000,
+      lastConfirmedAt: now,
+      observedMs: service.SETTLE_MS + 1000,
+    };
+  }
+
   function loadService() {
     return proxyquire('../../ZelBack/src/services/residentialNodeDosService', {
       '../lib/log': {
@@ -303,10 +317,7 @@ describe('residentialNodeDosService tests', () => {
 
     it('begins evacuating once the window has elapsed', async () => {
       installedApps = [{ name: 'someapp' }];
-      markerStore.set('residentialDos', {
-        _id: 'residentialDos',
-        residentialSince: Date.now() - service.SETTLE_MS - 1000,
-      });
+      markerStore.set('residentialDos', windowServed());
 
       await service.enforceResidentialPolicy(deps);
 
@@ -318,15 +329,18 @@ describe('residentialNodeDosService tests', () => {
       // restarting FluxOS, which would make restarting on a cron a way to
       // postpone evacuation indefinitely.
       installedApps = [{ name: 'someapp' }];
-      const startedAt = Date.now() - service.SETTLE_MS - 1000;
-      markerStore.set('residentialDos', { _id: 'residentialDos', residentialSince: startedAt });
+      const seeded = windowServed();
+      markerStore.set('residentialDos', seeded);
 
       service.stop();
       service = loadService();
       service.setNodeReadyForTests(true);
       await service.enforceResidentialPolicy(deps);
 
-      expect(markerStore.get('residentialDos').residentialSince).to.equal(startedAt);
+      expect(markerStore.get('residentialDos').residentialSince).to.equal(seeded.residentialSince);
+      // The observed total survived the restart too, which is the half that
+      // actually decides now.
+      expect(markerStore.get('residentialDos').observedMs).to.be.at.least(service.SETTLE_MS);
       expect(service.isEvacuating()).to.equal(true);
     });
 
@@ -344,9 +358,7 @@ describe('residentialNodeDosService tests', () => {
 
     it('stops evacuating when the marker cannot be read', async () => {
       installedApps = [{ name: 'someapp' }];
-      markerStore.set('residentialDos', {
-        _id: 'residentialDos', residentialSince: Date.now() - service.SETTLE_MS - 1000,
-      });
+      markerStore.set('residentialDos', windowServed());
       await service.enforceResidentialPolicy(deps);
       expect(service.isEvacuating()).to.equal(true);
 
@@ -354,6 +366,96 @@ describe('residentialNodeDosService tests', () => {
       const decided = await service.enforceResidentialPolicy(deps);
 
       expect(decided).to.equal(false);
+      expect(service.isEvacuating()).to.equal(false);
+    });
+  });
+
+  describe('the window counts time the verdict was WATCHED, not time that passed', () => {
+    const HOUR = 60 * 60 * 1000;
+
+    beforeEach(() => {
+      installedApps = [{ name: 'someapp' }];
+    });
+
+    it('does not drain on two evaluations a day apart with silence between them', async () => {
+      // The defect. A tick that cannot decide - unreadable bench, table that
+      // will not load - returns without touching state, so a node could answer
+      // once, say nothing for 24h, answer once more, and start deleting apps.
+      // 293 of 6,115 fleet slots cannot read their bench today, and that is the
+      // population being judged.
+      const now = Date.now();
+      markerStore.set('residentialDos', {
+        _id: 'residentialDos',
+        residentialSince: now - service.SETTLE_MS - HOUR,
+        lastConfirmedAt: now - (24 * HOUR),
+        observedMs: 0,
+      });
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.isEvacuating()).to.equal(false);
+      // And the silence bought nothing, so it cannot drain on the next tick either.
+      expect(markerStore.get('residentialDos').observedMs).to.equal(0);
+    });
+
+    it('credits a gap at the normal check cadence', async () => {
+      const now = Date.now();
+      markerStore.set('residentialDos', {
+        _id: 'residentialDos',
+        residentialSince: now - service.SETTLE_MS,
+        lastConfirmedAt: now - service.CHECK_INTERVAL_MS,
+        observedMs: service.SETTLE_MS - service.CHECK_INTERVAL_MS,
+      });
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(markerStore.get('residentialDos').observedMs).to.be.at.least(service.SETTLE_MS);
+      expect(service.isEvacuating()).to.equal(true);
+    });
+
+    it('credits at most one check interval, however long the gap', async () => {
+      // A gap short enough to count still buys only a tick's worth. Otherwise a
+      // node that checks in rarely accrues the window faster than one checking
+      // in as designed.
+      const now = Date.now();
+      markerStore.set('residentialDos', {
+        _id: 'residentialDos',
+        residentialSince: now - (11 * HOUR),
+        lastConfirmedAt: now - (11 * HOUR),
+        observedMs: 0,
+      });
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(markerStore.get('residentialDos').observedMs).to.equal(service.CHECK_INTERVAL_MS);
+    });
+
+    it('starts a marker written before observed time was kept at zero, not credited', async () => {
+      // An in-place upgrade. The old marker records when the clock started,
+      // which is precisely the measure being replaced, so it earns nothing -
+      // the node waits out a real window instead of inheriting a notional one.
+      const now = Date.now();
+      markerStore.set('residentialDos', {
+        _id: 'residentialDos',
+        residentialSince: now - (10 * 24 * HOUR),
+      });
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(markerStore.get('residentialDos').observedMs).to.equal(0);
+      expect(service.isEvacuating()).to.equal(false);
+    });
+
+    it('keeps the first-seen timestamp for the record while the gate reads observed time', async () => {
+      const now = Date.now();
+      const firstSeen = now - (5 * 24 * HOUR);
+      markerStore.set('residentialDos', {
+        _id: 'residentialDos', residentialSince: firstSeen, lastConfirmedAt: now - HOUR, observedMs: HOUR,
+      });
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(markerStore.get('residentialDos').residentialSince).to.equal(firstSeen);
       expect(service.isEvacuating()).to.equal(false);
     });
   });
@@ -366,9 +468,7 @@ describe('residentialNodeDosService tests', () => {
 
     beforeEach(async () => {
       installedApps = [{ name: 'someapp' }];
-      markerStore.set('residentialDos', {
-        _id: 'residentialDos', residentialSince: Date.now() - service.SETTLE_MS - 1000,
-      });
+      markerStore.set('residentialDos', windowServed());
       await service.enforceResidentialPolicy(deps);
     });
 
@@ -459,6 +559,70 @@ describe('residentialNodeDosService tests', () => {
     });
   });
 
+  describe('the queue step outlasts the pass that reads it', () => {
+    // mayEvacuateApp is reachable only from the give-up pass
+    // (explorerService.js:651 -> checkAndRemoveApplicationInstance) and
+    // wholeSince is stamped inside that pass, so ticket maturity is quantised
+    // to the pass interval. A step shorter than the pass cannot separate two
+    // points on that grid: adjacent positions mature on the same pass, and the
+    // pass is keyed on block height so every node in the fleet evaluates in the
+    // same instant. Both holders then read the app at full strength, because
+    // fluxappremoved is broadcast only after the volume is already deleted, and
+    // an app at N drops to 1 in a single pass.
+    //
+    // Asserted against PRODUCTION's config, not the copy under
+    // tests/unit/globalconfig and not the harness overlay. The harness
+    // compresses both sides of this inequality, and compressing them by
+    // different factors is what hid the defect - suite 55 separates every
+    // position by about four passes and is structurally incapable of producing
+    // the collision. An environment tuned until it is green cannot test what
+    // was tuned, so the inequality is checked where the fleet reads it.
+    const BLOCK_SECONDS = 30; // post-PON; stated in-repo at fluxService.js:1774
+    const PON_SPEED_MULTIPLIER = 4; // explorerService.js:610
+
+    // ZelBack/config/default.js requires config/userconfig, which is gitignored
+    // and absent from a fresh checkout, so it is stubbed rather than resolved.
+    function productionConfig() {
+      return proxyquire('../../ZelBack/config/default', {
+        '../../config/userconfig': { initial: { development: false } },
+      });
+    }
+
+    function passIntervalMs(fluxapps) {
+      return fluxapps.removeFluxAppsPeriod * PON_SPEED_MULTIPLIER * BLOCK_SECONDS * 1000;
+    }
+
+    it('spaces adjacent queue positions by more than one give-up pass', () => {
+      const { fluxapps } = productionConfig();
+
+      expect(fluxapps.residentialQueueStepMs).to.be.above(passIntervalMs(fluxapps));
+    });
+
+    it('gives every position in an instance list a pass of its own', () => {
+      const { fluxapps } = productionConfig();
+      const pass = passIntervalMs(fluxapps);
+      const passIndex = (position) => Math.ceil(
+        (fluxapps.residentialQueueBaseMs + (position * fluxapps.residentialQueueStepMs)) / pass,
+      );
+
+      // Nine positions covers the largest instance count the fleet runs.
+      const indices = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(passIndex);
+
+      expect(new Set(indices).size).to.equal(indices.length);
+    });
+
+    it('is the same relationship the unit config copy models', () => {
+      // Every other test in this file reads the copy, so a copy that has
+      // drifted would silently measure a different model from the fleet's.
+      const production = productionConfig().fluxapps;
+      const unitCopy = require('config').fluxapps;
+
+      expect(unitCopy.removeFluxAppsPeriod).to.equal(production.removeFluxAppsPeriod);
+      expect(unitCopy.residentialQueueBaseMs).to.equal(production.residentialQueueBaseMs);
+      expect(unitCopy.residentialQueueStepMs).to.equal(production.residentialQueueStepMs);
+    });
+  });
+
   describe('listInstalledApps', () => {
     it('returns null rather than an empty list when the read fails', async () => {
       const result = await service.listInstalledApps(async () => ({ status: 'error', data: 'nope' }));
@@ -494,9 +658,7 @@ describe('residentialNodeDosService tests', () => {
 
     it('stop() stops evacuating', async () => {
       installedApps = [{ name: 'someapp' }];
-      markerStore.set('residentialDos', {
-        _id: 'residentialDos', residentialSince: Date.now() - service.SETTLE_MS - 1000,
-      });
+      markerStore.set('residentialDos', windowServed());
       await service.enforceResidentialPolicy(deps);
       expect(service.isEvacuating()).to.equal(true);
 
