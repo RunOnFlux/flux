@@ -79,6 +79,9 @@ let inconclusiveStreak = 0;
 const wholeSince = new Map();
 // Whether the settling window has elapsed and departures may begin.
 let evacuating = false;
+// The network verdict behind the most recent isResidential(), carried into the
+// decision event so a consumer can tell the three nulls apart.
+let lastVerdict = { classification: null, source: null };
 // Paces departures, and PERSISTED in the settle marker rather than held for the
 // process lifetime. At 0 the gate below reads `now - 0`, about 1.7e12 ms, so it
 // is open on the first call after every process start: a node restarting on a
@@ -151,11 +154,20 @@ async function isResidential() {
   try {
     await geolocationService.getNodeGeolocation();
     const verdict = await geolocationService.getNetworkClassification();
+    // Kept for the decision event. The boolean below collapses CONFLICTED,
+    // UNKNOWN and no-table-consulted into one null, which is right for the
+    // enforcement decision and useless to anything trying to understand it - a
+    // node declining a published verdict about its own address and a node that
+    // has not read the table yet are the same answer here and nothing alike.
+    lastVerdict = verdict
+      ? { classification: verdict.classification, source: verdict.source }
+      : { classification: null, source: null };
     if (!verdict) return null;
     if (verdict.classification === CLASSIFICATION.RESIDENTIAL) return true;
     if (verdict.classification === CLASSIFICATION.DATACENTER) return false;
     return null;
   } catch (error) {
+    lastVerdict = { classification: null, source: null };
     log.warn(`residentialNodeDos - geolocation check failed: ${error.message}`);
     return null;
   }
@@ -465,7 +477,15 @@ function applyDos() {
  *   enforce: boolean|null, undecidedBecause: string|null}} verdict
  */
 function publishDecision(verdict) {
-  fluxEventBus.publish('residential:decided', verdict);
+  fluxEventBus.publish('residential:decided', {
+    ...verdict,
+    // Which network verdict produced this, and which authority reached it -
+    // 'published-table' or 'node-veto'. Without these, enforce: null covers
+    // CONFLICTED, UNKNOWN and "no table consulted" alike, and a suite waiting
+    // on a veto cannot tell it from a node that has read nothing.
+    classification: lastVerdict.classification,
+    source: lastVerdict.source,
+  });
 }
 
 /**

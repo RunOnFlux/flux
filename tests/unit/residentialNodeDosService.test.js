@@ -277,6 +277,22 @@ describe('residentialNodeDosService tests', () => {
       expect(decisions()[0]).to.include({ enforce: null, undecidedBecause: 'benchmark' });
     });
 
+    it('carries the verdict, so a veto is not read as an unread table', async () => {
+      // Both come back enforce: null. CONFLICTED from a node declining a
+      // published verdict about its own address is a decision; a null
+      // classification is the absence of one, and a consumer that cannot
+      // separate them learns nothing from either.
+      geolocationServiceStub.getNetworkClassification.returns({
+        classification: 'CONFLICTED', source: 'node-veto',
+      });
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(decisions()[0]).to.include({
+        enforce: null, classification: 'CONFLICTED', source: 'node-veto',
+      });
+    });
+
     it('names the classification when that is the missing input', async () => {
       geolocationServiceStub.getNetworkClassification.returns(null);
 
