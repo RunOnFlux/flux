@@ -4,6 +4,9 @@ import { signBtcMessage } from '../auth.js';
 import { appOwnerKey } from './keys.js';
 import { REGISTRY_REPO_HOST } from './subnet-config.js';
 import { assertHermeticRepotags } from './app-helper.js';
+import chainStart from './chain-start.cjs';
+
+const { DEFAULT_INITIAL_HEIGHT } = chainStart;
 
 function sha256(data) {
   return createHash('sha256').update(data).digest('hex');
@@ -16,7 +19,18 @@ function fakeTxid() {
 export async function buildSeedableApp({
   name,
   compose = null,
-  height = 2100010,
+  // Seeded RELATIVE TO THE CHAIN THIS SUITE IS ON, never to a literal. An app is
+  // seeded `expire` blocks before it expires, so a height pinned to some older
+  // chain start seeds an app that is already long expired at the fleet's first
+  // block: the spawner filters it out of every candidate list and
+  // expireGlobalApplications deletes it outright.
+  //
+  // Pass `env` and it follows that suite's chain, including one that opted out
+  // via createTestEnv({ initialHeight }) - which is the whole reason that
+  // parameter exists, and the reason a bare constant here would go stale again
+  // the first time somebody uses it.
+  env = null,
+  height = (env?.initialHeight ?? DEFAULT_INITIAL_HEIGHT) + 10,
   instances = 3,
   owner = null,
   staticip = false,
@@ -339,8 +353,12 @@ export function buildRunningState({ appName, nodeIps, hash, broadcastedAt = null
   return { locations, stateEvents };
 }
 
-export async function seedAppOnAllNodes(dbClients, { name, compose, height, instances } = {}) {
-  const app = await buildSeedableApp({ name, compose, height, instances });
+export async function seedAppOnAllNodes(dbClients, {
+  name, compose, height, instances, env,
+} = {}) {
+  const app = await buildSeedableApp({
+    name, compose, height, instances, env,
+  });
 
   const seedPromises = dbClients.map(async (dbc) => {
     await dbc.seedGlobalAppSpec(app.spec);
@@ -352,8 +370,12 @@ export async function seedAppOnAllNodes(dbClients, { name, compose, height, inst
   return app;
 }
 
-export async function seedAppWithRunningState(dbClients, nodeIps, { name, compose, height, instances } = {}) {
-  const app = await seedAppOnAllNodes(dbClients, { name, compose, height, instances });
+export async function seedAppWithRunningState(dbClients, nodeIps, {
+  name, compose, height, instances, env,
+} = {}) {
+  const app = await seedAppOnAllNodes(dbClients, {
+    name, compose, height, instances, env,
+  });
   const state = buildRunningState({ appName: name, nodeIps, hash: app.hash });
 
   const seedPromises = dbClients.map(async (dbc, i) => {

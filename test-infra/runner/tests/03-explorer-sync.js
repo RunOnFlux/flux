@@ -26,7 +26,10 @@ describe('Boot: explorer sync', function () {
     it('should have explorer height above seeded value', async function () {
       const db = dbClient(1);
       const height = await db.explorerHeight();
-      expect(height).to.be.greaterThan(2100000);
+      // the seeded value IS the chain start (seedMongo writes it as
+      // generalScannedHeight), so this compares against it rather than a literal
+      // that silently widened into a 100,000-block tolerance when the start rose
+      expect(height).to.be.greaterThan(env.initialHeight);
     });
 
     it('should have explorer tracking daemon height', async function () {

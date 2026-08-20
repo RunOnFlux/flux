@@ -24,7 +24,16 @@ const DAEMON_SUBVERSION = '/Flux:6.1.0/';
 const BENCH_VERSION = '6.3.1';
 const FLUX_VERSION = '8.0.0';
 
-let currentHeight = Number(process.env.INITIAL_HEIGHT) || 2100000;
+// No fallback on purpose. This was a third copy of the chain start and it was
+// the stale one, so any path that started the stub without the variable put the
+// whole chain below the v8 fork and ran every suite on the pre-fork branch of
+// every rule keyed on it - silently, and looking exactly like a product bug.
+// The chain start has one home (runner/framework/chain-start.cjs) and test-env
+// always passes it; a stub started without it is misconfigured, not defaulted.
+if (!process.env.INITIAL_HEIGHT) {
+  throw new Error('daemon-stub: INITIAL_HEIGHT is required - the chain start comes from runner/framework/chain-start.cjs, never from a default here');
+}
+let currentHeight = Number(process.env.INITIAL_HEIGHT);
 let deterministicNodeList = [];
 let originalNodeList = [];
 let pendingBlocks = [];

@@ -40,7 +40,31 @@ export async function seedSyncScopedData(env, name, index) {
 
 // Seed a pre-built app's global spec into the given nodes' DBs (so a local install
 // can resolve it).
+// A seeded app must still be alive on the chain the fleet is about to run. This
+// is the funnel every global seed passes through, and it is the only place that
+// holds BOTH the app and the env, so it is where the two are checked against
+// each other rather than trusted to have been built consistently.
+//
+// Getting this wrong is silent and expensive: the spawner drops an expired app
+// from every candidate list (so spawner suites spin their whole budget and time
+// out rather than failing), and expireGlobalApplications deletes it outright on
+// any node that restarts. That is a harness fault that presents as a product
+// one, in the most expensive possible shape.
+function assertAliveOnThisChain(env, app) {
+  const seededAt = app.permanentMessage.height;
+  const expiresAt = seededAt + (app.spec.expire ?? 22000);
+  if (expiresAt <= env.initialHeight) {
+    throw new Error(
+      `seeded app ${app.spec.name} expires at block ${expiresAt}, at or below this suite's `
+      + `chain start (${env.initialHeight}) - it is already expired before the fleet processes `
+      + 'its first block. Seed relative to the chain rather than to a literal: '
+      + 'buildSeedableApp({ env, ... }).',
+    );
+  }
+}
+
 async function seedGlobalSpec(env, app, indices) {
+  assertAliveOnThisChain(env, app);
   await Promise.all(indices.map(async (i) => {
     const dc = dbClient(i + 1);
     await dc.seedGlobalAppSpec(app.spec);

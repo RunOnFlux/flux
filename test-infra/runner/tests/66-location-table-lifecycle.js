@@ -142,7 +142,6 @@ describe('the location table survives restarts and refuses bad publications', fu
   let instanceCount; // the app's instance count: the whole fleet
   const subnet = getSubnetConfig();
   const appName = `e2elifecycle${Date.now()}`;
-  const appHeight = 2100010;
 
   dumpLogsOnFailure(() => env);
 
@@ -445,7 +444,10 @@ describe('the location table survives restarts and refuses bad publications', fu
     // Give the app a past. An update is validated against the specifications it
     // replaces, which the node reads out of the permanent message collection.
     await dbClient(env.clients[QUERY_NODE].num)
-      .seedPermanentMessage(await permanentRegistrationMessage(registeredSpec, appHeight));
+      // seeded relative to this suite's chain: a literal here expires the app
+      // before the fleet's first block, and this suite restarts FluxOS - which
+      // re-arms expireGlobalApplications and deletes the very app it asserts on
+      .seedPermanentMessage(await permanentRegistrationMessage(registeredSpec, env.initialHeight + 10));
 
     // Now the publisher moves a fleet address into the artifact's non-European
     // country. Nothing about the app changes; its geography simply stops being
