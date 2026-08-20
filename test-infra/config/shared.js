@@ -175,12 +175,29 @@ module.exports = {
     },
     spawnDelayMultiplier: 0.002,
     daemonInfoIntervalMs: 5000,
-    // The floor on how fast a driven chain can be processed: a block is not
-    // looked at until the next poll, so at production's 5000 a suite driving its
-    // own blocks still waits five seconds for each one, and everything hung off
-    // block processing - the give-up pass among them - inherits that. Measured
-    // at 4.8s a block before this was tunable.
-    explorerPollIntervalMs: 250,
+    // The poll is NOT how often the chain is asked - pollForNewBlocks reads a
+    // height cached by daemonServiceMiscRpcs and refreshed on its own
+    // daemonInfoIntervalMs timer. It is the rate at which the node works
+    // through blocks once it knows it is behind, and its share of the
+    // tip-refresh window is what decides whether a block is still the tip when
+    // it is processed - which is what gates every maintenance pass hung off
+    // block processing.
+    //
+    // Both clocks are already 1:1 with block time at either scale - 30s/30s in
+    // production, 5s/5s here - so one block arrives per window either way. What
+    // has to hold is the poll's share of that window:
+    //
+    //   production   5000 / 30000  =  16.7%
+    //   here          833 /  5000  =  16.7%
+    //
+    // 250ms was three times MORE forgiving than production, which is the wrong
+    // direction: a node too slow to clear a window's block, so blocks bunch and
+    // maintenance is skipped, is a production failure the harness would never
+    // show. Suite 55 hit that failure twice and it was read as a harness
+    // artefact; making the harness faster until it stops happening is the same
+    // move one layer down. Measured at 4.8s a block at the old hardcoded 5000,
+    // which was poll-dominated - a block sat unnoticed for a whole window.
+    explorerPollIntervalMs: 833,
     explorerSyncRetryMs: 5000,
     explorerDeepRestoreBlocks: 0,
     imageUpdateCheckIntervalMs: 5000,

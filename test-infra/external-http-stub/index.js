@@ -142,8 +142,8 @@ function regionAssignment(domains, withRegions) {
  * `networkClasses` says which of the organisations run access networks and
  * which sell hosting - `{ 0: 'residential', 1: 'hosting' }` keyed by
  * organisation INDEX, since that is what a caller controls. Omitted, the
- * artifact carries no orgClasses section at all, which is what a real build
- * carrying no verdicts publishes and what every suite that does not care about
+ * artifact carries an EMPTY orgClasses section - which is what a real build
+ * carrying no verdicts publishes, and what every suite that does not care about
  * classification should see: an organisation with no verdict is one nothing
  * enforces against.
  * @param {number} domains How many organisations to split across
@@ -262,8 +262,12 @@ function encodeGeoTable(artifact, { pad = true } = {}) {
     // omitted when nothing is classified, for the same reason: a build carrying
     // no verdicts is a state the reader already handles, and it must stay
     // distinguishable from one that carries them
-    ...(artifact.orgClasses && Object.keys(artifact.orgClasses).length
-      ? { orgClasses: artifact.orgClasses } : {}),
+    // ALWAYS emitted, including as {}, because that is what the real builder
+    // does. Omitting it when empty meant the stub covered a shape production
+    // never produces, and did not cover the one production produces when the
+    // ledger classifies nothing - the shape every node saw the day the section
+    // shipped.
+    orgClasses: artifact.orgClasses ?? {},
   }), 'utf8');
   const preamble = Buffer.alloc(GEO_MAGIC.length + 1 + 4);
   preamble.write(GEO_MAGIC, 0, 'ascii');
@@ -715,7 +719,7 @@ control.post('/iplocation', (req, res) => {
     const domains = req.body.domains ?? 1;
     const withRegions = req.body.regions === true;
     // { classes: { 0: 'residential' } } publishes a verdict for organisation 0.
-    // Absent, the artifact carries no orgClasses section, so every node falls
+    // Absent, the artifact carries an empty orgClasses section, so every node falls
     // back to deciding its own address - which is what the reader does with a
     // build that classified nothing.
     serveIpLocation(

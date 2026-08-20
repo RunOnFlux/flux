@@ -606,7 +606,12 @@ control.post('/advance-block', (req, res) => {
   if (block) {
     block.height = block.height || currentHeight;
     block.hash = block.hash || `000000000000stub${currentHeight}`;
-    block.confirmations = 1;
+    // Computed live, the way a synthesized block computes it at the top of this
+    // file. Stamping 1 at push time made a block carrying transactions read as
+    // the chain tip no matter how far behind the node was, while an empty block
+    // did not - so the one class of block whose isSynced skip matters most, an
+    // app registration, was the one class the stub had made unskippable.
+    block.confirmations = currentHeight - block.height + 1;
     block.tx = [...(block.tx || []), ...txs];
     pendingBlocks.push(block);
   } else if (txs.length > 0) {

@@ -28,7 +28,7 @@ carry the SAME factor, or the property between them is deleted or inverted - see
 | `fluxapps.discoveryFailRetryMs` | 120000 | 5000 | 24.0x |
 | `fluxapps.discoveryRetryMs` | 60000 | 5000 | 12.0x |
 | `fluxapps.explorerDeepRestoreBlocks` | 100 | 0 | n/a |
-| `fluxapps.explorerPollIntervalMs` | 5000 | 250 | 20.0x |
+| `fluxapps.explorerPollIntervalMs` | 5000 | 833 | 6.0x |
 | `fluxapps.explorerSyncRetryMs` | 120000 | 5000 | 24.0x |
 | `fluxapps.forceRemovalIntervalMs` | 7200000 | 120000 | 60.0x |
 | `fluxapps.globalCmdDelayMs` | 500 | 100 | 5.0x |
