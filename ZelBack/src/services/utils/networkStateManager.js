@@ -47,7 +47,7 @@ class NetworkStateManager extends EventEmitter {
   #lastFetchTime = BigInt(0);
 
   /**
-   * @type {() => Promise | null}
+   * @type {(() => Promise) | null}
    */
   #onStartComplete = null;
 
@@ -63,6 +63,28 @@ class NetworkStateManager extends EventEmitter {
     this.#onStartComplete = () => {
       resolve();
       this.#onStartComplete = () => Promise.resolve();
+    };
+  });
+
+  /**
+   * Whether a fetch has completed, so that what the indexes hold is what this
+   * node knows about the fleet - as distinct from having populated them, which
+   * an empty fleet never does.
+   */
+  #answerable = false;
+
+  /**
+   * @type {(() => void) | null}
+   */
+  #onAnswerable = null;
+
+  /**
+   * @type {Promise<void>}
+   */
+  #answerableWait = new Promise((resolve) => {
+    this.#onAnswerable = () => {
+      resolve();
+      this.#onAnswerable = () => {};
     };
   });
 
@@ -175,6 +197,48 @@ class NetworkStateManager extends EventEmitter {
     return this.#controller.lock.waitReady();
   }
 
+  /**
+   * Resolves once a lookup can be answered truthfully.
+   *
+   * A node list has three conditions, not two. Never fetched: the node cannot
+   * answer, and the indexing lock is free at that point, so waiting on that
+   * alone reads an empty index and reports every node absent - the answer a
+   * node gives about a peer it has simply not heard of yet. Fetched and empty:
+   * it can answer, and "absent" is the truth. Fetched and populated: it answers
+   * from the index. Only the first of those waits.
+   *
+   * The indexing wait then still earns its place: mid-rebuild it costs ~10ms
+   * and returns the newer state.
+   * @returns {Promise<void>}
+   */
+  async #waitAnswerable() {
+    if (!this.#answerable) await this.#answerableWait;
+
+    await this.waitIndexesReady;
+  }
+
+  /**
+   * Marks the node able to answer questions about the fleet: a fetch has come
+   * back and the indexes hold what it returned.
+   * @returns {void}
+   */
+  #markAnswerable() {
+    this.#answerable = true;
+
+    if (this.#onAnswerable) this.#onAnswerable();
+  }
+
+  /**
+   * Releases anything waiting to be able to answer. Called when the manager
+   * stops, where no fetch is coming and a waiter would never return.
+   * @returns {void}
+   */
+  #releaseWaiters() {
+    if (this.#onStartComplete) this.#onStartComplete();
+
+    this.#markAnswerable();
+  }
+
   get nodeCount() {
     return this.#state.length;
   }
@@ -273,7 +337,7 @@ class NetworkStateManager extends EventEmitter {
    * @returns {Promise<string | null>} A random socketAddress from the map
    */
   async getRandomSocketAddress(localSocketAddress) {
-    await this.waitIndexesReady;
+    await this.#waitAnswerable();
 
     const indexSize = this.#socketAddressIndex.size;
 
@@ -331,6 +395,19 @@ class NetworkStateManager extends EventEmitter {
     this.#pubkeyIndex = new Map();
     this.#socketAddressIndex = new Map();
     this.#state = [];
+    // Back to un-started, which is the whole point of this method: the indexes
+    // above are empty again, so the manager must not go on saying it can answer
+    // from them. stop() releases anyone already waiting before it gets here, so
+    // rewinding cannot strand them - it only means the next start() has to
+    // fetch before anyone is answered, exactly as a freshly built one does.
+    this.#answerable = false;
+    this.#answerableWait = new Promise((resolve) => {
+      this.#onAnswerable = () => {
+        resolve();
+        this.#onAnswerable = () => {};
+      };
+    });
+    this.#started = false;
   }
 
   /**
@@ -376,8 +453,14 @@ class NetworkStateManager extends EventEmitter {
       const blockMsg = blockHeight ? `. Block height: ${blockHeight}` : '';
       log.info(elapsedMsg + blockMsg);
 
-      // eslint-disable-next-line no-await-in-loop
-      if (!state.length) await this.#controller.sleep(15_000);
+      if (!state.length) {
+        // An empty list is an answer, so lookups stop waiting here even though
+        // the loop keeps asking - it retries for a fleet, not for the ability
+        // to say there isn't one.
+        this.#markAnswerable();
+        // eslint-disable-next-line no-await-in-loop
+        await this.#controller.sleep(15_000);
+      }
     } while (!populated && !state.length);
 
     if (state.length) {
@@ -402,6 +485,10 @@ class NetworkStateManager extends EventEmitter {
       log.info(
         `pubkeyIndexSize: ${pubkeySize}, socketAddressSize: ${socketAddressSize}`,
       );
+
+      // after the build, never before it: between the fetch returning and the
+      // indexes being swapped in, the index a waiter would read is still empty
+      this.#markAnswerable();
 
       if (!populated) {
         this.emit('populated');
@@ -469,6 +556,14 @@ class NetworkStateManager extends EventEmitter {
     await this.fetchNetworkState();
     await this.waitStarted;
 
+    // Only a manager that got its list runs a loop to keep it fresh. A stop
+    // landing during that first fetch breaks the loop without populating and
+    // then releases everything waiting - this included - so without this the
+    // updater is armed on a manager that has just been torn down. The abort
+    // flag cannot be read for it: abort() installs a fresh AbortController on
+    // its way out, so by here it may already say it was never aborted.
+    if (!this.#started) return;
+
     const updater = this.#stateEmitter && this.stateEvent
       ? this.#startEventEmitter
       : this.#startPolling;
@@ -478,6 +573,8 @@ class NetworkStateManager extends EventEmitter {
 
   async stop() {
     await this.#controller.abort();
+
+    this.#releaseWaiters();
 
     if (this.#stateEmitter && this.#boundEventHandler) {
       this.#stateEmitter.removeListener(this.stateEvent, this.#boundEventHandler);
@@ -504,9 +601,7 @@ class NetworkStateManager extends EventEmitter {
 
     if (!Object.keys(this.#indexes).includes(type)) return null;
 
-    // if we are mid stroke indexing, may as well wait the ~10ms and get the
-    // latest block
-    await this.waitIndexesReady;
+    await this.#waitAnswerable();
 
     const key = type === 'socketAddress' ? normalizeSocketAddress(filter) : filter;
     const cached = this.#indexes[type].get(key);
@@ -526,9 +621,7 @@ class NetworkStateManager extends EventEmitter {
     if (!filter) return false;
     if (!Object.keys(this.#indexes).includes(type)) return false;
 
-    // if we are mid stroke indexing, may as well wait the 10ms (max) and get the
-    // latest block
-    await this.waitIndexesReady;
+    await this.#waitAnswerable();
 
     const key = type === 'socketAddress' ? normalizeSocketAddress(filter) : filter;
     const found = this.#indexes[type].has(key);

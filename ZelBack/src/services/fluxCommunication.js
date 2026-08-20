@@ -1502,12 +1502,29 @@ async function fluxDiscovery() {
 
 function initializeDiscovery() {
   nodeConfirmationService.onConfirmationChange((confirmed) => {
-    if (confirmed) {
-      peerManager.allowConnections();
-    } else {
+    if (!confirmed) {
       log.info('fluxDiscovery - Confirmation lost, disconnecting all peers');
       peerManager.disconnectAll();
+      return;
     }
+
+    // Confirmed is not the same as ready to peer. Every message an inbound peer
+    // sends is checked against the node list, so a peer that arrives before the
+    // list does is refused however legitimate it is - there is nothing to
+    // validate it against. The two facts come from different calls to the same
+    // daemon, one carrying a single record and one carrying every node, so the
+    // list lands well after the confirmation and that gap is the whole of the
+    // window peers were being turned away in.
+    //
+    // Only the first open waits: once the list is here isReady() is true and
+    // this runs inline, so regaining confirmation reconnects immediately.
+    networkStateService.onReady(() => {
+      // The wait is not instant, and confirmation can be lost inside it. Without
+      // this the callback would re-open the door straight after disconnectAll().
+      if (!nodeConfirmationService.isConfirmed()) return;
+
+      peerManager.allowConnections();
+    });
   });
 }
 
