@@ -4289,6 +4289,44 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
       });
     });
 
+    it('does not start a pass that removeAppLocally would refuse', async () => {
+      // removeAppLocally refuses when another removal holds the lock, and it
+      // refuses by RETURNING - no throw, no status. So the pass logged "locally
+      // removed", called noteEvacuated, burned the whole departure interval and
+      // discarded the queue wait, for a removal that never happened. They do
+      // collide: explorerService invokes this pass without awaiting it, and two
+      // blocks later awaits expireGlobalApplications, which holds the lock
+      // through a real uninstall.
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      const previous = globalState.removalInProgress;
+      globalState.removalInProgress = true;
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      try {
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+      } finally {
+        globalState.removalInProgress = previous;
+      }
+
+      sinon.assert.notCalled(evacuationSafety.canSafelyRemoveApp);
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
+    it('does not start a pass while an installation holds the lock', async () => {
+      const globalState = require('../../ZelBack/src/services/utils/globalState');
+      const previous = globalState.installationInProgress;
+      globalState.installationInProgress = true;
+      registryManager.appLocation.resolves(locations('5.6.7.8:16127', '9.9.9.9:16127', '8.8.8.8:16127', LOCAL));
+
+      try {
+        await advancedWorkflows.checkAndRemoveApplicationInstance();
+      } finally {
+        globalState.installationInProgress = previous;
+      }
+
+      sinon.assert.notCalled(appUninstaller.removeAppLocally);
+    });
+
     it('refuses an evacuation removal that is not safe, and restarts its observation', async () => {
       residentialNodeDosService.isEvacuating.returns(true);
       registryManager.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127', '9.9.9.9:16127'));

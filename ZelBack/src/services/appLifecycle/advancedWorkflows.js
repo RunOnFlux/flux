@@ -3604,6 +3604,31 @@ async function checkAndRemoveApplicationInstance() {
       return;
     }
 
+    // removeAppLocally refuses when another removal or install holds the lock,
+    // and it refuses by returning - no throw, no status, nothing the caller can
+    // read. So a pass that ran into one logged "locally removed", called
+    // noteEvacuated, burned the whole departure interval and discarded the
+    // app's queue wait, for a removal that never happened.
+    //
+    // They do collide: explorerService invokes this pass WITHOUT awaiting it,
+    // so it outlives the block that started it, and two blocks later the same
+    // scanner awaits expireGlobalApplications, which holds removalInProgress
+    // through a real uninstall.
+    //
+    // Checked here rather than by making removeAppLocally report back: the file
+    // it lives in is untouched by this branch, every force=false caller shares
+    // the same refusal, and a pass that knows it would be refused has no reason
+    // to start. The same guard reinstallOldApplications and softRemoveAppLocally
+    // already use.
+    if (globalState.removalInProgress) {
+      log.info('Give-up-an-app pass skipped: another removal is in progress');
+      return;
+    }
+    if (globalState.installationInProgress) {
+      log.info('Give-up-an-app pass skipped: an installation is in progress');
+      return;
+    }
+
     // Which components this node is actually running, read once for the pass
     // rather than once per app. Only the g: ones matter downstream: a node not
     // running the writer component cannot be the writer, which is what lets the
