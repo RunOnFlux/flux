@@ -7,10 +7,11 @@ import { appOwnerKey } from '../framework/keys.js';
 import { buildSeedableSyncthingApp } from '../framework/seed-helper.js';
 import { getAppContainerStatus, restartFluxos } from '../framework/container.js';
 import { resetFdm, clearMaster, electMaster } from '../framework/fdm-control.js';
-import { countPattern } from '../framework/log-reader.js';
+import {
+  waitFor, waitForReconcileActuated, waitForElectionDecisions, electionDecisionCount,
+} from '../framework/wait.js';
 import { setSynced, resetSyncState } from '../framework/syncthing-control.js';
 import { getSubnetConfig } from '../framework/subnet-config.js';
-import { waitFor, waitForReconcileActuated } from '../framework/wait.js';
 import { bootAndPeer, installOnNodes, seedSyncScopedData } from '../framework/reconciler-suite.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 
@@ -91,7 +92,7 @@ describe('masterSlave recovery after an operator stop', function () {
 
     // settle the initial election so the tests start from a known primary
     await waitFor(async () => await runningCount() === 1, {
-      timeout: 120000, interval: 2000, label: 'initial election settles on one holder',
+      timeout: 60000, interval: 2000, label: 'initial election settles on one holder',
     });
   });
 
@@ -102,7 +103,7 @@ describe('masterSlave recovery after an operator stop', function () {
   });
 
   it('keeps an operator-stopped instance down instead of re-electing it', async function () {
-    this.timeout(180000);
+    this.timeout(75000);
     const flags = await runningFlags();
     const primary = holders[flags.indexOf(true)];
     const client = env.clients[primary];
@@ -112,17 +113,27 @@ describe('masterSlave recovery after an operator stop', function () {
     expect(stopRes.status).to.equal('success');
 
     await waitFor(async () => !(await isUp(client, appName)), {
-      timeout: 60000, interval: 2000, label: 'operator-stopped instance goes down',
+      timeout: 30000, interval: 2000, label: 'operator-stopped instance goes down',
     });
 
-    // the lock must hold: the election loop sees this component every 30s and
-    // must keep skipping it rather than treating a stopped g: app as work to do
-    await new Promise((resolve) => { setTimeout(resolve, 45000); });
+    // The lock must hold ACROSS PASSES: the election has to keep skipping this
+    // component rather than treating a stopped g: app as work to do.
+    //
+    // Waited on the passes themselves rather than on a stretch of clock. A sleep
+    // here asserts nothing - on a loaded runner it can elapse with the loop
+    // having run zero times, and the check below is then true by default. This
+    // returns only once the election has demonstrably reached this component
+    // five more times and taken the exclusion branch on each, whatever the
+    // configured cadence happens to be.
+    const skippedBefore = await electionDecisionCount(client, identifier, 'operatorStopped');
+    await waitForElectionDecisions(client, identifier, 'operatorStopped', 5, {
+      from: skippedBefore, timeout: 45000,
+    });
     expect(await isUp(client, appName), 'election restarted an operator-stopped instance').to.equal(false);
   });
 
   it('brings the app back when the stopped instances are started again', async function () {
-    this.timeout(300000);
+    this.timeout(150000);
 
     // Stop whatever else is still up, so every instance carries the lock - the
     // shape both multi-hour production outages were in.
@@ -137,7 +148,7 @@ describe('masterSlave recovery after an operator stop', function () {
       }
     }
     await waitFor(async () => await runningCount() === 0, {
-      timeout: 90000, interval: 2000, label: 'both instances stopped',
+      timeout: 30000, interval: 2000, label: 'both instances stopped',
     });
 
     // Clear the locks the way an operator would. appstart on a g: component whose
@@ -155,7 +166,7 @@ describe('masterSlave recovery after an operator stop', function () {
     // Without the stale-record eviction this never recovers: every holder is
     // disqualified by remembering itself, so the count stays at 0 forever.
     await waitFor(async () => await runningCount() === 1, {
-      timeout: 180000, interval: 2000, label: 'app returns on exactly one holder',
+      timeout: 90000, interval: 2000, label: 'app returns on exactly one holder',
     });
 
     // and it must be one, not both - two writers on the shared volume is the
@@ -164,7 +175,7 @@ describe('masterSlave recovery after an operator stop', function () {
   });
 
   it('keeps the primary with its owner across a FluxOS restart, instead of letting a peer elect over it', async function () {
-    this.timeout(300000);
+    this.timeout(210000);
 
     const flags = await runningFlags();
     const primary = holders[flags.indexOf(true)];
@@ -177,12 +188,17 @@ describe('masterSlave recovery after an operator stop', function () {
     // is still carrying from the recovery above and records who the primary was, so
     // that when FDM drops it the standby reaches the previous-primary branch - the
     // one that probes - rather than a scheduled start that never asks anyone.
+    const observedBefore = await electionDecisionCount(standbyClient, identifier, 'primaryObserved');
     await electMaster(appName, subnet.nodeIp(primary + 1));
-    await new Promise((resolve) => { setTimeout(resolve, 15000); }); // ~5 election passes at the harness cadence
+    // Wait for the standby to have actually read the new primary off FDM, rather
+    // than for a stretch of clock that assumes it did.
+    await waitForElectionDecisions(standbyClient, identifier, 'primaryObserved', 2, {
+      from: observedBefore, timeout: 45000,
+    });
 
-    // Lines already in the standby's log. The assertion below is that a NEW one
-    // appears, not that one ever has.
-    const heldLinesBefore = await countPattern(standbyClient.container, 'is held on peer node');
+    // Decisions the standby has already taken. The assertion below is that NEW
+    // ones appear, not that any ever have.
+    const heldBefore = await electionDecisionCount(standbyClient, identifier, 'heldOnPeer');
 
     // The owner stops their master to work on its files. This is the whole of what
     // pause used to be for, and the only lever left now pause is retired.
@@ -190,13 +206,17 @@ describe('masterSlave recovery after an operator stop', function () {
     const stopRes = await primaryClient.getAuthed(`/apps/appstop/${appName}`, auth.zelidauth);
     expect(stopRes.status).to.equal('success');
     await waitFor(async () => !(await isUp(primaryClient, appName)), {
-      timeout: 60000, interval: 2000, label: 'the owner-stopped master goes down',
+      timeout: 30000, interval: 2000, label: 'the owner-stopped master goes down',
     });
 
     // The process only - dockerd and every other container survive. This is what
     // empties controllerDesired, and it is routine in production: an update, a
     // reboot, a crash.
-    await restartFluxos(primaryClient.container);
+    // 45s, not the 120s default: this kills and revives one node process on a
+    // host whose docker, mongo and every other container stay up, in a harness
+    // that compresses boot delays 100x. Restarting the whole docker daemon -
+    // strictly heavier - is budgeted at 40s by restartDockerd.
+    await restartFluxos(primaryClient.container, { readyTimeoutMs: 45000 });
 
     // FDM now has no primary to name, so the standby's election opens on its next
     // pass rather than after the health-check grace. The takeover is brought
@@ -210,14 +230,14 @@ describe('masterSlave recovery after an operator stop', function () {
     await waitFor(async () => {
       const res = await primaryClient.get('/apps/heldcomponents').catch(() => null);
       return Array.isArray(res?.data) && res.data.includes(`flux${identifier}`);
-    }, { timeout: 120000, interval: 2000, label: 'the restarted node still reports the stopped component as held' });
+    }, { timeout: 45000, interval: 2000, label: 'the restarted node still reports the stopped component as held' });
 
     // And the standby acts on it. Asserted on the standby's own recorded decision
     // rather than on time passing: a standby that is merely waiting out a stagger
     // is indistinguishable from one correctly holding off, if all you check is that
     // nothing started.
-    await waitFor(async () => (await countPattern(standbyClient.container, 'is held on peer node')) > heldLinesBefore, {
-      timeout: 120000, interval: 3000, label: 'the standby probes, is told the component is held, and refuses',
+    await waitForElectionDecisions(standbyClient, identifier, 'heldOnPeer', 1, {
+      from: heldBefore, timeout: 45000,
     });
 
     expect(await runningCount(), 'a peer elected itself over a master its owner had stopped').to.equal(0);

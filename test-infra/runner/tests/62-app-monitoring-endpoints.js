@@ -69,7 +69,7 @@ describe('App monitoring endpoints', function () {
   let ownerAuth;
 
   before(async function () {
-    this.timeout(300000);
+    this.timeout(360000);
 
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
@@ -173,10 +173,17 @@ describe('App monitoring endpoints', function () {
     // sample and the newest — never an empty chart
     expect(thinned.data.length).to.be.at.least(1);
     expect(thinned.data.length).to.be.at.most(full.data.length);
+    // At least, not equal to. `thinned` is fetched second and the sampler keeps
+    // running between the two calls, so a sample landing in that gap legitimately
+    // gives it a NEWER newest sample - an equality fails there on correct code.
+    // Swapping the fetch order does not fix that, it only moves which side the
+    // race lands on. Fetched-later can only have gained samples, so this holds
+    // whatever the sampler does, and still catches the defect the test is for:
+    // thinning that drops the newest sample makes it OLDER, which fails here.
     expect(
       thinned.data[thinned.data.length - 1].timestamp,
       'the newest sample must survive thinning or the chart stops short of now',
-    ).to.equal(full.data[full.data.length - 1].timestamp);
+    ).to.be.at.least(full.data[full.data.length - 1].timestamp);
   });
 
   it('should withhold monitoring data from an unauthenticated caller', async function () {

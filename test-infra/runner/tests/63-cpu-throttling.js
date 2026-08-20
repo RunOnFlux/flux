@@ -88,7 +88,7 @@ describe('CPU throttling', function () {
   let node;
 
   before(async function () {
-    this.timeout(300000);
+    this.timeout(360000);
 
     env = await createTestEnv({ hookCtx: this, nodes: 10, tickerAutostart: false });
     await bootAndPeer(env);
