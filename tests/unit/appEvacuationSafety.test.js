@@ -51,6 +51,11 @@ describe('appEvacuationSafety tests', () => {
       appLocation: sinon.stub(),
       getApplicationGlobalSpecifications: sinon.stub(),
       findSyncedPeer: sinon.stub().resolves({ deviceID: 'PEER1', globalBytes: 1024 }),
+      // Both required. The default case is this node running the g: component
+      // with the election able to name another node as primary, so the checks
+      // below reach the syncthing evidence rather than stopping short of it.
+      isElectedPrimary: sinon.stub().resolves(false),
+      isComponentRunningLocally: sinon.stub().resolves(true),
     };
   });
 
@@ -87,12 +92,22 @@ describe('appEvacuationSafety tests', () => {
     });
 
     it('refuses when this node does not know its own address', async () => {
+      // Named, and with a populated location list. Asserting only `safe` on an
+      // empty list proved the NEXT guard instead: appLocation returned
+      // undefined either way, so the refusal came from "no instance locations"
+      // and this one could be deleted without the test noticing. With the list
+      // populated and the guard gone, otherHostCount compares against an
+      // undefined address, never matches this node, and counts this node as
+      // another host holding the app.
       deps.getApplicationGlobalSpecifications.resolves(statelessSpec());
+      deps.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127'));
       fluxNetworkHelperStub.getLocalSocketAddress.resolves(null);
 
       const result = await appEvacuationSafety.canSafelyRemoveApp('plainapp', deps);
 
       expect(result.safe).to.equal(false);
+      expect(result.code).to.equal('NO_LOCAL_ADDRESS');
+      expect(result.reason).to.contain('local socket address');
     });
 
     it('refuses on an empty location list rather than reading it as "runs nowhere"', async () => {
@@ -228,7 +243,93 @@ describe('appEvacuationSafety tests', () => {
       const result = await appEvacuationSafety.canSafelyRemoveApp('palworld1', deps);
 
       expect(result.safe).to.equal(false);
+      expect(result.code).to.equal('ELECTED_PRIMARY');
       expect(result.reason).to.contain('primary');
+    });
+  });
+
+  describe('an election that cannot answer is not an election that said no', () => {
+    beforeEach(() => {
+      deps.getApplicationGlobalSpecifications.resolves(statefulSpec({ instances: 2 }));
+      deps.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127'));
+    });
+
+    it('refuses while this node runs the g: component and the election cannot say', async () => {
+      // The whole defect in one assertion. `null` is "nobody can tell me who
+      // the primary is", and answering it the way `false` is answered deletes
+      // the volume of the node that may well be the one writing to it.
+      deps.isElectedPrimary = sinon.stub().resolves(null);
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('palworld1', deps);
+
+      expect(result.safe).to.equal(false);
+      expect(result.code).to.equal('ELECTION_UNKNOWN');
+    });
+
+    it('proceeds on an unknown election when this node is not running the component', async () => {
+      // A node not running the writer cannot be the writer, whatever the
+      // election does or does not know - so a load-balancer outage stalls the
+      // trim only where a writer actually lives.
+      deps.isElectedPrimary = sinon.stub().resolves(null);
+      deps.isComponentRunningLocally = sinon.stub().resolves(false);
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('palworld1', deps);
+
+      expect(result.safe).to.equal(true);
+      expect(deps.isElectedPrimary.called).to.equal(false);
+    });
+
+    it('never asks the election about an app with no g: component', async () => {
+      // `s:` and `r:` components are stateful but have no primary at all, so
+      // demanding an election verdict for them would stall their trim for good.
+      deps.getApplicationGlobalSpecifications.resolves({
+        name: 'shared1',
+        version: 8,
+        compose: [{ name: 'db', containerData: 's:/data' }],
+        instances: 2,
+      });
+      deps.isElectedPrimary = sinon.stub().resolves(null);
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('shared1', deps);
+
+      expect(result.safe).to.equal(true);
+      expect(deps.isElectedPrimary.called).to.equal(false);
+    });
+
+    // These two use an app with NO g: component on purpose. A g: app reaches
+    // the election check and would throw a TypeError on the missing dependency
+    // anyway, so it cannot tell an explicit requirement from an accident. An
+    // s: app never reaches that call at all: without the requirement the
+    // omission is invisible and the removal comes back safe.
+    const sharedOnlySpec = {
+      name: 'shared1',
+      version: 8,
+      compose: [{ name: 'db', containerData: 's:/data' }],
+      instances: 2,
+    };
+
+    it('refuses, loudly, when a caller omits the election check altogether', async () => {
+      // It used to default to `async () => false` - the one unavailable input
+      // in this function that answered instead of refusing. A caller that
+      // cannot ask must not be told the removal is safe.
+      deps.getApplicationGlobalSpecifications.resolves(sharedOnlySpec);
+      delete deps.isElectedPrimary;
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('shared1', deps);
+
+      expect(result.safe).to.equal(false);
+      expect(result.code).to.equal('CHECK_FAILED');
+      expect(result.reason).to.contain('isElectedPrimary');
+    });
+
+    it('refuses when a caller omits the running-component check', async () => {
+      deps.getApplicationGlobalSpecifications.resolves(sharedOnlySpec);
+      delete deps.isComponentRunningLocally;
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('shared1', deps);
+
+      expect(result.safe).to.equal(false);
+      expect(result.code).to.equal('CHECK_FAILED');
     });
   });
 

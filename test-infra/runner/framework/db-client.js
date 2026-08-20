@@ -136,11 +136,19 @@ export function dbClient(nodeNum) {
       return localDb.collection('nodestartuptracker').findOne({ _id: 'residentialDos' });
     },
 
-    async setResidentialSince(since) {
+    // Serve the settling window without waiting it out.
+    //
+    // The gate counts time the node OBSERVED the verdict, not time that passed,
+    // so backdating residentialSince alone no longer serves it - that field is
+    // kept for the operator reading the record. observedMs is what the node
+    // compares against residentialSettleMs, and lastConfirmedAt is set to now so
+    // the node's next tick credits nothing on top and the total stays put.
+    async serveSettleWindow(observedMs = 48 * 60 * 60 * 1000) {
       const localDb = await db('local');
+      const now = Date.now();
       await localDb.collection('nodestartuptracker').updateOne(
         { _id: 'residentialDos' },
-        { $set: { residentialSince: since } },
+        { $set: { residentialSince: now - observedMs, lastConfirmedAt: now, observedMs } },
         { upsert: true },
       );
     },

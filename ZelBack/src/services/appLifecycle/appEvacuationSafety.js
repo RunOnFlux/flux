@@ -50,6 +50,10 @@ function syncedComponents(spec) {
     acc.push({
       name: component.name || spec.name,
       syncMode,
+      // The key masterSlaveApps elects on, and the name the container carries
+      // once the prefix is stripped - so a caller can ask whether THIS node is
+      // running the component without reconstructing either.
+      identifier,
       folderId: dockerService.getAppIdentifier(identifier),
     });
     return acc;
@@ -87,43 +91,59 @@ function otherHostCount(locations, localSocketAddr) {
  * @param {Function} deps.appLocation Instance locations for an app name.
  * @param {Function} deps.getApplicationGlobalSpecifications Global spec for an app name.
  * @param {Function} deps.findSyncedPeer Connected peer that holds a folder, or null.
- * @param {Function} [deps.isElectedPrimary] Whether this node currently runs the
- *   `g:` component as primary.
- * @returns {Promise<{safe: boolean, reason: string}>}
+ * @param {Function} deps.isElectedPrimary Three-state: true if this node is the
+ *   elected `g:` primary, false if another node provably is, null if the
+ *   election cannot say. Required - null and false are not interchangeable here.
+ * @param {Function} deps.isComponentRunningLocally Whether a component
+ *   identifier is running on this node right now. Required.
+ * @returns {Promise<{safe: boolean, code: string, reason: string}>} `code` is
+ *   the machine-readable verdict - a refusal because the election cannot answer
+ *   reads identically to an idle pass without it, and a node stuck that way
+ *   should be visible rather than silent.
  */
 async function canSafelyRemoveApp(appName, deps) {
   const {
     appLocation,
     getApplicationGlobalSpecifications,
     findSyncedPeer,
-    isElectedPrimary = async () => false,
+    isElectedPrimary,
+    isComponentRunningLocally,
   } = deps;
 
   try {
+    // No default. These used to default to `async () => false`, which answered
+    // "no, you are not the primary" to a caller that had not asked anyone - the
+    // one unavailable input in this function that proceeded rather than
+    // refused. A caller that cannot answer must not be told the removal is
+    // safe, so the omission throws and the catch below turns it into a refusal
+    // that says so.
+    if (typeof isElectedPrimary !== 'function' || typeof isComponentRunningLocally !== 'function') {
+      throw new Error('isElectedPrimary and isComponentRunningLocally are required');
+    }
     if (globalState.backupInProgress.includes(appName)) {
-      return { safe: false, reason: 'backup in progress' };
+      return { safe: false, code: 'BACKUP_IN_PROGRESS', reason: 'backup in progress' };
     }
     if (globalState.restoreInProgress.includes(appName)) {
-      return { safe: false, reason: 'restore in progress' };
+      return { safe: false, code: 'RESTORE_IN_PROGRESS', reason: 'restore in progress' };
     }
 
     const spec = await getApplicationGlobalSpecifications(appName);
     if (!spec) {
       // No spec means we cannot tell how many instances the app needs, nor
       // whether it keeps state. Both are required to answer safely.
-      return { safe: false, reason: 'no global specification available' };
+      return { safe: false, code: 'NO_SPEC', reason: 'no global specification available' };
     }
 
     const localSocketAddr = await fluxNetworkHelper.getLocalSocketAddress();
     if (!localSocketAddr) {
-      return { safe: false, reason: 'local socket address unknown' };
+      return { safe: false, code: 'NO_LOCAL_ADDRESS', reason: 'local socket address unknown' };
     }
 
     const locations = await appLocation(appName);
     if (!Array.isArray(locations) || !locations.length) {
       // An empty list is far more likely to mean the location view has not
       // populated than that the app runs nowhere while installed here.
-      return { safe: false, reason: 'no instance locations known' };
+      return { safe: false, code: 'NO_LOCATIONS', reason: 'no instance locations known' };
     }
 
     // The serialisation gate. Removing takes the app to N-1, so every other
@@ -134,6 +154,7 @@ async function canSafelyRemoveApp(appName, deps) {
     if (locations.length < required) {
       return {
         safe: false,
+        code: 'BELOW_INSTANCE_COUNT',
         reason: `app is below its instance count (${locations.length}/${required}), another move is in flight`,
       };
     }
@@ -144,16 +165,41 @@ async function canSafelyRemoveApp(appName, deps) {
     if (!synced.length) {
       // Nothing to lose but the container, which the spawner rebuilds from the
       // specification. Removing the only instance is a gap, not a loss.
-      return { safe: true, reason: `stateless app, ${otherHosts} other host(s) hold it` };
+      return { safe: true, code: 'STATELESS', reason: `stateless app, ${otherHosts} other host(s) hold it` };
     }
 
     // Past here the volume IS the product.
     if (otherHosts < 1) {
-      return { safe: false, reason: 'stateful app and this is the only host holding it' };
+      return { safe: false, code: 'ONLY_HOST', reason: 'stateful app and this is the only host holding it' };
     }
 
-    if (await isElectedPrimary(appName)) {
-      return { safe: false, reason: 'this node is the elected primary; stand down first' };
+    // A g: component runs on one node at a time and that node is the one
+    // writing to the volume; the rest hold synced copies with the component
+    // stopped. So a node not running it cannot be the writer - a local fact,
+    // needing neither FDM nor the election, and the reason a load-balancer
+    // outage stalls the trim only on the nodes actually holding a writer
+    // instead of on all of them.
+    const gComponents = synced.filter((component) => component.syncMode === 'g');
+    const runningHere = await Promise.all(
+      gComponents.map((component) => isComponentRunningLocally(component.identifier)),
+    );
+    if (runningHere.some(Boolean)) {
+      const primary = await isElectedPrimary(appName);
+      if (primary === null) {
+        // Not "there is no primary" - "nobody can tell me who it is". This node
+        // is running the writer, so the likeliest reading is that it is the one
+        // just promoted and FDM has not caught up. Handing the app back from
+        // under it drops whatever it has written since the peer last reported
+        // the folder complete.
+        return {
+          safe: false,
+          code: 'ELECTION_UNKNOWN',
+          reason: 'this node runs the g: component and the election cannot say who is primary',
+        };
+      }
+      if (primary === true) {
+        return { safe: false, code: 'ELECTED_PRIMARY', reason: 'this node is the elected primary; stand down first' };
+      }
     }
 
     // eslint-disable-next-line no-restricted-syntax
@@ -163,6 +209,7 @@ async function canSafelyRemoveApp(appName, deps) {
       if (!peer) {
         return {
           safe: false,
+          code: 'NO_SYNCED_PEER',
           reason: `no connected peer holds ${component.folderId} in full`,
         };
       }
@@ -170,11 +217,12 @@ async function canSafelyRemoveApp(appName, deps) {
 
     return {
       safe: true,
+      code: 'SYNCED_ELSEWHERE',
       reason: `${synced.length} synced component(s) held in full by a connected peer, ${otherHosts} other host(s)`,
     };
   } catch (error) {
     log.warn(`appEvacuationSafety - ${appName}: ${error.message}`);
-    return { safe: false, reason: `safety check failed: ${error.message}` };
+    return { safe: false, code: 'CHECK_FAILED', reason: `safety check failed: ${error.message}` };
   }
 }
 
