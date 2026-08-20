@@ -117,6 +117,30 @@ COPY test-infra/fixtures/userconfig-template.js /flux/config/userconfig.js
 RUN touch /flux/debug.log /flux/error.log /flux/info.log /flux/warn.log \
     && ln -s /flux /root/zelflux
 
+# Preseed CloudUI so no node fetches it at boot.
+#
+# cloudUIUpdateService treats FLUXOS_PATH being set as "this is ArcaneOS, the
+# watchdog handles CloudUI" and skips entirely - and test-env sets FLUXOS_PATH on
+# every NON-legacy node. So the install path is reached only by legacy fleets,
+# which is why this went unnoticed: CloudUI/ is gitignored and nothing in this
+# file fetched it, so every legacy node found the folder empty and ran
+# `npm run update:cloudui` at boot. That script hardcodes api.github.com and
+# curls a release tarball - it does not read config.github.apiBaseUrl - so a
+# harness fleet was reaching the real internet, and taking 60s over it. Suite 21
+# waits 90s for daemon:polled and seven of ten nodes had not finished.
+#
+# Two files, because cloudUIExists() wants one that is not `version`, and
+# getLocalVersionHash() must return something or the script runs anyway. With
+# both present the service asks the STUBBED github for a newer release, gets a
+# 404, logs "Could not fetch remote version info, skipping update check" and
+# returns. No network, no boot cost.
+#
+# Deliberately not the real frontend: no suite serves or asserts on it, and
+# fetching it here would put a live GitHub dependency into every image build.
+RUN mkdir -p /flux/CloudUI \
+    && echo "0000000000000000000000000000000000000000" > /flux/CloudUI/version \
+    && printf '<!doctype html><title>CloudUI harness placeholder</title>' > /flux/CloudUI/index.html
+
 ENV NODE_CONFIG_DIR=/flux/ZelBack/config
 
 COPY test-infra/entrypoint.sh /entrypoint.sh
