@@ -360,6 +360,12 @@ describe('Residential node evacuation', function () {
 
     // Its own reading is UNKNOWN - no signal for, none against - so a verdict of
     // RESIDENTIAL can only have come from the table.
+    //
+    // The dosState assertion above is guaranteed by this node's attestation and
+    // establishes nothing on its own; what this test rests on is the evidence
+    // below. Withdrawing the attestation to make the verdict decide, as the
+    // veto test does, is not available here: node 3 is SECOND_TARGET for the
+    // later drain tests and has to arrive at them attested.
     const geo = await dbClient(TABLE_DECIDED).geolocation();
     expect(geo.networkEvidence.classification).to.equal('UNKNOWN');
     expect(geo.networkEvidence.evidenceFor).to.be.empty;
@@ -380,8 +386,21 @@ describe('Residential node evacuation', function () {
     const geo = await dbClient(VETOING).geolocation();
     expect(geo.networkEvidence.evidenceAgainst).to.not.be.empty;
 
-    const info = await env.clients[VETOING - 1].get('/flux/info');
-    expect(info.data.flux.dos.dosState).to.be.below(100);
+    // Attestation alone keeps this node below 100, so asserting only that
+    // proves nothing about the veto: shouldEnforce is `residential && !arcane`,
+    // and deleting the veto entirely left this test green. Withdraw the
+    // attestation and the verdict is the only thing left deciding. Node 5 is
+    // used by no later test, so it stays withdrawn.
+    await setSystemSecure(subnet.nodeIp(VETOING), false);
+
+    // Ten residential check intervals at the compressed cadence. There is no
+    // event for "decided not to enforce" - the absence of the placement hold IS
+    // the outcome - so this waits out the decision rather than waiting for it.
+    await new Promise((resolve) => { setTimeout(resolve, 30000); });
+
+    expect(await dbClient(VETOING).residentialMarker(), 'a vetoing node must not start a settling window').to.equal(null);
+    const after = await env.clients[VETOING - 1].get('/flux/info');
+    expect(after.data.flux.dos.dosState).to.be.below(100);
   });
 
   it('leaves a residential node alone while it is still attested', async function () {
@@ -433,6 +452,15 @@ describe('Residential node evacuation', function () {
     // driveUntil.
     await stopTicker();
     await driveUntil(env, TARGET, async () => {
+      // Sampled across the whole window in which the node still holds the app.
+      // "goes into DOS only once it holds nothing" cannot see this on its own:
+      // nodeStatusMonitor removes every local app at DOS >= 100, so a DOS
+      // applied while apps were still held would empty the node and satisfy
+      // both of that test's waits - faster than the correct behaviour. A
+      // throwing expect inside the condition propagates out of driveUntil.
+      const info = await env.clients[TARGET - 1].get('/flux/info');
+      expect(info.data.flux.dos.dosState, 'DOS must not land while an app is still held')
+        .to.be.below(100);
       const current = await env.clients[TARGET - 1].get('/apps/installedapps');
       return !current.data.map((a) => a.name).includes('residentapp');
     });
@@ -621,8 +649,15 @@ describe('Residential node evacuation', function () {
     await env.restartNode(TARGET - 1);
     await waitForDaemonReady(env.clients[TARGET - 1]);
 
-    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
-      { timeout: 120000, label: 'the marker is still there after the restart' });
+    // Positive evidence that the restarted node's residential service has run,
+    // not just that mongo still holds a document. Mongo is a separate container
+    // and restartNode restarts only FluxOS, so the marker survives whatever the
+    // node does; and waitFor evaluates its condition on the first iteration, so
+    // "the marker is still there" returned immediately and compared two reads
+    // of a row nothing was required to touch. The service's only writer sits
+    // behind nodeReady, which is raised by SPAWNER_READY - and the placement
+    // hold is published by the same pass that would rewrite the marker.
+    await waitForSpawnerBlocked(env.clients[TARGET - 1], 'placement_hold', 180000);
     const after = await dbClient(TARGET).residentialMarker();
     expect(after.residentialSince).to.eql(before.residentialSince);
     // The restart cost it nothing it had already watched.

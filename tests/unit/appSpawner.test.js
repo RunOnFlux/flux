@@ -285,11 +285,32 @@ describe('appSpawner tests', () => {
     }
 
     it('refuses to install while the node is held back', async () => {
+      // The hold is stage one of the residential design and the only stage that
+      // ships an immediate behaviour change, and nothing asserted it actually
+      // stops anything: deleting `return installDelay;` while keeping the log
+      // and the publish left the whole file green. aggregateStub is the first
+      // thing the install path reaches, so it not being called is the evidence
+      // the pass really stopped here.
       buildModule({ placementHold: 'residential node not running ArcaneOS' });
+
+      const delay = await appSpawner.trySpawningGlobalApplication().catch(() => {});
+
+      expect(infoLoggedIncludes('held back from new placements')).to.equal(true);
+      expect(aggregateStub.called).to.equal(false);
+      expect(delay).to.be.a('number');
+    });
+
+    it('goes no further than the hold, even with work waiting', async () => {
+      // Held with apps that WOULD be installable: without the return, the pass
+      // walks on into the spawn path and the log line above is decoration.
+      buildModule({
+        placementHold: 'residential node not running ArcaneOS',
+        aggregateResult: [{ name: 'someapp', hash: 'h1', height: 100 }],
+      });
 
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
-      expect(infoLoggedIncludes('held back from new placements')).to.equal(true);
+      expect(aggregateStub.called).to.equal(false);
     });
 
     it('publishes placement_hold so a suite can see which gate stopped it', async () => {
@@ -308,6 +329,10 @@ describe('appSpawner tests', () => {
       await appSpawner.trySpawningGlobalApplication().catch(() => {});
 
       expect(infoLoggedIncludes('held back from new placements')).to.equal(false);
+      // The other half of the pair: unheld, the pass reaches the install path,
+      // so the assertion above is about the hold and not about the pass being
+      // stopped by something else entirely.
+      expect(aggregateStub.called).to.equal(true);
     });
   });
 
