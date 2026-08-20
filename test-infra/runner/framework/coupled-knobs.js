@@ -47,7 +47,16 @@ export const PRODUCTION = Object.freeze({
   removeFluxAppsPeriod: 11,
   residentialQueueBaseMs: 30 * 60 * 1000,
   residentialQueueStepMs: 40 * 60 * 1000,
+  locationTtlS: 7500,
+  sigtermExpiryS: 420,
 });
+
+// What one node boot costs, measured: a suite-19 fixture pinning 300s of
+// downtime was read by the node as 316s, on cindy under a MAXN=6 gate - so this
+// is a loaded figure, not an idle-box one. Any window a fixture has to be
+// measured INSIDE must clear it with room, because the boot lands in the middle
+// of the measurement and no ratio shrinks it.
+export const BOOT_DRIFT_MS = 16000;
 
 // explorerService.js:610. Applies to both sides, so it cancels out of the
 // ratio - named anyway, because the pass interval is not readable without it.
@@ -121,8 +130,47 @@ export function derivedQueueStepMs(fluxapps) {
  * @param {object} fluxapps Effective fluxapps config for the fleet.
  * @throws {Error} When a ratio is below production's.
  */
+export function assertSigtermOrdering(fluxapps) {
+  const sigtermMs = (fluxapps.sigtermExpiryS ?? PRODUCTION.sigtermExpiryS) * 1000;
+  const runningMs = (fluxapps.locationTtlS ?? PRODUCTION.locationTtlS) * 1000;
+
+  // appStartupManager: (cleanShutdown && downtime > sigterm) || downtime >
+  // running. Above the running expiry this window is unreachable and a clean
+  // shutdown gets no grace, which is the opposite of what it is for. Production
+  // holds 420s under 7500s.
+  if (sigtermMs >= runningMs) {
+    throw new Error(
+      'coupled-knobs: sigtermExpiryS is not below locationTtlS.\n'
+      + `  sigterm ${sigtermMs}ms, running ${runningMs}ms\n`
+      + '  appStartupManager expires on (cleanShutdown && downtime > sigterm) || downtime >\n'
+      + '  running, so at this ordering the running expiry fires first and the clean-shutdown\n'
+      + '  grace can never be reached.',
+    );
+  }
+
+  // A fixture asserting "within the window" is measured across a node boot, and
+  // the boot lands inside the measurement. A window at or under the drift can
+  // never be tested from the inside, whatever the fixture pins.
+  if (sigtermMs <= BOOT_DRIFT_MS) {
+    throw new Error(
+      'coupled-knobs: sigtermExpiryS is at or below one node boot.\n'
+      + `  sigterm ${sigtermMs}ms, measured boot drift ${BOOT_DRIFT_MS}ms\n`
+      + '  A fixture pinning any downtime is read by the node as that downtime PLUS a boot,\n'
+      + '  so nothing can land inside this window. It is bounded by what it must outlive,\n'
+      + '  not by production\'s ratio - a boot is not a compressed clock.',
+    );
+  }
+}
+
+/**
+ * Every coupled-knob rule this harness enforces, in one call.
+ * @param {object} fluxapps Effective fluxapps config for the fleet.
+ * @throws {Error} When any relationship does not hold.
+ */
 export function assertCoupledRatios(fluxapps) {
-  if (!fluxapps || !fluxapps.residentialQueueStepMs) return;
+  if (!fluxapps) return;
+  assertSigtermOrdering(fluxapps);
+  if (!fluxapps.residentialQueueStepMs) return;
   const blockCost = harnessBlockCostMs(fluxapps);
   const pass = giveUpPassMs(fluxapps, blockCost);
   const ratio = fluxapps.residentialQueueStepMs / pass;

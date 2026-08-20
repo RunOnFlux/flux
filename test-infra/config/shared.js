@@ -131,6 +131,18 @@ module.exports = {
     // announcements a node may miss before its apps look gone. Production is
     // 7500s/3600s = 2.08, so this tracks the announce interval's 120x.
     locationTtlS: 63, // 2.10 announces, against production's 2.08
+    // NOT the announce ratio, deliberately. What locationTtlS is coupled to is
+    // a compressed clock; what this is measured across is a NODE BOOT, and the
+    // harness does not compress boots. Measured on cindy under a MAXN=6 gate: a
+    // fixture pinning 300s of downtime was read by the node as 316s, so a boot
+    // costs 16s of drift. At production's 120x this key would be 3.5s - smaller
+    // than the drift - and the within-the-window test could never pass.
+    //
+    // So it is bounded by what it must outlive, like installingTtlS below:
+    // comfortably above the 16s drift, comfortably below locationTtlS's 63s so
+    // the ordering holds and a clean shutdown still gets a grace the running
+    // expiry does not pre-empt. coupled-knobs.js asserts both ends.
+    sigtermExpiryS: 30,
     // NOT compressed, and not compressible by a ratio. What this must outlive is
     // an install, and the harness does not compress installs - they are real
     // image pulls and real container starts. The suites' own budgets say so:

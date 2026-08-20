@@ -166,11 +166,19 @@ describe('Boundary: clean shutdown within SIGTERM_EXPIRY', function () {
 
   before(async function () {
     this.timeout(120000);
-    // 300s ago with sigterm — within 420s SIGTERM_EXPIRY_MS
+    // 1s pinned, which the node reads as ~17s - within the harness's 30s
+    // sigtermExpiryS.
+    //
+    // The pin is not what the node measures. lastAlive is seeded just before
+    // the container starts and the downtime is computed when the node reads it
+    // at boot, so ONE BOOT lands inside the measurement: a 300s pin was read as
+    // 316s on cindy under a full gate. That 16s is why this window cannot be
+    // compressed at production's ratio - 420s at 120x is 3.5s, smaller than the
+    // drift, and nothing could ever land inside it. See coupled-knobs.js.
     env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
-      bootContext: { lastAliveAgoMs: 300000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
+      bootContext: { lastAliveAgoMs: 1000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
     });
     await waitForDaemonReady(env.clients[0]);
   });
@@ -196,11 +204,19 @@ describe('Boundary: clean shutdown beyond SIGTERM_EXPIRY', function () {
 
   before(async function () {
     this.timeout(120000);
-    // 500s ago with sigterm — exceeds 420s SIGTERM_EXPIRY_MS
+    // 25s pinned, read as ~41s: past the 30s sigtermExpiryS, and deliberately
+    // still UNDER locationTtlS at 63s.
+    //
+    // That second bound is the one that matters. locationsExpired is
+    // `(cleanShutdown && downtime > sigterm) || downtime > running`, so a
+    // downtime past the running expiry expires on the second clause and this
+    // test passes without the sigterm window being involved at all. The old
+    // 500s pin did exactly that once locationTtlS became live - green, and
+    // proving nothing about the thing in its name.
     env = await createTestEnv({ hookCtx: this,
       nodes: 1,
       tickerAutostart: false,
-      bootContext: { lastAliveAgoMs: 500000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
+      bootContext: { lastAliveAgoMs: 25000, machineBootId: 'old-boot-id', shutdownReason: 'sigterm' },
     });
   });
 

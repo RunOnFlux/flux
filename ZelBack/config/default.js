@@ -430,6 +430,12 @@ module.exports = {
     // index is expireAt/expireAfterSeconds:0, so changing one of these takes
     // effect on records written after it, not on the ones already stored.
     locationTtlS: 7500, // a running-app location record: 125 minutes
+    // Grace after a node announces its own shutdown, before peers drop its
+    // locations. MUST stay below locationTtlS: appStartupManager expires on
+    // `(cleanShutdown && downtime > sigterm) || downtime > running`, so a value
+    // above the running expiry makes this window unreachable and a clean
+    // shutdown gets no grace at all.
+    sigtermExpiryS: 420,
     installingTtlS: 900, // an in-progress install: 15 minutes
     // 24 hours. This was 3600 while a collection-level TTL index on `cachedAt`
     // drove it; that index was dropped when expiry moved per-document, and the
