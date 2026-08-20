@@ -133,8 +133,18 @@ describe('networkClassifier tests', () => {
     });
 
     it('corroborates a residential verdict the real signals already reached', () => {
+      // The ip-api answers are what make this a verdict rather than a guess.
+      // Without them the PTR is the only thing that spoke and nothing was ever
+      // asked that could contradict it, which is UNKNOWN - see the block below.
       const result = classifyNetwork({
-        ptr: 'n58-111-97-208.bla21.nsw.optusnet.com.au', uploadSpeed: 35, downloadSpeed: 923,
+        ptr: 'n58-111-97-208.bla21.nsw.optusnet.com.au',
+        hosting: false,
+        proxy: false,
+        mobile: false,
+        isp: 'Optus Internet',
+        asn: 'AS4804 Optus',
+        uploadSpeed: 35,
+        downloadSpeed: 923,
       });
 
       expect(result.classification).to.equal(CLASSIFICATION.RESIDENTIAL);
@@ -181,6 +191,55 @@ describe('networkClassifier tests', () => {
       const result = classifyNetwork({ mobile: true });
 
       expect(result.classification).to.equal(CLASSIFICATION.RESIDENTIAL);
+    });
+  });
+
+  describe('a signal nobody asked for is not a signal that came back clean', () => {
+    // The stats.runonflux.io fallback carries no hosting, proxy, mobile, isp or
+    // asn: fluxstats never requests those fields from ip-api, and its
+    // /fluxlocation endpoint projects away everything but location and org. On
+    // that path every contradiction check reads undefined and passes, so a
+    // datacentre host with an access-network PTR came out enforceably
+    // RESIDENTIAL. Both hosts below are real, and are the entire
+    // reverse-DNS-alone error row in the measurement this rule came from.
+    const withoutIpApi = (ptr) => classifyNetwork({ ptr });
+    const withIpApi = (ptr, extra) => classifyNetwork({
+      ptr, hosting: false, proxy: false, mobile: false, isp: 'Example ISP', asn: 'AS1 Example', ...extra,
+    });
+
+    it('will not call an address residential on a PTR alone', () => {
+      expect(withoutIpApi('213-44-137-57.abo.bbox.fr').classification)
+        .to.equal(CLASSIFICATION.UNKNOWN);
+      expect(withoutIpApi('212-83-170-245.rev.poneytelecom.eu').classification)
+        .to.equal(CLASSIFICATION.UNKNOWN);
+    });
+
+    it('still calls it residential once the signals have actually been consulted', () => {
+      // The same PTR, with an ip-api answer that contradicts nothing. The rule
+      // is unchanged where the evidence exists; only the empty case moved.
+      expect(withIpApi('213-44-137-57.abo.bbox.fr').classification)
+        .to.equal(CLASSIFICATION.RESIDENTIAL);
+    });
+
+    it('reports whether the contradicting signals were gathered', () => {
+      expect(withoutIpApi('213-44-137-57.abo.bbox.fr').contradictionSignalsGathered).to.equal(false);
+      expect(withIpApi('213-44-137-57.abo.bbox.fr').contradictionSignalsGathered).to.equal(true);
+    });
+
+    it('counts a signal that came back false as having been asked', () => {
+      // hosting: false is an answer. Only undefined is a question never put.
+      const result = classifyNetwork({ ptr: '213-44-137-57.abo.bbox.fr', hosting: false });
+
+      expect(result.contradictionSignalsGathered).to.equal(true);
+      expect(result.classification).to.equal(CLASSIFICATION.RESIDENTIAL);
+    });
+
+    it('still names a datacentre without them, because that rests on what WAS found', () => {
+      // DATACENTER enforces nothing and is reached by evidence present rather
+      // than evidence absent, so it is unaffected.
+      const result = withoutIpApi('static.63.10.201.195.clients.your-server.de');
+
+      expect(result.classification).to.equal(CLASSIFICATION.DATACENTER);
     });
   });
 });

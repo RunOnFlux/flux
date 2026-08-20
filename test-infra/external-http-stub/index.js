@@ -583,6 +583,16 @@ app.get('/json/:ip', (req, res) => {
 });
 
 // Geolocation: stats.runonflux.io format (fallback)
+//
+// LOCATION ONLY, and deliberately so. The real service builds this collection
+// by batch-querying ip-api itself for every IP on the deterministic node list,
+// asking for `status,continent,continentCode,country,countryCode,region,
+// regionName,lat,lon,query,org,isp` - no hosting, no proxy, no mobile, no `as`
+// - and its /fluxlocation/:ip handler then projects to exactly the ten fields
+// below. It has never carried `static` or `dataCenter`; this stub used to
+// synthesise both from the ip-api fixture, which made the fallback look richer
+// here than it is on a real node and put the one path where the classifier
+// loses its contradiction signals beyond anything a suite could observe.
 app.get('/fluxlocation/:ip', (req, res) => {
   const { ip } = req.params;
   const custom = state.geolocation[ip];
@@ -600,8 +610,6 @@ app.get('/fluxlocation/:ip', (req, res) => {
       lat: geo.lat,
       lon: geo.lon,
       org: geo.org,
-      static: !geo.proxy && geo.hosting,
-      dataCenter: geo.hosting,
     },
   });
 });

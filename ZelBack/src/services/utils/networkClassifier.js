@@ -126,6 +126,24 @@ function classifyNetwork(facts = {}) {
   const evidenceFor = [];
   const evidenceAgainst = [];
 
+  // Whether the signals that can CONTRADICT a residential reading were gathered
+  // at all. RESIDENTIAL means "something says residential and nothing says
+  // otherwise", and the second half is only worth anything if the question was
+  // asked. It is not always asked: when ip-api answers 200 with an unusable
+  // body, geolocationService falls back to stats.runonflux.io, which carries
+  // none of these - it never requests hosting, proxy, mobile or `as` from
+  // ip-api in the first place, and its /fluxlocation endpoint projects away
+  // everything but location and `org`. On that path all five arrive undefined,
+  // an empty evidenceAgainst means nobody looked rather than nothing was found,
+  // and a datacentre host reads as enforceably RESIDENTIAL.
+  //
+  // Inferred from the inputs rather than passed as a flag: a flag can be
+  // forgotten by a new caller and would default to whichever answer is
+  // convenient, and this survives a geolocation restored from the database,
+  // which persists these fields.
+  const contradictionSignalsGathered = hosting !== undefined || proxy !== undefined
+    || mobile !== undefined || isp !== undefined || asn !== undefined;
+
   const ptrClass = classifyPtr(ptr);
   if (ptrClass === 'residential') evidenceFor.push(`ptr access-network: ${ptr}`);
   // 'both' is a contradiction on its own: a name carrying hosting vocabulary is
@@ -150,15 +168,24 @@ function classifyNetwork(facts = {}) {
 
   let classification = CLASSIFICATION.UNKNOWN;
   if (evidenceFor.length && !evidenceAgainst.length) {
-    classification = CLASSIFICATION.RESIDENTIAL;
-    evidenceFor.push(...corroborating);
+    // Only reachable when the contradicting signals were actually consulted.
+    // Without them this is UNKNOWN, which never enforces - the same answer the
+    // module already gives to every other question it cannot settle.
+    classification = contradictionSignalsGathered
+      ? CLASSIFICATION.RESIDENTIAL
+      : CLASSIFICATION.UNKNOWN;
+    if (contradictionSignalsGathered) evidenceFor.push(...corroborating);
   } else if (evidenceAgainst.length && !evidenceFor.length) {
+    // DATACENTER stands either way: it rests on something found, not on
+    // something absent, and it enforces nothing.
     classification = CLASSIFICATION.DATACENTER;
   } else if (evidenceFor.length && evidenceAgainst.length) {
     classification = CLASSIFICATION.CONFLICTED;
   }
 
-  return { classification, evidenceFor, evidenceAgainst };
+  return {
+    classification, evidenceFor, evidenceAgainst, contradictionSignalsGathered,
+  };
 }
 
 module.exports = {
