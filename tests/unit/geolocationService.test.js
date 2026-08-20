@@ -279,12 +279,16 @@ describe('geolocationService tests', () => {
       sinon.assert.called(logStub.error);
     });
 
-    it('should NOT claim a static IP from a null lastIpChangeDate', async () => {
-      // A null change date means nothing has been observed yet, which is not the
-      // same as having been observed stable.
+    it('claims a static IP for a public address with no recorded change', async () => {
+      // Through the whole pass, not just the predicate. A null lastIpChangeDate
+      // means this node has never SEEN the address move, which is where every
+      // node starts; the address is trusted until an observed change withdraws
+      // it. The stability window measures the recovery from that change, and is
+      // the only thing it measures.
       await geolocationService.setNodeGeolocation();
 
-      expect(geolocationService.isStaticIP()).to.equal(false);
+      expect(geolocationService.getStaticIpState()).to.equal('STATIC');
+      expect(geolocationService.isStaticIP()).to.equal(true);
     });
   });
 
@@ -319,11 +323,126 @@ describe('geolocationService tests', () => {
       dbHelperStub.findOneInDatabase.resolves(null);
     });
 
-    it('an address just met is UNKNOWN, not static', async () => {
-      // The old code substituted `now - threshold - 1` when no IP change had
-      // ever been recorded, so a node up for five minutes claimed ten days of
-      // stability. An address becomes static by being held.
+    it('trusts a public address it has never seen change', async () => {
+      // Absence of an observed change is this node having started watching
+      // after the fact, which every node does exactly once - not evidence that
+      // the address moves. Measured on the fleet an address changes on 0.29% of
+      // node-days, so refusing here is wrong about ~97% of nodes for ten days,
+      // and it lands on all of them together because they upgrade together: 44
+      // staticip specs across 202 placements with nowhere to run.
       fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('STATIC');
+      expect(geolocationService.isStaticIP()).to.equal(true);
+    });
+
+    it('withdraws it once the address is seen to change, until it is held again', async () => {
+      // One observed change is what turns the trust off. The address then earns
+      // it back by being held for the stability window, which is what
+      // ipFirstSeenAt measures and is the only thing it is for.
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      dbHelperStub.findOneInDatabase.resolves({
+        geolocation: { ip: '9.9.9.9' },
+        staticIp: true,
+        dataCenter: false,
+        lastIpChangeDate: null,
+        ipFirstSeenAt: Date.now() - (400 * 24 * 60 * 60 * 1000),
+        staticIpState: 'STATIC',
+        networkClassification: null,
+      });
+      geolocationService = reload();
+      await geolocationService.getNodeGeolocation();
+
+      // The address it comes back with is not the one on record.
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('UNKNOWN');
+      expect(geolocationService.isStaticIP()).to.equal(false);
+    });
+
+    it('seeds the window from the last recorded change, so an upgrade costs nothing', async () => {
+      // ipFirstSeenAt is new, so an in-place upgrade has none. lastIpChangeDate
+      // is persisted, restored, and says the address has been held since that
+      // change - reading it is what stops the window restarting on a node that
+      // has held its address for over a year.
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      dbHelperStub.findOneInDatabase.resolves({
+        geolocation: { ip: '185.199.108.1' },
+        staticIp: true,
+        dataCenter: false,
+        lastIpChangeDate: Date.now() - (400 * 24 * 60 * 60 * 1000),
+        ipFirstSeenAt: null,
+        staticIpState: 'STATIC',
+        networkClassification: null,
+      });
+      geolocationService = reload();
+      await geolocationService.getNodeGeolocation();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('STATIC');
+    });
+
+    it('is STATIC behind NAT when the published table calls the range hosting', async () => {
+      // A 1:1-NAT cloud instance holds a genuinely static address that never
+      // appears on a local interface, so the interface test alone can never see
+      // it - every AWS, Azure, GCP and Oracle box fails it. This is the job the
+      // deleted staticIpOrgs list did, on evidence that has been measured.
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
+        config: configStub,
+        '../lib/log': logStub,
+        './dbHelper': dbHelperStub,
+        './serviceHelper': serviceHelperStub,
+        './fluxNetworkHelper': fluxNetworkHelperStub,
+        './appPlacement/ipLocationStore': {
+          lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass: 'DATACENTER' }),
+          status: sinon.stub().returns({ ready: true, generated: 'x', rowCount: 2000000 }),
+        },
+      });
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('STATIC');
+    });
+
+    it('stays DYNAMIC behind NAT when the table calls the range residential', async () => {
+      // The old rule granted static to seven consumer ISPs on the fleet -
+      // Verizon, Comcast, Free SAS, Bouygues among them - because ip-api
+      // flagged them `proxy`, which is a VPN artefact and not an address that
+      // stays put.
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
+        config: configStub,
+        '../lib/log': logStub,
+        './dbHelper': dbHelperStub,
+        './serviceHelper': serviceHelperStub,
+        './fluxNetworkHelper': fluxNetworkHelperStub,
+        './appPlacement/ipLocationStore': {
+          lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass: 'RESIDENTIAL' }),
+          status: sinon.stub().returns({ ready: true, generated: 'x', rowCount: 2000000 }),
+        },
+      });
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState()).to.equal('DYNAMIC');
+    });
+
+    it('says UNKNOWN when the routing table could not be read, not DYNAMIC', async () => {
+      // "There is no public address on any interface" is a fact about the node.
+      // "I could not read the routing table" is a fact about this process, and
+      // answering the second with the first asserts NAT on a node that may well
+      // hold a public address.
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(null);
       serviceHelperStub.axiosGet.resolves(ipApiResponse());
       geolocationService = reload();
 

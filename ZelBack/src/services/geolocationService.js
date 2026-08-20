@@ -304,28 +304,103 @@ async function setNodeGeolocation() {
       ipFirstSeenAt = now;
       log.info(`IP changed from ${previousIp} to ${currentIp}. Static IP observation restarts.`);
     } else if (!ipFirstSeenAt) {
-      // An address just met has been held for no time at all. It becomes STATIC
-      // by being held, never by assumption.
-      ipFirstSeenAt = now;
-      log.info(`First observation of ${currentIp}. Static IP unknown until it has been held for ${staticIpStabilityDays} days.`);
+      // Seeded from the last change on record rather than from now: an address
+      // held since a change 400 days ago has been held for 400 days, and that
+      // record is persisted and restored. Without this, an in-place upgrade
+      // introducing ipFirstSeenAt restarts the window on a node that has held
+      // its address for years.
+      ipFirstSeenAt = lastIpChangeDate ?? now;
+      log.info(`First observation of ${currentIp} by this build`
+        + `${lastIpChangeDate ? `, held since the change recorded ${new Date(lastIpChangeDate).toISOString()}` : ', with no change ever recorded'}.`);
     }
 
     const hasPublicIp = await fluxNetworkHelper.hasPublicIpOnInterface();
     const heldForMs = now - ipFirstSeenAt;
     const heldDays = heldForMs / (24 * 60 * 60 * 1000);
 
-    if (!hasPublicIp) {
-      // The public address is not on any local interface, so the node is behind
-      // NAT. Nothing about the operator changes that.
-      staticIpState = STATIC_IP_STATE.DYNAMIC;
+    // THE WHOLE DECISION, in one table. Read down the first two columns; the
+    // third is consulted only where the first two cannot settle it.
+    //
+    //   public IP on   this node has     published     verdict
+    //   the interface  SEEN it change    table says
+    //   -------------  ---------------   -----------   -------------------
+    //   yes            no                (not asked)   STATIC
+    //   yes            yes, >10d ago     (not asked)   STATIC
+    //   yes            yes, <10d ago     hosting       STATIC
+    //   yes            yes, <10d ago     anything else UNKNOWN
+    //   no  (NAT)      -                 hosting       STATIC
+    //   no  (NAT)      -                 anything else DYNAMIC
+    //   unreadable     -                 hosting       STATIC
+    //   unreadable     -                 anything else UNKNOWN
+    //
+    // Only STATIC satisfies an app's `staticip` requirement; UNKNOWN and
+    // DYNAMIC both fail it, and are kept apart so a node that could not answer
+    // does not read as one that answered "behind NAT".
+    //
+    // Row 1 is the common case and the one that matters most: a node has SEEN
+    // no change because it started watching after the fact, which every node
+    // does exactly once. That is not evidence the address moves. Measured on
+    // the fleet an address changes on 0.29% of node-days, so treating
+    // not-yet-watched as suspect is wrong about ~97% of nodes for the ten days
+    // it lasts - and it lands on all of them together, because they upgrade
+    // together. An observed change is what withdraws the trust; rows 2-4 are
+    // the address earning it back.
+    //
+    // Where the local test cannot answer, the published table can. A 1:1-NAT
+    // cloud instance holds a genuinely static address that never appears on any
+    // local interface - every AWS, Azure, GCP and Oracle box fails the test
+    // above - and a range the table calls hosting is that case.
+    //
+    // This is the job the deleted staticIpOrgs list was doing, done on evidence
+    // that has been measured. That list was nine hoster names matched against
+    // the block REGISTRANT, which disagrees with the operator on 67% of fleet
+    // hosts, backed by an ip-api `static` field that is literally
+    // `proxy || hosting`.
+    //
+    // Measured against the two signals over the whole fleet - 5,661 node slots
+    // on 2,349 machines - the table treats 268 more slots as static than the
+    // list did, on 153 machines it never named (83 of them one operator), and
+    // withdraws it from 49 slots on 11 machines. Seven of those eleven are
+    // consumer ISPs the list was wrong about - Verizon, Comcast, Free SAS,
+    // Bouygues - flagged `proxy`, which is a VPN artefact and not an address
+    // that stays put. The remaining four are genuine hosting the table has not
+    // classified yet, and data/orgclass-overrides.json in
+    // fluxos-network-policy is where that is corrected.
+    const publishedHosting = (await publishedClassification(currentIp)).classification
+      === networkClassifier.CLASSIFICATION.DATACENTER;
+
+    if (hasPublicIp === null) {
+      // The routing table could not be read. Not evidence of anything about the
+      // address, and in particular not evidence of NAT.
+      staticIpState = publishedHosting ? STATIC_IP_STATE.STATIC : STATIC_IP_STATE.UNKNOWN;
+    } else if (!hasPublicIp) {
+      // Behind NAT as far as this node can see.
+      staticIpState = publishedHosting ? STATIC_IP_STATE.STATIC : STATIC_IP_STATE.DYNAMIC;
+    } else if (!lastIpChangeDate) {
+      // A public address on the interface, and this node has never seen it
+      // change. Absence of an observed change is not evidence that the address
+      // moves - it is this node having started watching after the fact, which
+      // every node does exactly once. Measured on the fleet, an address changes
+      // on 0.29% of node-days, so treating "not yet watched" as suspect is
+      // wrong about roughly 97% of nodes for the whole ten days it lasts, and
+      // it lands on all of them at once because they upgrade together.
+      //
+      // Trusted until it is seen to move, and one observed change is what
+      // withdraws it - the branch below then makes the address earn it back.
+      staticIpState = STATIC_IP_STATE.STATIC;
     } else if (heldForMs >= stabilityThreshold) {
       staticIpState = STATIC_IP_STATE.STATIC;
+    } else if (publishedHosting) {
+      // It has moved recently, but it is in a hosting range: an address that
+      // moves within a data centre is still handed back as a fixed one.
+      staticIpState = STATIC_IP_STATE.STATIC;
     } else {
-      // Public IP on the interface, but not yet held long enough to know.
+      // It has demonstrably moved and has not been held long enough since.
       staticIpState = STATIC_IP_STATE.UNKNOWN;
     }
     staticIp = staticIpState === STATIC_IP_STATE.STATIC;
-    log.info(`Static IP: ${staticIpState} (public IP on interface: ${hasPublicIp}, address held ${heldDays.toFixed(1)} of ${staticIpStabilityDays} days)`);
+    log.info(`Static IP: ${staticIpState} (public IP on interface: ${hasPublicIp}, address held ${heldDays.toFixed(1)} of ${staticIpStabilityDays} days`
+      + `, published hosting range: ${publishedHosting})`);
 
     // Whether the address is held (above) and what network it sits on (here) are
     // separate questions, answered from separate evidence.

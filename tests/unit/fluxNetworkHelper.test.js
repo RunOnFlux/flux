@@ -3105,4 +3105,33 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.isPlacementHeld()).to.equal(true);
     });
   });
+
+  describe('hasPublicIpOnInterface', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('returns NULL when the routing table cannot be read, not false', async () => {
+      // The distinction the static-IP verdict turns on. "There is no public
+      // address on any interface" is a fact about the node and means it is
+      // behind NAT; "I could not read /proc/net/route" is a fact about this
+      // process, and answering the second with the first asserts NAT on a node
+      // that may well hold a public address on its own interface.
+      sinon.stub(fs, 'readFile').rejects(new Error('EACCES: permission denied'));
+
+      const result = await fluxNetworkHelper.hasPublicIpOnInterface();
+
+      expect(result).to.equal(null);
+    });
+
+    it('returns false, not null, when the routing table simply has no routes', async () => {
+      // Readable and empty is an answer: there is no default route, so there is
+      // no public address on one.
+      sinon.stub(fs, 'readFile').resolves('Iface\tDestination\tGateway\n');
+
+      const result = await fluxNetworkHelper.hasPublicIpOnInterface();
+
+      expect(result).to.equal(false);
+    });
+  });
 });
