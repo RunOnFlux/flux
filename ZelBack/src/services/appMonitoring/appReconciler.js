@@ -1018,6 +1018,7 @@ function runReconcile(identifier) {
   // Registered synchronously: promise callbacks are microtasks, so the finally
   // above cannot run before this line and clear an entry that is not there yet.
   inFlight.set(identifier, pass);
+  return pass;
 }
 
 /**
@@ -1029,13 +1030,16 @@ function enqueue(rawIdentifier) {
   const identifier = canonical(rawIdentifier);
   if (!globalState.bootContainerStateSettled) {
     bootPending.add(identifier);
-    return;
+    return null;
   }
   if (inFlight.has(identifier)) {
     dirty.add(identifier);
-    return;
+    // The pass already running was started against state older than whatever
+    // just changed, so it is NOT the pass a caller wanting actuation should
+    // wait on. The re-run this marks dirty is, and it has no promise yet.
+    return null;
   }
-  runReconcile(identifier);
+  return runReconcile(identifier);
 }
 
 /**
@@ -1060,9 +1064,17 @@ function enqueue(rawIdentifier) {
  * one action - so an operator's command is never behind unrelated work.
  * @param {string} rawIdentifier Component identifier.
  * @param {Function} mutate Writes the new intent. Awaited while the key is held.
- * @returns {Promise<void>} Resolves once the intent is durable and a pass is queued.
+ * @param {object} [opts]
+ * @param {boolean} [opts.awaitPass] Wait for the reconcile that follows, so a
+ *   caller can report what was DONE rather than what was asked for. The pass is
+ *   awaited to completion, actuated or deferred - it never throws here, since
+ *   runReconcile absorbs its own failures.
+ * @returns {Promise<boolean>} True when a pass ran to completion. False when the
+ *   intent is durable but nothing has acted on it yet - the boot gate is shut,
+ *   or another pass is mid-flight and the re-run has not started. Callers that
+ *   report to a user must not present false as success.
  */
-async function applyIntent(rawIdentifier, mutate) {
+async function applyIntent(rawIdentifier, mutate, { awaitPass = false } = {}) {
   const identifier = canonical(rawIdentifier);
 
   // A loop, not a single await: releasing the key lets a queued pass start
@@ -1081,7 +1093,11 @@ async function applyIntent(rawIdentifier, mutate) {
     release();
   }
 
-  enqueue(identifier);
+  const pass = enqueue(identifier);
+  if (!awaitPass) return Boolean(pass);
+  if (!pass) return false;
+  await pass;
+  return true;
 }
 
 /**

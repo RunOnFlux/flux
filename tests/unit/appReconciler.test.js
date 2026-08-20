@@ -1533,6 +1533,24 @@ describe('appReconciler tests', () => {
       await intent;
     });
 
+    it('awaitPass holds the caller until the pass has finished', async () => {
+      // What the API contract rests on. appStop reports "stopped" rather than
+      // "asked to stop", so it must not answer before the reconciler has acted -
+      // otherwise it probes a container the pass has not reached yet and reports
+      // whatever it happened to find.
+      const releaseInspect = blockDockerInspect();
+      let settled = false;
+      const intent = appReconciler
+        .applyIntent('www_App', async () => {}, { awaitPass: true })
+        .then((r) => { settled = true; return r; });
+
+      await new Promise(setImmediate);
+      expect(settled, 'must not resolve while the pass is still running').to.equal(false);
+
+      releaseInspect();
+      expect(await intent, 'and reports that a pass ran').to.equal(true);
+    });
+
     it('runs a pass once the write is durable', async () => {
       // Convergence: the intent is worth nothing if nothing acts on it.
       await appReconciler.applyIntent('www_App', async () => {});

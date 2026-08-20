@@ -8,6 +8,8 @@ const registryManager = require('../../ZelBack/src/services/appDatabase/registry
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appsRuntimeState = require('../../ZelBack/src/services/appManagement/appsRuntimeState');
 const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+const globalState = require('../../ZelBack/src/services/utils/globalState');
+const bootGateAtStart = globalState.bootContainerStateSettled;
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const { requireMongo } = require('./dbTestHelper');
 
@@ -32,6 +34,10 @@ describe('appController tests', () => {
 
   afterEach(() => {
     sinon.restore();
+    // globalState is a shared module, so a test that opens the boot gate leaves
+    // it open for every test after it in this process - including files mocha
+    // runs later. Restored explicitly; sinon does not own it.
+    globalState.bootContainerStateSettled = bootGateAtStart;
   });
 
   describe('appStart tests', () => {
@@ -192,12 +198,15 @@ describe('appController tests', () => {
 
       const result = res.json.firstCall.args[0];
       expect(result.status).to.equal('success');
-      sinon.assert.calledOnce(dockerService.appDockerStop);
+      // The handler no longer drives the container. Two writers to one container
+      // is what let an operator stop interleave with a reconcile pass.
+      sinon.assert.notCalled(dockerService.appDockerStop);
       sinon.assert.calledOnce(appInspector.stopAppMonitoring);
     });
 
     it('should stop all components for version 4+ apps in reverse order', async () => {
       verificationHelperStub.resolves(true);
+      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
       sinon.stub(registryManager, 'getApplicationSpecifications').resolves({
         name: 'ComposedApp',
         version: 4,
@@ -219,12 +228,16 @@ describe('appController tests', () => {
 
       const result = res.json.firstCall.args[0];
       expect(result.status).to.equal('success');
-      // Should be called in reverse order
-      sinon.assert.calledTwice(dockerService.appDockerStop);
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      // Every component gets the intent, not just the first - a composed app
+      // half-stopped is the failure this covers.
+      sinon.assert.calledWith(appsRuntimeState.setOperatorStopped, 'Component1_ComposedApp', true);
+      sinon.assert.calledWith(appsRuntimeState.setOperatorStopped, 'Component2_ComposedApp', true);
     });
 
     it('should handle component stop', async () => {
       verificationHelperStub.resolves(true);
+      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
 
       const req = {
         params: { appname: 'Component_TestApp' },
@@ -238,14 +251,52 @@ describe('appController tests', () => {
 
       const result = res.json.firstCall.args[0];
       expect(result.status).to.equal('success');
-      sinon.assert.calledOnce(dockerService.appDockerStop);
-      sinon.assert.calledWith(dockerService.appDockerStop, 'Component_TestApp');
+      sinon.assert.notCalled(dockerService.appDockerStop);
+      sinon.assert.calledWith(appsRuntimeState.setOperatorStopped, 'Component_TestApp', true);
     });
 
-    it('sets the operator lock BEFORE the docker stop on the component path (crash-safe ordering)', async () => {
-      // the whole-app path already locks first; lock-after means a crash between
-      // the docker stop and the lock write leaves a stopped container the
-      // reconciler will restart against the operator's intent
+    it('reports pending, not failure, when docker cannot be reached', async () => {
+      // The old direct call threw here - AFTER the lock had been written - so an
+      // operator was told their stop failed while it was durable and would apply
+      // the moment docker returned. They retry against an app that is already
+      // stopping. Pending is the true answer.
+      verificationHelperStub.resolves(true);
+      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      // The boot gate holds every enqueue until daemon/DB are ready, and a
+      // handler that never got a pass reports pending for that reason instead.
+      globalState.bootContainerStateSettled = true;
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: false, running: false });
+
+      const req = { params: { appname: 'Component_TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop(req, res);
+
+      const result = res.json.firstCall.args[0];
+      expect(result.status).to.equal('success');
+      expect(result.data).to.contain('will be stopped');
+      expect(result.data).to.contain('docker is not reachable');
+    });
+
+    it('reports stopped only once the container is actually down', async () => {
+      verificationHelperStub.resolves(true);
+      sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
+      globalState.bootContainerStateSettled = true;
+      sinon.stub(appReconciler, 'dockerActual').resolves({ reachable: true, running: false });
+
+      const req = { params: { appname: 'Component_TestApp' }, query: {} };
+      const res = { json: sinon.fake((param) => param) };
+      await appController.appStop(req, res);
+
+      const result = res.json.firstCall.args[0];
+      expect(result.data).to.equal('Application Component_TestApp stopped');
+    });
+
+    it('writes the intent and leaves the container to the reconciler', async () => {
+      // This replaces an ordering assertion - lock before docker stop - whose
+      // premise was that the handler stops the container. It does not: the
+      // reconciler is the only actuator, so there is no second operation for the
+      // lock to be ordered against, and a crash after the write leaves an intent
+      // that converges rather than a stopped container that gets restarted.
       verificationHelperStub.resolves(true);
       const setOperatorStopped = sinon.stub(appsRuntimeState, 'setOperatorStopped').resolves();
 
@@ -254,7 +305,7 @@ describe('appController tests', () => {
       await appController.appStop(req, res);
 
       sinon.assert.calledOnceWithExactly(setOperatorStopped, 'Component_TestApp', true);
-      sinon.assert.callOrder(setOperatorStopped, dockerService.appDockerStop);
+      sinon.assert.notCalled(dockerService.appDockerStop);
     });
 
     it('retracts the controller desire so a released lock cannot restart it behind the election', async () => {

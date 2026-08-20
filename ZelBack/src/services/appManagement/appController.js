@@ -164,10 +164,11 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
  * @param {object|null} appSpecs full app spec (null for a component command)
  * @param {boolean} stopped
  */
-async function setAppOperatorStopped(appname, appSpecs, stopped) {
+async function setAppOperatorStopped(appname, appSpecs, stopped, { awaitPass = false } = {}) {
   const ids = (!appname.includes('_') && appSpecs && appSpecs.version > 3)
     ? appSpecs.compose.map((c) => `${c.name}_${appSpecs.name}`)
     : [appname];
+  let allActuated = true;
   // eslint-disable-next-line no-restricted-syntax
   for (const id of ids) {
     // Written through the reconciler's per-key slot rather than straight to the
@@ -178,9 +179,10 @@ async function setAppOperatorStopped(appname, appSpecs, stopped) {
     // the write lands, and enqueues on release - so the two cannot interleave,
     // and the next pass reads what was just written.
     // eslint-disable-next-line no-await-in-loop
-    await appReconciler.applyIntent(id, async () => {
+    const actuated = await appReconciler.applyIntent(id, async () => {
       await appsRuntimeState.setOperatorStopped(id, stopped);
-    });
+    }, { awaitPass });
+    if (!actuated) allActuated = false;
     // A stop retracts the controller's desire as well as taking the lock. The
     // lock only suppresses the reconciler while it is held; a desire left
     // standing is reconciled against the stopped container the moment the lock
@@ -196,6 +198,29 @@ async function setAppOperatorStopped(appname, appSpecs, stopped) {
     // the sync layer marks a component processed before it asks.
     if (stopped) appReconciler.clearControllerDesired(id);
   }
+  return { ids, actuated: allActuated };
+}
+
+/**
+ * What the containers are actually doing, once the reconciler has had its pass.
+ *
+ * `actuated` says a pass ran, not that it achieved anything: a pass that finds
+ * docker unreachable completes by deferring. So the answer to "is it stopped"
+ * comes from probing, and dockerActual is the probe that can tell a container
+ * being gone from docker being unreachable - which is the difference between
+ * reporting done and reporting pending.
+ * @param {string[]} ids Component identifiers.
+ * @returns {Promise<{settled: boolean, reason: string|null}>}
+ */
+async function containersReachedStopped(ids) {
+  // eslint-disable-next-line no-restricted-syntax
+  for (const id of ids) {
+    // eslint-disable-next-line no-await-in-loop
+    const actual = await appReconciler.dockerActual(id);
+    if (!actual.reachable) return { settled: false, reason: 'docker is not reachable' };
+    if (actual.running) return { settled: false, reason: 'the reconciler has not stopped it yet' };
+  }
+  return { settled: true, reason: null };
 }
 
 async function appStart(req, res) {
@@ -366,43 +391,58 @@ async function appStop(req, res) {
       return res ? res.json(appResponse) : appResponse;
     }
 
+    // THE RECONCILER STOPS IT, NOT THIS HANDLER.
+    //
+    // Two things drove the container before this: the handler called
+    // appDockerStop directly while the reconciler actuated off its own per-key
+    // queue. Two writers to one container is what made an operator stop
+    // interleave with a pass - the pass read the lock, the stop landed, the pass
+    // started the container it had already decided to start. Writing the intent
+    // and letting the single actuator converge removes the second writer rather
+    // than narrowing the window between them.
+    //
+    // The contract is unchanged: awaitPass holds this handler until the pass has
+    // run, so a success still means the container is stopped, in the same
+    // wall-clock the direct call took.
     const isComponent = appname.includes('_'); // it is a component stop
-    let appRes;
+    let ids;
+    let actuated;
+    let stoppedName;
 
     if (isComponent) {
-      // lock BEFORE the docker op (matching the whole-app path): a crash between
-      // the stop and the lock write would leave a stopped container the
-      // reconciler restarts against the operator's intent
-      await setAppOperatorStopped(appname, null, true);
+      ({ ids, actuated } = await setAppOperatorStopped(appname, null, true, { awaitPass: true }));
       appInspector.stopAppMonitoring(appname, false);
-      appRes = await dockerService.appDockerStop(appname);
+      stoppedName = appname;
     } else {
       // Check if app exists before stopping
       const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
-      // operator stop persists so the reconciler does not restart it
-      await setAppOperatorStopped(appname, appSpecs, true);
-
+      ({ ids, actuated } = await setAppOperatorStopped(appname, appSpecs, true, { awaitPass: true }));
       // eslint-disable-next-line no-restricted-syntax
-      if (appSpecs.version <= 3) {
-        // eslint-disable-next-line no-await-in-loop
-        appInspector.stopAppMonitoring(appname, false);
-        appRes = await dockerService.appDockerStop(appname);
-      } else {
-        // For composed applications (version > 3), stop all components in reverse order
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose.reverse()) {
-          appInspector.stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
-        }
-        appRes = `Application ${appSpecs.name} stopped`;
-      }
+      for (const id of ids) appInspector.stopAppMonitoring(id, false);
+      stoppedName = appSpecs.name;
     }
 
-    const appResponse = messageHelper.createDataMessage(appRes);
+    // A pass that completed is not a container that stopped - docker being
+    // unreachable completes by deferring. Probe rather than infer, so a stop
+    // that has not happened yet is never reported as one that has.
+    const outcome = actuated
+      ? await containersReachedStopped(ids)
+      : { settled: false, reason: 'no reconcile has run yet' };
+
+    if (!outcome.settled) {
+      // Accepted, not applied. The intent is durable and the reconciler will
+      // converge, so an error here would be false - the old direct call threw
+      // in exactly this case, after the lock had already been written.
+      const pending = messageHelper.createDataMessage(
+        `Application ${stoppedName} will be stopped: ${outcome.reason}`,
+      );
+      return res ? res.json(pending) : pending;
+    }
+
+    const appResponse = messageHelper.createDataMessage(`Application ${stoppedName} stopped`);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
     log.error(error);
