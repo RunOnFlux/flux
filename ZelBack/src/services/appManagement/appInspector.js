@@ -595,6 +595,30 @@ function startAppMonitoring(appName) {
       }
       statsNow.nanoCpus = appsMonitored[appName].nanoCpus;
 
+      // A PARTIAL disk reading is a floor, not a total: some mount could not be
+      // sized, so the figure is lower than the truth by an unknown amount.
+      // getContainerStorage already refuses to CACHE one for even sixty seconds -
+      // "a short one is recomputed next tick, which is where it gets the chance to
+      // come good" - and this store keeps a sample for SEVEN DAYS and serves it to
+      // every chart request. The same reading cannot be too untrustworthy to hold
+      // for a minute and trustworthy enough to hold for a week.
+      //
+      // Carried forward rather than dropped. Storing null would be worse than the
+      // dip it fixes: the dashboards read `disk_stats.used || 0`, so an absent
+      // figure charts as ZERO - a drop to the floor instead of a partial one. The
+      // last measured value is at most one sample interval stale, which is inside
+      // the noise of a disk chart.
+      //
+      // The live path is unaffected and stays honest: /apps/appstats takes a fresh
+      // reading rather than serving this store, so a caller asking what the usage
+      // is RIGHT NOW still gets status 'partial' and can act on it.
+      const lastKnownDisk = appsMonitored[appName].statsStore.length
+        ? appsMonitored[appName].statsStore[appsMonitored[appName].statsStore.length - 1].disk
+        : null;
+      if (statsNow.disk_stats?.status === 'partial' && lastKnownDisk) {
+        statsNow.disk_stats = lastKnownDisk;
+      }
+
       const elapsed = monotonicMs();
       appsMonitored[appName].statsStore.push({
         timestamp: Date.now(),

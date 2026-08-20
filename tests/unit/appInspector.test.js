@@ -10,6 +10,7 @@ describe('appInspector tests', () => {
   let configStub;
   let globalStateStub;
   let cpuBurstHelperStub;
+  let appUtilitiesStub;
 
   beforeEach(() => {
     configStub = {
@@ -32,6 +33,13 @@ describe('appInspector tests', () => {
 
     cpuBurstHelperStub = {
       isBurstActive: sinon.stub().resolves(false),
+    };
+
+    // Hoisted so a test can drive the disk reading. A partial one is a floor
+    // rather than a total, and what the store does with it is the difference
+    // between a chart and a cliff.
+    appUtilitiesStub = {
+      getContainerStorage: sinon.stub().resolves(0),
     };
 
     messageHelperStub = {
@@ -74,9 +82,7 @@ describe('appInspector tests', () => {
       '../utils/appConstants': {
         appConstants: {},
       },
-      '../utils/appUtilities': {
-        getContainerStorage: sinon.stub().returns(0),
-      },
+      '../utils/appUtilities': appUtilitiesStub,
       '../utils/cpuBurstHelper': cpuBurstHelperStub,
       'node-cmd': {
         run: (cmd, callback) => callback(null, 'data', 'stderr'),
@@ -144,6 +150,52 @@ describe('appInspector tests', () => {
 
       expect(early, 'sampled inside the first second - the interval fell back to ~1ms').to.equal(0);
       expect(afterAMinute, 'did not sample once a minute').to.equal(1);
+    });
+
+    // A partial reading means some mount could not be sized, so the total is a
+    // floor rather than a value. getContainerStorage already refuses to cache one
+    // for sixty seconds; this store keeps a sample for seven days and draws the
+    // customer's disk chart from it, so a single short reading rendered as a
+    // week-long cliff on a disk that never changed.
+    it('does not chart a partial disk reading as a real drop', async () => {
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'running' });
+      dockerServiceStub.dockerContainerStats = sinon.stub().resolves(reading({}));
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2e9 } });
+      appUtilitiesStub.getContainerStorage
+        .onFirstCall().resolves({ used: 41943040, status: 'success' })
+        .onSecondCall().resolves({ used: 1024, status: 'partial', unmeasured: ['/data'] });
+      clock = sinon.useFakeTimers();
+
+      appInspector.startAppMonitoring('myapp');
+      await clock.tickAsync(60000);
+      await clock.tickAsync(60000);
+      const { statsStore } = globalStateStub.appsMonitored.myapp;
+      appInspector.stopAppMonitoring('myapp', false);
+
+      expect(statsStore).to.have.lengthOf(2);
+      expect(
+        statsStore[1].disk.used,
+        'the partial reading was charted - a drop the disk never had',
+      ).to.equal(41943040);
+    });
+
+    // Storing null would be WORSE than the dip: the dashboards read
+    // `disk_stats.used || 0`, so an absent figure charts as zero - a drop to the
+    // floor rather than a partial one.
+    it('does not blank the disk figure when there is nothing to carry forward', async () => {
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'running' });
+      dockerServiceStub.dockerContainerStats = sinon.stub().resolves(reading({}));
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2e9 } });
+      appUtilitiesStub.getContainerStorage.resolves({ used: 1024, status: 'partial' });
+      clock = sinon.useFakeTimers();
+
+      appInspector.startAppMonitoring('myapp');
+      await clock.tickAsync(60000);
+      const { statsStore } = globalStateStub.appsMonitored.myapp;
+      appInspector.stopAppMonitoring('myapp', false);
+
+      // nothing measured yet, so the short reading is all there is
+      expect(statsStore[0].disk.used).to.equal(1024);
     });
 
     it('keeps the page cache figure, so a consumer can subtract it', async () => {
