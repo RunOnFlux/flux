@@ -1622,4 +1622,10 @@ module.exports = (app) => {
   app.get('/flux/eventstream', (req, res) => {
     fluxEventBus.sseHandler(req, res);
   });
+
+  // Cadence, read rather than streamed - see the rule at the top of
+  // fluxEventBus.js. 404s in production, like the stream above.
+  app.get('/flux/testcounters', (req, res) => {
+    fluxEventBus.countersHandler(req, res);
+  });
 };

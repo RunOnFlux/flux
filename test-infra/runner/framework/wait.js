@@ -181,6 +181,47 @@ export async function waitForPeersRemoved(node, predicate = () => true, timeout 
   return node.waitForEvent('peers:removed', predicate, timeout, opts);
 }
 
+// --- masterSlave (g:) election ---
+//
+// Facts as events, cadence as a counter - see the rule at the top of
+// ZelBack/src/services/utils/fluxEventBus.js. A start is a fact and arrives as
+// an event; "the loop ran again and decided the same thing" is cadence and is
+// counted, so waiting on it never depends on guessing the loop's interval.
+
+export async function waitForMasterSlaveStarted(node, identifier, timeout = 60000, opts) {
+  return node.waitForEvent(
+    'masterSlave:started',
+    (d) => d.identifier === identifier,
+    timeout,
+    opts,
+  );
+}
+
+// Resolves once the election has been observed taking `decision` about
+// `identifier` at least `count` times beyond `from` - i.e. that many further
+// passes have run AND each took that branch.
+//
+// This is what replaces sleeping for "about N election cycles". A sleep assumes
+// the loop ran; under a loaded runner it can elapse with zero passes, leaving
+// any assertion after it true by default. This cannot: it is waiting on the
+// passes themselves, so it is correct at any cadence and on any machine.
+export async function waitForElectionDecisions(
+  node,
+  identifier,
+  decision,
+  count,
+  { from = 0, timeout = 60000, interval = 1000 } = {},
+) {
+  await waitFor(
+    async () => await node.getDecisionCount('masterSlave:decision', identifier, decision) >= from + count,
+    { timeout, interval, label: `${count} further '${decision}' election decisions for ${identifier}` },
+  );
+}
+
+export async function electionDecisionCount(node, identifier, decision) {
+  return node.getDecisionCount('masterSlave:decision', identifier, decision);
+}
+
 // --- reconciler (appReconciler) ---
 
 // action: 'started' | 'stopped' | 'backoff' | 'recreated' | 'recreateFailed' (omit to match any)

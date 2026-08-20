@@ -18,6 +18,7 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const {
   DEFAULT_API_PORT, extractIp, extractPort, socketAddressesMatch, ipsMatch,
 } = require('../utils/socketAddressUtils');
+const fluxEventBus = require('../utils/fluxEventBus');
 const generalService = require('../generalService');
 const placementFeasibility = require('../appPlacement/placementFeasibility');
 // eslint-disable-next-line no-unused-vars
@@ -2086,6 +2087,11 @@ async function requestMasterStartWithPermissionsFix(appname, appId) {
   // in the finally - from a successful start the controllerDesired below carries
   // the claim, and a failed one must stop claiming.
   appReconciler.claimStarting(appname);
+  // A fact - this node has decided to become primary and is committing to it.
+  // The cadence around this decision is a counter, not an event: see the rule at
+  // the top of fluxEventBus.js.
+  fluxEventBus.publish('masterSlave:started', { identifier: appname });
+  fluxEventBus.count('masterSlave:decision', appname, 'started');
   try {
     log.info(`Preparing masterSlave primary ${appname}: fixing permissions before start`);
 
@@ -3706,6 +3712,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         // operator explicitly stopped this g: component; don't elect or act on it
         // eslint-disable-next-line no-await-in-loop
         if (await appsRuntimeState.isOperatorStopped(identifier)) {
+          // Outside the once-guard below on purpose: the log line reports the
+          // state change, the counter reports every pass that honoured it, which
+          // is what a test asserting "the election kept skipping it" needs.
+          fluxEventBus.count('masterSlave:decision', identifier, 'operatorStopped');
           if (!operatorStoppedNoted.has(identifier)) {
             operatorStoppedNoted.add(identifier);
             log.info(`masterSlaveApps: ${identifier} is operator-stopped - excluded from primary election until it is started`);
@@ -3880,6 +3890,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     const held = heldResponse?.data?.data;
                     if (Array.isArray(held)) {
                       if (held.includes(appId)) {
+                        fluxEventBus.count('masterSlave:decision', identifier, 'heldOnPeer');
                         log.info(`masterSlaveApps: component:${identifier} is held on peer node (${label}) at ${ipToCheck}, will not start`);
                         return PeerComponent.RUNNING;
                       }
@@ -4118,6 +4129,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 }
               }
             } else {
+              // This pass read a primary off FDM. Counted rather than published:
+              // it is the loop's cadence, not an event - see the rule at the top
+              // of fluxEventBus.js.
+              fluxEventBus.count('masterSlave:decision', identifier, 'primaryObserved');
               mastersRunningGSyncthingApps.set(identifier, ip);
               if (timeTostartNewMasterApp.has(identifier)) {
                 log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
@@ -4173,6 +4188,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
   } finally {
     // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = false;
+    fluxEventBus.count('masterSlave:cycles');
     await serviceHelper.delay(config.fluxapps.masterSlaveIntervalMs ?? 30 * 1000);
     masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https);
   }
