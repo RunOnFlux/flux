@@ -619,26 +619,49 @@ async function appKill(req, res) {
  * @returns {object} Response message
  */
 async function deprecatedPauseResponse(req, res) {
-  let { appname } = req.params;
-  appname = appname || req.query.appname;
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
 
-  if (appname) {
-    const mainAppName = appname.split('_')[1] || appname;
-    // eslint-disable-next-line global-require
-    const verificationHelper = require('../verificationHelper');
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
+    if (appname) {
+      // Validated before anything is done with it. Express's default extended
+      // query parser turns ?appname=a&appname=b into an ARRAY and ?appname[x]=1
+      // into an object, neither of which has .split - and this runs ahead of
+      // verifyPrivilege because the app name is what the privilege is scoped to,
+      // so it is reachable unauthenticated from the open internet.
+      //
+      // Unguarded, the rejection was dropped and the response never written: the
+      // socket stayed open with nothing left to answer it, since fluxServer sets
+      // a two-hour requestTimeout and node stops applying it once the request has
+      // been received.
+      if (typeof appname !== 'string') {
+        throw new Error('Invalid Flux App name specified');
+      }
+      const mainAppName = appname.split('_')[1] || appname;
+      // eslint-disable-next-line global-require
+      const verificationHelper = require('../verificationHelper');
+      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        return res ? res.json(errMessage) : errMessage;
+      }
     }
-  }
 
-  const errorResponse = messageHelper.createErrorMessage(
-    'Pausing applications is no longer supported. Use appstop to stop an application.',
-    'Deprecated',
-    410,
-  );
-  return res ? res.json(errorResponse) : errorResponse;
+    const errorResponse = messageHelper.createErrorMessage(
+      'Pausing applications is no longer supported. Use appstop to stop an application.',
+      'Deprecated',
+      410,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
 }
 
 /**

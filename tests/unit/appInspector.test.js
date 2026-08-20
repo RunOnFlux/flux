@@ -124,6 +124,28 @@ describe('appInspector tests', () => {
       clock = null;
     });
 
+    // setInterval does not default a missing delay - it coerces to NaN and treats
+    // anything below 1 as ONE MILLISECOND. So a config without this key does not
+    // stop the sampler, it runs it about a thousand times a second, asking docker
+    // for stats on every monitored component. This key has gone missing before.
+    it('samples on a sane cadence when the interval is missing from config', async () => {
+      delete configStub.fluxapps.statsSampleIntervalMs;
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'running' });
+      dockerServiceStub.dockerContainerStats = sinon.stub().resolves(reading({}));
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2e9 } });
+      clock = sinon.useFakeTimers();
+
+      appInspector.startAppMonitoring('myapp');
+      await clock.tickAsync(1000);
+      const early = globalStateStub.appsMonitored.myapp.statsStore.length;
+      await clock.tickAsync(59000);
+      const afterAMinute = globalStateStub.appsMonitored.myapp.statsStore.length;
+      appInspector.stopAppMonitoring('myapp', false);
+
+      expect(early, 'sampled inside the first second - the interval fell back to ~1ms').to.equal(0);
+      expect(afterAMinute, 'did not sample once a minute').to.equal(1);
+    });
+
     it('keeps the page cache figure, so a consumer can subtract it', async () => {
       // Without this the memory a consumer reports is docker's raw usage, which
       // counts file data the kernel is only holding because the container read it
@@ -1805,6 +1827,37 @@ describe('appInspector tests', () => {
       );
 
       expect(dockerServiceStub.appDockerUpdateCpu.calledOnceWithExactly('myapp', 1.8e9)).to.be.true;
+    });
+
+    // The window is snapshotted before two awaits, and stopAppMonitoring can land
+    // in that gap - an uninstall, a reconciler recreate, or the sampler noticing
+    // the container has gone. The watermark write then lands on undefined and
+    // throws to the function-level catch, which abandons the pass: every app
+    // ordered after it goes un-inspected, and unthrottled, until the next attempt
+    // fifteen minutes later. Its sibling burst-skip write was already guarded.
+    it('keeps throttling the rest when an app stops being monitored mid-pass', async () => {
+      globalStateStub.appsMonitored = {
+        appone: { statsStore: window([1, 1, 1, 1, 1]) },
+        apptwo: { statsStore: window([1, 1, 1, 1, 1]) },
+      };
+      dockerServiceStub.dockerContainerInspect.callsFake(async (name) => {
+        if (name === 'appone') delete globalStateStub.appsMonitored.appone;
+        return { HostConfig: { NanoCpus: 2e9 }, State: { Pid: 1234 } };
+      });
+      const twoApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          { name: 'appone', version: 3, cpu: 2 },
+          { name: 'apptwo', version: 3, cpu: 2 },
+        ],
+      });
+
+      await appInspector.checkApplicationsCpuUSage(globalStateStub.appsMonitored, twoApps);
+
+      expect(
+        dockerServiceStub.appDockerUpdateCpu.calledWith('apptwo', 1.8e9),
+        'the app after the one that vanished was never throttled - the pass was abandoned',
+      ).to.be.true;
     });
 
     it('does not strand a sample that arrives while the decision is being made', async () => {

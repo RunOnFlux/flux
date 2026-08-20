@@ -607,7 +607,12 @@ function startAppMonitoring(appName) {
     } catch (error) {
       log.error(error);
     }
-  }, config.fluxapps.statsSampleIntervalMs);
+    // Defaulted, because setInterval does not. A missing key coerces to NaN and
+    // anything below 1 is treated as ONE MILLISECOND - so the sampler would ask
+    // docker for stats on every monitored component about a thousand times a
+    // second instead of once a minute. That has happened to this exact key
+    // before; the test config's own comment still names the incident.
+  }, config.fluxapps.statsSampleIntervalMs ?? 60 * 1000);
 }
 
 /**
@@ -858,8 +863,17 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
             // cpu was high on 80% of the checks
             cpuThrottling = true;
           }
-          // eslint-disable-next-line no-param-reassign
-          appsMonitored[app.name].lastCpuDecisionAt = decisionAt;
+          // Guarded like the burst-skip write above it. The entry can be gone by
+          // now: the window was snapshotted before two awaits, and an uninstall,
+          // a reconciler recreate, or the sampler noticing the container vanish
+          // all call stopAppMonitoring in between. Writing to undefined throws to
+          // the function-level catch, which abandons the pass - so every app
+          // ordered after this one goes un-inspected until the next attempt,
+          // fifteen minutes later.
+          if (appsMonitored[app.name]) {
+            // eslint-disable-next-line no-param-reassign
+            appsMonitored[app.name].lastCpuDecisionAt = decisionAt;
+          }
           log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: ${cpuThrottling}`);
           log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
           if (cpuThrottling && app.cpu > 1) {
@@ -929,8 +943,11 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
               // cpu was high on 80% of the checks
               cpuThrottling = true;
             }
-            // eslint-disable-next-line no-param-reassign
-            appsMonitored[compName].lastCpuDecisionAt = decisionAt;
+            // Guarded like the burst-skip write above it - see the v3 path.
+            if (appsMonitored[compName]) {
+              // eslint-disable-next-line no-param-reassign
+              appsMonitored[compName].lastCpuDecisionAt = decisionAt;
+            }
             log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
             log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
             if (cpuThrottling && appComponent.cpu > 1) {

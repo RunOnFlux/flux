@@ -17,6 +17,14 @@ const DEPRECATION_MESSAGE = 'Application monitoring is managed by the node and r
  */
 async function resolveAppSpecs(appSpecsToMonitor) {
   if (appSpecsToMonitor) {
+    // Shape-checked for the same reason the compose list is below: for-of accepts
+    // anything iterable, so a string here would be walked character by character
+    // and every character treated as an app. Nothing passes a non-null value
+    // today - serviceManager is the only caller and always passes null - so this
+    // is the guard arriving before the caller that would need it.
+    if (!Array.isArray(appSpecsToMonitor)) {
+      throw new Error('appSpecsToMonitor must be an array of app specifications');
+    }
     return appSpecsToMonitor;
   }
   const installedAppsRes = await appQueryService.installedApps();
@@ -50,16 +58,32 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
   // against a container that cannot exist: a timer, a store, and a sampler asking
   // docker about it once a minute, forever, with nothing to say it went wrong.
   // Both halves have to be real before there is anything worth monitoring.
+  // A label that cannot itself throw, whatever the entry turns out to be. Reading
+  // a property off the value that caused the failure is how an error handler
+  // becomes the failure, and a throw raised inside a catch is not caught by it.
+  const labelOf = (value) => {
+    try {
+      const name = value?.name;
+      return typeof name === 'string' && name ? name : '<unnamed app>';
+    } catch (error) {
+      return '<unreadable app>';
+    }
+  };
+
   const startComponent = (app, component) => {
+    const appLabel = labelOf(app);
     try {
       const componentName = component?.name;
       if (typeof componentName !== 'string' || !componentName || !app.name) {
-        log.error(`startMonitoringOfApps - skipping a component of ${app.name || '<unnamed app>'}: no usable name to monitor it under`);
+        log.error(`startMonitoringOfApps - skipping a component of ${appLabel}: no usable name to monitor it under`);
         return;
       }
       appInspector.startAppMonitoring(`${componentName}_${app.name}`);
     } catch (error) {
-      log.error(`startMonitoringOfApps - could not start monitoring ${component?.name}_${app.name}: ${error.message}`);
+      // Labels captured BEFORE the try, never re-read here. `component.name` is a
+      // property access on a value this catch exists because of - a getter that
+      // threw once throws again, and a throw inside a catch is not caught by it.
+      log.error(`startMonitoringOfApps - could not start monitoring a component of ${appLabel}: ${error.message}`);
     }
   };
 
@@ -73,7 +97,7 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
         // 'nope' walked its four characters and armed four monitors, none of which
         // named a container. A missing compose threw and was at least logged; a
         // malformed one was silent, which is the worse of the two.
-        log.error(`startMonitoringOfApps - ${app.name} has no component list to monitor`);
+        log.error(`startMonitoringOfApps - ${labelOf(app)} has no component list to monitor`);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of app.compose) {
@@ -83,7 +107,12 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
     } catch (error) {
       // Still needed for what is not one component's failure: a compose that is not
       // iterable at all, which no per-component catch can be reached to see.
-      log.error(`startMonitoringOfApps - could not start monitoring ${app.name}: ${error.message}`);
+      //
+      // Labelled defensively: this catch is reached when `app` itself is what is
+      // wrong - a null entry throws on `app.version` before anything else runs -
+      // and `app.name` here would then throw a second time, uncaught, abandoning
+      // the loop and leaving every remaining app unmonitored with nothing logged.
+      log.error(`startMonitoringOfApps - could not start monitoring ${labelOf(app)}: ${error.message}`);
     }
   }
 }

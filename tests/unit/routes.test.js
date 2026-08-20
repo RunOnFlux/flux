@@ -109,6 +109,12 @@ describe('routes tests', () => {
       '/apps/appremove',
       '/apps/redeploy',
       '/apps/redeploycomponent',
+      // Retired, and the reason they need this most: the body is byte-identical
+      // every time, so express ETags it and a revalidating caller gets an empty
+      // 304 from the second call on - unable to read the deprecation notice that
+      // is now the only thing these routes exist to serve.
+      '/apps/startmonitoring',
+      '/apps/stopmonitoring',
     ];
 
     CONTROL_ROUTES.forEach((prefix) => {

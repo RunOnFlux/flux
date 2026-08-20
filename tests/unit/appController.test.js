@@ -574,6 +574,54 @@ describe('appController tests', () => {
       expect(result.status).to.equal('error');
       expect(result.data.name).to.not.equal('Deprecated');
     });
+
+    // Express's default extended query parser turns ?appname=a&appname=b into an
+    // ARRAY and ?appname[x]=1 into an object. Neither has .split, and the split
+    // runs ahead of verifyPrivilege because the app name is what the privilege is
+    // scoped to - so this was reachable unauthenticated from the open internet.
+    // Unguarded, the rejection was dropped and res was never written: the socket
+    // stayed open with nothing left to answer it.
+    [
+      ['an array', ['a', 'b']],
+      ['an object', { x: '1' }],
+      ['a number', 7],
+    ].forEach(([shape, appname]) => {
+      it(`answers when the app name arrives as ${shape}, instead of hanging the socket`, async () => {
+        const req = { params: {}, query: { appname }, headers: {} };
+        const res = { json: sinon.fake(param => param) };
+
+        await appController.appPause(req, res);
+
+        sinon.assert.calledOnce(res.json);
+        const result = res.json.firstCall.args[0];
+        expect(result.status).to.equal('error');
+        // Named, not merely answered. Without the shape check the split still
+        // throws and the catch still answers - but with a raw TypeError about
+        // `.split`, which says nothing to the caller and tells them the request
+        // was rejected for a reason internal to us rather than for the name they
+        // sent.
+        expect(result.data.message).to.include('Invalid Flux App name');
+      });
+
+      it(`answers appunpause too when the app name arrives as ${shape}`, async () => {
+        const req = { params: {}, query: { appname }, headers: {} };
+        const res = { json: sinon.fake(param => param) };
+
+        await appController.appUnpause(req, res);
+
+        sinon.assert.calledOnce(res.json);
+        expect(res.json.firstCall.args[0].data.message).to.include('Invalid Flux App name');
+      });
+    });
+
+    it('does not consult the privilege check with a name it could not parse', async () => {
+      const req = { params: {}, query: { appname: ['a', 'b'] }, headers: {} };
+      const res = { json: sinon.fake(param => param) };
+
+      await appController.appPause(req, res);
+
+      sinon.assert.notCalled(verificationHelperStub);
+    });
   });
 
   describe('stopAllNonFluxRunningApps tests', () => {

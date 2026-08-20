@@ -217,6 +217,56 @@ describe('monitoringOrchestrator tests', () => {
 
       sinon.assert.calledWith(startStub, 'App2');
     });
+
+    // The existing test above makes startAppMonitoring throw, which the catch
+    // handles cleanly. These are the cases where the CATCH ITSELF is what breaks:
+    // it labelled the log by reading a property off the value that had just
+    // failed, and a throw raised inside a catch is not caught by that catch. The
+    // loop was abandoned and every remaining app went unmonitored - and
+    // unthrottled - with nothing logged at all.
+    it('keeps monitoring the rest when an entry is not an app', async () => {
+      const startStub = sinon.stub(appInspector, 'startAppMonitoring');
+      sinon.stub(log, 'error');
+
+      await monitoringOrchestrator.startMonitoringOfApps([
+        { name: 'App1', version: 3 },
+        null,
+        { name: 'App3', version: 3 },
+      ]);
+
+      sinon.assert.calledWith(startStub, 'App1');
+      sinon.assert.calledWith(startStub, 'App3');
+    });
+
+    it('logs the failure rather than being defeated by it', async () => {
+      sinon.stub(appInspector, 'startAppMonitoring');
+      const logError = sinon.stub(log, 'error');
+
+      await monitoringOrchestrator.startMonitoringOfApps([null]);
+
+      sinon.assert.called(logError);
+    });
+
+    it('keeps monitoring the later components when one has a name that throws', async () => {
+      const startStub = sinon.stub(appInspector, 'startAppMonitoring');
+      sinon.stub(log, 'error');
+      const exploding = { get name() { throw new Error('nameboom'); } };
+
+      await monitoringOrchestrator.startMonitoringOfApps([
+        { name: 'App1', version: 4, compose: [exploding, { name: 'c2' }] },
+      ]);
+
+      sinon.assert.calledWith(startStub, 'c2_App1');
+    });
+
+    it('refuses a specification list that is not a list, rather than walking it', async () => {
+      sinon.stub(appInspector, 'startAppMonitoring');
+
+      // for-of accepts any iterable, so a string was walked character by
+      // character and every character treated as an app.
+      await expect(monitoringOrchestrator.startMonitoringOfApps('nope'))
+        .to.be.rejectedWith('must be an array');
+    });
   });
 
   // The control was removed: the node monitors every app for the CPU throttling loop,
