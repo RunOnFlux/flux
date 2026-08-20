@@ -39,6 +39,20 @@ const RETRY_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 // The placement hold deletes nothing and needs no window; this paces only the
 // part that moves customer data, so a momentary misread can correct itself.
 const SETTLE_MS = config.fluxapps.residentialSettleMs;
+// The window counts time this node OBSERVED the verdict, not time that passed.
+// A tick that cannot decide - an unreadable bench, a table that will not load -
+// returns without touching state, so measuring from the first verdict alone let
+// two evaluations 24h apart satisfy a window meant to prove the verdict held
+// throughout. Silence is not agreement, and the node that cannot read its own
+// hardware is the one to be most careful with.
+//
+// Each confirming tick credits the time since the last one, capped at a single
+// check interval so a long-ish gap cannot buy more than a tick's worth, and
+// credited as nothing at all once the gap is long enough that this node
+// plainly stopped watching. Derived from the check cadence rather than written
+// as its own number, so it holds the same proportion at any scale the harness
+// compresses that cadence to.
+const MAX_CONFIRMATION_GAP_MS = CHECK_INTERVAL_MS * 2;
 // A node may act on an app only once it has seen that app at full strength for
 // base + position * step. Position in the shared instance order is a DELAY,
 // never a veto: a rule of "only the most junior may leave" deadlocks, because
@@ -139,20 +153,20 @@ async function isResidential() {
 }
 
 /**
- * When this node first held the residential-and-not-ArcaneOS verdict.
+ * The settling marker as stored, or null when it cannot be read.
  *
- * Persisted, and measured in wall-clock: a counter of consecutive evaluations
- * held in memory is reset by restarting FluxOS, which would make restarting on a
- * timer a way to postpone the drain indefinitely.
- * @returns {Promise<number|null>} Epoch ms, or null when never recorded.
+ * Persisted rather than held in memory: a counter of consecutive evaluations in
+ * memory is reset by restarting FluxOS, which would make restarting on a timer a
+ * way to postpone the drain indefinitely.
+ * @returns {Promise<object|null>} The marker document, or null.
  */
-async function getSettleStartedAt() {
+async function getSettleMarker() {
   try {
     const db = dbHelper.databaseConnection();
     if (!db) return null;
     const database = db.db(config.database.local.database);
     const marker = await dbHelper.findOneInDatabase(database, startupCollection, { _id: SETTLE_MARKER_KEY });
-    return marker && marker.residentialSince ? marker.residentialSince : null;
+    return marker || null;
   } catch (error) {
     log.warn(`residentialNodeDos - could not read settle marker: ${error.message}`);
     return null;
@@ -160,16 +174,42 @@ async function getSettleStartedAt() {
 }
 
 /**
- * Record the start of the settling window, if it is not already running. Keyed
- * on the VERDICT, not on the address: residential lines get dynamic addresses,
- * so restarting the clock on an IP change would make power-cycling the router
- * the way to postpone enforcement.
- * @param {number} now Epoch ms.
- * @returns {Promise<number|null>} The settle start in force after this call.
+ * How much of the gap since the last confirmation counts towards the window.
+ *
+ * Nothing once the gap is long enough that this node plainly stopped watching -
+ * that is the whole point, and it is what stops a day of silence reading as a
+ * day of agreement. Otherwise the gap itself, capped at one check interval so a
+ * long-ish gap cannot buy more than a tick's worth of credit.
+ * @param {number} gapMs Time since the last confirmation.
+ * @returns {number} Milliseconds to credit.
  */
-async function markSettleStarted(now) {
-  const existing = await getSettleStartedAt();
-  if (existing) return existing;
+function creditForGap(gapMs) {
+  if (gapMs > MAX_CONFIRMATION_GAP_MS) return 0;
+  return Math.min(gapMs, CHECK_INTERVAL_MS);
+}
+
+/**
+ * Record that this tick confirmed the verdict, and return the observed time the
+ * verdict has now held for.
+ *
+ * Keyed on the VERDICT, not on the address: residential lines get dynamic
+ * addresses, so restarting the clock on an IP change would make power-cycling
+ * the router the way to postpone enforcement.
+ * @param {number} now Epoch ms.
+ * @returns {Promise<number|null>} Observed milliseconds, or null when the marker
+ *   cannot be written.
+ */
+async function noteVerdictConfirmed(now) {
+  const marker = await getSettleMarker();
+  // A marker written before this node kept an observed total has no record of
+  // what was watched, only of when the clock started - and that is exactly the
+  // measure being replaced. It starts accumulating from here rather than being
+  // credited for time nobody can vouch for.
+  const previousConfirmedAt = marker && marker.lastConfirmedAt;
+  const observedMs = (marker && marker.observedMs) || 0;
+  const credited = previousConfirmedAt ? creditForGap(now - previousConfirmedAt) : 0;
+  const totalObservedMs = observedMs + credited;
+
   try {
     const db = dbHelper.databaseConnection();
     if (!db) return null;
@@ -178,11 +218,20 @@ async function markSettleStarted(now) {
       database,
       startupCollection,
       { _id: SETTLE_MARKER_KEY },
-      { $set: { residentialSince: now, lastVerdict: CLASSIFICATION.RESIDENTIAL } },
+      {
+        $set: {
+          // Kept for the operator reading the record, not for the gate: it is
+          // when the verdict was FIRST seen, which is not what the window
+          // measures.
+          residentialSince: (marker && marker.residentialSince) || now,
+          lastConfirmedAt: now,
+          observedMs: totalObservedMs,
+        },
+      },
       { upsert: true },
     );
-    log.info('residentialNodeDos - settling window started');
-    return now;
+    if (!marker) log.info('residentialNodeDos - settling window started');
+    return totalObservedMs;
   } catch (error) {
     log.warn(`residentialNodeDos - could not write settle marker: ${error.message}`);
     return null;
@@ -389,16 +438,19 @@ async function enforceResidentialPolicy(deps) {
   }
 
   const now = Date.now();
-  const settleStartedAt = await markSettleStarted(now);
-  if (!settleStartedAt) {
+  const observedMs = await noteVerdictConfirmed(now);
+  if (observedMs === null) {
     evacuating = false;
     log.info('residentialNodeDos - settle marker unavailable, evacuation stays off');
     return false;
   }
-  if (now - settleStartedAt < SETTLE_MS) {
+  if (observedMs < SETTLE_MS) {
     evacuating = false;
-    const remaining = Math.round((SETTLE_MS - (now - settleStartedAt)) / (60 * 60 * 1000));
-    log.info(`residentialNodeDos - held, evacuation begins in about ${remaining}h (${installed.length} app(s) installed)`);
+    // Hours of the verdict actually WATCHED, so a node whose checks keep coming
+    // back inconclusive sees this figure stall rather than count down - which
+    // is the difference the window is there to make.
+    const remaining = Math.round((SETTLE_MS - observedMs) / (60 * 60 * 1000));
+    log.info(`residentialNodeDos - held, evacuation begins after about ${remaining}h more of confirmed verdict (${installed.length} app(s) installed)`);
     return true;
   }
 
