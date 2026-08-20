@@ -27,6 +27,7 @@ const geolocationService = require('./geolocationService');
 const benchmarkService = require('./benchmarkService');
 const { CLASSIFICATION } = require('./utils/networkClassifier');
 const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
+const globalState = require('./utils/globalState');
 const { compareInstanceSeniority } = require('./utils/instanceOrdering');
 const { socketAddressesMatch } = require('./utils/socketAddressUtils');
 
@@ -77,7 +78,14 @@ let inconclusiveStreak = 0;
 const wholeSince = new Map();
 // Whether the settling window has elapsed and departures may begin.
 let evacuating = false;
-// Paces departures. Process lifetime: a restart costs at most one extra wait.
+// Paces departures, and PERSISTED in the settle marker rather than held for the
+// process lifetime. At 0 the gate below reads `now - 0`, about 1.7e12 ms, so it
+// is open on the first call after every process start: a node restarting on a
+// cron, crash-looping, or taking the ~4h auto-update shed an app every queue
+// wait instead of every departure interval, and the busiest node in the fleet
+// finished in hours rather than the three days the cadence is set for. Same
+// reasoning as the settling clock - a counter a restart resets makes restarting
+// the way to go faster.
 let lastEvacuationAt = 0;
 
 // Whether this node yet knows what it is running. Starts false and is only
@@ -174,6 +182,22 @@ async function getSettleMarker() {
 }
 
 /**
+ * A finite number, or null.
+ *
+ * Everything the window is computed from comes off a stored document, and a
+ * value that is not a finite number poisons every comparison downstream: NaN is
+ * neither `< SETTLE_MS` nor `>= SETTLE_MS`, so a gate written the obvious way
+ * around falls through to draining on it. Rejected at the read instead, where
+ * the alternative is "we have no record", which starts the window rather than
+ * ending it.
+ * @param {*} value The stored value.
+ * @returns {number|null} The number, or null.
+ */
+function numberOrNull(value) {
+  return Number.isFinite(value) ? value : null;
+}
+
+/**
  * How much of the gap since the last confirmation counts towards the window.
  *
  * Nothing once the gap is long enough that this node plainly stopped watching -
@@ -205,8 +229,14 @@ async function noteVerdictConfirmed(now) {
   // what was watched, only of when the clock started - and that is exactly the
   // measure being replaced. It starts accumulating from here rather than being
   // credited for time nobody can vouch for.
-  const previousConfirmedAt = marker && marker.lastConfirmedAt;
-  const observedMs = (marker && marker.observedMs) || 0;
+  const previousConfirmedAt = numberOrNull(marker && marker.lastConfirmedAt);
+  const observedMs = numberOrNull(marker && marker.observedMs) ?? 0;
+  // Restored here rather than at boot: this is the pass that reads the marker,
+  // and it runs before any departure can be considered.
+  const persistedEvacuation = numberOrNull(marker && marker.lastEvacuationAt);
+  if (persistedEvacuation && persistedEvacuation > lastEvacuationAt) {
+    lastEvacuationAt = persistedEvacuation;
+  }
   const credited = previousConfirmedAt ? creditForGap(now - previousConfirmedAt) : 0;
   const totalObservedMs = observedMs + credited;
 
@@ -283,7 +313,11 @@ async function listInstalledApps(installedAppsFn) {
 function queueDelayMs(locations, localSocketAddr) {
   const ordered = [...locations].sort(compareInstanceSeniority);
   const index = ordered.findIndex((entry) => socketAddressesMatch(entry.ip, localSocketAddr));
-  const position = index < 0 ? ordered.length : index;
+  // An instance this node cannot find in the list waits longest. For an EMPTY
+  // list `ordered.length` is 0, which is the most senior slot - the shortest
+  // wait of all, inverting the rule. An empty list is the ordinary result of
+  // expired location records, so it is not an exotic input.
+  const position = index < 0 ? Math.max(ordered.length, 1) : index;
   return QUEUE_BASE_MS + (position * QUEUE_STEP_MS);
 }
 
@@ -332,7 +366,33 @@ function mayEvacuateApp(appName, locations, localSocketAddr, now = Date.now()) {
 function noteEvacuated(appName, now = Date.now()) {
   lastEvacuationAt = now;
   wholeSince.delete(appName);
+  // Written through to the marker, so a restart does not re-open the gate. Best
+  // effort: the in-memory value already paces this process, and the persisted
+  // one only has to survive into the next.
+  persistLastEvacuationAt(now).catch(() => {});
   log.info(`residentialNodeDos - ${appName} handed back; next departure no sooner than ${EVACUATION_INTERVAL_MS / 3600000}h`);
+}
+
+/**
+ * Record when this node last handed an app back.
+ * @param {number} now Epoch ms.
+ * @returns {Promise<void>}
+ */
+async function persistLastEvacuationAt(now) {
+  try {
+    const db = dbHelper.databaseConnection();
+    if (!db) return;
+    const database = db.db(config.database.local.database);
+    await dbHelper.findOneAndUpdateInDatabase(
+      database,
+      startupCollection,
+      { _id: SETTLE_MARKER_KEY },
+      { $set: { lastEvacuationAt: now } },
+      { upsert: true },
+    );
+  } catch (error) {
+    log.warn(`residentialNodeDos - could not record the departure time: ${error.message}`);
+  }
 }
 
 /**
@@ -397,11 +457,20 @@ async function enforceResidentialPolicy(deps) {
 
   const [arcane, residential] = await Promise.all([isArcaneOs(), isResidential()]);
 
+  // A tick that cannot decide stops the DRAIN but leaves the placement hold.
+  // The two fail in opposite directions on purpose: holding placement costs the
+  // node nothing it already has, so leaving it on through an unreadable tick is
+  // safe, while continuing to hand back an app every departure interval with no
+  // current verdict is not. `evacuating` was latched, so a node already draining
+  // whose bench or classification became unreadable kept going for as long as
+  // the input stayed unavailable.
   if (arcane === null) {
+    evacuating = false;
     log.info('residentialNodeDos - benchmark unreachable, skipping this tick');
     return false;
   }
   if (residential === null) {
+    evacuating = false;
     log.info('residentialNodeDos - no network verdict to act on yet, skipping this tick');
     return false;
   }
@@ -422,17 +491,35 @@ async function enforceResidentialPolicy(deps) {
   fluxNetworkHelper.setPlacementHold(HOLD_REASON);
 
   if (!nodeReady) {
+    evacuating = false;
     log.info('residentialNodeDos - node not ready yet, holding placement only this tick');
     return false;
   }
 
   const installed = await listInstalledApps(installedAppsFn);
   if (installed === null) {
+    evacuating = false;
     log.info('residentialNodeDos - installed app list unavailable, holding placement only this tick');
     return false;
   }
 
   if (!installed.length) {
+    // The placement hold above stops the spawner taking anything NEW, but an
+    // install already running is not stopped by it - and an install is real
+    // from appInstaller's installationInProgress flag, some way before its
+    // database record exists for listInstalledApps to see. A tick landing in
+    // that gap reads an empty node, DOSes it, and nodeStatusMonitor tears the
+    // arriving app down on its next loop.
+    //
+    // Undecided rather than "not empty": the retry backoff re-asks in minutes
+    // instead of deferring the DOS for a full check interval, and an install
+    // resolves on that timescale. Bounded today by appInstaller writing its
+    // database entry before creating the container, so no volume exists in the
+    // window - nothing here referenced that ordering, and nothing tested it.
+    if (globalState.installationInProgress) {
+      log.info('residentialNodeDos - an install is in flight, not treating this node as empty yet');
+      return false;
+    }
     applyDos();
     return true;
   }
@@ -444,7 +531,17 @@ async function enforceResidentialPolicy(deps) {
     log.info('residentialNodeDos - settle marker unavailable, evacuation stays off');
     return false;
   }
-  if (observedMs < SETTLE_MS) {
+  // Negated rather than written as `<`, so a value that is not a number refuses
+  // rather than reading as elapsed. numberOrNull above is the guard that
+  // actually stands between a stored value and this comparison; this form is
+  // the backstop for a path that ever reaches it another way, and the two are
+  // only distinguishable on an input like Infinity, which numberOrNull rejects
+  // and `>=` would accept. It is reachable without malformed data: the
+  // clock is Date.now(), and a node whose clock is behind when the marker is
+  // written - no RTC, a VM restored from snapshot, timesyncd not yet stepped -
+  // and is then corrected FORWARD reads the whole window as served. A backwards
+  // step fails safe; a forward step failed toward moving customer data.
+  if (!(observedMs >= SETTLE_MS)) {
     evacuating = false;
     // Hours of the verdict actually WATCHED, so a node whose checks keep coming
     // back inconclusive sees this figure stall rather than count down - which

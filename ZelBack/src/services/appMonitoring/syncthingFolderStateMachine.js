@@ -713,9 +713,30 @@ async function findSyncedPeer(folderId) {
       return null;
     }
 
+    // Every folder's device list BEGINS with this node's own device - see
+    // syncthingMonitorHelpers, `const devices = [{ deviceID: myDeviceId }]` -
+    // and this walk had no self-exclusion, so it asked /rest/db/completion
+    // about the local device first. Our own copy trivially reports completion
+    // 100 with globalBytes > 0.
+    //
+    // What separates "a peer holds it" from "I hold it" today is only that
+    // syncthing does not report remoteState 'valid' for the local device: an
+    // incidental property of a field read defensively below, with a default,
+    // rather than an intention. Every other device walk in this codebase
+    // excludes local explicitly. If that assumption were ever wrong,
+    // canSafelyRemoveApp would return safe for a single-copy stateful app on
+    // the strength of the copy it is about to delete.
+    const localDeviceId = await syncthingService.getDeviceId().catch(() => null);
+
     // Get device completion status for each remote device
     // eslint-disable-next-line no-restricted-syntax
     for (const device of devices) {
+      // A device id this node could not establish excludes nothing, which is
+      // the safe direction: the completion checks below still have to pass.
+      if (localDeviceId && device.deviceID === localDeviceId) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       try {
         // eslint-disable-next-line no-await-in-loop
         const { completion = 0, globalBytes = 0, remoteState = 'unknown' } = await syncthingService.getDbCompletion({

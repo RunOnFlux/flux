@@ -11,6 +11,7 @@ describe('residentialNodeDosService tests', () => {
   let benchmarkServiceStub;
   let dbHelperStub;
   let markerStore;
+  let globalStateStub;
   let deps;
   let installedApps;
 
@@ -39,6 +40,7 @@ describe('residentialNodeDosService tests', () => {
       './fluxNetworkHelper': fluxNetworkHelperStub,
       './geolocationService': geolocationServiceStub,
       './benchmarkService': benchmarkServiceStub,
+      './utils/globalState': globalStateStub,
     });
   }
 
@@ -75,6 +77,10 @@ describe('residentialNodeDosService tests', () => {
     benchmarkServiceStub = {
       getBenchmarks: sinon.stub().resolves({ status: 'success', data: { systemsecure: false } }),
     };
+
+    // An install in flight is real before its database record exists, so the
+    // empty check reads this rather than trusting an ordering in another file.
+    globalStateStub = { installationInProgress: false, removalInProgress: false };
 
     // The settle marker lives in mongo, so the double has to remember it across
     // a reload - surviving a restart is the whole point of that field.
@@ -457,6 +463,129 @@ describe('residentialNodeDosService tests', () => {
 
       expect(markerStore.get('residentialDos').residentialSince).to.equal(firstSeen);
       expect(service.isEvacuating()).to.equal(false);
+    });
+  });
+
+  describe('the bounded correctness set', () => {
+    const HOUR = 60 * 60 * 1000;
+
+    beforeEach(() => {
+      installedApps = [{ name: 'someapp' }];
+    });
+
+    it('does not re-open the departure gate on a restart', async () => {
+      // lastEvacuationAt started at 0, so `now - 0` is about 1.7e12 and the
+      // gate was open on the first call after every process start. A node
+      // restarting on a cron shed an app every queue wait instead of every
+      // departure interval.
+      const now = Date.now();
+      markerStore.set('residentialDos', {
+        ...windowServed(now), lastEvacuationAt: now - HOUR,
+      });
+
+      await service.enforceResidentialPolicy(deps);
+      const verdict = service.mayEvacuateApp('someapp', [{ ip: LOCAL, runningSince: new Date(1) }], LOCAL, now);
+
+      expect(verdict.ok).to.equal(false);
+      expect(verdict.reason).to.contain('next departure in');
+    });
+
+    it('records the departure so the next process sees it', async () => {
+      markerStore.set('residentialDos', windowServed());
+
+      service.noteEvacuated('someapp');
+      await new Promise((resolve) => { setImmediate(resolve); });
+
+      expect(markerStore.get('residentialDos').lastEvacuationAt).to.be.a('number');
+    });
+
+    it('gives an empty location list the longest wait, not the shortest', async () => {
+      // `index < 0 ? ordered.length : index` made an EMPTY list position 0 -
+      // the most senior slot - inverting the rule the sibling test asserts. An
+      // empty list is the ordinary result of expired location records.
+      expect(service.queueDelayMs([], LOCAL)).to.be.above(service.QUEUE_BASE_MS);
+    });
+
+    it('refuses to drain on a settle comparison that is not a number', async () => {
+      // NaN is neither < nor >= the window, so a gate written as `<` fell
+      // through to draining. Reachable without malformed data: a clock behind
+      // when the marker is written and corrected FORWARD reads it all as served.
+      markerStore.set('residentialDos', {
+        _id: 'residentialDos',
+        residentialSince: Date.now(),
+        lastConfirmedAt: 'not-a-number',
+        observedMs: 'also-not-a-number',
+      });
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.isEvacuating()).to.equal(false);
+    });
+
+    it('refuses to drain on a stored observation that is not finite', async () => {
+      // Infinity is the case that separates the two guards. A string is
+      // stopped by the negated comparison on its own; Infinity passes that -
+      // it really is >= the window - and is stopped only by rejecting
+      // non-finite values where the marker is read.
+      markerStore.set('residentialDos', {
+        _id: 'residentialDos',
+        residentialSince: Date.now(),
+        lastConfirmedAt: Date.now(),
+        observedMs: Infinity,
+      });
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.isEvacuating()).to.equal(false);
+    });
+
+    it('stops draining when the benchmark stops answering', async () => {
+      // evacuating was latched, so a node already draining whose bench became
+      // unreadable kept handing an app back per interval with no verdict.
+      markerStore.set('residentialDos', windowServed());
+      await service.enforceResidentialPolicy(deps);
+      expect(service.isEvacuating()).to.equal(true);
+
+      benchmarkServiceStub.getBenchmarks.resolves({ status: 'error' });
+      const decided = await service.enforceResidentialPolicy(deps);
+
+      expect(decided).to.equal(false);
+      expect(service.isEvacuating()).to.equal(false);
+    });
+
+    it('stops draining when the classification stops answering', async () => {
+      markerStore.set('residentialDos', windowServed());
+      await service.enforceResidentialPolicy(deps);
+      expect(service.isEvacuating()).to.equal(true);
+
+      geolocationServiceStub.getNetworkClassification.returns(null);
+      const decided = await service.enforceResidentialPolicy(deps);
+
+      expect(decided).to.equal(false);
+      expect(service.isEvacuating()).to.equal(false);
+    });
+
+    it('does not DOS an apparently empty node while an install is in flight', async () => {
+      // The placement hold stops the spawner taking anything NEW, but not an
+      // install already running - and an install is real from
+      // installationProgress some way before its database record exists for the
+      // app list to see.
+      installedApps = [];
+      globalStateStub.installationInProgress = true;
+
+      const decided = await service.enforceResidentialPolicy(deps);
+
+      expect(decided).to.equal(false);
+      expect(service.isDosActive()).to.equal(false);
+    });
+
+    it('DOSes an empty node once no install is in flight', async () => {
+      installedApps = [];
+      globalStateStub.installationInProgress = false;
+
+      await service.enforceResidentialPolicy(deps);
+
+      expect(service.isDosActive()).to.equal(true);
     });
   });
 
