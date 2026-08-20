@@ -246,6 +246,7 @@ export function nodeClient(nodeNum) {
         'reconciler:swept',
         'giveUp:considered',
         'giveUp:safety',
+        'residential:decided',
         // NOT subscribed: 'spawner:noCandidates'. Zero candidates is the steady
         // state of any fleet whose apps are all at their instance count, and at
         // spawnDelayMultiplier 0.002 it fires roughly every 240ms per node. The

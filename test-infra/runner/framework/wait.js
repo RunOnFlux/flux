@@ -224,6 +224,21 @@ export async function waitForNoCandidates(node, predicate, timeout = 60000, opts
   return node.waitForEvent('spawner:noCandidates', (d) => (!predicate || predicate(d)), timeout, opts);
 }
 
+/**
+ * One residential tick's conclusion.
+ *
+ * The reason this event exists: deciding NOT to enforce produces no placement
+ * hold, no settle marker and no DOS, so its whole signature is the absence of
+ * three things. Without an event a suite can only sleep and infer from nothing
+ * having happened - which reads the same as the tick never running.
+ *
+ * `enforce` is three-state. false means this node is fit to serve; null means
+ * the tick could not decide, with `undecidedBecause` naming the missing input.
+ */
+export async function waitForResidentialDecision(node, predicate, timeout = 60000, opts) {
+  return node.waitForEvent('residential:decided', (d) => (!predicate || predicate(d)), timeout, opts);
+}
+
 /** The safety gate's verdict on an app the pass wanted to give up. */
 export async function waitForGiveUpSafety(node, appName, predicate, timeout = 120000, opts) {
   return node.waitForEvent('giveUp:safety', (d) => d.appName === appName && (!predicate || predicate(d)), timeout, opts);

@@ -30,6 +30,7 @@ const { appSyncEvents, EVENTS: SYNC_EVENTS } = require('./utils/appSyncEvents');
 const globalState = require('./utils/globalState');
 const { compareInstanceSeniority } = require('./utils/instanceOrdering');
 const { socketAddressesMatch } = require('./utils/socketAddressUtils');
+const fluxEventBus = require('./utils/fluxEventBus');
 
 const DOS_MESSAGE_PREFIX = 'Residential node not running ArcaneOS';
 const HOLD_REASON = 'residential node not running ArcaneOS';
@@ -445,6 +446,29 @@ function applyDos() {
 }
 
 /**
+ * What this tick concluded, whichever way it went.
+ *
+ * Deciding NOT to enforce leaves no trace: no placement hold, no settle marker,
+ * no DOS - the outcome IS the absence of all three. So a caller with no event
+ * here can only wait out a duration and infer from nothing having happened,
+ * which is indistinguishable from the tick never having run. That is what the
+ * harness was doing, at thirty seconds a test.
+ *
+ * `enforce: null` is a tick that could not decide, with `undecidedBecause`
+ * naming the input that was missing. Kept apart from `false` because they are
+ * opposite states: one says this node is fit to serve, the other says nobody
+ * knows yet.
+ *
+ * fluxEventBus is inert on a real node - config.testEventStream is false - so
+ * this exists for the harness and costs production nothing.
+ * @param {{residential: boolean|null, arcaneOs: boolean|null,
+ *   enforce: boolean|null, undecidedBecause: string|null}} verdict
+ */
+function publishDecision(verdict) {
+  fluxEventBus.publish('residential:decided', verdict);
+}
+
+/**
  * One evaluation of the policy.
  *
  * @param {object} deps Injected collaborators.
@@ -467,16 +491,19 @@ async function enforceResidentialPolicy(deps) {
   if (arcane === null) {
     evacuating = false;
     log.info('residentialNodeDos - benchmark unreachable, skipping this tick');
+    publishDecision({ residential, arcaneOs: arcane, enforce: null, undecidedBecause: 'benchmark' });
     return false;
   }
   if (residential === null) {
     evacuating = false;
     log.info('residentialNodeDos - no network verdict to act on yet, skipping this tick');
+    publishDecision({ residential, arcaneOs: arcane, enforce: null, undecidedBecause: 'classification' });
     return false;
   }
 
   const shouldEnforce = residential && !arcane;
   log.info(`residentialNodeDos - residential=${residential} arcaneOs=${arcane} enforce=${shouldEnforce}`);
+  publishDecision({ residential, arcaneOs: arcane, enforce: shouldEnforce, undecidedBecause: null });
 
   if (!shouldEnforce) {
     fluxNetworkHelper.clearPlacementHold();
