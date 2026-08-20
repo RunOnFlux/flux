@@ -121,12 +121,29 @@ describe('App monitoring endpoints', function () {
     // Every field below is one the frontend reads. A real docker reading is the
     // only thing that proves the extract names them the way docker does.
     const { data } = sample;
+    // Typed is not enough for these four. extractSample defaults each with `?? 0`,
+    // so a renamed docker field yields a number - zero - and a type assertion
+    // passes on a reading that has lost the values the CPU throttler divides by.
+    // A running container has accrued cpu time and the system counter is always
+    // ticking, so zero here means the extract missed the field.
     expect(data.cpu_stats.cpu_usage.total_usage, 'cpu total_usage').to.be.a('number');
+    expect(data.cpu_stats.cpu_usage.total_usage, 'cpu total_usage defaulted to 0').to.be.greaterThan(0);
     expect(data.precpu_stats.cpu_usage.total_usage, 'precpu total_usage').to.be.a('number');
+    expect(data.precpu_stats.cpu_usage.total_usage, 'precpu total_usage defaulted to 0').to.be.greaterThan(0);
     expect(data.cpu_stats.system_cpu_usage, 'system_cpu_usage').to.be.a('number');
+    expect(data.cpu_stats.system_cpu_usage, 'system_cpu_usage defaulted to 0').to.be.greaterThan(0);
     expect(data.precpu_stats.system_cpu_usage, 'precpu system_cpu_usage').to.be.a('number');
+    expect(data.precpu_stats.system_cpu_usage, 'precpu system_cpu_usage defaulted to 0').to.be.greaterThan(0);
     expect(data.cpu_stats.online_cpus, 'online_cpus').to.be.a('number');
     expect(data.cpu_stats.online_cpus).to.be.greaterThan(0);
+
+    // The suite header names networks.eth0 as exactly what a stub gets wrong, and
+    // nothing in this file asserted it. If docker names the interface anything
+    // else both values are null and every app charts flat network traffic.
+    expect(data.networks, 'no networks block on the reading').to.be.an('object');
+    expect(data.networks.eth0, 'the extract reads networks.eth0 by name').to.be.an('object');
+    expect(data.networks.eth0.rx_bytes, 'rx_bytes').to.be.a('number');
+    expect(data.networks.eth0.tx_bytes, 'tx_bytes').to.be.a('number');
 
     // a running container always has a memory limit; zero means the extract
     // missed it rather than the container using nothing
@@ -144,7 +161,17 @@ describe('App monitoring endpoints', function () {
     const entries = res.data[0].data.blkio_stats.io_service_bytes_recursive;
 
     // absent is a legitimate reading for a container that has done no io; what
-    // must not happen is the shape changing out from under the chart
+    // must not happen is the shape changing out from under the chart.
+    //
+    // NOTE what this can and cannot prove. expandSample HARDCODES 'read' and
+    // 'write', so the op names below are not evidence the extract matched
+    // anything - docker emits capitalised ops (Read/Write) and the match is
+    // case-insensitive, and losing that gives every app zero disk io forever with
+    // this assertion still green. Proving the sum is non-zero would catch it, but
+    // a container that has genuinely done no block io reads zero too, so that
+    // would be a red for a reason that is not a bug. The case-insensitive match
+    // is pinned in the unit suite instead, against docker's own casing
+    // (appInspector.test.js, "matches docker's capitalised blkio ops").
     if (entries !== null) {
       expect(entries.map((e) => e.op)).to.deep.equal(['read', 'write']);
       entries.forEach((entry) => expect(entry.value).to.be.a('number'));

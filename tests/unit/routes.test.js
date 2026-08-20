@@ -54,6 +54,54 @@ describe('routes tests', () => {
     expect(bad.map((r) => r.path)).to.deep.equal([]);
   });
 
+  // The assertion above cannot fail. Every route is wrapped in
+  // `(req, res) => { service.fn(req, res); }`, so the handler is ALWAYS a
+  // function - even when `service.fn` does not exist. Three endpoints shipped
+  // wired to names their service no longer exported and nothing here noticed;
+  // they answered 500 on the first request a user made.
+  //
+  // Resolved statically rather than by calling the handlers: invoking ~200
+  // production handlers to find out whether they exist is not a test, it is an
+  // outage. This reads routes.js, maps each `const x = require(...)`, and checks
+  // that every `x.fn(` the file names is actually exported.
+  it('should wire every route to a function its service actually exports', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const routesPath = path.join(__dirname, '../../ZelBack/src/routes.js');
+    const src = fs.readFileSync(routesPath, 'utf8');
+
+    // simple `const name = require('./path')` only - destructured requires bind
+    // bare identifiers and are covered by the callable-handler check above
+    const modules = {};
+    const requireRe = /^const\s+([A-Za-z_$][\w$]*)\s*=\s*require\('([^']+)'\);$/gm;
+    let m = requireRe.exec(src);
+    while (m) {
+      const [, name, rel] = m;
+      if (rel.startsWith('.')) {
+        // eslint-disable-next-line global-require, import/no-dynamic-require
+        modules[name] = require(path.resolve(path.dirname(routesPath), rel));
+      }
+      m = requireRe.exec(src);
+    }
+    expect(Object.keys(modules).length, 'no service requires parsed - the scan is broken').to.be.greaterThan(20);
+
+    const missing = [];
+    const callRe = /\b([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*\(/g;
+    let c = callRe.exec(src);
+    while (c) {
+      const [, obj, fn] = c;
+      if (modules[obj] && typeof modules[obj][fn] !== 'function') {
+        missing.push(`${obj}.${fn}`);
+      }
+      c = callRe.exec(src);
+    }
+
+    expect(
+      [...new Set(missing)],
+      'routes.js names service functions that do not exist - these endpoints answer 500 on the first request',
+    ).to.deep.equal([]);
+  });
+
   describe('handler wiring', () => {
     it('should route appmonitor to the inspector handler', () => {
       const stub = sinon.stub(appInspector, 'appMonitorAPI');

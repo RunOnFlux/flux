@@ -235,6 +235,40 @@ describe('appInspector tests', () => {
         'timestamp',
       ]);
     });
+
+    // The keys alone were the whole contract: the docker -> stored direction was
+    // asserted on NAMES plus three values, so every extraction could have been
+    // wired to the wrong field, or defaulted away, without a test noticing. This
+    // pins the values, from one known reading.
+    it('extracts every field from the reading, not just the right key names', async () => {
+      const stored = await tickOnce({ stats: { inactive_file: 512, active_file: 99 } });
+
+      expect(stored.cpuTotal).to.equal(500);
+      expect(stored.cpuTotalBefore).to.equal(100);
+      expect(stored.cpuSystem).to.equal(900);
+      // Defaulted with ?? 0, so a mis-wired read silently becomes a plausible
+      // zero rather than an error - and this is one of the four the throttler
+      // divides by.
+      expect(stored.cpuSystemBefore).to.equal(400);
+      expect(stored.onlineCpus).to.equal(4);
+      expect(stored.nanoCpus).to.equal(2e9);
+      expect(stored.memoryUsage).to.equal(2048);
+      expect(stored.memoryLimit).to.equal(8192);
+      expect(stored.memoryCache).to.equal(512);
+      expect(stored.networkRx).to.equal(30);
+      expect(stored.networkTx).to.equal(40);
+    });
+
+    // THE WIRE CONTRACT MOST LIKELY TO BREAK SILENTLY. Docker emits capitalised
+    // blkio ops - the fixture uses docker's own casing - and the extract matches
+    // them case-insensitively. Drop the .toLowerCase() and every app reports 0
+    // bytes of disk IO forever, with a green suite.
+    it('matches docker\'s capitalised blkio ops', async () => {
+      const stored = await tickOnce({ stats: { inactive_file: 512 } });
+
+      expect(stored.ioRead, 'blkio op matching became case-sensitive').to.equal(10);
+      expect(stored.ioWrite).to.equal(20);
+    });
   });
 
   describe('startAppMonitoring - the guards around the sample', () => {
@@ -340,6 +374,26 @@ describe('appInspector tests', () => {
       expect(kept).to.have.lengthOf(2); // the recent one, plus this tick's
     });
 
+    // The test above seeds one sample just over seven days old and one a second
+    // old, so ANY retention between about a minute and seven days passes it.
+    // Shorten the window to hours and the frontend's 2-, 3- and 7-day ranges come
+    // back empty, with nothing red. This pins the far edge.
+    it('keeps a sample from days ago, not just a recent one', async () => {
+      arm();
+      const TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
+      const SIX_DAYS = 6 * 24 * 60 * 60 * 1000;
+      globalStateStub.appsMonitored.myapp.statsStore.push(
+        { timestamp: 3, elapsed: -TWO_DAYS, memoryUsage: 3 },
+        { timestamp: 4, elapsed: -SIX_DAYS, memoryUsage: 4 },
+      );
+
+      await ticks(1);
+
+      const kept = stored().map((sample) => sample.timestamp);
+      expect(kept, 'a two-day-old sample was dropped - the retention window is too short').to.include(3);
+      expect(kept, 'a six-day-old sample was dropped - the retention window is too short').to.include(4);
+    });
+
     it('replaces its own interval rather than running two', async () => {
       // Monitoring is (re)started from several places - boot, the reconciler, an
       // install. Arming a second interval over a live one doubles the sample rate
@@ -372,7 +426,16 @@ describe('appInspector tests', () => {
 
       await ticks(1);
 
-      expect(logStub.error.called).to.be.true;
+      // Matched on the message, not merely on log.error having been called.
+      // log.error is reachable from the outer catch AND from two guard branches,
+      // so `called === true` was sound only because the store-length assertion
+      // below happened to pin which path ran - a pairing nothing recorded.
+      const logged = logStub.error.getCalls()
+        .map((call) => String(call.args[0]?.message ?? call.args[0]));
+      expect(
+        logged.some((message) => message.includes('docker is busy')),
+        `logged something, but not the reading failure: ${JSON.stringify(logged)}`,
+      ).to.equal(true);
       expect(stored()).to.have.lengthOf(0);
     });
   });
@@ -1286,7 +1349,10 @@ describe('appInspector tests', () => {
 
         const gaps = result.slice(1).map((s, i) => s.timestamp - result[i].timestamp);
         gaps.slice(0, -1).forEach((gap) => expect(gap).to.equal(HOUR_MS));
-        expect(result.length).to.be.within(6, 8);
+        // Exactly seven: six hours of minute samples thinned to one an hour, plus
+        // the newest. A three-wide range absorbs an off-by-one in the
+        // newest-sample append, which is the part most likely to break.
+        expect(result.length).to.equal(7);
       });
 
       // Thinning by position would drop it whenever the count is not a multiple of
@@ -2022,6 +2088,122 @@ describe('appInspector tests', () => {
 
       expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
       expect(globalStateStub.appsMonitored.myapp.statsStore).to.have.lengthOf(5);
+    });
+
+    // THE TWO PROPERTIES THE WATERMARK DESIGN RESTS ON. Both survived mutation
+    // until now: the tests that looked like they pinned them asserted statsStore
+    // LENGTH, and checkApplicationsCpuUSage never writes statsStore - that is the
+    // entire point of a watermark - so they were true by construction.
+
+    // A pass that reaches no decision must leave the watermark where it was, or
+    // the samples it declined to act on fall behind the next window's floor and
+    // no decision ever counts them. A container docker cannot inspect would burn
+    // its samples every fifteen minutes and never be throttled again.
+    it('does not advance the watermark when it makes no decision', async () => {
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 1]), lastCpuDecisionAt: 0 } };
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+      expect(
+        globalStateStub.appsMonitored.myapp.lastCpuDecisionAt,
+        'the watermark moved on a pass that decided nothing - those samples can never be counted',
+      ).to.equal(0);
+    });
+
+    // ...and the samples it kept must still be usable, which is the half a
+    // length assertion could never show.
+    it('counts the samples it declined to act on in the next decision', async () => {
+      globalStateStub.appsMonitored = { myapp: { statsStore: window([1, 1, 1, 1]), lastCpuDecisionAt: 0 } };
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+      expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+
+      // one more sample arrives; the four above must still be in the window
+      globalStateStub.appsMonitored.myapp.statsStore.push(cpuSample(1, 0));
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(dockerServiceStub.appDockerUpdateCpu.calledWith('myapp', 1.8e9)).to.be.true;
+    });
+
+    // The window is floored at max(watermark, an hour ago). Without the hour, a
+    // component that has never been decided on accumulates every sample it has
+    // ever taken, and a burst from last week still counts toward today's 80%.
+    it('does not decide on samples older than the window, however long since the last decision', async () => {
+      globalStateStub.appsMonitored = {
+        myapp: {
+          statsStore: [
+            ...[70, 69, 68, 67, 66, 65, 64, 63, 62, 61].map((m) => cpuSample(1, m)),
+            ...window([1, 1, 1, 1]),
+          ],
+          lastCpuDecisionAt: 0,
+        },
+      };
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(
+        dockerServiceStub.appDockerUpdateCpu.called,
+        'decided using samples over an hour old - the window floor is not being applied',
+      ).to.be.false;
+    });
+
+    // The floor is exclusive. A sample sitting exactly ON the watermark was
+    // already counted by the decision that set it.
+    it('excludes a sample sitting exactly on the watermark', async () => {
+      const samples = window([1, 1, 1, 1, 1]);
+      globalStateStub.appsMonitored = {
+        myapp: { statsStore: samples, lastCpuDecisionAt: samples[0].elapsed },
+      };
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(simpleApp),
+      );
+
+      expect(
+        dockerServiceStub.appDockerUpdateCpu.called,
+        'counted the sample on the boundary - it was already used by the previous decision',
+      ).to.be.false;
+    });
+
+    // The compose path has its own copy of the watermark write, and its own copy
+    // of the guard. Both need covering: a composed app is the common shape.
+    it('keeps throttling the rest when a COMPONENT stops being monitored mid-pass', async () => {
+      const composed = {
+        name: 'myapp',
+        version: 4,
+        compose: [{ name: 'db', cpu: 2 }, { name: 'web', cpu: 2 }],
+      };
+      globalStateStub.appsMonitored = {
+        db_myapp: { statsStore: window([1, 1, 1, 1, 1]) },
+        web_myapp: { statsStore: window([1, 1, 1, 1, 1]) },
+      };
+      dockerServiceStub.dockerContainerInspect.callsFake(async (name) => {
+        if (name === 'db_myapp') delete globalStateStub.appsMonitored.db_myapp;
+        return { HostConfig: { NanoCpus: 2e9 }, State: { Pid: 1234 } };
+      });
+
+      await appInspector.checkApplicationsCpuUSage(
+        globalStateStub.appsMonitored,
+        installedAppsReturning(composed),
+      );
+
+      expect(
+        dockerServiceStub.appDockerUpdateCpu.calledWith('web_myapp', 1.8e9),
+        'the component after the one that vanished was never throttled - the pass was abandoned',
+      ).to.be.true;
     });
 
     it('decides per component for a composed app', async () => {

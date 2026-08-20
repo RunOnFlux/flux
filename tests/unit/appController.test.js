@@ -572,7 +572,10 @@ describe('appController tests', () => {
       const result = res.json.firstCall.args[0];
 
       expect(result.status).to.equal('error');
-      expect(result.data.name).to.not.equal('Deprecated');
+      // Asserted by identity, not by negation: `not.equal('Deprecated')` is
+      // satisfied by any other error name, including one from an unrelated throw
+      // that never reached the privilege check at all.
+      expect(result.data.name).to.equal('Unauthorized');
     });
 
     // Express's default extended query parser turns ?appname=a&appname=b into an

@@ -259,6 +259,24 @@ describe('monitoringOrchestrator tests', () => {
       sinon.assert.calledWith(startStub, 'c2_App1');
     });
 
+    // startAppMonitoring only refuses a FALSY name, and gluing two values together
+    // always produces something it accepts - so a component named 42 armed a
+    // monitor on "42_App": a timer, a store, and a sampler asking docker about a
+    // container that cannot exist, once a minute, forever.
+    it('refuses a component whose name is not a string', async () => {
+      const startStub = sinon.stub(appInspector, 'startAppMonitoring');
+      sinon.stub(log, 'error');
+
+      await monitoringOrchestrator.startMonitoringOfApps([
+        { name: 'App1', version: 4, compose: [{ name: 42 }, { name: 'c2' }] },
+      ]);
+
+      expect(
+        startStub.getCalls().map((call) => call.args[0]),
+        'armed a monitor under a name no container can have',
+      ).to.deep.equal(['c2_App1']);
+    });
+
     it('refuses a specification list that is not a list, rather than walking it', async () => {
       sinon.stub(appInspector, 'startAppMonitoring');
 
@@ -280,6 +298,10 @@ describe('monitoringOrchestrator tests', () => {
       expect(result.status).to.equal('error');
       expect(result.data.name).to.equal('Deprecated');
       expect(result.data.message).to.match(/managed by the node/);
+      // The in-band contract this PR wrote down: the wire status is 200 and the
+      // outcome is `code` in the body. Asserted, or the one field a caller
+      // switches on is the one nothing pins.
+      expect(result.data.code).to.equal(410);
     });
 
     it('should refuse to stop monitoring and say why', async () => {
@@ -289,6 +311,7 @@ describe('monitoringOrchestrator tests', () => {
 
       expect(result.status).to.equal('error');
       expect(result.data.name).to.equal('Deprecated');
+      expect(result.data.code).to.equal(410);
     });
 
     it('should not touch monitoring for a named app', async () => {

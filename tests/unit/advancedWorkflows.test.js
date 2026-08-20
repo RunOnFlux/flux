@@ -1415,6 +1415,98 @@ describe('advancedWorkflows tests', () => {
       expect(linesMatching(logInfo, 'starting docker component')).to.have.lengthOf(1);
     });
 
+    // The test above cannot actually see the scope. With ONE peer, 'lower' and
+    // 'all' probe the same single node, so "asked the node ahead" and "asked
+    // everybody" are observationally identical and the escalation could become
+    // unconditional without a test noticing. This node sits at index 1 with a
+    // peer on either side, and only the one BELOW it should be asked.
+    //
+    // What it costs if the scope escalates: every staggered due-turn becomes a
+    // fleet-wide probe, at election cadence, on every node running the app.
+    it('asks only the node ahead on a due stagger, not every instance', async () => {
+      const appName = 'duestaggerscopeapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:01:30.000Z' },
+      );
+      serviceHelperStub.resolves({ data: [] });
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+      // Ordered by runningSince: .90 (00:01) is index 0, this node (00:01:30) is
+      // index 1, .91 (00:02) is index 2. The node ABOVE holds the component; a
+      // lower-only probe never asks it, an escalated one does.
+      const answerByPeer = (url) => {
+        if (url.includes('/apps/heldcomponents')) {
+          const held = url.includes('192.168.1.91') ? [`flux${appName}`] : [];
+          return Promise.resolve({ data: { data: held } });
+        }
+        return Promise.resolve({ data: { data: [] } });
+      };
+
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(answerByPeer);
+      await runPass();
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
+
+      clock.tick(config.fluxapps.masterSlaveStaggerMs);
+      logInfo.resetHistory();
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(answerByPeer);
+      await runPass();
+
+      expect(
+        linesMatching(logInfo, 'starting docker component'),
+        'did not start - a node ABOVE this one was probed, so the scope escalated past the stagger',
+      ).to.have.lengthOf(1);
+      clock.restore();
+    });
+
+    // index is re-derived from the location list on every pass, so a node that
+    // booked a stagger can find itself ABSENT from that list when its turn comes
+    // - the instances ahead aged out, or its own row lapsed. index is then -1, and
+    // a lower-only walk of "everyone below index -1" asks NOBODY, which the caller
+    // reads as clear. That is a blind start onto a shared volume, reached from the
+    // staggered path rather than the index-0 one.
+    it('escalates rather than starting blind when this node has left the location list', async () => {
+      const appName = 'droppedoutapp';
+      sinon.stub(appsRuntimeState, 'isOperatorStopped').resolves(false);
+      const logInfo = sinon.stub(log, 'info');
+      const runPass = electionFixture(
+        appName,
+        ['192.168.1.90:16127', '192.168.1.91:16127'],
+        { selfRunningSince: '2026-01-01T00:03:00.000Z' },
+      );
+      serviceHelperStub.resolves({ data: [] });
+      const clock = sinon.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
+
+      // Pass 1: this node is index 2 and books its stagger.
+      axiosGetStub.resetBehavior();
+      axiosGetStub.callsFake(peerAnswers({ held: [] }));
+      await runPass();
+      expect(linesMatching(logInfo, 'scheduling app')).to.have.lengthOf(1);
+
+      // The turn arrives, and by now this node is no longer in the list at all.
+      clock.tick(config.fluxapps.masterSlaveStaggerMs * 3);
+      registryManagerStub.resolves([
+        { name: appName, ip: '192.168.1.90:16127', runningSince: '2026-01-01T00:01:00.000Z' },
+        { name: appName, ip: '192.168.1.91:16127', runningSince: '2026-01-01T00:02:00.000Z' },
+      ]);
+      logInfo.resetHistory();
+      axiosGetStub.resetBehavior();
+      // A peer IS running it. Escalating finds that; asking nobody does not.
+      axiosGetStub.callsFake(peerAnswers({ held: [`flux${appName}`] }));
+      await runPass();
+
+      expect(
+        linesMatching(logInfo, 'starting docker component'),
+        'started without asking anyone - a second writer on the shared volume',
+      ).to.have.lengthOf(0);
+      clock.restore();
+    });
+
     it('takes the per-place stagger from config, not from a literal', async () => {
       // Four call sites computed the wait from `index * 3 * 60 * 1000`, which is why
       // no harness suite exercises a staggered start: reaching one costs minutes of
