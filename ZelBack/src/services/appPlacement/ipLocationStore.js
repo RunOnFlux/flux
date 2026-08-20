@@ -94,6 +94,22 @@ let regionCodeByName = new Map();
 // gather for itself (the registries' own record of what a block was assigned
 // for) is available; here it is only read.
 const NETWORK_CLASS_BY_CODE = Object.freeze({ 1: 'RESIDENTIAL', 2: 'DATACENTER' });
+
+/**
+ * The class a wire code names, or null when this build does not know it.
+ *
+ * An explicit comparison rather than a property lookup: `NETWORK_CLASS_BY_CODE[code]`
+ * answers for every member of Object.prototype, so a header carrying
+ * `{"<token>": "toString"}` would pass a truthiness check and store an inherited
+ * function as an organisation's network class.
+ * @param {*} code The code as it appears in the header.
+ * @returns {string|null} The class name, or null.
+ */
+function classForCode(code) {
+  if (code === 1) return NETWORK_CLASS_BY_CODE[1];
+  if (code === 2) return NETWORK_CLASS_BY_CODE[2];
+  return null;
+}
 let networkClassByOrg = new Map();
 let minimumRowCount = MIN_ROW_COUNT;
 // The per-node view, resident. It is a decoration on the node list - one small
@@ -250,10 +266,32 @@ function parseHeader(buf) {
   }
   const orgClasses = new Map();
   orgClassEntries.forEach(([token, code]) => {
-    if (!NETWORK_CLASS_BY_CODE[code]) {
-      throw malformed(`header orgClasses.${token} is not a known class code`);
+    // SKIPPED, not rejected. This vocabulary is a closed two-value enum here and
+    // a separate closed enum in the publisher's repo, and the artifact carries
+    // codes rather than names, so nothing binds them: adding a third class there
+    // and merging IS publishing - config.policy.baseUrl reads the branch head,
+    // with no FluxOS release in the loop. Throwing would take the next fetch on
+    // every node down with it, so a node holding no baseline yet would get none
+    // and every other node would silently stop updating - country, continent,
+    // region and organisation for two million rows, over one value in an
+    // optional section.
+    //
+    // That is the trade this file already refuses forty lines above, for
+    // regionNames: "the worse failure, not the stricter one". An organisation
+    // this build has no verdict for is a state lookup already returns
+    // (networkClass: null) and which enforces nothing, so an unreadable code
+    // costs exactly the enforcement it should and nothing else.
+    //
+    // Compared against the values rather than looked up, so a header saying
+    // "toString" cannot pass on an inherited function and store it as a class -
+    // the same hazard the Maps below are built to avoid, three lines away.
+    const known = classForCode(code);
+    if (!known) {
+      log.warn(`ipLocationStore - orgClasses.${token} carries class code ${JSON.stringify(code)},`
+        + ' which this build does not know; that organisation is left unclassified');
+      return;
     }
-    orgClasses.set(token, NETWORK_CLASS_BY_CODE[code]);
+    orgClasses.set(token, known);
   });
 
   return {
