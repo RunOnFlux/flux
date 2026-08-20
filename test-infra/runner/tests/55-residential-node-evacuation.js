@@ -487,27 +487,35 @@ describe('Residential node evacuation', function () {
     // app:removed and dos:changed arrive on ONE stream with monotonic ids, so
     // comparing their ids is a fact about what happened rather than a race
     // between two reads of two different sources.
+    //
+    // Both waits are armed BEFORE the pass runs, because both events are the
+    // subject: the claim is that one precedes the other, so neither may be
+    // sampled from a buffer read at a moment of this test's choosing. An
+    // earlier form read the buffer as soon as app:removed landed and found no
+    // DOS at all - DOS follows the departure by about two seconds, so it had
+    // not happened yet. Awaiting both is what makes the comparison meaningful
+    // rather than a race against whichever arrived first.
     const removal = env.clients[TARGET - 1].waitForEvent(
       'app:removed', (d) => d.name === 'residentapp', 300000,
     );
+    const dosLanded = env.clients[TARGET - 1].waitForEvent(
+      'dos:changed', (d) => d.dosState >= 100, 300000,
+    );
+
+    // Only the removal needs blocks. DOS is applied by the residential tick on
+    // its own residentialCheckIntervalMs timer, so it arrives with the chain
+    // stopped - which is also why it cannot be driven for.
     await driveUntil(env, TARGET, async () => {
       const buffer = env.clients[TARGET - 1].getEventBuffer();
       return buffer.some((e) => e.event === 'app:removed' && e.data?.name === 'residentapp');
     });
-    const removedEvent = await removal;
 
-    // Both halves, because either alone is satisfiable by an event that never
-    // fires. "nothing arrived early" is trivially true of a signal that is
-    // silent - which dos:changed WAS on this path until the sticky setters were
-    // made to emit it - so the presence check is what keeps this test honest.
-    const dosEvents = env.clients[TARGET - 1].getEventBuffer()
-      .filter((e) => e.event === 'dos:changed' && e.data?.dosState >= 100);
-    expect(dosEvents, 'the node must actually reach DOS, or the ordering below proves nothing')
-      .to.not.be.empty;
+    const [removedEvent, dosEvent] = await Promise.all([removal, dosLanded]);
 
-    const earlyDos = dosEvents.find((e) => e.id < removedEvent.id);
-    expect(earlyDos, `DOS reached ${earlyDos?.data?.dosState} before the app was handed back`)
-      .to.equal(undefined);
+    // One stream, monotonic ids, so this is an ordering fact rather than two
+    // polls of two sources that disagree about what happened first.
+    expect(dosEvent.id, 'DOS landed before the app was handed back')
+      .to.be.above(removedEvent.id);
 
     // The node's own view, not app:removed - that event is published part-way
     // through the uninstall, after the runtime state is dropped and before the
