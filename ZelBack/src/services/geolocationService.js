@@ -234,6 +234,16 @@ async function setNodeGeolocation() {
 
     const localIp = extractIp(localSocketAddr);
 
+    // Restore what this node already observed before deciding anything from it.
+    // serviceManager calls this function directly at boot, with nothing having
+    // read the collection, so every module variable below starts null: the
+    // address the node held reads as "no previous address", a change across the
+    // restart is therefore invisible, and the write at the end of this pass
+    // persists lastIpChangeDate: null over a record that may go back years.
+    // getNodeGeolocation returns immediately once storedGeolocation is set, so
+    // this costs one read on the first pass and nothing after it.
+    await getNodeGeolocation();
+
     // Store previous IP to detect changes
     const previousIp = storedGeolocation ? storedGeolocation.ip : null;
 

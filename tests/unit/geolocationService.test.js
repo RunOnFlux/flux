@@ -406,6 +406,59 @@ describe('geolocationService tests', () => {
       expect(geolocationService.getStaticIpState()).to.equal('STATIC');
     });
 
+    it('restores the observation record at boot, where nothing else has', async () => {
+      // The test above calls getNodeGeolocation() first. serviceManager does
+      // not: it calls setNodeGeolocation() directly, with nothing having read
+      // the collection, so every module variable starts null - and the write at
+      // the end of the pass then persists lastIpChangeDate: null over a record
+      // going back years. Asserted on what reaches the database, because the
+      // damage is to the record rather than to this pass's verdict.
+      const fourHundredDaysAgo = Date.now() - (400 * 24 * 60 * 60 * 1000);
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      dbHelperStub.findOneInDatabase.resolves({
+        geolocation: { ip: '185.199.108.1' },
+        staticIp: true,
+        dataCenter: false,
+        lastIpChangeDate: fourHundredDaysAgo,
+        ipFirstSeenAt: fourHundredDaysAgo,
+        staticIpState: 'STATIC',
+        networkEvidence: null,
+      });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      const written = dbHelperStub.updateOneInDatabase.lastCall.args[3].$set;
+      expect(written.lastIpChangeDate, 'the change record must survive a restart').to.equal(fourHundredDaysAgo);
+      expect(written.ipFirstSeenAt, 'the observation window must not restart').to.equal(fourHundredDaysAgo);
+    });
+
+    it('sees an address that moved while FluxOS was down', async () => {
+      // The same restore, in the direction that costs enforcement rather than
+      // history: without it previousIp is null on the first pass after every
+      // restart, so a change across the downtime is not a change, and a rule
+      // that trusts an address until it WATCHES it move can never watch one.
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
+      serviceHelperStub.axiosGet.resolves(ipApiResponse({ query: '185.199.109.9' }));
+      dbHelperStub.findOneInDatabase.resolves({
+        geolocation: { ip: '185.199.108.1' },
+        staticIp: true,
+        dataCenter: false,
+        lastIpChangeDate: Date.now() - (400 * 24 * 60 * 60 * 1000),
+        ipFirstSeenAt: Date.now() - (400 * 24 * 60 * 60 * 1000),
+        staticIpState: 'STATIC',
+        networkEvidence: null,
+      });
+      geolocationService = reload();
+
+      await geolocationService.setNodeGeolocation();
+
+      expect(geolocationService.getStaticIpState(), 'a watched change withdraws STATIC').to.equal('UNKNOWN');
+      const written = dbHelperStub.updateOneInDatabase.lastCall.args[3].$set;
+      expect(Date.now() - written.lastIpChangeDate, 'the change is stamped now').to.be.below(60000);
+    });
+
     // The table lookup is not stubbed by this describe's reload(), so these
     // build their own. A recent change means: lastIpChangeDate on record AND
     // the address held for less than the stability window since.
