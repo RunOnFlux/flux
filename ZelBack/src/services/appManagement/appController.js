@@ -170,8 +170,17 @@ async function setAppOperatorStopped(appname, appSpecs, stopped) {
     : [appname];
   // eslint-disable-next-line no-restricted-syntax
   for (const id of ids) {
+    // Written through the reconciler's per-key slot rather than straight to the
+    // store. A pass reads the lock and acts on that answer once docker has
+    // replied, so a write landing in between is not seen: the pass starts a
+    // container the operator has just stopped and the next pass stops it again.
+    // applyIntent waits out any pass deciding for this id, holds the key while
+    // the write lands, and enqueues on release - so the two cannot interleave,
+    // and the next pass reads what was just written.
     // eslint-disable-next-line no-await-in-loop
-    await appsRuntimeState.setOperatorStopped(id, stopped);
+    await appReconciler.applyIntent(id, async () => {
+      await appsRuntimeState.setOperatorStopped(id, stopped);
+    });
     // A stop retracts the controller's desire as well as taking the lock. The
     // lock only suppresses the reconciler while it is held; a desire left
     // standing is reconciled against the stopped container the moment the lock

@@ -1484,4 +1484,62 @@ describe('appReconciler tests', () => {
       }
     });
   });
+  describe('applyIntent serialises an intent write against a reconcile pass', () => {
+    // The defect this closes: a pass reads isOperatorStopped, then acts on that
+    // answer once docker has replied. An operator stop landing in that gap is
+    // not seen, so the pass starts a container the operator has just stopped and
+    // the next pass stops it again - the flap suite 45 catches.
+    function blockDockerInspect() {
+      let release;
+      stubs.dockerService.dockerContainerInspect = sinon.stub().returns(new Promise((resolve) => {
+        release = () => resolve({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      }));
+      return () => release();
+    }
+
+    it('holds the write until a pass already deciding has finished', async () => {
+      const releaseInspect = blockDockerInspect();
+      appReconciler.enqueue('www_App');
+      await new Promise(setImmediate);
+
+      let written = false;
+      const intent = appReconciler.applyIntent('www_App', async () => { written = true; });
+      await new Promise(setImmediate);
+
+      // The pass is parked on docker with its desired-state answer already in
+      // hand. Writing now is exactly what it would fail to see.
+      expect(written, 'the write must not land while a pass is mid-decision').to.equal(false);
+
+      releaseInspect();
+      await intent;
+      expect(written, 'and must land once that pass is done').to.equal(true);
+    });
+
+    it('makes a pass requested during the write wait for it', async () => {
+      let releaseWrite;
+      const writing = new Promise((resolve) => { releaseWrite = resolve; });
+      const intent = appReconciler.applyIntent('www_App', () => writing);
+      await new Promise(setImmediate);
+
+      appReconciler.enqueue('www_App');
+      await new Promise(setImmediate);
+
+      // Held key: the request is coalesced, not started against the state this
+      // write is in the middle of replacing.
+      expect(stubs.dockerService.dockerContainerInspect.called,
+        'no pass may start against a half-written intent').to.equal(false);
+
+      releaseWrite();
+      await intent;
+    });
+
+    it('runs a pass once the write is durable', async () => {
+      // Convergence: the intent is worth nothing if nothing acts on it.
+      await appReconciler.applyIntent('www_App', async () => {});
+      await new Promise(setImmediate);
+
+      expect(stubs.dockerService.dockerContainerInspect.called).to.equal(true);
+    });
+  });
+
 });

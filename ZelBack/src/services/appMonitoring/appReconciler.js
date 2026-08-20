@@ -54,7 +54,10 @@ const startingClaims = new Set();
 // its appdata mount before the wipe (mirrors the sync layer's prior 500ms delay).
 const DATA_CLEAR_SETTLE_MS = 500;
 
-const inFlight = new Set(); // ids currently reconciling (per-key single-flight)
+// id -> promise of the pass (or intent write) currently holding this key. A Map
+// rather than a Set so a caller can WAIT for the holder: applyIntent below needs
+// to know when a pass has finished, not merely that one is running.
+const inFlight = new Map(); // per-key single-flight
 const dirty = new Set(); // ids re-requested while in flight -> reconcile again
 const bootPending = new Set(); // ids enqueued before the boot gate opened
 const backoffTimers = new Map(); // id -> scheduled retry timeout
@@ -999,7 +1002,7 @@ function scheduleRetry(identifier, delayMs) {
 }
 
 function runReconcile(identifier) {
-  reconcile(identifier)
+  const pass = reconcile(identifier)
     .catch((err) => log.error(`appReconciler - reconcile ${identifier} failed: ${err.message}`))
     .finally(() => {
       inFlight.delete(identifier);
@@ -1012,6 +1015,9 @@ function runReconcile(identifier) {
         setImmediate(() => enqueue(identifier));
       }
     });
+  // Registered synchronously: promise callbacks are microtasks, so the finally
+  // above cannot run before this line and clear an entry that is not there yet.
+  inFlight.set(identifier, pass);
 }
 
 /**
@@ -1029,8 +1035,53 @@ function enqueue(rawIdentifier) {
     dirty.add(identifier);
     return;
   }
-  inFlight.add(identifier);
   runReconcile(identifier);
+}
+
+/**
+ * Change what a component is supposed to be doing, without racing a pass that is
+ * deciding what to do about it.
+ *
+ * A reconcile reads the desired state, then acts on that answer some
+ * milliseconds later once docker has answered. An intent written in that gap is
+ * not seen: the pass starts a container an operator has just stopped, and the
+ * next pass stops it again. The lock is written correctly and early - the
+ * problem is that the check and the action are not atomic against a concurrent
+ * writer, so narrowing the gap with a second check before acting would leave the
+ * same defect with a smaller window.
+ *
+ * Instead the write takes the same per-key slot a pass takes. It waits out a
+ * pass already deciding, holds the key while it writes so `enqueue` marks the
+ * key dirty rather than starting one, and enqueues on release so the next pass
+ * reads the intent it just wrote. The two can no longer interleave because they
+ * are mutually exclusive by construction.
+ *
+ * The wait is bounded by one pass of ONE component - a docker probe and at most
+ * one action - so an operator's command is never behind unrelated work.
+ * @param {string} rawIdentifier Component identifier.
+ * @param {Function} mutate Writes the new intent. Awaited while the key is held.
+ * @returns {Promise<void>} Resolves once the intent is durable and a pass is queued.
+ */
+async function applyIntent(rawIdentifier, mutate) {
+  const identifier = canonical(rawIdentifier);
+
+  // A loop, not a single await: releasing the key lets a queued pass start
+  // before this continues, and that pass would be reading the state we are
+  // about to replace.
+  // eslint-disable-next-line no-await-in-loop
+  while (inFlight.has(identifier)) await inFlight.get(identifier).catch(() => {});
+
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  inFlight.set(identifier, held);
+  try {
+    await mutate();
+  } finally {
+    inFlight.delete(identifier);
+    release();
+  }
+
+  enqueue(identifier);
 }
 
 /**
@@ -1216,6 +1267,7 @@ function stop() {
 
 module.exports = {
   enqueue,
+  applyIntent,
   enqueueAll,
   setControllerDesired,
   clearControllerDesired,
