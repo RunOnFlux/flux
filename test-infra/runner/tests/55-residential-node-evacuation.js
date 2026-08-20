@@ -18,6 +18,7 @@ import {
 import { setNoPeerData, setPeerHasData, setSynced } from '../framework/syncthing-control.js';
 import { electMaster, startFdmOutage, endFdmOutage } from '../framework/fdm-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
+import { derivedQueueStepMs, loadSharedConfig } from '../framework/coupled-knobs.js';
 
 const subnet = getSubnetConfig();
 
@@ -275,8 +276,10 @@ describe('Residential node evacuation', function () {
           // network:appremoved reached it - propagation lost the race, both
           // holders saw the app at full strength, and both left.
           //
-          // 4 here puts the pass at 16 blocks, about 4s, comfortably longer than
-          // propagation while still far shorter than production's 44 blocks.
+          // 4 here puts the pass at 16 blocks. What that costs in wall time is
+          // set by explorerPollIntervalMs, not by this number: at the harness's
+          // 833ms poll it is about 16s, measured at 15.9s over nine consecutive
+          // passes on cindy. Still far shorter than production's 44 blocks.
           removeFluxAppsPeriod: 4,
           // Left LONG on purpose, and opened by the test when it is ready. A
           // short window would let evacuation start while the hold is still
@@ -290,22 +293,22 @@ describe('Residential node evacuation', function () {
           // together: the second's turn has to arrive AFTER the first's
           // departure is visible to it.
           //
-          // The step has to outlast a pass, so two holders' turns land on
-          // different passes. With the pass at ~4s (see removeFluxAppsPeriod
-          // above), 15s carries margin and caps the worst wait - last of five
-          // instances - at 61s.
+          // DERIVED, never written as a literal. The step has to outlast a pass
+          // and the pass is a function of explorerPollIntervalMs - a block costs
+          // one poll - so a literal here silently stops tracking the pass the
+          // moment that knob moves. It did: 15000 was chosen against a pass this
+          // comment called "about 4s", the poll went 250ms -> 833ms, the pass
+          // went with it to ~16s, and the step ended up SHORTER than the pass.
+          // Both holders then matured on the same pass and both handed the same
+          // app back - the mechanism intact, the property compressed out of
+          // existence, which is the defect production's own 15-minute step had.
           //
-          // Measured before explorerPollIntervalMs existed: 4.8s a block, a 20s
-          // pass, and a 5s step that both holders cleared within one pass.
-          //
-          // Production's 15 MINUTES is that same relationship against a pass
-          // that runs every 44 blocks. The ratio transfers; the number does not,
-          // and copying it would add minutes per test for nothing.
-          //
-          // Do not shorten it below a pass. At 500ms both holders became
-          // eligible within the same pass and both left - the mechanism intact,
-          // the property compressed out of existence.
-          residentialQueueStepMs: 15000,
+          // coupled-knobs.js carries the derivation and test-env asserts the
+          // resulting ratio against production's on every fleet boot.
+          residentialQueueStepMs: derivedQueueStepMs({
+            removeFluxAppsPeriod: 4,
+            explorerPollIntervalMs: loadSharedConfig().fluxapps.explorerPollIntervalMs,
+          }),
         },
       },
     });

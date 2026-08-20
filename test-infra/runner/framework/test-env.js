@@ -27,6 +27,7 @@ import { MongoClient } from 'mongodb';
 import { authenticate } from '../auth.js';
 import { fluxTeamKey, nodeKey } from './keys.js';
 import chainStart from './chain-start.cjs';
+import { assertCoupledRatios, loadSharedConfig } from './coupled-knobs.js';
 
 function createLogCollector() {
   // Each entry is { t, line }: t is the capture wall-clock (ISO), line is the raw
@@ -66,6 +67,10 @@ function createLogCollector() {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// The baseline a suite's overrides merge onto - read once, so the ratio check
+// sees what the node will actually run rather than only what the suite set.
+const sharedFluxapps = loadSharedConfig().fluxapps ?? {};
 const fixturesDir = join(__dirname, '..', '..', 'fixtures');
 const manifest = JSON.parse(readFileSync(join(fixturesDir, 'node-manifest.json'), 'utf-8'));
 // Identity for the fake-blockchain node list (collateral/pubkey/tier). Base-independent;
@@ -985,6 +990,13 @@ async function _buildEnv(env, nodes, deferredNodes, legacyNodes, stubPeers, conf
       },
     };
     const nodeConfig = mergeConfigs(infraOverride, mergeConfigs(configOverrides, nodeConfigOverrides[i]));
+    // Checked on the EFFECTIVE config, per node, before anything boots. A
+    // compressed harness is a set of ratios and this is where a suite's
+    // override lands on top of them - which is exactly where the queue step
+    // stopped tracking the give-up pass. Throws rather than warns: a fleet
+    // whose ratio has inverted still runs and still goes green, having quietly
+    // stopped testing the thing the suite is named after.
+    assertCoupledRatios({ ...sharedFluxapps, ...(nodeConfig.fluxapps ?? {}) });
     // Handed over as a file rather than as NODE_CONFIG. The config package merges
     // that variable over every file, which is a redirect no hash can see, so the
     // entry points delete it - production has no environment path into config at
