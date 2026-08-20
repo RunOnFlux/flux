@@ -396,16 +396,42 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
 async function clearAppVolumeData(identifier) {
   const appId = dockerService.getAppIdentifier(identifier);
   const appDataPath = path.join(appsFolder, appId, 'appdata');
+
+  let entries;
   try {
-    const entries = await fs.readdir(appDataPath);
-    await Promise.all(entries.map((entry) => serviceHelper.runCommand('rm', {
-      runAsRoot: true,
-      params: ['-rf', path.join(appDataPath, entry)],
-    })));
-    log.info(`Deleted data for app ${appId}`);
+    entries = await fs.readdir(appDataPath);
   } catch (error) {
-    log.error(`Error deleting data for app ${appId}: ${error.message}`);
+    // Nothing to clear is not a failed clear. Any other read error is.
+    if (error.code === 'ENOENT') {
+      log.info(`No data to delete for app ${appId}`);
+      return;
+    }
+    throw error;
   }
+
+  // runCommand NEVER rejects - it resolves { error, stdout, stderr } - so a
+  // failed rm is only visible by inspecting .error. Read as though it threw and
+  // every failure is silent: this logged "Deleted data for app X" when every
+  // single delete had failed.
+  //
+  // It has to REJECT, not just log, because the caller's safety depends on it.
+  // appReconciler awaits this inside a try whose catch holds dataDesired at
+  // 'clear' and arms a paced retry, so that a start can never proceed onto
+  // un-wiped data. Swallowing here makes that catch unreachable: the reconciler
+  // clears the flag, publishes 'dataCleared', and the next pass starts the
+  // container on data that is still there.
+  const results = await Promise.all(entries.map((entry) => serviceHelper.runCommand('rm', {
+    runAsRoot: true,
+    params: ['-rf', path.join(appDataPath, entry)],
+  })));
+
+  const failed = results.filter((result) => result.error);
+  if (failed.length) {
+    const reason = failed[0].error.message || failed[0].error;
+    throw new Error(`Failed to delete ${failed.length} of ${results.length} entries for app ${appId}: ${reason}`);
+  }
+
+  log.info(`Deleted data for app ${appId}`);
 }
 
 module.exports = {
