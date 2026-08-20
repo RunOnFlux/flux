@@ -171,6 +171,110 @@ describe('appReconciler tests', () => {
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
     });
 
+    // Docker reports a PAUSED container as Running: true. Reading that as running
+    // is how a frozen container became invisible: the reconciler saw a healthy
+    // app, the sampler skipped it, and FDM kept routing to something that would
+    // never answer. It also disagreed with appStartupManager, which enumerates
+    // boot candidates from the LISTING's State - where paused is not 'running' -
+    // so boot handed the container over as needing a start and this said it was
+    // already up, every boot.
+    //
+    // Paused is not startable: docker refuses with "cannot start a paused
+    // container", and appDockerUnpause went with the rest of pause. Stopping it
+    // is what makes it reconcilable - docker stop leaves a paused container
+    // exited, and from there every normal branch applies.
+    it('stops a paused container so it can be reconciled at all', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: true, Paused: true, Status: 'paused', ExitCode: 0,
+        },
+      });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStop.calledOnceWith('www_App')).to.be.true;
+      // NOT started here: docker cannot start a paused container. The stop makes
+      // it exited and the next pass starts it on the normal path.
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    // Handled ahead of the desired-state branch, so it is correct in both
+    // directions. A paused container the operator has stopped must end up
+    // genuinely stopped, not left frozen because 'stop' had nothing to do.
+    it('stops a paused container the operator has stopped, rather than leaving it frozen', async () => {
+      stubs.appsRuntimeState.isOperatorStopped.resolves(true);
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: true, Paused: true, Status: 'paused', ExitCode: 0,
+        },
+      });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStop.calledOnceWith('www_App')).to.be.true;
+    });
+
+    // A paused container is LIVE: its processes are frozen but the volume is
+    // still mounted and held. The wipe path stops a running container first
+    // because "an rm -rf under a live container corrupts it", and that is just as
+    // true here - which is why the paused normalisation has to run ahead of the
+    // wipe rather than merely ahead of the run decision.
+    it('does not wipe app data out from under a paused container', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: true, Paused: true, Status: 'paused', ExitCode: 0,
+        },
+      });
+
+      appReconciler.requestStopAndClearData('www_App', 'test wipe');
+      await new Promise((resolve) => { setTimeout(resolve, 50); });
+
+      expect(
+        stubs.volumeService.clearAppVolumeData.called,
+        'wiped the volume while the container was still holding it',
+      ).to.equal(false);
+      expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
+    });
+
+    // Stopping it is only half the job - it has to come back. The stop makes the
+    // container exited, and the pass that follows starts it on the normal path,
+    // with the backoff pacing and the burst reapplication appDockerStart owns.
+    it('starts the container on the pass after it was unpaused', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: true, Paused: true, Status: 'paused', ExitCode: 0,
+        },
+      });
+      await appReconciler.reconcile('www_App');
+      expect(stubs.dockerService.appDockerStart.called).to.be.false;
+
+      // what the stop above left behind
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: false, Paused: false, Status: 'exited', ExitCode: 0,
+        },
+      });
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App')).to.be.true;
+    });
+
+    it('does not treat a paused container as a healthy running one', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({
+        State: {
+          Running: true, Paused: true, Status: 'paused', ExitCode: 0,
+        },
+      });
+
+      await appReconciler.reconcile('www_App');
+
+      // the running branch returns without touching the container at all
+      expect(
+        stubs.dockerService.appDockerStop.called || stubs.dockerService.appDockerStart.called,
+        'the reconciler took no action on a paused container - it read it as running',
+      ).to.equal(true);
+    });
+
     it('starts a stopped plain component that should run (default always policy)', async () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.appsRuntimeState.recordRestart.calledOnceWith('www_App')).to.be.true;
