@@ -292,8 +292,10 @@ async function setNodeGeolocation() {
     }
     log.info(`Geolocation of ${localIp} is ${JSON.stringify(storedGeolocation)}`);
 
-    // Static IP is observed, never inferred from the operator: the address must
-    // be bound to a local interface and have been held for the stability window.
+    // Static IP is observed, never inferred from the operator. A public address
+    // is trusted until this node WATCHES it move; the stability window is how
+    // one that moved earns the trust back, not a probation every node serves
+    // once. The whole rule is the table below.
     const currentIp = storedGeolocation.ip;
     const ipChanged = previousIp && previousIp !== currentIp;
     const now = Date.now();
