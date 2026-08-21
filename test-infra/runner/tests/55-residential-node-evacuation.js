@@ -808,13 +808,29 @@ describe('Residential node evacuation', function () {
     const verdict = await stoodDown;
     expect(verdict.data.code).to.equal('STAND_DOWN_REQUIRED');
 
-    // The container is what "standing down" means - a verdict that stopped
-    // nothing would leave the node writing and the test would still pass.
-    await waitFor(async () => {
-      const running = await env.clients[TARGET - 1].get('/apps/listrunningapps');
-      const names = (running?.data?.data || []).flatMap((a) => a.Names || []);
-      return !names.some((n) => n.replace(/^\//, '') === 'fluxprimaryapp_primaryapp');
-    }, { timeout: 180000, label: 'the g: component is stopped on the standing-down node' });
+    // The container is what "standing down" means, and this assertion has to be
+    // able to FAIL. Read through a helper that throws on an unreadable answer:
+    // `!names.some(...)` over an empty list is true, so a failed request or a
+    // shape that does not match reads as "stopped" and the test passes while the
+    // node is still writing. It did exactly that on the first run here.
+    const runningComponents = async () => {
+      const res = await env.clients[TARGET - 1].get('/apps/listrunningapps');
+      const list = res?.data?.data;
+      if (!Array.isArray(list)) throw new Error(`listrunningapps unreadable: ${JSON.stringify(res?.data)?.slice(0, 200)}`);
+      return list.flatMap((a) => a.Names || []).map((n) => n.replace(/^\//, ''));
+    };
+    // Positive control: the component must be running here NOW, or the wait
+    // below proves nothing about a stop.
+    expect(await runningComponents()).to.include('fluxprimaryapp_primaryapp');
+
+    await waitFor(async () => !(await runningComponents()).includes('fluxprimaryapp_primaryapp'),
+      { timeout: 180000, label: 'the g: component is stopped on the standing-down node' });
+
+    // And it must STAY stopped. appReconciler takes a g: component's desired
+    // state from controllerDesired, so a stand-down that stops the container
+    // without telling the controller is undone on the next sweep.
+    await advanceBlocks(3);
+    expect(await runningComponents()).to.not.include('fluxprimaryapp_primaryapp');
   });
 
   it('hands the app back on the pass after standing down, and the app survives elsewhere', async function () {

@@ -3755,6 +3755,16 @@ async function checkAndRemoveApplicationInstance() {
         // eslint-disable-next-line no-restricted-syntax
         for (const identifier of safety.standDown) {
           try {
+            // The controller's opinion FIRST, and it is not optional. For a g:
+            // component appReconciler reads its desired state from
+            // controllerDesired, so a container stopped while that still says
+            // 'running' is one the reconciler starts again on its next sweep:
+            // the stand-down reports success, the component keeps running, the
+            // election entry goes stale because this node has excluded itself,
+            // and every later pass refuses with ELECTION_UNKNOWN while the node
+            // never leaves. This is the same lever masterSlaveApps pulls to put
+            // a node into standby, which is what standing down makes this one.
+            appReconciler.setControllerDesired(identifier, 'stopped', 'standing down to hand the app back');
             // eslint-disable-next-line no-await-in-loop
             await appDockerStop(identifier);
             standingDown.set(identifier, 0);
