@@ -87,6 +87,7 @@ describe('route wiring', () => {
       { method: 'get', path: '/apps/appstart/:appname?/:global?' },
       { method: 'get', path: '/apps/appstop/:appname?/:global?' },
       { method: 'get', path: '/apps/apprestart/:appname?/:global?' },
+      { method: 'get', path: '/apps/appkill/:appname?' },
       { method: 'get', path: '/apps/apppause/:appname?/:global?' },
       { method: 'get', path: '/apps/appunpause/:appname?/:global?' },
       { method: 'get', path: '/apps/appremove/:appname?/:force?/:global?' },

@@ -1229,6 +1229,12 @@ module.exports = (app) => {
   app.get('/apps/apprestart/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appRestart(req, res);
   });
+  // No :global - a kill is deliberately per-node. Its privilege is narrower than
+  // its siblings' too: appKill checks appownerorfluxteam, so the node operator
+  // cannot order a hard kill of an app they only host.
+  app.get('/apps/appkill/:appname?', alwaysRespond, requireBootSettled, (req, res) => {
+    appController.appKill(req, res);
+  });
   app.get('/apps/apppause/:appname?/:global?', alwaysRespond, requireBootSettled, (req, res) => {
     appController.appPause(req, res);
   });
