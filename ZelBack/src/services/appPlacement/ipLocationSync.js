@@ -34,6 +34,7 @@ let refreshInterval = null;
 let retryTimer = null;
 let retryAttempt = 0;
 let started = false;
+let restored = false;
 let nodeLocationPass = null;
 
 /**
@@ -134,17 +135,23 @@ function scheduleRefresh() {
 }
 
 /**
- * Adopt the stored baseline - or restore the last-good artifact from GridFS -
- * then refresh in the background and daily thereafter. Placement needs no table
- * to run - it degrades to status-quo /16 arithmetic - so nothing here ever
- * gates boot. Idempotent. Call after mongo is up.
+ * Bring back the table this node already holds: adopt the stored baseline, or
+ * restore the last-good artifact from GridFS.
+ *
+ * Separate from startSync, and started separately, because the two halves need
+ * different things and cost different amounts. This half needs MONGO ONLY - on a
+ * node that has run before it is a single marker read, and the two million rows
+ * are already in the collection - so it belongs as early as the database is up.
+ * Every consumer of the table then has it within milliseconds of boot instead of
+ * waiting on work it does not depend on. Idempotent.
+ * @returns {Promise<void>}
  */
-async function startSync() {
-  if (started) return;
-  started = true;
-  // The restore is best-effort: a database that is briefly unavailable at this
-  // moment must not cost this process its table for the rest of its life, so a
-  // failure here still leaves the fetch and the refresh loop armed.
+async function restoreCachedTable() {
+  if (restored) return;
+  restored = true;
+  // Best-effort: a database briefly unavailable at this moment must not cost
+  // this process its table for the rest of its life, so a failure here still
+  // leaves the fetch and the refresh loop armed.
   try {
     const adopted = await ipLocationStore.adoptPersistedStatus();
     await policyArtifactRepository.sweepOrphanedArtifacts(ARTIFACT_NAME);
@@ -179,6 +186,24 @@ async function startSync() {
   } catch (error) {
     log.warn(`ipLocationSync - could not restore the cached table, fetching instead: ${error.message}`);
   }
+}
+
+/**
+ * Fetch the artifact if it has changed, and keep it fresh daily.
+ *
+ * The expensive half: a 4.2 MB download and, when the published baseline has
+ * moved, an ingest of two million rows. It is deliberately NOT started with the
+ * restore above - a node with no cache would otherwise run that ingest
+ * concurrently with the app-database rebuild, which is the busiest the database
+ * ever is. Placement needs no table to run - it degrades to status-quo /16
+ * arithmetic - so nothing here gates boot either way. Restores first if that has
+ * not happened. Idempotent.
+ * @returns {Promise<void>}
+ */
+async function startSync() {
+  if (started) return;
+  started = true;
+  await restoreCachedTable();
   scheduleRefresh();
   refreshInterval = setInterval(scheduleRefresh, REFRESH_INTERVAL_MS);
   if (refreshInterval.unref) refreshInterval.unref();
@@ -194,10 +219,12 @@ function stopSync() {
   retryTimer = null;
   retryAttempt = 0;
   started = false;
+  restored = false;
   etag = null;
 }
 
 module.exports = {
+  restoreCachedTable,
   startSync,
   stopSync,
   refresh,
