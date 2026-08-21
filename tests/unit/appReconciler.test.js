@@ -809,7 +809,7 @@ describe('appReconciler tests', () => {
         },
       });
       await appReconciler.reconcile('www_App');
-      sinon.assert.calledWithExactly(stubs.appsRuntimeState.restartWaitMs, 'www_App', Date.parse(finishedAt), true);
+      sinon.assert.calledWithExactly(stubs.appsRuntimeState.restartWaitMs, 'www_App', Date.parse(finishedAt));
     });
 
     it('passes no death evidence for a container that never ran (docker zero FinishedAt)', async () => {
@@ -819,15 +819,16 @@ describe('appReconciler tests', () => {
         },
       });
       await appReconciler.reconcile('www_App');
-      sinon.assert.calledWithExactly(stubs.appsRuntimeState.restartWaitMs, 'www_App', null, false);
+      sinon.assert.calledWithExactly(stubs.appsRuntimeState.restartWaitMs, 'www_App', null);
     });
 
     // The ladder exists to keep a broken container from hammering the node. An
     // operator restarting their own app is not that, and pacing it turns a
     // deliberate restart into what the customer experiences as an outage - so
-    // the verdict the reconciler forms here decides whether the ladder engages
-    // at all. exitCode alone cannot carry it: OOMKilled is a fault Docker
-    // reports separately, and a never-run container has no death to classify.
+    // the verdict the reconciler forms here decides whether a stop puts the
+    // component on the ladder. exitCode alone cannot carry it: OOMKilled is a
+    // fault Docker reports separately, and a never-run container has no death to
+    // classify.
     [
       { name: 'a clean exit is not a fault', state: { Running: false, Status: 'exited', ExitCode: 0 }, crashed: false },
       { name: 'a non-zero exit is', state: { Running: false, Status: 'exited', ExitCode: 1 }, crashed: true },
@@ -838,7 +839,8 @@ describe('appReconciler tests', () => {
       it(`classifies the stop for the ladder: ${name}`, async () => {
         stubs.dockerService.dockerContainerInspect.resolves({ State: state });
         await appReconciler.reconcile('www_App');
-        sinon.assert.calledWithMatch(stubs.appsRuntimeState.restartWaitMs, 'www_App', sinon.match.any, crashed);
+        // The verdict decides what earns a rung, not whether the wait applies:
+        // a component holding rungs is paced whatever its next exit reads.
         sinon.assert.calledWithExactly(stubs.appsRuntimeState.recordRestart, 'www_App', crashed);
       });
     });

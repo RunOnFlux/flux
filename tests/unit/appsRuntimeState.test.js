@@ -295,14 +295,44 @@ describe('appsRuntimeState tests', () => {
       expect(await appsRuntimeState.restartWaitMs('www_App', null, false)).to.equal(0);
     });
 
+    // An operator restart is not "a clean exit" - it is appStart/appRestart
+    // clearing the lock, and the rungs go with it. Recognising it by exit code
+    // instead would hand the same exemption to a laundered segfault, which also
+    // exits 0, and walk it out of every wait the ladder had put it in.
     it('does not spend a rung built by earlier crashes on an operator restart', async () => {
       await appsRuntimeState.recordRestart('www_App', true);
       await appsRuntimeState.recordRestart('www_App', true);
-      expect(await appsRuntimeState.restartWaitMs('www_App', null, true), 'a crash is still paced').to.be.above(0);
+      expect(await appsRuntimeState.restartWaitMs('www_App'), 'a crash is still paced').to.be.above(0);
 
       clock.tick(1000);
-      expect(await appsRuntimeState.restartWaitMs('www_App', null, false), 'the operator is not').to.equal(0);
-      expect(store.get('www_App').restartHistory, 'and the rungs are still there for the next crash').to.have.lengthOf(2);
+      await appsRuntimeState.setOperatorStopped('www_App', false);
+
+      expect(await appsRuntimeState.restartWaitMs('www_App'), 'the operator is not').to.equal(0);
+      expect(store.get('www_App').restartHistory, 'the ladder went with the lock').to.deep.equal([]);
+    });
+
+    // The shape nothing else drives: a rung longer than a stable run, served in
+    // full, then a death. The wait is time the component spent stopped, and
+    // reading it as time the component spent running clears the ladder every
+    // time a long rung fires - so it never reaches the cap.
+    it('does not read a wait it just served as a stable run', async () => {
+      const id = 'www_App';
+      await appsRuntimeState.recordRestart(id, true);
+      await appsRuntimeState.recordRestart(id, true);
+      await appsRuntimeState.recordRestart(id, true);
+      expect(store.get(id).restartHistory, 'three rungs to reach one longer than a stable run').to.have.lengthOf(3);
+
+      const wait = await appsRuntimeState.restartWaitMs(id);
+      expect(wait, 'the rung must outlast STABLE_RUN_MS, or this proves nothing').to.be.above(appsRuntimeState.STABLE_RUN_MS);
+      clock.tick(wait);
+
+      // the wait ends: it starts, runs two seconds, and dies reporting success
+      await appsRuntimeState.recordRestart(id, false);
+      clock.tick(2000);
+      await appsRuntimeState.recordExit(id, 0);
+
+      expect(store.get(id).restartHistory, 'the ladder survived its own wait').to.have.lengthOf(4);
+      expect(await appsRuntimeState.restartWaitMs(id, Date.now()), 'and it climbs instead of starting over').to.be.above(0);
     });
 
     it('paces a container restarting faster than the burst window, whatever the exit code says', async () => {

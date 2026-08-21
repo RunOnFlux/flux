@@ -1000,7 +1000,7 @@ async function reconcile(rawIdentifier) {
   // pacing that turns a deliberate restart into what looks like an outage.
   // exitCode null is a container that has never run - an initial start, not a death.
   const crashed = !!actual.oomKilled || (actual.exitCode !== null && actual.exitCode !== 0);
-  const wait = await appsRuntimeState.restartWaitMs(identifier, actual.finishedAt, crashed);
+  const wait = await appsRuntimeState.restartWaitMs(identifier, actual.finishedAt);
   if (wait > 0) {
     // name which of the two put it here: a reported fault, or restarts arriving
     // fast enough to be one whatever the exit code said. Support cannot tell

@@ -28,7 +28,7 @@ const MAX_HISTORY = BACKOFF_DELAYS_MS.length;
 // itself evidence of a fault, whatever Docker reported, and it disposes into the
 // same ladder rather than into a state a human has to clear.
 const RESTART_BURST_COUNT = config.fluxapps.restartBurstCount ?? 5;
-const RESTART_BURST_WINDOW_MS = config.fluxapps.restartBurstWindowMs ?? 60 * 1000;
+const RESTART_BURST_WINDOW_MS = config.fluxapps.restartBurstWindowMs ?? 5 * 60 * 1000;
 
 function collection() {
   const db = dbHelper.databaseConnection();
@@ -220,7 +220,10 @@ async function recordRestart(identifier, crashed = true) {
     const fields = {
       autoRestartWindow: [...((state && state.autoRestartWindow) || []), Date.now()].slice(-RESTART_BURST_COUNT),
     };
-    if (crashed || burstExceeded(state)) {
+    // A rung is earned by evidence of a fault - a non-zero exit, or restarts
+    // arriving fast enough to be one whatever the code said - and by a component
+    // that already holds rungs, which is that finding still standing.
+    if (crashed || burstExceeded(state) || ((state && state.restartHistory) || []).length > 0) {
       fields.restartHistory = [...((state && state.restartHistory) || []), Date.now()].slice(-MAX_HISTORY);
     }
     await setFields(identifier, fields);
@@ -253,16 +256,22 @@ async function recordRestart(identifier, crashed = true) {
  * @param {boolean} crashed - Docker reported a fault (non-zero exit or OOM kill)
  * @returns {Promise<number>}
  */
-async function restartWaitMs(identifier, lastFinishedAtMs = null, crashed = true) {
+async function restartWaitMs(identifier, lastFinishedAtMs = null) {
   const state = await getState(identifier);
-  // A clean exit is the operator's own restart far more often than it is a
-  // fault, and pacing it makes a deliberate restart look like an outage. It
-  // goes back immediately - unless the restarts are arriving fast enough to
-  // fill the burst window, which is a fault however the exit code reads.
-  if (!crashed && !burstExceeded(state)) return 0;
+  // An empty ladder is a component nothing has found fault with: a clean exit is
+  // the operator's own restart far more often than it is a fault, and pacing that
+  // makes a deliberate restart look like an outage. recordRestart decides what
+  // earns a rung; once a component holds one it is paced until it clears them,
+  // whatever its exit code reads. The burst window empties while a component
+  // sits out a wait, so the ladder is what has to carry the finding across one.
   const history = (state && state.restartHistory) || [];
   if (history.length === 0) return 0;
 
+  // The ladder's last rung IS the component's last start, because a component
+  // holding rungs earns one for every restart. That is what makes this a stable
+  // run and not a wait it just served: if a restart could go unrecorded while
+  // rungs stood, the gap measured here would be the wait itself, and any rung
+  // longer than STABLE_RUN_MS would clear the ladder every time it fired.
   const lastRestart = history[history.length - 1];
   const lastDeath = Math.max(state.lastDiedAt || 0, lastFinishedAtMs || 0);
   if (lastDeath > lastRestart && lastDeath - lastRestart > STABLE_RUN_MS) {
