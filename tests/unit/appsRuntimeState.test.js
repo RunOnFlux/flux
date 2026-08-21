@@ -346,7 +346,13 @@ describe('appsRuntimeState tests', () => {
       }
       expect(store.get(id).restartHistory, 'still no ladder entry while under the burst').to.be.undefined;
 
-      // the window is now full, so this restart is the one over the line
+      // The window is now full, so this restart is the one that carries the count
+      // over - and it is counted, not held. restartWaitMs runs ahead of
+      // recordRestart in the reconciler, so it sees an empty ladder and lets this
+      // one straight back; the rung is earned on its way past. Asserted because
+      // every comment describing the ceiling describes this step, and reordering
+      // the two calls would change it with nothing to object.
+      expect(await appsRuntimeState.restartWaitMs(id, null, false), 'the restart that crosses the line is not itself held').to.equal(0);
       await appsRuntimeState.recordRestart(id, false);
       expect(store.get(id).restartHistory, 'the trip is recorded as a crash would be').to.have.lengthOf(1);
       expect(await appsRuntimeState.restartWaitMs(id, null, false)).to.equal(appsRuntimeState.BACKOFF_DELAYS_MS[1]);

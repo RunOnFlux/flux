@@ -144,6 +144,8 @@ module.exports = {
     // count. A container that fails to START never ran, so it is never a fault
     // and never walks the ladder directly - it reaches it only by filling this
     // window, and a window narrower than that retries forever.
+    // Counted as restarts ALREADY RECORDED, so at 5 the sixth restart is the one
+    // that earns a rung and the seventh is the first one held back.
     restartBurstCount: 5,
     restartBurstWindowMs: 300000,
     // How long a finished operation stays readable at /apps/operations/:jobId,

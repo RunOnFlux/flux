@@ -1008,9 +1008,17 @@ async function reconcile(rawIdentifier) {
     const cause = crashed
       ? `exit ${actual.exitCode}${actual.oomKilled ? ' (OOM-killed)' : ''}`
       : 'restarting too fast to be healthy';
-    log.warn(`appReconciler - ${identifier} stopped, ${cause}; backing off ${Math.round(wait / 1000)}s before restart`);
+    // How far up the ladder this is. waitMs alone cannot say: it is what REMAINS
+    // of the rung, and the worker re-enqueues during a wait, so one rung reports
+    // several times, each smaller than the last. Two backoffs cannot be compared
+    // without it - which is how far a component has escalated, and whether it
+    // ever went backwards. Read on the backoff path only, which is a paced
+    // restart and therefore cold.
+    const backoffState = await appsRuntimeState.getState(identifier);
+    const rung = ((backoffState && backoffState.restartHistory) || []).length;
+    log.warn(`appReconciler - ${identifier} stopped, ${cause}; backing off ${Math.round(wait / 1000)}s before restart (rung ${rung})`);
     fluxEventBus.publish('reconciler:actuated', {
-      identifier, action: 'backoff', waitMs: wait, crashed,
+      identifier, action: 'backoff', waitMs: wait, rung, crashed,
     });
     scheduleRetry(identifier, wait);
     return;

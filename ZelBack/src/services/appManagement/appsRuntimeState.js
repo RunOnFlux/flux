@@ -24,9 +24,13 @@ const MAX_HISTORY = BACKOFF_DELAYS_MS.length;
 // script ending in `exit 0` reports a clean stop for a segfault, and no init we
 // wrap around it can recover a status the image already discarded. So pacing on
 // the code alone would leave such a container restarting without limit. This is
-// the cause-blind backstop - this many automatic restarts inside the window is
-// itself evidence of a fault, whatever Docker reported, and it disposes into the
-// same ladder rather than into a state a human has to clear.
+// the cause-blind backstop - this many automatic restarts ALREADY RECORDED
+// inside the window is evidence of a fault whatever Docker reported, and it
+// disposes into the same ladder rather than into a state a human has to clear.
+//
+// The count is of restarts already behind it, so at 5 the SIXTH restart is the
+// one that earns a rung and the seventh is the first one held back. Six free
+// restarts from a knob that reads as five is worth knowing before tuning it.
 const RESTART_BURST_COUNT = config.fluxapps.restartBurstCount ?? 5;
 const RESTART_BURST_WINDOW_MS = config.fluxapps.restartBurstWindowMs ?? 5 * 60 * 1000;
 
@@ -191,9 +195,13 @@ async function operatorStoppedIdentifiers() {
 }
 
 /**
- * Whether the automatic restarts already recorded fill the burst window. Read
- * BEFORE the current attempt is appended, so it answers "have there already
- * been enough" and the caller's own restart is the one over the line.
+ * Whether the restarts already recorded fill the burst window, read before the
+ * current attempt is appended - so it answers "have there already been enough",
+ * and the restart asking is the one that carries the count over.
+ *
+ * That restart is counted, not held: restartWaitMs runs ahead of recordRestart
+ * and finds an empty ladder, so it goes back immediately and earns the first
+ * rung on its way past. The one after it is the first to be made to wait.
  *
  * @param {object|null} state
  * @returns {boolean}

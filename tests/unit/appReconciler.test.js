@@ -853,6 +853,21 @@ describe('appReconciler tests', () => {
       expect(line).to.include('restarting too fast');
       expect(line, 'a clean exit must not be reported as a fault').to.not.include('exit 0');
     });
+
+    // waitMs is what REMAINS of the rung, and the worker re-enqueues during a
+    // wait, so one rung reports several times with a falling number. Support
+    // cannot tell how far a component has escalated from that alone. The same
+    // value rides the actuation event, which is where suite 54 reads it.
+    it('says how far up the ladder the backoff is, not only how long is left', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: false, Status: 'exited', ExitCode: 0 } });
+      stubs.appsRuntimeState.restartWaitMs.resolves(30 * 1000);
+      stubs.appsRuntimeState.getState.resolves({ restartHistory: [1, 2, 3] });
+
+      await appReconciler.reconcile('www_App');
+
+      const line = stubs.log.warn.getCalls().map((c) => c.args[0]).find((m) => m.includes('backing off'));
+      expect(line, 'three rungs stand, so this is the third').to.include('rung 3');
+    });
   });
 
   // The sync layer's first-run / new-app reset was previously an imperative
