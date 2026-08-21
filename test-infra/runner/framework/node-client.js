@@ -236,6 +236,7 @@ export function nodeClient(nodeNum) {
         'message:dispatched',
         'reconciler:actuated',
         'reconciler:desiredChanged',
+        'app:operatorIntent',
         'reconciler:swept',
       ]) {
         eventSource.addEventListener(name, (e) => {

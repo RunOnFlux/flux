@@ -234,6 +234,19 @@ export async function waitForReconcileActuated(node, identifier, action, timeout
   );
 }
 
+// The moment an operator's stop/start/kill/restart became durable, which is the
+// point anything else has to be ordered against: an actuation on the previous
+// intent arriving AFTER this is the interleaving the per-key slot exists to stop.
+// stopped: true | false (omit to match any)
+export async function waitForOperatorIntent(node, identifier, stopped, timeout = 60000, opts) {
+  return node.waitForEvent(
+    'app:operatorIntent',
+    (d) => d.identifier === identifier && (stopped === undefined || d.stopped === stopped),
+    timeout,
+    opts,
+  );
+}
+
 // state: 'running' | 'stopped' (omit to match any)
 export async function waitForReconcilerDesiredChanged(node, identifier, state, timeout = 60000, opts) {
   return node.waitForEvent(
@@ -290,14 +303,23 @@ export async function waitForOperation(node, jobId, zelidauth, { timeout = 18000
  * event id up front so events already buffered before the call are ignored.
  * Use for "the reconciler must NOT start this container" (e.g. syncthing S10).
  */
-export async function assertNoEvent(node, name, predicate = () => true, windowMs = 5000) {
-  const afterId = node.getLastEventId();
+export async function assertNoEvent(node, name, predicate = () => true, windowMs = 5000, { afterId } = {}) {
+  // Anchored where the caller cares, not where the caller happens to be standing.
+  // "From now" is right for asserting a steady state holds, and wrong wherever the
+  // event being ruled out could already have landed - the gap between a request
+  // and the container settling is exactly where an interleaving shows up, and an
+  // anchor taken after the settling has already stepped over it.
+  //
+  // Never anchor across a node restart: the event ring is in-memory, so ids begin
+  // again and a pre-restart anchor filters out everything that follows it - the
+  // assertion then passes because it is looking at nothing.
+  const anchorId = afterId ?? node.getLastEventId();
   await sleepUnlessInfraDead(windowMs);
   // A dead infra container makes "no event arrived" trivially true, so this
   // assertion would PASS on a void run. Fail it instead.
   throwIfInfraDead();
   const match = node.getEventBuffer().find(
-    (e) => e.event === name && e.id > afterId && predicate(e.data),
+    (e) => e.event === name && e.id > anchorId && predicate(e.data),
   );
   if (match) {
     throw new Error(`Expected no '${name}' event within ${windowMs}ms but got: ${JSON.stringify(match.data)}`);
