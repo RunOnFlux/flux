@@ -332,29 +332,36 @@ async function setNodeGeolocation() {
 
     // THE WHOLE DECISION, in one table, in the order it is asked.
     //
-    //   this node WATCHED    public IP on    published      verdict
-    //   it change <10d ago   the interface   table says
-    //   ------------------   -------------   ------------   -------
-    //   yes                  -               -              UNKNOWN
-    //   no                   yes             (not asked)    STATIC
-    //   no                   no  (NAT)       hosting        STATIC
-    //   no                   no  (NAT)       anything else  DYNAMIC
-    //   no                   unreadable      hosting        STATIC
-    //   no                   unreadable      anything else  UNKNOWN
+    //   this node WATCHED    public IP on    verdict
+    //   it change <10d ago   the interface
+    //   ------------------   -------------   -------
+    //   yes                  -               UNKNOWN
+    //   no                   yes             STATIC
+    //   no                   no  (NAT)       DYNAMIC
+    //   no                   unreadable      UNKNOWN
+    //
+    // A NODE IS STATIC ONLY IF IT HOLDS A PUBLIC ADDRESS ON AN INTERFACE.
+    // Nothing else confers it - not the published table, not an ip-api flag,
+    // not the operator's name. Every input here is something this node observed
+    // about itself.
     //
     // Only STATIC satisfies an app's `staticip` requirement; UNKNOWN and
     // DYNAMIC both fail it, and are kept apart so a node that could not answer
     // does not read as one that answered "behind NAT".
     //
-    // A watched change is asked FIRST and nothing overrides it. It is the only
-    // evidence here that is about this exact address rather than about the
-    // range it sits in, and it is a record of the address actually moving. A
-    // hosting range whose addresses do move is still a node whose address
-    // moved, which is the whole of what an app requiring a fixed address cares
-    // about. lastIpChangeDate comes from the geolocation fetch, so it is
-    // available whether or not the node can see the address on an interface -
-    // deciding rows 3 to 6 without consulting it threw away the best evidence
-    // held, in exactly the cases where the rest of it is weakest.
+    // `staticip` IS TWO PROMISES, AND BOTH ARE ANSWERED ABOVE. The apps that
+    // ask for it - VPN endpoints, chain nodes, bootstrap peers - need an
+    // endpoint that stays reachable at a fixed ip:port, because clients and
+    // peers hold that pair written down. So the node must be DIRECTLY CONNECTED
+    // (hasPublicIpOnInterface) and its address must not have been seen to MOVE
+    // (the watched-change window). A node reaching the world through a NAT port
+    // mapping keeps neither promise on its own account: 76% of fleet slots sit
+    // behind a UPnP router, and a mapping lapses on a router reboot, a lease
+    // expiry, or a firmware quirk while the address itself never moves - the
+    // fleet UPnP survey found 135 router models and defects in several.
+    //
+    // A watched change is asked FIRST and nothing overrides it: this node saw
+    // this address move, and that outranks seeing it on an interface now.
     //
     // Row 2 is the common case: a node has WATCHED no change because it started
     // watching after the fact, which every node does exactly once. That is not
@@ -364,29 +371,31 @@ async function setNodeGeolocation() {
     // them together, because they upgrade together. An observed change is what
     // withdraws the trust, and the window is how the address earns it back.
     //
-    // Where the local test cannot answer, the published table can. A 1:1-NAT
-    // cloud instance holds a genuinely static address that never appears on any
-    // local interface - every AWS, Azure, GCP and Oracle box fails the test
-    // above - and a range the table calls hosting is that case.
+    // A RANGE-LEVEL VERDICT CANNOT ANSWER EITHER PROMISE, which is why the
+    // published table is not consulted here even though it is loaded and
+    // authoritative elsewhere in this file.
+    //   - It cannot see whether this host is directly connected. Across a
+    //     random sample of 442 live slots, 126 of the 228 holding a static
+    //     address by range verdict - 55% - are UPnP nodes on RFC1918
+    //     addresses. 112 qualify on ip-api `hosting`, 12 on `proxy`, which is
+    //     a VPN artefact rather than an address that stays put.
+    //   - It does not imply a fixed address either. "This block is assigned to
+    //     a hosting company" states what the block is FOR. An operator
+    //     reassigns on rebuild, migration, or a released elastic address, and
+    //     the node returns on a different one - same hosting range, same
+    //     DATACENTER verdict, different address.
+    // Both promises are properties of this host, so only this host can attest
+    // to them. The table stays authoritative for the residential verdict, which
+    // IS a question about the range.
     //
-    // This is the job the deleted staticIpOrgs list was doing, done on evidence
-    // that has been measured. That list was nine hoster names matched against
-    // the block REGISTRANT, which disagrees with the operator on 67% of fleet
-    // hosts, backed by an ip-api `static` field that is literally
-    // `proxy || hosting`.
+    // THE CASE THIS RULE KNOWINGLY REFUSES: genuine 1:1 NAT, where a fixed
+    // address is mapped to a host that never sees it locally. The same sample
+    // holds 4 such nodes (~49 slots fleet-wide) and NONE claims a static
+    // address; the fleet's entire hyperscaler population is one Oracle slot.
+    // Real, and priced at nil.
     //
-    // Measured against the two signals over the whole fleet - 5,661 node slots
-    // on 2,349 machines - the table treats 268 more slots as static than the
-    // list did, on 153 machines it never named (83 of them one operator), and
-    // withdraws it from 49 slots on 11 machines. Seven of those eleven are
-    // consumer ISPs the list was wrong about - Verizon, Comcast, Free SAS,
-    // Bouygues - flagged `proxy`, which is a VPN artefact and not an address
-    // that stays put. The remaining four are genuine hosting the table has not
-    // classified yet, and data/orgclass-overrides.json in
-    // fluxos-network-policy is where that is corrected.
-    const publishedHosting = (await publishedClassification(currentIp)).classification
-      === networkClassifier.CLASSIFICATION.DATACENTER;
-
+    // Census and method: fluxModels
+    // investigations/PR1784_STATIC_IP_IS_A_RANGE_FLAG_NOT_AN_OBSERVATION.md
     const watchedItChange = Boolean(lastIpChangeDate) && heldForMs < stabilityThreshold;
 
     if (watchedItChange) {
@@ -395,13 +404,10 @@ async function setNodeGeolocation() {
       staticIpState = STATIC_IP_STATE.UNKNOWN;
     } else if (hasPublicIp === true) {
       staticIpState = STATIC_IP_STATE.STATIC;
-    } else if (publishedHosting) {
-      // The node cannot see the address on an interface, but the table places
-      // it in a hosting range - the 1:1-NAT case, where the address is fixed
-      // and simply never appears locally.
-      staticIpState = STATIC_IP_STATE.STATIC;
     } else if (hasPublicIp === false) {
-      // Behind NAT as far as this node can see, and nothing says otherwise.
+      // Behind NAT. The address may well be fixed upstream, but this node
+      // cannot see it, cannot attest to it, and reaches the world through a
+      // port mapping it does not control.
       staticIpState = STATIC_IP_STATE.DYNAMIC;
     } else {
       // The routing table could not be read. Not evidence of anything about the
@@ -409,8 +415,8 @@ async function setNodeGeolocation() {
       staticIpState = STATIC_IP_STATE.UNKNOWN;
     }
     staticIp = staticIpState === STATIC_IP_STATE.STATIC;
-    log.info(`Static IP: ${staticIpState} (public IP on interface: ${hasPublicIp}, address held ${heldDays.toFixed(1)} of ${staticIpStabilityDays} days`
-      + `, published hosting range: ${publishedHosting})`);
+    log.info(`Static IP: ${staticIpState} (public IP on interface: ${hasPublicIp}`
+      + `, address held ${heldDays.toFixed(1)} of ${staticIpStabilityDays} days)`);
 
     // Whether the address is held (above) and what network it sits on (here) are
     // separate questions, answered from separate evidence.

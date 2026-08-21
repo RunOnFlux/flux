@@ -530,14 +530,19 @@ describe('geolocationService tests', () => {
       expect(geolocationService.getStaticIpState()).to.equal('UNKNOWN');
     });
 
-    it('is STATIC when the interface is unreadable but the table calls the range hosting', async () => {
+    it('is UNKNOWN when the interface is unreadable, whatever the table says', async () => {
+      // An unreadable routing table means the node cannot establish that it is
+      // directly connected. A hosting verdict for the range does not establish
+      // it either, so the honest answer is that nothing is known - and UNKNOWN
+      // fails an app's staticip requirement exactly as DYNAMIC does.
       fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(null);
       serviceHelperStub.axiosGet.resolves(ipApiResponse());
       geolocationService = reloadWithTable('DATACENTER');
 
       await geolocationService.setNodeGeolocation();
 
-      expect(geolocationService.getStaticIpState()).to.equal('STATIC');
+      expect(geolocationService.getStaticIpState()).to.equal('UNKNOWN');
+      expect(geolocationService.isStaticIP()).to.equal(false);
     });
 
     it('is STATIC again once a watched change has been held out', async () => {
@@ -563,13 +568,22 @@ describe('geolocationService tests', () => {
       expect(geolocationService.getStaticIpState()).to.equal('STATIC');
     });
 
-    it('is STATIC behind NAT when the published table calls the range hosting', async () => {
-      // A 1:1-NAT cloud instance holds a genuinely static address that never
-      // appears on a local interface, so the interface test alone can never see
-      // it - every AWS, Azure, GCP and Oracle box fails it. This is the job the
-      // deleted staticIpOrgs list did, on evidence that has been measured.
+    it('is DYNAMIC behind NAT even when the published table calls the range hosting', async () => {
+      // The whole rule in one test. A hosting verdict describes the RANGE: it
+      // says nothing about whether this host is directly connected, and nothing
+      // about whether the operator will reassign the address. Both are promises
+      // `staticip` makes to an app, and neither is the table's to make. On the
+      // fleet, granting static on this verdict put 126 of 228 static claimants
+      // behind a UPnP router on an RFC1918 address.
+      //
+      // The table is READY and answering here on purpose: the verdict must not
+      // depend on whether it happened to be loaded.
       fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
       serviceHelperStub.axiosGet.resolves(ipApiResponse());
+      const table = {
+        lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass: 'DATACENTER' }),
+        status: sinon.stub().returns({ ready: true, generated: 'x', rowCount: 2000000 }),
+      };
       geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
         'node:dns': dnsStub,
         config: configStub,
@@ -577,40 +591,43 @@ describe('geolocationService tests', () => {
         './dbHelper': dbHelperStub,
         './serviceHelper': serviceHelperStub,
         './fluxNetworkHelper': fluxNetworkHelperStub,
-        './appPlacement/ipLocationStore': {
-          lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass: 'DATACENTER' }),
-          status: sinon.stub().returns({ ready: true, generated: 'x', rowCount: 2000000 }),
-        },
-      });
-
-      await geolocationService.setNodeGeolocation();
-
-      expect(geolocationService.getStaticIpState()).to.equal('STATIC');
-    });
-
-    it('stays DYNAMIC behind NAT when the table calls the range residential', async () => {
-      // The old rule granted static to seven consumer ISPs on the fleet -
-      // Verizon, Comcast, Free SAS, Bouygues among them - because ip-api
-      // flagged them `proxy`, which is a VPN artefact and not an address that
-      // stays put.
-      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
-      serviceHelperStub.axiosGet.resolves(ipApiResponse());
-      geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
-        'node:dns': dnsStub,
-        config: configStub,
-        '../lib/log': logStub,
-        './dbHelper': dbHelperStub,
-        './serviceHelper': serviceHelperStub,
-        './fluxNetworkHelper': fluxNetworkHelperStub,
-        './appPlacement/ipLocationStore': {
-          lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass: 'RESIDENTIAL' }),
-          status: sinon.stub().returns({ ready: true, generated: 'x', rowCount: 2000000 }),
-        },
+        './appPlacement/ipLocationStore': table,
       });
 
       await geolocationService.setNodeGeolocation();
 
       expect(geolocationService.getStaticIpState()).to.equal('DYNAMIC');
+      expect(geolocationService.isStaticIP()).to.equal(false);
+    });
+
+    it('reaches the same verdict behind NAT whether or not a table has loaded', async () => {
+      // The static decision consults nothing but this node's own observations,
+      // so a booting node with no table yet and a settled node holding a full
+      // one answer identically. This is what keeps the verdict off the boot
+      // ordering between setNodeGeolocation and the location table's restore.
+      const verdicts = [];
+      for (const status of [{ ready: false, generated: null, rowCount: 0 },
+        { ready: true, generated: 'x', rowCount: 2000000 }]) {
+        fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
+        serviceHelperStub.axiosGet.resolves(ipApiResponse());
+        geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
+          'node:dns': dnsStub,
+          config: configStub,
+          '../lib/log': logStub,
+          './dbHelper': dbHelperStub,
+          './serviceHelper': serviceHelperStub,
+          './fluxNetworkHelper': fluxNetworkHelperStub,
+          './appPlacement/ipLocationStore': {
+            lookup: sinon.stub().resolves({ org: 'a1b2c3d4e5f6', networkClass: 'DATACENTER' }),
+            status: sinon.stub().returns(status),
+          },
+        });
+        // eslint-disable-next-line no-await-in-loop
+        await geolocationService.setNodeGeolocation();
+        verdicts.push(geolocationService.getStaticIpState());
+      }
+
+      expect(verdicts).to.deep.equal(['DYNAMIC', 'DYNAMIC']);
     });
 
     it('says UNKNOWN when the routing table could not be read, not DYNAMIC', async () => {
