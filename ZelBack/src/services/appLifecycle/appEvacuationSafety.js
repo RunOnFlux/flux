@@ -173,6 +173,28 @@ async function canSafelyRemoveApp(appName, deps) {
       return { safe: false, code: 'ONLY_HOST', reason: 'stateful app and this is the only host holding it' };
     }
 
+    // ASKED BEFORE THE ELECTION, and that order is the whole of what makes a
+    // stand-down safe. A node that holds the only good copy refuses here and
+    // never reaches the question below, so standing down can never be the thing
+    // that strands an app.
+    //
+    // On the pass that removes, this is also the proof that everything this node
+    // ever wrote has landed elsewhere: by then the component is stopped, so a
+    // peer at 100% is a peer holding the final state rather than the state as of
+    // a moment before the next write.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of synced) {
+      // eslint-disable-next-line no-await-in-loop
+      const peer = await findSyncedPeer(component.folderId);
+      if (!peer) {
+        return {
+          safe: false,
+          code: 'NO_SYNCED_PEER',
+          reason: `no connected peer holds ${component.folderId} in full`,
+        };
+      }
+    }
+
     // A g: component runs on one node at a time and that node is the one
     // writing to the volume; the rest hold synced copies with the component
     // stopped. So a node not running it cannot be the writer - a local fact,
@@ -183,7 +205,10 @@ async function canSafelyRemoveApp(appName, deps) {
     const runningHere = await Promise.all(
       gComponents.map((component) => isComponentRunningLocally(component.identifier)),
     );
-    if (runningHere.some(Boolean)) {
+    const runningIdentifiers = gComponents
+      .filter((_component, index) => runningHere[index])
+      .map((component) => component.identifier);
+    if (runningIdentifiers.length) {
       const primary = await isElectedPrimary(appName);
       if (primary === null) {
         // Not "there is no primary" - "nobody can tell me who it is". This node
@@ -198,19 +223,16 @@ async function canSafelyRemoveApp(appName, deps) {
         };
       }
       if (primary === true) {
-        return { safe: false, code: 'ELECTED_PRIMARY', reason: 'this node is the elected primary; stand down first' };
-      }
-    }
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const component of synced) {
-      // eslint-disable-next-line no-await-in-loop
-      const peer = await findSyncedPeer(component.folderId);
-      if (!peer) {
+        // Not a removal, and not a refusal to leave - an instruction to stop
+        // writing first. The caller stops these components and asks again next
+        // pass, by which time the election has given the role to a peer and the
+        // check above means something stronger. `standDown` names what to stop,
+        // so the caller does not re-derive it from the spec.
         return {
           safe: false,
-          code: 'NO_SYNCED_PEER',
-          reason: `no connected peer holds ${component.folderId} in full`,
+          code: 'STAND_DOWN_REQUIRED',
+          reason: 'this node is the elected primary; stop the component before handing the app back',
+          standDown: runningIdentifiers,
         };
       }
     }

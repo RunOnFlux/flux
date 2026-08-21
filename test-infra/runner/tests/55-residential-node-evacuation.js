@@ -768,13 +768,13 @@ describe('Residential node evacuation', function () {
     expect(verdict.data.detail).to.contain('below its instance count');
   });
 
-  it('will not hand back a g: app while this node is its elected primary', async function () {
+  it('stands down as the elected primary rather than handing the app back from under itself', async function () {
     this.timeout(900000);
 
     // The elected primary is the node WRITING to the volume. Handing the app
     // back from under it drops whatever it has written since the peer last
-    // reported the folder complete, so it stands down and lets masterSlaveApps
-    // elect a successor first.
+    // reported the folder complete. So it stops the component first and asks
+    // again next pass, by which time the election has given the role to a peer.
     await returnToService(env, SECOND_TARGET);
     // Node 1 too - it is still held from the previous test, and a held node
     // takes no new apps, so the app would reach four instances and never five.
@@ -795,20 +795,43 @@ describe('Residential node evacuation', function () {
       { timeout: 120000, label: 'the settling window starts' });
     await elapseSettleWindow(TARGET);
 
-    let primaryRefusal = null;
-    const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'primaryapp',
-      (d) => d.safe === false && /elected primary/.test(d.detail), 600000)
-      .then((v) => { primaryRefusal = v; return v; });
-    refused.catch(() => {});
+    let standDownVerdict = null;
+    const stoodDown = waitForGiveUpSafety(env.clients[TARGET - 1], 'primaryapp',
+      (d) => d.safe === false && d.code === 'STAND_DOWN_REQUIRED', 600000)
+      .then((v) => { standDownVerdict = v; return v; });
+    stoodDown.catch(() => {});
 
     await stopTicker();
-    await driveUntil(env, TARGET, async () => primaryRefusal !== null);
+    await driveUntil(env, TARGET, async () => standDownVerdict !== null);
     await startTicker();
 
-    const verdict = await refused;
+    const verdict = await stoodDown;
+    expect(verdict.data.code).to.equal('STAND_DOWN_REQUIRED');
 
-    expect(verdict.data.detail).to.contain('elected primary');
-    expect(verdict.data.code).to.equal('ELECTED_PRIMARY');
+    // The container is what "standing down" means - a verdict that stopped
+    // nothing would leave the node writing and the test would still pass.
+    await waitFor(async () => {
+      const running = await env.clients[TARGET - 1].get('/apps/listrunningapps');
+      const names = (running?.data?.data || []).flatMap((a) => a.Names || []);
+      return !names.some((n) => n.replace(/^\//, '') === 'fluxprimaryapp_primaryapp');
+    }, { timeout: 180000, label: 'the g: component is stopped on the standing-down node' });
+  });
+
+  it('hands the app back on the pass after standing down, and the app survives elsewhere', async function () {
+    this.timeout(900000);
+
+    // Runs on from the test above: node TARGET has stopped primaryapp's g:
+    // component and is no longer a candidate for it, so the next pass finds the
+    // component not running here, re-proves a connected peer holds the folder
+    // with nothing left to write, and removes.
+    await waitFor(async () => {
+      const locations = await dbClient(2).getAppLocations('primaryapp');
+      return !locations.map((l) => l.ip.split(':')[0]).includes(subnet.nodeIp(TARGET));
+    }, { timeout: 600000, label: 'the standing-down node hands primaryapp back' });
+
+    const locations = await dbClient(2).getAppLocations('primaryapp');
+    expect(locations.length).to.be.greaterThan(0);
+    expect(locations.map((l) => l.ip.split(':')[0])).to.not.include(subnet.nodeIp(TARGET));
   });
 
   it('will not hand back a g: app it is running while no FDM can name the primary', async function () {

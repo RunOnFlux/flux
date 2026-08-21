@@ -80,6 +80,28 @@ const giveUpRefusals = new Map();
 // a folder mid-resync, a peer rebooting or a load balancer blipping has been
 // and gone, short enough to still be the same day.
 const REFUSALS_BEFORE_ESCALATING = 12;
+
+// Components this node has stopped in order to hand their app back, mapped to
+// the number of give-up passes since. An evacuating node that is the elected
+// primary cannot leave while it is the one writing to the volume, so it stops
+// writing and asks again next pass, by which time the ordinary election has
+// given the role to a peer.
+//
+// THIS IS ALSO WHAT KEEPS THE COMPONENT STOPPED. masterSlaveApps runs every
+// 30s and would otherwise see the component not running here, clear this node's
+// own stale primary record, find no peer running it yet, and start it straight
+// back up - undoing the stand-down within one election cycle, every cycle. It
+// is read there as a "not a candidate right now" filter, which is the whole
+// mechanism: no new wire state, no negotiation, just this node declining to
+// stand for an office it is trying to leave.
+const standingDown = new Map();
+// Give-up passes a stood-down component may wait before this node gives up on
+// leaving and becomes electable again. The alternative to a cap is an app that
+// is stopped here AND not running anywhere else, which is worse than the
+// stuck-but-serving state the stand-down exists to fix. On expiry the entry is
+// simply dropped: masterSlaveApps then clears this node's stale primary record
+// and the normal paths restart the component wherever it belongs.
+const STAND_DOWN_PASSES_BEFORE_GIVING_UP = 6;
 // Ten election cycles. Derived from the election's own cadence rather than
 // written as its own number, so it stays in the same proportion to the pass
 // that refreshes it at every scale - the harness compresses masterSlaveApps by
@@ -3657,6 +3679,29 @@ async function checkAndRemoveApplicationInstance() {
     for (const name of giveUpRefusals.keys()) {
       if (!heldNames.has(name)) giveUpRefusals.delete(name);
     }
+    // Stood-down components age on the pass that would have removed them, so the
+    // cap is counted in the thing that re-asks the question. Two ways out: the
+    // app left by any route, or this node waited out the cap without being able
+    // to leave. The second matters more than it looks - a component stopped here
+    // and running nowhere is a worse state than the one the stand-down exists to
+    // fix, so the node gives up leaving and stands for election again rather
+    // than holding a stopped app indefinitely.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const [identifier, passes] of standingDown) {
+      const owner = identifier.includes('_') ? identifier.slice(identifier.indexOf('_') + 1) : identifier;
+      if (!heldNames.has(owner)) {
+        standingDown.delete(identifier);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      if (passes >= STAND_DOWN_PASSES_BEFORE_GIVING_UP) {
+        standingDown.delete(identifier);
+        log.warn(`${identifier} stood down ${passes} passes without being able to leave; standing for election again`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      standingDown.set(identifier, passes + 1);
+    }
 
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
@@ -3696,6 +3741,38 @@ async function checkAndRemoveApplicationInstance() {
         code: safety.code,
         detail: safety.reason,
       });
+      if (safety.code === 'STAND_DOWN_REQUIRED' && decision.reason === 'EVACUATION') {
+        // Every other condition has already passed - a connected peer holds each
+        // synced folder in full, and the app is at strength - so the only thing
+        // between this node and leaving is that it is the one writing. Stop
+        // writing. The election hands the role to a peer within a cycle or two,
+        // and the next pass finds the component not running here, re-proves the
+        // peer is complete with nothing left to write, and removes.
+        //
+        // EVACUATION only. SURPLUS picks the JUNIOR instance and the primary is
+        // the senior one, so a surplus giver-up is never the primary; wiring
+        // this there would stop a container for a case that cannot arise.
+        // eslint-disable-next-line no-restricted-syntax
+        for (const identifier of safety.standDown) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await appDockerStop(identifier);
+            standingDown.set(identifier, 0);
+            log.warn(`${installedApp.name}: standing down as ${identifier}'s primary so the app can be handed back`);
+          } catch (error) {
+            // Left unmarked deliberately: a component this node failed to stop
+            // is one it is still writing to, and marking it would make the node
+            // unelectable for a component it is running. The next pass retries.
+            log.error(`${installedApp.name}: could not stand down ${identifier}: ${error.message}`);
+          }
+        }
+        fluxEventBus.publish('giveUp:standDown', {
+          appName: installedApp.name,
+          components: safety.standDown,
+        });
+        // One action per pass, exactly as a removal is.
+        return;
+      }
       if (!safety.safe) {
         if (decision.reason === 'EVACUATION') {
           // The observation window restarts, so the queue wait is served against
@@ -4507,6 +4584,18 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         }
       }
       if (needsToBeChecked) {
+        // This node stopped the component in order to hand the app back, so it
+        // is not a candidate. Without this the election restores it within one
+        // cycle: the component is not running here, this node's own stale
+        // primary record is cleared below, no peer has picked it up yet, and the
+        // index-0 branch starts it again - every 30s, forever. Checked in the
+        // same place and for the same reason as operator-stopped, which is the
+        // other way a component this node holds is deliberately not running.
+        if (standingDown.has(identifier)) {
+          log.info(`masterSlaveApps: ${identifier} is standing down to be handed back - excluded from primary election`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         // operator explicitly stopped this g: component; don't elect or act on it
         // eslint-disable-next-line no-await-in-loop
         if (await appsRuntimeState.isOperatorStopped(identifier)) {
