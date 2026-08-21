@@ -90,6 +90,58 @@ describe('ipLocationSync tests', () => {
     expect(axiosGetStub.firstCall.args[1].headers).to.eql({ 'If-None-Match': '"stored"' });
   });
 
+  describe('restoreCachedTable - the half that only needs mongo', () => {
+    it('brings the table back without fetching anything', async () => {
+      // Started with the database schema prep, well before the app-database
+      // rebuild. It must reach the table and touch the network for nothing, or
+      // it is no longer the cheap half.
+      storeStub.adoptPersistedStatus.resolves(true);
+      storeStub.status.returns({ ready: true, generated: '2026-07-31T00:00:00Z', rowCount: 2126447 });
+      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"stored"', fetchedAt: 1 });
+
+      await ipLocationSync.restoreCachedTable();
+      await settle();
+
+      expect(storeStub.adoptPersistedStatus.calledOnce).to.equal(true);
+      expect(axiosGetStub.called).to.equal(false);
+    });
+
+    it('leaves the etag ready, so the fetch half opens with a conditional request', async () => {
+      storeStub.adoptPersistedStatus.resolves(true);
+      storeStub.status.returns({ ready: true, generated: '2026-07-31T00:00:00Z', rowCount: 2126447 });
+      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"stored"', fetchedAt: 1 });
+      axiosGetStub.resolves({ status: 304, data: null, headers: {} });
+
+      await ipLocationSync.restoreCachedTable();
+      await ipLocationSync.startSync();
+
+      expect(axiosGetStub.firstCall.args[1].headers).to.eql({ 'If-None-Match': '"stored"' });
+    });
+
+    it('is not repeated by startSync', async () => {
+      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"stored"', fetchedAt: 1 });
+      repositoryStub.readArtifactBytes.resolves(Buffer.from('stored bytes'));
+      axiosGetStub.resolves({ status: 304, data: null, headers: {} });
+
+      await ipLocationSync.restoreCachedTable();
+      await ipLocationSync.startSync();
+
+      expect(storeStub.adoptPersistedStatus.calledOnce).to.equal(true);
+      expect(storeStub.setArtifact.calledOnce).to.equal(true);
+    });
+
+    it('still restores when startSync is the only caller', async () => {
+      // serviceManager runs both, but nothing may depend on that ordering.
+      repositoryStub.getArtifactRecord.resolves({ fileId: 'id1', etag: '"stored"', fetchedAt: 1 });
+      repositoryStub.readArtifactBytes.resolves(Buffer.from('stored bytes'));
+      axiosGetStub.resolves({ status: 304, data: null, headers: {} });
+
+      await ipLocationSync.startSync();
+
+      expect(storeStub.setArtifact.calledOnce).to.equal(true);
+    });
+  });
+
   it('adopts the stored ingest and does not re-ingest the cached bytes', async () => {
     // the rows are already in mongo under the marker's baseline; the etag still
     // comes from the record so the daily refresh is a conditional request
