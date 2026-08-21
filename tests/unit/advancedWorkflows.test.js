@@ -4436,6 +4436,23 @@ describe('giving up an app: one pass, two reasons, one safety gate', () => {
       sinon.assert.notCalled(appUninstaller.removeAppLocally);
     });
 
+    it('tells the controller the component should be stopped, not just docker', async () => {
+      // Found on a live fleet, not here. appReconciler takes a g: component's
+      // desired state from controllerDesired; stopping the container while that
+      // still reads 'running' means the reconciler starts it again on its next
+      // sweep. The stand-down then reports success, the component keeps running,
+      // and every later pass refuses with ELECTION_UNKNOWN because this node has
+      // excluded itself from the election that would refresh the verdict.
+      const appReconciler = require('../../ZelBack/src/services/appMonitoring/appReconciler');
+      const desiredStub = sinon.stub(appReconciler, 'setControllerDesired');
+
+      await advancedWorkflows.checkAndRemoveApplicationInstance();
+
+      sinon.assert.calledWith(desiredStub, 'server_appone', 'stopped');
+      // Before the container stop, so no sweep can land in between and undo it.
+      sinon.assert.callOrder(desiredStub, stopStub);
+    });
+
     it('does not count as a departure, so the pacing interval is not spent', async () => {
       // noteEvacuated starts the 6h gap before the next app may go. Spending it
       // on a pass that removed nothing would leave the node stood down and then
