@@ -102,6 +102,38 @@ describe('masterSlave recovery after an operator stop', function () {
     await env?.teardown();
   });
 
+  // appstart used to probe docker for "is this container running" and refuse the
+  // start when it was not, reporting the app as skipped. On a masterSlave app
+  // that answers a different question from the one asked: the election decides
+  // which node may run it, and a node that is not the writer is not a node that
+  // failed to start. It clears the lock and reports what the reconciler will do.
+  //
+  // Runs before anything here stops an instance, so a non-running holder is one
+  // the ELECTION is holding - after that, it could be one an operator stopped,
+  // which is a different answer and would pass for the wrong reason.
+  it('reports the election, not a start, for an instance it is not electing', async function () {
+    this.timeout(90000);
+    const flags = await runningFlags();
+    expect(flags.filter(Boolean), 'exactly one holder runs it, or the election has not settled').to.have.lengthOf(1);
+    const standby = holders[flags.indexOf(false)];
+    expect(standby, 'and at least one holder is being held, or this proves nothing').to.not.equal(undefined);
+    const client = env.clients[standby];
+
+    const auth = await authenticate(client.url, appOwnerKey());
+    const res = await client.getAuthed(`/apps/appstart/${appName}`, auth.zelidauth);
+
+    expect(res.status).to.equal('success');
+    expect(res.data, 'a node the election is holding must never be told its app started')
+      .to.not.equal(`Application ${appName} started`);
+    expect(res.data, 'and the operator is told which of the two it is').to.match(
+      new RegExp(`^Application ${appName} will be started: .*election`),
+    );
+
+    // The lock is lifted either way - the veto was the operator's, the run
+    // decision is the election's - so it starts the moment it is elected.
+    expect(await isUp(client, appName), 'and it did not start it anyway').to.equal(false);
+  });
+
   it('keeps an operator-stopped instance down instead of re-electing it', async function () {
     this.timeout(75000);
     const flags = await runningFlags();

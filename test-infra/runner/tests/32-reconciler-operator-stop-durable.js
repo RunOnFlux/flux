@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'mocha';
 import { expect } from 'chai';
 import { createTestEnv } from '../framework/test-env.js';
 import { authenticate } from '../auth.js';
-import { appOwnerKey } from '../framework/keys.js';
+import { appOwnerKey, nodeKey } from '../framework/keys.js';
 import { getAppContainerStatus } from '../framework/container.js';
 import {
   waitFor, waitForReconcileActuated, assertNoEvent, waitForOperatorIntent,
@@ -80,5 +80,53 @@ describe('reconciler honours a durable operator stop', function () {
     const auth2 = await authenticate(client.url, appOwnerKey());
     await client.getAuthed(`/apps/appstart/${appName}`, auth2.zelidauth);
     await waitForUp(client, appName, 'running again after appstart');
+  });
+
+  // A kill is the same desired state as a stop carrying a mode, so the mode is
+  // the only thing that distinguishes them from outside. Asserting the container
+  // stopped would pass just as well against a graceful stop.
+  it('kills on appkill, and says the stop was forced', async function () {
+    this.timeout(180000);
+    const client = env.clients[idx];
+    await waitForUp(client, appName, 'running before appkill');
+
+    const auth = await authenticate(client.url, appOwnerKey());
+    const beforeId = client.getLastEventId();
+    const res = await client.getAuthed(`/apps/appkill/${appName}`, auth.zelidauth);
+    expect(res.status, 'the endpoint exists and answers').to.equal('success');
+
+    const stopped = await waitForReconcileActuated(client, identifier, 'stopped', 120000, { afterId: beforeId });
+    expect(stopped.data.forced, 'a kill, not a graceful stop').to.equal(true);
+    await waitForDown(client, appName, 'stopped after appkill');
+
+    const auth2 = await authenticate(client.url, appOwnerKey());
+    await client.getAuthed(`/apps/appstart/${appName}`, auth2.zelidauth);
+    await waitForUp(client, appName, 'running again after appstart');
+  });
+
+  // The node operator hosts the container and keeps every ordinary lifecycle
+  // control over it. Ending someone else's app abruptly is not theirs to order.
+  // Both halves matter: a privilege check that refused everything would pass the
+  // first assertion on its own.
+  it('refuses the node operator a kill, while still allowing them a stop', async function () {
+    this.timeout(180000);
+    const client = env.clients[idx];
+    await waitForUp(client, appName, 'running before the operator acts');
+
+    const operator = await authenticate(client.url, nodeKey(idx + 1));
+
+    const killed = await client.getAuthed(`/apps/appkill/${appName}`, operator.zelidauth);
+    expect(killed.status, 'the node operator cannot order a kill').to.equal('error');
+    expect(killed.data.code).to.equal(401);
+    const stillUp = await getAppContainerStatus(client.container, appName);
+    expect(stillUp && stillUp.status.startsWith('Up'), 'and the container is untouched').to.equal(true);
+
+    const stopped = await client.getAuthed(`/apps/appstop/${appName}`, operator.zelidauth);
+    expect(stopped.status, 'but a stop is still theirs to order').to.equal('success');
+    await waitForDown(client, appName, 'stopped by the node operator');
+
+    const auth = await authenticate(client.url, appOwnerKey());
+    await client.getAuthed(`/apps/appstart/${appName}`, auth.zelidauth);
+    await waitForUp(client, appName, 'running again for the suites that follow');
   });
 });
