@@ -382,6 +382,30 @@ async function effectiveDesiredRunning(identifier, spec, exitCode) {
 }
 
 /**
+ * The run state the reconciler would converge this component to right now, and
+ * why — the same spec read, docker probe and policy a reconcile pass uses, so a
+ * caller reporting on an operator command never re-derives the decision.
+ *
+ * `desired` is null for a g:/r: component whose decider has not spoken: the
+ * reconciler takes no action, which is neither running nor stopped.
+ *
+ * Throws what getLocalComponentSpec throws — a transient spec read is not an
+ * answer, and reporting one as "not running" would tell an operator their app
+ * is held when nothing has decided anything.
+ *
+ * @param {string} rawIdentifier
+ * @returns {Promise<{desired: boolean|null, reason: string}>}
+ */
+async function desiredRunState(rawIdentifier) {
+  const identifier = canonical(rawIdentifier);
+  const spec = await getLocalComponentSpec(identifier);
+  if (!spec) return { desired: false, reason: 'notInstalled' };
+  if (spec.invalidSpec) return { desired: false, reason: 'invalidSpec' };
+  const actual = await dockerActual(identifier);
+  return effectiveDesiredRunning(identifier, spec, actual.exitCode);
+}
+
+/**
  * Recreates a vanished container (no Docker event fires for absence), recording
  * the tampering signals and falling back to local removal on failure — the
  * behavior previously in containerHealthMonitor.monitorAndRecoverApps.
@@ -727,6 +751,7 @@ async function reconcile(rawIdentifier) {
         if (actualNow.reachable && !actualNow.indeterminate && (actualNow.running || actualNow.paused)) {
           log.info(`appReconciler - ${identifier} data volume unavailable but a stop is desired; stopping the container`);
           await dockerService.appDockerStop(identifier);
+          appInspector.stopAppMonitoring(identifier, false);
           fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'controllerDesired' });
         }
       } catch (err) {
@@ -793,6 +818,7 @@ async function reconcile(rawIdentifier) {
     log.warn(`appReconciler - ${identifier} is paused, which nothing can act on; stopping it so it can be reconciled normally`);
     try {
       await dockerService.appDockerStop(identifier);
+      appInspector.stopAppMonitoring(identifier, false);
       fluxEventBus.publish('reconciler:actuated', { identifier, action: 'unpaused' });
     } catch (err) {
       log.error(`appReconciler - failed to stop the paused ${identifier}: ${err.message}; retrying. No FluxOS primitive releases a paused container - manual remedy on the node: docker unpause ${dockerService.getAppIdentifier(identifier)}`);
@@ -827,6 +853,7 @@ async function reconcile(rawIdentifier) {
       if (actual.running) {
         log.info(`appReconciler - ${identifier} stopping before local appdata clear`);
         await dockerService.appDockerStop(identifier);
+        appInspector.stopAppMonitoring(identifier, false);
         fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'dataClear' });
       }
       await serviceHelper.delay(DATA_CLEAR_SETTLE_MS);
@@ -859,9 +886,24 @@ async function reconcile(rawIdentifier) {
 
   if (!desired) {
     if (actual.running) {
-      log.info(`appReconciler - ${identifier} desired stopped, stopping`);
-      await dockerService.appDockerStop(identifier);
-      fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason });
+      // A hard kill skips the graceful shutdown window, and only an operator asks
+      // for one - every other stop reason is a graceful stop, so the durable flag
+      // is read only where one could have been set.
+      const stopState = reason === 'operatorStopped' ? await appsRuntimeState.getState(identifier) : null;
+      const forceKill = Boolean(stopState && stopState.operatorStopForce);
+      log.info(`appReconciler - ${identifier} desired stopped, ${forceKill ? 'killing' : 'stopping'}`);
+      if (forceKill) {
+        await dockerService.appDockerKill(identifier);
+      } else {
+        await dockerService.appDockerStop(identifier);
+      }
+      // Monitoring follows the container. The per-minute sampler otherwise runs
+      // against a stopped container, logging an error a minute until something
+      // else happens to stop it.
+      appInspector.stopAppMonitoring(identifier, false);
+      fluxEventBus.publish('reconciler:actuated', {
+        identifier, action: 'stopped', reason, forced: forceKill,
+      });
     }
     return;
   }
@@ -877,6 +919,35 @@ async function reconcile(rawIdentifier) {
     // Verify the attachment (from the inspect dockerActual already did) before
     // trusting "running"; heal by recreating, confirmed in-pass and paced.
     if (!dockerService.isContainerDetachedFromNetwork(actual.attachment)) {
+      // An operator restart is a level, not an action: it raises a generation and
+      // this bounces the container once the generation passes the one already
+      // actuated. Not paced by the backoff ladder - a deliberate bounce is not
+      // crash recovery, and pacing it is what made six restarts look like an app
+      // that could not stay up.
+      const restartState = await appsRuntimeState.getState(identifier);
+      const desiredGeneration = (restartState && restartState.restartGeneration) || 0;
+      const actuatedGeneration = (restartState && restartState.actuatedRestartGeneration) || 0;
+      if (desiredGeneration > actuatedGeneration) {
+        log.info(`appReconciler - ${identifier} restart requested (generation ${desiredGeneration}); restarting`);
+        try {
+          await dockerService.appDockerRestart(identifier);
+        } catch (err) {
+          log.error(`appReconciler - failed to restart ${identifier} on request: ${err.message}; retrying`);
+          fluxEventBus.publish('reconciler:actuated', { identifier, action: 'restartRequestFailed', reason: err.message });
+          scheduleRetry(identifier, MANAGED_RETRY_MS);
+          return;
+        }
+        await appsRuntimeState.recordRestartGeneration(identifier, desiredGeneration);
+        fluxEventBus.publish('reconciler:actuated', { identifier, action: 'restarted', reason: 'operatorRequested' });
+        notifyContainerStarted(identifier);
+        // A restart is a start, so it can come up on a stale endpoint the same way.
+        scheduleRetry(identifier, POST_START_VERIFY_MS);
+        return;
+      }
+      // The container is where it should be; monitoring may not be. A stop turns
+      // it off, and a stop docker never carried out leaves a running container
+      // unmonitored with no later pass to notice.
+      appInspector.ensureAppMonitoring(identifier);
       return; // running and properly attached (heal state was cleared above)
     }
     await healDetachedNetwork(identifier, mainAppName, spec);
@@ -979,6 +1050,14 @@ async function reconcile(rawIdentifier) {
     return;
   }
   appInspector.startAppMonitoring(identifier);
+  // A restart of a container that was already stopped IS this start, so the
+  // request is satisfied here. Left pending, the pass that next finds it running
+  // would bounce a container the operator has just watched come up.
+  const startedState = await appsRuntimeState.getState(identifier);
+  const pendingGeneration = (startedState && startedState.restartGeneration) || 0;
+  if (pendingGeneration > ((startedState && startedState.actuatedRestartGeneration) || 0)) {
+    await appsRuntimeState.recordRestartGeneration(identifier, pendingGeneration);
+  }
   log.info(`appReconciler - ${identifier} restarted`);
   fluxEventBus.publish('reconciler:actuated', { identifier, action: 'started', exitCode: actual.exitCode });
   notifyContainerStarted(identifier);
@@ -1301,6 +1380,9 @@ module.exports = {
   // being unreachable from the container being gone. Anything that acts on a
   // container's run state needs that distinction, not just the reconciler.
   dockerActual,
+  // What the reconciler would do with this component now, for a caller that has
+  // to report an operator command's outcome truthfully.
+  desiredRunState,
   // exposed for tests
   reconcile,
   policyAllowsRun,

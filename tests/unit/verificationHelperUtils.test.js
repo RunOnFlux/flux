@@ -807,5 +807,59 @@ describe('verificationHelperUtils tests', () => {
 
       expect(isOwnerOrHigherSession).to.be.false;
     });
+
+    // Shares this block's fixtures deliberately: the same identities, run through
+    // the narrower check, so the one that changes verdict is visible.
+    it('verifyAppOwnerOrFluxTeamSession: true for the app owner', async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
+          loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
+          signature: 'H7xcWjpSt8jiAaPbkUsfY3ZutJJmI35MWkGsgWBj/fJHfk7ZKRoggzigdaESLGMDMb2MHlxAapr1sMYDbJkL/H4=',
+        },
+      };
+      expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(headers, 'PolkadotNode')).to.be.true;
+    });
+
+    it('verifyAppOwnerOrFluxTeamSession: true for the flux team', async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
+          loginPhrase: '1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2',
+          signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II=',
+        },
+      };
+      expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(headers, 'PolkadotNode')).to.be.true;
+    });
+
+    // The whole reason the narrower check exists. This identity is admitted by
+    // verifyAppOwnerOrHigherSession above - the assertion pairs with that one, and
+    // either passing alone would prove nothing.
+    it('verifyAppOwnerOrFluxTeamSession: FALSE for the node operator, who OrHigher admits', async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
+          signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
+        },
+      };
+      expect(
+        await verificationHelperUtils.verifyAppOwnerOrHigherSession(headers, 'PolkadotNode'),
+        'the node operator must actually be admitted by OrHigher, or the refusal below proves nothing',
+      ).to.be.true;
+      expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(headers, 'PolkadotNode')).to.be.false;
+    });
+
+    it('verifyAppOwnerOrFluxTeamSession: false for a regular user', async () => {
+      const headers = {
+        zelidauth: {
+          zelid: '1E1NSwDHtvCziYP4CtgiDMcgvgZL64PhkR',
+          loginPhrase: '162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni',
+          signature: 'IIwyGekXKejWRCnBKMb5Zn2ufi5ylnl3r/wmonoTDm7QCUoe5vZL0SXIwqxO7F8U3Q+kUJapRS2xlUe53KNmC9k=',
+        },
+      };
+      expect(await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(headers, 'PolkadotNode')).to.be.false;
+    });
+
   });
 });

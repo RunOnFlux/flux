@@ -8,7 +8,7 @@ const verificationHelperUtils = require('./verificationHelperUtils');
 
 /**
  * Verifies a specific privilege based on request headers.
- * @param {string} privilege - 'admin, 'fluxteam', 'adminandfluxteam', 'appownerabove', 'appowner', 'user'
+ * @param {string} privilege - 'admin, 'fluxteam', 'adminandfluxteam', 'appownerabove', 'appownerorfluxteam', 'appowner', 'user'
  * @param {object} req
  * @param {string} appName
  *
@@ -29,6 +29,9 @@ async function verifyPrivilege(privilege, req, appName) {
         break;
       case 'appownerabove':
         authorized = await verificationHelperUtils.verifyAppOwnerOrHigherSession(req.headers, appName);
+        break;
+      case 'appownerorfluxteam':
+        authorized = await verificationHelperUtils.verifyAppOwnerOrFluxTeamSession(req.headers, appName);
         break;
       case 'appowner':
         authorized = await verificationHelperUtils.verifyAppOwnerSession(req.headers, appName);

@@ -93,6 +93,50 @@ describe('appInspector tests', () => {
     sinon.restore();
   });
 
+  describe('ensureAppMonitoring', () => {
+    let clock;
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers();
+    });
+
+    afterEach(() => {
+      appInspector.stopAppMonitoring('myapp', true);
+      clock.restore();
+    });
+
+    it('keeps the series a running monitor has already collected', () => {
+      appInspector.startAppMonitoring('myapp');
+      globalStateStub.appsMonitored.myapp.statsStore.push({ timestamp: 1, data: {} });
+
+      appInspector.ensureAppMonitoring('myapp');
+
+      // startAppMonitoring resets statsStore. The reconciler reaches a healthy
+      // container on every pass, so calling it there would discard the series
+      // the charts read, roughly once a minute.
+      expect(globalStateStub.appsMonitored.myapp.statsStore).to.have.lengthOf(1);
+    });
+
+    it('starts monitoring for an app that has none', () => {
+      appInspector.ensureAppMonitoring('myapp');
+
+      expect(globalStateStub.appsMonitored.myapp).to.not.equal(undefined);
+      expect(globalStateStub.appsMonitored.myapp.oneMinuteInterval).to.not.equal(null);
+    });
+
+    it('restarts a monitor that was stopped without deleting its data', () => {
+      appInspector.startAppMonitoring('myapp');
+      appInspector.stopAppMonitoring('myapp', false);
+      expect(globalStateStub.appsMonitored.myapp.oneMinuteInterval, 'a cleared interval must not still look live').to.equal(null);
+
+      appInspector.ensureAppMonitoring('myapp');
+
+      // The record survives a stop that kept its data, so "is this monitored"
+      // cannot be answered by the record's existence alone.
+      expect(globalStateStub.appsMonitored.myapp.oneMinuteInterval).to.not.equal(null);
+    });
+  });
+
   describe('startAppMonitoring - what one tick keeps', () => {
     // The first coverage of the docker -> stored direction. Everything else about
     // the sampler is asserted on samples handed to it already extracted, so what

@@ -97,16 +97,56 @@ async function setFields(rawIdentifier, fields) {
  * @param {string} identifier
  * @param {boolean} stopped
  */
-async function setOperatorStopped(identifier, stopped) {
+async function setOperatorStopped(identifier, stopped, opts = {}) {
   // No catch: the lock is the contract that the reconciler will not restart the
   // app. Swallowing a write failure would let the API report success while the
   // lock never persisted - the caller must surface the failure instead.
   const fields = { operatorStopped: stopped };
-  if (!stopped) {
+  if (stopped) {
+    // A hard kill skips the graceful shutdown window. Durable, so a crash between
+    // the write and the stop cannot quietly downgrade "kill now" to a drain that
+    // waits for the app to finish what it is doing.
+    fields.operatorStopForce = opts.force === true;
+  } else {
+    fields.operatorStopForce = false;
     fields.restartHistory = [];
     fields.autoRestartWindow = [];
   }
   await setFields(identifier, fields);
+}
+
+/**
+ * Raises the component's restart generation, which is how an operator restart is
+ * expressed as desired state rather than as a docker call from the handler.
+ *
+ * The reconciler bounces the container when the generation exceeds the one it
+ * last actuated, so the request is level-based - replaying it changes nothing -
+ * and durable, so it survives a restart of FluxOS itself.
+ *
+ * No catch, for setOperatorStopped's reason: a request that did not persist must
+ * not be reported to the operator as one that did.
+ *
+ * @param {string} identifier
+ */
+async function requestRestart(identifier) {
+  const state = await getState(identifier);
+  const next = ((state && state.restartGeneration) || 0) + 1;
+  await setFields(identifier, { restartGeneration: next });
+}
+
+/**
+ * Marks a restart generation as actuated, so the pass that follows the bounce
+ * does not bounce it again.
+ *
+ * @param {string} identifier
+ * @param {number} generation
+ */
+async function recordRestartGeneration(identifier, generation) {
+  try {
+    await setFields(identifier, { actuatedRestartGeneration: generation });
+  } catch (err) {
+    log.error(`appsRuntimeState - failed to record restart generation for ${identifier}: ${err.message}`);
+  }
 }
 
 /**
@@ -392,6 +432,13 @@ async function prepareCollection() {
           identifier,
           // a lock anywhere is a lock: never auto-start a deliberately stopped app
           operatorStopped: twins.some((t) => t.operatorStopped === true),
+          // a force anywhere is a force: a kill must never be merged down into a
+          // graceful stop the operator did not ask for
+          operatorStopForce: twins.some((t) => t.operatorStopForce === true),
+          // the highest request wins and the lowest actuation does, so a restart
+          // asked for on either doc still bounces the container once
+          restartGeneration: Math.max(0, ...twins.map((t) => t.restartGeneration || 0)),
+          actuatedRestartGeneration: Math.min(...twins.map((t) => t.actuatedRestartGeneration || 0)),
           // likewise, a heal-removal anywhere means a heal may be mid-flight: keep
           // the reconciler on the recreate path rather than the uninstall path
           networkHealRemoval: twins.some((t) => t.networkHealRemoval === true),
@@ -425,6 +472,8 @@ module.exports = {
   isOperatorStopped,
   operatorStoppedIdentifiers,
   recordRestart,
+  requestRestart,
+  recordRestartGeneration,
   restartWaitMs,
   setNetworkHealRemoval,
   isNetworkHealRemoval,

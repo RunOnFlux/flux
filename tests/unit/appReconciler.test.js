@@ -26,6 +26,8 @@ describe('appReconciler tests', () => {
         getDockerContainerOnly: sinon.stub().resolves(undefined),
         appDockerStart: sinon.stub().resolves(),
         appDockerStop: sinon.stub().resolves(),
+        appDockerKill: sinon.stub().resolves(),
+        appDockerRestart: sinon.stub().resolves(),
         appDockerForceRemove: sinon.stub().resolves(),
         getAppIdentifier: (id) => `flux${id}`,
         getAppDockerNameIdentifier: (id) => `/flux${id}`,
@@ -48,7 +50,7 @@ describe('appReconciler tests', () => {
         bootContainerStateSettled: true,
         waitForBootContainerStateSettled: () => Promise.resolve(),
       },
-      appInspector: { startAppMonitoring: sinon.stub(), stopAppMonitoring: sinon.stub() },
+      appInspector: { startAppMonitoring: sinon.stub(), ensureAppMonitoring: sinon.stub(), stopAppMonitoring: sinon.stub() },
       volumeService: {
         ensureMountPathsExist: sinon.stub().resolves(),
         ensureAppVolumeMounted: sinon.stub().resolves({ mounted: true, alreadyMounted: true }),
@@ -61,6 +63,10 @@ describe('appReconciler tests', () => {
         restartWaitMs: sinon.stub().resolves(0),
         recordRestart: sinon.stub().resolves(),
         recordExit: sinon.stub().resolves(),
+        // no pending restart and no force by default; the tests that exercise
+        // either set their own document
+        getState: sinon.stub().resolves({}),
+        recordRestartGeneration: sinon.stub().resolves(),
         // durable "I removed this container for a network heal" flag + its own ladder
         isNetworkHealRemoval: sinon.stub().resolves(false),
         setNetworkHealRemoval: sinon.stub().resolves(),
@@ -162,6 +168,95 @@ describe('appReconciler tests', () => {
       await appReconciler.reconcile('www_App');
       expect(stubs.dockerService.appDockerStop.calledOnceWith('www_App')).to.be.true;
       expect(stubs.dockerService.appDockerStart.called).to.be.false;
+    });
+
+    // The sampler runs on its own interval against a container id. Left on after
+    // a stop it inspects a stopped container once a minute, forever, and the only
+    // thing that used to stop it was the handler that no longer stops containers.
+    it('stops the stats monitor along with the container it stopped', async () => {
+      stubs.appsRuntimeState.isOperatorStopped.resolves(true);
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStop.calledOnceWith('www_App'), 'the container must actually be stopped, or the assertion below proves nothing').to.be.true;
+      expect(stubs.appInspector.stopAppMonitoring.calledOnceWith('www_App', false)).to.be.true;
+    });
+
+    // A stop docker never carried out still turned the sampler off, so the
+    // container kept running unwatched with no later pass to notice. The
+    // reconciler reaches a running container every pass; it is the one place that
+    // can put monitoring back.
+    it('puts monitoring back for a running container that has none', async () => {
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.appInspector.ensureAppMonitoring.calledOnceWith('www_App')).to.be.true;
+      // ensure, never start: startAppMonitoring resets statsStore, and this runs
+      // on every pass over a healthy container.
+      expect(stubs.appInspector.startAppMonitoring.called).to.be.false;
+    });
+
+    // An operator kill is a stop carrying a signal. The mode is durable so a
+    // crash between the request and the stop cannot quietly downgrade "kill now"
+    // into a graceful drain the operator did not ask for.
+    it('kills rather than stops when the operator asked for a force stop', async () => {
+      stubs.appsRuntimeState.isOperatorStopped.resolves(true);
+      stubs.appsRuntimeState.getState.resolves({ operatorStopForce: true });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerKill.calledOnceWith('www_App')).to.be.true;
+      expect(stubs.dockerService.appDockerStop.called, 'a forced stop must not also send the graceful one').to.be.false;
+    });
+
+    // The inverse, or the assertion above proves only that the flag was readable:
+    // a plain stop must stay graceful.
+    it('stops gracefully when the operator asked for a plain stop', async () => {
+      stubs.appsRuntimeState.isOperatorStopped.resolves(true);
+      stubs.appsRuntimeState.getState.resolves({ operatorStopForce: false });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerStop.calledOnceWith('www_App')).to.be.true;
+      expect(stubs.dockerService.appDockerKill.called).to.be.false;
+    });
+
+    it('bounces a running container whose restart generation is ahead of the one actuated', async () => {
+      stubs.appsRuntimeState.getState.resolves({ restartGeneration: 3, actuatedRestartGeneration: 2 });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerRestart.calledOnceWith('www_App')).to.be.true;
+      // Recorded, or the next pass bounces it again - the request is a level, and
+      // a level nothing marks as reached is a loop.
+      expect(stubs.appsRuntimeState.recordRestartGeneration.calledOnceWith('www_App', 3)).to.be.true;
+    });
+
+    it('leaves a running container alone once its restart generation is actuated', async () => {
+      stubs.appsRuntimeState.getState.resolves({ restartGeneration: 3, actuatedRestartGeneration: 3 });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+
+      await appReconciler.reconcile('www_App');
+
+      expect(stubs.dockerService.appDockerRestart.called).to.be.false;
+    });
+
+    // Restarting a stopped container IS starting it, so the start satisfies the
+    // request. Left pending, the pass that next finds it running would bounce a
+    // container the operator has just watched come up.
+    it('treats the start of a stopped container as the restart that was requested', async () => {
+      stubs.appsRuntimeState.getState.resolves({ restartGeneration: 4, actuatedRestartGeneration: 1 });
+
+      await appReconciler.reconcile('www_App'); // inspect default: stopped
+
+      expect(stubs.dockerService.appDockerStart.calledOnceWith('www_App'), 'the container must actually start, or the assertion below proves nothing').to.be.true;
+      expect(stubs.appsRuntimeState.recordRestartGeneration.calledWith('www_App', 4)).to.be.true;
+      expect(stubs.dockerService.appDockerRestart.called, 'a stopped container is started, never restarted').to.be.false;
     });
 
     it('leaves an operator-stopped container alone if already stopped', async () => {

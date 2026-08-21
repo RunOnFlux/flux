@@ -645,6 +645,30 @@ describe('appsRuntimeState tests', () => {
       sinon.assert.called(logStub.warn);
     });
 
+    // The merge builds from an explicit field list, so a field nobody adds here
+    // is dropped silently. These two decide whether a container gets bounced and
+    // how it gets stopped, and losing either is invisible until it matters.
+    it('carries the restart request and the force mode through a merge', async () => {
+      docs = [
+        {
+          identifier: 'www_App', restartGeneration: 7, actuatedRestartGeneration: 7, updatedAt: 1000,
+        },
+        {
+          identifier: 'www_App', operatorStopForce: true, restartGeneration: 4, actuatedRestartGeneration: 2, updatedAt: 9000,
+        },
+      ];
+
+      await prepState.prepareCollection();
+
+      const merged = upserts[0].set;
+      // a kill must never merge down into a graceful stop
+      expect(merged.operatorStopForce).to.equal(true);
+      // highest request, lowest actuation: a restart asked for on either doc is
+      // still owed, so the container bounces once rather than not at all
+      expect(merged.restartGeneration).to.equal(7);
+      expect(merged.actuatedRestartGeneration).to.equal(2);
+    });
+
     it('trims a merged history to the ladder length', async () => {
       const longA = Array.from({ length: 6 }, (_, i) => i + 1);
       const longB = Array.from({ length: 6 }, (_, i) => i + 100);
