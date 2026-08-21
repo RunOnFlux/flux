@@ -235,7 +235,10 @@ describe('appEvacuationSafety tests', () => {
       expect(result.safe).to.equal(false);
     });
 
-    it('refuses when this node is the elected primary', async () => {
+    it('asks the elected primary to stand down rather than refusing outright', async () => {
+      // Not a removal and not a dead end: everything else has passed, so the
+      // only thing left is that this node is the one writing. It stops, and the
+      // next pass finds the component running elsewhere.
       deps.getApplicationGlobalSpecifications.resolves(statefulSpec({ instances: 2 }));
       deps.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127'));
       deps.isElectedPrimary = sinon.stub().resolves(true);
@@ -243,8 +246,39 @@ describe('appEvacuationSafety tests', () => {
       const result = await appEvacuationSafety.canSafelyRemoveApp('palworld1', deps);
 
       expect(result.safe).to.equal(false);
-      expect(result.code).to.equal('ELECTED_PRIMARY');
-      expect(result.reason).to.contain('primary');
+      expect(result.code).to.equal('STAND_DOWN_REQUIRED');
+      expect(result.standDown).to.deep.equal(['server_palworld1']);
+    });
+
+    it('names only the components actually running here', async () => {
+      // The caller stops what this returns, so a component already stopped must
+      // not appear - stopping it again is noise, and marking it unelectable is
+      // wrong for something this node is not running.
+      deps.getApplicationGlobalSpecifications.resolves(statefulSpec({ instances: 2 }));
+      deps.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127'));
+      deps.isElectedPrimary = sinon.stub().resolves(true);
+      deps.isComponentRunningLocally = sinon.stub().resolves(false);
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('palworld1', deps);
+
+      expect(result.safe).to.equal(true);
+      expect(result.code).to.equal('SYNCED_ELSEWHERE');
+    });
+
+    it('never asks a node holding the only good copy to stand down', async () => {
+      // The ordering IS the safety property. If the synced-peer check ran after
+      // the election, a primary with no complete peer would stop writing and
+      // then discover it cannot leave - an app stopped here and running nowhere.
+      deps.getApplicationGlobalSpecifications.resolves(statefulSpec({ instances: 2 }));
+      deps.appLocation.resolves(locations(LOCAL, '5.6.7.8:16127'));
+      deps.isElectedPrimary = sinon.stub().resolves(true);
+      deps.findSyncedPeer.resolves(null);
+
+      const result = await appEvacuationSafety.canSafelyRemoveApp('palworld1', deps);
+
+      expect(result.code).to.equal('NO_SYNCED_PEER');
+      expect(result.standDown).to.equal(undefined);
+      sinon.assert.notCalled(deps.isElectedPrimary);
     });
   });
 
