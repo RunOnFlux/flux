@@ -3589,7 +3589,16 @@ function reasonToGiveUpApp(installedApp, runningAppList, localSocketAddr) {
 
 /**
  * The single pass that decides whether this node should stop holding an app.
- * At most one app goes per pass, spaced by config.fluxapps.removal.delay.
+ *
+ * At most one app goes per pass, and the PASS is the spacing: this returns as
+ * soon as one app has gone, and explorerService runs it again every
+ * removeFluxAppsPeriod * speedMultiplier blocks. config.fluxapps.removal.delay
+ * is not read here, or anywhere else - it paced a serviceHelper.delay() inside
+ * a loop that removed several apps in one pass, and that sleep held the whole
+ * pass open: everything behind it waited, and every decision after it was made
+ * against an installed-app list read minutes earlier. The pass is fired
+ * unawaited from the block handler and guards nothing itself, so a pass long
+ * enough to outlive its own interval could also overlap the next one.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function checkAndRemoveApplicationInstance() {
