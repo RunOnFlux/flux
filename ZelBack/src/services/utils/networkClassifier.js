@@ -158,17 +158,41 @@ function classifyNetwork(facts = {}) {
   const contradictionSignalsGathered = hosting !== undefined || proxy !== undefined
     || mobile !== undefined || isp !== undefined || asn !== undefined;
 
+  // Evidence that this IS hosting - a narrower claim than "not a home line".
+  // Everything in evidenceAgainst contradicts a residential reading; only these
+  // say anything positive about a data centre, and DATACENTER is reached from
+  // this list rather than from the absence of residential evidence.
+  //
+  // `proxy` is the signal that belongs in one and not the other. It is a VPN
+  // artefact - this branch argues exactly that where static IP is concerned,
+  // and deleted a rule that granted static on it - so an address behind a VPN
+  // exit says nothing about the machine. Granting DATACENTER on it would be the
+  // same category error one function away, and it points the wrong way: an
+  // owner paying for `datacenter: true` is buying "not someone's house", and a
+  // home machine on a VPN carries this signature and nothing else. Measured on
+  // the fleet of 2026-08-18: 8 of 2,432 hosts reached DATACENTER on proxy alone.
+  const hostingEvidence = [];
+
   const ptrClass = classifyPtr(ptr);
   if (ptrClass === 'residential') evidenceFor.push(`ptr access-network: ${ptr}`);
   // 'both' is a contradiction on its own: a name carrying hosting vocabulary is
   // not cleared by also carrying access vocabulary.
-  if (ptrClass === 'datacenter' || ptrClass === 'both') evidenceAgainst.push(`ptr hosting: ${ptr}`);
+  if (ptrClass === 'datacenter' || ptrClass === 'both') {
+    evidenceAgainst.push(`ptr hosting: ${ptr}`);
+    hostingEvidence.push('ptr');
+  }
 
   if (mobile === true) evidenceFor.push('ip-api mobile');
-  if (hosting === true) evidenceAgainst.push('ip-api hosting');
+  if (hosting === true) {
+    evidenceAgainst.push('ip-api hosting');
+    hostingEvidence.push('ip-api hosting');
+  }
   if (proxy === true) evidenceAgainst.push('ip-api proxy');
 
-  if (isHostingOperator(isp, asn)) evidenceAgainst.push(`operator sells hosting: ${isp || asn}`);
+  if (isHostingOperator(isp, asn)) {
+    evidenceAgainst.push(`operator sells hosting: ${isp || asn}`);
+    hostingEvidence.push('operator');
+  }
 
   // Corroboration only, and deliberately not counted as evidence. A bench figure
   // is a speed test's result, not a property of the link: on its own it would
@@ -190,9 +214,14 @@ function classifyNetwork(facts = {}) {
       : CLASSIFICATION.UNKNOWN;
     if (contradictionSignalsGathered) evidenceFor.push(...corroborating);
   } else if (evidenceAgainst.length && !evidenceFor.length) {
-    // DATACENTER stands either way: it rests on something found, not on
-    // something absent, and it enforces nothing.
-    classification = CLASSIFICATION.DATACENTER;
+    // DATACENTER stands either way where it stands at all: it rests on
+    // something found, not on something absent, and it enforces nothing. But it
+    // rests on POSITIVE hosting evidence specifically - a contradiction that
+    // only rules out a home line leaves this UNKNOWN, which confers nothing and
+    // enforces nothing, rather than promoting "not residential" to "hosting".
+    classification = hostingEvidence.length
+      ? CLASSIFICATION.DATACENTER
+      : CLASSIFICATION.UNKNOWN;
   } else if (evidenceFor.length && evidenceAgainst.length) {
     classification = CLASSIFICATION.CONFLICTED;
   }
