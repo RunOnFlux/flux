@@ -579,7 +579,7 @@ describe('residentialNodeDosService tests', () => {
 
     it('gives an empty location list the longest wait, not the shortest', async () => {
       // `index < 0 ? ordered.length : index` made an EMPTY list position 0 -
-      // the most senior slot - inverting the rule the sibling test asserts. An
+      // the front of the queue - inverting the rule the sibling test asserts. An
       // empty list is the ordinary result of expired location records.
       expect(service.queueDelayMs([], LOCAL)).to.be.above(service.QUEUE_BASE_MS);
     });
@@ -668,9 +668,12 @@ describe('residentialNodeDosService tests', () => {
   });
 
   describe('pacing: mayEvacuateApp', () => {
+    // Junior first, so the senior LOCAL sits at position 1 - the pacing tests
+    // below are about the interval and the observation window, and they only
+    // say what they mean from a position that is not the front of the queue.
     const locations = [
-      { ip: '5.6.7.8:16127', runningSince: new Date(1000) },
-      { ip: LOCAL, runningSince: new Date(2000) },
+      { ip: '5.6.7.8:16127', runningSince: new Date(2000) },
+      { ip: LOCAL, runningSince: new Date(1000) },
     ];
 
     beforeEach(async () => {
@@ -702,7 +705,7 @@ describe('residentialNodeDosService tests', () => {
     it('allows once the queue turn has been served', () => {
       const now = Date.now();
       service.mayEvacuateApp('someapp', locations, LOCAL, now);
-      // Position 1 in the seniority order: base plus one step.
+      // Position 1 in the queue order (junior first): base plus one step.
       const wait = service.QUEUE_BASE_MS + service.QUEUE_STEP_MS;
 
       const result = service.mayEvacuateApp('someapp', locations, LOCAL, now + wait + 1);
@@ -736,24 +739,43 @@ describe('residentialNodeDosService tests', () => {
   });
 
   describe('queueDelayMs is a delay, never a veto', () => {
-    it('gives the senior instance the shortest wait, and still a non-zero one', () => {
+    it('gives the junior instance the shortest wait, and still a non-zero one', () => {
       const locations = [
-        { ip: LOCAL, runningSince: new Date(1000) },
-        { ip: '5.6.7.8:16127', runningSince: new Date(2000) },
+        { ip: '5.6.7.8:16127', runningSince: new Date(1000) },
+        { ip: LOCAL, runningSince: new Date(2000) },
       ];
 
       expect(service.queueDelayMs(locations, LOCAL)).to.equal(service.QUEUE_BASE_MS);
     });
 
+    it('makes the senior instance wait longest, whatever order the list arrives in', () => {
+      // The senior instance is the one masterSlaveApps elects primary, and it
+      // is the only instance that cannot simply leave - it has to stand down
+      // and hand the app back first. Ranking the senior end first put exactly
+      // that node at the head of the queue, ahead of every node that could just
+      // go. Locations arrive in broadcast order, so the answer must not depend
+      // on it either.
+      const senior = { ip: LOCAL, runningSince: new Date(1000) };
+      const middle = { ip: '5.6.7.8:16127', runningSince: new Date(2000) };
+      const junior = { ip: '9.9.9.9:16127', runningSince: new Date(3000) };
+
+      [[senior, middle, junior], [junior, senior, middle]].forEach((locations) => {
+        expect(service.queueDelayMs(locations, LOCAL)).to.equal(
+          service.QUEUE_BASE_MS + (2 * service.QUEUE_STEP_MS),
+        );
+        expect(service.queueDelayMs(locations, junior.ip)).to.equal(service.QUEUE_BASE_MS);
+      });
+    });
+
     it('spaces each subsequent position by one step', () => {
       const locations = [
         { ip: '5.6.7.8:16127', runningSince: new Date(1000) },
-        { ip: '9.9.9.9:16127', runningSince: new Date(2000) },
-        { ip: LOCAL, runningSince: new Date(3000) },
+        { ip: '9.9.9.9:16127', runningSince: new Date(3000) },
+        { ip: LOCAL, runningSince: new Date(2000) },
       ];
 
       expect(service.queueDelayMs(locations, LOCAL)).to.equal(
-        service.QUEUE_BASE_MS + (2 * service.QUEUE_STEP_MS),
+        service.QUEUE_BASE_MS + service.QUEUE_STEP_MS,
       );
     });
 

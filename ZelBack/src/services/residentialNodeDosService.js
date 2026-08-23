@@ -324,10 +324,18 @@ async function listInstalledApps(installedAppsFn) {
  * @returns {number} Milliseconds.
  */
 function queueDelayMs(locations, localSocketAddr) {
-  const ordered = [...locations].sort(compareInstanceSeniority);
+  // Junior end first - the same order reasonToGiveUpApp ranks SURPLUS by, and
+  // for the same reason: the newest copy stands aside and the senior one goes
+  // on holding the data. Ranking the senior end first also put the ONE case
+  // that cannot simply leave at the front of the queue, because the elected
+  // primary is the senior instance: the node needing a stand-down was asked to
+  // go before any of the nodes that could just go, and every node behind it
+  // waited out its step while it negotiated. Senior last is both orders
+  // agreeing and the cheap departures happening first.
+  const ordered = [...locations].sort((a, b) => compareInstanceSeniority(b, a));
   const index = ordered.findIndex((entry) => socketAddressesMatch(entry.ip, localSocketAddr));
   // An instance this node cannot find in the list waits longest. For an EMPTY
-  // list `ordered.length` is 0, which is the most senior slot - the shortest
+  // list `ordered.length` is 0, which is the front of the queue - the shortest
   // wait of all, inverting the rule. An empty list is the ordinary result of
   // expired location records, so it is not an exotic input.
   const position = index < 0 ? Math.max(ordered.length, 1) : index;
