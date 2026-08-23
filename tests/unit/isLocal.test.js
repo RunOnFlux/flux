@@ -56,4 +56,23 @@ describe('isLocal middleware tests', () => {
 
     expect(advanced).to.be.false;
   });
+
+  // The header is the caller's own claim. With no socket-vouched address at
+  // all, believing it would let any remote caller mint "local" by sending
+  // X-Forwarded-For: 127.0.0.1 - so an unattributable request is refused, not
+  // resolved from the one field the caller controls.
+  it('should refuse a caller whose only address is their own forwarded-for claim', () => {
+    let advanced = false;
+    let status;
+    const res = { status: (code) => { status = code; return res; }, send: () => {} };
+
+    isLocal(
+      { connection: {}, socket: {}, headers: { 'x-forwarded-for': '127.0.0.1' } },
+      res,
+      () => { advanced = true; },
+    );
+
+    expect(advanced, 'a spoofed forwarded-for header was believed').to.be.false;
+    expect(status).to.equal(401);
+  });
 });

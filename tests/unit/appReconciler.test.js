@@ -268,11 +268,17 @@ describe('appReconciler tests', () => {
 
       await appReconciler.reconcile('www_App');
 
-      // the running branch returns without touching the container at all
+      // STOP specifically, and never start: a reconciler that reads paused as
+      // not-running issues docker start, which docker refuses on a paused
+      // container - so the assertion must not accept start as "took action".
       expect(
-        stubs.dockerService.appDockerStop.called || stubs.dockerService.appDockerStart.called,
-        'the reconciler took no action on a paused container - it read it as running',
+        stubs.dockerService.appDockerStop.calledWith('www_App'),
+        'the reconciler did not stop the paused container',
       ).to.equal(true);
+      expect(
+        stubs.dockerService.appDockerStart.called,
+        'the reconciler tried to START a paused container - docker refuses that',
+      ).to.equal(false);
     });
 
     it('starts a stopped plain component that should run (default always policy)', async () => {
@@ -301,6 +307,26 @@ describe('appReconciler tests', () => {
       // container running over the gutted volume with the hold unenforceable
       stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
       stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Status: 'running', ExitCode: 0 } });
+      try {
+        appReconciler.setControllerDesired('www_App', 'stopped', 'mount safety block: unmounted_with_content');
+        // setControllerDesired enqueues its own reconcile; wait for it to land
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+        expect(stubs.dockerService.appDockerStop.calledWith('www_App')).to.be.true;
+        expect(stubs.dockerService.appDockerStart.called).to.be.false;
+        expect(stubs.volumeService.clearAppVolumeData.called).to.be.false;
+      } finally {
+        appReconciler.clearControllerDesired('www_App');
+      }
+    });
+
+    // The volume-unavailable branch runs BEFORE the paused normalisation and
+    // returns, so it must honor the stop for a paused container itself: paused
+    // reports running=false, and reading only `running` here skips the stop
+    // and leaves a frozen container over the missing volume, with nothing left
+    // to release it. docker stop works on a paused container.
+    it('honors a pending stop for a PAUSED container when the volume cannot be mounted', async () => {
+      stubs.volumeService.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      stubs.dockerService.dockerContainerInspect.resolves({ State: { Running: true, Paused: true, Status: 'paused', ExitCode: 0 } });
       try {
         appReconciler.setControllerDesired('www_App', 'stopped', 'mount safety block: unmounted_with_content');
         // setControllerDesired enqueues its own reconcile; wait for it to land

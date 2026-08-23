@@ -590,9 +590,11 @@ describe('volumeService tests', () => {
     // had failed, and appReconciler's catch, which holds dataDesired at 'clear'
     // so a start cannot proceed onto un-wiped data, was unreachable.
     it('rejects when the wipe failed, rather than reporting success', async () => {
-      serviceHelperStub.runCommand.resolves({
+      serviceHelperStub.runCommand.onFirstCall().resolves({
         error: new Error('exit 1'), stdout: '', stderr: "rm: cannot remove '/x': Device or resource busy",
       });
+      // the directory exists - the failure was real
+      serviceHelperStub.runCommand.onSecondCall().resolves({ error: null, stdout: '', stderr: '' });
 
       await expect(volumeService.clearAppVolumeData('db_MyApp')).to.be.rejectedWith('Failed to delete data');
 
@@ -603,25 +605,37 @@ describe('volumeService tests', () => {
     });
 
     // Nothing to clear is not a failed clear: an app whose volume was never
-    // populated must not hold the reconciler on a retry forever.
-    it('returns quietly when there is no app data directory', async () => {
-      serviceHelperStub.runCommand.resolves({
+    // populated must not hold the reconciler on a retry forever. The stderr is
+    // deliberately NOT the English message: find renders strerror in the node's
+    // locale, so the classification must come from `test -d`'s exit status and
+    // never from the words.
+    it('returns quietly when there is no app data directory, whatever language find speaks', async () => {
+      serviceHelperStub.runCommand.onFirstCall().resolves({
         error: new Error('exit 1'),
         stdout: '',
-        stderr: "find: '/test/apps/folder/fluxdb_MyApp/appdata': No such file or directory",
+        stderr: "find: '/test/apps/folder/fluxdb_MyApp/appdata': Aucun fichier ou dossier de ce type",
       });
+      // the directory does not exist - there was nothing to clear
+      serviceHelperStub.runCommand.onSecondCall().resolves({ error: new Error('exit 1'), stdout: '', stderr: '' });
 
       await volumeService.clearAppVolumeData('db_MyApp');
 
       expect(
         logStub.info.getCalls().some((call) => String(call.args[0]).includes('No data to delete')),
       ).to.equal(true);
+      // The classifier runs as root, like the wipe: an unprivileged check paired
+      // with a root action fails on a data dir the image chmods to 700.
+      const [cmd, opts] = serviceHelperStub.runCommand.secondCall.args;
+      expect(cmd).to.equal('test');
+      expect(opts.runAsRoot).to.equal(true);
+      expect(opts.params).to.deep.equal(['-d', `${APPS_FOLDER}fluxdb_MyApp/appdata`]);
     });
 
     it('reports what the wipe actually said, so a failure can be diagnosed', async () => {
-      serviceHelperStub.runCommand.resolves({
+      serviceHelperStub.runCommand.onFirstCall().resolves({
         error: new Error('exit 1'), stdout: '', stderr: 'rm: cannot remove: Read-only file system',
       });
+      serviceHelperStub.runCommand.onSecondCall().resolves({ error: null, stdout: '', stderr: '' });
 
       await expect(volumeService.clearAppVolumeData('db_MyApp'))
         .to.be.rejectedWith(/Read-only file system/);

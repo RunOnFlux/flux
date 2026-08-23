@@ -709,10 +709,16 @@ async function reconcile(rawIdentifier) {
     // container running over a missing volume with the mount-safety hold
     // unenforceable - the incident's app kept running through the gutted
     // window exactly this way. Honor a pending stop; defer everything else.
+    //
+    // Paused counts: dockerActual reports a paused container as not running,
+    // and this branch returns before the paused normalisation below is ever
+    // reached - skipping the stop here would leave a frozen container over the
+    // missing volume with nothing left to release it. docker stop works on a
+    // paused container.
     if (controllerDesired.get(identifier) === 'stopped') {
       try {
         const actualNow = await dockerActual(identifier);
-        if (actualNow.reachable && !actualNow.indeterminate && actualNow.running) {
+        if (actualNow.reachable && !actualNow.indeterminate && (actualNow.running || actualNow.paused)) {
           log.info(`appReconciler - ${identifier} data volume unavailable but a stop is desired; stopping the container`);
           await dockerService.appDockerStop(identifier);
           fluxEventBus.publish('reconciler:actuated', { identifier, action: 'stopped', reason: 'controllerDesired' });

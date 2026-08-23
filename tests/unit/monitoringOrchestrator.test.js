@@ -314,6 +314,20 @@ describe('monitoringOrchestrator tests', () => {
       expect(result.data.code).to.equal(410);
     });
 
+    it('should refuse the stats stream and name the polling endpoints instead', async () => {
+      req.params = { appname: 'TestApp' };
+
+      const result = await monitoringOrchestrator.appMonitorStreamAPI(req, res);
+
+      expect(result.status).to.equal('error');
+      expect(result.data.name).to.equal('Deprecated');
+      // The replacement, named: a caller losing its stream needs somewhere to
+      // go, not just a refusal.
+      expect(result.data.message).to.match(/appstats/);
+      expect(result.data.message).to.match(/appmonitor/);
+      expect(result.data.code).to.equal(410);
+    });
+
     it('should not touch monitoring for a named app', async () => {
       req.params = { appname: 'TestApp' };
       const startStub = sinon.stub(appInspector, 'startAppMonitoring');
@@ -333,9 +347,17 @@ describe('monitoringOrchestrator tests', () => {
       expect(result.status).to.equal('error');
     });
 
-    it('should no longer expose the control functions', () => {
-      expect(monitoringOrchestrator.startMonitoring).to.be.undefined;
-      expect(monitoringOrchestrator.stopMonitoring).to.be.undefined;
+    // The whole surface, exactly: boot-time monitoring startup plus the two
+    // deprecation responders, and nothing else. Pinned positively - an absence
+    // assertion can only ever name what someone thought to list, so it holds
+    // against any module, including one that regrew a control path.
+    it('exposes exactly the orchestration surface', () => {
+      expect(Object.keys(monitoringOrchestrator).sort()).to.deep.equal([
+        'appMonitorStreamAPI',
+        'startAppMonitoringAPI',
+        'startMonitoringOfApps',
+        'stopAppMonitoringAPI',
+      ]);
     });
   });
 });

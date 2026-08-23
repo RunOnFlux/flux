@@ -1292,13 +1292,16 @@ module.exports = (app) => {
   // alwaysRespond, like the other retired routes: the body is byte-identical on
   // every call, so express fingerprints it with a strong ETag and any caller that
   // revalidates gets an empty 304 from the second call on. Explaining why the
-  // endpoint stopped working is the only job these two have left, and a repeat
+  // endpoint stopped working is the only job these routes have left, and a repeat
   // caller could never read the explanation.
   app.get('/apps/startmonitoring/:appname?', alwaysRespond, (req, res) => {
     monitoringOrchestrator.startAppMonitoringAPI(req, res);
   });
   app.get('/apps/stopmonitoring/:appname?/:deletedata?', alwaysRespond, (req, res) => {
     monitoringOrchestrator.stopAppMonitoringAPI(req, res);
+  });
+  app.get('/apps/appmonitorstream/:appname?', alwaysRespond, (req, res) => {
+    monitoringOrchestrator.appMonitorStreamAPI(req, res);
   });
 
   app.get('/syncthing/metrics', cache('10 seconds'), (req, res) => {

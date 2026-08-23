@@ -139,7 +139,26 @@ async function stopAppMonitoringAPI(req, res) {
   return res ? res.json(errMessage) : errMessage;
 }
 
+// The stream's job is served by polling: /apps/appstats answers with a reading
+// at most five seconds old, /apps/appmonitor with the collected series. The
+// route stays so a caller is told that rather than getting an anonymous 404 -
+// the same contract as the two controls above; it goes at the next major
+// version.
+const STREAM_DEPRECATION_MESSAGE = 'The stats stream has been removed. Poll /apps/appstats for a live reading or /apps/appmonitor for the collected series.';
+
+/**
+ * Stats stream API endpoint
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function appMonitorStreamAPI(req, res) {
+  const errMessage = messageHelper.createErrorMessage(STREAM_DEPRECATION_MESSAGE, 'Deprecated', 410);
+  return res ? res.json(errMessage) : errMessage;
+}
+
 module.exports = {
+  appMonitorStreamAPI,
   startMonitoringOfApps,
   startAppMonitoringAPI,
   stopAppMonitoringAPI,
