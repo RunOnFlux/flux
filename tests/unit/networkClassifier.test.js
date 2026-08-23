@@ -179,10 +179,28 @@ describe('networkClassifier tests', () => {
   });
 
   describe('ip-api flags', () => {
-    it('treats proxy as a contradiction', () => {
+    it('treats proxy as a contradiction, and does not let it name a datacentre', () => {
       // 92.240.66.189 - University of Latvia, flagged proxy, which the PR as
-      // written would have DOSed as residential.
+      // written would have DOSed as residential. The flag has to keep RULING
+      // OUT a home line, and that is all it may do: it is a VPN artefact, so it
+      // says nothing about the machine behind the exit. A home machine on a VPN
+      // carries this signature and nothing else, and `datacenter: true` is what
+      // an owner buys to avoid exactly that. UNKNOWN confers nothing.
       const result = classifyNetwork({ proxy: true });
+
+      expect(result.classification).to.equal(CLASSIFICATION.UNKNOWN);
+      // The contradiction itself survives - it is what declines a published
+      // RESIDENTIAL verdict in geolocationService's veto.
+      expect(result.evidenceAgainst).to.contain('ip-api proxy');
+      expect(result.evidenceFor).to.be.empty;
+    });
+
+    it('still names a datacentre when proxy sits beside positive hosting evidence', () => {
+      // The rule is about proxy ALONE. On the fleet of 2026-08-18, 27 hosts
+      // carried proxy together with a hosting operator; those are datacentres
+      // on the operator and stay that way. Only the 8 that had proxy and
+      // nothing else change.
+      const result = classifyNetwork({ proxy: true, isp: 'Hetzner Online GmbH' });
 
       expect(result.classification).to.equal(CLASSIFICATION.DATACENTER);
     });
