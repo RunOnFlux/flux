@@ -16,6 +16,7 @@ import {
   waitForResidentialDecision,
 } from '../framework/wait.js';
 import { setNoPeerData, setPeerHasData, setSynced } from '../framework/syncthing-control.js';
+import { sleepUnlessInfraDead } from '../framework/infra-death.js';
 import { electMaster, startFdmOutage, endFdmOutage } from '../framework/fdm-control.js';
 import { dumpLogsOnFailure } from '../framework/log-on-failure.js';
 import { derivedQueueStepMs, loadSharedConfig } from '../framework/coupled-knobs.js';
@@ -175,6 +176,22 @@ async function returnToService(env, node) {
 /** Put the settling window in the past, so evacuation may begin this run. */
 async function elapseSettleWindow(nodeIndex) {
   await dbClient(nodeIndex).serveSettleWindow();
+}
+
+/**
+ * The component names a node is running, read through a path that THROWS on an
+ * unreadable answer rather than returning an empty list.
+ *
+ * The client returns the PARSED BODY, so the list is at res.data. An "X is
+ * absent" assertion over a list that comes back empty whenever the read fails
+ * cannot fail at all - which is exactly how the stand-down assertion passed
+ * while the node was still writing.
+ */
+async function runningComponents(env, nodeIndex) {
+  const res = await env.clients[nodeIndex - 1].get('/apps/listrunningapps');
+  const list = res?.status === 'success' ? res.data : null;
+  if (!Array.isArray(list)) throw new Error(`listrunningapps unreadable: ${JSON.stringify(res)?.slice(0, 200)}`);
+  return list.flatMap((a) => a.Names || []).map((n) => n.replace(/^\//, ''));
 }
 
 describe('Residential node evacuation', function () {
@@ -813,30 +830,18 @@ describe('Residential node evacuation', function () {
     // `!names.some(...)` over an empty list is true, so a failed request or a
     // shape that does not match reads as "stopped" and the test passes while the
     // node is still writing. It did exactly that on the first run here.
-    const runningComponents = async () => {
-      const res = await env.clients[TARGET - 1].get('/apps/listrunningapps');
-      // The client returns the PARSED BODY, so the container list is res.data.
-      // res.data.data is the level this read was written at while it was
-      // vacuous, and it is undefined on EVERY answer - readable or not - which
-      // is precisely why `!names.some(...)` over it could never fail. Reading
-      // the right level is what makes the throw below mean something. Sibling
-      // reads in this file (whenGone, the installed-apps check) use res.data.
-      const list = res?.status === 'success' ? res.data : null;
-      if (!Array.isArray(list)) throw new Error(`listrunningapps unreadable: ${JSON.stringify(res)?.slice(0, 200)}`);
-      return list.flatMap((a) => a.Names || []).map((n) => n.replace(/^\//, ''));
-    };
     // Positive control: the component must be running here NOW, or the wait
     // below proves nothing about a stop.
-    expect(await runningComponents()).to.include('fluxprimaryapp_primaryapp');
+    expect(await runningComponents(env, TARGET)).to.include('fluxprimaryapp_primaryapp');
 
-    await waitFor(async () => !(await runningComponents()).includes('fluxprimaryapp_primaryapp'),
+    await waitFor(async () => !(await runningComponents(env, TARGET)).includes('fluxprimaryapp_primaryapp'),
       { timeout: 180000, label: 'the g: component is stopped on the standing-down node' });
 
     // And it must STAY stopped. appReconciler takes a g: component's desired
     // state from controllerDesired, so a stand-down that stops the container
     // without telling the controller is undone on the next sweep.
     await advanceBlocks(3);
-    expect(await runningComponents()).to.not.include('fluxprimaryapp_primaryapp');
+    expect(await runningComponents(env, TARGET)).to.not.include('fluxprimaryapp_primaryapp');
   });
 
   it('hands the app back on the pass after standing down, and the app survives elsewhere', async function () {
@@ -891,24 +896,44 @@ describe('Residential node evacuation', function () {
     // one before the outage starts.
     await electMaster('lockedapp', subnet.nodeIp(TARGET));
 
-    await setSystemSecure(subnet.nodeIp(TARGET), false);
-    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
-      { timeout: 120000, label: 'the settling window starts' });
-    await elapseSettleWindow(TARGET);
+    // And the component has to be RUNNING here before FDM goes down. The gate
+    // asks the election question only of a node running the g: component - a
+    // node not running it cannot be the writer - so without this the pass
+    // answers SYNCED_ELSEWHERE and hands the app back, which is correct and
+    // tests nothing. masterSlaveApps only starts the component because FDM
+    // named this node, so taking FDM down first means it never starts at all.
+    await waitFor(async () => (await runningComponents(env, TARGET)).includes('fluxlockedapp_lockedapp'),
+      { timeout: 300000, label: 'the elected primary is running the g: component' });
 
-    // Taking FDM down means the election reaches no verdict for the app at all,
-    // so what the node knows has to go STALE rather than merely be absent - it
-    // was elected moments ago and remembers it. PRIMARY_ELECTION_STALE_MS is
-    // ten election cycles, derived from masterSlaveIntervalMs, so the wait
-    // below is derived from the same knob rather than picked: at the harness's
-    // 3s cycle the verdict expires 30s after the last pass that reached one.
-    //
     // The stub closes its listening socket, not an empty ips array. An empty
     // array is FDM ANSWERING that nobody is primary; this is nobody answering,
     // and a refused connection is the signature a real FDM outage carries - the
     // error reaches the node with no response on it at all. The gate is allowed
     // to act on the first and must not act on the second.
     await startFdmOutage('refuse');
+
+    // THE ORDER HERE IS THE TEST. The verdict has to go stale BEFORE the node
+    // starts draining, and it is the stand-down that makes that so: a draining
+    // node that still remembers being primary now hands the app over and
+    // leaves, so the verdict never survives long enough to expire. Withdrawing
+    // attestation first - which is what this test used to inherit from the
+    // stand-down tests before them - reaches STAND_DOWN_REQUIRED instead, and
+    // ELECTION_UNKNOWN becomes unreachable.
+    //
+    // Waited rather than observed, because staleness has no external signal:
+    // primaryElectionCheckedAt is refreshed only where FDM ANSWERED, so with
+    // no region answering at all nothing touches it and it ages out on wall clock.
+    // Derived from the knob it is a multiple of, never written as a literal -
+    // PRIMARY_ELECTION_STALE_MS is masterSlaveIntervalMs x 10, and the harness
+    // compresses that knob to 3s, so this costs ~30s here and tracks the knob
+    // if it moves. One extra cycle of margin so the expiry is past, not level.
+    const electionCycleMs = loadSharedConfig().fluxapps.masterSlaveIntervalMs;
+    await sleepUnlessInfraDead((electionCycleMs * 10) + electionCycleMs);
+
+    await setSystemSecure(subnet.nodeIp(TARGET), false);
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
+      { timeout: 120000, label: 'the settling window starts' });
+    await elapseSettleWindow(TARGET);
 
     try {
       let unknownRefusal = null;
