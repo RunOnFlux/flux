@@ -368,6 +368,29 @@ describe('appUtilities tests', () => {
       sinon.assert.notCalled(runStub);
     });
 
+    // The shared device answers one question - is this mount under the apps
+    // folder a dedicated volume - and a mount living anywhere else never asks
+    // it. Resolving it eagerly made ITS failure fail the whole reading for a
+    // container whose mounts would simply have been walked.
+    it('still walks mounts that never needed the apps folder when it cannot be statted', async () => {
+      const utils = build({});
+      inspectStub.resolves({
+        SizeRootFs: 500,
+        Mounts: [{ Type: 'volume', Source: '/var/lib/docker/volumes/anon/_data' }],
+      });
+      statStub.callsFake(async () => {
+        throw new Error('ENOENT: apps folder is gone');
+      });
+
+      const result = await utils.getContainerStorage('myapp');
+
+      expect(result.status, 'a mount that never needed classifying is still sized').to.equal('success');
+      // walked: the du stub's 4096, plus the root filesystem's 500
+      expect(result.volume).to.equal(4096);
+      expect(result.used).to.equal(4096 + 500);
+      sinon.assert.notCalled(statfsStub);
+    });
+
     it('should serve repeat calls from cache without re-measuring', async () => {
       const utils = build({ 'myapp/appdata': VOLUME_DEV });
       inspectStub.resolves({

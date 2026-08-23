@@ -783,7 +783,7 @@ async function reconcile(rawIdentifier) {
       await dockerService.appDockerStop(identifier);
       fluxEventBus.publish('reconciler:actuated', { identifier, action: 'unpaused' });
     } catch (err) {
-      log.error(`appReconciler - failed to stop the paused ${identifier}: ${err.message}; retrying`);
+      log.error(`appReconciler - failed to stop the paused ${identifier}: ${err.message}; retrying. No FluxOS primitive releases a paused container - manual remedy on the node: docker unpause ${dockerService.getAppIdentifier(identifier)}`);
       scheduleRetry(identifier, MANAGED_RETRY_MS);
       return;
     }

@@ -575,6 +575,20 @@ function startAppMonitoring(appName) {
     nanoCpus: null,
     run: 0,
   };
+  // Validated, because setInterval does not. A missing key coerces to NaN and
+  // anything below 1 is treated as ONE MILLISECOND - so the sampler would ask
+  // docker for stats on every monitored component about a thousand times a
+  // second instead of once a minute. That has happened to this exact key
+  // before; the test config's own comment still names the incident. ?? alone
+  // covers only the missing key, so a value that is present but wrong - zero,
+  // negative, a string - is refused here too, loudly.
+  const configuredInterval = config.fluxapps.statsSampleIntervalMs;
+  const sampleIntervalMs = Number.isFinite(configuredInterval) && configuredInterval >= 1000
+    ? configuredInterval
+    : 60 * 1000;
+  if (sampleIntervalMs !== configuredInterval) {
+    log.warn(`statsSampleIntervalMs is ${JSON.stringify(configuredInterval)}, not a number of at least 1000; sampling every 60s instead`);
+  }
   appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
     try {
       if (!appsMonitored[appName]) {
@@ -630,7 +644,13 @@ function startAppMonitoring(appName) {
       // is enough - and storing that charts a drop to the FLOOR, which is worse
       // than the partial dip this guard was written for.
       if (statsNow.disk_stats?.status && statsNow.disk_stats.status !== 'success' && lastKnownDisk) {
-        statsNow.disk_stats = lastKnownDisk;
+        // Relabelled, because the carried copy arrives saying 'success'. Under a
+        // PERMANENT failure - a volume unmounted, du refused for good - the
+        // chart would otherwise show a flat line labelled success indefinitely,
+        // with nothing in the sample saying it was carried. The number is kept
+        // (the dashboards only blank their figures on 'error'), the label stops
+        // claiming the reading is fresh.
+        statsNow.disk_stats = { ...lastKnownDisk, status: 'stale' };
       }
 
       const elapsed = monotonicMs();
@@ -645,12 +665,7 @@ function startAppMonitoring(appName) {
     } catch (error) {
       log.error(error);
     }
-    // Defaulted, because setInterval does not. A missing key coerces to NaN and
-    // anything below 1 is treated as ONE MILLISECOND - so the sampler would ask
-    // docker for stats on every monitored component about a thousand times a
-    // second instead of once a minute. That has happened to this exact key
-    // before; the test config's own comment still names the incident.
-  }, config.fluxapps.statsSampleIntervalMs ?? 60 * 1000);
+  }, sampleIntervalMs);
 }
 
 /**

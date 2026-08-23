@@ -152,6 +152,27 @@ describe('appInspector tests', () => {
       expect(afterAMinute, 'did not sample once a minute').to.equal(1);
     });
 
+    // ?? only covers the missing key. A key that is PRESENT but wrong - zero
+    // here - sails through it into setInterval, and anything below 1 is the
+    // same ~1ms storm the fallback exists to prevent.
+    it('samples on a sane cadence when the configured interval is present but wrong', async () => {
+      configStub.fluxapps.statsSampleIntervalMs = 0;
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'running' });
+      dockerServiceStub.dockerContainerStats = sinon.stub().resolves(reading({}));
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2e9 } });
+      clock = sinon.useFakeTimers();
+
+      appInspector.startAppMonitoring('myapp');
+      await clock.tickAsync(1000);
+      const early = globalStateStub.appsMonitored.myapp.statsStore.length;
+      await clock.tickAsync(59000);
+      const afterAMinute = globalStateStub.appsMonitored.myapp.statsStore.length;
+      appInspector.stopAppMonitoring('myapp', false);
+
+      expect(early, 'sampled inside the first second - the zero went into setInterval').to.equal(0);
+      expect(afterAMinute, 'did not sample once a minute').to.equal(1);
+    });
+
     // A partial reading means some mount could not be sized, so the total is a
     // floor rather than a value. getContainerStorage already refuses to cache one
     // for sixty seconds; this store keeps a sample for seven days and draws the
@@ -177,6 +198,10 @@ describe('appInspector tests', () => {
         statsStore[1].disk.used,
         'the partial reading was charted - a drop the disk never had',
       ).to.equal(41943040);
+      expect(
+        statsStore[1].disk.status,
+        'the carried copy kept claiming success - a permanent failure would chart as fresh forever',
+      ).to.equal('stale');
     });
 
     // Not just 'partial'. getContainerStorage's catch returns
@@ -204,6 +229,10 @@ describe('appInspector tests', () => {
         statsStore[1].disk.used,
         'a failed reading charted as zero - the very drop the carry-forward exists to prevent',
       ).to.equal(41943040);
+      expect(
+        statsStore[1].disk.status,
+        'the carried copy kept claiming success - a permanent failure would chart as fresh forever',
+      ).to.equal('stale');
     });
 
     // Storing null would be WORSE than the dip: the dashboards read

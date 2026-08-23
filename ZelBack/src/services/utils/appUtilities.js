@@ -159,7 +159,8 @@ async function nodeFullGeolocation() {
  * identify the volume by device and leave anything sharing the apps folder's device to
  * the caller.
  * @param {string} source - Mount source path
- * @param {number} sharedDevice - Device of the filesystem the node shares, resolved once by the caller
+ * @param {number} sharedDevice - Device of the filesystem the node shares, resolved by the caller
+ * on a mount's first need; undefined for a source outside the apps folder, which returns before reading it
  * @returns {Promise<{device: number, used: number}|null>} Usage, or null when not a dedicated volume
  */
 async function dedicatedVolumeUsage(source, sharedDevice) {
@@ -249,13 +250,17 @@ async function getContainerStorage(appName) {
     const containerRootFsSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
     if (containerInfo?.Mounts?.length) {
       // Which filesystem the node shares is one fact about this call rather than
-      // a step in the loop: every mount is classified against it. Resolved here,
-      // once, before any mount is examined - inside the loop its failure arrives
-      // as one caught error per mount, each contributing zero, and the total is
-      // then cached and served as a successful reading of almost no disk.
-      // Nothing to classify means nothing to resolve, so a container with no
-      // mounts never asks.
-      const { dev: sharedDevice } = await fs.stat(appConstants.appsFolderPath);
+      // a step in the loop, so it is resolved once and remembered - but only
+      // when a mount under the apps folder actually asks. Only those mounts are
+      // classified against it; resolved eagerly it failed the WHOLE reading,
+      // including for a container whose mounts all live elsewhere and would
+      // simply have been walked, on a fact none of them needed.
+      let sharedDevicePromise = null;
+      const sharedDevice = () => {
+        sharedDevicePromise = sharedDevicePromise
+          ?? fs.stat(appConstants.appsFolderPath).then((folder) => folder.dev);
+        return sharedDevicePromise;
+      };
 
       // Collect all mount sources and filter out nested mounts to avoid double-counting
       const allMounts = containerInfo.Mounts.filter((m) => m?.Source);
@@ -290,10 +295,17 @@ async function getContainerStorage(appName) {
           // eslint-disable-next-line no-continue
           continue;
         }
+        // Resolved OUTSIDE the try, and only on need: a mount under the apps
+        // folder that cannot be classified keeps failing the whole reading -
+        // sizing it at zero would report a working node as using almost no
+        // disk, and nothing under the apps folder can do better - while a
+        // mount living anywhere else never asks and is walked as before.
+        // eslint-disable-next-line no-await-in-loop
+        const shared = source.startsWith(appConstants.appsFolder) ? await sharedDevice() : undefined;
         let size = 0;
         try {
           // eslint-disable-next-line no-await-in-loop
-          const volume = await dedicatedVolumeUsage(source, sharedDevice);
+          const volume = await dedicatedVolumeUsage(source, shared);
           if (volume) {
             if (countedDevices.has(volume.device)) {
               // eslint-disable-next-line no-continue
