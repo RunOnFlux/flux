@@ -815,8 +815,14 @@ describe('Residential node evacuation', function () {
     // node is still writing. It did exactly that on the first run here.
     const runningComponents = async () => {
       const res = await env.clients[TARGET - 1].get('/apps/listrunningapps');
-      const list = res?.data?.data;
-      if (!Array.isArray(list)) throw new Error(`listrunningapps unreadable: ${JSON.stringify(res?.data)?.slice(0, 200)}`);
+      // The client returns the PARSED BODY, so the container list is res.data.
+      // res.data.data is the level this read was written at while it was
+      // vacuous, and it is undefined on EVERY answer - readable or not - which
+      // is precisely why `!names.some(...)` over it could never fail. Reading
+      // the right level is what makes the throw below mean something. Sibling
+      // reads in this file (whenGone, the installed-apps check) use res.data.
+      const list = res?.status === 'success' ? res.data : null;
+      if (!Array.isArray(list)) throw new Error(`listrunningapps unreadable: ${JSON.stringify(res)?.slice(0, 200)}`);
       return list.flatMap((a) => a.Names || []).map((n) => n.replace(/^\//, ''));
     };
     // Positive control: the component must be running here NOW, or the wait
@@ -858,14 +864,44 @@ describe('Residential node evacuation', function () {
     // node were the same answer - false - and the gate deleted the volume on
     // it. Every other unavailable input in that gate refuses.
     //
-    // This runs on from the test above: node TARGET is the elected primary of
-    // primaryapp and is running its g: component. Taking FDM down means the
-    // election reaches no verdict for the app at all, so what the node knows
-    // has to go STALE rather than merely be absent - it was elected moments
-    // ago and remembers it. PRIMARY_ELECTION_STALE_MS is ten election cycles,
-    // derived from masterSlaveIntervalMs, so the wait below is derived from
-    // the same knob rather than picked: at the harness's 3s cycle the verdict
-    // expires 30s after the last pass that reached one.
+    // SEEDS ITS OWN APP. This used to run on from the stand-down tests, on the
+    // strength of node TARGET still holding primaryapp and still being its
+    // primary - but that state only ever existed because the stand-down was
+    // BROKEN: the container was stopped and the reconciler started it again, so
+    // the node could never hand the app back and stayed primary indefinitely.
+    // With the stand-down working the app leaves, nothing considers it again,
+    // and the refusal under test is unreachable - the test was passing on the
+    // defect. A scenario a test depends on is a scenario it has to build.
+    await returnToService(env, TARGET);
+
+    await seedApp(env, 'lockedapp', { instances: 5, containerData: 'g:/appdata' });
+    await setSynced({ folder: 'fluxlockedapp_lockedapp' });
+    await setPeerHasData({ folder: 'fluxlockedapp_lockedapp' });
+    await advanceBlocks(3);
+    await waitFor(async () => (await dbClient(2).getAppLocations('lockedapp')).length >= 5,
+      { timeout: 300000, label: 'lockedapp reaches its instance count across the fleet' });
+
+    // A peer holds the folder in full, so the synced-peer loop PASSES and the
+    // pass reaches the election question. That ordering is the safety property
+    // this suite proves elsewhere; here it is the precondition, because a node
+    // refused at the peer loop never gets far enough to refuse on the election.
+
+    // Elected while FDM is still answering. The refusal under test is a verdict
+    // going STALE, not one that never existed, so the node has to have reached
+    // one before the outage starts.
+    await electMaster('lockedapp', subnet.nodeIp(TARGET));
+
+    await setSystemSecure(subnet.nodeIp(TARGET), false);
+    await waitFor(async () => (await dbClient(TARGET).residentialMarker()) !== null,
+      { timeout: 120000, label: 'the settling window starts' });
+    await elapseSettleWindow(TARGET);
+
+    // Taking FDM down means the election reaches no verdict for the app at all,
+    // so what the node knows has to go STALE rather than merely be absent - it
+    // was elected moments ago and remembers it. PRIMARY_ELECTION_STALE_MS is
+    // ten election cycles, derived from masterSlaveIntervalMs, so the wait
+    // below is derived from the same knob rather than picked: at the harness's
+    // 3s cycle the verdict expires 30s after the last pass that reached one.
     //
     // The stub closes its listening socket, not an empty ips array. An empty
     // array is FDM ANSWERING that nobody is primary; this is nobody answering,
@@ -876,7 +912,7 @@ describe('Residential node evacuation', function () {
 
     try {
       let unknownRefusal = null;
-      const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'primaryapp',
+      const refused = waitForGiveUpSafety(env.clients[TARGET - 1], 'lockedapp',
         (d) => d.safe === false && d.code === 'ELECTION_UNKNOWN', 600000)
         .then((v) => { unknownRefusal = v; return v; });
       refused.catch(() => {});
@@ -904,7 +940,7 @@ describe('Residential node evacuation', function () {
       // And the app is still here. A refusal that let the removal through
       // anyway would satisfy the assertions above and lose the volume.
       const stillInstalled = await env.clients[TARGET - 1].get('/apps/installedapps');
-      expect(stillInstalled.data.map((a) => a.name)).to.include('primaryapp');
+      expect(stillInstalled.data.map((a) => a.name)).to.include('lockedapp');
     } finally {
       await endFdmOutage();
     }
