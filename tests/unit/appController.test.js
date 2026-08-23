@@ -550,6 +550,9 @@ describe('appController tests', () => {
       expect(result.status).to.equal('error');
       expect(result.data.name).to.equal('Deprecated');
       expect(result.data.message).to.include('appstop');
+      // The in-band contract: wire status 200, outcome as `code` in the body -
+      // the one field a caller switches on.
+      expect(result.data.code).to.equal(410);
     });
 
     it('should refuse to unpause', async () => {
@@ -559,6 +562,7 @@ describe('appController tests', () => {
       await appController.appUnpause(req, res);
 
       expect(res.json.firstCall.args[0].status).to.equal('error');
+      expect(res.json.firstCall.args[0].data.code).to.equal(410);
     });
 
     it('should still refuse an unauthorized caller before saying anything else', async () => {

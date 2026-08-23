@@ -14,8 +14,32 @@ describe('appsRuntimeState tests', () => {
     const dbHelperStub = {
       databaseConnection: () => ({ db: () => ({}) }),
       findOneInDatabase: async (_db, _coll, query) => store.get(query.identifier) || null,
-      findInDatabase: async (_db, _coll, query = {}) => [...store.values()]
-        .filter((doc) => Object.entries(query).every(([field, value]) => doc[field] === value)),
+      // The fake honors projections the way mongo does: a query that stops
+      // selecting a field loses that field here too. operatorStoppedIdentifiers
+      // reads doc.identifier off an unauthenticated peer route, and a stub that
+      // ignores the projection serves the field regardless - the seam where a
+      // wrong projection answers [] to an election in production while every
+      // test stays green.
+      findInDatabase: async (_db, _coll, query = {}, options = {}) => {
+        const docs = [...store.values()]
+          .filter((doc) => Object.entries(query).every(([field, value]) => doc[field] === value));
+        const projection = options.projection || {};
+        const included = Object.entries(projection)
+          .filter(([field, mode]) => mode === 1 && field !== '_id')
+          .map(([field]) => field);
+        if (included.length) {
+          return docs.map((doc) => Object.fromEntries(
+            included.filter((field) => field in doc).map((field) => [field, doc[field]]),
+          ));
+        }
+        const excluded = Object.keys(projection).filter((field) => projection[field] === 0);
+        if (excluded.length) {
+          return docs.map((doc) => Object.fromEntries(
+            Object.entries(doc).filter(([field]) => !excluded.includes(field)),
+          ));
+        }
+        return docs;
+      },
       updateOneInDatabase: async (_db, _coll, query, update) => {
         const existing = store.get(query.identifier) || {};
         store.set(query.identifier, { ...existing, ...update.$set });

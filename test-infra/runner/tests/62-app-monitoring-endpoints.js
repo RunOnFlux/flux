@@ -156,27 +156,13 @@ describe('App monitoring endpoints', function () {
     expect(data.nanoCpus).to.be.greaterThan(0);
   });
 
-  it('should report disk io as summed read and write entries', async function () {
-    const res = await node.getAuthed(`/apps/appmonitor/${component}`, ownerAuth.zelidauth);
-    const entries = res.data[0].data.blkio_stats.io_service_bytes_recursive;
-
-    // absent is a legitimate reading for a container that has done no io; what
-    // must not happen is the shape changing out from under the chart.
-    //
-    // NOTE what this can and cannot prove. expandSample HARDCODES 'read' and
-    // 'write', so the op names below are not evidence the extract matched
-    // anything - docker emits capitalised ops (Read/Write) and the match is
-    // case-insensitive, and losing that gives every app zero disk io forever with
-    // this assertion still green. Proving the sum is non-zero would catch it, but
-    // a container that has genuinely done no block io reads zero too, so that
-    // would be a red for a reason that is not a bug. The case-insensitive match
-    // is pinned in the unit suite instead, against docker's own casing
-    // (appInspector.test.js, "matches docker's capitalised blkio ops").
-    if (entries !== null) {
-      expect(entries.map((e) => e.op)).to.deep.equal(['read', 'write']);
-      entries.forEach((entry) => expect(entry.value).to.be.a('number'));
-    }
-  });
+  // No disk-io test here, deliberately. The harness nodes' nested docker
+  // (cgroup v2 host) reports io_service_bytes_recursive as null, so an
+  // assertion guarded on entries being present never runs here, and the shape
+  // is ours by construction anyway (expandSample hardcodes the two ops). The
+  // extract's case-insensitive match against docker's capitalised ops is
+  // pinned in the unit suite, against a recorded reading
+  // (appInspector.test.js, "matches docker's capitalised blkio ops").
 
   it('should report the same shape from appstats', async function () {
     const res = await node.getAuthed(`/apps/appstats/${component}`, ownerAuth.zelidauth);
@@ -199,7 +185,12 @@ describe('App monitoring endpoints', function () {
     // the whole series is minutes old, so hourly thinning leaves the first
     // sample and the newest — never an empty chart
     expect(thinned.data.length).to.be.at.least(1);
-    expect(thinned.data.length).to.be.at.most(full.data.length);
+    // Strictly shorter, not at-most: with thinning gone the two fetches answer
+    // the same series, and equal lengths satisfy an at-most. The store holds
+    // minutes of 2s-cadence samples here while thinning leaves two, so the
+    // strict inequality holds on correct code whatever the sampler does
+    // between the fetches.
+    expect(thinned.data.length).to.be.lessThan(full.data.length);
     // At least, not equal to. `thinned` is fetched second and the sampler keeps
     // running between the two calls, so a sample landing in that gap legitimately
     // gives it a NEWER newest sample - an equality fails there on correct code.

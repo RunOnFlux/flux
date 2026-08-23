@@ -42,6 +42,11 @@ services:
       FLUXD_PORT: "16124"
       BENCHD_PORT: "16224"
       CONTROL_PORT: "18232"
+      # Required, no default: the chain start has one home
+      # (runner/framework/chain-start.cjs) and a defaulted copy here goes stale
+      # and silently runs every suite pre-fork. Launch with:
+      #   INITIAL_HEIGHT=$(node -p "require('./runner/framework/chain-start.cjs').DEFAULT_INITIAL_HEIGHT") docker compose up
+      INITIAL_HEIGHT: "${INITIAL_HEIGHT:?set from runner/framework/chain-start.cjs - see the comment above this line}"
     volumes:
       - ./fixtures:/fixtures
     healthcheck:

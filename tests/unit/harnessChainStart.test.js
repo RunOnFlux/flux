@@ -1,4 +1,5 @@
 const { expect } = require('chai');
+const fs = require('fs');
 const path = require('path');
 const { DEFAULT_INITIAL_HEIGHT } = require('../../test-infra/runner/framework/chain-start.cjs');
 
@@ -24,9 +25,41 @@ const { DEFAULT_INITIAL_HEIGHT } = require('../../test-infra/runner/framework/ch
 //
 // Lives in the unit suite deliberately: it runs on every push, where the harness
 // runs by hand. It costs nothing and answers in seconds.
+// Evaluated as CJS by hand, because test-infra/package.json declares
+// "type": "module": a bare require() from here parses shared.js as ESM and
+// answers an EMPTY object - a scan of nothing, green forever. In the harness
+// the config directory is mounted into the FluxOS container without that
+// package.json above it, so CJS is how the file runs where it is consumed.
+const requireShared = () => {
+  const src = fs.readFileSync(path.join(__dirname, '../../test-infra/config/shared.js'), 'utf8');
+  const sandbox = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function('module', 'exports', src)(sandbox, sandbox.exports);
+  return sandbox.exports;
+};
+
+// Each config carries a sentinel gate the scan must find, and a floor on how
+// many gates the scan must yield: an empty or misparsed file is trivially
+// below every start, so "found nothing" has to be a failure, not a pass.
 const CONFIGS = {
-  production: require(path.join(__dirname, '../../ZelBack/config/default.js')),
-  'the unit-test copy': require(path.join(__dirname, 'globalconfig/default.js')),
+  production: {
+    config: require(path.join(__dirname, '../../ZelBack/config/default.js')),
+    sentinel: 'fluxapps.minimumInstancesV8Block',
+    atLeast: 10,
+  },
+  'the unit-test copy': {
+    config: require(path.join(__dirname, 'globalconfig/default.js')),
+    sentinel: 'fluxapps.minimumInstancesV8Block',
+    atLeast: 10,
+  },
+  // The overlay merged over the production config on every harness node: a
+  // fork lowered here is lowered for every suite, invisibly to the two files
+  // above.
+  'the harness overlay': {
+    config: requireShared(),
+    sentinel: 'fluxapps.daemonPONFork',
+    atLeast: 3,
+  },
 };
 
 describe('harness chain start', () => {
@@ -84,7 +117,7 @@ describe('harness chain start', () => {
     return found;
   };
 
-  Object.entries(CONFIGS).forEach(([which, config]) => {
+  Object.entries(CONFIGS).forEach(([which, { config, sentinel, atLeast }]) => {
     it(`starts above every block-height gate in ${which}`, () => {
       const above = gates(config).filter((gate) => gate.height >= DEFAULT_INITIAL_HEIGHT);
 
@@ -103,8 +136,8 @@ describe('harness chain start', () => {
       // an empty list is trivially below any start.
       const found = gates(config);
 
-      expect(found.length, 'no gates found - the scan is looking in the wrong place').to.be.greaterThan(10);
-      expect(found.map((gate) => gate.at)).to.include('fluxapps.minimumInstancesV8Block');
+      expect(found.length, 'no gates found - the scan is looking in the wrong place').to.be.greaterThan(atLeast);
+      expect(found.map((gate) => gate.at)).to.include(sentinel);
     });
   });
 
@@ -112,7 +145,7 @@ describe('harness chain start', () => {
     // Each of these is a live gate whose name contains none of block, height or
     // fork. They are all below the start today, so the assertion above is green
     // either way - which is exactly why their absence went unnoticed.
-    const scanned = gates(CONFIGS.production).map((gate) => gate.at);
+    const scanned = gates(CONFIGS.production.config).map((gate) => gate.at);
 
     expect(scanned).to.include.members([
       'messagesBroadcastRefactorStart',

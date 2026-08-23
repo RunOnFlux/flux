@@ -246,15 +246,10 @@ export async function waitForLocationTable(node, { domains, timeout = 90000 } = 
 // Seed a pre-built app (buildSeedableApp / buildSeedableSyncthingApp) into every
 // node's DB and wait until it installs on some node; resolves that node index.
 export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
-  for (let i = 1; i <= env.nodeCount; i++) {
-    const dc = dbClient(i);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedGlobalAppSpec(app.spec);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedPermanentMessage(app.permanentMessage);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  }
+  // Through the guarded funnel, never inlined: seedGlobalSpec is the one place
+  // that checks the app is alive on this suite's chain, and a seed that skips
+  // it fails twenty minutes later as a spawner timeout instead of now.
+  await seedGlobalSpec(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
   return Promise.any(env.clients.map(async (c, i) => {
     await waitForAppInstalled(c, app.spec.name, timeout);
     return i;
@@ -265,15 +260,8 @@ export async function seedAndInstall(env, app, { timeout = 120000 } = {}) {
 // install it; resolves the sorted list of those node indices. Used by the
 // multi-node gates (g: election needs >= 2 holders).
 export async function seedAndInstallMany(env, app, minCount, { timeout = 150000 } = {}) {
-  for (let i = 1; i <= env.nodeCount; i++) {
-    const dc = dbClient(i);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedGlobalAppSpec(app.spec);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedPermanentMessage(app.permanentMessage);
-    // eslint-disable-next-line no-await-in-loop
-    await dc.seedAppHash(app.hash, app.permanentMessage.height, true);
-  }
+  // Through the guarded funnel, never inlined - same contract as seedAndInstall.
+  await seedGlobalSpec(env, app, Array.from({ length: env.nodeCount }, (_, i) => i));
   const installed = [];
   await Promise.all(env.clients.map(async (c, i) => {
     try {

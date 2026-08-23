@@ -514,6 +514,21 @@ describe('appQueryService tests', () => {
       expect(result).to.deep.equal(['fluxwww_App']);
     });
 
+    // Each source is the SOLE carrier of one name. Feeding all three the same
+    // identifier pins the dedup but says nothing about the sources themselves:
+    // a dropped source loses nothing there, and the pre-start window committed
+    // exists for - installed, not yet running, invisible to a peer - would be
+    // lost with no test able to see it.
+    it('reports a component that only one source carries, for each source', async () => {
+      const result = await held({
+        running: ['fluxa_App'],
+        committed: ['b_App'],
+        stopped: ['c_App'],
+      });
+
+      expect(result).to.deep.equal(['fluxa_App', 'fluxb_App', 'fluxc_App']);
+    });
+
     it('still reports a running container that carries no lock and no commitment', async () => {
       const result = await held({ running: ['fluxapi_App'] });
 

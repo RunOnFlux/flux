@@ -26,7 +26,6 @@ describe('appInspector tests', () => {
 
     dockerServiceStub = {
       appDockerInspect: sinon.stub(),
-      appDockerStats: sinon.stub(),
       appDockerUpdateCpu: sinon.stub().resolves(),
       dockerContainerInspect: sinon.stub(),
     };
@@ -171,6 +170,28 @@ describe('appInspector tests', () => {
 
       expect(early, 'sampled inside the first second - the zero went into setInterval').to.equal(0);
       expect(afterAMinute, 'did not sample once a minute').to.equal(1);
+    });
+
+    // A configured value that differs from the fallback, because a value equal
+    // to it cannot tell "read from config" from "silently defaulted" - the
+    // harness runs this sampler at two seconds, so the config being read is
+    // itself a property something must pin.
+    it('samples on the configured cadence, not the fallback', async () => {
+      configStub.fluxapps.statsSampleIntervalMs = 30000;
+      dockerServiceStub.getDockerContainerOnly = sinon.stub().resolves({ State: 'running' });
+      dockerServiceStub.dockerContainerStats = sinon.stub().resolves(reading({}));
+      dockerServiceStub.dockerContainerInspect.resolves({ HostConfig: { NanoCpus: 2e9 } });
+      clock = sinon.useFakeTimers();
+
+      appInspector.startAppMonitoring('myapp');
+      await clock.tickAsync(29000);
+      const beforeTick = globalStateStub.appsMonitored.myapp.statsStore.length;
+      await clock.tickAsync(1000);
+      const afterTick = globalStateStub.appsMonitored.myapp.statsStore.length;
+      appInspector.stopAppMonitoring('myapp', false);
+
+      expect(beforeTick, 'sampled before the configured interval elapsed').to.equal(0);
+      expect(afterTick, 'did not sample at the configured 30s cadence').to.equal(1);
     });
 
     // A partial reading means some mount could not be sized, so the total is a
@@ -1094,56 +1115,6 @@ describe('appInspector tests', () => {
       expect(res.json.calledOnce).to.be.true;
     });
 
-    it('should return app stats, underscore in the name', async () => {
-      const req = {
-        params: {
-          appname: 'test_myappname',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const res = {
-        json: sinon.stub(),
-      };
-
-      const mockStats = { data: 1000 };
-      dockerServiceStub.appDockerStats.resolves(mockStats);
-      messageHelperStub.createDataMessage.returns({
-        status: 'success',
-        data: mockStats,
-      });
-
-      await appInspector.appStats(req, res);
-
-      expect(res.json.called).to.be.true;
-    });
-
-    it('should return app stats, no underscore in the name', async () => {
-      const req = {
-        params: {
-          appname: 'myappname',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      const res = {
-        json: sinon.stub(),
-      };
-
-      const mockStats = { data: 1000 };
-      dockerServiceStub.appDockerStats.resolves(mockStats);
-      messageHelperStub.createDataMessage.returns({
-        status: 'success',
-        data: mockStats,
-      });
-
-      await appInspector.appStats(req, res);
-
-      expect(res.json.called).to.be.true;
-    });
-
     // The node samples every running container already. Before this the live view
     // took the same three docker readings again on every five-second poll and threw
     // them away, so the copy that was kept was the one nothing read.
@@ -1274,6 +1245,25 @@ describe('appInspector tests', () => {
 
         expect(dockerServiceStub.dockerContainerStats.calledTwice).to.be.true;
         expect(after.json.firstCall.args[0].cpu_stats.cpu_usage.total_usage).to.equal(9);
+      });
+
+      // The reading a miss takes is remembered on the monitoring record, and
+      // that memory is the only thing a poller can be served from between the
+      // sampler's 60s writes. Without it every poll pays the three docker
+      // calls and the du walk again - the endpoint still answers correctly,
+      // so nothing but this assertion can notice the cost coming back.
+      it('serves the second of two close polls from the first one\'s reading', async () => {
+        globalStateStub.appsMonitored = { myapp: { statsStore: [storedSample(30_000)] } };
+
+        await appInspector.appStats(req, res);
+        const second = { json: sinon.stub() };
+        await appInspector.appStats(req, second);
+
+        expect(
+          dockerServiceStub.dockerContainerStats.calledOnce,
+          'the second poll went back to docker - the first reading was not remembered',
+        ).to.be.true;
+        expect(second.json.firstCall.args[0].cpu_stats.cpu_usage.total_usage).to.equal(1);
       });
 
       // Without this a permanently stuck reading passes the test above perfectly.

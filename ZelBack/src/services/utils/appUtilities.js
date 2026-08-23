@@ -252,9 +252,8 @@ async function getContainerStorage(appName) {
       // Which filesystem the node shares is one fact about this call rather than
       // a step in the loop, so it is resolved once and remembered - but only
       // when a mount under the apps folder actually asks. Only those mounts are
-      // classified against it; resolved eagerly it failed the WHOLE reading,
-      // including for a container whose mounts all live elsewhere and would
-      // simply have been walked, on a fact none of them needed.
+      // classified against it, so only they can be failed by it: a container
+      // whose mounts all live elsewhere never depends on this fact at all.
       let sharedDevicePromise = null;
       const sharedDevice = () => {
         sharedDevicePromise = sharedDevicePromise
@@ -296,10 +295,10 @@ async function getContainerStorage(appName) {
           continue;
         }
         // Resolved OUTSIDE the try, and only on need: a mount under the apps
-        // folder that cannot be classified keeps failing the whole reading -
+        // folder that cannot be classified must fail the whole reading -
         // sizing it at zero would report a working node as using almost no
         // disk, and nothing under the apps folder can do better - while a
-        // mount living anywhere else never asks and is walked as before.
+        // mount living anywhere else never asks and is simply walked.
         // eslint-disable-next-line no-await-in-loop
         const shared = source.startsWith(appConstants.appsFolder) ? await sharedDevice() : undefined;
         let size = 0;

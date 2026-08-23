@@ -68,13 +68,33 @@ describe('appUtilities tests', () => {
   // which require proper system access. These should be tested in integration tests.
 
   describe('getContainerStorage tests', () => {
+    // A fresh cache per test, never the process-global one: a complete reading
+    // is cached under the app name for 60 seconds, and an entry written to the
+    // shared cache is served to any test in this process that asks about the
+    // same name inside that window - an order-dependent coupling nothing here
+    // clears (sinon.restore restores stubs, not cache contents).
+    let utils;
+    beforeEach(() => {
+      const cacheStore = new Map();
+      utils = proxyquire('../../ZelBack/src/services/utils/appUtilities', {
+        './cacheManager': {
+          default: {
+            containerStorageCache: {
+              get: (key) => cacheStore.get(key),
+              set: (key, value) => cacheStore.set(key, value),
+            },
+          },
+        },
+      });
+    });
+
     it('should handle containers with no mounts', async () => {
       sinon.stub(dockerService, 'dockerContainerInspect').resolves({
         SizeRootFs: 1000000,
         Mounts: [],
       });
 
-      const result = await appUtilities.getContainerStorage('testapp');
+      const result = await utils.getContainerStorage('testapp');
 
       expect(result.bind).to.equal(0);
       expect(result.volume).to.equal(0);
@@ -87,7 +107,7 @@ describe('appUtilities tests', () => {
       sinon.stub(dockerService, 'dockerContainerInspect').rejects(new Error('Container not found'));
       sinon.stub(log, 'error');
 
-      const result = await appUtilities.getContainerStorage('missingapp');
+      const result = await utils.getContainerStorage('missingapp');
 
       expect(result.status).to.equal('error');
       expect(result.message).to.include('Container not found');
@@ -134,7 +154,13 @@ describe('appUtilities tests', () => {
       statStub = sinon.stub().callsFake(async (target) => ({
         dev: deviceByPath[target] ?? APPS_FOLDER_DEV,
       }));
-      statfsStub = sinon.stub().resolves({ blocks: 1000, bfree: 400, bsize: 4096 });
+      // Path-sensitive, so the assertion is "the app's own volume was measured",
+      // not "a number came back": a statfs against any path the test did not
+      // declare throws, the way a wrong source fails on a real node.
+      statfsStub = sinon.stub().callsFake(async (target) => {
+        if (!(target in deviceByPath)) throw new Error(`statfs of a path the test never declared: ${target}`);
+        return { blocks: 1000, bfree: 400, bsize: 4096 };
+      });
       inspectStub = sinon.stub();
 
       return proxyquire('../../ZelBack/src/services/utils/appUtilities', {
@@ -368,10 +394,32 @@ describe('appUtilities tests', () => {
       sinon.assert.notCalled(runStub);
     });
 
+    // A mount type this code does not understand must contribute NOTHING:
+    // falling through would walk or filesystem-read a source with unknowable
+    // semantics and charge the app for it. The type filter is what stands
+    // between docker growing a new mount type and that number.
+    it('skips a mount of an unsupported type without charging the app', async () => {
+      const utils = build({ 'myapp/appdata': VOLUME_DEV });
+      inspectStub.resolves({
+        SizeRootFs: 500,
+        Mounts: [
+          { Type: 'bind', Source: src('myapp/appdata') },
+          { Type: 'npipe', Source: '//./pipe/docker_engine' },
+        ],
+      });
+
+      const result = await utils.getContainerStorage('myapp');
+
+      expect(result.bind).to.equal(2457600);
+      expect(result.volume, 'the unsupported mount was sized and charged').to.equal(0);
+      expect(result.used).to.equal(2457600 + 500);
+      expect(result.status).to.equal('success');
+    });
+
     // The shared device answers one question - is this mount under the apps
     // folder a dedicated volume - and a mount living anywhere else never asks
-    // it. Resolving it eagerly made ITS failure fail the whole reading for a
-    // container whose mounts would simply have been walked.
+    // it, so the apps folder being unstattable must not stop those mounts
+    // being sized.
     it('still walks mounts that never needed the apps folder when it cannot be statted', async () => {
       const utils = build({});
       inspectStub.resolves({
