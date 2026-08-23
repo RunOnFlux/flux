@@ -557,11 +557,12 @@ function isDataCenter() {
  * enforces on null.
  * @returns {Promise<{classification: string, source: string,
  *   evidenceFor: string[], evidenceAgainst: string[], ptr: string|null,
- *   gatheredAt: number}|null>} Null when nothing has been gathered yet, or when
- *   no location table has been consulted. `source` names the authority:
- *   'published-table', 'node' where the table holds no verdict for this
- *   address, or 'node-veto' where the node declined a published RESIDENTIAL on
- *   evidence about its own address.
+ *   gatheredAt: number}|null>} Null when nothing has been gathered yet, when no
+ *   location table has been consulted, or when the table holds no verdict for
+ *   this address. `source` names the authority: 'published-table', or
+ *   'node-veto' where the node declined a published RESIDENTIAL on evidence
+ *   about its own address. There is no 'node' source - a table carrying no
+ *   verdict yields null, it does not hand the decision back to the node.
  */
 async function getNetworkClassification() {
   if (!networkEvidence) return null;
@@ -586,8 +587,9 @@ async function getNetworkClassification() {
   // query the RIRs, so registration data belongs in the table - and its error
   // rate has never been measured: 0.13% is reverse DNS alone and 0.00% is the
   // combined rule WITH registration, and neither is what a node runs. It decided
-  // for the ~8% of hosts whose organisation carries no published verdict, on the
-  // one path that deletes customer data.
+  // for the 13% of the enforceable population - 70 of the 541 slots whose bench
+  // confirms they are not ArcaneOS - whose organisation carries no published
+  // verdict, on the one path that deletes customer data.
   //
   // Tuning belongs in fluxos-network-policy, where a verdict is evidence-backed,
   // auditable by anyone, correctable by hand through
