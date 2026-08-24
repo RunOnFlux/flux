@@ -68,7 +68,7 @@ describe('appQueryService tests', () => {
       isAppContainer: (container) => {
         const role = container.Labels && container.Labels['runonflux.role'];
         if (role) return role === 'app';
-        const name = (container.Names && container.Names[0]) || '';
+        const [name = ''] = container.Names || [];
         return name.slice(1, 4) === 'zel' || name.slice(1, 5) === 'flux';
       },
       // Namespacing, for the same reason: heldComponents is compared against a
@@ -421,7 +421,7 @@ describe('appQueryService tests', () => {
       // does not intercept it - manipulate the real singleton and clean up.
       // eslint-disable-next-line global-require
       const globalState = require('../../ZelBack/src/services/utils/globalState');
-      globalState.backupInProgress.push('App'); // bare main-app name (production format)
+      globalState.tryStartBackup('App'); // bare main-app name (production format)
       try {
         const stoppedContainer = {
           Names: ['/fluxwww_App'], State: 'exited', HostConfig: {}, NetworkSettings: {}, Mounts: [],
@@ -436,7 +436,7 @@ describe('appQueryService tests', () => {
         const names = result.data.map((app) => app.Names[0]);
         expect(names, 'backed-up app must still be reported as running').to.include('/fluxwww_App');
       } finally {
-        globalState.backupInProgress.length = 0;
+        globalState.finishBackup('App');
       }
     });
 

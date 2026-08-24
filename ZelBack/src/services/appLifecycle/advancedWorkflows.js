@@ -2342,13 +2342,16 @@ async function appendBackupTask(req, res) {
     if (!appname || !backup) {
       throw new Error('appname and backup parameters are mandatory');
     }
-    const indexBackup = globalState.backupInProgress.indexOf(appname);
-    if (indexBackup !== -1) {
-      throw new Error('Backup in progress...');
-    }
     const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
     if (hasTrueBackup === false) {
       throw new Error('No backup jobs...');
+    }
+    // The claim, before any awaited work: a second request for the same app
+    // finds it taken here rather than passing an emptied check and racing to
+    // the archive alongside the first. Last in this synchronous block, so a
+    // validation throw above never leaves it claimed.
+    if (!globalState.tryStartBackup(appname)) {
+      throw new Error('Backup in progress...');
     }
   } catch (error) {
     log.error(error);
@@ -2406,8 +2409,6 @@ async function appendBackupTask(req, res) {
         log.warn(`appendBackupTask - ${appname} forced over an incomplete copy - ${summary}`);
         await sendChunk(res, `WARNING: backing up an incomplete copy - ${summary}\n`);
       }
-
-      globalState.backupInProgress.push(appname);
 
       // Hold the data still by pausing the folders being archived - the folder
       // runner stops, so nothing writes underneath the archive. Deleting them
@@ -2499,8 +2500,6 @@ async function appendBackupTask(req, res) {
       }
       await sendChunk(res, 'Finalizing...\n');
       await serviceHelper.delay(5 * 1000);
-      const indexToRemove = globalState.backupInProgress.indexOf(appname);
-      globalState.backupInProgress.splice(indexToRemove, 1);
       res.end();
       return true;
       // eslint-disable-next-line no-else-return
@@ -2515,13 +2514,14 @@ async function appendBackupTask(req, res) {
       // eslint-disable-next-line no-await-in-loop
       await setSyncthingFolderPaused(folderId, false);
     }
-    const indexToRemove = globalState.backupInProgress.indexOf(appname);
-    if (indexToRemove >= 0) {
-      globalState.backupInProgress.splice(indexToRemove, 1);
-    }
     await sendChunk(res, `${error?.message}\n`);
     res.end();
     return false;
+  } finally {
+    // The one release, reached by every exit the claim can survive to: success,
+    // unauthorized, and error alike. The claim is made in the block above this
+    // try, so a request that never claimed never reaches here.
+    globalState.finishBackup(appname);
   }
 }
 
@@ -2575,13 +2575,16 @@ async function appendRestoreTask(req, res) {
     if (!RESTORE_TYPES.includes(type)) {
       throw new Error(`Refused: type must be one of ${RESTORE_TYPES.join(', ')}`);
     }
-    const indexRestore = globalState.restoreInProgress.indexOf(appname);
-    if (indexRestore !== -1) {
-      throw new Error(`Restore for app ${appname} is running...`);
-    }
     const hasTrueRestore = restore.some((restoreitem) => restoreitem.restore);
     if (hasTrueRestore === false) {
       throw new Error('No restore jobs...');
+    }
+    // The claim, before any awaited work: a second request for the same app
+    // finds it taken here rather than passing an emptied check and racing to
+    // the clear alongside the first. Last in this synchronous block, so a
+    // validation throw above never leaves it claimed.
+    if (!globalState.tryStartRestore(appname)) {
+      throw new Error(`Restore for app ${appname} is running...`);
     }
   } catch (error) {
     log.error(error);
@@ -2640,16 +2643,6 @@ async function appendRestoreTask(req, res) {
         throw new Error(`Refused: restore on ${primaryIp}, it holds the live copy`);
       }
     }
-
-    // Claimed here rather than at the top: the check up there happens before
-    // authorisation, the spec lookup and a possible FDM round trip, and a second
-    // request arriving inside that window would pass it too. Re-reading it
-    // immediately before the push leaves no await between the two, so nothing
-    // can interleave.
-    if (globalState.restoreInProgress.includes(appname)) {
-      throw new Error(`Restore for app ${appname} is running...`);
-    }
-    globalState.restoreInProgress.push(appname);
 
     // Hold the data still by pausing the folders being replaced. Deleting them
     // instead (as this once did, by an app-level identifier that matched no
@@ -2846,10 +2839,6 @@ async function appendRestoreTask(req, res) {
 
     await sendChunk(res, 'Finalizing...\n');
     await serviceHelper.delay(5 * 1000);
-    const indexToRemove = globalState.restoreInProgress.indexOf(appname);
-    if (indexToRemove >= 0) {
-      globalState.restoreInProgress.splice(indexToRemove, 1);
-    }
     res.end();
     return true;
   } catch (error) {
@@ -2901,13 +2890,14 @@ async function appendRestoreTask(req, res) {
       // eslint-disable-next-line no-await-in-loop
       await setSyncthingFolderPaused(folderId, false);
     }
-    const indexToRemove = globalState.restoreInProgress.indexOf(appname);
-    if (indexToRemove >= 0) {
-      globalState.restoreInProgress.splice(indexToRemove, 1);
-    }
     await sendChunk(res, `${error?.message}\n`);
     res.end();
     return false;
+  } finally {
+    // The one release, reached by every exit the claim can survive to: success,
+    // unauthorized, and error alike. The claim is made in the block above this
+    // try, so a request that never claimed never reaches here.
+    globalState.finishRestore(appname);
   }
 }
 
@@ -3142,9 +3132,7 @@ function getRemovalInProgress() {
  * @param {string} appname - App name
  */
 function addToRestoreProgress(appname) {
-  if (!globalState.restoreInProgress.includes(appname)) {
-    globalState.restoreInProgress.push(appname);
-  }
+  globalState.tryStartRestore(appname);
 }
 
 /**
@@ -3152,10 +3140,7 @@ function addToRestoreProgress(appname) {
  * @param {string} appname - App name
  */
 function removeFromRestoreProgress(appname) {
-  const index = globalState.restoreInProgress.indexOf(appname);
-  if (index > -1) {
-    globalState.restoreInProgress.splice(index, 1);
-  }
+  globalState.finishRestore(appname);
 }
 
 /**

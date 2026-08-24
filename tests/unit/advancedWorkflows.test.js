@@ -2942,6 +2942,26 @@ describe('advancedWorkflows tests', () => {
       sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
       expect(globalState.backupInProgress).to.not.include(appname);
     });
+
+    it('lets only one of two concurrent backups of the same app proceed', async () => {
+      // Between the old check and its later claim sat auth, a spec fetch and a
+      // sync probe per component; two requests could both pass the emptied
+      // check and archive the same volume at once. The claim is now a
+      // synchronous test-and-set before any of that, so the second finds the
+      // app taken and refuses.
+      sinon.stub(stateMachine, 'probeFolderSyncCompletion').resolves({
+        status: { isSynced: true, syncPercentage: 100, inSyncBytes: 1000, globalBytes: 1000 },
+        reason: 'ok',
+      });
+
+      const first = advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+      const second = advancedWorkflows.appendBackupTask(backupReq(), makeRes());
+
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+
+      expect([firstResult, secondResult]).to.have.members([true, false]);
+      sinon.assert.calledOnce(IOUtils.createTarGz);
+    });
   });
 
   describe('appendRestoreTask tests', () => {
@@ -3015,9 +3035,9 @@ describe('advancedWorkflows tests', () => {
     }
 
     beforeEach(() => {
-      // getter-only on globalState, so it is emptied in place - assigning a new
-      // array silently does nothing and leaks the lease into the next test
-      globalState.restoreInProgress.length = 0;
+      // Release any lease a prior test left, through the claim's own primitive -
+      // the list is a frozen snapshot to reads, so only finishRestore clears it.
+      globalState.finishRestore(appname);
       globalState.receiveOnlySyncthingAppsCache.clear();
       sinon.stub(serviceHelper, 'delay').resolves();
       sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { status: 'success', data: { ips: [localAddr] } } });
@@ -3094,22 +3114,21 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.calledOnce(IOUtils.removeDirectory.withArgs(`${mount}/appdata`, true));
       });
 
-      it('refuses a second restore that claimed the app while this one was still checking', async () => {
-        // The check at the top happens before authorisation, the spec lookup and
-        // a possible FDM round trip. Seeding the lease before the call would be
-        // caught by that check and prove nothing, so it is taken DURING the spec
-        // lookup - the window a second request actually arrives in.
-        registryManager.getApplicationGlobalSpecifications.callsFake(async () => {
-          globalState.restoreInProgress.push(appname);
-          return specWith('g:/palworld/Pal/Saved');
-        });
+      it('lets only one of two concurrent restores of the same app proceed', async () => {
+        // The claim is a synchronous test-and-set before any awaited work, so
+        // the first request holds the app before the second runs its own
+        // validation - the second finds it taken and refuses, rather than both
+        // passing an emptied check and clearing the same volume at once. (The
+        // old "push during the spec lookup" simulation no longer bites: the
+        // getter hands out a snapshot, so only the claim primitive can write.)
+        const first = advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+        const second = advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
-        const result = await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+        const [firstResult, secondResult] = await Promise.all([first, second]);
 
-        expect(result).to.equal(false);
-        sinon.assert.notCalled(IOUtils.untarFile);
-        sinon.assert.notCalled(IOUtils.removeDirectory);
-        sinon.assert.notCalled(dockerService.appDockerStop);
+        expect([firstResult, secondResult]).to.have.members([true, false]);
+        // one restore ran, the other never touched the volume
+        sinon.assert.calledOnce(IOUtils.untarFile);
       });
 
       it('restores only the components asked for, not every one the UI listed', async () => {
