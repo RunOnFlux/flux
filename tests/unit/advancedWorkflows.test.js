@@ -3257,6 +3257,45 @@ describe('advancedWorkflows tests', () => {
         sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'delete');
       });
 
+      it('leaves the folder paused when a failed restore cannot demote it', async () => {
+        // The folder holds partial data. Demoted it heals from the peers;
+        // resumed while still sendreceive it hands the deletions and the
+        // wreckage to every healthy peer. So a demotion that did not happen
+        // must keep the folder out of the resume.
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+        syncthingService.adjustConfigFolders
+          .withArgs('patch', { type: 'receiveonly' }, folderId)
+          .resolves({
+            status: 'error',
+            data: { message: 'Request failed with status code 500', name: 'AxiosError', code: 'ERR_BAD_RESPONSE' },
+          });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.neverCalledWith(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+        // the healing marks still go on: they are what the machinery needs
+        // if the demotion lands on a later pass
+        expect(globalState.receiveOnlySyncthingAppsCache.get(folderId)).to.deep.equal({
+          restarted: false,
+          numberOfExecutions: 0,
+        });
+        sinon.assert.calledWithExactly(appReconciler.setControllerDesired, folderId, 'stopped', 'restore did not complete');
+      });
+
+      it('demotes a failed restore straight at the folder id, then resumes it', async () => {
+        // The demotion is patched directly, with no config pre-read: a safety
+        // action must not be conditioned on a fallible read whose failure
+        // silently reads as "nothing to protect". Demoted, the resumed folder
+        // is receiveonly - it heals from the peers instead of feeding them.
+        IOUtils.untarFile.resolves({ status: false, error: 'no space left on device' });
+
+        await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
+
+        sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { type: 'receiveonly' }, folderId);
+        sinon.assert.notCalled(syncthingService.getConfigFolders);
+        sinon.assert.calledWithExactly(syncthingService.adjustConfigFolders, 'patch', { paused: false }, folderId);
+      });
+
       it('refuses before clearing anything when a container will not stop', async () => {
         // appdata lives on a volume the container is still writing to. Clearing
         // it under a live container leaves the app writing into a half-emptied

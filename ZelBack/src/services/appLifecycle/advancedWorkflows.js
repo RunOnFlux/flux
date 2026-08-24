@@ -2852,9 +2852,8 @@ async function appendRestoreTask(req, res) {
     // Demoting the folder stops it being sent and disqualifies this node from
     // election until syncthing has healed it from a peer; the cache entry has
     // to say NOT settled, or the folder state machine skips the healing path
-    // and starts the container on the partial data. Leaving the folder paused
-    // instead is not an option - the monitor reads a paused folder as drift and
-    // resumes it.
+    // and starts the container on the partial data.
+    let undemotedFolderId = null;
     if (swapInFlight) {
       // The demotion only means anything where there is a folder: it stops this
       // copy being sent, and disqualifies the node from election until syncthing
@@ -2862,7 +2861,23 @@ async function appendRestoreTask(req, res) {
       // the folder state machine skips the healing path and starts the container
       // on the partial data.
       if (swapInFlight.syncMode !== 'none') {
-        await changeSyncthingFolderType(swapInFlight.folderId, 'receiveonly');
+        // Patched straight at the folder id, the way the monitor's mount-safety
+        // block does: a safety action must not be conditioned on a fallible
+        // read whose failure silently reads as "nothing to protect". A folder
+        // syncthing does not know answers 404 - nothing is replicating the
+        // partial data, so there is nothing to demote.
+        const demote = await syncthingServiceModule.adjustConfigFolders('patch', { type: 'receiveonly' }, swapInFlight.folderId);
+        const demoteMessage = demote.status === 'success' ? '' : (demote.data?.message || '');
+        const demoteHttpStatus = Number((/status code (\d{3})/.exec(demoteMessage) || [])[1]);
+        if (demote.status !== 'success' && demoteHttpStatus !== 404) {
+          // Still sendreceive over partial data. Paused it transmits nothing;
+          // resumed it would hand the deletions and the wreckage to every
+          // healthy peer, so the resume below skips it. The monitor resumes a
+          // paused folder as drift eventually - this is damage limitation with
+          // a loud log, not a seal.
+          undemotedFolderId = swapInFlight.folderId;
+          log.error(`appendRestoreTask - SAFETY: ${swapInFlight.folderId} holds partial data and could not be demoted to receiveonly (${demoteMessage || JSON.stringify(demote.data)}); leaving it paused`);
+        }
         globalState.receiveOnlySyncthingAppsCache.set(swapInFlight.folderId, {
           restarted: false,
           numberOfExecutions: 0,
@@ -2877,7 +2892,7 @@ async function appendRestoreTask(req, res) {
       appReconciler.setControllerDesired(swapInFlight.folderId, 'stopped', 'restore did not complete');
     }
     // eslint-disable-next-line no-restricted-syntax
-    for (const folderId of pausedFolderIds) {
+    for (const folderId of pausedFolderIds.filter((id) => id !== undemotedFolderId)) {
       // eslint-disable-next-line no-await-in-loop
       await setSyncthingFolderPaused(folderId, false);
     }
