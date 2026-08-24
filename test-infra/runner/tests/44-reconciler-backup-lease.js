@@ -85,7 +85,10 @@ describe('backup leases the whole app against the reconciler', function () {
     this.timeout(300000);
     const client = env.clients[0];
     const auth = await authenticate(client.url, appOwnerKey());
-    const nodeIp = subnet.nodeIp(0);
+    // node numbers are 1-based in subnet-config (clients[0] is nodeIp(1)) - the
+    // suite's own setSynced above uses the same offset. nodeIp(0) is .9, an
+    // address nothing occupies, and its write log reads empty forever.
+    const nodeIp = subnet.nodeIp(1);
 
     const afterId = client.getLastEventId();
     // the unresolved promise is the lease window; the backup pauses the folder
