@@ -22,9 +22,20 @@ jobs:
           newhash=$(find ./ZelBack -type f -exec md5sum {} + | awk '{print $1}' | LC_ALL=C sort | md5sum | awk '{printf $1}')
           echo $newhash
           echo NEW_HASH=$newhash >> $GITHUB_ENV
+      # The credential is a GitHub App scoped to fluxhashes with Actions permission only: the
+      # workflow mints a short-lived installation token per run, so there is no long-lived token
+      # anywhere and nothing to renew.
+      - name: Mint the dispatch token
+        id: dispatch-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.FLUXHASHES_APP_ID }}
+          private-key: ${{ secrets.FLUXHASHES_APP_KEY }}
+          owner: RunOnFlux
+          repositories: fluxhashes
       - name: Request hash publication
         env:
-          GH_TOKEN: ${{ secrets.FLUXHASHES_DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ steps.dispatch-token.outputs.token }}
         run: |
           gh api -X POST repos/RunOnFlux/fluxhashes/actions/workflows/sign-hashlist.yml/dispatches \
             -f ref=master \
@@ -90,10 +101,20 @@ jobs:
           CI: true
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
+      - name: Mint the docs token
+        if: github.repository == 'RunOnFlux/flux'
+        id: docs-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.FLUXJSDOCS_APP_ID }}
+          private-key: ${{ secrets.FLUXJSDOCS_APP_KEY }}
+          owner: RunOnFlux
+          repositories: fluxjsdocs
       - name: Push docs to other repo # Push services directory from RunOnFlux/flux to RunOnFlux/fluxjsdocs repo to build JSDocs separately.
+        if: github.repository == 'RunOnFlux/flux'
         uses: cpina/github-action-push-to-another-repository@main
         env:
-          API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+          API_TOKEN_GITHUB: ${{ steps.docs-token.outputs.token }}
         with:
           source-directory: "ZelBack/src/services"
           destination-github-username: "RunOnFlux"
