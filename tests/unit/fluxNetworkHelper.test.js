@@ -22,6 +22,7 @@ const WebSocket = require('ws');
 const path = require('path');
 const chaiAsPromised = require('chai-as-promised');
 const fs = require('fs').promises;
+const os = require('os');
 const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
 const { Privilege, authOf } = require('../../ZelBack/src/services/utils/privileges');
@@ -3128,6 +3129,28 @@ describe('fluxNetworkHelper tests', () => {
       const result = await fluxNetworkHelper.hasPublicIpOnInterface();
 
       expect(result).to.equal(false);
+    });
+
+    it('finds a public address that is not the first one on the interface', async () => {
+      // An interface can carry a private primary and a public secondary - the
+      // shape add-on and failover addresses arrive in. The question is whether
+      // a public address is bound to the default-route interface; which address
+      // the kernel lists first is not part of the question.
+      const routeTable = 'Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n'
+        + 'eth0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0\n';
+      const readFile = sinon.stub(fs, 'readFile');
+      readFile.withArgs('/proc/net/route', 'utf8').resolves(routeTable);
+      readFile.withArgs('/sys/class/net/eth0/operstate', 'utf8').resolves('up\n');
+      sinon.stub(os, 'networkInterfaces').returns({
+        eth0: [
+          { family: 'IPv4', internal: false, address: '192.168.1.50' },
+          { family: 'IPv4', internal: false, address: '203.0.113.7' },
+        ],
+      });
+
+      const result = await fluxNetworkHelper.hasPublicIpOnInterface();
+
+      expect(result).to.equal(true);
     });
   });
 });
