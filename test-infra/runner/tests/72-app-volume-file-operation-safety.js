@@ -26,6 +26,11 @@ import {
 // passes. A security test that cannot fail is worse than no test.
 
 const OPERATION_UUID = '11111111-2222-4333-8444-555555555555';
+// A fixture uuid for the fake `.flux-op-<uuid>` staging dirs the boot-recovery
+// tests plant to prove the sweep's scope. The signal rework deleted this const
+// with its old users; the two prefix/own-data tests still plant staging dirs,
+// and their first execution (this stack's first full gate) found the hole.
+const STAGING_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 
 describe('app volume file operations - safety and recovery', function () {
   let env;
