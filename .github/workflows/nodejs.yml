@@ -2,12 +2,19 @@ name: Node CI
 
 on: [push]
 
+# Cross-repo pushes and dispatches use per-run GitHub App tokens minted below; the run's own token
+# needs read only.
+permissions:
+  contents: read
+
 jobs:
   # Publication is a request, not a write: the fluxhashes signer fetches this commit itself,
   # derives the tree hash from the bytes it fetched, and publishes list, signed document and
-  # provenance in one commit. The token can trigger that workflow and nothing else. NEW_HASH rides
-  # along as a tripwire the signer checks against its own computation -- a mismatch is a red
-  # signing run, never a listed value. Forks publish nothing.
+  # provenance in one commit. The credential can start, cancel and re-run workflows on fluxhashes
+  # and delete their logs -- availability, never content: it cannot write to the repository, and a
+  # hash value cannot enter the list through it. NEW_HASH rides along as a tripwire the signer
+  # checks against its own computation -- a mismatch is a red signing run, never a listed value.
+  # Forks publish nothing.
   #
   # Its own job, deliberately: the hash describes a checkout nothing else has touched, and a
   # publication failure (fluxhashes unavailable, token expired) stays a red publish job instead of
@@ -15,6 +22,7 @@ jobs:
   publish:
     runs-on: ubuntu-22.04
     if: github.repository == 'RunOnFlux/flux'
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - name: Check Hash
