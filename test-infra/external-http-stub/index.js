@@ -768,7 +768,15 @@ function startResolver() {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      upstream.close();
+      // answer() also runs as the upstream's own error handler, and close()
+      // throws on a socket that never bound - from inside an error handler
+      // nothing catches, so one unlucky query would take the resolver down for
+      // the whole run. An uncloseable socket is left to the garbage collector.
+      try {
+        upstream.close();
+      } catch {
+        // nothing to close
+      }
       if (!resolved) dnsAttempts.push({ name, node: rinfo.address, at: new Date().toISOString() });
       server.send(response, rinfo.port, rinfo.address);
     };
