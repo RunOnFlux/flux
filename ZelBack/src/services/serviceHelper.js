@@ -506,13 +506,6 @@ function ipInSubnet(ip, subnet) {
 }
 
 /**
- * Runs a command as a child process, without a shell by default.
- * Using a shell is possible with the `shell` option.
- * @param {string} cmd The binary to run. Must be in PATH
- * @param {{params?: string[], runAsRoot?: Boolean, exclusive?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
-   @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
- */
-/**
  * Runs a command whose output is consumed as it arrives, rather than collected
  * and returned.
  *
@@ -571,22 +564,26 @@ async function runStreamingCommand(userCmd, options = {}) {
     // on every entry must not be able to grow this without limit.
     const STDERR_CAP = 8192;
 
+    // A runAsRoot child IS root, and on a legacy node FluxOS is not - the
+    // kernel refuses the plain signal, and the child runs on as an orphan
+    // behind a verdict that says it was stopped. The kill goes the way the
+    // command came: sudo delivers it as root on both platforms and relays it
+    // to the command. sudo failing leaves the orphan - and a node with broken
+    // sudo cannot run FluxOS at all.
+    const killChild = () => {
+      if (runAsRoot) {
+        spawn('sudo', ['kill', '-TERM', String(child.pid)]);
+      } else {
+        child.kill();
+      }
+    };
+
     const bump = () => {
       if (!idleTimeout || idleKilled) return;
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         idleKilled = true;
-        // A runAsRoot child IS root, and on a legacy node FluxOS is not - the
-        // kernel refuses the plain signal, and the child runs on as an orphan
-        // behind a verdict that says it was stopped. The kill goes the way
-        // the command came: sudo delivers it as root on both platforms and
-        // relays it to the command. sudo failing leaves the orphan - and a
-        // node with broken sudo cannot run FluxOS at all.
-        if (runAsRoot) {
-          spawn('sudo', ['kill', '-TERM', String(child.pid)]);
-        } else {
-          child.kill();
-        }
+        killChild();
       }, idleTimeout);
     };
 
@@ -605,16 +602,26 @@ async function runStreamingCommand(userCmd, options = {}) {
 
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
+      if (settled) return;
       bump();
       if (!onLine) return;
       remainder += chunk;
       const lines = remainder.split('\n');
       remainder = lines.pop();
-      lines.forEach((line) => { if (line) onLine(line); });
+      try {
+        lines.forEach((line) => { if (line) onLine(line); });
+      } catch (err) {
+        // A consumer that cannot take the output ends the run: swallowed, the
+        // caller would read success off output nothing consumed; unhandled,
+        // the promise never settles and the operation hangs on it.
+        killChild();
+        finish(err);
+      }
     });
 
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk) => {
+      if (settled) return;
       bump();
       if (res.stderr.length < STDERR_CAP) res.stderr += chunk;
     });
@@ -622,7 +629,14 @@ async function runStreamingCommand(userCmd, options = {}) {
     child.on('error', (err) => finish(err));
 
     child.on('close', (code) => {
-      if (remainder && onLine && !idleKilled) onLine(remainder);
+      if (remainder && onLine && !idleKilled && !settled) {
+        try {
+          onLine(remainder);
+        } catch (err) {
+          finish(err);
+          return;
+        }
+      }
       finish(code === 0 ? null : new Error(`command exited with code ${code}`));
     });
 
@@ -630,6 +644,13 @@ async function runStreamingCommand(userCmd, options = {}) {
   });
 }
 
+/**
+ * Runs a command as a child process, without a shell by default.
+ * Using a shell is possible with the `shell` option.
+ * @param {string} cmd The binary to run. Must be in PATH
+ * @param {{params?: string[], runAsRoot?: Boolean, exclusive?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
+   @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
+ */
 async function runCommand(userCmd, options = {}) {
   const res = { error: null, stdout: '', stderr: '' };
   const {

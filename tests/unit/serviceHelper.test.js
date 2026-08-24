@@ -643,6 +643,27 @@ describe('serviceHelper tests', () => {
       await pending;
     });
 
+    it('a throwing line-consumer fails the run loudly instead of hanging it', async () => {
+      // Unhandled, the throw erupts inside the stream machinery, finish()
+      // never runs, and the operation awaiting this promise waits forever.
+      const child = fakeChild(4245);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+
+      const pending = helper.runStreamingCommand('tar', {
+        runAsRoot: true,
+        params: ['-tzf', '/x'],
+        idleTimeout: 5000,
+        logError: false,
+        onLine: () => { throw new Error('consumer exploded'); },
+      });
+      child.stdout.emit('data', 'entry-one\n');
+
+      const res = await pending;
+      expect(res.error.message).to.include('consumer exploded');
+      sinon.assert.calledWithExactly(spawnStub, 'sudo', ['kill', '-TERM', '4245']);
+    });
+
     it('does not re-arm the timer once it has killed', async () => {
       // An orphan that keeps producing output must not schedule a fresh kill
       // every idle window for as long as it survives.
