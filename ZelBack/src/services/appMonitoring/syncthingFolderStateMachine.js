@@ -338,14 +338,12 @@ async function probeFolderSyncCompletion(folderId) {
       return { status, reason: 'ok' };
     }
 
-    const message = statusResponse?.data?.message || '';
-    const httpStatus = Number((/status code (\d{3})/.exec(message) || [])[1]);
-    if (httpStatus === 404) {
+    if (statusResponse?.data?.httpStatus === 404) {
       log.warn(`No syncthing folder ${folderId}`);
       return { status: null, reason: 'absent' };
     }
 
-    log.warn(`Could not read sync status for folder ${folderId}: ${message}`);
+    log.warn(`Could not read sync status for folder ${folderId}: ${statusResponse?.data?.message || ''}`);
     return { status: null, reason: 'unknown' };
   } catch (error) {
     log.error(`Error checking sync completion for ${folderId}: ${error.message}`);

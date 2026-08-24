@@ -220,6 +220,11 @@ async function performRequest(method = 'get', urlpath = '', data, config) {
     return successResponse;
   } catch (error) {
     const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    // The axios code is a category - ERR_BAD_REQUEST spans every 4xx - so the
+    // HTTP status rides along as itself: a caller telling "no such folder"
+    // (404) from a denial (403) needs the number, and the message's wording
+    // belongs to axios, not to us. Null when no HTTP answer arrived at all.
+    errorResponse.data.httpStatus = error.response?.status ?? null;
     return errorResponse;
   }
 }

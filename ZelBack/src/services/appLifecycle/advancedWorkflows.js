@@ -1942,14 +1942,12 @@ async function setSyncthingFolderPaused(folderId, paused) {
       return 'held';
     }
     // Only a bare 404 proves syncthing replied and holds no such folder, so
-    // nothing is replicating it and the caller may proceed. The axios code
-    // cannot carry that distinction - ERR_BAD_REQUEST spans every 4xx, so a
-    // 403 from a stale api key reads the same as absence - and any other
+    // nothing is replicating it and the caller may proceed. The HTTP status
+    // itself decides - the axios code cannot, ERR_BAD_REQUEST spans every 4xx,
+    // so a 403 from a stale api key would read the same as absence. Any other
     // answer leaves the folder possibly live and unheld, which the caller
     // must refuse on.
-    const message = response.data?.message || '';
-    const httpStatus = Number((/status code (\d{3})/.exec(message) || [])[1]);
-    if (httpStatus === 404) {
+    if (response.data?.httpStatus === 404) {
       log.info(`setSyncthingFolderPaused - ${folderId} is unknown to syncthing; nothing to hold still`);
       return 'absent';
     }
@@ -2867,16 +2865,14 @@ async function appendRestoreTask(req, res) {
         // syncthing does not know answers 404 - nothing is replicating the
         // partial data, so there is nothing to demote.
         const demote = await syncthingServiceModule.adjustConfigFolders('patch', { type: 'receiveonly' }, swapInFlight.folderId);
-        const demoteMessage = demote.status === 'success' ? '' : (demote.data?.message || '');
-        const demoteHttpStatus = Number((/status code (\d{3})/.exec(demoteMessage) || [])[1]);
-        if (demote.status !== 'success' && demoteHttpStatus !== 404) {
+        if (demote.status !== 'success' && demote.data?.httpStatus !== 404) {
           // Still sendreceive over partial data. Paused it transmits nothing;
           // resumed it would hand the deletions and the wreckage to every
           // healthy peer, so the resume below skips it. The monitor resumes a
           // paused folder as drift eventually - this is damage limitation with
           // a loud log, not a seal.
           undemotedFolderId = swapInFlight.folderId;
-          log.error(`appendRestoreTask - SAFETY: ${swapInFlight.folderId} holds partial data and could not be demoted to receiveonly (${demoteMessage || JSON.stringify(demote.data)}); leaving it paused`);
+          log.error(`appendRestoreTask - SAFETY: ${swapInFlight.folderId} holds partial data and could not be demoted to receiveonly (${demote.data?.message || JSON.stringify(demote.data)}); leaving it paused`);
         }
         globalState.receiveOnlySyncthingAppsCache.set(swapInFlight.folderId, {
           restarted: false,

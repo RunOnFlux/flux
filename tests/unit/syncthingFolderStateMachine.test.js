@@ -248,7 +248,7 @@ describe('syncthingFolderStateMachine tests', () => {
     it('calls a 404 absent - syncthing answered, and the folder is not there', async () => {
       syncthingServiceMock.getDbStatus.resolves({
         status: 'error',
-        data: { message: 'Request failed with status code 404', code: 'ERR_BAD_REQUEST' },
+        data: { message: 'Request failed with status code 404', code: 'ERR_BAD_REQUEST', httpStatus: 404 },
       });
 
       const result = await stateMachine.probeFolderSyncCompletion('test-folder');
@@ -270,7 +270,7 @@ describe('syncthingFolderStateMachine tests', () => {
     it('calls a server error unknown - a 500 is not the folder telling us anything', async () => {
       syncthingServiceMock.getDbStatus.resolves({
         status: 'error',
-        data: { message: 'Request failed with status code 500', code: 'ERR_BAD_RESPONSE' },
+        data: { message: 'Request failed with status code 500', code: 'ERR_BAD_RESPONSE', httpStatus: 500 },
       });
 
       const result = await stateMachine.probeFolderSyncCompletion('test-folder');

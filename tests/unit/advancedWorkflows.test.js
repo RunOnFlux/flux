@@ -2879,7 +2879,9 @@ describe('advancedWorkflows tests', () => {
       });
       syncthingService.adjustConfigFolders.resolves({
         status: 'error',
-        data: { message: 'Request failed with status code 403', name: 'AxiosError', code: 'ERR_BAD_REQUEST' },
+        data: {
+          message: 'Request failed with status code 403', name: 'AxiosError', code: 'ERR_BAD_REQUEST', httpStatus: 403,
+        },
       });
       const res = makeRes();
 
@@ -2901,7 +2903,9 @@ describe('advancedWorkflows tests', () => {
       });
       syncthingService.adjustConfigFolders.resolves({
         status: 'error',
-        data: { message: 'Request failed with status code 404', name: 'AxiosError', code: 'ERR_BAD_REQUEST' },
+        data: {
+          message: 'Request failed with status code 404', name: 'AxiosError', code: 'ERR_BAD_REQUEST', httpStatus: 404,
+        },
       });
 
       const result = await advancedWorkflows.appendBackupTask(backupReq(), makeRes());
@@ -3267,7 +3271,9 @@ describe('advancedWorkflows tests', () => {
           .withArgs('patch', { type: 'receiveonly' }, folderId)
           .resolves({
             status: 'error',
-            data: { message: 'Request failed with status code 500', name: 'AxiosError', code: 'ERR_BAD_RESPONSE' },
+            data: {
+              message: 'Request failed with status code 500', name: 'AxiosError', code: 'ERR_BAD_RESPONSE', httpStatus: 500,
+            },
           });
 
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
@@ -3466,7 +3472,7 @@ describe('advancedWorkflows tests', () => {
         // so there is nothing to hold still and nothing to broadcast.
         syncthingService.adjustConfigFolders
           .withArgs('patch', { paused: true }, folderId)
-          .resolves({ status: 'error', data: { code: 'ERR_BAD_REQUEST', message: 'Request failed with status code 404' } });
+          .resolves({ status: 'error', data: { code: 'ERR_BAD_REQUEST', message: 'Request failed with status code 404', httpStatus: 404 } });
 
         await advancedWorkflows.appendRestoreTask(restoreReq(), makeRes());
 
