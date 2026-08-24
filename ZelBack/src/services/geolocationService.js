@@ -503,7 +503,14 @@ async function getNodeGeolocation() {
       ipFirstSeenAt,
       networkEvidence,
     } = dbData);
-    staticIpState = dbData.staticIpState ?? STATIC_IP_STATE.UNKNOWN;
+    // A record from before the state machine carries only the boolean, and the
+    // state must agree with it: a node that restores as not-static fails
+    // checkAppStaticIpRequirements in the redeploy paths, which remove the app
+    // when it throws. STATIC here is a carried prior the first refresh pass
+    // replaces; a stored false restores as UNKNOWN because an old record
+    // cannot tell dynamic from never-checked.
+    staticIpState = dbData.staticIpState
+      ?? (staticIp ? STATIC_IP_STATE.STATIC : STATIC_IP_STATE.UNKNOWN);
     log.info('Geolocation restored from database');
   }
   return storedGeolocation;
