@@ -461,6 +461,70 @@ describe('syncthingMonitor tests', () => {
       sinon.assert.calledWithExactly(syncthingEventsConsumerMock.resolveMountVerify, 'testapp');
     });
 
+    it('demotes an unreadable app\'s sendreceive folder over a bad mount - the check needs no spec', async function () {
+      // The mount verdict derives entirely from the folder id. An app whose
+      // encrypted spec will not decrypt this pass is protected from the sweep,
+      // not from mount safety: left sendreceive over a bad mount, its folder
+      // broadcasts the missing disk state to every healthy peer.
+      mockState.syncthingAppsFirstRun = true;
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'secretapp', version: 8, compose: [] }],
+      });
+      appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ readable: [], unreadable: apps, inPlace: [] }));
+      syncthingServiceMock.getConfigFolders.resolves({
+        status: 'success',
+        data: [{ id: 'fluxcomp_secretapp', path: '/apps/fluxcomp_secretapp', type: 'sendreceive' }],
+      });
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+      syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: false, isMounted: false, reason: 'empty_unmounted_directory' });
+      volumeServiceMock.ensureAppVolumeMounted.resolves({ mounted: false, reason: 'volume_file_missing' });
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      sinon.assert.calledWithExactly(syncthingServiceMock.adjustConfigFolders, 'patch', { type: 'receiveonly' }, 'fluxcomp_secretapp');
+      sinon.assert.calledWith(appReconcilerMock.setControllerDesired, 'fluxcomp_secretapp', 'stopped');
+    });
+
+    it('leaves an unreadable app\'s folder alone when its mount is healthy', async function () {
+      // The sweep protection the unreadable app was given stays exactly as it
+      // was: a healthy folder is neither reconfigured nor removed.
+      mockState.syncthingAppsFirstRun = true;
+      mockInstalledAppsFn.resolves({
+        status: 'success',
+        data: [{ name: 'secretapp', version: 8, compose: [] }],
+      });
+      appQueryServiceMock.decryptEnterpriseApps.callsFake(async (apps) => ({ readable: [], unreadable: apps, inPlace: [] }));
+      syncthingServiceMock.getConfigFolders.resolves({
+        status: 'success',
+        data: [{ id: 'fluxcomp_secretapp', path: '/apps/fluxcomp_secretapp', type: 'sendreceive' }],
+      });
+      syncthingFolderStateMachineMock.verifyFolderMountSafety.resolves({ isSafe: true, isMounted: true });
+      syncthingFolderStateMachineMock.verifySendReceiveFolderSafety.resolves({ isSafe: true, isMounted: true });
+      syncthingServiceMock.getDeviceId.resolves('DEVICE-ID');
+      fluxNetworkHelperMock.getLocalSocketAddress.resolves('10.0.0.1:16127');
+      syncthingServiceMock.adjustConfigFolders.resolves({ status: 'success', data: {} });
+
+      monitorControl = syncthingMonitor.syncthingApps(
+        mockState,
+        mockInstalledAppsFn,
+        mockGetGlobalStateFn,
+      );
+      await clock.tickAsync(100);
+
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'patch', { type: 'receiveonly' }, 'fluxcomp_secretapp');
+      sinon.assert.neverCalledWith(syncthingServiceMock.adjustConfigFolders, 'delete');
+      sinon.assert.neverCalledWith(appReconcilerMock.setControllerDesired, 'fluxcomp_secretapp', 'stopped');
+    });
+
     it('clears the first-run flag even when an app volume can never be mounted', async function () {
       // syncthingAppsFirstRun also gates the g: primary election node-wide, so
       // holding it set is not a local skip - it stops every masterSlave app on

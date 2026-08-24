@@ -110,11 +110,13 @@ function appComponents(installedApp) {
  * from here. Nothing downstream re-derives it.
  * @param {Array} appsInstalled - List of installed apps
  * @param {Set<string>} sendingFolderIds - Folder ids syncthing currently holds sendreceive
+ * @param {Array<{appId: string, appName: string}>} extraFolders - Folder entries
+ *  verified by id alone, for folders whose owning app's spec cannot be read
  * @returns {Promise<{unmountedApps: Array, verifiedSafeIds: string[]}>} Apps with
  *  unmounted folders, and the folder ids that verified safe (so a pending
  *  mount-verify flag on them can be resolved)
  */
-async function checkAppFolderMounts(appsInstalled, sendingFolderIds) {
+async function checkAppFolderMounts(appsInstalled, sendingFolderIds, extraFolders = []) {
   const unmountedApps = [];
   const verifiedSafeIds = [];
 
@@ -136,6 +138,14 @@ async function checkAppFolderMounts(appsInstalled, sendingFolderIds) {
       // eslint-disable-next-line no-await-in-loop
       await verifyOne(appId, installedApp.name);
     }
+  }
+
+  // The verdict derives entirely from the folder id, so a folder whose owning
+  // app cannot be read this pass is verified all the same.
+  // eslint-disable-next-line no-restricted-syntax
+  for (const { appId, appName } of extraFolders) {
+    // eslint-disable-next-line no-await-in-loop
+    await verifyOne(appId, appName);
   }
 
   return { unmountedApps, verifiedSafeIds };
@@ -543,9 +553,10 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       : appsMatchingFolderIds(appsInstalled.data, pendingFolderIds);
     // A flagged folder no installed app carries can never be acted on -
     // resolve it rather than re-match it forever (the uninstall already
-    // removed whatever the flag was protecting). An app whose spec could not be
-    // read carries nothing either, but for a reason that says nothing about the
-    // folder: its flag stays standing until its components can be enumerated.
+    // removed whatever the flag was protecting). An app whose spec could not
+    // be read is not resolved here either: its folders still get their mount
+    // verdicts below, id-derived, and the flag resolves through a completed
+    // outcome like any other.
     if (!state.syncthingAppsFirstRun && pendingFolderIds.length > 0) {
       const matchable = new Set();
       appsToVerify.forEach((installedApp) => {
@@ -554,8 +565,18 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
       pendingFolderIds.filter((id) => !matchable.has(id) && !ownedByUnreadableApp(id))
         .forEach((id) => syncthingEventsConsumer.resolveMountVerify(id));
     }
-    const { unmountedApps, verifiedSafeIds } = appsToVerify.length > 0
-      ? await checkAppFolderMounts(appsToVerify, sendingFolderIds)
+    // An unreadable app's folders are protected from the sweep, not from the
+    // mount check: that verdict derives entirely from the folder id, and a
+    // sendreceive folder over a bad mount broadcasts its disk state whatever
+    // the spec says. The folders come from syncthing's own list - the spec is
+    // exactly what cannot be enumerated. The first pass verifies them all;
+    // after that, the flagged ones, the same trigger the readable apps get.
+    const unreadableFolderEntries = unreadableAppNames.size === 0 ? [] : allFoldersResp.data
+      .filter((folder) => folder.type === 'sendreceive' && ownedByUnreadableApp(folder.id))
+      .filter((folder) => state.syncthingAppsFirstRun || pendingFolderIds.includes(folder.id))
+      .map((folder) => ({ appId: folder.id, appName: folder.id.slice(folder.id.lastIndexOf('_') + 1) }));
+    const { unmountedApps, verifiedSafeIds } = (appsToVerify.length > 0 || unreadableFolderEntries.length > 0)
+      ? await checkAppFolderMounts(appsToVerify, sendingFolderIds, unreadableFolderEntries)
       : { unmountedApps: [], verifiedSafeIds: [] };
     // safe mount = the condition the flag exists for is gone
     verifiedSafeIds.forEach((id) => syncthingEventsConsumer.resolveMountVerify(id));
