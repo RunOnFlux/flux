@@ -134,7 +134,11 @@ export async function buildSeedableLegacyApp({
   version = 3,
   containerData = '/appdata',
   port = 32001,
-  height = 2100010,
+  // Chain-relative, same as buildSeedableApp above and for the same reason its
+  // comment gives: a literal height seeds an app already expired on any suite
+  // whose chain starts later, and assertAliveOnThisChain refuses it.
+  env = null,
+  height = (env?.initialHeight ?? DEFAULT_INITIAL_HEIGHT) + 10,
   instances = 1,
   owner = null,
   expire = 22000,

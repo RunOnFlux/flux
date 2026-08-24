@@ -52,7 +52,7 @@ describe('a restore of a legacy app, which has no compose array', function () {
     client = env.clients[0];
 
     await pushImage(appName, 'v1');
-    const app = await buildSeedableLegacyApp({ name: appName, containerData: '/appdata' });
+    const app = await buildSeedableLegacyApp({ env, name: appName, containerData: '/appdata' });
     expect(app.spec.compose, 'a legacy spec must have no compose array').to.equal(undefined);
     expect(app.spec.version, 'legacy version').to.be.at.most(3);
 
