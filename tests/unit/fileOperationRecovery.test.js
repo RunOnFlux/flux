@@ -188,4 +188,20 @@ describe('fileOperationRecovery tests', () => {
     expect(fluxEventBusStub.publish.calledOnce).to.equal(true);
     expect(fluxEventBusStub.publish.firstCall.args[0]).to.equal('fileops:recovered');
   });
+
+  it('announces the pass even when the container reap throws', async () => {
+    // The reap is the sweep's first step, and it is the one step whose throw
+    // skipped the publish entirely - a waiter then burns its whole timeout
+    // instead of being told. The throw itself still propagates: a startup that
+    // throws is retried, and the retry publishes again, which is safe.
+    executorStub.reapOrphanedContainers.rejects(new Error('docker not answering'));
+
+    let thrown = null;
+    await recovery.recoverInterruptedFileOperations().catch((error) => { thrown = error; });
+
+    expect(thrown, 'the startup retry contract keeps the throw').to.not.equal(null);
+    expect(fluxEventBusStub.publish.calledOnceWithExactly('fileops:recovered', {
+      containers: 0, removed: 0,
+    })).to.equal(true);
+  });
 });
