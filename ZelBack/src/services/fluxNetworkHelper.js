@@ -104,9 +104,12 @@ async function isInterfaceUp(interfaceName) {
 }
 
 /**
- * Gets the IP address assigned to a specific network interface.
+ * Gets the first routable IPv4 address assigned to a network interface. An
+ * interface can carry a private primary and a public secondary; stopping at
+ * the first non-internal address would answer for whichever the kernel lists
+ * first rather than for the interface.
  * @param {string} interfaceName - The name of the network interface
- * @returns {string|null} The IPv4 address or null if not found
+ * @returns {string|null} The routable IPv4 address or null if none is bound
  */
 function getInterfaceIp(interfaceName) {
   const interfaces = os.networkInterfaces();
@@ -114,7 +117,7 @@ function getInterfaceIp(interfaceName) {
   if (!iface) return null;
 
   for (const addr of iface) {
-    if (addr.family === 'IPv4' && !addr.internal) {
+    if (addr.family === 'IPv4' && !addr.internal && !serviceHelper.isNonRoutableAddress(addr.address)) {
       return addr.address;
     }
   }
@@ -181,7 +184,7 @@ async function hasPublicIpOnInterface() {
       const isUp = await isInterfaceUp(route.iface);
       if (isUp) {
         const ip = getInterfaceIp(route.iface);
-        if (ip && !serviceHelper.isNonRoutableAddress(ip)) {
+        if (ip) {
           log.info(`Public IP ${ip} found on default route interface ${route.iface}`);
           return true;
         }
