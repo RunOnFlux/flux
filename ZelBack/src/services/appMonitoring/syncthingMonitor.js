@@ -517,7 +517,11 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn) {
     const sendingFolderIds = new Set(
       allFoldersResp.data.filter((folder) => folder.type === 'sendreceive').map((folder) => folder.id),
     );
-    globalState.promotedFolderIds = sendingFolderIds;
+    // Published as a COPY: the end-of-pass reconciliation mutates the published
+    // set as writes land (its job), while sendingFolderIds stays what this pass
+    // observed at scan time. Aliased, the local name silently changes meaning
+    // mid-pass and external readers (appQueryService) see a half-updated scan.
+    globalState.promotedFolderIds = new Set(sendingFolderIds);
 
     if (allDevicesResp?.status !== 'success' || !Array.isArray(allDevicesResp.data)) {
       if (state.syncthingAppsFirstRun) {
