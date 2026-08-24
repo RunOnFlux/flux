@@ -572,11 +572,21 @@ async function runStreamingCommand(userCmd, options = {}) {
     const STDERR_CAP = 8192;
 
     const bump = () => {
-      if (!idleTimeout) return;
+      if (!idleTimeout || idleKilled) return;
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         idleKilled = true;
-        child.kill();
+        // A runAsRoot child IS root, and on a legacy node FluxOS is not - the
+        // kernel refuses the plain signal, and the child runs on as an orphan
+        // behind a verdict that says it was stopped. The kill goes the way
+        // the command came: sudo delivers it as root on both platforms and
+        // relays it to the command. sudo failing leaves the orphan - and a
+        // node with broken sudo cannot run FluxOS at all.
+        if (runAsRoot) {
+          spawn('sudo', ['kill', '-TERM', String(child.pid)]);
+        } else {
+          child.kill();
+        }
       }, idleTimeout);
     };
 

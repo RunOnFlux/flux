@@ -575,6 +575,94 @@ describe('serviceHelper tests', () => {
     });
   });
 
+  describe('runStreamingCommand idle kill tests', () => {
+    // eslint-disable-next-line global-require
+    const { EventEmitter } = require('node:events');
+    let clock;
+
+    function fakeChild(pid) {
+      const child = new EventEmitter();
+      child.pid = pid;
+      child.stdout = new EventEmitter();
+      child.stdout.setEncoding = sinon.stub();
+      child.stderr = new EventEmitter();
+      child.stderr.setEncoding = sinon.stub();
+      child.kill = sinon.stub().returns(true);
+      return child;
+    }
+
+    function loadWithSpawn(spawnStub) {
+      return proxyquire('../../ZelBack/src/services/serviceHelper', {
+        '../../../config/userconfig': adminConfig,
+        'node:util': utilFake,
+        'node:child_process': { spawn: spawnStub },
+      });
+    }
+
+    beforeEach(() => {
+      clock = sinon.useFakeTimers();
+    });
+
+    afterEach(() => {
+      clock.restore();
+      sinon.restore();
+    });
+
+    it('kills a stalled root command through sudo, the way it was started', async () => {
+      // The child IS root, and on a legacy node FluxOS is not - the kernel
+      // refuses the plain signal, the "was stopped" verdict becomes a lie and
+      // the root tar runs on as an orphan. sudo delivers the signal as root
+      // on both platforms and relays it to the command.
+      const child = fakeChild(4242);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+
+      const pending = helper.runStreamingCommand('tar', { runAsRoot: true, params: ['-tzf', '/x'], idleTimeout: 5000 });
+      clock.tick(5001);
+
+      sinon.assert.calledWithExactly(spawnStub, 'sudo', ['kill', '-TERM', '4242']);
+      sinon.assert.notCalled(child.kill);
+
+      child.emit('close', 143);
+      const res = await pending;
+      expect(res.error.message).to.include('no output');
+    });
+
+    it('kills a stalled unprivileged command directly', async () => {
+      const child = fakeChild(4243);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+
+      const pending = helper.runStreamingCommand('du', { params: ['/x'], idleTimeout: 5000 });
+      clock.tick(5001);
+
+      sinon.assert.calledOnce(child.kill);
+      sinon.assert.calledOnce(spawnStub);
+
+      child.emit('close', 143);
+      await pending;
+    });
+
+    it('does not re-arm the timer once it has killed', async () => {
+      // An orphan that keeps producing output must not schedule a fresh kill
+      // every idle window for as long as it survives.
+      const child = fakeChild(4244);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+
+      const pending = helper.runStreamingCommand('tar', { runAsRoot: true, params: ['-tzf', '/x'], idleTimeout: 5000 });
+      clock.tick(5001);
+      child.stdout.emit('data', 'still going\n');
+      clock.tick(5001);
+
+      sinon.assert.calledWithExactly(spawnStub, 'sudo', ['kill', '-TERM', '4244']);
+      expect(spawnStub.getCalls().filter((c) => c.args[0] === 'sudo' && c.args[1][0] === 'kill').length).to.equal(1);
+
+      child.emit('close', 143);
+      await pending;
+    });
+  });
+
   describe('minVersionSatisfy tests', () => {
     const minimalVersion = '3.4.12';
     const majorMinorOnly = '3.4';
