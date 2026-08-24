@@ -144,10 +144,19 @@ jobs:
       # would only pick it up on its next run's ls-remote delta. This dispatch makes the
       # annotation immediate; the signer resolves the tag against its own view of this repository
       # and annotates the provenance row itself. Nothing here writes to fluxhashes.
+      - name: Mint the dispatch token
+        if: steps.version.outputs.release == 'true' && steps.existing.outputs.done == 'false'
+        id: dispatch-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.FLUXHASHES_APP_ID }}
+          private-key: ${{ secrets.FLUXHASHES_APP_KEY }}
+          owner: RunOnFlux
+          repositories: fluxhashes
       - name: Request the tag annotation
         if: steps.version.outputs.release == 'true' && steps.existing.outputs.done == 'false'
         env:
-          GH_TOKEN: ${{ secrets.FLUXHASHES_DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ steps.dispatch-token.outputs.token }}
         run: |
           gh api -X POST repos/RunOnFlux/fluxhashes/actions/workflows/sign-hashlist.yml/dispatches \
             -f ref=master \
