@@ -640,6 +640,7 @@ describe('serviceHelper tests', () => {
       child.emit('close', 143);
       const res = await pending;
       expect(res.error.message).to.include('no output');
+      expect(res.idleKilled).to.equal(true);
     });
 
     it('a kill that cannot even spawn does not take the run down', async () => {
@@ -692,7 +693,32 @@ describe('serviceHelper tests', () => {
 
       const res = await pending;
       expect(res.error.message).to.include('consumer exploded');
+      expect(res.idleKilled).to.equal(false);
       expect(killCalls().length).to.equal(1);
+    });
+
+    it('a real error arriving after the idle kill is reported, with the kill carried as a flag', async () => {
+      // Two facts, one run: the timer fired AND the consumer blew up on data
+      // that flushed after the kill. One error slot let the bland idle message
+      // overwrite the real cause; the error field now carries the truth and
+      // res.idleKilled carries the kill.
+      const child = fakeChild(4247);
+      const spawnStub = sinon.stub().returns(child);
+      const helper = loadWithSpawn(spawnStub);
+
+      const pending = helper.runStreamingCommand('tar', {
+        runAsRoot: true,
+        params: ['-tzf', '/x'],
+        idleTimeout: 5000,
+        logError: false,
+        onLine: () => { throw new Error('consumer exploded'); },
+      });
+      clock.tick(5001); // idle timer fires, the kill goes out
+      child.stdout.emit('data', 'late-flush\n'); // buffered data lands after the kill
+
+      const res = await pending;
+      expect(res.error.message).to.include('consumer exploded');
+      expect(res.idleKilled).to.equal(true);
     });
 
     it('does not re-arm the timer once it has killed', async () => {

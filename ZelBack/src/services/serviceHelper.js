@@ -532,7 +532,7 @@ async function runStreamingCommand(userCmd, options = {}) {
     runAsRoot = false, params = [], onLine = null, idleTimeout = 0, logError,
   } = options;
 
-  const res = { error: null, stderr: '' };
+  const res = { error: null, stderr: '', idleKilled: false };
 
   if (!userCmd) {
     res.error = new Error('Command must be present');
@@ -589,10 +589,17 @@ async function runStreamingCommand(userCmd, options = {}) {
       if (settled) return;
       settled = true;
       if (idleTimer) clearTimeout(idleTimer);
-      if (idleKilled) {
-        res.error = new Error(`command produced no output for ${idleTimeout}ms and was stopped`);
-      } else if (error) {
+      // Two facts can be true at once - the idle timer fired AND something else
+      // failed - and they must not compete for one slot: a real error (a
+      // consumer throw, a spawn failure) always wins the error field, with the
+      // idle kill carried separately on res.idleKilled. The idle message is the
+      // error only when the kill is the sole cause (close() passes no error for
+      // the exit the kill itself provoked).
+      if (idleKilled) res.idleKilled = true;
+      if (error) {
         res.error = error;
+      } else if (idleKilled) {
+        res.error = new Error(`command produced no output for ${idleTimeout}ms and was stopped`);
       }
       if (res.error && logError !== false) log.error(res.error);
       resolve(res);
@@ -635,7 +642,9 @@ async function runStreamingCommand(userCmd, options = {}) {
           return;
         }
       }
-      finish(code === 0 ? null : new Error(`command exited with code ${code}`));
+      // After an idle kill the non-zero exit is the kill's own consequence, not
+      // a second fact - the idle cause is the truthful report, so no error here.
+      finish(code === 0 || idleKilled ? null : new Error(`command exited with code ${code}`));
     });
 
     bump();
